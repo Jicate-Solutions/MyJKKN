@@ -50,6 +50,29 @@ const EXEMPT_MODULE_SLUGS = new Set([
   'profile'     // Top-bar /profile — short prefix could match unintended URLs
 ]);
 
+// ─── Orphans that are intentional, not drift ─────────────────────────────────
+// EXCLUSION, NOT A REPAIR. These slugs are deliberately present in the CASE and
+// in the badge moduleConfig while absent from MODULES. Both are load-bearing:
+// production already emits these module_name values, so deleting either entry
+// would regress existing bug rows to displaying 'Other'. Each is named
+// individually — never widen this into a blanket allowlist. A slug listed here
+// is still checked in every other direction; it is only excused from the
+// "in CASE/badge but not in MODULES" orphan warning.
+const EXEMPT_ORPHAN_SLUGS = new Set([
+  // Retired from navigation 2026-06-01 (lib/navigation/modules.ts — Projects
+  // supersedes OKR), but app/(routes)/okr/ still ships 20+ live pages that stay
+  // reachable by direct URL, so bugs keep arriving with page_url '/okr/...'.
+  // Absent from MODULES by design: MODULES drives the menu, not classification.
+  'okr',
+  // No top-level app/(routes)/settings/ has ever existed (git records neither an
+  // add nor a delete). The '/settings/' CASE branch instead catches nested
+  // settings pages whose parent module sits BELOW it in the CASE order — e.g.
+  // /solutions/settings/... classifies as 'settings'. Production has emitted
+  // this value since 2026-05-05, so the badge entry must stay until a future
+  // migration retires the branch and reclassifies those rows.
+  'settings'
+]);
+
 // ─── Extract module slugs from MODULES const in lib/navigation/modules.ts ────
 function extractModuleSlugs(src) {
   const slugs = new Set();
@@ -187,10 +210,12 @@ function main() {
   const orphansCase = [];
   for (const slug of [...caseSlugs].sort()) {
     if (slug === 'organization' && moduleSlugs.has('organizations')) continue;
+    if (EXEMPT_ORPHAN_SLUGS.has(slug)) continue;
     if (!moduleSlugs.has(slug)) orphansCase.push(slug);
   }
   const orphansBadge = [];
   for (const slug of [...badgeSlugs].sort()) {
+    if (EXEMPT_ORPHAN_SLUGS.has(slug)) continue;
     if (!moduleSlugs.has(slug)) orphansBadge.push(slug);
   }
 

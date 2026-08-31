@@ -34,7 +34,7 @@ import {
 // NOTE: These values MUST match the enquiry form exactly (basic-details.tsx, accommodation-preferences.tsx)
 // Some fields differ from learner-dropdown-values.ts to match what's actually in the form
 
-export const EXCEL_GENDER = [...GENDER_VALUES]; // MALE, FEMALE, OTHER (3 values)
+export const EXCEL_GENDER = [...GENDER_VALUES]; // Male, Female, Other (3 values)
 
 // Religion: Form only has 4 values (not 7 from constants)
 export const EXCEL_RELIGION = ['HINDU', 'CHRISTIAN', 'MUSLIM', 'OTHERS'];
@@ -340,8 +340,8 @@ export const EXCEL_BOOLEAN = ['Yes', 'No'];
  * @returns Database value or null if not found
  *
  * @example
- * mapLabelToValue('male', 'gender') // returns 'MALE'
- * mapLabelToValue('MALE', 'gender') // returns 'MALE'
+ * mapLabelToValue('male', 'gender') // returns 'Male'
+ * mapLabelToValue('MALE', 'gender') // returns 'Male'
  * mapLabelToValue('yes', 'boolean') // returns true
  */
 export function mapLabelToValue(
@@ -356,7 +356,9 @@ export function mapLabelToValue(
 
   switch (type) {
     case 'gender':
-      return EXCEL_GENDER.includes(normalized as any) ? normalized : null;
+      // EXCEL_GENDER is Title Case while every other list here is UPPERCASE, so match
+      // case-insensitively and return the canonical spelling instead of `normalized`.
+      return EXCEL_GENDER.find((g) => g.toUpperCase() === normalized) ?? null;
 
     case 'religion':
       return EXCEL_RELIGION.includes(normalized as any) ? normalized : null;

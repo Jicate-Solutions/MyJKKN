@@ -4,8 +4,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   HousekeepingBookingService,
+  type BookingBoardParams,
   type MarkableBookingStatus,
 } from '@/lib/services/campus-living/housekeeping-booking-service';
+
+export interface AssignBookingInput {
+  bookingId: string;
+  profileId?: string | null;
+  name?: string | null;
+  clear?: boolean;
+}
 
 // Query key factory — all keys namespaced under 'housekeeping-bookings'.
 export const housekeepingBookingKeys = {
@@ -15,8 +23,17 @@ export const housekeepingBookingKeys = {
   myBookings: (fromDate?: string) =>
     ['housekeeping-bookings', 'my-bookings', fromDate ?? 'all'] as const,
   entitlement: () => ['housekeeping-bookings', 'entitlement'] as const,
-  board: (institutionId: string | undefined, date: string | undefined) =>
-    ['housekeeping-bookings', 'board', institutionId, date] as const,
+  board: (institutionId: string | undefined, params: BookingBoardParams) =>
+    [
+      'housekeeping-bookings',
+      'board',
+      institutionId,
+      params.date ?? null,
+      params.dateFrom ?? null,
+      params.dateTo ?? null,
+    ] as const,
+  assignableStaff: (institutionId: string | undefined) =>
+    ['housekeeping-bookings', 'assignable-staff', institutionId] as const,
 };
 
 // Resident-friendly messages for the RPC envelope error codes
@@ -37,7 +54,10 @@ const BOOKING_ERROR_MESSAGES: Record<string, string> = {
   invalid_status: 'That status change is not allowed',
   not_cancellable: 'This booking can no longer be cancelled',
   not_found: 'This booking no longer exists',
-  not_markable: 'Only booked slots can be marked complete or no-show',
+  not_markable: 'Only booked or assigned slots can be marked complete or no-show',
+  // assign codes (fn_housekeeping_assign_booking)
+  not_assignable: 'Only booked or assigned slots can be assigned',
+  missing_assignee: 'Pick a staff member or type a name',
 };
 
 function bookingErrorMessage(errorCode?: string, fallback = 'Request failed'): string {
@@ -71,14 +91,28 @@ export function useMyEntitlement() {
   });
 }
 
+/**
+ * `institutionId` undefined = all institutions the caller can access — a
+ * legitimate scope, not a missing param, so the query always runs. (It used
+ * to be `enabled: !!institutionId`, which left super admins and users with no
+ * profiles.institution_id staring at an empty board.)
+ */
 export function useBookingBoard(
-  institutionId: string | undefined,
-  date: string | undefined
+  institutionId?: string,
+  params: BookingBoardParams = {}
 ) {
   return useQuery({
-    queryKey: housekeepingBookingKeys.board(institutionId, date),
-    queryFn: () => HousekeepingBookingService.getBookingBoard(institutionId!, date!),
-    enabled: !!institutionId && !!date,
+    queryKey: housekeepingBookingKeys.board(institutionId, params),
+    queryFn: () => HousekeepingBookingService.getBookingBoard(institutionId, params),
+  });
+}
+
+export function useAssignableStaff(institutionId: string | undefined) {
+  return useQuery({
+    queryKey: housekeepingBookingKeys.assignableStaff(institutionId),
+    queryFn: () => HousekeepingBookingService.getAssignableStaff(institutionId!),
+    enabled: !!institutionId,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -131,6 +165,29 @@ export function useCancelBooking() {
   });
 }
 
+export function useAssignBooking() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ bookingId, profileId, name, clear }: AssignBookingInput) =>
+      HousekeepingBookingService.assignBooking(bookingId, { profileId, name, clear }),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
+      if (result.success) {
+        toast.success(variables.clear ? 'Assignment cleared' : 'Booking assigned');
+      } else {
+        const message =
+          result.error_code === 'forbidden'
+            ? 'You do not have permission to assign bookings (housekeeping schedule required)'
+            : bookingErrorMessage(result.error_code, 'Could not assign this booking');
+        toast.error(message);
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to assign booking: ${error.message}`);
+    },
+  });
+}
+
 export function useMarkBooking() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -150,7 +207,14 @@ export function useMarkBooking() {
             : 'Booking marked as no-show'
         );
       } else {
-        toast.error(bookingErrorMessage(result.error_code, 'Could not update this booking'));
+        // 'forbidden' from fn_housekeeping_mark_booking means the STAFF caller
+        // lacks campus_living.housekeeping.mark_done — the shared map's
+        // resident-facing "own bookings" wording is wrong in this context.
+        const message =
+          result.error_code === 'forbidden'
+            ? 'You do not have permission to update bookings — ask your admin for the housekeeping mark-done permission'
+            : bookingErrorMessage(result.error_code, 'Could not update this booking');
+        toast.error(message);
       }
     },
     onError: (error: Error) => {

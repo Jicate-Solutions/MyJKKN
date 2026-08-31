@@ -12,6 +12,10 @@
 //    printed under no headings on page 2 are worse than no report. Learner
 //    boundaries are full-width colSpan rows carrying that learner's subtotal,
 //    which also saves a row per learner over a separate subtotal line.
+//  - ONE BOX PER LEARNER holding every bill they have. Grouping is keyed by
+//    learner_id and the groups are sorted here, never inherited from the row
+//    order — see groupByLearner. Relying on the RPC's order split learners who
+//    tie on roll number into one box per billing category.
 //
 // WHY THE STATS ARE COMPUTED FROM THE RETURNED ROWS, NOT A SECOND QUERY
 //    The RPC caps at 1,000 learners. A server-side aggregate would describe the
@@ -115,19 +119,71 @@ interface CategoryStat {
   pending: number;
 }
 
-/** The RPC returns rows already ordered by institution → roll → due date, so a
- *  single pass preserves that order without re-sorting. */
+const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+
+/** Sorts NULL last, matching the RPC's `NULLS LAST` so the two agree. */
+function cmpNullsLast(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return collator.compare(a, b);
+}
+
+/**
+ * Keyed by learner_id — NOT "did the id differ from the previous row".
+ *
+ * The RPC orders by institution → roll number → due date → bill description
+ * with NO learner key in the sort. Learner identity is only IMPLIED by the roll
+ * number, so the moment two learners tie on it their bills interleave and the
+ * trailing `bill_description` key clusters the whole institution by bill name.
+ * A previous-row comparison then opened a fresh box per run of rows, printing
+ * the same learner once per billing category — the exact opposite of the
+ * one-box-per-learner this document exists to give. Both tie sources are live:
+ * 1,120 learners carry a NULL roll number, and 457 more share one inside their
+ * institution.
+ *
+ * Order is imposed here rather than inherited, so the document reads the same
+ * whatever order the rows arrive in. Institution leads because the detail table
+ * bands each institution once and that banding assumes its learners are
+ * consecutive.
+ */
 function groupByLearner(rows: CoverageLearnerBillRow[]): LearnerGroup[] {
-  const groups: LearnerGroup[] = [];
-  let current: LearnerGroup | null = null;
+  const byLearner = new Map<string, LearnerGroup>();
+
   for (const r of rows) {
-    if (!current || current.learner.learner_id !== r.learner_id) {
-      current = { learner: r, bills: [] };
-      groups.push(current);
+    let g = byLearner.get(r.learner_id);
+    if (!g) {
+      g = { learner: r, bills: [] };
+      byLearner.set(r.learner_id, g);
     }
     // bill_id is null for a learner with no bills — the LEFT JOIN placeholder.
-    if (r.bill_id) current.bills.push(r);
+    if (r.bill_id) g.bills.push(r);
   }
+
+  const groups = Array.from(byLearner.values());
+
+  groups.sort((x, y) => {
+    const a = x.learner;
+    const b = y.learner;
+    return (
+      cmpNullsLast(a.institution_name, b.institution_name) ||
+      cmpNullsLast(a.roll_number, b.roll_number) ||
+      collator.compare(a.full_name || '', b.full_name || '') ||
+      // Two namesakes with no roll number still have to land in a fixed order,
+      // or the same filter exports in a different order each run.
+      a.learner_id.localeCompare(b.learner_id)
+    );
+  });
+
+  for (const g of groups) {
+    g.bills.sort(
+      (a, b) =>
+        // ISO dates sort lexically; the sentinel keeps undated bills last.
+        (a.due_date ?? '9999-12-31').localeCompare(b.due_date ?? '9999-12-31') ||
+        collator.compare(billLabel(a), billLabel(b))
+    );
+  }
+
   return groups;
 }
 
@@ -490,12 +546,19 @@ export function generateCoverageBillsPdf(opts: CoverageBillsPdfOptions): jsPDF {
       { total: 0, paid: 0, pending: 0 }
     );
 
+    // Bill count on the band, so a reader can tell at a glance that the box
+    // holds EVERY bill this learner has rather than a fragment of them — the
+    // failure this document had when a learner could appear in several boxes.
+    const bandLabel = g.bills.length
+      ? `${identity}   —   ${g.bills.length} bill${g.bills.length === 1 ? '' : 's'}`
+      : identity;
+
     // Identity band carries the subtotal in the amount columns, so it doubles
     // as the subtotal row — one row per learner instead of two, which matters
     // across a thousand of them.
     body.push([
       {
-        content: identity,
+        content: bandLabel,
         colSpan: 5,
         styles: { fillColor: BAND, textColor: INK, fontStyle: 'bold' as const },
       },
@@ -532,9 +595,11 @@ export function generateCoverageBillsPdf(opts: CoverageBillsPdfOptions): jsPDF {
         },
       ]);
     } else {
-      for (const b of g.bills) {
+      // Numbered within the learner, so the box reads as one itemised list and
+      // a missing line is obvious.
+      for (const [i, b] of g.bills.entries()) {
         body.push([
-          billLabel(b),
+          `${i + 1}.  ${billLabel(b)}`,
           b.category_name ?? '—',
           b.bill_academic_year ?? '—',
           shortDate(b.due_date),

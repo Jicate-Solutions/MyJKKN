@@ -106,6 +106,10 @@ export default async function MeetPersonPage({ params }: MeetPageProps) {
         avatarUrl={host.avatarUrl}
         meetingTypes={host.meetingTypes}
         viewer={viewer}
+        // The host's own routing form, when they have an active one — the only
+        // place anything links to it. null for every host without one, and the
+        // page then renders exactly as it did before.
+        routingForm={host.routingForm}
       />
     </>
   );
