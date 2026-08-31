@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/sheet';
 import { StatusBadge } from './request-table';
 import { LeaveDocumentList } from './leave-document-list';
-import { formatDays, formatHours } from './format';
+import { formatBiometricGap, formatDays, formatHours } from './format';
 import { hoursFor } from './approval-queue-columns';
 import type { ApprovalRowActionHandlers } from './approval-row-actions';
 import { useApplication, useApplicationComments, useAddComment } from '@/hooks/hr/use-leave';
@@ -268,10 +268,23 @@ export function ApprovalDetailSheet({
                 </p>
               ) : row.can_decide ? (
                 <>
+                  {/* The reason sits in the footer beside the button it
+                      disables, not up in the body: an approver who has scrolled
+                      to the decision should not have to scroll back to find out
+                      why Approve is greyed. Reject stays live — refusing writes
+                      no attendance stamp, so the database does not refuse it. */}
+                  {row.biometric_gap_from !== null && (
+                    <p className="mr-auto max-w-[22rem] self-center text-xs leading-snug text-amber-700 dark:text-amber-400">
+                      Biometric attendance is not uploaded for{' '}
+                      <strong>{formatBiometricGap(row.biometric_gap_from)}</strong>.
+                      Approving now would not reach the attendance report — import
+                      the month first.
+                    </p>
+                  )}
                   <Button
                     variant="outline"
                     className="flex-1 border-emerald-600/40 text-emerald-700 hover:bg-emerald-600/10 hover:text-emerald-700 sm:flex-none"
-                    disabled={handlers.isPending}
+                    disabled={handlers.isPending || row.biometric_gap_from !== null}
                     onClick={() => { handlers.onApprove(row); onOpenChange(false); }}
                   >
                     <Check className="mr-1 h-4 w-4" />

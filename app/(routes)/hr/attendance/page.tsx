@@ -149,6 +149,15 @@ export default function MyAttendancePage() {
             title="No staff record linked"
             description="My Attendance reads the record attached to your staff profile. Contact HR if you believe this is an error."
           />
+        ) : employee.hr_included === false ? (
+          // A DIFFERENT state from "no staff record": the person exists, their
+          // employment category simply takes no part in HR. Saying "no record"
+          // here would send them chasing a data fix that is actually a policy.
+          <EmptyState
+            icon={<UserX className="h-10 w-10 text-muted-foreground" />}
+            title="Not managed in HR"
+            description="Your employment category is not included in the HR module, so no attendance is recorded for you here. Contact HR if you believe this is an error."
+          />
         ) : (
           <>
             {canViewAll && (

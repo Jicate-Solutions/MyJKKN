@@ -4515,6 +4515,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/payroll/register",
+            "label": "Register",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/salaries",
             "label": "Salaries",
             "iconName": "FileText",

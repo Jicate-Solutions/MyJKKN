@@ -165,6 +165,12 @@ export async function getCurrentEmployee(): Promise<{
   hr_organization_id: string | null;
   /** The staff row's institution — what attendance month-close is keyed on. */
   institution_id: string | null;
+  /**
+   * False when this person's employment category has included_in_hr = false.
+   * They still have a staff record — they simply take no part in HR, so every
+   * HR surface should say so rather than pretending they have no staff row.
+   */
+  hr_included: boolean;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
@@ -189,6 +195,7 @@ export async function getCurrentEmployee(): Promise<{
     user_id: data.profile_id,
     hr_organization_id: data.hr_organization_id,
     institution_id: data.institution_id ?? null,
+    hr_included: data.hr_included !== false,
     first_name: data.first_name,
     last_name: data.last_name,
     email: data.email,

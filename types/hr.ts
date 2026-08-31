@@ -125,6 +125,19 @@ export interface HRPersonView {
   cadre_name: string | null;
   department_id: string | null;
   department_name: string | null;
+  /**
+   * Role Management role name(s), comma-separated — the roles that decide what
+   * this person may do. NOT designation, which is the job title above.
+   */
+  role_names: string | null;
+  /** staff.biometric_id — the enrolment code punched on the machine. */
+  biometric_code: string | null;
+  /**
+   * The institution whose biometric device this person is enrolled on. NOT
+   * necessarily their own institution, which is why it is resolved separately
+   * from institution_name.
+   */
+  biometric_machine_name: string | null;
   institution_name: string | null;
   date_of_joining: string | null;
   is_active: boolean;
@@ -168,6 +181,8 @@ export interface HRPersonDetailView {
   email: string | null;
   phone: string | null;
   staff_code: string | null;
+  /** The hand-entered code held before the 2026-08-28 standardisation, if any. */
+  legacy_staff_code: string | null;
   institution_name: string | null;
   department_name: string | null;
   date_of_joining: string | null;
@@ -177,6 +192,34 @@ export interface HRPersonDetailView {
   designation_name: string | null;
   cadre_name: string | null;
   reports_to_name: string | null;
+
+  // ---- the rest of the staff record (2026-08-28) --------------------------
+  // The detail page showed twelve fields and the staff table holds far more;
+  // everything below was already stored and simply never surfaced.
+  /** Personal address, as distinct from institution_email above. */
+  personal_email: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  marital_status: string | null;
+  blood_group: string | null;
+  address: string | null;
+  district: string | null;
+  state: string | null;
+  pincode: string | null;
+  /** staff.designation — free text, distinct from the HR designation record. */
+  staff_designation: string | null;
+  employment_category: string | null;
+  employment_type: string | null;
+  /** Lifecycle state of the staff record itself ('draft', 'published', …). */
+  record_status: string | null;
+  experience_years: number | null;
+  login_enabled: boolean | null;
+  bus_required: boolean | null;
+  profile_picture: string | null;
+  /** Role Management role name(s), comma-separated. */
+  role_names: string | null;
+  biometric_code: string | null;
+  biometric_machine_name: string | null;
 }
 
 // === Display labels ===
@@ -637,4 +680,15 @@ export interface HRLeaveApprovalQueueRow {
   can_decide: boolean;
   /** Current step routes to this caller. A filter, not a permission. */
   waiting_on_me: boolean;
+  /**
+   * First covered day whose biometric file is not uploaded, or null when the
+   * request can be approved. Computed by fn_hr_leave_biometric_gap — the SAME
+   * body trg_hla_block_approval_without_biometric raises on, so this can never
+   * promise a decision the database refuses.
+   *
+   * Null for Short Time Off (exempt: the import consumes approved permissions
+   * and recomputeForShortTimeOff covers the other direction), for future-dated
+   * requests, for institutions that run no biometric, and on decided rows.
+   */
+  biometric_gap_from: string | null;
 }

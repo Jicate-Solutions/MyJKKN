@@ -676,6 +676,25 @@ export class LearnerProfileService {
     // carries institution_id/program_id for the scoped resolvers.
     await this.normalizeRetiredColumns(supabase, enforcedDto as Record<string, any>);
 
+    // Validate college_email uniqueness before insert, the same way
+    // updateLearnerProfile does. Without it the learners_profiles_college_email_unique
+    // index rejects the INSERT and the caller gets a raw postgrest object whose
+    // message is "duplicate key value violates unique constraint ..." — which
+    // names no learner and tells the admission officer nothing actionable.
+    if (enforcedDto.college_email) {
+      const { data: existingLearner } = await supabase
+        .from('learners_profiles')
+        .select('id, first_name, last_name')
+        .eq('college_email', enforcedDto.college_email)
+        .maybeSingle() as { data: any; error: any };
+
+      if (existingLearner) {
+        throw new Error(
+          `Email "${enforcedDto.college_email}" is already assigned to another learner: ${existingLearner.first_name} ${existingLearner.last_name || ''}`.trim()
+        );
+      }
+    }
+
     const insertQuery: any = supabase.from('learners_profiles');
     const { data, error } = await insertQuery
       .insert({
