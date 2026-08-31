@@ -33,17 +33,6 @@ interface StaffWithProfileId {
   profile_id: string;
 }
 
-// Function to generate temporary password
-function generateTemporaryPassword(): string {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let password = 'Staff_';
-  for (let i = 0; i < 8; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return password + '!';
-}
-
 /**
  * Sync the user's primary user_roles assignment to match targetRoleKey.
  * - Demotes the existing primary (if different).

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
-import { requireStaff } from '@/lib/utils/parent-admin-auth';
+import { requireProcurement, PROC_QUOTATION_MANAGE } from '@/lib/utils/procurement-auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -13,11 +13,27 @@ const BUCKET = 'procurement-quotation-pdfs';
 const JOB_TYPE = 'procurement.quotation_extract';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Shown whenever the Max lane cannot take the job. Mirrors the wording this
- *  route already used when extraction failed, so there is nothing new to learn:
- *  the quotation is still completable by hand. */
-const MANUAL_FALLBACK =
-  'AI reading is unavailable right now — please enter the prices manually.';
+/**
+ * Every failure here ends the same way for the user — type the prices — but they
+ * do NOT mean the same thing, and one shared string made the button unreadable:
+ * "unavailable right now" reads as a passing glitch, so people retried a feature
+ * that was never going to answer. Each cause now says which state it is in, so
+ * the difference between "wait and retry", "ask an admin" and "this isn't built
+ * here" is visible from the toast alone.
+ */
+
+/** The document store this route uploads to is absent — the feature's migration
+ *  has not been applied on this environment. Retrying will never help. */
+const NOT_SET_UP =
+  'AI PDF reading is not set up on this environment — please enter the prices manually.';
+
+/** fn_ai_enqueue reports the job type is unknown or disabled: shipped dark. */
+const SWITCHED_OFF =
+  'AI PDF reading is switched off — please enter the prices manually.';
+
+/** The queue refused the job for some other reason; retrying may work. */
+const COULD_NOT_START =
+  'AI PDF reading could not be started just now — please enter the prices manually.';
 
 export type ExtractItem = { id: string; item_name: string };
 
@@ -38,7 +54,7 @@ export type ExtractItem = { id: string; item_name: string };
  * travels inside the job payload; only its storage path does.
  */
 export async function POST(req: NextRequest) {
-  const user = await requireStaff();
+  const user = await requireProcurement(PROC_QUOTATION_MANAGE);
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const form = await req.formData().catch(() => null);
@@ -105,8 +121,11 @@ export async function POST(req: NextRequest) {
     .from(BUCKET)
     .upload(storagePath, bytes, { contentType: 'application/pdf', upsert: true });
   if (uploadError) {
+    // Almost always "Bucket not found": 20260805090000_procurement_pdf_max_lane.sql
+    // creates procurement-quotation-pdfs and has not been applied here. The user
+    // is told it is not set up rather than that something went briefly wrong.
     console.error('[procurement quotation extract-pdf] upload failed:', uploadError);
-    return NextResponse.json({ error: MANUAL_FALLBACK, unavailable: true });
+    return NextResponse.json({ error: NOT_SET_UP, unavailable: true });
   }
 
   // ── Enqueue on the ₹0 Max lane ─────────────────────────────────────────────
@@ -117,15 +136,16 @@ export async function POST(req: NextRequest) {
 
   if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
     const errText = typeof enq?.error === 'string' ? enq.error : '';
-    // 'unknown or disabled job_type' = shipped dark / switched off.
-    // 'daily limit reached' / 'too many in-flight jobs' = try again shortly.
-    // Every one of these degrades to the same honest outcome: type the prices.
+    // Each of these degrades to "type the prices", but they are different states
+    // and the toast now names the one the user is actually in.
     const message =
       errText === 'daily limit reached'
         ? "You have reached today's limit for AI PDF reading — please enter the prices manually."
         : errText === 'not allowed for this job_type'
           ? 'You do not have permission to use AI PDF reading.'
-          : MANUAL_FALLBACK;
+          : errText === 'unknown or disabled job_type'
+            ? SWITCHED_OFF
+            : COULD_NOT_START;
     if (enqError) console.error('[procurement quotation extract-pdf] enqueue failed:', enqError);
     return NextResponse.json({ error: message, unavailable: true });
   }

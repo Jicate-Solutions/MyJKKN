@@ -109,6 +109,16 @@ const config: ModuleNavConfig = {
           href: '/learners-council/communication/chat',
         },
         {
+          label: 'My Broadcasts',
+          icon: 'Send',
+          href: '/learners-council/communication/broadcasts',
+        },
+        {
+          label: 'Broadcast Approvals',
+          icon: 'ShieldCheck',
+          href: '/learners-council/communication/broadcasts/approvals',
+        },
+        {
           label: 'Events',
           icon: 'CalendarCheck',
           href: '/learners-council/events',

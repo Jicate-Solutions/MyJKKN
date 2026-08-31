@@ -84,6 +84,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/allocations/batches'],
         },
         {
+          label: 'Allocation Audit',
+          icon: 'ShieldQuestion',
+          href: '/campus-living/allocations/audit',
+          matchPaths: ['/campus-living/allocations/audit'],
+        },
+        {
           label: 'Pending Approvals',
           icon: 'ClipboardList',
           href: '/campus-living/allocations/pending',
@@ -166,6 +172,12 @@ const config: ModuleNavConfig = {
           icon: 'LogIn',
           href: '/campus-living/gate-passes',
           matchPaths: ['/campus-living/gate-passes'],
+        },
+        {
+          label: 'Gate Scan',
+          icon: 'ScanLine',
+          href: '/campus-living/gate-passes/scan',
+          matchPaths: ['/campus-living/gate-passes/scan'],
         },
         {
           label: 'Visitors',

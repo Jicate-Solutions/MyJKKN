@@ -96,6 +96,23 @@ export interface GrnLineInput {
   missing_quantity?: number | null;
 }
 
+/**
+ * What the receiver declares they EXPECT on this invoice, captured before the check runs.
+ * These shape the match verdict rather than being stored as columns of their own — the
+ * applied variance lands in each line's `mismatch_remarks` and a summary is prepended to
+ * the GRN `notes`, so a verifier reading the record later sees the bar that was used.
+ */
+export interface GrnExpectations {
+  /** Qty/price variance (percent) treated as expected rather than a mismatch. */
+  tolerance_pct?: number | null;
+  /** Demand batch + expiry on every accepted line, not only chemicals. */
+  require_batch_expiry?: boolean;
+  /** Warn when the supplier invoice is older than this many days. */
+  max_invoice_age_days?: number | null;
+  /** Free-text reviewer intent — passed to the AI reader and kept on the record. */
+  watch_for?: string | null;
+}
+
 export interface CreateGrnInput {
   purchase_order_id: string;
   invoice_number?: string | null;
@@ -103,6 +120,7 @@ export interface CreateGrnInput {
   invoice_amount?: number | null;
   invoice_document_url?: string | null;
   notes?: string | null;
+  expectations?: GrnExpectations | null;
   lines: GrnLineInput[];
 }
 

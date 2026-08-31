@@ -1,17 +1,22 @@
 /**
  * Server-side stats fetcher for the Learner Onboarding KPI cards.
  *
- * Returns 4 tier counts + an overall completion-rate percentage.
+ * Returns the five tier counts, the reserved/admitted split, and an overall
+ * completion-rate percentage across the pre-active cohort.
  *
- * Implementation: 5 parallel `count: 'exact', head: true` queries. Each is a
- * single index scan over `learners_profiles`, no row data transferred.
- * Total wall-clock = max(queries), not sum, because of Promise.all.
+ * Implementation: ONE query over the five columns tiering depends on, with the
+ * buckets computed in JS by the same `resolveOnboardingTier` the listing uses.
+ * Sharing that function is the point — it is what guarantees the KPI cards and
+ * the tier tabs can never disagree.
  */
 
 import { createClient } from '@/lib/supabase/server';
-import type { OnboardingStats } from '@/types/learner-onboarding';
+import type { OnboardingStats, OnboardingStatus } from '@/types/learner-onboarding';
+import { ONBOARDING_STATUSES, resolveOnboardingTier } from '@/types/learner-onboarding';
+import { resolveAdmissionYearIds } from './resolve-admission-year-ids';
 
 interface GetOnboardingStatsParams {
+  lifecycle_status?: OnboardingStatus;
   institution_id?: string;
   degree_id?: string;
   department_id?: string;
@@ -19,6 +24,9 @@ interface GetOnboardingStatsParams {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  accommodation_type_id?: string;
+  /** Admission cohort as the integer year — expanded to ids before querying. */
+  admission_year?: number;
 }
 
 const EMPTY_STATS: OnboardingStats = {
@@ -26,7 +34,11 @@ const EMPTY_STATS: OnboardingStats = {
   critical: 0,
   needs_work: 0,
   almost: 0,
-  completion_rate: 0
+  ready_to_activate: 0,
+  awaiting_payment: 0,
+  completion_rate: 0,
+  reserved_total: 0,
+  admitted_total: 0
 };
 
 /**
@@ -40,6 +52,8 @@ function applyFilters(query: any, params: GetOnboardingStatsParams) {
   if (params.semester_id) query = query.eq('semester_id', params.semester_id);
   if (params.section_id) query = query.eq('section_id', params.section_id);
   if (params.academic_year_id) query = query.eq('academic_year_id', params.academic_year_id);
+  if (params.accommodation_type_id)
+    query = query.eq('accommodation_type_id', params.accommodation_type_id);
   return query;
 }
 
@@ -49,86 +63,86 @@ export async function getOnboardingStats(
   try {
     const supabase = await createClient();
 
-    // Build 6 count queries — total, complete, and per-tier counts approximated
-    // by counting incomplete profiles with N nullable academic fields missing.
+    // ONE query, five narrow columns, tiers computed in JS.
     //
-    // Counting tier-by-tier in pure PostgREST would require 15 OR-combos. For
-    // a clean implementation we use one "incomplete with X field missing"
-    // count and back-compute tier sizes from those. Trade-off: the 4 missing
-    // field counts overlap (a profile with 3 missing fields contributes to 3
-    // separate "field-missing" counts), so we use a different strategy.
+    // This replaced three round trips (rows + two `count: 'exact', head: true`
+    // queries). The counts had to go regardless: they were derived from
+    // `is_profile_complete`, and the listing fetcher no longer trusts that flag,
+    // so the cards and the tabs would have disagreed with each other whenever it
+    // drifted. Deriving every number from the same four columns the listing uses
+    // is what keeps the card totals equal to the tab totals.
     //
-    // STRATEGY: Fetch only the 4 nullable columns for all incomplete rows
-    // (small payload), then compute tiers in JS. Same approach as the listing
-    // fetcher; trades 1 round trip for accurate tier math without a generated
-    // column or SQL function.
-
-    // 2026-05-20: Stats scoped to lifecycle_status='admitted' so the KPI cards
-    // and tier counts reflect the onboarding queue (post-threshold learners),
-    // not every legacy incomplete profile across the system.
+    // Payload is ~994 rows of five small columns; the safety cap is far above
+    // the real cohort.
     let dataQuery = supabase
       .from('learners_profiles')
-      .select('college_email, academic_year_id, semester_id, section_id')
-      .eq('lifecycle_status', 'admitted')
-      .or('is_profile_complete.eq.false,is_profile_complete.is.null')
-      .limit(10000); // safety cap — institutions should rarely exceed this
+      .select('lifecycle_status, college_email, academic_year_id, semester_id, section_id')
+      .in(
+        'lifecycle_status',
+        params.lifecycle_status ? [params.lifecycle_status] : [...ONBOARDING_STATUSES]
+      )
+      .limit(10000);
 
     dataQuery = applyFilters(dataQuery, params);
 
-    let totalQuery = supabase
-      .from('learners_profiles')
-      .select('*', { count: 'exact', head: true })
-      .eq('lifecycle_status', 'admitted');
-    totalQuery = applyFilters(totalQuery, params);
+    // Cohort filter — one uuid per institution, so the year expands to an id
+    // set. Cards must narrow with the same filters as the table below them, or
+    // the totals contradict the rows they are supposed to summarise.
+    if (params.admission_year) {
+      const admissionYearIds = await resolveAdmissionYearIds(supabase, params.admission_year);
+      if (admissionYearIds.length === 0) return EMPTY_STATS;
+      dataQuery = dataQuery.in('admission_year_id', admissionYearIds);
+    }
 
-    let completeQuery = supabase
-      .from('learners_profiles')
-      .select('*', { count: 'exact', head: true })
-      .eq('lifecycle_status', 'admitted')
-      .eq('is_profile_complete', true);
-    completeQuery = applyFilters(completeQuery, params);
+    const { data: rows, error } = await dataQuery;
 
-    const [
-      { data: incompleteRows, error: incErr },
-      { count: totalCount, error: totErr },
-      { count: completeCount, error: compErr }
-    ] = await Promise.all([dataQuery, totalQuery, completeQuery]);
-
-    if (incErr || totErr || compErr) {
-      console.error('[getOnboardingStats] Query error:', incErr || totErr || compErr);
+    if (error) {
+      console.error('[getOnboardingStats] Query error:', error);
       return EMPTY_STATS;
     }
 
     let critical = 0;
     let needs_work = 0;
     let almost = 0;
+    let ready_to_activate = 0;
+    let awaiting_payment = 0;
+    let reserved_total = 0;
+    let admitted_total = 0;
 
-    for (const row of incompleteRows || []) {
+    for (const row of rows || []) {
+      if (row.lifecycle_status === 'reserved') reserved_total++;
+      else if (row.lifecycle_status === 'admitted') admitted_total++;
+
       let missing = 0;
       if (!row.college_email) missing++;
       if (!row.academic_year_id) missing++;
       if (!row.semester_id) missing++;
       if (!row.section_id) missing++;
 
-      if (missing === 0) continue; // stale flag, not actually incomplete
-      const filled = 4 - missing;
-      if (filled <= 1) critical++;
-      else if (filled === 2) needs_work++;
-      else almost++;
+      switch (resolveOnboardingTier(4 - missing, row.lifecycle_status)) {
+        case 'critical': critical++; break;
+        case 'needs_work': needs_work++; break;
+        case 'almost': almost++; break;
+        case 'ready_to_activate': ready_to_activate++; break;
+        case 'awaiting_payment': awaiting_payment++; break;
+      }
     }
 
     const total_incomplete = critical + needs_work + almost;
+    const cohort = total_incomplete + ready_to_activate + awaiting_payment;
     const completion_rate =
-      totalCount && totalCount > 0
-        ? Math.round(((completeCount || 0) / totalCount) * 100)
-        : 0;
+      cohort > 0 ? Math.round(((ready_to_activate + awaiting_payment) / cohort) * 100) : 0;
 
     return {
       total_incomplete,
       critical,
       needs_work,
       almost,
-      completion_rate
+      ready_to_activate,
+      awaiting_payment,
+      completion_rate,
+      reserved_total,
+      admitted_total
     };
   } catch (error) {
     console.error('[getOnboardingStats] Unexpected error:', error);

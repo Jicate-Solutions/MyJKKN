@@ -25,6 +25,11 @@ export interface EmploymentCategory {
   // When false, new staff in this category default to login_enabled=false
   // (view-only). Per-row override on staff still wins.
   allows_login: boolean;
+  // When false, staff in this category take no part in the HR module — they are
+  // absent from every HR list, skipped by the biometric import, and refused
+  // leave / comp-off at the database. No per-staff override: the category
+  // decides. Existing records are kept, so re-enabling restores them.
+  included_in_hr: boolean;
   created_at: string;
   updated_at: string;
   created_by?: string | null;
@@ -38,6 +43,7 @@ export interface CreateEmploymentCategoryDto {
   shows_extended_profile?: boolean;
   is_active?: boolean;
   allows_login?: boolean;
+  included_in_hr?: boolean;
 }
 
 export interface UpdateEmploymentCategoryDto
@@ -86,7 +92,10 @@ export interface Staff {
   blood_group?: BloodGroup;
   email: string;
   phone: string;
+  /** System-generated and permanent since 2026-08-28. Never sent on create or update. */
   staff_id?: string;
+  /** The hand-entered code held before the 2026-08-28 standardisation. Read-only. */
+  legacy_staff_id?: string | null;
   profile_picture?: string;
   address?: string;
   state?: string;
@@ -259,10 +268,16 @@ export const RESERVED_STAFF_ROLE_KEYS = new Set([
 export interface UpdateStaffDto extends Partial<CreateStaffDto> {}
 
 export interface StaffFilters {
+  /**
+   * Free text, matched against every searchable column (name, staff ID, legacy
+   * staff ID, both emails, designation, phone). Whitespace-separated words are
+   * ANDed, so each word may land on a different column.
+   *
+   * The former search_fields / search_case_sensitive / search_exact_match
+   * modifiers were removed on 2026-08-28: their defaults excluded staff ID and
+   * designation, which made the most common searches return nothing.
+   */
   search?: string;
-  search_case_sensitive?: boolean;
-  search_exact_match?: boolean;
-  search_fields?: string[];
   category_id?: string;
   institution_id?: string;
   institution_email?: string;
@@ -452,19 +467,44 @@ export interface IncompleteStaffDetail {
   is_active: boolean;
   created_at: string;
   missingFields: string[];
+  /** missingFields.length, exposed so the table need not recompute the sort key. */
+  missing_count: number;
   institution_name: string | null;
   department_name: string | null;
   category_name: string | null;
+  biometric_id: string | null;
+  /**
+   * Resolved separately, not via an embed: staff.biometric_institution_id lost
+   * its FK on 2026-08-06, so PostgREST cannot join it.
+   */
+  biometric_machine_name: string | null;
 }
 
 /**
  * Incomplete Staff Profiles Response
- * Paginated response for incomplete staff profiles API
+ * Server-paged; `total` is the count AFTER the missing-field predicate, so it
+ * matches what the table can actually page through.
  */
 export interface IncompleteStaffResponse {
   profiles: IncompleteStaffDetail[];
   total: number;
+  page: number;
   limit: number;
+  totalPages: number;
+}
+
+export interface StaffFilterOption {
+  value: string;
+  label: string;
+}
+
+/** Dropdown lists for the incomplete-profiles filter bar. */
+export interface IncompleteStaffFilterOptions {
+  designations: StaffFilterOption[];
+  bloodGroups: StaffFilterOption[];
+  genders: StaffFilterOption[];
+  maritalStatuses: StaffFilterOption[];
+  biometricMachines: StaffFilterOption[];
 }
 
 // =============================================

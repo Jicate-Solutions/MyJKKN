@@ -1,0 +1,105 @@
+name: Notification TTL guards
+
+# One check: the notification generators that were given an expiry must keep it.
+#
+# WHY THIS EXISTS — the guards were already written, and nothing ran them.
+#   __tests__/ci/notification-generator-ttl-guard.test.ts shipped in PR #2971
+#   with the claim that "a later CREATE OR REPLACE landing without the stamp
+#   fails CI". Checked on 2026-08-11: no workflow in this repo names that file.
+#   Only three guard tests are invoked by CI at all —
+#   check-migration-rename-applied, ai-estate-guard, check-anon-exposure-live —
+#   each by its own workflow, each by explicit filename. There is no job that
+#   globs __tests__/ci/**, so that guard has never executed on a pull request.
+#
+#   That is the failure mode migration-rename-applied.yml names in its own
+#   comments: "A guard whose logic is never executed is a guard that has quietly
+#   stopped guarding." Worse than absent — the PR body banked on it, so the
+#   repo's written record says a regression is covered when it is not.
+#
+# WHAT IS AT STAKE. Every stamp these two files assert is ONE line, in a
+# generator, and a deleted line looks like nothing in review. The failure is
+# silent: rows go back to expires_at NULL and nobody sees it until an unread
+# count is climbing weeks later. Production has 1,005 such ai_pulse rows and
+# ~17,162 scf_nudge ones from exactly this class of miss.
+#
+# SCOPE. This runs the two TTL guard tests and nothing else. No database, no
+# secret, no network — both read source files off disk and exercise the cycle
+# derivation in memory, so it also passes on forks. Kept as a SEPARATE workflow
+# from the three above on purpose: it reports as its own status check and cannot
+# change the pass/fail meaning of an existing one.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity
+# that branch protection matches on. Renaming either string silently orphans a
+# rule pointing at the old name.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      # The guards themselves.
+      - '__tests__/ci/notification-generator-ttl-guard.test.ts'
+      - '__tests__/ci/ai-pulse-notification-ttl-guard.test.ts'
+      - '.github/workflows/notification-ttl-guards.yml'
+      # The generators they assert over.
+      - 'app/api/cron/ai-pulse-weekly-digest/**'
+      - 'app/api/cron/aipulse-domain-starter-notify/**'
+      - 'app/api/schools-network/visit-nudges/cron/**'
+      - 'lib/services/ai-pulse/cycle-window.ts'
+      - 'lib/services/ai-pulse/rotation-service.ts'
+      - 'lib/services/ai-pulse/dept-heatmap-service.ts'
+      - 'lib/services/meetings/meeting-trigger-service.ts'
+      # The SQL guard resolves the LEXICOGRAPHICALLY NEWEST migration defining
+      # fn_scf_nudge_pending_learners, so any new migration can change its verdict.
+      - 'supabase/migrations/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notification-ttl-guards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    name: Notification generators keep their expiry stamp
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Run the TTL guards
+        run: |
+          npx vitest run \
+            __tests__/ci/notification-generator-ttl-guard.test.ts \
+            __tests__/ci/ai-pulse-notification-ttl-guard.test.ts
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::A notification generator lost its expiry stamp, or the TTL stopped being derived."
+          echo ""
+          echo "These generators emit the SAME fact on a repeating cycle. Without"
+          echo "expires_at, every edition stays in the bell forever — that is how"
+          echo "production reached ~17,162 unexpired dashboard:scf_nudge rows and"
+          echo "1,005 unexpired ai_pulse rows."
+          echo ""
+          echo "Fix: restore the stamp on the insert. Do NOT swap the derivation for a"
+          echo "literal hour count — the ai_pulse TTL comes from the cycle's own end"
+          echo "(lib/services/ai-pulse/cycle-window.ts) and the scf_nudge one from the"
+          echo "dispatcher row in ai_routine_schedules, precisely because both cadences"
+          echo "can change with no deploy."
+          echo ""
+          echo "And do NOT 'fix' a failure by expiring rows that already exist."
+          echo "Retro-expiry is a separate Director decision (the last one, 43,775 rows,"
+          echo "required an explicit ruling); the guards fail on an UPDATE or DELETE"
+          echo "against notifications for that reason."

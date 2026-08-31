@@ -70,7 +70,8 @@ async function ProfilesContent({
     search_case_sensitive: bool('search_case_sensitive'),
     search_exact_match: bool('search_exact_match'),
     search_fields,
-    // undefined on the "All Statuses" tab — omits the predicate entirely.
+    // One status for a status tab; the five allowed statuses on "All Statuses".
+    // Never undefined — this page never lists enquiry / graduated / rejected.
     lifecycle_status: lifecycleFilterForTab(statusFilter),
     institution_id: str('institution_id'),
     degree_id: str('degree_id'),
@@ -81,6 +82,7 @@ async function ProfilesContent({
     academic_year_id: str('academic_year_id'),
     gender: str('gender'),
     is_profile_complete: bool('is_profile_complete'),
+    accommodation_type_id: str('accommodation_type_id'),
     sortBy: str('sort_by') || 'first_name',
     sortOrder: (str('sort_order') as 'asc' | 'desc') || 'asc',
     learner_id: learnerIdFilter, // Student filter - only see own profile

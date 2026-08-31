@@ -14,7 +14,6 @@
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { CalendarClock } from 'lucide-react';
-import { useAuth } from '@/hooks/use-auth';
 import { BookingDayBoard } from './_components/booking-day-board';
 
 /**
@@ -26,9 +25,6 @@ export const navMeta = {
 } as const;
 
 export default function HousekeepingBookingsPage() {
-  const { profile } = useAuth();
-  const institutionId = profile?.institution_id || '';
-
   return (
     <ContentLayout title="Housekeeping Bookings">
       <PageBreadcrumb
@@ -47,12 +43,12 @@ export default function HousekeepingBookingsPage() {
             Slot Bookings
           </h1>
           <p className="text-muted-foreground">
-            Resident-booked cleaning slots for the day — mark each one completed
-            or no-show as the team works through them.
+            Resident-booked cleaning slots — assign each one to a cleaner, then
+            mark it completed or no-show as the team works through them.
           </p>
         </div>
 
-        <BookingDayBoard institutionId={institutionId} />
+        <BookingDayBoard />
       </div>
     </ContentLayout>
   );

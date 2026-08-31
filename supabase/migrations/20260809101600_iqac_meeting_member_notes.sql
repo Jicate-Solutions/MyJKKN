@@ -49,7 +49,7 @@
 --   accreditation_committee_members / _meetings (read back from pg_policies on
 --   2026-08-04), and the permission family is the GRANTABLE
 --   accreditation.naac.committees.* one — the same realignment
---   20260808210000 made. The self-scoped `author_user_id = auth.uid()` clause
+--   20260808210001 made. The self-scoped `author_user_id = auth.uid()` clause
 --   mirrors the existing accreditation_metric_narratives SELECT policy.
 --
 -- ── WHAT THIS DELIBERATELY DOES NOT DO ──────────────────────────────────────
