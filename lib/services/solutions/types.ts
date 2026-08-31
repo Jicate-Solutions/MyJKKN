@@ -468,6 +468,8 @@ export const RETIRED_DELIVERY_SURFACE_MESSAGE =
 export interface PhaseDeployment extends BaseEntity {
   phase_id: string;
   environment: 'development' | 'staging' | 'production';
+  /** Column is `deployment_number` (integer) in sh_phase_deployments (there is no `version`). */
+  deployment_number?: number;
   vercel_url?: string;
   supabase_project_id?: string;
   custom_domain?: string;
