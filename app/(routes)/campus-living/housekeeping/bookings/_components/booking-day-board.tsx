@@ -45,21 +45,46 @@ import {
   Loader2,
   ShieldAlert,
   Sparkles,
+  UserCog,
   UserX,
   XCircle,
 } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Link from 'next/link';
+import { AssignBookingDialog } from './assign-booking-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { BlockSelector } from '@/components/campus-living/block-selector';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useBookingBoard,
   useMarkBooking,
 } from '@/hooks/campus-living/use-housekeeping-bookings';
-import { useCleaningTasks } from '@/hooks/campus-living/use-hostel-housekeeping';
+import {
+  useCleaningTasks,
+  useUpdateCleaningTaskStatus,
+} from '@/hooks/campus-living/use-hostel-housekeeping';
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import type { CleaningTaskStatus } from '@/lib/services/campus-living/housekeeping-service';
 import type {
   BookingBoardRow,
   MarkableBookingStatus,
 } from '@/lib/services/campus-living/housekeeping-booking-service';
+
+/** cleaning_task_status_enum — the only values the column accepts. */
+const TASK_STATUSES: CleaningTaskStatus[] = [
+  'scheduled',
+  'in_progress',
+  'completed',
+  'missed',
+  'rescheduled',
+];
 
 // ── Local date helpers (board navigates whole days, local time) ────────────
 function toLocalDateString(d: Date): string {
@@ -86,6 +111,13 @@ function statusBadge(status: string) {
         <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">
           <CalendarClock className="mr-1 h-3 w-3" />
           Booked
+        </Badge>
+      );
+    case 'assigned':
+      return (
+        <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100">
+          <UserCog className="mr-1 h-3 w-3" />
+          Assigned
         </Badge>
       );
     case 'completed':
@@ -119,22 +151,55 @@ interface PendingMark {
   status: MarkableBookingStatus;
 }
 
-export function BookingDayBoard({ institutionId }: { institutionId: string }) {
+export function BookingDayBoard() {
+  // 'all' (default) shows every booking, actionable rows first; 'day'
+  // narrows to one date (the old behavior).
+  const [mode, setMode] = useState<'all' | 'day'>('all');
   const [date, setDate] = useState<string>(() => toLocalDateString(new Date()));
   const [blockFilter, setBlockFilter] = useState<string>('all');
   const [pendingMark, setPendingMark] = useState<PendingMark | null>(null);
+  const [assignTarget, setAssignTarget] = useState<BookingBoardRow | null>(null);
 
-  const board = useBookingBoard(institutionId || undefined, date);
+  // Institution scope. Defaults to ALL accessible institutions: the board used
+  // to be hard-pinned to profiles.institution_id, which showed a super admin
+  // "Total 0" while every booking sat in another college. Never branch on
+  // isSuperAdmin for scope — pass the selection and let the RPC gate rows.
+  const [institutionFilter, setInstitutionFilter] = useState<string>('all');
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  const selectedInstitutionId =
+    institutionFilter === 'all' ? undefined : institutionFilter;
+
+  const board = useBookingBoard(
+    selectedInstitutionId,
+    mode === 'day' ? { date } : {}
+  );
   const markMut = useMarkBooking();
+  const taskStatusMut = useUpdateCleaningTaskStatus();
+
+  // Mirror the server gates (mark → '.mark_done', assign → '.schedule') so
+  // non-holders don't see dead buttons. While permissions are still LOADING,
+  // default OPEN: isSuperAdmin reads false during the load (the known
+  // super-admin scope race), and hiding the buttons then would lock super
+  // admins out of a control the RPC would happily allow. The RPC stays the
+  // real gate either way.
+  const { can, isSuperAdmin, isLoading: permsLoading } = usePermissions();
+  const canMark =
+    permsLoading || isSuperAdmin || can('campus_living.housekeeping.mark_done');
+  const canSchedule =
+    permsLoading || isSuperAdmin || can('campus_living.housekeeping.schedule');
+  // hostel_cleaning_tasks UPDATE policy accepts either key.
+  const canUpdateTasks = canMark || canSchedule;
 
   // The day's scheduled-cleaning tasks (generated from recurring schedules by
   // fn_housekeeping_generate_tasks) — shown alongside resident bookings so the
-  // board is the complete picture of the day's cleaning work.
-  const tasksQuery = useCleaningTasks(institutionId || undefined, {
-    date_from: date,
-    date_to: date,
+  // board is the complete picture of the day's cleaning work. In "all
+  // bookings" mode this section pins to today.
+  const tasksDate = mode === 'day' ? date : toLocalDateString(new Date());
+  const tasksQuery = useCleaningTasks(selectedInstitutionId, {
+    date_from: tasksDate,
+    date_to: tasksDate,
   });
-  const { data: blocksData } = useHostelBlocks(institutionId);
+  const { data: blocksData } = useHostelBlocks(selectedInstitutionId ?? '');
   const blockNames = useMemo(() => {
     const m = new Map<string, string>();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -150,10 +215,15 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
     const all = board.data ?? [];
     const filtered =
       blockFilter === 'all' ? all : all.filter((r) => r.block_id === blockFilter);
-    return [...filtered].sort((a, b) =>
-      a.slot_start === b.slot_start
-        ? String(a.block_name ?? '').localeCompare(String(b.block_name ?? ''))
-        : a.slot_start.localeCompare(b.slot_start)
+    // Actionable first (matches the RPC's ordering; re-applied here because
+    // the block filter rebuilds the array): live statuses, then date, slot.
+    const liveRank = (s: unknown) => (s === 'booked' || s === 'assigned' ? 0 : 1);
+    return [...filtered].sort(
+      (a, b) =>
+        liveRank(a.status) - liveRank(b.status) ||
+        String(a.booking_date).localeCompare(String(b.booking_date)) ||
+        a.slot_start.localeCompare(b.slot_start) ||
+        String(a.block_name ?? '').localeCompare(String(b.block_name ?? ''))
     );
   }, [board.data, blockFilter]);
 
@@ -161,6 +231,7 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
     () => ({
       total: rows.length,
       booked: rows.filter((r) => r.status === 'booked').length,
+      assigned: rows.filter((r) => r.status === 'assigned').length,
       completed: rows.filter((r) => r.status === 'completed').length,
       noShow: rows.filter((r) => r.status === 'no_show').length,
     }),
@@ -183,12 +254,22 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={mode === 'all' ? 'secondary' : 'outline'}
+                size="sm"
+                onClick={() => setMode('all')}
+              >
+                All bookings
+              </Button>
               <Button
                 variant="outline"
                 size="icon"
                 aria-label="Previous day"
-                onClick={() => setDate((d) => addDays(d, -1))}
+                onClick={() => {
+                  setMode('day');
+                  setDate((d) => addDays(d, -1));
+                }}
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -196,38 +277,72 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
                 type="date"
                 value={date}
                 onChange={(e) => {
-                  if (e.target.value) setDate(e.target.value);
+                  if (e.target.value) {
+                    setMode('day');
+                    setDate(e.target.value);
+                  }
                 }}
-                className="w-[160px]"
+                className={`w-[160px] ${mode === 'all' ? 'opacity-60' : ''}`}
               />
               <Button
                 variant="outline"
                 size="icon"
                 aria-label="Next day"
-                onClick={() => setDate((d) => addDays(d, 1))}
+                onClick={() => {
+                  setMode('day');
+                  setDate((d) => addDays(d, 1));
+                }}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <Button
-                variant={isToday ? 'secondary' : 'outline'}
+                variant={mode === 'day' && isToday ? 'secondary' : 'outline'}
                 size="sm"
-                onClick={() => setDate(toLocalDateString(new Date()))}
-                disabled={isToday}
+                onClick={() => {
+                  setMode('day');
+                  setDate(toLocalDateString(new Date()));
+                }}
+                disabled={mode === 'day' && isToday}
               >
                 Today
               </Button>
             </div>
-            <BlockSelector
-              institutionId={institutionId}
-              value={blockFilter}
-              onValueChange={setBlockFilter}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={institutionFilter}
+                onValueChange={(v) => {
+                  setInstitutionFilter(v);
+                  setBlockFilter('all');
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue
+                    placeholder={
+                      institutionsLoading ? 'Loading institutions…' : 'Institution'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Institutions</SelectItem>
+                  {institutions.map((i) => (
+                    <SelectItem key={i.id} value={i.id}>
+                      {i.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <BlockSelector
+                institutionId={selectedInstitutionId ?? ''}
+                value={blockFilter}
+                onValueChange={setBlockFilter}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Day stats */}
-      <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-5">
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-xs text-muted-foreground">Total</p>
@@ -238,6 +353,12 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
           <CardContent className="p-4 text-center">
             <p className="text-xs text-muted-foreground">Booked</p>
             <p className="text-2xl font-bold text-blue-600">{stats.booked}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-xs text-muted-foreground">Assigned</p>
+            <p className="text-2xl font-bold text-purple-600">{stats.assigned}</p>
           </CardContent>
         </Card>
         <Card>
@@ -272,7 +393,7 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
             </div>
           ) : dayTasks.length === 0 ? (
             <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
-              No scheduled cleaning due on {date}. Recurring plans created on the{' '}
+              No scheduled cleaning due on {tasksDate}. Recurring plans created on the{' '}
               <Link href="/campus-living/housekeeping" className="underline">
                 Housekeeping page
               </Link>{' '}
@@ -287,6 +408,7 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
                   <TableHead>Floor</TableHead>
                   <TableHead>Assigned Staff</TableHead>
                   <TableHead>Status</TableHead>
+                  {canUpdateTasks && <TableHead className="text-right">Update</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -314,6 +436,31 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
                         {String(t.status ?? '—').replace(/_/g, ' ')}
                       </Badge>
                     </TableCell>
+                    {canUpdateTasks && (
+                      <TableCell className="text-right">
+                        <Select
+                          value={String(t.status)}
+                          onValueChange={(v) =>
+                            taskStatusMut.mutate({
+                              id: t.id,
+                              status: v as CleaningTaskStatus,
+                            })
+                          }
+                          disabled={taskStatusMut.isPending}
+                        >
+                          <SelectTrigger className="ml-auto w-[150px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TASK_STATUSES.map((s) => (
+                              <SelectItem key={s} value={s} className="capitalize">
+                                {s.replace(/_/g, ' ')}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -325,11 +472,7 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
       {/* Resident slot bookings table */}
       <Card>
         <CardContent className="p-0">
-          {!institutionId ? (
-            <div className="py-16 text-center text-sm text-muted-foreground">
-              No institution context on your profile — bookings cannot be loaded.
-            </div>
-          ) : board.isLoading ? (
+          {board.isLoading ? (
             <div className="space-y-2 p-6">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
@@ -348,79 +491,155 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
           ) : rows.length === 0 ? (
             <div className="py-16 text-center">
               <CalendarClock className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-              <h3 className="font-medium">No bookings for this day yet.</h3>
+              <h3 className="font-medium">
+                {mode === 'all' ? 'No bookings yet.' : 'No bookings for this day yet.'}
+              </h3>
               <p className="text-sm text-muted-foreground">
-                Resident slot bookings for {date} will appear here.
+                {mode === 'all'
+                  ? 'Resident slot bookings will appear here.'
+                  : `Resident slot bookings for ${date} will appear here.`}
               </p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Date</TableHead>
                   <TableHead>Slot</TableHead>
                   <TableHead>Block</TableHead>
+                  <TableHead>Floor</TableHead>
                   <TableHead>Room</TableHead>
                   <TableHead>Resident</TableHead>
+                  <TableHead>Assigned to</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-mono text-sm whitespace-nowrap">
-                      {fmtTime(row.slot_start)}–{fmtTime(row.slot_end)}
-                    </TableCell>
-                    <TableCell>{row.block_name ?? '—'}</TableCell>
-                    <TableCell>{row.room_number ?? '—'}</TableCell>
-                    <TableCell>
-                      <span>{row.learner_name ?? '—'}</span>
-                      {row.notes && (
-                        <p className="text-xs text-muted-foreground max-w-[260px] truncate">
-                          {row.notes}
-                        </p>
-                      )}
-                    </TableCell>
-                    <TableCell>{statusBadge(String(row.status))}</TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
-                      {row.status === 'booked' ? (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-green-700 hover:text-green-800"
-                            disabled={markMut.isPending}
-                            onClick={() =>
-                              setPendingMark({ booking: row, status: 'completed' })
-                            }
-                          >
-                            <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                            Complete
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-amber-700 hover:text-amber-800"
-                            disabled={markMut.isPending}
-                            onClick={() =>
-                              setPendingMark({ booking: row, status: 'no_show' })
-                            }
-                          >
-                            <UserX className="mr-1 h-3.5 w-3.5" />
-                            No-show
-                          </Button>
-                        </>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {rows.map((row) => {
+                  const live = row.status === 'booked' || row.status === 'assigned';
+                  const learnerMeta = [row.roll_number, row.program_name]
+                    .filter(Boolean)
+                    .join(' · ');
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        {String(row.booking_date)}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm whitespace-nowrap">
+                        {fmtTime(row.slot_start)}–{fmtTime(row.slot_end)}
+                      </TableCell>
+                      <TableCell>
+                        {row.block_name ?? '—'}
+                        {institutionFilter === 'all' && row.institution_name && (
+                          <p className="text-xs text-muted-foreground">
+                            {row.institution_name}
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell>{row.floor ?? '—'}</TableCell>
+                      <TableCell>{row.room_number ?? '—'}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-8 w-8 shrink-0">
+                            <AvatarImage src={row.photo_url ?? undefined} alt="" />
+                            <AvatarFallback className="text-xs">
+                              {(row.learner_name ?? '—')
+                                .split(/\s+/)
+                                .map((p) => p[0])
+                                .slice(0, 2)
+                                .join('')
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <span>{row.learner_name ?? '—'}</span>
+                            {learnerMeta && (
+                              <p className="text-xs text-muted-foreground">{learnerMeta}</p>
+                            )}
+                            {row.phone && (
+                              <p className="text-xs text-muted-foreground">{row.phone}</p>
+                            )}
+                            {row.notes && (
+                              <p className="text-xs text-muted-foreground max-w-[260px] truncate">
+                                {row.notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {row.assigned_staff_name ?? (
+                          <span className="text-xs text-muted-foreground">Unassigned</span>
+                        )}
+                      </TableCell>
+                      <TableCell>{statusBadge(String(row.status))}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {!live ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : !canMark && !canSchedule ? (
+                          <span className="text-xs text-muted-foreground">View only</span>
+                        ) : (
+                          <>
+                            {canSchedule && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-purple-700 hover:text-purple-800"
+                                disabled={markMut.isPending}
+                                onClick={() => setAssignTarget(row)}
+                              >
+                                <UserCog className="mr-1 h-3.5 w-3.5" />
+                                {row.status === 'assigned' ? 'Re-assign' : 'Assign'}
+                              </Button>
+                            )}
+                            {canMark && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-green-700 hover:text-green-800"
+                                  disabled={markMut.isPending}
+                                  onClick={() =>
+                                    setPendingMark({ booking: row, status: 'completed' })
+                                  }
+                                >
+                                  <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                                  Complete
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-amber-700 hover:text-amber-800"
+                                  disabled={markMut.isPending}
+                                  onClick={() =>
+                                    setPendingMark({ booking: row, status: 'no_show' })
+                                  }
+                                >
+                                  <UserX className="mr-1 h-3.5 w-3.5" />
+                                  No-show
+                                </Button>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
         </CardContent>
       </Card>
+
+      {/* Assign / re-assign dialog */}
+      <AssignBookingDialog
+        booking={assignTarget}
+        onOpenChange={(open) => {
+          if (!open) setAssignTarget(null);
+        }}
+      />
 
       {/* Confirm mark dialog (toast feedback comes from useMarkBooking) */}
       <AlertDialog

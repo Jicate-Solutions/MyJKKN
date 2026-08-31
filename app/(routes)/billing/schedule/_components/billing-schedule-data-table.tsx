@@ -168,6 +168,11 @@ export function BillingScheduleDataTable({
           search: params.search || undefined,
           sortBy: params.sort_by || undefined,
           sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
+          // College-only, unconditionally. The institution dropdown lists
+          // entity_type='institution' only, but "All Institutions" sends no
+          // institution_id at all — without this the default view still
+          // returned school-fee bills. Same contract as the students list.
+          institution_entity_type: 'institution' as const,
           ...dimensionFilters
         });
 
@@ -200,6 +205,9 @@ export function BillingScheduleDataTable({
         search: params.search || undefined,
         sortBy: params.sort_by || undefined,
         sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
+        // Must match fetchData exactly — "Select all across pages" feeds bulk
+        // cancel/delete, so a wider set here would act on school-fee bills.
+        institution_entity_type: 'institution' as const,
         ...dimensionFilters
       });
       return data || [];

@@ -2,8 +2,9 @@ export const dynamic = 'force-dynamic';
 // app/api/admission/fees-structure/import/route.ts
 //
 // Two-phase bulk endpoint shared by the Bulk Import / Export-for-Edit flow:
-//   mode=validate (dry-run) — resolve + validate every row, return a per-row
-//     preview, write NOTHING. Drives the dialog's Preview step.
+//   mode=validate (dry-run) — read the sheet, resolve + validate every row,
+//     diff the update rows against what is stored, return all of it, write
+//     NOTHING. Drives the dialog's Data → Changes → Validate steps.
 //   mode=apply               — re-resolve every row; if ANY row has a
 //     spreadsheet-level error the whole batch is REJECTED (422) and nothing is
 //     written ("block until all clear"). Only when all rows are clean do we
@@ -15,10 +16,20 @@ import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
 import {
   FEE_STRUCTURE_SHEET_NAME,
+  FEE_SCHEDULE_SHEET_NAME,
+  findSheetName,
+  pickDataSheet,
   resolveRow,
+  resolveScheduleSheet,
+  resolveUnifiedSheet,
+  type DataSheetPick,
   type RowResolution,
 } from '@/lib/utils/mappings/fee-structure-excel-mappings';
 import { loadBulkResolveLookups } from '@/lib/services/admission/fee-structure-bulk-lookups';
+import {
+  buildChangeSets,
+  type StructureChange,
+} from '@/lib/services/admission/fee-structure-bulk-diff';
 
 type PreviewAction = 'create' | 'update' | 'error';
 
@@ -28,6 +39,11 @@ interface PreviewRow {
   action: PreviewAction;
   errors: string[];
 }
+
+/** How many sheet rows the dialog's Data step echoes back. */
+const RAW_PREVIEW_LIMIT = 300;
+/** How far down a sheet to look when reporting what a rejected workbook holds. */
+const SHEET_SCAN_DEPTH = 12;
 
 function buildPreview(resolutions: RowResolution[]) {
   const rows: PreviewRow[] = resolutions.map((r) => ({
@@ -44,6 +60,17 @@ function buildPreview(resolutions: RowResolution[]) {
     rows,
     canApply: rows.length > 0 && errorRows === 0,
   };
+}
+
+/** A cell as the Data step should show it — dates as yyyy-mm-dd, never a serial. */
+function cellText(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) {
+    return isNaN(v.getTime())
+      ? ''
+      : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  return String(v);
 }
 
 export async function POST(req: NextRequest) {
@@ -65,31 +92,220 @@ export async function POST(req: NextRequest) {
     // cellDates:true → Excel date cells arrive as JS Date objects instead of
     // numeric serials. Without it, any date the user (or Excel) saved as a real
     // date came through as e.g. 46184 and every row failed the date check.
-    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-    // Pick the data sheet BY NAME (not SheetNames[0] — Instructions may be first).
-    const ws = wb.Sheets[FEE_STRUCTURE_SHEET_NAME];
-    if (!ws) return NextResponse.json({ error: `Sheet "${FEE_STRUCTURE_SHEET_NAME}" not found` }, { status: 400 });
-    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+    let wb: XLSX.WorkBook;
+    try {
+      wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+    } catch {
+      return NextResponse.json(
+        { error: 'That file could not be read as a spreadsheet. Upload the .xlsx you downloaded from Download Template or Export for Edit.' },
+        { status: 400 },
+      );
+    }
+
+    // WHICH TAB. By COLUMNS, not by tab name.
+    //
+    // This used to be `wb.Sheets['Fee Structures']` with a 400 when that exact
+    // key was missing, and it dead-ended on every ordinary thing an operator
+    // does to a workbook: Excel's "Move or Copy" naming the duplicate
+    // "Fee Structures (2)", a renamed tab, a pasted-into-a-fresh-tab sheet, a
+    // round-trip through CSV (which leaves one tab called "Sheet1"). The layout
+    // was ALREADY sniffed from the header row for exactly these reasons; sheet
+    // selection now works the same way. The tab name is only a tie-breaker.
+    const candidates = wb.SheetNames.map((name) => ({
+      name,
+      // blankrows MUST stay true: the index of the header row inside this array
+      // is fed straight back to sheet_to_json as `range`, so it has to be the
+      // real sheet row. Dropping blank rows here would shift the read up by
+      // however many empty lines sat above the headers.
+      rows: XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], {
+        header: 1,
+        blankrows: true,
+        range: 0,
+      }).slice(0, SHEET_SCAN_DEPTH),
+    }));
+    const pick: DataSheetPick | null = pickDataSheet(candidates);
+
+    if (!pick) {
+      // Name what the workbook DOES hold. "Sheet Fee Structures not found" told
+      // the operator nothing about the file in front of them.
+      const found = wb.SheetNames.map((n) => `"${n}"`).join(', ') || 'none';
+      const firstHeaders = (candidates[0]?.rows[0] ?? [])
+        .map((h) => String(h ?? '').trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      return NextResponse.json(
+        {
+          error:
+            `No fee-structure sheet in this workbook. Tabs found: ${found}.` +
+            (firstHeaders.length
+              ? ` The first tab's columns start with: ${firstHeaders.join(', ')}.`
+              : '') +
+            ` A fee-structure sheet is recognised by its columns (Institution, Degree, Programme, Name, Fee Category…), whatever the tab is called — so this file is missing them. Download a fresh template or Export for Edit.`,
+          sheetNames: wb.SheetNames,
+        },
+        { status: 400 },
+      );
+    }
+
+    const ws = wb.Sheets[pick.name];
+    const layout = pick.layout;
+    // range: the header row's own index, so a title line inserted above the
+    // headers shifts the read instead of silently re-keying every column to
+    // whatever that title row happened to contain.
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+      defval: '',
+      range: pick.headerRowIndex,
+    });
+    const firstRowNumber = pick.headerRowIndex + 2;
 
     const lookups = await loadBulkResolveLookups(supabase);
 
-    // Resolve every non-blank row up front (no DB writes yet).
-    const resolutions: RowResolution[] = [];
-    for (let i = 0; i < rawRows.length; i++) {
-      const raw = rawRows[i];
-      if (Object.values(raw).every((v) => String(v ?? '').trim() === '')) continue; // skip blank rows
-      resolutions.push(resolveRow(raw, i + 2, lookups)); // header = row 1
+    let resolutions: RowResolution[] = [];
+    let scheduleSummary: { structures: number; items: number } | null = null;
+    // Sheet-level problems that belong to no single structure row.
+    let sheetErrors: string[] = [];
+
+    if (layout === 'unified') {
+      // ── One tab: structures, fees and instalments in one grain ──────────
+      const unified = resolveUnifiedSheet(rawRows, lookups, firstRowNumber);
+      resolutions = unified.resolutions;
+      scheduleSummary = {
+        structures: resolutions.filter((r) => r.payload).length,
+        items: unified.itemCount,
+      };
+    } else {
+      // ── LEGACY two-tab workbook, still in circulation ────────────────────
+      // A workbook WITHOUT the schedules tab is not an error: it is an older
+      // export, and the RPC preserves every schedule when the payload omits the
+      // key. Only a present-but-broken tab stops the import.
+      const schedName = findSheetName(wb.SheetNames, FEE_SCHEDULE_SHEET_NAME);
+      const schedWs = schedName ? wb.Sheets[schedName] : null;
+      const schedules = schedWs
+        ? resolveScheduleSheet(
+            XLSX.utils.sheet_to_json<Record<string, unknown>>(schedWs, { defval: '' }),
+            lookups,
+          )
+        : null;
+
+      for (let i = 0; i < rawRows.length; i++) {
+        const raw = rawRows[i];
+        if (Object.values(raw).every((v) => String(v ?? '').trim() === '')) continue; // skip blank rows
+        const res = resolveRow(raw, firstRowNumber + i, lookups);
+
+        // Attach this structure's schedules, if the sheet carried any. The key
+        // is set ONLY when the tab exists — its absence is what tells the RPC to
+        // preserve what is already configured rather than clear it.
+        if (schedules && res.payload) {
+          const forStructure = res.payload.structure_id
+            ? schedules.byStructure.get(res.payload.structure_id)
+            : undefined;
+          if (forStructure) res.payload.item_schedules = forStructure;
+        }
+
+        resolutions.push(res);
+      }
+
+      if (schedules) {
+        sheetErrors = schedules.errors;
+        scheduleSummary = {
+          structures: schedules.byStructure.size,
+          items: [...schedules.byStructure.values()].reduce((n, list) => n + list.length, 0),
+        };
+      }
     }
 
     if (resolutions.length === 0) {
-      return NextResponse.json({ error: 'No data rows found in the sheet' }, { status: 400 });
+      return NextResponse.json(
+        {
+          error:
+            `Tab "${pick.name}" has headers but no data rows` +
+            (pick.headerRowIndex > 0 ? ` below row ${pick.headerRowIndex + 1}` : '') +
+            '. Fill in at least one row, or check you uploaded the edited copy.',
+        },
+        { status: 400 },
+      );
+    }
+
+    // A structure_id the database does not have (deleted, or not visible to this
+    // user) used to sail through validation and fail at commit, halfway into a
+    // batch. Catching it here keeps the "nothing is written until every row is
+    // clear" promise honest.
+    let changes: StructureChange[] = [];
+    let changesError: string | null = null;
+    if (mode === 'validate') {
+      // The diff is an enhancement; validation is the job. A failure to read the
+      // current state must not cost the operator their error list too — it is
+      // reported on the Changes step and the rest of the preview stands.
+      try {
+        changes = await buildChangeSets(supabase, resolutions, lookups);
+        const missing = new Set(
+          changes.filter((c) => c.missing).map((c) => c.structureId as string),
+        );
+        if (missing.size > 0) {
+          for (const res of resolutions) {
+            if (res.payload?.structure_id && missing.has(res.payload.structure_id)) {
+              res.errors.push(
+                `Fee Structure ID "${res.payload.structure_id}" does not exist (or you cannot access it). Clear the ID to create a new structure instead.`,
+              );
+            }
+          }
+        }
+      } catch (e: any) {
+        // Supabase errors are plain objects, never Error instances — reading
+        // .message off them directly is the only thing that surfaces the code.
+        console.error('[fees-structure/import] change-set build failed:', e);
+        changesError = e?.message ?? 'Could not read the current fee structures to compare against.';
+      }
     }
 
     const preview = buildPreview(resolutions);
 
+    // Sheet-level problems block the batch exactly like row problems do. They
+    // are reported as their own entries rather than folded into a structure
+    // row: they already name their own row number, and attributing them to the
+    // wrong structure is worse than an extra line in the list.
+    if (sheetErrors.length > 0) {
+      preview.rows.push(
+        ...sheetErrors.map((message) => ({
+          row: 0,
+          name: FEE_SCHEDULE_SHEET_NAME,
+          action: 'error' as const,
+          errors: [message],
+        })),
+      );
+      preview.summary.errorRows += sheetErrors.length;
+      preview.summary.total += sheetErrors.length;
+      preview.canApply = false;
+    }
+
     // ---- Validate (dry-run): return the preview, write nothing. ----
     if (mode === 'validate') {
-      return NextResponse.json({ mode: 'validate', ...preview });
+      const headers = pick.header.map((h) => String(h ?? '').trim()).filter(Boolean);
+      return NextResponse.json({
+        mode: 'validate',
+        layout,
+        sheet: {
+          name: pick.name,
+          nameMatched: pick.nameMatched,
+          expectedName: FEE_STRUCTURE_SHEET_NAME,
+          headerRow: pick.headerRowIndex + 1,
+          sheetNames: wb.SheetNames,
+          headers,
+          totalRows: rawRows.length,
+        },
+        rawPreview: {
+          headers,
+          rows: rawRows.slice(0, RAW_PREVIEW_LIMIT).map((raw, i) => ({
+            row: firstRowNumber + i,
+            cells: headers.map((h) => cellText(raw[h])),
+          })),
+          truncated: rawRows.length > RAW_PREVIEW_LIMIT,
+        },
+        changes,
+        changesError,
+        ...preview,
+        scheduleSummary,
+      });
     }
 
     // ---- Apply: block-until-all-clear. Refuse the whole batch on any error. ----
@@ -98,7 +314,9 @@ export async function POST(req: NextRequest) {
         {
           mode: 'apply-blocked',
           error: `${preview.summary.errorRows} row(s) still have errors. Fix them and re-upload — nothing was changed.`,
+          layout,
           ...preview,
+          scheduleSummary,
         },
         { status: 422 },
       );

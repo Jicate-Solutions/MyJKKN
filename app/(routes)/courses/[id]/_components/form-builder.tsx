@@ -20,7 +20,7 @@ import {
 } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { GripVertical, Loader2, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, GripVertical, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,13 @@ import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
 } from '@/components/ui/form';
 import { CourseFormService } from '@/lib/services/courses/course-form-service';
+import {
+  EMAIL_KEYS,
+  NAME_KEYS,
+  PHONE_KEYS,
+  findIdentityGaps,
+  identityGapMessage,
+} from '@/lib/services/courses/applicant-identity';
 import {
   COURSE_FIELD_TYPES,
   COURSE_FIELD_TYPES_WITH_OPTIONS,
@@ -91,6 +98,25 @@ const schema = z
       });
     });
   })
+  // A form that cannot say WHO applied cannot be submitted by anyone: the
+  // submit route derives applicant_name/applicant_phone from these keys and
+  // 400s without them, and event_external_participants is upserted by phone.
+  // Enforced HERE because this is the only layer that can prevent the problem —
+  // the public widget and the submit route can each only refuse, by which point
+  // a stranger is already looking at a form with a permanently disabled button
+  // and the admin has had no signal at all.
+  .superRefine((v, ctx) => {
+    const gaps = findIdentityGaps(
+      v.sections.flatMap((s) => s.fields.map((f) => f.field_key)),
+    );
+    // requireEmail: a participant's login cannot be created without an address,
+    // so a form that never asks for one produces applications that can be
+    // collected and then never approved.
+    const message = identityGapMessage(gaps, { requireEmail: true });
+    if (message) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sections'], message });
+    }
+  })
   // A field type that takes options is useless without any.
   .superRefine((v, ctx) => {
     v.sections.forEach((s, si) => {
@@ -116,6 +142,55 @@ const toKey = (label: string) =>
 
 const kebab = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+/** Keys the submit route reads to build the applicant. Marked in the UI so an
+ *  admin can see which questions are load-bearing before deleting one, and so a
+ *  relabelled one is obviously still doing its job. */
+const IDENTITY_KEYS = new Set<string>([...NAME_KEYS, ...PHONE_KEYS, ...EMAIL_KEYS]);
+
+/**
+ * A new form starts with these already in place.
+ *
+ * The whole failure mode this guards against is an admin building a perfectly
+ * reasonable-looking form that nobody can submit. Seeding beats validating,
+ * because the LABEL is free — `toKey` only derives a key when the key is still
+ * empty, so relabelling "Full name" to "Student name" keeps `full_name` and the
+ * form keeps working. Natural wording costs nothing; only deleting these breaks
+ * anything, and the banner catches that.
+ */
+const IDENTITY_STARTER = [
+  {
+    field_key: 'full_name',
+    label: 'Full name',
+    field_type: 'text' as CourseFieldType,
+    is_required: true,
+    options_text: '',
+    placeholder: '',
+    help_text: '',
+  },
+  {
+    field_key: 'phone',
+    label: 'Phone number',
+    field_type: 'phone' as CourseFieldType,
+    is_required: true,
+    options_text: '',
+    placeholder: '',
+    help_text: 'We will contact you on this number about your application.',
+  },
+  {
+    field_key: 'email',
+    label: 'Email address',
+    field_type: 'email' as CourseFieldType,
+    is_required: true,
+    options_text: '',
+    placeholder: '',
+    help_text: '',
+  },
+];
+
+/** Called, never spread: handing out the same object references would let an
+ *  edit in one form mutate the constant and seed the next form with it. */
+const identityStarter = () => IDENTITY_STARTER.map((f) => ({ ...f }));
 
 const FIELD_TYPE_LABEL: Record<CourseFieldType, string> = {
   text: 'Short text',
@@ -239,6 +314,16 @@ function SectionFields({
                     <FormControl>
                       <Input placeholder="field_key" className="font-mono text-xs" {...field} />
                     </FormControl>
+                    {/* Left EDITABLE on purpose. Locking it the instant the text
+                        matched would trap someone mid-keystroke as they typed
+                        `full_name`, and typing it by hand is exactly how an
+                        existing broken form gets repaired. */}
+                    {IDENTITY_KEYS.has(watched?.[fi]?.field_key ?? '') && (
+                      <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <KeyRound className="h-3 w-3" />
+                        Identifies the applicant
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -344,7 +429,9 @@ export function FormBuilder({
                 help_text: f.help_text ?? '',
               })),
             }))
-          : [{ title: 'Your details', description: '', fields: [] }],
+          // A NEW form starts able to identify an applicant. An admin who never
+          // opens the field-key input still ships a working form.
+          : [{ title: 'Your details', description: '', fields: identityStarter() }],
     },
   });
 
@@ -352,6 +439,35 @@ export function FormBuilder({
     control: form.control,
     name: 'sections',
   });
+
+  // useWatch, never form.watch(): watch() on a field array defeats the React
+  // Compiler's memoisation and re-renders the whole builder on every keystroke.
+  const watchedSections = useWatch({ control: form.control, name: 'sections' });
+  const identityGaps = findIdentityGaps(
+    (watchedSections ?? []).flatMap((s) =>
+      (s?.fields ?? []).map((f: { field_key?: string }) => f?.field_key ?? ''),
+    ),
+  );
+  const identityMessage = identityGapMessage(identityGaps, { requireEmail: true });
+
+  /** Put the missing identity questions back, at the top of the first section
+   *  where an applicant expects them. Only the missing ones — an admin who
+   *  already has `phone` under a different label keeps it. */
+  const restoreIdentityQuestions = () => {
+    const current = form.getValues('sections');
+    const missing = identityStarter().filter((f) => {
+      if (NAME_KEYS.includes(f.field_key)) return identityGaps.name;
+      if (PHONE_KEYS.includes(f.field_key)) return identityGaps.phone;
+      if (EMAIL_KEYS.includes(f.field_key)) return identityGaps.email;
+      return false;
+    });
+    if (missing.length === 0) return;
+
+    form.setValue('sections.0.fields', [...missing, ...(current[0]?.fields ?? [])], {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+  };
 
   // UNIQUE (course_event_id, slug) — checked on blur so a duplicate is a field
   // message instead of a raw 23505 at submit. Mirrors CourseForm's slug check.
@@ -528,8 +644,26 @@ export function FormBuilder({
           </Button>
         </div>
 
+        {/* Rendered from the watched values rather than formState.errors: a zod
+            issue on the `sections` array path is awkward to surface through RHF,
+            and this has to be visible BEFORE the first submit attempt — the
+            whole point is that the admin never gets as far as saving a form
+            nobody can submit. The superRefine above is the hard gate behind it. */}
+        {identityMessage && (
+          <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
+            <p className="min-w-0 flex-1 text-amber-900 dark:text-amber-200">
+              {identityMessage}
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={restoreIdentityQuestions}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add them
+            </Button>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
-          <Button type="submit" disabled={submitting}>
+          <Button type="submit" disabled={submitting || Boolean(identityMessage)}>
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {editing ? 'Save form' : 'Create form'}
           </Button>
