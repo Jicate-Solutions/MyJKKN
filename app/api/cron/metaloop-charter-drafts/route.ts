@@ -9,13 +9,14 @@
 //
 // Weekly two-pass sweep (mirrors accreditation-naac-narrative-draft's
 // collect-then-enqueue shape):
-//   PASS 1 — COLLECT: claim finished 'loops.charter_draft' ai_jobs
-//     (collectJobsLane → fn_ai_collect_claim, exactly-once), parse the strict
-//     JSON draft, and file each as ONE loop_charter_proposals row
-//     (status='proposed'). Drafts self-reporting {insufficient:true} are
-//     logged and NOT filed — an honest "can't charter this yet" stays honest.
-//     source_job_id UNIQUE + the one-proposed-per-loop partial index are the
-//     idempotency belts; a violating insert is a skip, never an error page.
+//   PASS 1 — COLLECT: shared with the daily metaloop-charter-collect route
+//     (lib/services/loops/metaloop-charter-collect.ts). Finished drafts file
+//     as status='proposed' rows; {insufficient:true} abstentions file as
+//     status='insufficient' rows (display-only) so an honest "can't charter
+//     this yet" is visible on /admin/loops/charters instead of dying in a
+//     server log. source_job_id UNIQUE + the one-proposed-per-loop partial
+//     index are the idempotency belts; a violating insert is a skip, never an
+//     error page.
 //   PASS 2 — ENQUEUE: up to 3 active uncharted loops that have real evidence
 //     (a dispatcher routine_id OR >= 1 loop_audits row), no undecided
 //     proposal, and no in-flight draft job (fn_ai_enqueue_system's dedupe
@@ -45,10 +46,9 @@ export const maxDuration = 120;
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { collectJobsLane, enqueueJobsLane } from '@/lib/services/platform/ai-jobs-lane';
+import { enqueueJobsLane } from '@/lib/services/platform/ai-jobs-lane';
+import { CHARTER_JOB_TYPE, collectCharterDrafts } from '@/lib/services/loops/metaloop-charter-collect';
 
-const JOB_TYPE = 'loops.charter_draft';
-const COLLECT_BATCH = 25;
 const ENQUEUE_CAP = 3;
 const EVIDENCE_AUDITS = 5;
 const EVIDENCE_RUNS = 5;
@@ -65,63 +65,6 @@ function constantTimeEquals(presented: string, secret: string): boolean {
   const a = Buffer.from(presented);
   const b = Buffer.from(secret);
   return a.length === b.length && timingSafeEqual(a, b);
-}
-
-/** Read the text from a synthesized Max-lane message (content[].type==='text'). */
-function readMessageText(msg: unknown): string | null {
-  const content = (msg as { content?: Array<{ type?: string; text?: string }> } | null)?.content;
-  if (!Array.isArray(content)) return null;
-  const t = content.find((c) => c?.type === 'text')?.text;
-  return typeof t === 'string' && t.trim() ? t.trim() : null;
-}
-
-type ParsedDraft =
-  | { kind: 'charter'; proposed: Record<string, string>; rationale: string | null }
-  | { kind: 'insufficient'; reason: string }
-  | { kind: 'invalid'; why: string };
-
-/** Parse the drain's strict-JSON charter draft, tolerating code fences and
- *  surrounding prose (first '{' to last '}'), then validate the contract. */
-function parseCharterDraft(text: string): ParsedDraft {
-  let obj: Record<string, unknown> | null = null;
-  const candidates = [text, text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')];
-  const braced = text.indexOf('{') >= 0 ? text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1) : '';
-  if (braced) candidates.push(braced);
-  for (const c of candidates) {
-    try {
-      const parsed = JSON.parse(c);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        obj = parsed as Record<string, unknown>;
-        break;
-      }
-    } catch {
-      /* try the next shape */
-    }
-  }
-  if (!obj) return { kind: 'invalid', why: 'no parseable JSON object in the model output' };
-
-  if (obj.insufficient === true) {
-    const reason = typeof obj.reason === 'string' && obj.reason.trim() ? obj.reason.trim() : '(no reason given)';
-    return { kind: 'insufficient', reason };
-  }
-
-  const str = (k: string): string => (typeof obj![k] === 'string' ? (obj![k] as string).trim() : '');
-  const required = [...CHARTER_LEGS, 'kill_rule'];
-  const missing = required.filter((k) => str(k) === '');
-  if (missing.length > 0) {
-    return { kind: 'invalid', why: `missing/blank fields: ${missing.join(', ')}` };
-  }
-  // Vacuous-counter guard (deterministic mirror of the prompt's rule): a
-  // counter metric restating the outcome guards nothing.
-  if (str('counter_metric').toLowerCase() === str('outcome_metric').toLowerCase()) {
-    return { kind: 'invalid', why: 'counter_metric restates outcome_metric (vacuous Goodhart pair)' };
-  }
-
-  const proposed: Record<string, string> = {};
-  for (const k of required) proposed[k] = str(k);
-  proposed.suggested_verdict_owner = str('suggested_verdict_owner');
-  const rationale = str('rationale') || null;
-  return { kind: 'charter', proposed, rationale };
 }
 
 type RegistryRow = {
@@ -221,58 +164,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     errors: 0,
   };
 
-  // ── PASS 1 — COLLECT: finished drafts → proposal rows ──────────────────────
-  try {
-    const collected = await collectJobsLane(admin, [JOB_TYPE], COLLECT_BATCH);
-    summary.collected = collected.length;
-    for (const item of collected) {
-      try {
-        const loopKey = typeof item.context.loop_key === 'string' ? item.context.loop_key : null;
-        const text = readMessageText(item.message);
-        if (!loopKey || !text) {
-          summary.skipped++;
-          continue;
-        }
-        const parsed = parseCharterDraft(text);
-        if (parsed.kind === 'insufficient') {
-          // Logged, never filed — the loop re-qualifies next Sunday with (maybe)
-          // fatter evidence. An honest "can't charter yet" is a feature.
-          summary.insufficient++;
-          console.warn(`[metaloop-charter] ${loopKey}: draft says insufficient evidence — ${parsed.reason}`);
-          continue;
-        }
-        if (parsed.kind === 'invalid') {
-          summary.invalid++;
-          console.warn(`[metaloop-charter] ${loopKey}: draft failed the contract — ${parsed.why}`);
-          continue;
-        }
-        const { error: insErr } = await admin.from('loop_charter_proposals').insert({
-          loop_key: loopKey,
-          proposed: parsed.proposed,
-          rationale: parsed.rationale,
-          source_job_id: item.jobId,
-        });
-        if (insErr) {
-          // 23505 = source_job_id already filed OR an undecided proposal already
-          // exists for this loop (partial unique index) — both are dedupe belts
-          // doing their job, not failures.
-          if (insErr.code === '23505') {
-            summary.skipped++;
-          } else {
-            summary.errors++;
-            console.error('[metaloop-charter] proposal insert failed:', insErr.message);
-          }
-          continue;
-        }
-        summary.filed++;
-      } catch (e) {
-        summary.errors++;
-        console.error('[metaloop-charter] collect item failed:', e instanceof Error ? e.message : e);
-      }
-    }
-  } catch (e) {
-    console.error('[metaloop-charter] collect phase failed:', e instanceof Error ? e.message : e);
-  }
+  // ── PASS 1 — COLLECT: finished drafts → proposal rows (shared module) ─────
+  const collectSummary = await collectCharterDrafts(admin);
+  summary.collected = collectSummary.collected;
+  summary.filed = collectSummary.filed;
+  summary.insufficient = collectSummary.insufficient;
+  summary.invalid = collectSummary.invalid;
+  summary.skipped += collectSummary.skipped;
+  summary.errors += collectSummary.errors;
 
   // ── PASS 2 — ENQUEUE: evidence bundles for up to 3 uncharted loops ─────────
   // While the job type is DARK/unapplied, enqueueJobsLane reports ok:false
@@ -350,16 +249,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           row.routine_id ? (runsByRoutine.get(row.routine_id) ?? []) : [],
         );
         const res = await enqueueJobsLane(admin, {
-          jobType: JOB_TYPE,
+          jobType: CHARTER_JOB_TYPE,
           prompt,
           context: { loop_key: row.loop_key },
           // fn_ai_enqueue_system's dedupe guard = the in-flight draft-job check:
           // a pending/claimed/running job for this loop returns 'in_flight'.
           dedupeKey: `charter:${row.loop_key}`,
         });
-        if (res.ok) summary.enqueued++;
-        else if (res.reason === 'in_flight') summary.inFlight++;
-        else summary.skipped++; // dark (unknown_type) / no_seat → expected while unapplied
+        if (res.ok) {
+          summary.enqueued++;
+        } else {
+          // Explicit failure alias — strictNullChecks is off repo-wide, so the
+          // else branch never narrows the union on its own
+          // (ref feedback_strictnullchecks_off_kills_union_narrowing).
+          const failure = res as { ok: false; reason: 'in_flight' | 'unknown_type' | 'no_seat' | 'error' };
+          if (failure.reason === 'in_flight') summary.inFlight++;
+          else summary.skipped++; // dark (unknown_type) / no_seat → expected while unapplied
+        }
       } catch (e) {
         summary.errors++;
         console.error('[metaloop-charter] enqueue failed:', e instanceof Error ? e.message : e);

@@ -6,6 +6,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
+import { recomputeForShortTimeOff } from '@/lib/hr/attendance/recompute-day';
 import { StaffNotificationService } from '@/lib/services/staff/notification-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
@@ -41,6 +42,13 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const updated = await LeaveService.approveApplication(supabase, id, user.id, body.comment);
+
+    // A permission's approval state changes which halves it excuses, so the day
+    // is re-judged through the same evaluator the importer uses. Awaited, not
+    // fire-and-forget: the client refetches attendance right after this returns,
+    // and a background write would land after that read.
+    await recomputeForShortTimeOff(updated);
+
 
     // Dispatch leave_approved notification to the requester — fire-and-forget
     void (async () => {

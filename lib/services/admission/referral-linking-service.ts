@@ -24,6 +24,16 @@ export interface UnlinkedConsultantReferral {
   institution_name: string | null;
   existing_attribution_consultant_id: string | null;
   existing_attribution_consultant_name: string | null;
+  // Who can answer "which agency sent you?". 20 of the 39 carry a typed agency
+  // name and none of them matches an agency record, so the answer is not in the
+  // row — it is with one of these people. reference_contact first: when present
+  // it is the referrer's own number and answers directly.
+  reference_contact: string | null;
+  student_mobile: string | null;
+  parent_mobile: string | null;
+  /** Who typed the learner record in. When nobody else knows, they might. */
+  recorded_by_name: string | null;
+  recorded_at: string | null;
 }
 
 export interface LinkReferrerResult {

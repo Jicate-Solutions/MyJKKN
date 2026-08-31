@@ -310,9 +310,20 @@ export interface PublicCourseSummary {
   cover_image_url: string | null;
   application_opens_at: string | null;
   application_closes_at: string | null;
-  /** Computed server-side from the window — there is no 'closed' status. */
+  /** Computed server-side from the window — there is no 'closed' status. Also
+   *  false when the course cannot actually be applied to: no enabled form, or
+   *  packages defined but none currently on sale. */
   applicationsOpen: boolean;
+  /** The packages currently ON SALE. May be empty while packagesExist is true. */
   packages: PublicCoursePackage[];
+  /** Whether the course defines any active package at all.
+   *
+   *  Distinguishes "this course is free / unpriced" from "this course has fees
+   *  but none are on sale right now" — both of which leave `packages` empty, and
+   *  which call for completely different things to be said to a visitor. Without
+   *  this the apply page silently dropped its package chooser and collected an
+   *  application that could never become an enrollment. */
+  packagesExist: boolean;
   forms: PublicCourseFormSummary[];
 }
 
@@ -342,7 +353,12 @@ export interface PublicCourseApplyForm {
   formDescription: string | null;
   applicationsOpen: boolean;
   sections: PublicFormSection[];
+  /** The packages currently ON SALE. */
   packages: PublicCoursePackage[];
+  /** The course defines active packages. With `packages` empty this means the
+   *  fees exist but no tier is on sale, so nothing can be priced — see
+   *  PublicCourseSummary.packagesExist. */
+  packagesExist: boolean;
 }
 
 /** What the submit route returns. Deliberately minimal — never the row. */
@@ -351,4 +367,153 @@ export interface PublicApplyResult {
   /** A short human-quotable reference, not the application's uuid. */
   reference?: string;
   error?: string;
+}
+
+// ── applications ────────────────────────────────────────────────────────────
+// Phase 4, read side. The decide side (approve → provision a profile → issue a
+// JKKN ID → enroll → bill) is not built yet, so nothing here writes.
+
+export type CourseApplicationRow =
+  Database['public']['Tables']['course_applications']['Row'];
+
+/** CHECK constraint, not an enum — keep in step with
+ *  course_applications_status_check. `withdrawn` is the applicant pulling out;
+ *  `rejected` is the institution declining. */
+export const COURSE_APPLICATION_STATUSES = [
+  'pending', 'shortlisted', 'approved', 'rejected', 'withdrawn',
+] as const;
+export type CourseApplicationStatus = (typeof COURSE_APPLICATION_STATUSES)[number];
+
+export const COURSE_APPLICANT_TYPES = ['learner', 'staff', 'external'] as const;
+export type CourseApplicantType = (typeof COURSE_APPLICANT_TYPES)[number];
+
+export interface CourseApplication extends CourseApplicationRow {
+  form?: { id: string; name: string } | null;
+  package?: { id: string; name: string; total_amount: number } | null;
+  decided_by_profile?: { id: string; full_name: string | null } | null;
+  /** Present once approved. Credentials are reissued against the ENROLLMENT
+   *  rather than the profile, because the enrollment carries institution_id and
+   *  is therefore the thing RLS can gate. Carries the fee position so an admin
+   *  can see who has paid without opening a second screen. */
+  enrollment?: {
+    id: string;
+    enrollment_number: string | null;
+    status?: string | null;
+    total_payable?: number | null;
+    total_paid?: number | null;
+    balance?: number | null;
+  } | null;
+  /** The provisioned person. jkkn_identities is reached THROUGH profiles —
+   *  course_applications has no FK to it, but jkkn_identities.profile_id does,
+   *  so PostgREST embeds it in reverse. Readable by the same roles that can see
+   *  applications: all 7 holding courses.applications.view also hold
+   *  users.jkkn_id.view, so this never silently returns null for them. */
+  profile?: { id: string; jkkn_identities?: { jkkn_id: string }[] | null } | null;
+}
+
+export interface CourseApplicationFilters {
+  status?: CourseApplicationStatus;
+  applicant_type?: CourseApplicantType;
+  /** Matches name, phone or email. */
+  search?: string;
+}
+
+/** Per-status counts for the panel's summary row. Every status is present with
+ *  0 rather than absent, so the UI never has to distinguish "none" from
+ *  "not loaded". */
+export type CourseApplicationCounts = Record<CourseApplicationStatus, number> & {
+  total: number;
+};
+
+/** What fn_course_approve_application returns, plus what the route adds.
+ *
+ *  `tempPassword` is present ONLY when a login was newly created. It is never
+ *  stored and cannot be fetched again, so the UI has to show it before this
+ *  object is discarded. It is absent when an existing identity was reused —
+ *  overwriting a person's password to display it to an admin would be an
+ *  account takeover, not a convenience. */
+export interface CourseApprovalResult {
+  ok: true;
+  profile_id: string;
+  jkkn_id: string;
+  enrollment_id: string;
+  enrollment_no: string;
+  package_name: string;
+  total_payable: number;
+  bill_count: number;
+  /** The participant's CONTACT address, or null when they gave none. Never the
+   *  synthetic participants.jkkn.local address Supabase Auth was created with —
+   *  that is not a way of reaching anyone and must not be shown as one. */
+  email: string | null;
+  tempPassword: string | null;
+  /** The person already had a profile and a JKKN ID — a second course, not a
+   *  second identity. No password is issued in this case. */
+  reusedExistingIdentity: boolean;
+  /** Whether the welcome email actually went out. Sent AFTER the approval
+   *  transaction and unable to fail it, so this is reported rather than thrown:
+   *  when false the admin still has to hand the credentials over themselves. */
+  emailSent: boolean;
+  /** Present when sending was deliberately skipped — most often because the
+   *  participant has no email address at all, which is normal, not a fault. */
+  emailSkipReason?: string;
+  /** Present when Resend actually rejected the send. */
+  emailError?: string;
+}
+
+/** What the resend-credentials route returns. The password is ALWAYS here —
+ *  most external participants have no email, so showing it once in the dialog
+ *  is the primary delivery path, not a fallback. */
+export interface CourseCredentialsResult {
+  ok: true;
+  jkkn_id: string;
+  tempPassword: string;
+  email: string | null;
+  emailSent: boolean;
+  emailSkipReason?: string;
+  emailError?: string;
+}
+
+/** What deleting a course would destroy — returned by fn_course_delete_blockers.
+ *
+ *  Counted in the database, not the client: the child tables are RLS-gated, so a
+ *  client-side count reports 0 for anyone who cannot see the bills and would show
+ *  "nothing will be lost" over the exact rows the preview exists to protect.
+ *
+ *  Despite the name nothing here BLOCKS the delete — a super admin can always go
+ *  through. These are the numbers the confirm dialog shows so the choice is
+ *  informed rather than blind. (Contrast EventDeleteBlockers in types/events.ts,
+ *  which really does refuse.) */
+export interface CourseDeleteBlockers {
+  course_title: string;
+  applications: number;
+  enrollments: number;
+  packages: number;
+  forms: number;
+  sessions: number;
+  /** Venue reservations that will be RELEASED, not deleted — the reservation row
+   *  survives with course_session_id nulled. */
+  venue_holds: number;
+  bills: number;
+  /** Every payment row, including abandoned 'initiated' Razorpay attempts. */
+  payments: number;
+  /** Only status='success' — money actually received. This is the number that
+   *  decides whether the dialog demands type-to-confirm. */
+  successful_payments: number;
+  /** Sum of amount_paid across successful payments only. Comes back from
+   *  Postgres numeric, so it can arrive as a string — coerce before formatting. */
+  amount_received: number | string;
+}
+
+/** Receipt returned by fn_course_delete_cascade: what was actually removed. */
+export interface CourseDeleteResult {
+  course_title: string;
+  deleted: {
+    payments: number;
+    bills: number;
+    enrollments: number;
+    applications: number;
+    packages: number;
+    forms: number;
+    sessions: number;
+  };
 }

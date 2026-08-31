@@ -31,7 +31,10 @@ export interface CreateReferralRateInput {
 
 export interface GenerateAgencyLine {
   agency: string;
+  /** Eligible referrals only — held ones are counted separately. */
   referrals: number;
+  /** Walk-in credits this agency has that nobody has released yet. */
+  held: number;
   net: number;
   payable: boolean;
 }
@@ -39,7 +42,14 @@ export interface GenerateAgencyLine {
 export interface GenerateCommissionsResult {
   dry_run: boolean;
   academic_year: number;
+  /** Everything the generator FOUND, held or not. Never shrinks silently. */
   candidates: number;
+  /** Walk-in credits with no payout clearance. Counted, valued, never written. */
+  held_walkin: number;
+  /** What the held population would be worth at the current rate. */
+  held_gross: number;
+  /** candidates − held_walkin. This is what a real run actually writes. */
+  eligible: number;
   payable_now: number;
   blocked_no_bank: number;
   total_gross: number;

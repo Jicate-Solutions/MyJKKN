@@ -4,6 +4,7 @@ import {
   createClientSupabaseClient,
   createAdminClient
 } from '@/lib/supabase/client';
+import { normalizeStaffNameFields } from '@/lib/utils/staff-name';
 import type {
   Staff,
   StaffFilters,
@@ -23,7 +24,7 @@ import type {
 import toast from 'react-hot-toast';
 import { getErrorMessage } from '@/lib/utils';
 import {
-  buildStaffSearchConditions,
+  buildStaffSearchTokenGroups,
   resolveStaffFiltersForUser
 } from '@/lib/utils/staff-search';
 import { RESERVED_STAFF_ROLE_KEYS } from '@/types/staff';
@@ -216,6 +217,13 @@ export class StaffService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
+      // Canonical staff name (UPPERCASE, trimmed, single-spaced). Applied here
+      // rather than at the call site so BOTH the direct insert below and the
+      // API-route fallback send the same value. The DB is still the guarantee
+      // (trg_normalize_staff_names + the staff_*_name_canonical CHECKs); doing
+      // it here keeps the returned record consistent with what was submitted.
+      data = normalizeStaffNameFields(data);
+
       // Role key validation: must exist, must not be reserved.
       // Added: 2026-04-14 for dynamic staff role onboarding.
       if (!data.role_key) {
@@ -241,18 +249,29 @@ export class StaffService {
           data.institution_email = generateSyntheticEmail('institution', data.staff_id, data.phone);
         }
       } else {
-        // Login staff require personal email. Institution email is optional —
-        // many non-teaching staff (drivers, lab techs, admin assistants) don't
-        // have @jkkn.ac.in addresses. The DB trigger already handles
-        // institution_email IS NULL gracefully (skips profile-link).
-        // Fixes: BUG-003989, BUG-003980, BUG-003962.
+        // Login staff require BOTH emails.
+        //
+        // 2026-08-28: institution_email used to be optional here, on the
+        // reasoning that "the DB trigger already handles institution_email IS
+        // NULL gracefully (skips profile-link)" (BUG-003989/3980/3962). It does
+        // skip — and that is the bug, not the mitigation.
+        // sync_staff_to_profiles wraps its whole body in a non-empty check on
+        // institution_email and creates the profile with
+        // `email = NEW.institution_email`, so a blank one means NO profile row,
+        // profile_id stays NULL, and a staff member flagged login_enabled=true
+        // silently has no login. Five staff were created that way between
+        // 2026-08-17 and 2026-08-27.
+        //
+        // A staff member with no @jkkn.ac.in address belongs in the view-only
+        // branch above, which mints a synthetic institution email precisely so
+        // the trigger still runs.
         if (!data.email) {
           throw new Error('Email is required for login-enabled staff');
         }
-        // Normalize blank institution_email to null so Postgres UNIQUE index
-        // doesn't collide on ''.
         if (!data.institution_email || data.institution_email.trim() === '') {
-          data.institution_email = null as any;
+          throw new Error(
+            'Institution email is required for login-enabled staff — it becomes their login identity. Turn off "Login user" to create a view-only record instead.'
+          );
         }
       }
       // Persist the flag through to the DB (default true if undefined).
@@ -439,6 +458,11 @@ export class StaffService {
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
+
+      // Canonical staff name — see createStaff. normalizeStaffNameFields only
+      // touches keys that are PRESENT, so a partial update that omits
+      // last_name does not gain an undefined last_name and blank a surname.
+      data = normalizeStaffNameFields(data);
 
       // Normalize empty optional unique fields to null so the
       // staff_staff_id_not_empty CHECK constraint doesn't reject blanks
@@ -700,14 +724,12 @@ export class StaffService {
 
       // Apply other filters AFTER institution filter
       if (filters.search) {
-        const searchConditions = buildStaffSearchConditions(filters.search, {
-          caseSensitive: filters.search_case_sensitive,
-          exactMatch: filters.search_exact_match,
-          searchFields: filters.search_fields
-        });
-
-        if (searchConditions.length > 0) {
-          query = query.or(searchConditions.join(','));
+        // ONE .or() PER TOKEN, chained — PostgREST ANDs successive .or() calls,
+        // which is what lets "DHINESHKUMAR B" match a row whose first_name and
+        // last_name hold those words separately. A single flat .or() with the
+        // whole term cannot match a full name at all.
+        for (const group of buildStaffSearchTokenGroups(filters.search)) {
+          query = query.or(group.join(','));
         }
       }
 
@@ -955,14 +977,12 @@ export class StaffService {
 
       // Apply other filters
       if (filters.search) {
-        const searchConditions = buildStaffSearchConditions(filters.search, {
-          caseSensitive: filters.search_case_sensitive,
-          exactMatch: filters.search_exact_match,
-          searchFields: filters.search_fields
-        });
-
-        if (searchConditions.length > 0) {
-          query = query.or(searchConditions.join(','));
+        // ONE .or() PER TOKEN, chained — PostgREST ANDs successive .or() calls,
+        // which is what lets "DHINESHKUMAR B" match a row whose first_name and
+        // last_name hold those words separately. A single flat .or() with the
+        // whole term cannot match a full name at all.
+        for (const group of buildStaffSearchTokenGroups(filters.search)) {
+          query = query.or(group.join(','));
         }
       }
 

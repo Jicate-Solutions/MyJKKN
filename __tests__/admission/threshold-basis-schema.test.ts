@@ -33,7 +33,15 @@ describe('threshold_basis on the admission status form', () => {
   });
 
   it('label map and schema enum stay in lockstep — a new basis without a label fails here', () => {
-    const enumValues = admissionStatusFormSchema.shape.threshold_basis._def.innerType.options as string[];
+    // admissionStatusFormSchema is z.object({...}).refine().refine().refine(), and
+    // every .refine() wraps the schema in a ZodEffects, which carries no .shape —
+    // only the ZodObject underneath does. Reading .shape straight off the export
+    // therefore yields undefined and this assertion died on a TypeError before it
+    // ever compared anything. Peel the refinement wrappers off first, and keep
+    // peeling, so adding a fourth cross-field rule does not silently break it again.
+    let objectSchema: any = admissionStatusFormSchema;
+    while (objectSchema?._def?.schema) objectSchema = objectSchema._def.schema;
+    const enumValues = objectSchema.shape.threshold_basis._def.innerType.options as string[];
     expect([...enumValues].sort()).toEqual(Object.keys(THRESHOLD_BASIS_LABELS).sort());
   });
 });

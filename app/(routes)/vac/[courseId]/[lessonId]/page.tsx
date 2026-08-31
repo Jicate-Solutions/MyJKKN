@@ -145,15 +145,19 @@ function LearningOutcomesList({ outcomes }: { outcomes: LearningOutcome[] }) {
 // ── Exercises ──────────────────────────────────────────────────────────────
 
 function ExerciseTabs({ exercises }: { exercises: TieredExercise[] }) {
-  if (!exercises?.length) return null;
-
+  // The empty check sits BELOW the useMemo. Above it the hook was conditional,
+  // and this component is rendered from a lesson whose exercises arrive
+  // asynchronously — so the same fiber really does go from an empty list to a
+  // populated one, which is the "Expected static flag was missing" crash.
   const grouped = useMemo(() => {
     const m: Record<string, TieredExercise[]> = { apply: [], analyze: [], create: [] };
-    exercises.forEach((ex) => {
+    (exercises ?? []).forEach((ex) => {
       if (m[ex.tier]) m[ex.tier].push(ex);
     });
     return m;
   }, [exercises]);
+
+  if (!exercises?.length) return null;
 
   const availableTiers = Object.entries(grouped).filter(([, items]) => items.length > 0);
   if (availableTiers.length === 0) return null;

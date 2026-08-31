@@ -74,6 +74,7 @@ interface EditRoleDialogProps {
       description?: string;
       permissions?: Record<string, boolean>;
       institution_scope?: 'all' | 'own';
+      is_privileged?: boolean;
       module_scopes?: Record<string, 'own_records' | 'own_institution' | 'all_institutions'>;
     }
   ) => Promise<void>;
@@ -228,6 +229,7 @@ export function EditRoleDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [institutionScope, setInstitutionScope] = useState<'all' | 'own'>(role?.institution_scope || 'own');
+  const [isPrivileged, setIsPrivileged] = useState<boolean>(role?.is_privileged ?? false);
   const [moduleScopes, setModuleScopes] = useState<
     Record<string, 'own_records' | 'own_institution' | 'all_institutions'>
   >((role?.module_scopes as any) ?? {});
@@ -336,6 +338,7 @@ export function EditRoleDialog({
   useEffect(() => {
     form.reset(defaultFormValues);
     setInstitutionScope(role?.institution_scope || 'own');
+    setIsPrivileged(role?.is_privileged ?? false);
     setModuleScopes((role?.module_scopes as any) ?? {});
 
     // Debug form values after reset
@@ -392,6 +395,7 @@ export function EditRoleDialog({
         description: values.description || '',
         permissions: flatPermissions, // Use the flattened version
         institution_scope: institutionScope,
+        is_privileged: isPrivileged,
         module_scopes: moduleScopes
       };
 
@@ -660,6 +664,27 @@ export function EditRoleDialog({
                       : 'Default scope used by any module without a specific override below.'
                     }
                   </p>
+                </div>
+
+                {/* Privileged flag. Kept separate from "System" (is_system_role
+                    is true for nearly every role and says nothing about risk)
+                    and from scope (a cross-institution role is not necessarily
+                    dangerous — Staff Counsellor is 'all' and quite ordinary). */}
+                <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="is-privileged">Privileged role</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Only a super administrator can assign this role to a staff member.
+                      Turn this on for roles that can grant permissions or administer
+                      the platform. Enforced in the database, not just in the dropdown.
+                    </p>
+                  </div>
+                  <Switch
+                    id="is-privileged"
+                    checked={isPrivileged}
+                    onCheckedChange={setIsPrivileged}
+                    disabled={role?.role_key === 'super_admin'}
+                  />
                 </div>
 
                 {/* Per-module scope overrides (Option A: per-module). Module

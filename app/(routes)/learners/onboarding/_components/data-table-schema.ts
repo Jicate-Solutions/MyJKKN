@@ -30,6 +30,26 @@ export const onboardingStatusSchema = z
   .optional()
   .catch(undefined);
 
+/**
+ * Admission cohort, as the INTEGER year — never `admission_year_id`.
+ *
+ * `admission_years` holds one row per (institution, year), so cohort 2026 is 7
+ * distinct uuids across the institutions represented on this page. A uuid
+ * filter would therefore match a fraction of the cohort whenever the page is in
+ * its default "All Institutions" mode. The integer is identical in every
+ * institution, so it composes with any institution scope.
+ */
+export const onboardingAdmissionYearSchema = z.coerce
+  .number()
+  .int()
+  .positive()
+  // Bounded so an absurd ?admission_year= cannot reach Postgres as an int4
+  // overflow — that comes back as a query error, i.e. an empty table plus a
+  // console error, where "no such cohort" is the honest answer.
+  .lte(9999)
+  .optional()
+  .catch(undefined);
+
 export const onboardingMissingFieldSchema = z
   .enum(['college_email', 'academic_year_id', 'semester_id', 'section_id'])
   .optional()
@@ -59,7 +79,12 @@ export const onboardingSearchParamsSchema = z.object({
   semester_id: z.string().uuid().optional().catch(undefined),
   section_id: z.string().uuid().optional().catch(undefined),
   academic_year_id: z.string().uuid().optional().catch(undefined),
+  admission_year: onboardingAdmissionYearSchema,
   gender: z.string().optional().catch(undefined),
+  // FK to the global accommodation_types lookup (4 active rows, not
+  // institution-scoped), mirroring /learners/profiles. NOT the retired
+  // learners_profiles.accommodation_type TEXT column.
+  accommodation_type_id: z.string().uuid().optional().catch(undefined),
 
   // Sorting
   sort_by: z.string().optional().catch(undefined),

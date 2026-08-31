@@ -21,23 +21,30 @@ import {
   type AttendanceDay,
 } from '@/types/hr-attendance';
 
-import { AttendanceLegend, tonesFor } from './attendance-legend';
+import { AttendanceLegend, cellWashFor, tonesFor } from './attendance-legend';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function AttendanceCalendarTab({
   weeks,
   isLoading,
+  closed = false,
 }: {
   weeks: AttendanceDay[][];
   isLoading: boolean;
+  /**
+   * HR has closed this month. Only then does the grid paint days green/red —
+   * an open month's figures can still move, and a paid/unpaid verdict on them
+   * would be a promise the data has not made yet.
+   */
+  closed?: boolean;
 }) {
   if (isLoading) return <Skeleton className="h-[32rem] w-full rounded-md" />;
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="space-y-4">
-        <AttendanceLegend />
+        <AttendanceLegend closed={closed} />
 
         <div className="overflow-x-auto">
           <div className="min-w-[52rem] overflow-hidden rounded-md border">
@@ -56,7 +63,7 @@ export function AttendanceCalendarTab({
             {weeks.map((week) => (
               <div key={week[0].date} className="grid grid-cols-7 border-b last:border-b-0">
                 {week.map((day) => (
-                  <CalendarCell key={day.date} day={day} />
+                  <CalendarCell key={day.date} day={day} closed={closed} />
                 ))}
               </div>
             ))}
@@ -67,16 +74,25 @@ export function AttendanceCalendarTab({
   );
 }
 
-function CalendarCell({ day }: { day: AttendanceDay }) {
+function CalendarCell({ day, closed }: { day: AttendanceDay; closed: boolean }) {
   const tones = tonesFor(day.token);
   const showToken = day.inMonth && !day.isFuture;
   const [first, second] = day.halfPair;
+  // halfPairFor repeats the day token unless the day is HALF_DAY, so a split
+  // pair IS the half day. Rendering only the pair — the reference UI's
+  // `AB : AB` — meant a half day appeared as `AB : P`, which reads as "absent"
+  // against a legend whose entries are all DAY tokens (P, HD, AB, WO...) and
+  // never pairs. The day's own verdict now leads; the split is the detail
+  // under it, and an unsplit day drops the redundant `P : P` entirely.
+  const isSplit = first !== second;
 
   return (
     <div
       className={cn(
         'min-h-[5.5rem] border-r p-2 last:border-r-0',
-        day.inMonth ? tones.cell : 'bg-muted/30',
+        // A future day carries no verdict yet, so it stays unwashed even in a
+        // closed month — closing December does not make the 31st "paid".
+        day.inMonth ? cellWashFor(day.token, closed && !day.isFuture) : 'bg-muted/30',
       )}
     >
       <div
@@ -95,13 +111,19 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <span className={cn('text-xs font-bold', tones.text)}>
-                {STATUS_TOKENS[first].short} : {STATUS_TOKENS[second].short}
+                {day.tokenLabel}
               </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
               <CellTooltip day={day} />
             </TooltipContent>
           </Tooltip>
+
+          {isSplit && (
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {STATUS_TOKENS[first].short} : {STATUS_TOKENS[second].short}
+            </span>
+          )}
 
           {day.inTime && day.outTime && (
             <span className="text-[10px] tabular-nums text-muted-foreground">
@@ -115,12 +137,20 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
 }
 
 function CellTooltip({ day }: { day: AttendanceDay }) {
+  const [first, second] = day.halfPair;
   return (
     <div className="space-y-1">
       <p className="font-semibold">
         {format(day.dateObj, 'EEEE, d MMMM yyyy')} — {STATUS_TOKENS[day.token].label}
         {day.tokenDetail ? ` (${day.tokenDetail})` : ''}
       </p>
+      {/* Spell the halves out. "AB : P" on the cell is compact, not obvious. */}
+      {first !== second && (
+        <p>
+          Morning {STATUS_TOKENS[first].label.toLowerCase()} · afternoon{' '}
+          {STATUS_TOKENS[second].label.toLowerCase()}
+        </p>
+      )}
       {day.inTime && day.outTime && (
         <p>
           In {day.inTime} · Out {day.outTime} · Effective{' '}
@@ -128,8 +158,16 @@ function CellTooltip({ day }: { day: AttendanceDay }) {
         </p>
       )}
       {day.lateMinutes !== null && day.lateMinutes > 0 && (
-        <p>Late by {day.lateMinutes} minute(s).</p>
+        <p>
+          Late by {day.lateMinutes} minute(s).
+          {/* Without this line a 09:24 arrival reading PRESENT looks like the
+              bug fixed on 2026-08-20 rather than an approved permission. */}
+          {day.excusedMinutes ? ` ${day.excusedMinutes} minute(s) covered by an approved permission.` : ''}
+        </p>
       )}
+      {!day.lateMinutes && day.excusedMinutes ? (
+        <p>{day.excusedMinutes} minute(s) covered by an approved permission.</p>
+      ) : null}
       {day.exception?.reason && <p className="text-xs">{day.exception.reason}</p>}
     </div>
   );

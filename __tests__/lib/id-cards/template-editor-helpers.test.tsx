@@ -14,6 +14,7 @@ vi.mock('@/lib/supabase/client', () => ({
 
 import {
   parseSidesFromPolicyResponse,
+  sidesNoticeText,
   toMappingRows,
 } from '@/components/admin/id-cards/id-card-template-editor';
 
@@ -91,5 +92,38 @@ describe('toMappingRows', () => {
     expect(toMappingRows([])).toEqual([]);
     expect(toMappingRows({ data: {} })).toEqual([]);
     expect(toMappingRows({ data: { mappings: 'nope' } })).toEqual([]);
+  });
+});
+
+
+// 2026-08-25 — the note beside the sides badge. The copy it replaced told the
+// reader to "change in Printer Policy to enable it" while `sides` was already
+// 2 on production AND is read by nothing in the render or print path, so the
+// instruction was doubly wrong. These tests pin the two properties that
+// matter: a note exists for every resolved state, and none of them instructs
+// a Printer Policy change.
+describe('sidesNoticeText', () => {
+  it('says nothing while the policy is still loading', () => {
+    expect(sidesNoticeText(null)).toBeNull();
+  });
+
+  it('describes each resolved state and points at the Back side tab', () => {
+    for (const sides of [1, 2] as const) {
+      const note = sidesNoticeText(sides);
+      expect(note).toBeTruthy();
+      expect(note).toContain('Back side tab');
+    }
+  });
+
+  it('never tells the reader to change Printer Policy', () => {
+    for (const sides of [1, 2, null] as const) {
+      expect(sidesNoticeText(sides) ?? '').not.toMatch(/printer policy/i);
+    }
+  });
+
+  it('does not claim the back is unusable when the printer is front-only', () => {
+    const note = sidesNoticeText(1) ?? '';
+    expect(note).toMatch(/still prepare a back design/i);
+    expect(note).not.toMatch(/not used/i);
   });
 });
