@@ -459,10 +459,13 @@ export class AiSolutionComplianceService {
       `)
       .in('phase_id', phaseIds) as { data: any[] | null };
 
-    // Get deployments
+    // Get deployments.
+    // sh_phase_deployments has no `deployment_url` column — the deployment's
+    // address is `custom_domain` falling back to `vercel_url`, the same
+    // resolution DeploymentsService.getActiveDeploymentUrl() uses.
     const { data: deployments } = await (supabase as any)
       .from('sh_phase_deployments')
-      .select('phase_id, deployment_url')
+      .select('phase_id, custom_domain, vercel_url')
       .in('phase_id', phaseIds)
       .eq('status', 'active')
       .order('created_at', { ascending: false }) as { data: any[] | null };
@@ -470,8 +473,9 @@ export class AiSolutionComplianceService {
     const deploymentMap = new Map<string, string>();
     for (const d of deployments ?? []) {
       const solId = phaseSolutionMap.get(d.phase_id);
-      if (solId && !deploymentMap.has(solId)) {
-        deploymentMap.set(solId, d.deployment_url);
+      const url = d.custom_domain || d.vercel_url;
+      if (solId && url && !deploymentMap.has(solId)) {
+        deploymentMap.set(solId, url);
       }
     }
 
