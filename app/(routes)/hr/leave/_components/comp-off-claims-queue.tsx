@@ -48,6 +48,17 @@ export function CompOffClaimsQueue() {
 
   const claims = useMemo(() => data ?? [], [data]);
 
+  // A claim can lapse before anyone decides it: expiry runs 90 days from the
+  // day WORKED, not from approval. Approving one mints a credit that the
+  // balance's `expires_on >= CURRENT_DATE` filter can never see — it shows in
+  // the claimant's ledger and buys them nothing, which is exactly how the COO
+  // ended up with credits on screen and "0 available" on Apply.
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const lapsedCount = useMemo(
+    () => claims.filter((c) => c.expires_on < today).length,
+    [claims, today]
+  );
+
   const onApprove = async (id: string) => {
     setActionError(null);
     try {
@@ -84,6 +95,17 @@ export function CompOffClaimsQueue() {
         </AlertDescription>
       </Alert>
 
+      {lapsedCount > 0 && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-xs">
+            <strong>{lapsedCount}</strong> claim(s) below have already passed their
+            90-day expiry. Approving one creates a credit the team member cannot
+            book — reject it with a reason instead, so they know where it went.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {(error || actionError) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -113,6 +135,7 @@ export function CompOffClaimsQueue() {
           // cosmetic gap, not a self-approval hole. Closing it properly means
           // exposing the full staff-id set through the context.
           const isOwn = c.employee_id === ctx.employeeId;
+          const lapsed = c.expires_on < today;
           return (
             <RequestRow key={c.id} status="pending">
               <TableCell className="pl-4">
@@ -124,7 +147,14 @@ export function CompOffClaimsQueue() {
                 )}
               </TableCell>
               <TableCell>{fmtDate(c.worked_date)}</TableCell>
-              <TableCell className="text-muted-foreground">{fmtDate(c.expires_on)}</TableCell>
+              <TableCell className={cn(lapsed ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>
+                {fmtDate(c.expires_on)}
+                {lapsed && (
+                  <span className="block text-xs font-medium">
+                    Already expired — a credit here is unusable
+                  </span>
+                )}
+              </TableCell>
               <TableCell className="text-right tabular-nums">
                 {formatDays(c.credit_days)}
               </TableCell>

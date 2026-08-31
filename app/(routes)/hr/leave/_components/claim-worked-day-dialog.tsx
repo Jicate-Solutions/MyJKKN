@@ -47,15 +47,27 @@ export function ClaimWorkedDayDialog({
 
   // Shown so the claimant knows the deadline before submitting, using the same
   // +90 rule the database applies.
-  const expiresOn = useMemo(() => {
+  const expiry = useMemo(() => {
     if (!workedDate) return null;
     const d = new Date(`${workedDate}T00:00:00`);
     d.setDate(d.getDate() + 90);
-    return d.toLocaleDateString('en-GB');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return {
+      label: d.toLocaleDateString('en-GB'),
+      daysLeft: Math.round((d.getTime() - today.getTime()) / 86_400_000),
+    };
   }, [workedDate]);
 
+  // The credit expires 90 days after the day worked, so a date older than that
+  // would be inserted already dead — visible in the ledger, never spendable.
+  // hr_comp_off_set_expiry refuses it too; this only saves the round trip and
+  // names the deadline, which the raw database message cannot do as kindly.
+  const tooOld = !inFuture && !!expiry && expiry.daysLeft < 0;
+
   const canSubmit =
-    !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture && !mutation.isPending;
+    !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture && !tooOld &&
+    !mutation.isPending;
 
   const submit = async () => {
     setError(null);
@@ -96,9 +108,22 @@ export function ClaimWorkedDayDialog({
               <p className="mt-1 text-xs text-destructive">
                 You cannot claim a day you have not worked yet.
               </p>
-            ) : expiresOn ? (
+            ) : tooOld ? (
+              <p className="mt-1 text-xs text-destructive">
+                Too late to claim — a credit for this day expired on{' '}
+                <strong>{expiry?.label}</strong>. Compensatory off must be claimed
+                within 90 days of the day worked.
+              </p>
+            ) : expiry ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Earns <strong>1 day</strong>, usable until <strong>{expiresOn}</strong>.
+                Earns <strong>1 day</strong>, usable until <strong>{expiry.label}</strong>
+                {expiry.daysLeft <= 14 && (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    {' '}— only {expiry.daysLeft} day(s) left to use it, so get it
+                    approved quickly.
+                  </span>
+                )}
+                .
               </p>
             ) : (
               <p className="mt-1 text-xs text-muted-foreground">
