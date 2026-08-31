@@ -13,7 +13,7 @@ import {
 } from '@/lib/services/dashboard/morning-brief-service';
 import { MorningBriefDismissible } from './morning-brief-dismissible';
 import { queueTypeEmoji } from '@/lib/services/dashboard/decision-queue-service';
-import { performQueueAction } from '@/app/(routes)/dashboard/_actions/queue-actions';
+import { performQueueActionForm } from '@/app/(routes)/dashboard/_actions/queue-actions';
 
 type MorningBriefCardProps = {
   brief: MorningBrief;
@@ -154,7 +154,7 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
                         leaving the brief card. Universal actions that work for all
                         queue types. */}
                     <div className='flex items-center gap-1 shrink-0'>
-                      <form action={performQueueAction} className='inline-block'>
+                      <form action={performQueueActionForm} className='inline-block'>
                         <input type='hidden' name='userNotificationId' value={p.user_notification_id} />
                         <input type='hidden' name='action' value='snooze' />
                         <input type='hidden' name='snoozeMinutes' value='120' />
