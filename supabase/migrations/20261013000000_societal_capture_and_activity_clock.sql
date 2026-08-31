@@ -248,6 +248,27 @@ COMMENT ON FUNCTION public.update_department_statuses() IS
   'Before 2026-08-28 this read last_revenue_at alone, which marked a '
   'department dormant for closing problems that carried no invoice.';
 
+-- ── Grant lockdown (CI gate: new SECURITY DEFINER functions lock anon) ──────
+-- One call rewrites the status of EVERY solution department, and the body
+-- carries no authorization check. Revoking anon alone would not be enough:
+-- authenticated is a member of PUBLIC, so both are named. service_role holds
+-- EXECUTE independently, so cron and server routes are unaffected — and the
+-- only application entry point, DepartmentTrackerService.refreshStatuses(),
+-- has no caller today.
+REVOKE EXECUTE ON FUNCTION public.update_department_statuses() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.update_department_statuses() TO service_role;
+
+DO $lockcheck$
+BEGIN
+  IF has_function_privilege('anon', 'public.update_department_statuses()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.update_department_statuses()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'update_department_statuses is still EXECUTE-able by anon or authenticated';
+  END IF;
+  IF NOT has_function_privilege('service_role', 'public.update_department_statuses()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'update_department_statuses lost EXECUTE for service_role';
+  END IF;
+END $lockcheck$;
+
 -- ── 4. What refreshes the activity clock ────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.on_societal_activity_touch_department()
