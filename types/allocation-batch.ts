@@ -103,6 +103,10 @@ export interface AllocationEligibilityExplain {
     semester: string | null;
     quota: string | null;
     academic_year: string | null;
+    /** The academic year matching their admission year — the intended anchor. */
+    admission_academic_year: string | null;
+    /** The year academic_fee was actually summed from (anchor, else earliest billed). */
+    fee_academic_year: string | null;
     academic_fee: number | null;
     gender: string | null;
   };
@@ -114,6 +118,8 @@ export interface AllocationEligibilityExplain {
     room_category_matched: boolean;
     resolved_mess_category: string | null;
     academic_year: string | null;
+    admission_academic_year: string | null;
+    fee_academic_year: string | null;
     academic_fee: number | null;
     gender: string | null;
     gender_ok: boolean;

@@ -4930,15 +4930,70 @@ export type Database = {
           },
         ]
       }
+      admission_fee_structure_item_schedules: {
+        Row: {
+          created_at: string
+          due_date: string | null
+          due_offset_days: number | null
+          fee_structure_item_id: string
+          fixed_amount: number | null
+          id: string
+          label: string | null
+          promotes_to_status_code: string | null
+          sequence_no: number
+          share_percent: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          due_date?: string | null
+          due_offset_days?: number | null
+          fee_structure_item_id: string
+          fixed_amount?: number | null
+          id?: string
+          label?: string | null
+          promotes_to_status_code?: string | null
+          sequence_no: number
+          share_percent?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          due_date?: string | null
+          due_offset_days?: number | null
+          fee_structure_item_id?: string
+          fixed_amount?: number | null
+          id?: string
+          label?: string | null
+          promotes_to_status_code?: string | null
+          sequence_no?: number
+          share_percent?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_fee_structure_item_sc_fee_structure_item_id_fkey"
+            columns: ["fee_structure_item_id"]
+            isOneToOne: false
+            referencedRelation: "admission_fee_structure_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admission_fee_structure_items: {
         Row: {
           amount: number
           applies_to: string
           applies_year_of_study: number | null
           billing_category_id: string
+          due_anchor: string
+          due_date: string | null
+          due_offset_days: number | null
           fee_structure_id: string
           id: string
           is_optional: boolean
+          promotes_to_status_code: string | null
+          schedule_mode: string
           sort_order: number
         }
         Insert: {
@@ -4946,9 +5001,14 @@ export type Database = {
           applies_to?: string
           applies_year_of_study?: number | null
           billing_category_id: string
+          due_anchor?: string
+          due_date?: string | null
+          due_offset_days?: number | null
           fee_structure_id: string
           id?: string
           is_optional?: boolean
+          promotes_to_status_code?: string | null
+          schedule_mode?: string
           sort_order?: number
         }
         Update: {
@@ -4956,9 +5016,14 @@ export type Database = {
           applies_to?: string
           applies_year_of_study?: number | null
           billing_category_id?: string
+          due_anchor?: string
+          due_date?: string | null
+          due_offset_days?: number | null
           fee_structure_id?: string
           id?: string
           is_optional?: boolean
+          promotes_to_status_code?: string | null
+          schedule_mode?: string
           sort_order?: number
         }
         Relationships: [
@@ -4984,15 +5049,19 @@ export type Database = {
           admission_year_id: string
           created_at: string
           created_by: string | null
+          default_due_offset_days: number
           degree_id: string
           department_id: string
           effective_from: string | null
           effective_to: string | null
           gender: string | null
+          hostel_category_id: string | null
           id: string
           institution_id: string
+          mess_category_id: string | null
           name: string
           notes: string | null
+          package_type: string | null
           programme_id: string
           quota_id: string
           status: string
@@ -5004,15 +5073,19 @@ export type Database = {
           admission_year_id: string
           created_at?: string
           created_by?: string | null
+          default_due_offset_days?: number
           degree_id: string
           department_id: string
           effective_from?: string | null
           effective_to?: string | null
           gender?: string | null
+          hostel_category_id?: string | null
           id?: string
           institution_id: string
+          mess_category_id?: string | null
           name: string
           notes?: string | null
+          package_type?: string | null
           programme_id: string
           quota_id: string
           status?: string
@@ -5024,15 +5097,19 @@ export type Database = {
           admission_year_id?: string
           created_at?: string
           created_by?: string | null
+          default_due_offset_days?: number
           degree_id?: string
           department_id?: string
           effective_from?: string | null
           effective_to?: string | null
           gender?: string | null
+          hostel_category_id?: string | null
           id?: string
           institution_id?: string
+          mess_category_id?: string | null
           name?: string
           notes?: string | null
+          package_type?: string | null
           programme_id?: string
           quota_id?: string
           status?: string
@@ -12036,6 +12113,57 @@ export type Database = {
           },
         ]
       }
+      billing_bill_instalments: {
+        Row: {
+          amount: number
+          bill_id: string
+          created_at: string
+          due_date: string
+          fee_structure_item_schedule_id: string | null
+          id: string
+          label: string | null
+          promotes_to_status_code: string | null
+          sequence_no: number
+        }
+        Insert: {
+          amount: number
+          bill_id: string
+          created_at?: string
+          due_date: string
+          fee_structure_item_schedule_id?: string | null
+          id?: string
+          label?: string | null
+          promotes_to_status_code?: string | null
+          sequence_no: number
+        }
+        Update: {
+          amount?: number
+          bill_id?: string
+          created_at?: string
+          due_date?: string
+          fee_structure_item_schedule_id?: string | null
+          id?: string
+          label?: string | null
+          promotes_to_status_code?: string | null
+          sequence_no?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_bill_instalments_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "billing_student_bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_bill_instalments_fee_structure__fkey"
+            columns: ["fee_structure_item_schedule_id"]
+            isOneToOne: false
+            referencedRelation: "admission_fee_structure_item_schedules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_categories: {
         Row: {
           amount: number | null
@@ -13221,9 +13349,13 @@ export type Database = {
           created_by: string | null
           due_date: string
           fee_source: string
+          fee_structure_item_id: string | null
           final_amount: number
           hostel_year_id: string | null
           id: string
+          instalment_count: number | null
+          instalment_group_id: string | null
+          instalment_no: number | null
           institution_id: string
           is_recurring: boolean | null
           item_category_id: string | null
@@ -13252,9 +13384,13 @@ export type Database = {
           created_by?: string | null
           due_date: string
           fee_source?: string
+          fee_structure_item_id?: string | null
           final_amount: number
           hostel_year_id?: string | null
           id?: string
+          instalment_count?: number | null
+          instalment_group_id?: string | null
+          instalment_no?: number | null
           institution_id: string
           is_recurring?: boolean | null
           item_category_id?: string | null
@@ -13283,9 +13419,13 @@ export type Database = {
           created_by?: string | null
           due_date?: string
           fee_source?: string
+          fee_structure_item_id?: string | null
           final_amount?: number
           hostel_year_id?: string | null
           id?: string
+          instalment_count?: number | null
+          instalment_group_id?: string | null
+          instalment_no?: number | null
           institution_id?: string
           is_recurring?: boolean | null
           item_category_id?: string | null
@@ -23533,6 +23673,7 @@ export type Database = {
           id: string
           institution_scope: string | null
           is_active: boolean
+          is_privileged: boolean
           is_system_role: boolean | null
           module_scopes: Json
           permissions: Json | null
@@ -23547,6 +23688,7 @@ export type Database = {
           id?: string
           institution_scope?: string | null
           is_active?: boolean
+          is_privileged?: boolean
           is_system_role?: boolean | null
           module_scopes?: Json
           permissions?: Json | null
@@ -23561,6 +23703,7 @@ export type Database = {
           id?: string
           institution_scope?: string | null
           is_active?: boolean
+          is_privileged?: boolean
           is_system_role?: boolean | null
           module_scopes?: Json
           permissions?: Json | null
@@ -24758,6 +24901,7 @@ export type Database = {
           created_by: string | null
           description: string | null
           id: string
+          included_in_hr: boolean
           is_active: boolean | null
           is_teaching: boolean
           shows_extended_profile: boolean
@@ -24771,6 +24915,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          included_in_hr?: boolean
           is_active?: boolean | null
           is_teaching?: boolean
           shows_extended_profile?: boolean
@@ -24784,6 +24929,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          included_in_hr?: boolean
           is_active?: boolean | null
           is_teaching?: boolean
           shows_extended_profile?: boolean
@@ -33816,6 +33962,7 @@ export type Database = {
           room_source_category_id: string | null
           settle_billing_enabled: boolean
           sort_order: number
+          tier_key: string
           type: string
           updated_at: string
           upgrade_hold_days: number
@@ -33834,6 +33981,7 @@ export type Database = {
           room_source_category_id?: string | null
           settle_billing_enabled?: boolean
           sort_order?: number
+          tier_key?: string
           type: string
           updated_at?: string
           upgrade_hold_days?: number
@@ -33852,6 +34000,7 @@ export type Database = {
           room_source_category_id?: string | null
           settle_billing_enabled?: boolean
           sort_order?: number
+          tier_key?: string
           type?: string
           updated_at?: string
           upgrade_hold_days?: number
@@ -52627,6 +52776,7 @@ export type Database = {
           phone: string | null
           pin_code: string | null
           placement_dept: Json | null
+          staff_code_prefix: string | null
           state: string | null
           timetable_type: string | null
           transportation_dept: Json | null
@@ -52668,6 +52818,7 @@ export type Database = {
           phone?: string | null
           pin_code?: string | null
           placement_dept?: Json | null
+          staff_code_prefix?: string | null
           state?: string | null
           timetable_type?: string | null
           transportation_dept?: Json | null
@@ -52709,6 +52860,7 @@ export type Database = {
           phone?: string | null
           pin_code?: string | null
           placement_dept?: Json | null
+          staff_code_prefix?: string | null
           state?: string | null
           timetable_type?: string | null
           transportation_dept?: Json | null
@@ -94299,6 +94451,7 @@ export type Database = {
           institution_id: string
           is_active: boolean | null
           last_name: string
+          legacy_staff_id: string | null
           login_enabled: boolean
           marital_status: string
           memberships: Json
@@ -94366,6 +94519,7 @@ export type Database = {
           institution_id: string
           is_active?: boolean | null
           last_name: string
+          legacy_staff_id?: string | null
           login_enabled?: boolean
           marital_status: string
           memberships?: Json
@@ -94433,6 +94587,7 @@ export type Database = {
           institution_id?: string
           is_active?: boolean | null
           last_name?: string
+          legacy_staff_id?: string | null
           login_enabled?: boolean
           marital_status?: string
           memberships?: Json
@@ -105686,9 +105841,11 @@ export type Database = {
         Args: { p_day_number: number; p_event_id: string }
         Returns: {
           batch_label: string
+          father_mobile: string
           is_mixed: boolean
           learner_id: string
           name: string
+          program_name: string
           register_number: string
           status: string
         }[]

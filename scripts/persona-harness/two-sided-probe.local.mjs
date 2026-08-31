@@ -16,7 +16,7 @@ import puppeteer from 'puppeteer';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const CONFIG = JSON.parse(readFileSync(resolve(SCRIPT_DIR, 'personas.json'), 'utf8'));
 const BASE = process.env.PERSONA_BASE_URL || CONFIG.baseUrl;
-const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password || 'Test@1234';
+const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password;
 const HOST = new URL(BASE).hostname;
 const ENV_PATH = resolve(SCRIPT_DIR, CONFIG.envPath || '../../.env.local');
 function readEnv(key) {

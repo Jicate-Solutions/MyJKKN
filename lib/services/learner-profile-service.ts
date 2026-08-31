@@ -482,6 +482,7 @@ export class LearnerProfileService {
       gender,
       entry_type,
       is_profile_complete,
+      accommodation_type_id,
       page = 1,
       limit = 50,
       sortBy = 'created_at',
@@ -541,6 +542,18 @@ export class LearnerProfileService {
     // older forms wrote mixed case. An eq() here silently returned zero rows.
     if (gender) query = query.ilike('gender', gender);
     if (entry_type) query = query.eq('entry_type', entry_type);
+
+    // Matches the Learners Profiles filter bar predicate exactly. The export
+    // dialog reuses THIS function while the list page uses its own
+    // _data/get-learner-profiles.ts, so a filter added to one and not the other
+    // makes "Export" quietly return more rows than the table on screen.
+    //
+    // On the FK, never on the sibling `accommodation_type` field in this same
+    // filter type: that one names the RETIRED TEXT column, is not destructured
+    // anywhere in this method, and has therefore never filtered anything.
+    if (accommodation_type_id) {
+      query = query.eq('accommodation_type_id', accommodation_type_id);
+    }
 
     if (typeof is_profile_complete === 'boolean') {
       if (is_profile_complete === false) {
@@ -662,6 +675,25 @@ export class LearnerProfileService {
     // FK and strip the dead key (this method is a pass-through insert). dto
     // carries institution_id/program_id for the scoped resolvers.
     await this.normalizeRetiredColumns(supabase, enforcedDto as Record<string, any>);
+
+    // Validate college_email uniqueness before insert, the same way
+    // updateLearnerProfile does. Without it the learners_profiles_college_email_unique
+    // index rejects the INSERT and the caller gets a raw postgrest object whose
+    // message is "duplicate key value violates unique constraint ..." — which
+    // names no learner and tells the admission officer nothing actionable.
+    if (enforcedDto.college_email) {
+      const { data: existingLearner } = await supabase
+        .from('learners_profiles')
+        .select('id, first_name, last_name')
+        .eq('college_email', enforcedDto.college_email)
+        .maybeSingle() as { data: any; error: any };
+
+      if (existingLearner) {
+        throw new Error(
+          `Email "${enforcedDto.college_email}" is already assigned to another learner: ${existingLearner.first_name} ${existingLearner.last_name || ''}`.trim()
+        );
+      }
+    }
 
     const insertQuery: any = supabase.from('learners_profiles');
     const { data, error } = await insertQuery

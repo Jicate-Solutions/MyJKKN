@@ -295,6 +295,10 @@ export async function GET(request: NextRequest) {
   let skipped = 0;
   let pushed = 0;
 
+  // ONE definition of the idempotency key. It is the join between a learner
+  // and their inserted row, so the pre-scan, the insert and the id-mapping
+  // below must never be able to drift apart.
+  const keyFor = (userId: string) => `ai_pulse_domain_starter_notify:${cycleId}:${userId}`;
   const bodyFor = (topicLabel: string | null) => {
     const label = (topicLabel ?? '').trim();
     return label
@@ -313,7 +317,7 @@ export async function GET(request: NextRequest) {
     // work_item keeps cron-emitted reminders out of the
     // /notifications/admin announcement surface (kind='announcement').
     kind: 'work_item',
-    idempotency_key: `ai_pulse_domain_starter_notify:${cycleId}:${userId}`,
+    idempotency_key: keyFor(userId),
     // Derived from THIS cycle's end, never a literal — the starter prompt
     // this announces is superseded when the next cycle's prompt lands.
     expires_at: expiresAt,
@@ -337,7 +341,7 @@ export async function GET(request: NextRequest) {
 
   const pending: { userId: string; topicLabel: string | null }[] = [];
   for (const [userId, topicLabel] of byProfile) {
-    if (seen.has(`ai_pulse_domain_starter_notify:${cycleId}:${userId}`)) skipped++;
+    if (seen.has(keyFor(userId))) skipped++;
     else pending.push({ userId, topicLabel });
   }
 
@@ -348,38 +352,39 @@ export async function GET(request: NextRequest) {
   //       still enforced by that index, not by the pre-scan above.
   const created: { id: string; userId: string; topicLabel: string | null }[] = [];
   for (const group of chunk(pending, DB_CHUNK)) {
-    const { data, error } = await admin
+    // The batch: ONE statement for up to DB_CHUNK learners. Postgres inserts
+    // every row or none of them, which is precisely why the pass below is a
+    // retry and not a second attempt at the same shape.
+    const { data: batch, error: batchErr } = await admin
       .from('notifications')
-      .insert({
-        title: 'Your AI starter prompt is ready',
-        body,
-        url: MY_PULSE_URL,
-        icon: '/icons/icon-192x192.png',
-        created_by: userId,
-        targeting: { user_ids: [userId] },
-        priority: 'normal',
-        category: 'ai_pulse',
-        // work_item keeps cron-emitted reminders out of the
-        // /notifications/admin announcement surface (kind='announcement').
-        kind: 'work_item',
-        idempotency_key,
-        // Derived from THIS cycle's end, never a literal — the starter prompt
-        // this announces is superseded when the next cycle's prompt lands.
-        expires_at: expiresAt,
-        metadata: {
-          source: 'ai_pulse_domain_starter_notify',
-          cycle_id: cycleId,
-          topic_label: label || null,
-        },
-      })
-      .select('id')
-      .single();
+      .insert(group.map((p) => rowFor(p.userId, p.topicLabel)))
+      .select('id, idempotency_key');
 
-    if (notifErr || !notification) {
-      errors.push(`${userId}: ${notifErr?.message ?? 'insert failed'}`);
-      skipped++;
+    if (!batchErr && batch) {
+      // Associate the returned ids back to learners by idempotency_key, NEVER
+      // by array position: the key is derived from the user id, so sending the
+      // right prompt to the wrong learner is impossible even if the rows come
+      // back reordered.
+      const byKey = new Map(group.map((p) => [keyFor(p.userId), p]));
+      for (const r of (batch as { id: string; idempotency_key: string | null }[])) {
+        const key = r.idempotency_key;
+        const p = key ? byKey.get(key) : undefined;
+        if (!key || !p) continue;
+        byKey.delete(key);
+        created.push({ id: r.id, userId: p.userId, topicLabel: p.topicLabel });
+      }
+      // Anything the insert did not hand back is surfaced, never dropped in
+      // silence — a learner with no id here would get no link row and so no bell.
+      for (const p of byKey.values()) {
+        errors.push(`${p.userId}: insert returned no row`);
+        skipped++;
+      }
       continue;
     }
+
+    // The chunk failed as a batch, so retry it row by row: ONE bad row (or a
+    // concurrent racer losing on idx_notifications_idempotency) must not cost
+    // the other DB_CHUNK-1 learners their notification.
     for (const p of group) {
       const { data: one, error: oneErr } = await admin
         .from('notifications')

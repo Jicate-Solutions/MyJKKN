@@ -20,11 +20,14 @@ export const INSTITUTIONS = [
   { value: 'jkkn_NV', label: 'JKKN Nattraja Vidhyalya' }
 ] as const;
 
+// profiles.gender domain. Title Case per profiles_gender_check (20260820160000);
+// trg_normalize_gender_profiles canonicalises anything else on write.
+// 'prefer_not_to_say' is gone - it was never stored on either learner table and the
+// constraint now rejects it.
 export const GENDERS = [
-  { value: 'male', label: 'Male' },
-  { value: 'female', label: 'Female' },
-  { value: 'other', label: 'Other' },
-  { value: 'prefer_not_to_say', label: 'Prefer not to say' }
+  { value: 'Male', label: 'Male' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Other', label: 'Other' }
 ] as const;
 
 export const DEPARTMENTS = {
@@ -229,23 +232,43 @@ export const PERMISSION_CATEGORIES = [
       { key: 'users.contract_access.manage', label: 'Manage User→Contract Access Grants (Vendors)' },
       // Added 2026-08-10 — JKKN permanent ID. `.view` gates the lookup page and
       // the two read RPCs (fn_resolve_person, fn_check_duplicate_person).
-      // `.issue` gates fn_issue_jkkn_id and is DELIBERATELY GRANTED TO NO ROLE:
-      // that is what keeps the register dormant. Granting it is the switch-on,
-      // and is a decision, not a default.
+      // `.issue` gates fn_issue_jkkn_id AND the jkkn_identities INSERT/UPDATE
+      // policies, so it is the whole write side of the register in one key.
+      // Held only by administrator and coo. Granting it is a decision, not a
+      // default — it lets the holder mint a permanent lifetime number for any
+      // learner or team member, and rewrite identity rows via PostgREST.
+      //
+      // It is NOT needed to approve a course application: the issuer accepts
+      // courses.applications.decide for the external_participant kind alone
+      // (20260821070100). Do not tick this key just to unblock /courses.
       { key: 'users.jkkn_id.view', label: 'Look Up People by JKKN ID / Roll Number / Team Code' },
-      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID (dormant — granted to no role)' }
+      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' }
     ]
   },
   {
     // Added 2026-06-27 — Fresher Induction module (Phase 1). Keys referenced by
     // RLS on induction_* tables + the SECURITY DEFINER engine RPCs
-    // (fn_induction_create_program / auto_enroll / auto_split_batches). Grant
-    // 'induction.manage' to induction coordinators; super_admin/admin bypass.
+    // (fn_induction_create_program / auto_enroll / auto_split_batches).
+    // super_admin/admin bypass all three.
+    //
+    // 'induction.create' was split out of 'induction.manage' on 2026-08-21.
+    // Before that, manage bundled create+enroll+batches+attendance in one key and
+    // 654 users across ten roles held it — every Facilitator (493) and HOD (120)
+    // could stand up a new induction. Creation is now its own key, held by
+    // Induction Lead alone.
+    //
+    // WHY THE SPLIT IS SAFE OPERATIONALLY: fn_induction_create_program is the only
+    // manage-gated RPC with NO `OR fn_induction_is_event_coordinator(...)` leg.
+    // mark_attendance, upsert_session, auto_enroll, appoint_feedback_volunteer and
+    // the rest all accept an appointed per-event coordinator, so taking manage away
+    // from a role does not stop the people actually running an induction — it stops
+    // them starting a new one. That is the whole point of the split.
     name: 'Induction',
     key: 'induction',
     permissions: [
       { key: 'induction.view', label: 'View Induction Programs' },
-      { key: 'induction.manage', label: 'Manage Induction (create, enroll, batches, attendance)' }
+      { key: 'induction.create', label: 'Create Induction Program' },
+      { key: 'induction.manage', label: 'Manage Induction (enroll, batches, attendance)' }
     ]
   },
   {
@@ -400,6 +423,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.standing.view', label: 'View Learner Standing Verdicts (band, narrative, next steps)' },
       { key: 'learners.standing.admin_note.view', label: 'View Learner Standing ADMIN Notes (contribution + relative rank — leadership only)' },
       { key: 'learners.standing.override', label: 'Override a Learner Standing Verdict (human correction)' },
+      // Gates fn_learner_360_record_intervention (20260930010000) — the
+      // learner-360 return edge's ACT leg: recording the action a mentor or
+      // counselor took on a standing verdict. Separate from .override on
+      // purpose: correcting the AI's narrative and acting on a learner are
+      // different responsibilities, grantable independently.
+      { key: 'learners.standing.intervene', label: 'Record an Action Taken on a Learner Standing Verdict' },
 
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },
@@ -779,13 +808,26 @@ export const PERMISSION_CATEGORIES = [
       // institutions — see lib/auth/bulk-receipt-access.ts.
       { key: 'billing.receipts.bulk_create', label: 'Bulk Generate Receipts (Excel Upload)' },
       // Cancelling a receipt reverses money, so it is split in two: staff RAISE
-      // a request, and only a SUPER ADMIN decides it. There is deliberately no
-      // "cancel.approve" key — approval is gated on is_super_admin() in
-      // fn_act_on_receipt_cancellation and cannot be delegated through Role
-      // Management. A key here would be a toggle that grants nothing.
+      // a request, and someone else DECIDES it.
+      //
+      // There is still deliberately no "cancel.approve" key, but the reason
+      // changed on 2026-08-25. Approval is no longer hardcoded to
+      // is_super_admin(); it is resolved from
+      // billing_receipt_cancel_approval_flows, which a super admin configures
+      // per institution (with an optional group-wide default) and which only a
+      // super admin may write. Deciding authority therefore lives in that
+      // table, NOT in Role Management — a key here would be a second, competing
+      // source of truth for the same question. With no flow configured the
+      // answer falls back to super-admin-only, exactly as it was before.
+      //
       // Anyone holding billing.receipts.delete can still void directly and
       // bypass this, which is why it was revoked from the accounts roles and
       // from Chief Accountant.
+      //
+      // The key below was narrowed on 2026-08-25 to Chief Accountant alone
+      // (migration 20260825120000). Note the consequence for the queue page: a
+      // delegated approver will NOT hold it, which is why that page guards on
+      // "requester OR configured approver" rather than on this key.
       { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },
@@ -921,6 +963,49 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.payroll.institution.view', label: 'View Payroll Organisation' },
       { key: 'hr.payroll.institution.manage', label: 'Manage Payroll Organisation' },
 
+      // ── Employee salary (2026-08-21) ─────────────────────────────────────
+      // SEPARATE from the two keys above on purpose. Those say who may see
+      // WHICH ORGANISATION pays someone; these say who may see HOW MUCH. An HR
+      // user who maintains the payer directory is not automatically entitled to
+      // everyone's pay, so the amount got its own pair rather than riding along.
+      // Enforced by hr_staff_salaries RLS, which additionally lets anyone read
+      // their OWN row — reading your own pay needs no HR permission.
+      { key: 'hr.payroll.salary.view', label: 'View Employee Salary' },
+      { key: 'hr.payroll.salary.manage', label: 'Manage Employee Salary' },
+
+      // ── Employee bank account (2026-08-21) ───────────────────────────────
+      // A THIRD pair, not a reuse of the salary keys. Amount and destination
+      // are different questions: a payroll clerk who must see what someone
+      // earns is not automatically entitled to the account it lands in, and an
+      // account number is the one field on this whole module that a change to
+      // redirects real money. Enforced by hr_staff_bank_accounts RLS, which —
+      // unlike the salary table — does NOT let people read their own row: the
+      // self-service surface for "which account am I paid into" does not exist
+      // yet, and opening the read path before there is a screen for it would
+      // only widen the blast radius.
+      { key: 'hr.payroll.bank.view', label: 'View Employee Bank Account' },
+      { key: 'hr.payroll.bank.manage', label: 'Manage Employee Bank Account' },
+
+      // ── Salary register (2026-08-30) ─────────────────────────────────────
+      // The frozen monthly register: closed attendance month + recorded salary
+      // -> a per-institution pay register and its export workbook.
+      //
+      // A FOURTH pair rather than a reuse of the three above, because a
+      // register is the one artefact that shows amount AND destination AND the
+      // day counts behind them, for everybody at once. Someone entitled to
+      // maintain one staff member's salary is not thereby entitled to the whole
+      // institution's payroll on one screen.
+      //
+      // Granted to HR Head ALONE by 20260830150000_hr_salary_register.sql. That
+      // is the only role already holding all four keys a run must read through
+      // — hr.payroll.institution.view, hr.payroll.salary.view,
+      // hr.payroll.bank.view, hr.attendance.period.view. Granting these to a
+      // role missing any of them yields a run that SILENTLY omits people: RLS
+      // returns zero rows and no error, so a short register looks like a
+      // complete one.
+      { key: 'hr.payroll.register.view', label: 'View Salary Register' },
+      { key: 'hr.payroll.register.manage', label: 'Generate Salary Register' },
+
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
       // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:
@@ -959,6 +1044,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
       { key: 'hr.attendance.override', label: 'Override Attendance Records & Biometric Configuration' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
+
+      // ── Attendance month close (2026-08-22) ──────────────────────────────
+      // CLOSING the month is not the same as overriding a record.
+      // hr.attendance.override lets an HR user correct one day; these two let
+      // someone freeze an entire institution-month, after which nobody can
+      // raise, decide or withdraw a leave / short time off / comp-off request
+      // that touches it. Held by hr_head alone plus the Super Administrator.
+      //
+      // Enforced by hr_attendance_periods RLS, by hr_attendance_period_console
+      // and fn_hr_lock_attendance_period, and — the part hr_payroll_periods
+      // never had — by triggers on hr_attendance_records and
+      // hr_leave_applications that refuse writes inside a closed month.
+      //
+      // REOPENING deliberately has NO key: it is super-admin-only and checked
+      // with is_super_admin() inside fn_hr_reopen_attendance_period, so it
+      // cannot be granted to a role by mistake.
+      { key: 'hr.attendance.period.view', label: 'View Attendance Month Close' },
+      { key: 'hr.attendance.period.manage', label: 'Close and Reopen Attendance Months' },
 
       // ── Shift timings (2026-08-06) ────────────────────────────────────────
       // Institution x staff-category x weekday working hours, with the
@@ -1500,7 +1603,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'school_fees.manage', label: 'Create / Edit School Fee Plans & Term Calendar' },
       { key: 'school_fees.activate', label: 'Activate Plans & Create New Versions' },
       { key: 'school_fees.generate', label: 'Generate Yearly Fee Bills' },
-      { key: 'school_fees.concession', label: 'Manage Concession Schemes & Learner Assignments' }
+      { key: 'school_fees.concession', label: 'Manage Concession Schemes & Learner Assignments' },
+      { key: 'school_fees.collect', label: 'Collect Fee Payments & Issue Receipts (Counter)' }
     ]
   },
   {
@@ -1716,6 +1820,15 @@ export const PERMISSION_CATEGORIES = [
       // accreditation.naac.committees.* keys.
       { key: 'accreditation.cac.view', label: 'View Cluster Academic Council (CAC)' },
 
+      // The UGC readiness checklist on the same page (2026-08-14) — a separate
+      // key because the reading is narrower than the council's roster and
+      // meeting record: it is a list of what the council has and has not done.
+      // Registered here in the SAME pull request that grants it, so it can be
+      // ticked in Role Management rather than being grantable only by hand —
+      // an unregistered key is how this repo produced pages gated on something
+      // nobody could hold.
+      { key: 'accreditation.cac.readiness.view', label: 'View CAC UGC Readiness Checklist' },
+
       // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
       // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.
       { key: 'accreditation.metrics.view', label: 'View Accreditation Metrics Catalog' },
@@ -1872,6 +1985,13 @@ export const PERMISSION_CATEGORIES = [
         label: 'Declare Department Capabilities',
       },
 
+      // First real use (2026-09-07). The producing department records, at one
+      // checkpoint, the first time somebody outside the team used the solution.
+      // Both keys gate `sh_solution_first_use` in RLS, so leaving either
+      // unregistered would make the table permanently super-admin-only.
+      { key: 'solutions.first_use.view', label: 'View First Real Use' },
+      { key: 'solutions.first_use.record', label: 'Record First Real Use' },
+
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
     ]
@@ -1922,6 +2042,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.allocations.transfer', label: 'Transfer Learner Between Rooms' },
       { key: 'campus_living.allocations.vacate', label: 'Vacate Allocation' },
       { key: 'campus_living.allocations.approve', label: 'Approve Allocation' },
+      // Read-only conformance audit (/campus-living/allocations/audit). Granted
+      // to NO role on purpose: user_has_permission() super-admin-bypasses, so
+      // this is super-admin-only today and can be handed to a warden/registrar
+      // from Role Management later without a code change. Never gate on a role
+      // name — the RPC fn_hostel_allocation_audit reads THIS key.
+      { key: 'campus_living.allocations.audit', label: 'View Allocation Audit (Super Admin)' },
 
       // Residents (master data — added 2026-04-22 PR-2, classifies non-learner residents: staff / international / married / visitor / other)
       { key: 'campus_living.residents.view', label: 'View Hostel Residents' },
@@ -2478,7 +2604,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'bos.experts.edit', label: 'Edit BoS External Experts (legacy key — enforced by RLS)' },
       { key: 'bos.experts.delete', label: 'Delete BoS External Experts (legacy key — enforced by RLS)' },
       { key: 'bos.meetings.view', label: 'View BoS Course Reviews & Meeting Documents (legacy key — enforced by RLS)' },
-      { key: 'bos.meetings.edit', label: 'Edit BoS Course Reviews & Meeting Documents (legacy key — enforced by RLS)' }
+      { key: 'bos.meetings.edit', label: 'Edit BoS Course Reviews & Meeting Documents (legacy key — enforced by RLS)' },
+
+      // ── Legacy `bos.*` keys that MENU_PERMISSIONS never stopped using (2026-08-14)
+      // Same failure class as the RLS block above, one layer up. These two are
+      // the SIDEBAR gates — lib/sidebarMenuLink.ts:1313 and :1325 map
+      // '/bos/compositions' and '/bos/reports' to them — while the pages
+      // themselves gate on the canonical keys (BosViewGuard 'academic.bos-
+      // compositions', and hasBosPermission('academic.bos-reports.view') in
+      // app/api/bos/reports/*). Because they were absent here, no role could
+      // hold them, so both links were invisible to everyone but super admins
+      // even when the role had complete working access to both pages by URL.
+      // Registered so the right can be granted; first granted to bos_coordinator
+      // (20260825010000). The tidier fix is to repoint those two
+      // MENU_PERMISSIONS entries at the canonical academic.bos-*.view keys and
+      // retire these — that changes sidebar visibility for every existing role,
+      // so it is deliberately not bundled here.
+      { key: 'bos.compositions.view', label: 'Show BoS Compositions in sidebar (legacy key — sidebar gate only)' },
+      { key: 'bos.reports.view', label: 'Show BoS Reports in sidebar (legacy key — sidebar gate only)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup (Failure 1 of #511/#515
@@ -2526,7 +2669,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'courses.view', label: 'View Courses' },
       { key: 'courses.create', label: 'Create Courses' },
       { key: 'courses.edit', label: 'Edit Courses' },
-      { key: 'courses.delete', label: 'Delete Courses (cascades packages, sessions, forms)' },
+      // Retained for the audit gate and for re-delegating deletion later, but it
+      // no longer grants deletion on its own: course delete cascades through
+      // enrollments, bills and payments, so both the course_events_delete RLS
+      // policy and fn_course_delete_cascade check is_super_admin() instead.
+      { key: 'courses.delete', label: 'Delete Courses (superseded — super admin only)' },
       { key: 'courses.packages.manage', label: 'Manage Course Packages & Installment Plans' },
       { key: 'courses.forms.manage', label: 'Manage Course Registration Forms' },
       { key: 'courses.sessions.manage', label: 'Manage Course Sessions & Venue Holds' },

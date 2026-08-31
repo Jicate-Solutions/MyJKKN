@@ -1,4 +1,4 @@
-import { mock, describe, it, expect, beforeEach } from 'bun:test';
+import { vi, describe, it, expect } from 'vitest';
 import { RecruitmentNeedSignalService } from '../../../lib/services/hr/recruitment-need/signal-service';
 
 // ─── Mock Supabase client builder ───────────────────────────────────────────────
@@ -32,10 +32,10 @@ function createMockSupabase(overrides: {
     const chain: any = {};
     const methods = ['select', 'eq', 'is', 'order', 'insert', 'update', 'delete', 'upsert'];
     for (const m of methods) {
-      chain[m] = mock((..._args: any[]) => chain);
+      chain[m] = vi.fn((..._args: any[]) => chain);
     }
-    chain.single = mock(() => Promise.resolve(result));
-    chain.maybeSingle = mock(() => Promise.resolve(result));
+    chain.single = vi.fn(() => Promise.resolve(result));
+    chain.maybeSingle = vi.fn(() => Promise.resolve(result));
     // If no terminal is called, the chain itself acts as a thenable
     chain.then = (resolve: any, reject: any) =>
       Promise.resolve(result).then(resolve, reject);
@@ -49,16 +49,16 @@ function createMockSupabase(overrides: {
   const upsertChain = makeQueryChain(upsertResult);
 
   return {
-    rpc: mock((_fnName: string, _params?: any) => Promise.resolve(rpcResult)),
-    from: mock((_table: string) => ({
-      select: mock((..._args: any[]) => selectChain),
-      insert: mock((..._args: any[]) => insertChain),
-      update: mock((..._args: any[]) => updateChain),
-      delete: mock(() => deleteChain),
-      upsert: mock((..._args: any[]) => upsertChain),
+    rpc: vi.fn((_fnName: string, _params?: any) => Promise.resolve(rpcResult)),
+    from: vi.fn((_table: string) => ({
+      select: vi.fn((..._args: any[]) => selectChain),
+      insert: vi.fn((..._args: any[]) => insertChain),
+      update: vi.fn((..._args: any[]) => updateChain),
+      delete: vi.fn(() => deleteChain),
+      upsert: vi.fn((..._args: any[]) => upsertChain),
     })),
     auth: {
-      getUser: mock(() =>
+      getUser: vi.fn(() =>
         Promise.resolve({ data: { user: { id: userId } }, error: null })
       ),
     },

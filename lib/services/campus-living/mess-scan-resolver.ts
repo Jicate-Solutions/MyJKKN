@@ -30,7 +30,15 @@
  *
  * The lookup I/O is injected rather than imported so the decision logic above
  * is exercised directly by its test, instead of the test re-stating it.
+ *
+ * WHO IS REFUSED. A card outlives the person's place here, so a recognised
+ * card is not automatically a valid one. The leaver rule is imported from
+ * gate-scan-resolve rather than restated: the mess door and the gate must
+ * refuse exactly the same people, or a leaver eats lunch on a card the guard
+ * at the gate just turned red. It is a pure function — no database, no React.
  */
+
+import { describeDeparture } from '@/lib/services/campus-living/gate-scan-resolve';
 
 /** What the scanned string looks like, before any database is touched. */
 export type ScannedCodeShape = 'uuid' | 'jkkn_id' | 'other';
@@ -66,6 +74,13 @@ export interface ScannedLearner {
   institutionId: string | null;
   fullName: string;
   rollNumber: string | null;
+  /**
+   * learners_profiles.lifecycle_status, read on THIS scan. A card keeps
+   * working after its holder leaves, so the only place a dead card can be
+   * caught is the moment it is presented. Null when unreadable, which reads as
+   * "not shown to have left" — see describeDeparture.
+   */
+  lifecycleStatus: string | null;
 }
 
 /**
@@ -79,9 +94,17 @@ export interface MessScanLookup {
   /** profiles.id whose learner_id == learners_profiles.id (strictly 1:1). */
   profileIdForLearner(learnerProfileId: string): Promise<string | null>;
   /** The scanned uuid may already BE a profiles.id — an employee card. */
-  profileById(
-    id: string
-  ): Promise<{ id: string; institutionId: string | null; fullName: string } | null>;
+  profileById(id: string): Promise<{
+    id: string;
+    institutionId: string | null;
+    fullName: string;
+    /**
+     * staff.is_active for this person — the employment flag, NOT staff.status
+     * (a profile-page publish state that says nothing about whether they still
+     * work here). Null when there is no team-member record to read.
+     */
+    teamMemberIsActive: boolean | null;
+  } | null>;
 }
 
 export type MessScanResolution =
@@ -97,6 +120,13 @@ export type MessScanResolution =
     }
   /** The code matched nothing — an unknown card, or one that has been retired. */
   | { status: 'not_recognised'; code: string; shape: ScannedCodeShape }
+  /**
+   * A real, recognised card belonging to somebody who has LEFT. Distinct from
+   * 'not_recognised' on purpose: the card scans perfectly, so telling the
+   * server "card not recognised" would send them to fix a reader that is
+   * working. `reason` names the actual status behind the refusal.
+   */
+  | { status: 'has_left'; code: string; displayName: string; reason: string }
   /**
    * A real learner, but no login profile to hang the record on. ~1,190 of
    * 7,235 learners_profiles rows have no profiles row, so roughly one card in
@@ -126,6 +156,18 @@ export async function resolveScannedCode(
       // that id is already what the FK wants — no bridge needed.
       const profile = await lookup.profileById(code);
       if (profile) {
+        const gone = describeDeparture({
+          kind: 'team_member',
+          isActive: profile.teamMemberIsActive,
+        });
+        if (gone) {
+          return {
+            status: 'has_left',
+            code,
+            displayName: profile.fullName || code,
+            reason: gone,
+          };
+        }
         return {
           status: 'ok',
           profileId: profile.id,
@@ -148,6 +190,16 @@ export async function resolveScannedCode(
   }
 
   if (!learner) return { status: 'not_recognised', code, shape };
+
+  // Judged BEFORE the login-profile bridge: a leaver with no login account
+  // should hear that their card is dead, not that a login is missing.
+  const gone = describeDeparture({
+    kind: 'learner',
+    lifecycleStatus: learner.lifecycleStatus,
+  });
+  if (gone) {
+    return { status: 'has_left', code, displayName: learner.fullName || code, reason: gone };
+  }
 
   const profileId = await lookup.profileIdForLearner(learner.id);
   if (!profileId) {

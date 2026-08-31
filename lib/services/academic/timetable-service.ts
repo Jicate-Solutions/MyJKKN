@@ -1162,10 +1162,22 @@ A section may hold only one active timetable per academic year. Edit that timeta
       if (!timetable) throw new Error('Timetable not found');
 
       // Updated: 2025-10-08 - For semester-level timetables, fetch all available sections
+      // Updated: 2026-08-17 - This used to embed `student_count:students(count)`.
+      // There is no `students` table in this database — learners live in
+      // `learners_profiles` (FK fk_learners_profiles_section) — so PostgREST
+      // could not resolve the embed and failed the ENTIRE sections query. The
+      // error was then dropped by `if (!sectionsError && ...)` with no log,
+      // leaving available_sections undefined, and the header's
+      // `available_sections?.length || 0` reported a confident "0 section(s)"
+      // for I B.SC CHEMISTRY — which has a section holding 19 active learners.
+      //
+      // The headcount is now a SEPARATE query. A decoration must not be able to
+      // erase what it decorates: a section whose count failed to load is still a
+      // section, and a wrong zero reads as a real answer nobody investigates.
       if (timetable && timetable.timetable_type === 'semester' && timetable.semester_id) {
         const { data: semesterSections, error: sectionsError } = (await this.supabase
           .from('sections')
-          .select('id, section_name, student_count:students(count)')
+          .select('id, section_name')
           .eq('semester_id', timetable.semester_id)
           .eq('is_active', true)
           .order('section_name')) as {
@@ -1173,10 +1185,50 @@ A section may hold only one active timetable per academic year. Edit that timeta
           error: any;
         };
 
-        if (!sectionsError && semesterSections) {
+        if (sectionsError) {
+          logger.warn(
+            'academic/timetables',
+            'Could not load available sections for this semester - the header will show 0',
+            {
+              timetableId: timetable.id,
+              semesterId: timetable.semester_id,
+              error: sectionsError
+            }
+          );
+        } else if (semesterSections) {
+          const sectionIds = semesterSections.map((s: any) => s.id);
+          const counts = new Map<string, number>();
+
+          if (sectionIds.length > 0) {
+            const { data: learnerRows, error: countError } = (await this.supabase
+              .from('learners_profiles')
+              .select('section_id')
+              .in('section_id', sectionIds)
+              // Graduated and exited learners keep their section_id, so an
+              // unfiltered count overstates a live class by the whole history
+              // of everyone who ever sat in it.
+              .eq('lifecycle_status', 'active')) as {
+              data: any[] | null;
+              error: any;
+            };
+
+            if (countError) {
+              logger.warn(
+                'academic/timetables',
+                'Section headcounts unavailable - listing sections without them',
+                { timetableId: timetable.id, error: countError }
+              );
+            } else {
+              for (const row of learnerRows || []) {
+                if (!row?.section_id) continue;
+                counts.set(row.section_id, (counts.get(row.section_id) || 0) + 1);
+              }
+            }
+          }
+
           timetable.available_sections = semesterSections.map((s: any) => ({
             ...s,
-            student_count: s.student_count?.[0]?.count || 0
+            student_count: counts.get(s.id) || 0
           }));
         }
       }
