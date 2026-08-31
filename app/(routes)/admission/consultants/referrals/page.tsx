@@ -50,7 +50,10 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ConsultantService } from '@/lib/services/admission/consultant-service';
+import {
+  ConsultantService,
+  resolveReferralLearner
+} from '@/lib/services/admission/consultant-service';
 import type { ConsultantLeadAttribution, LeadAttributionFilters } from '@/types/education-consultants';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
@@ -111,7 +114,9 @@ function ReferralsContent() {
     if (!searchTerm.trim()) return attributions;
     const term = searchTerm.toLowerCase();
     return attributions.filter((a: ConsultantLeadAttribution) =>
-      a.lead?.full_name?.toLowerCase().includes(term) ||
+      // Resolve the learner across both attribution paths — matching on
+      // a.lead alone made every 'auto_sync_learner' referral unsearchable.
+      resolveReferralLearner(a).name?.toLowerCase().includes(term) ||
       a.lead?.phone?.toLowerCase().includes(term) ||
       a.lead?.email?.toLowerCase().includes(term) ||
       a.consultant?.name?.toLowerCase().includes(term) ||
@@ -171,7 +176,7 @@ function ReferralsContent() {
     ];
 
     const rows = filtered.map((a: ConsultantLeadAttribution) => [
-      a.lead?.full_name || '',
+      resolveReferralLearner(a).name || '',
       a.lead?.phone || '',
       a.lead?.email || '',
       a.consultant?.name || '',
@@ -427,7 +432,7 @@ function ReferralsContent() {
                         <TableRow key={attribution.id}>
                           <TableCell>
                             <div className="font-medium">
-                              {attribution.lead?.full_name || 'Unknown'}
+                              {resolveReferralLearner(attribution).name || 'Unknown'}
                             </div>
                             {attribution.lead?.phone && (
                               <div className="text-xs text-muted-foreground">

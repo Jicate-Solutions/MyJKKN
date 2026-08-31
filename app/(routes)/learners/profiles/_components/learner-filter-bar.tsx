@@ -74,12 +74,14 @@ type Draft = Partial<Record<FilterKey, string>>;
 
 const ALL = 'all';
 
-// learners_profiles.gender is stored upper-case. The old panel offered
-// 'Male'/'Female'/'Other', which matched zero rows on every search. 'Other' is
-// gone because no learner has it.
+// learners_profiles.gender is Title Case (Male/Female/Other) since 20260820160000 —
+// enforced by learners_profiles_gender_check and normalised on write by
+// trg_normalize_gender_learners_profiles. The query still matches with .ilike(), so a
+// bookmarked ?gender=MALE from the old uppercase panel keeps working.
 const GENDER_OPTIONS = [
-  { value: 'MALE', label: 'Male' },
-  { value: 'FEMALE', label: 'Female' },
+  { value: 'Male', label: 'Male' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Other', label: 'Other' },
 ];
 
 const PROFILE_STATUS_OPTIONS = [

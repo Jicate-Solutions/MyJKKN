@@ -44,7 +44,7 @@ That existing split is the whole reason the two modules can coexist without touc
 | 5 | Fee heads | Reuse the global `billing_categories` table |
 | 6 | Bill shape | One **term bill per learner** (3 per year) |
 | 7 | Generation | Manual batch with dry-run preview, re-runnable |
-| 8 | UI | Separate route under admission settings |
+| 8 | UI | Separate route — originally under admission settings, **moved to `/billing/school-fees` 2026-08-13** |
 | 9 | Edits after billing | **Lock + new version + supersede** |
 | 10 | Mid-year joiners | Always full year; reduce via concession |
 | 11 | Lifecycle | `draft → active → archived`, no approver step |
@@ -305,13 +305,15 @@ This mirrors the college `admission_fee_change_events` pattern ([20260509100001]
 
 ---
 
-## 6. UI — `/admission/settings/school-fees`
+## 6. UI — `/billing/school-fees`
+
+> **Moved 2026-08-13** from `/admission/settings/school-fees` to `/billing/school-fees`. The module bills learners, so it belongs beside Receipts, Discounts and Late Charges rather than under admission settings. Route folder, `MENU_PERMISSIONS` keys, sidebar entries and breadcrumbs all moved together; permission keys (`school_fees.*`) are unchanged.
 
 Separate route (decision #8), reusing the existing components from
 [app/(routes)/admission/settings/fees-structure/](<../../app/(routes)/admission/settings/fees-structure/>).
 
 ```
-/admission/settings/school-fees
+/billing/school-fees
 ├─ page.tsx                    Institution + Academic Year pickers, plan list by class
 ├─ term-calendar/page.tsx      Due / fine dates for the year  (enter this FIRST)
 ├─ concessions/page.tsx        Scheme catalogue + learner assignments
@@ -461,7 +463,7 @@ Verified: `tsc --noEmit` clean repo-wide, `eslint` clean, and `buildFeeGrid()` r
 
 | File | Purpose |
 |---|---|
-| `app/(routes)/admission/settings/school-fees/term-calendar/page.tsx` | route shell — `PermissionGuard` on `school_fees.read` |
+| `app/(routes)/billing/school-fees/term-calendar/page.tsx` | route shell — `PermissionGuard` on `school_fees.read` |
 | `…/_components/term-calendar-view.tsx` | school + academic-year pickers, empty-state warning |
 | `…/_components/term-calendar-form.tsx` | `useFieldArray` term rows, `zodResolver` |
 | `…/_components/term-calendar-clone-dialog.tsx` | copy another year's terms with a whole-day date shift |

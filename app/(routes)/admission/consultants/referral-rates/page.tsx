@@ -192,7 +192,7 @@ export default function ReferralRatesPage() {
                   Preview (no changes)
                 </Button>
                 <Button onClick={() => setConfirmGen(true)}
-                  disabled={generate.isPending || !preview || preview.candidates === 0}>
+                  disabled={generate.isPending || !preview || (preview.eligible ?? preview.candidates) === 0}>
                   <IndianRupee className="h-4 w-4 mr-1" /> Generate pending commissions
                 </Button>
               </div>
@@ -202,12 +202,34 @@ export default function ReferralRatesPage() {
                   {preview.dry_run
                     ? <p className="text-xs text-muted-foreground">Preview only — nothing has been written.</p>
                     : <p className="text-xs text-green-700 font-medium">Generated {preview.rows_written} pending commission(s).</p>}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <Stat label="Referrals" value={String(preview.candidates)} />
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <Stat label="Referrals found" value={String(preview.candidates)} />
+                    <Stat label="Held for checking" value={String(preview.held_walkin ?? 0)} warn={(preview.held_walkin ?? 0) > 0} />
                     <Stat label="Payable now" value={String(preview.payable_now)} />
                     <Stat label="Blocked (no bank/PAN)" value={String(preview.blocked_no_bank)} warn={preview.blocked_no_bank > 0} />
                     <Stat label="Net total" value={rupees(preview.total_net)} />
                   </div>
+
+                  {/* The hold is the Director's, so it explains itself rather than
+                      appearing as an unexplained shortfall in the numbers above. */}
+                  {(preview.held_walkin ?? 0) > 0 && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50/60 dark:bg-amber-950/20 p-3 text-sm space-y-1">
+                      <p className="font-medium">
+                        {preview.held_walkin} referral{preview.held_walkin === 1 ? '' : 's'} will not be
+                        generated — worth {rupees(preview.held_gross ?? 0)} at this rate.
+                      </p>
+                      <p className="text-muted-foreground">
+                        Their enquiry was recorded as a walk-in and nobody has confirmed the agency
+                        credit yet, so they stay out of the payment run. Release them one at a time on
+                        the{' '}
+                        <Link href="/admission/consultants/review-worklist" className="text-primary underline">
+                          Review Worklist
+                        </Link>
+                        . Generating now writes {preview.eligible ?? preview.candidates} record(s), not{' '}
+                        {preview.candidates}.
+                      </p>
+                    </div>
+                  )}
                   {preview.by_agency?.length > 0 && (
                     <div className="overflow-x-auto">
                       <Table>
@@ -215,6 +237,7 @@ export default function ReferralRatesPage() {
                           <TableRow>
                             <TableHead>Agency</TableHead>
                             <TableHead className="text-right">Referrals</TableHead>
+                            <TableHead className="text-right">Held</TableHead>
                             <TableHead className="text-right">Net</TableHead>
                             <TableHead>Payable</TableHead>
                           </TableRow>
@@ -224,6 +247,13 @@ export default function ReferralRatesPage() {
                             <TableRow key={a.agency}>
                               <TableCell>{a.agency}</TableCell>
                               <TableCell className="text-right">{a.referrals}</TableCell>
+                              <TableCell className="text-right">
+                                {a.held ? (
+                                  <span className="text-amber-700 dark:text-amber-400">{a.held}</span>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </TableCell>
                               <TableCell className="text-right">{rupees(a.net)}</TableCell>
                               <TableCell>
                                 {a.payable
@@ -307,7 +337,14 @@ export default function ReferralRatesPage() {
                 <AlertTriangle className="h-5 w-5 text-amber-500" /> Generate pending commissions?
               </DialogTitle>
               <DialogDescription>
-                This creates {preview?.candidates ?? 0} pending commission record(s) for {year}–{String(year + 1).slice(2)}.
+                This creates {preview?.eligible ?? preview?.candidates ?? 0} pending commission record(s) for{' '}
+                {year}–{String(year + 1).slice(2)}.
+                {(preview?.held_walkin ?? 0) > 0 && (
+                  <>
+                    {' '}The other {preview?.held_walkin} are held for checking and will{' '}
+                    <strong>not</strong> be created.
+                  </>
+                )}{' '}
                 They are <strong>not paid</strong> — they wait for the four-stage approval on the Commissions page.
                 You can run this again later; already-recorded referrals are skipped.
               </DialogDescription>

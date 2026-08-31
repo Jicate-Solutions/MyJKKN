@@ -19,7 +19,7 @@ import { BeatLoader } from 'react-spinners';
 import { useStaff } from '@/hooks/staff/use-staff';
 import { StaffFilters } from './_components/staff-filters';
 import { StaffList } from './_components/staff-list';
-import { AdvancedSearch, SearchOptions } from './_components/advanced-search';
+import { StaffSearchInput } from './_components/staff-search-input';
 import DownloadStaffTemplateButton from './_components/download-staff-template';
 import BulkUploadStaff from './_components/bulk-upload-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
@@ -63,6 +63,10 @@ export default function StaffPage() {
     page: 1,
     limit: 20 // Optimized limit to balance performance and user experience (reduced from 50)
   });
+
+  // Raw text in the search box. Kept separate from filters.search, which only
+  // receives it after the debounce — so typing does not refetch on every key.
+  const [searchText, setSearchText] = useState('');
 
   // Use the simplified staff hook
   const {
@@ -122,36 +126,21 @@ export default function StaffPage() {
     await refetch();
   }, [refetch]);
 
-  // Handle search input - using inline function to avoid dependency issues
-  const handleSearch = useCallback((query: string, options: SearchOptions) => {
-    const activeFields = Object.entries(options.searchFields)
-      .filter(([, enabled]) => enabled)
-      .map(([field]) => {
-        if (field === 'institutionEmail') return 'institution_email';
-        if (field === 'staffId') return 'staff_id';
-        return field;
-      });
-
+  // One term, matched against every searchable column. The per-field toggles
+  // and case/exact modifiers are gone: they defaulted to excluding staff ID and
+  // designation, so the most common searches silently returned nothing.
+  const handleSearch = useCallback((query: string) => {
     setFilters((prev) => ({
       ...prev,
       search: query || undefined,
-      search_case_sensitive: options.caseSensitive || undefined,
-      search_exact_match: options.exactMatch || undefined,
-      search_fields: activeFields.length ? activeFields : undefined,
       page: 1
     }));
   }, []);
 
-  // Handle search clear
+  // The page owns the text so the "Clear Search" button in the empty state can
+  // reset the input as well as the filter; the debounce lives in the input.
   const handleSearchClear = useCallback(() => {
-    setFilters((prev) => ({
-      ...prev,
-      search: undefined,
-      search_case_sensitive: undefined,
-      search_exact_match: undefined,
-      search_fields: undefined,
-      page: 1
-    }));
+    setSearchText('');
   }, []);
 
   // Show loading while permissions are loading
@@ -276,14 +265,14 @@ export default function StaffPage() {
               </div>
             )}
 
-            {/* Advanced Search — meaningless for a one-row table, so we
-                hide it for `own_records` scope. */}
+            {/* Search — meaningless for a one-row table, so we hide it for
+                `own_records` scope. */}
             {!isLoading && !isOwnRecordsScope && (
               <div className='mb-6'>
-                <AdvancedSearch
+                <StaffSearchInput
+                  value={searchText}
+                  onValueChange={setSearchText}
                   onSearch={handleSearch}
-                  onClear={handleSearchClear}
-                  placeholder='Search employees by name, email, institution email...'
                 />
               </div>
             )}
@@ -373,7 +362,8 @@ export default function StaffPage() {
                   No employees found
                 </h3>
                 <p className='text-muted-foreground mb-4'>
-                  Try adjusting your search terms or search options
+                  Every word has to match something. Try fewer words, or part of
+                  a name, staff ID, email or phone number.
                 </p>
                 <Button variant='outline' onClick={handleSearchClear}>
                   Clear Search

@@ -125,14 +125,28 @@ export function CategoryList({
         }
       },
       {
-        accessorKey: 'allows_login',
-        header: 'Login Default',
+        accessorKey: 'included_in_hr',
+        header: 'In HR',
         cell: ({ row }) => {
-          const allowsLogin = row.original.allows_login !== false;
-          return allowsLogin ? (
-            <span className='text-xs text-muted-foreground'>—</span>
+          // BOTH states get a badge, deliberately. This started out showing a
+          // badge only for the excluded ones and a dash otherwise — which made
+          // a correctly-configured table read as an empty column, and gave no
+          // way to tell "included" apart from "column failed to load".
+          const included = row.original.included_in_hr !== false;
+          return included ? (
+            <Badge
+              variant='outline'
+              className='border-emerald-300 text-xs text-emerald-700 dark:border-emerald-800 dark:text-emerald-400'
+            >
+              Yes
+            </Badge>
           ) : (
-            <Badge variant='outline' className='text-xs'>OFF</Badge>
+            <Badge
+              variant='outline'
+              className='border-red-300 text-xs text-red-700 dark:border-red-800 dark:text-red-400'
+            >
+              No
+            </Badge>
           );
         }
       },

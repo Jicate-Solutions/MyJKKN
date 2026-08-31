@@ -98,10 +98,89 @@ console.log('=== evaluator ===');
   const r = evaluateDay({ inTime: '11:00', outTime: '14:00', timing: workingDay });
   check('covers neither window (11:00 -> 14:00) = ABSENT/NONE', r.verdict === 'ABSENT' && r.dayCalc === 'NONE', r.verdict);
 }
+
+// --- approved permissions reinstate a half they fully cover ----------------
+// Main Office: grace deadline 09:05, morning ends 13:00, afternoon 12:30-16:30.
+{
+  const r = evaluateDay({
+    inTime: '09:24', outTime: '17:48', timing: workingDay,
+    permissions: [{ id: 'p1', from: '09:05', to: '09:35' }],
+  });
+  check('19 min late, 09:05-09:35 permission = PRESENT', r.verdict === 'PRESENT' && r.dayCalc === 'FULL', r.verdict);
+  check('  morning reinstated', r.firstHalfAttended === true);
+  check('  lateMinutes stays raw at 19', r.lateMinutes === 19, String(r.lateMinutes));
+  check('  excusedMinutes = 19 (the gap, not the permission)', r.excusedMinutes === 19, String(r.excusedMinutes));
+  check('  names the permission', r.excusedBy.length === 1 && r.excusedBy[0] === 'p1', JSON.stringify(r.excusedBy));
+}
+{
+  const r = evaluateDay({
+    inTime: '09:24', outTime: '17:48', timing: workingDay,
+    permissions: [{ id: 'p1', from: '15:00', to: '15:30' }],
+  });
+  check('afternoon permission cannot pay for a morning gap', r.verdict === 'HALF_DAY', r.verdict);
+  check('  nothing excused', r.excusedMinutes === 0 && r.excusedBy.length === 0);
+}
+{
+  const r = evaluateDay({
+    inTime: '09:40', outTime: '17:48', timing: workingDay,
+    permissions: [{ id: 'p1', from: '09:05', to: '09:35' }],
+  });
+  check('permission shorter than the gap reinstates nothing', r.verdict === 'HALF_DAY', r.verdict);
+  check('  all-or-nothing: excusedMinutes 0', r.excusedMinutes === 0, String(r.excusedMinutes));
+}
+{
+  // Leaving early — the mirror case. Afternoon ends 16:30; out at 16:00.
+  const r = evaluateDay({
+    inTime: '08:58', outTime: '16:00', timing: workingDay,
+    permissions: [{ id: 'p2', from: '16:00', to: '16:30' }],
+  });
+  check('early departure covered by a permission = PRESENT', r.verdict === 'PRESENT', r.verdict);
+  check('  afternoon reinstated, excused 30', r.secondHalfAttended === true && r.excusedMinutes === 30, String(r.excusedMinutes));
+}
+{
+  // Two permissions meeting end-to-end must cover a gap neither covers alone.
+  const r = evaluateDay({
+    inTime: '10:05', outTime: '17:48', timing: workingDay,
+    permissions: [
+      { id: 'a', from: '09:05', to: '09:35' },
+      { id: 'b', from: '09:35', to: '10:05' },
+    ],
+  });
+  check('two back-to-back permissions cover a 60 min gap', r.verdict === 'PRESENT', r.verdict);
+  check('  both named', r.excusedBy.length === 2, JSON.stringify(r.excusedBy));
+}
+{
+  const r = evaluateDay({ inTime: '08:58', outTime: '18:15', timing: workingDay, permissions: [] });
+  check('an on-time day is unaffected by the permission path', r.verdict === 'PRESENT' && r.excusedMinutes === 0);
+}
+{
+  // A permission must never make a passing half fail: 12:31 keeps the midpoint
+  // tolerance on the afternoon.
+  const r = evaluateDay({ inTime: '12:31', outTime: '16:35', timing: workingDay });
+  check('12:31 arrival still earns the afternoon', r.secondHalfAttended === true, r.verdict);
+}
+{
+  // A lone punch is a full-day absence, with the reason preserved.
+  const r = evaluateDay({ inTime: '09:00', outTime: null, timing: workingDay });
+  check('lone IN = ABSENT/NONE, not EXCEPTION', r.verdict === 'ABSENT' && r.dayCalc === 'NONE', r.verdict);
+  check('  reason kept for notes', (r.exceptionReason ?? '').includes('Missing OUT'), String(r.exceptionReason));
+  check('  neither half attended', r.firstHalfAttended === false && r.secondHalfAttended === false);
+}
+{
+  const r = evaluateDay({ inTime: null, outTime: '17:30', timing: workingDay });
+  check('lone OUT = ABSENT too', r.verdict === 'ABSENT', r.verdict);
+  check('  reason names the missing IN', (r.exceptionReason ?? '').includes('Missing IN'), String(r.exceptionReason));
+}
+{
+  // Genuinely unjudgeable days stay EXCEPTION — a missing RULE, not missing
+  // attendance.
+  const r = evaluateDay({ inTime: '17:00', outTime: '09:00', timing: workingDay });
+  check('OUT before IN stays EXCEPTION', r.verdict === 'EXCEPTION', r.verdict);
+}
 {
   // Sekar, day 11: machine printed a lone 17:31 in the IN row.
   const r = evaluateDay({ inTime: '17:31', outTime: null, timing: workingDay });
-  check('single punch = EXCEPTION, not a 17:31 arrival', r.verdict === 'EXCEPTION', r.verdict);
+  check('lone 17:31 = ABSENT, never a 17:31 arrival', r.verdict === 'ABSENT', r.verdict);
 }
 {
   const r = evaluateDay({ inTime: null, outTime: null, timing: sunday });

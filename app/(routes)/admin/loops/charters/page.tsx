@@ -35,7 +35,7 @@ type ProposalRead = {
   loop_key: string;
   proposed: Record<string, unknown> | null;
   rationale: string | null;
-  status: 'proposed' | 'approved' | 'rejected';
+  status: 'proposed' | 'approved' | 'rejected' | 'insufficient';
   decided_at: string | null;
   decision_note: string | null;
   created_at: string;
@@ -107,9 +107,12 @@ export default async function LoopChartersPage() {
       <p className="mb-4 max-w-3xl text-sm text-muted-foreground">
         The MetaLoop routine drafts a charter (outcome metric, counter metric,
         intervention, baseline window, remeasure window, kill rule) for each
-        uncharted loop from its live evidence, every Sunday. Approving writes
-        the five legs onto the loop registry; the kill rule and suggested owner
-        stay on the record here. Rejecting keeps the registry untouched.
+        uncharted loop from its live evidence, every Sunday; finished drafts
+        surface here daily. Approving writes the five legs onto the loop
+        registry; the kill rule and suggested owner stay on the record here.
+        Rejecting keeps the registry untouched. When the machine judges the
+        evidence too thin to charter honestly, it says so below — with the
+        reason a human must act on first.
       </p>
       <CharterProposalsPanel rows={rows} />
     </ContentLayout>

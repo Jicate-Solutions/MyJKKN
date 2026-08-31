@@ -14,10 +14,10 @@
 // Suspense wrapper at the bottom, which useTabParam requires because it reads
 // useSearchParams().
 
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, CalendarClock, CalendarDays, Hash, MapPin, Users } from 'lucide-react';
+import { Building2, CalendarClock, CalendarDays, Hash, MapPin, Share2, Users } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -34,13 +34,17 @@ import {
   CourseForm,
   type CourseFormOutput,
 } from '@/app/(routes)/courses/_components/course-form';
+import { CourseShareDialog } from '@/app/(routes)/courses/_components/course-share-dialog';
 import { PackagesPanel } from './_components/packages-panel';
 import { SessionsPanel } from './_components/sessions-panel';
 import { FormsPanel } from './_components/forms-panel';
+import { ApplicationsPanel } from './_components/applications-panel';
 
 // This array is the allow-list useTabParam validates ?tab= against — a trigger
 // added below but not added here silently falls back to 'overview'.
-const COURSE_TABS = ['overview', 'settings', 'packages', 'sessions', 'forms'] as const;
+const COURSE_TABS = [
+  'overview', 'settings', 'packages', 'sessions', 'forms', 'applications',
+] as const;
 
 /** Status is a CHECK constraint, not a Postgres enum — mirrors
  *  _components/columns.tsx's own STATUS_LABEL/STATUS_VARIANT, which aren't
@@ -117,6 +121,7 @@ function CourseDetailPageInner() {
   const params = useParams();
   const id = String(params?.id ?? '');
   const [activeTab, setActiveTab] = useTabParam('overview', COURSE_TABS);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const { data: course, isLoading, isError } = useCourseEvent(id);
   const updateCourseEvent = useUpdateCourseEvent();
@@ -218,19 +223,30 @@ function CourseDetailPageInner() {
               )}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <Building2 className="h-4 w-4" />
-              {course.institution?.name ?? 'Not set'}
-            </span>
-            {dateLabel && (
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
-                <CalendarDays className="h-4 w-4" />
-                {dateLabel}
+                <Building2 className="h-4 w-4" />
+                {course.institution?.name ?? 'Not set'}
               </span>
-            )}
+              {dateLabel && (
+                <span className="flex items-center gap-1.5">
+                  <CalendarDays className="h-4 w-4" />
+                  {dateLabel}
+                </span>
+              )}
+            </div>
+            {/* No permission check: this page only renders a course the viewer
+                could read in the first place, and the link it hands out is
+                public by design. */}
+            <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+              <Share2 className="mr-1.5 h-4 w-4" />
+              Share
+            </Button>
           </div>
         </div>
+
+        <CourseShareDialog open={shareOpen} onOpenChange={setShareOpen} course={course} />
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
@@ -239,6 +255,7 @@ function CourseDetailPageInner() {
             <TabsTrigger value="packages">Packages</TabsTrigger>
             <TabsTrigger value="sessions">Sessions</TabsTrigger>
             <TabsTrigger value="forms">Forms</TabsTrigger>
+            <TabsTrigger value="applications">Applications</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -318,6 +335,10 @@ function CourseDetailPageInner() {
               courseSlug={course.slug}
               coursePublished={status === 'published'}
             />
+          </TabsContent>
+
+          <TabsContent value="applications">
+            <ApplicationsPanel courseEventId={course.id} />
           </TabsContent>
         </Tabs>
       </div>

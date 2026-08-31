@@ -25,3 +25,21 @@
  * refuse rather than collect counter money into the wrong merchant account.
  */
 export const IMS_POS_FEE_HEAD = 'ims_pos';
+
+/**
+ * Paid course events (/courses) — fees an external participant pays for a
+ * short course, as opposed to a learner's academic tuition.
+ *
+ * Its own slot rather than reusing 'tuition' because the money is different in
+ * kind: course income is a discrete commercial programme an institution may
+ * want settled, reconciled and reported apart from academic fees, and reusing
+ * 'tuition' would make that permanently impossible to separate after the fact.
+ *
+ * The consequence, per the note above, is deliberate: an institution whose only
+ * account sits under another head will NOT match, resolution falls through to
+ * the common env account, and the course payment route REFUSES rather than
+ * collecting a college's course fees into the shared merchant account. Routing
+ * somebody's money is a decision an administrator makes, not one a fallback
+ * makes silently.
+ */
+export const COURSE_FEE_HEAD = 'course';

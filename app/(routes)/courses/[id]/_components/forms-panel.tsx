@@ -11,7 +11,7 @@
 // applications — a live-looking link that 404s is worse than no link.
 
 import { useState } from 'react';
-import { Check, Copy, ExternalLink, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Copy, ExternalLink, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +25,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getErrorMessage } from '@/lib/utils';
+import {
+  findIdentityGaps,
+  identityGapMessage,
+} from '@/lib/services/courses/applicant-identity';
 import {
   useCourseForms,
   useDeleteCourseForm,
@@ -145,7 +149,15 @@ export function FormsPanel({ courseEventId, courseSlug, coursePublished }: Forms
       ) : (
         <div className="space-y-3">
           {list.map((f) => {
-            const live = f.is_enabled && coursePublished;
+            // The builder's zod gate cannot reach this toggle — useSetCourseFormEnabled
+            // writes is_enabled directly, so a form saved before that gate existed
+            // could still be flipped live here. listByCourse already embeds every
+            // section's fields, so this costs no extra query.
+            const identityGaps = findIdentityGaps(
+              (f.sections ?? []).flatMap((s) => (s.fields ?? []).map((x) => x.field_key)),
+            );
+            const identityMessage = identityGapMessage(identityGaps);
+            const live = f.is_enabled && coursePublished && !identityMessage;
             return (
               <Card key={f.id}>
                 <CardContent className="space-y-3 p-4">
@@ -179,7 +191,11 @@ export function FormsPanel({ courseEventId, courseSlug, coursePublished }: Forms
                       <div className="flex items-center gap-1">
                         <Switch
                           checked={f.is_enabled}
-                          disabled={setEnabled.isPending}
+                          // Turning it OFF stays available even for a broken
+                          // form — the guard must never trap one in the ON state.
+                          disabled={
+                            setEnabled.isPending || (!f.is_enabled && Boolean(identityMessage))
+                          }
                           onCheckedChange={(v) => setEnabled.mutate({ id: f.id, enabled: v })}
                           aria-label={`Toggle applications for ${f.name}`}
                         />
@@ -203,6 +219,21 @@ export function FormsPanel({ courseEventId, courseSlug, coursePublished }: Forms
                       </div>
                     )}
                   </div>
+
+                  {identityMessage && (
+                    <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
+                      <p className="min-w-0 flex-1 text-amber-900 dark:text-amber-200">
+                        {identityMessage}
+                      </p>
+                      {canManage && (
+                        <Button variant="outline" size="sm" className="h-7" onClick={() => openEdit(f)}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          Fix the form
+                        </Button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5">
                     <code className="min-w-0 flex-1 truncate text-xs text-muted-foreground">

@@ -1,10 +1,21 @@
 'use client';
 
 // Per-event induction coordinators — lets the Induction Lead (or super-admin)
-// appoint coordinators scoped to THIS SPECIFIC induction only, independent of
-// any institution-wide coordinator. Additive: the institution-wide
-// induction_lead/induction_coordinator roles keep working everywhere else —
-// this is a second, narrower grant. Hidden entirely for anyone who can't manage.
+// appoint coordinators scoped to THIS SPECIFIC induction. Hidden entirely for
+// anyone who can't manage.
+//
+// THE ONLY PLACE COORDINATORS ARE APPOINTED, since 2026-08-18. The list page
+// used to carry a second panel that granted a college-wide
+// 'induction_coordinator' role — a row in user_roles carrying induction.manage
+// over every induction that college runs — while grouping people by college in a
+// way that read as a per-college appointment. Nothing synced the two, so the
+// same person could hold both and appear in both places. That panel is gone and
+// its RPCs are dropped; see
+// 20260818091000_induction_retire_collegewide_coordinator_role.sql. The list
+// page now READS these appointments back into its Coordinators column.
+//
+// Still additive to induction_lead / induction.manage, which remain
+// permission-based and unaffected.
 import { useEffect, useState, useCallback } from 'react';
 import {
   InductionService, type EventCoordinator, type AssignableStaff,
@@ -60,8 +71,9 @@ export function EventCoordinatorsSection({ eventId }: { eventId: string }) {
           <UserCog className="h-4 w-4 text-primary" /> Coordinators
         </CardTitle>
         <CardDescription>
-          Appoint who runs THIS induction (sessions, attendance, feedback, batches). Independent of
-          any institution-wide coordinator — visible to the Induction Lead and admins only.
+          Appoint who runs THIS induction (sessions, attendance, feedback, batches). This is the
+          only place induction coordinators are appointed — they appear against this induction on
+          the Induction list. Visible to the Induction Lead and admins only.
         </CardDescription>
       </CardHeader>
       <CardContent>

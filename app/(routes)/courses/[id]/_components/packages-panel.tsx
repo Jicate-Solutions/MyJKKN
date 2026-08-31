@@ -28,6 +28,18 @@ import {
 } from '@/components/ui/alert-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getErrorMessage } from '@/lib/utils';
+import { isWindowOpen } from '@/lib/services/courses/application-window';
+
+/** timestamptz → a short local date+time. Matches how the sale window is
+ *  entered (datetime-local), so the admin recognises the value they typed. */
+const formatSaleDate = (value: string | null | undefined) => {
+  if (!value) return 'an unset date';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return 'an invalid date';
+  return d.toLocaleString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+};
 import {
   useCoursePackages, useDeleteCoursePackage, useSaveCoursePackage,
 } from '@/hooks/courses/use-course-packages';
@@ -126,6 +138,16 @@ export function PackagesPanel({ courseEventId }: { courseEventId: string }) {
         <div className="space-y-3">
           {list.map((pkg) => {
             const installments = pkg.installments ?? [];
+            // A package outside its sale window is invisible to the public —
+            // toPublicPackages filters on exactly this. Until it was badged
+            // here, an expired tier looked identical to a live one in the
+            // console: an admin created a package, saw it listed, and could not
+            // understand why the apply page offered no choice.
+            const onSale = pkg.is_active && isWindowOpen(pkg.sale_opens_at, pkg.sale_closes_at);
+            const notYetOnSale =
+              pkg.is_active &&
+              Boolean(pkg.sale_opens_at) &&
+              new Date(pkg.sale_opens_at!) > new Date();
             return (
               <Card key={pkg.id}>
                 <CardContent className="space-y-3 p-4">
@@ -138,7 +160,28 @@ export function PackagesPanel({ courseEventId }: { courseEventId: string }) {
                             Retired
                           </Badge>
                         )}
+                        {pkg.is_active && !onSale && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-300 text-[10px] text-amber-700 dark:border-amber-800 dark:text-amber-400"
+                          >
+                            {notYetOnSale ? 'Sale not started' : 'Sale ended'}
+                          </Badge>
+                        )}
                       </div>
+
+                      {/* The dates, not just the state — "Sale ended" without
+                          saying when leaves the admin guessing which field to
+                          edit. */}
+                      {pkg.is_active && !onSale && (
+                        <p className="text-xs text-amber-700 dark:text-amber-400">
+                          Not shown on the public page.{' '}
+                          {notYetOnSale
+                            ? `Sale opens ${formatSaleDate(pkg.sale_opens_at)}.`
+                            : `Sale closed ${formatSaleDate(pkg.sale_closes_at)}.`}{' '}
+                          Clear the sale dates to keep it always on sale.
+                        </p>
+                      )}
                       {pkg.description && (
                         <p className="whitespace-pre-line text-sm text-muted-foreground">
                           {pkg.description}
