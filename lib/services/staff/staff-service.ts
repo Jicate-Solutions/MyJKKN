@@ -24,7 +24,7 @@ import type {
 import toast from 'react-hot-toast';
 import { getErrorMessage } from '@/lib/utils';
 import {
-  buildStaffSearchConditions,
+  buildStaffSearchTokenGroups,
   resolveStaffFiltersForUser
 } from '@/lib/utils/staff-search';
 import { RESERVED_STAFF_ROLE_KEYS } from '@/types/staff';
@@ -724,14 +724,12 @@ export class StaffService {
 
       // Apply other filters AFTER institution filter
       if (filters.search) {
-        const searchConditions = buildStaffSearchConditions(filters.search, {
-          caseSensitive: filters.search_case_sensitive,
-          exactMatch: filters.search_exact_match,
-          searchFields: filters.search_fields
-        });
-
-        if (searchConditions.length > 0) {
-          query = query.or(searchConditions.join(','));
+        // ONE .or() PER TOKEN, chained — PostgREST ANDs successive .or() calls,
+        // which is what lets "DHINESHKUMAR B" match a row whose first_name and
+        // last_name hold those words separately. A single flat .or() with the
+        // whole term cannot match a full name at all.
+        for (const group of buildStaffSearchTokenGroups(filters.search)) {
+          query = query.or(group.join(','));
         }
       }
 
@@ -979,14 +977,12 @@ export class StaffService {
 
       // Apply other filters
       if (filters.search) {
-        const searchConditions = buildStaffSearchConditions(filters.search, {
-          caseSensitive: filters.search_case_sensitive,
-          exactMatch: filters.search_exact_match,
-          searchFields: filters.search_fields
-        });
-
-        if (searchConditions.length > 0) {
-          query = query.or(searchConditions.join(','));
+        // ONE .or() PER TOKEN, chained — PostgREST ANDs successive .or() calls,
+        // which is what lets "DHINESHKUMAR B" match a row whose first_name and
+        // last_name hold those words separately. A single flat .or() with the
+        // whole term cannot match a full name at all.
+        for (const group of buildStaffSearchTokenGroups(filters.search)) {
+          query = query.or(group.join(','));
         }
       }
 

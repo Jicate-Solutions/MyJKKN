@@ -8576,3 +8576,138 @@ ALTER TABLE public.custom_roles
 
 COMMENT ON COLUMN public.custom_roles.is_privileged IS
   'Role can grant/alter permissions or administer the platform. Only super admins may assign it to a staff member (enforced by trg_staff_guard_role_key). Maintained in Role Management.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830150000_hr_salary_register.sql
+-- and 20260830150001_hr_salary_register_superseded_at.sql
+-- =============================================================================
+
+-- The FROZEN monthly salary register, per PAYER organisation. Computed from a
+-- closed attendance month (hr_attendance_period_summaries) plus the recorded
+-- salary (hr_staff_salaries.monthly_gross), and exported as the register HR
+-- keeps by hand.
+--
+-- NOT hr_payroll_periods / hr_payslips. That pair carries a five-signature
+-- approval chain plus a pay-scale matrix and PF/ESI/TDS policies that this
+-- register does not use; it has never been run (0 rows) because its generator
+-- still stubs LOP at 0 and reads hr_pay_scales, which is empty.
+--
+-- The roster follows hr_staff_payroll (WHO PAYS), not staff.institution_id
+-- (WHERE SOMEONE WORKS) — they differ for 36 active staff — so one register can
+-- depend on several closed months, hence the array of source period ids.
+CREATE TABLE IF NOT EXISTS public.hr_salary_register_runs (
+  id                           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id           uuid NOT NULL REFERENCES public.hr_organizations(id) ON DELETE RESTRICT,
+  institution_id               uuid NOT NULL REFERENCES public.institutions(id) ON DELETE RESTRICT,
+  period_year                  integer NOT NULL,
+  period_month                 integer NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+  working_days_basis           numeric(5,1) NOT NULL CHECK (working_days_basis > 0),
+  source_attendance_period_ids uuid[] NOT NULL DEFAULT '{}',
+  staff_total                  integer NOT NULL DEFAULT 0,
+  included_count               integer NOT NULL DEFAULT 0,
+  excluded_count               integer NOT NULL DEFAULT 0,
+  total_gross                  numeric(14,2) NOT NULL DEFAULT 0,
+  total_deductions             numeric(14,2) NOT NULL DEFAULT 0,
+  total_net                    numeric(14,2) NOT NULL DEFAULT 0,
+  generated_at                 timestamptz NOT NULL DEFAULT now(),
+  generated_by                 uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  -- Liveness is superseded_at, NOT superseded_by. The forward pointer is an FK
+  -- to the successor, which cannot exist yet when the previous run has to give
+  -- up the unique slot; superseded_at needs no FK and so can be set first.
+  superseded_at                timestamptz,
+  superseded_by                uuid REFERENCES public.hr_salary_register_runs(id) ON DELETE SET NULL,
+  notes                        text,
+  created_at                   timestamptz NOT NULL DEFAULT now(),
+  updated_at                   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_salary_register_runs_live
+  ON public.hr_salary_register_runs (hr_organization_id, period_year, period_month)
+  WHERE superseded_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_runs_institution
+  ON public.hr_salary_register_runs (institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_runs_org
+  ON public.hr_salary_register_runs (hr_organization_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_runs_period
+  ON public.hr_salary_register_runs (period_year, period_month);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_runs_superseded_by
+  ON public.hr_salary_register_runs (superseded_by);
+
+-- One row per roster member, INCLUDED OR NOT. Excluded people stay on the
+-- register so "who did we not pay, and why" is answerable; dropping them would
+-- make the gap invisible. Identity and figures are snapshotted so a later
+-- transfer or rename cannot rewrite an issued register.
+CREATE TABLE IF NOT EXISTS public.hr_salary_register_lines (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id                 uuid NOT NULL REFERENCES public.hr_salary_register_runs(id) ON DELETE CASCADE,
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE RESTRICT,
+  serial_no              integer NOT NULL,
+  employee_code          text,
+  staff_name             text NOT NULL,
+  designation            text,
+  department_name        text,
+  date_of_joining        date,
+  bank_account_number    text,
+  -- unpaid_leave_days is the month MINUS paid days, not the summary's lop_days:
+  -- a mid-month joiner has no records before their start date, so lop_days is 0
+  -- and paying on it would hand them a full month's gross for half a month.
+  business_working_days  numeric(5,1) NOT NULL DEFAULT 0,
+  paid_leave_days        numeric(5,1) NOT NULL DEFAULT 0,
+  unpaid_leave_days      numeric(5,1) NOT NULL DEFAULT 0,
+  on_duty_days           numeric(5,1) NOT NULL DEFAULT 0,
+  worked_days            numeric(5,1) NOT NULL DEFAULT 0,
+  paid_days              numeric(5,1) NOT NULL DEFAULT 0,
+  actual_gross           numeric(12,2) NOT NULL DEFAULT 0,
+  basic_pay              numeric(12,2) NOT NULL DEFAULT 0,
+  unpaid_leave_deduction numeric(12,2) NOT NULL DEFAULT 0,
+  total_earnings         numeric(12,2) NOT NULL DEFAULT 0,
+  total_deductions       numeric(12,2) NOT NULL DEFAULT 0,
+  -- A prior-month recovery the formula cannot produce. SUBTRACTED from net pay.
+  adjustment_amount      numeric(12,2) NOT NULL DEFAULT 0,
+  net_pay                numeric(12,2) NOT NULL DEFAULT 0,
+  remarks                text,
+  is_included            boolean NOT NULL DEFAULT true,
+  exclusion_reason       text,
+  attendance_period_id   uuid REFERENCES public.hr_attendance_periods(id) ON DELETE SET NULL,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_hr_salary_register_lines_run_staff UNIQUE (run_id, staff_id),
+  CONSTRAINT ck_hr_salary_register_lines_exclusion
+    CHECK ((is_included AND exclusion_reason IS NULL)
+        OR (NOT is_included AND exclusion_reason IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_run
+  ON public.hr_salary_register_lines (run_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_staff
+  ON public.hr_salary_register_lines (staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_period
+  ON public.hr_salary_register_lines (attendance_period_id);
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830160000_hr_salary_register_work_institution_scope.sql
+-- =============================================================================
+
+-- The register is grouped by WORK LOCATION (staff.institution_id), not by payer.
+-- Payer scoping shipped first and failed on contact: Main Office is a real
+-- workplace with 121 staff that pays NOBODY (is_payroll_entity = false, zero
+-- rows in hr_staff_payroll), so it could never have a register, and 105 active
+-- staff have no payer recorded and so landed on no register at all.
+--
+-- WHO PAYS is now an attribute of the row, plus per-payer subtotals in the
+-- export — so one Main Office register answers "what does each institution owe
+-- for the people working here", which could not be asked while the roster
+-- itself was split five ways.
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS paid_by_organization_id uuid REFERENCES public.hr_organizations(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS paid_by_name text;
+
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_paid_by
+  ON public.hr_salary_register_lines (paid_by_organization_id);
+
+-- A run is unique per WORK INSTITUTION and month. hr_organization_id is kept
+-- (NOT NULL, 1:1 with institution) but is no longer the identity.
+DROP INDEX IF EXISTS public.uq_hr_salary_register_runs_live;
+CREATE UNIQUE INDEX uq_hr_salary_register_runs_live
+  ON public.hr_salary_register_runs (institution_id, period_year, period_month)
+  WHERE superseded_at IS NULL;

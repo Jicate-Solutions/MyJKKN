@@ -246,6 +246,11 @@ export async function POST(request: NextRequest) {
           institution_id: '',
           staff_scope: t.matched_by as ResolvedShiftTiming['staff_scope'],
           employment_category_id: null,
+          // Placeholder, like institution_id above and day_of_week below:
+          // fn_resolve_shift_timings_bulk returns the window only, and
+          // evaluateDay reads none of the three. The gender was already applied
+          // inside the resolver.
+          applicable_gender: 'all',
           day_of_week: 1,
           is_working_day: t.is_working_day as boolean,
           first_half_start: t.first_half_start as string | null,
@@ -580,6 +585,7 @@ export async function POST(request: NextRequest) {
       field_totals: fieldTotals,
       written: 0,
       exceptions_written: 0,
+      leave_restamped: 0,
     };
 
     if (dryRun) {
@@ -607,6 +613,44 @@ export async function POST(request: NextRequest) {
       written += up?.length ?? chunk.length;
     }
 
+    // ---- Re-apply approved leave stamps -------------------------------------
+    // The upsert above wrote status_type_id straight from the biometric verdict,
+    // which knows nothing about approved leave. Without this step the import
+    // ERASES every LEAVE / HALF_DAY stamp in its range, and any leave approved
+    // before the upload never lands at all — fn_recompute_attendance_on_leave_-
+    // approval is a bare UPDATE, so with no row for the day it matched nothing
+    // and the approval was lost silently.
+    //
+    // Running it here makes upload order stop mattering: approve-then-import and
+    // import-then-approve both end with the day stamped. Short Time Off needs
+    // nothing here — evaluateDay already consumed approved permissions above,
+    // and recomputeForShortTimeOff covers the other direction.
+    //
+    // PER INSTITUTION, not once for the file's own: one machine carries staff
+    // from several institutions (13 of 36 identified people on the Main Office
+    // machine belong elsewhere), and the function is institution-scoped.
+    let leaveRestamped = 0;
+    const restampInstitutions = [
+      ...new Set(records.map((r) => r.institution_id as string).filter(Boolean)),
+    ];
+    if (dateFrom && dateTo) {
+      for (const instId of restampInstitutions) {
+        const { data: restamped, error: restampErr } = await session.rpc(
+          'fn_restamp_leave_attendance',
+          { p_institution_id: instId, p_from: dateFrom, p_to: dateTo },
+        );
+        // Not fatal: the attendance that just imported is still correct for
+        // everyone without approved leave, and losing it to a re-stamp failure
+        // would be the worse outcome. Surfaced in the response so a silent
+        // partial is visible rather than assumed.
+        if (restampErr) {
+          console.error('[hr/attendance/import] leave re-stamp failed:', restampErr);
+          continue;
+        }
+        leaveRestamped += (restamped as number | null) ?? 0;
+      }
+    }
+
     let exceptionsWritten = 0;
     for (let i = 0; i < exceptions.length; i += 500) {
       const chunk = exceptions.slice(i, i + 500);
@@ -627,7 +671,13 @@ export async function POST(request: NextRequest) {
         ...base,
         written,
         exceptions_written: exceptionsWritten,
-        message: `Imported ${written} day-record(s) for ${matched.length} employee(s); ${exceptionsWritten} exception(s) raised.`,
+        leave_restamped: leaveRestamped,
+        message:
+          `Imported ${written} day-record(s) for ${matched.length} employee(s); ` +
+          `${exceptionsWritten} exception(s) raised` +
+          (leaveRestamped > 0
+            ? `; ${leaveRestamped} day(s) re-stamped from approved leave.`
+            : '.'),
       },
       { status: 200 },
     );

@@ -268,10 +268,16 @@ export const RESERVED_STAFF_ROLE_KEYS = new Set([
 export interface UpdateStaffDto extends Partial<CreateStaffDto> {}
 
 export interface StaffFilters {
+  /**
+   * Free text, matched against every searchable column (name, staff ID, legacy
+   * staff ID, both emails, designation, phone). Whitespace-separated words are
+   * ANDed, so each word may land on a different column.
+   *
+   * The former search_fields / search_case_sensitive / search_exact_match
+   * modifiers were removed on 2026-08-28: their defaults excluded staff ID and
+   * designation, which made the most common searches return nothing.
+   */
   search?: string;
-  search_case_sensitive?: boolean;
-  search_exact_match?: boolean;
-  search_fields?: string[];
   category_id?: string;
   institution_id?: string;
   institution_email?: string;

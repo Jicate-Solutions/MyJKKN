@@ -28,7 +28,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { ApprovalRowActions, type ApprovalRowActionHandlers } from './approval-row-actions';
 import { StatusBadge } from './request-table';
-import { formatDays, formatHours } from './format';
+import { formatBiometricGap, formatDays, formatHours } from './format';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
@@ -168,6 +168,23 @@ const statusColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
       {/* Moved out of the actions cell — see the note at the top of this file. */}
       {row.original.is_own && (
         <Badge variant="outline" className="border-amber-300 text-amber-800">Yours</Badge>
+      )}
+      {/*
+        Why the row cannot be approved yet. In the STATUS cell rather than the
+        actions menu because it is a fact about the request, and an approver
+        scanning 165 gated August rows needs it visible without opening each
+        menu. The menu carries the same fact next to the disabled Approve.
+      */}
+      {row.original.biometric_gap_from !== null && (
+        <Badge
+          variant="outline"
+          className="border-amber-400 text-amber-800 dark:text-amber-400"
+          title={`Biometric attendance is not uploaded for ${formatBiometricGap(
+            row.original.biometric_gap_from,
+          )}. Approving now would not reach the attendance report, so the database refuses it. Import the month from HR > Attendance > Import, then approve.`}
+        >
+          Biometric pending
+        </Badge>
       )}
     </div>
   ),

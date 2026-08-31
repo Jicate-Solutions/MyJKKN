@@ -680,4 +680,15 @@ export interface HRLeaveApprovalQueueRow {
   can_decide: boolean;
   /** Current step routes to this caller. A filter, not a permission. */
   waiting_on_me: boolean;
+  /**
+   * First covered day whose biometric file is not uploaded, or null when the
+   * request can be approved. Computed by fn_hr_leave_biometric_gap — the SAME
+   * body trg_hla_block_approval_without_biometric raises on, so this can never
+   * promise a decision the database refuses.
+   *
+   * Null for Short Time Off (exempt: the import consumes approved permissions
+   * and recomputeForShortTimeOff covers the other direction), for future-dated
+   * requests, for institutions that run no biometric, and on decided rows.
+   */
+  biometric_gap_from: string | null;
 }

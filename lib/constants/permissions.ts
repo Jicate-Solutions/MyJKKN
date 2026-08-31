@@ -986,6 +986,26 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.payroll.bank.view', label: 'View Employee Bank Account' },
       { key: 'hr.payroll.bank.manage', label: 'Manage Employee Bank Account' },
 
+      // ── Salary register (2026-08-30) ─────────────────────────────────────
+      // The frozen monthly register: closed attendance month + recorded salary
+      // -> a per-institution pay register and its export workbook.
+      //
+      // A FOURTH pair rather than a reuse of the three above, because a
+      // register is the one artefact that shows amount AND destination AND the
+      // day counts behind them, for everybody at once. Someone entitled to
+      // maintain one staff member's salary is not thereby entitled to the whole
+      // institution's payroll on one screen.
+      //
+      // Granted to HR Head ALONE by 20260830150000_hr_salary_register.sql. That
+      // is the only role already holding all four keys a run must read through
+      // — hr.payroll.institution.view, hr.payroll.salary.view,
+      // hr.payroll.bank.view, hr.attendance.period.view. Granting these to a
+      // role missing any of them yields a run that SILENTLY omits people: RLS
+      // returns zero rows and no error, so a short register looks like a
+      // complete one.
+      { key: 'hr.payroll.register.view', label: 'View Salary Register' },
+      { key: 'hr.payroll.register.manage', label: 'Generate Salary Register' },
+
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
       // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:
