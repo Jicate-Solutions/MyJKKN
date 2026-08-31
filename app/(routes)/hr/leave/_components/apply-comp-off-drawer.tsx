@@ -32,6 +32,7 @@ import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useCompOffBalance } from '@/hooks/hr/use-comp-off';
 import { getErrorMessage } from '@/lib/utils';
+import { toast } from 'sonner';
 
 export function ApplyCompOffDrawer({
   open,
@@ -72,7 +73,7 @@ export function ApplyCompOffDrawer({
         hr_organization_id: ctx.hrOrgId,
         employee_id: ctx.employeeId,
         leave_type_id: effectiveTypeId,
-        academic_year_id: ctx.academicYearId || null,
+        hr_academic_year_id: ctx.hrAcademicYearId || null,
         start_date: compOffDate,
         end_date: compOffDate,
         // Whole days only: credits are earned one full day per day worked,
@@ -90,7 +91,13 @@ export function ApplyCompOffDrawer({
       reset();
       onOpenChange(false);
     } catch (err) {
-      setError(getErrorMessage(err));
+      // Toast AS WELL as the inline alert. The alert sits at the bottom of a
+      // scrollable sheet while Submit lives in the fixed footer, so a long
+      // form can push it out of view entirely — which is how a failed submit
+      // looked like nothing happening at all.
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     }
   };
 

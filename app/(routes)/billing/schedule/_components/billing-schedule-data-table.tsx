@@ -133,7 +133,8 @@ export function BillingScheduleDataTable({
       program_id: search.program_id || undefined,
       semester_id: search.semester_id || undefined,
       section_id: search.section_id || undefined,
-      accommodation_type: search.accommodation_type || undefined
+      accommodation_type: search.accommodation_type || undefined,
+      admission_year: search.admission_year || undefined
     }),
     [
       search.institution_id,
@@ -153,7 +154,8 @@ export function BillingScheduleDataTable({
       search.program_id,
       search.semester_id,
       search.section_id,
-      search.accommodation_type
+      search.accommodation_type,
+      search.admission_year
     ]
   );
 
@@ -166,6 +168,11 @@ export function BillingScheduleDataTable({
           search: params.search || undefined,
           sortBy: params.sort_by || undefined,
           sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
+          // College-only, unconditionally. The institution dropdown lists
+          // entity_type='institution' only, but "All Institutions" sends no
+          // institution_id at all — without this the default view still
+          // returned school-fee bills. Same contract as the students list.
+          institution_entity_type: 'institution' as const,
           ...dimensionFilters
         });
 
@@ -198,6 +205,9 @@ export function BillingScheduleDataTable({
         search: params.search || undefined,
         sortBy: params.sort_by || undefined,
         sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
+        // Must match fetchData exactly — "Select all across pages" feeds bulk
+        // cancel/delete, so a wider set here would act on school-fee bills.
+        institution_entity_type: 'institution' as const,
         ...dimensionFilters
       });
       return data || [];
@@ -521,6 +531,13 @@ export function BillingScheduleDataTable({
           enableExport: true,
           enableRowSelection: true,
           enableSearch: true,
+          // Spelled out because the search spans the bill AND the learner:
+          // bill_description on the bill itself, plus name / roll number /
+          // college email resolved against learners_profiles first (PostgREST
+          // .or() cannot reach embedded-resource columns — see
+          // StudentBillService.getStudentBills).
+          searchPlaceholder:
+            'Search by student name, roll number, college email or bill description...',
           enableColumnFilters: false,
           enableColumnVisibility: true,
           enableColumnResizing: true,

@@ -9,6 +9,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import type {
   HRLeaveApplication,
   HRLeaveApplicationInsert,
@@ -179,8 +180,16 @@ export class LeaveService {
       candidates.find((f) => !f.conditions?.leave_type_id);
 
     if (!chosen) {
+      // Name the exact screen. "Ask HR to add one" left the admin hunting —
+      // leave flows are set from the Leave Types list, not from a page called
+      // anything like "approval flows", which is where everyone looks first
+      // (that one is recruitment-only). Same treatment the recruitment path
+      // already got.
       throw new Error(
-        'No leave approval flow is configured for your organization. Ask HR to add one before applying.'
+        'No leave approval flow is configured for your organisation. ' +
+        'Open HR → Admin → Leave Types, use the row menu on the leave type and pick ' +
+        '"Who approves this" to add one. A flow with no leave type set acts as the ' +
+        'catch-all for every type.'
       );
     }
 
@@ -189,7 +198,11 @@ export class LeaveService {
     );
 
     if (steps.length === 0) {
-      throw new Error('The configured leave approval flow has no steps.');
+      throw new Error(
+        `The leave approval flow "${chosen.flow_name ?? 'for this type'}" exists but has no ` +
+        'approval steps, so there is nobody to send the request to. Open HR → Admin → ' +
+        'Leave Types → "Who approves this" and add at least one approver.'
+      );
     }
 
     // approver_user_id is carried through when the flow pins a specific person.
@@ -255,8 +268,13 @@ export class LeaveService {
         (new Date(payload.start_date).getTime() - new Date(todayIso).getTime()) / (1000 * 60 * 60 * 24)
       );
       if (noticeDays < leaveType.min_advance_notice_days) {
+        // A NEGATIVE figure means the start date is in the past, and reporting
+        // it as "you gave -38" reads like a system fault rather than an
+        // instruction. Say what happened and what to do instead.
         throw new Error(
-          `This leave type requires ${leaveType.min_advance_notice_days} days advance notice. You gave ${noticeDays}.`
+          noticeDays < 0
+            ? `${leaveType.leave_type_name} cannot be applied for a past date — ${payload.start_date} was ${Math.abs(noticeDays)} day(s) ago. It needs ${leaveType.min_advance_notice_days} day(s) notice, or tick Emergency leave if this could not have been filed in time.`
+            : `${leaveType.leave_type_name} needs ${leaveType.min_advance_notice_days} day(s) advance notice; ${payload.start_date} is only ${noticeDays} day(s) away. Pick a later date, or tick Emergency leave.`
         );
       }
     }
@@ -269,6 +287,30 @@ export class LeaveService {
     if (leaveType.max_continuous_days && durationDays > leaveType.max_continuous_days) {
       throw new Error(
         `This leave type allows max ${leaveType.max_continuous_days} continuous days. Requested ${durationDays}.`
+      );
+    }
+
+    // 4b. Supporting document (decision: On-Duty and Half Pay Leave carry
+    // requires_documents). THE authority — the drawer runs the same predicate
+    // to decide whether to show the field, but this call is reachable directly
+    // and a client check alone would gate nothing.
+    //
+    // The 0.5/0.125 duration factors are deliberately NOT applied here: the
+    // threshold in document_required_after_days is about how long somebody is
+    // away, and a five-day half-day request is five days away from their desk.
+    // The balance checks below use the factored figure because that is about
+    // how much entitlement is consumed — a different question.
+    const documentRule = leaveDocumentRequirement(
+      {
+        requires_documents: leaveType.requires_documents ?? false,
+        document_required_after_days: leaveType.document_required_after_days ?? null,
+      },
+      durationDays,
+      payload.is_emergency ?? false,
+    );
+    if (documentRule.required && (payload.documents?.length ?? 0) === 0) {
+      throw new Error(
+        `${leaveType.leave_type_name} requires a supporting document. Attach one and submit again.`
       );
     }
 
@@ -294,31 +336,86 @@ export class LeaveService {
     //   2. `error` was not destructured, so that 22P02 was swallowed, `balance`
     //      came back undefined, and `if (balance)` skipped the whole check.
     // Net effect once the module became reachable: employees could exceed
-    // their entitlement with no error at all. Null academic year now means
-    // `IS NULL`, not '', and the error is surfaced.
-    let balanceQuery = supabase
-      .from('hr_leave_balances')
-      .select('*')
-      .eq('employee_id', payload.employee_id)
-      .eq('leave_type_id', payload.leave_type_id);
+    // their entitlement with no error at all. Never reintroduce a `?? ''`
+    // here, and keep the error destructured.
+    //
+    // hr_leave_balances.hr_academic_year_id is part of the primary key and so
+    // is never null. When the caller omits the year, resolve the same one
+    // trg_hla_aa_default_hr_ay will stamp on the row — from start_date. Without
+    // this the trigger would file the application under a year whose balance
+    // this check never looked at, and the over-draw guard would be skipped for
+    // exactly the requests that most need it.
+    let resolvedYearId = payload.hr_academic_year_id ?? null;
 
-    balanceQuery = payload.academic_year_id
-      ? balanceQuery.eq('academic_year_id', payload.academic_year_id)
-      : balanceQuery.is('academic_year_id', null);
+    if (!resolvedYearId) {
+      const { data: yearRow, error: yearError } = await supabase
+        .from('hr_academic_years')
+        .select('id')
+        .eq('is_active', true)
+        .lte('start_date', payload.start_date)
+        .gte('end_date', payload.start_date)
+        .maybeSingle();
 
-    const { data: balance, error: balanceError } = await balanceQuery.maybeSingle();
-    if (balanceError) throw balanceError;
+      if (yearError) throw yearError;
+      resolvedYearId = yearRow?.id ?? null;
+    }
 
-    if (balance) {
-      const available = (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
-      if (estimatedDays > available) {
-        // hr_leave_types has no `name` column — it is `leave_type_name`.
-        // Reading `.name` here previously made this message read
-        // "you have 3.0 undefined available".
-        throw new Error(
-          `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
-        );
-      }
+    let balance: { entitled?: number; carried_forward?: number; used?: number } | null = null;
+
+    if (resolvedYearId) {
+      const { data, error: balanceError } = await supabase
+        .from('v_hr_leave_balance')
+        .select('entitled, carried_forward, used')
+        .eq('employee_id', payload.employee_id)
+        .eq('leave_type_id', payload.leave_type_id)
+        .eq('hr_academic_year_id', resolvedYearId)
+        .maybeSingle();
+
+      if (balanceError) throw balanceError;
+      balance = data;
+    }
+
+    // Unconditional, deliberately. This used to be `if (balance) { ... }`,
+    // so a staff member with no ledger row had NO over-draw check at all --
+    // fail-open, and exactly the people most likely to have one (new
+    // joiners, nobody having run the generator for them). The view always
+    // returns a row for an eligible employee, so a null here now means
+    // genuinely ineligible for this type, which is its own refusal.
+    if (!balance) {
+      throw new Error(
+        `You are not eligible for ${leaveType.leave_type_name}. Ask HR if this is wrong.`
+      );
+    }
+
+    // The DAY COMPARISON, unlike the eligibility check above, applies to
+    // request_category='leave' ONLY. This mirrors hr_trig_update_leave_balance()'s
+    // own early return:
+    //
+    //   IF v_category IN ('compensatory_off', 'short_time_off') THEN RETURN NEW;
+    //
+    // Those two categories never have `used` incremented by anything, anywhere —
+    // verified in production: sum(used) = 0 across every comp-off and STO balance
+    // row. So this comparison was measuring a number that means nothing, and
+    // refusing on it:
+    //   * Short Time Off — 101 staff (Matric 55, Nattraja CBSE 33, Jicate 13) got
+    //     "Insufficient balance. You have 0.0 day(s)…" on every submit, because
+    //     their Permission type sat at default_entitled_days = 0 (the leave-type
+    //     form's default) and an hourly request prices at 0.125.
+    //   * Compensatory Off — all 504 cells resolve to available <= 0, so this line
+    //     refused 100% of comp-off claims. Zero were ever filed.
+    //
+    // Each category keeps its own real budget, enforced where the currency lives:
+    // STO by hr_trig_sto_enforce_limits (minutes per period), comp off by its
+    // credit ledger — the drawer blocks at zero credits and the database refuses
+    // an approval with no credit behind it.
+    const tracksDayEntitlement = leaveType.request_category === 'leave';
+    const available =
+      (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
+    if (tracksDayEntitlement && estimatedDays > available) {
+      // hr_leave_types has no `name` column — it is `leave_type_name`.
+      throw new Error(
+        `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
+      );
     }
 
     // 7. Insert (trigger populates total_days; status trigger does NOT fire on pending)
@@ -326,7 +423,11 @@ export class LeaveService {
       hr_organization_id: payload.hr_organization_id,
       employee_id: payload.employee_id,
       leave_type_id: payload.leave_type_id,
-      academic_year_id: payload.academic_year_id ?? null,
+      // Resolved above from start_date when the caller omitted it, so the row
+      // is filed under the same year the balance check just examined. Still
+      // safe if null — trg_hla_aa_default_hr_ay stamps it before the
+      // period-cap triggers read it.
+      hr_academic_year_id: resolvedYearId,
       start_date: payload.start_date,
       end_date: payload.end_date,
       duration_type: payload.duration_type,
@@ -373,6 +474,19 @@ export class LeaveService {
     app: HRLeaveApplication,
     approverId: string
   ) {
+    // Super admins are exempt from BOTH checks below, exactly as
+    // hr_trig_leave_enforce_approver is: that trigger returns NEW on
+    // is_super_admin() before it reaches either test. Without this the service
+    // refused what the database would have allowed — a super admin could not
+    // decide their own request, and could not act on a step pinned to somebody
+    // else, despite hla_update permitting both.
+    //
+    // Resolved through the caller's own client, so is_super_admin() reads
+    // profiles for the real auth.uid() rather than trusting approverId.
+    const { data: isSuperAdmin, error: saError } = await supabase.rpc('is_super_admin');
+    if (saError) throw saError;
+    if (isSuperAdmin === true) return;
+
     const { data: myStaff, error } = await supabase
       .from('staff')
       .select('id')
@@ -504,7 +618,7 @@ export class LeaveService {
       hr_organization_id: app.hr_organization_id,
       employee_id: app.employee_id,
       leave_type_id: app.leave_type_id,
-      academic_year_id: app.academic_year_id,
+      hr_academic_year_id: app.hr_academic_year_id,
       start_date: app.start_date,
       end_date: app.end_date,
       duration_type: app.duration_type,
@@ -619,68 +733,55 @@ export class LeaveService {
 
   // ----- Balance -----
 
+  /**
+   * Balances for one person and year.
+   *
+   * Reads v_hr_leave_balance, not hr_leave_balances: the view returns a row
+   * for every leave type the employee is eligible for whether or not a
+   * ledger row exists. Under the old table read, a staff member created
+   * after the last "Generate" run got an empty array here, which the apply
+   * drawer rendered as "No leave balance is configured for you this
+   * academic year" -- a hard block with no admin recourse.
+   */
   static async getBalance(
     supabase: SupabaseClient,
     employeeId: string,
-    academicYearId: string
+    hrAcademicYearId: string
   ): Promise<HRLeaveBalanceWithType[]> {
     const { data, error } = await supabase
-      .from('hr_leave_balances')
-      .select(`
-        *,
-        hr_leave_types:leave_type_id (
-          leave_type_name,
-          leave_type_code,
-          duration_type,
-          allow_half_day,
-          allow_hourly,
-          request_category,
-          max_continuous_days,
-          min_advance_notice_days,
-          requires_documents
-        )
-      `)
+      .from('v_hr_leave_balance')
+      .select('*')
       .eq('employee_id', employeeId)
-      .eq('academic_year_id', academicYearId);
+      .eq('hr_academic_year_id', hrAcademicYearId)
+      .order('display_order', { ascending: true });
     if (error) throw error;
 
-    return (data ?? []).map((row: Record<string, unknown>) => {
-      const lt = row.hr_leave_types as {
-        leave_type_name: string;
-        leave_type_code: string;
-        duration_type: string;
-        allow_half_day: boolean;
-        allow_hourly: boolean;
-        request_category: string;
-        max_continuous_days: number | null;
-        min_advance_notice_days: number;
-        requires_documents: boolean;
-      } | null;
-      return {
-        employee_id: row.employee_id as string,
-        leave_type_id: row.leave_type_id as string,
-        academic_year_id: row.academic_year_id as string,
-        hr_organization_id: row.hr_organization_id as string,
-        entitled: Number(row.entitled),
-        used: Number(row.used),
-        carried_forward: Number(row.carried_forward),
-        created_at: row.created_at as string,
-        updated_at: row.updated_at as string,
-        // A null embed here means the caller cannot read hr_leave_types.
-        // That used to surface as a blank name in the UI rather than an
-        // error — see 20260722120000_fix_hr_leave_types_select_transitive_rls.
-        leave_type_name: lt?.leave_type_name ?? '',
-        leave_type_code: lt?.leave_type_code ?? '',
-        duration_type: (lt?.duration_type ?? 'full') as HRLeaveBalanceWithType['duration_type'],
-        allow_half_day: lt?.allow_half_day ?? false,
-        allow_hourly: lt?.allow_hourly ?? false,
-        request_category:
-          (lt?.request_category ?? 'leave') as HRLeaveBalanceWithType['request_category'],
-        max_continuous_days: lt?.max_continuous_days ?? null,
-        min_advance_notice_days: lt?.min_advance_notice_days ?? 0,
-        requires_documents: lt?.requires_documents ?? false,
-      };
-    });
+    return (data ?? []).map((row: Record<string, unknown>) => ({
+      employee_id: row.employee_id as string,
+      leave_type_id: row.leave_type_id as string,
+      hr_academic_year_id: row.hr_academic_year_id as string,
+      hr_organization_id: row.hr_organization_id as string,
+      entitled: Number(row.entitled),
+      used: Number(row.used),
+      carried_forward: Number(row.carried_forward),
+      // Null for a derived row that has no ledger row behind it yet.
+      created_at: (row.created_at ?? null) as string,
+      updated_at: (row.updated_at ?? null) as string,
+      leave_type_name: (row.leave_type_name ?? '') as string,
+      leave_type_code: (row.leave_type_code ?? '') as string,
+      duration_type: (row.duration_type ?? 'full') as HRLeaveBalanceWithType['duration_type'],
+      allow_half_day: (row.allow_half_day ?? false) as boolean,
+      allow_hourly: (row.allow_hourly ?? false) as boolean,
+      request_category:
+        (row.request_category ?? 'leave') as HRLeaveBalanceWithType['request_category'],
+      max_continuous_days: (row.max_continuous_days ?? null) as number | null,
+      min_advance_notice_days: Number(row.min_advance_notice_days ?? 0),
+      requires_documents: (row.requires_documents ?? false) as boolean,
+      document_required_after_days:
+        (row.document_required_after_days ?? null) as number | null,
+      entitlement_source:
+        (row.entitlement_source ?? 'policy') as HRLeaveBalanceWithType['entitlement_source'],
+    }));
   }
 
   // ----- Calendar (org-wide, decision 14 — with type-hiding per decision 23) -----
@@ -733,7 +834,7 @@ export class LeaveService {
     payload: {
       hr_organization_id: string;
       employee_id: string;
-      academic_year_id: string;
+      hr_academic_year_id: string;
       leave_type_id: string;
       days_encashed: number;
       per_diem_rate: number;

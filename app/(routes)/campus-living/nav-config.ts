@@ -84,6 +84,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/allocations/batches'],
         },
         {
+          label: 'Allocation Audit',
+          icon: 'ShieldQuestion',
+          href: '/campus-living/allocations/audit',
+          matchPaths: ['/campus-living/allocations/audit'],
+        },
+        {
           label: 'Pending Approvals',
           icon: 'ClipboardList',
           href: '/campus-living/allocations/pending',
@@ -166,6 +172,12 @@ const config: ModuleNavConfig = {
           icon: 'LogIn',
           href: '/campus-living/gate-passes',
           matchPaths: ['/campus-living/gate-passes'],
+        },
+        {
+          label: 'Gate Scan',
+          icon: 'ScanLine',
+          href: '/campus-living/gate-passes/scan',
+          matchPaths: ['/campus-living/gate-passes/scan'],
         },
         {
           label: 'Visitors',
@@ -461,7 +473,11 @@ const config: ModuleNavConfig = {
       label: 'Insights',
       icon: 'BarChart3',
       href: '/campus-living/analytics',
-      matchPaths: ['/campus-living/analytics', '/campus-living/reports'],
+      matchPaths: [
+        '/campus-living/analytics',
+        '/campus-living/reports',
+        '/campus-living/settle-preview',
+      ],
       children: [
         {
           label: 'Analytics Home',
@@ -504,6 +520,12 @@ const config: ModuleNavConfig = {
           icon: 'IndianRupee',
           href: '/campus-living/analytics/fees',
           matchPaths: ['/campus-living/analytics/fees'],
+        },
+        {
+          label: 'Bill Practice Run',
+          icon: 'BedDouble',
+          href: '/campus-living/settle-preview',
+          matchPaths: ['/campus-living/settle-preview'],
         },
         {
           label: 'Cross-Domain',

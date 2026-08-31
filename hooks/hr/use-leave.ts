@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   HRLeaveApplication,
+  HRLeaveApplicationWithType,
   HRLeaveApplicationInsert,
   HRLeaveBalanceWithType,
   HRLeaveEncashment,
@@ -10,6 +11,7 @@ import type {
   HRCalendarEntry,
   LeaveApplicationStatus,
 } from '@/types/hr';
+import { invalidateAttendanceViews } from '@/hooks/hr/use-attendance-records';
 
 const BASE = '/api/hr/leave';
 
@@ -28,6 +30,28 @@ export function useMyApplications(employeeId: string | undefined) {
       return (await res.json()) as { data: HRLeaveApplication[]; metadata: { total: number } };
     },
     enabled: !!employeeId,
+  });
+}
+
+/**
+ * My requests on ONE date. Backs the apply form's "already applied for that
+ * time" check, so a clash is shown while picking rather than as a rejection
+ * after Submit. The database's overlap guard stays the enforcement point —
+ * this list is scoped to one day, but it is still a client-side read.
+ */
+export function useMyRequestsOnDate(employeeId: string | undefined, date: string | undefined) {
+  return useQuery({
+    queryKey: ['hr-leave-applications', 'on-date', employeeId, date],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('employee_id', employeeId!);
+      params.set('start_from', date!);
+      params.set('start_to', date!);
+      const res = await fetch(`${BASE}/applications?${params}`);
+      if (!res.ok) throw new Error(`Requests for ${date} failed: ${res.status}`);
+      return ((await res.json()).data ?? []) as HRLeaveApplicationWithType[];
+    },
+    enabled: Boolean(employeeId) && Boolean(date),
   });
 }
 
@@ -61,19 +85,19 @@ export function useApplication(applicationId: string | undefined) {
 
 export function useLeaveBalance(
   employeeId: string | undefined,
-  academicYearId: string | undefined
+  hrAcademicYearId: string | undefined
 ) {
   return useQuery({
-    queryKey: ['hr-leave-balance', employeeId, academicYearId],
+    queryKey: ['hr-leave-balance', employeeId, hrAcademicYearId],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (employeeId) params.set('employee_id', employeeId);
-      if (academicYearId) params.set('academic_year_id', academicYearId);
+      if (hrAcademicYearId) params.set('hr_academic_year_id', hrAcademicYearId);
       const res = await fetch(`${BASE}/balance?${params}`);
       if (!res.ok) throw new Error(`Balance failed: ${res.status}`);
       return ((await res.json()).data ?? []) as HRLeaveBalanceWithType[];
     },
-    enabled: !!employeeId && !!academicYearId,
+    enabled: !!employeeId && !!hrAcademicYearId,
   });
 }
 
@@ -183,6 +207,13 @@ export function useDecideApplication() {
       qc.invalidateQueries({ queryKey: ['hr-leave-application', data.id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // The Approvals tab reads hr_leave_approval_queue() under its own key;
+      // without this the decided row stays on screen until a manual refresh.
+      qc.invalidateQueries({ queryKey: ['hr-leave-approval-flows'] });
+      // Approving leave fires tr_recompute_attendance_on_leave_approval, and
+      // short time off moves the day's excused minutes — both land in
+      // hr_attendance_records, which My Attendance reads under its own keys.
+      invalidateAttendanceViews(qc);
     },
   });
 }
@@ -248,7 +279,7 @@ export function useRequestEncashment() {
     mutationFn: async (payload: {
       hr_organization_id: string;
       employee_id: string;
-      academic_year_id: string;
+      hr_academic_year_id: string;
       leave_type_id: string;
       days_encashed: number;
       per_diem_rate: number;

@@ -103,6 +103,7 @@ function RoleManagementPageInner() {
       description?: string;
       permissions?: Record<string, boolean>;
       institution_scope?: 'all' | 'own';
+      is_privileged?: boolean;
       module_scopes?: Record<string, 'own_records' | 'own_institution' | 'all_institutions'>;
     }
   ) => {

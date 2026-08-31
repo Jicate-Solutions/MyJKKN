@@ -64,6 +64,12 @@ export class ProjectService {
     if (filters.financialYear) {
       query = query.eq('financial_year', filters.financialYear);
     }
+    if (filters.clientId) {
+      query = query.eq('client_id', filters.clientId);
+    }
+    if (filters.solutionId) {
+      query = query.eq('solution_id', filters.solutionId);
+    }
     if (filters.isOkr !== undefined && filters.isOkr !== null) {
       query = query.eq('is_okr', filters.isOkr);
     }

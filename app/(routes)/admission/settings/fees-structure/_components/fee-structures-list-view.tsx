@@ -112,6 +112,9 @@ export function FeeStructuresListView() {
   const [admissionYearFilter, setAdmissionYearFilter] = useState<string>(ALL);
   const [quotaFilter, setQuotaFilter] = useState<string>(ALL);
   const [communityFilter, setCommunityFilter] = useState<string>(ALL);
+  // Classification filter (not a matrix dimension). 'unclassified' maps to
+  // `package_type IS NULL` server-side.
+  const [packageTypeFilter, setPackageTypeFilter] = useState<string>(ALL);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
@@ -268,6 +271,7 @@ export function FeeStructuresListView() {
     setAdmissionYearFilter(ALL);
     setQuotaFilter(ALL);
     setCommunityFilter(ALL);
+    setPackageTypeFilter(ALL);
     bumpRefetch();
   };
 
@@ -282,6 +286,7 @@ export function FeeStructuresListView() {
       admissionYearFilter,
       quotaFilter,
       communityFilter,
+      packageTypeFilter,
     ].filter((v) => v !== ALL).length;
   }, [
     degreeFilter,
@@ -290,6 +295,7 @@ export function FeeStructuresListView() {
     admissionYearFilter,
     quotaFilter,
     communityFilter,
+    packageTypeFilter,
   ]);
 
   const hasAnyFilter =
@@ -366,6 +372,10 @@ export function FeeStructuresListView() {
           statusFilter === ALL
             ? undefined
             : (statusFilter as 'draft' | 'active' | 'archived'),
+        package_type:
+          packageTypeFilter === ALL
+            ? undefined
+            : (packageTypeFilter as 'package' | 'non_package' | 'unclassified'),
       });
 
       return {
@@ -679,6 +689,27 @@ export function FeeStructuresListView() {
                         {c.name}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Package Type — classification, not a matrix dimension.
+                  "Unclassified" is a real, common state: every structure
+                  created before this field existed sits there. */}
+              <div className="space-y-1">
+                <Label className="text-xs">Package Type</Label>
+                <Select
+                  value={packageTypeFilter}
+                  onValueChange={handleSimpleChange(setPackageTypeFilter)}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs">
+                    <SelectValue placeholder="All package types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All package types</SelectItem>
+                    <SelectItem value="package">Package</SelectItem>
+                    <SelectItem value="non_package">Non-Package</SelectItem>
+                    <SelectItem value="unclassified">Unclassified</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

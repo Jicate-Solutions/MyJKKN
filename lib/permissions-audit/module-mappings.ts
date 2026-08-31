@@ -239,6 +239,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/health', 'Health'],
   ['/ims', 'IMS'],
   ['/events', 'Events'],
+  ['/courses', 'Courses'],
   ['/audit', 'System'],
   ['/staff', 'Staff'],
   ['/users', 'Users'],

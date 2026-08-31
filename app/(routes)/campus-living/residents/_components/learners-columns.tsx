@@ -104,6 +104,23 @@ export function getLearnerColumns(
     size: 140,
   };
 
+  // Admission Year — the intake cohort (v_learner_hostelites.program_start_year,
+  // computed from admission_years.year). Sits next to Academic Year because the
+  // two differ for every learner past their first year, and the Admission Year
+  // filter narrows on THIS one. Sortable: program_start_year is in the service's
+  // SORTABLE set.
+  const admissionYearCol: ColumnDef<LearnerHostelite> = {
+    id: 'program_start_year',
+    accessorFn: (r) => r.program_start_year,
+    header: ({ column }) => <DataTableColumnHeader column={column} title='Admission Year' />,
+    cell: ({ row }) => (
+      <span className='text-sm tabular-nums'>
+        {row.original.program_start_year ?? '—'}
+      </span>
+    ),
+    size: 130,
+  };
+
   const blockCol: ColumnDef<LearnerHostelite> = {
     accessorKey: 'current_block_name',
     header: ({ column }) => <DataTableColumnHeader column={column} title='Block' />,
@@ -250,6 +267,7 @@ export function getLearnerColumns(
     programCol,
     semesterCol,
     academicYearCol,
+    admissionYearCol,
     blockCol,
     currentRoomCol,
     messCategoryCol,

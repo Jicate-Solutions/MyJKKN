@@ -320,27 +320,81 @@ Write-Host "Rolled back to $bak"
 
 > **PREPARED — execution requires the Director at the Windows box; never
 > run from the Mac.** Nothing in this section has been applied to the
-> bridge. The cloud side (duplex pickup contract + agent access to the
-> back render) ships with this PR and is dark until BOTH a bridge update
-> AND a template with `back_layout_json` set exist.
+> bridge.
+>
+> **Status 2026-08-14 — the original blocker is HALF CLEARED.** When this
+> runbook was written, the back was dark on both sides of the wire: the
+> cloud could render a back, but no production template had one and the
+> bridge could not ask for one. **The cloud half is now done.** Two
+> production templates carry a designed back, the pickup response already
+> reports `has_back`, and a back has been rendered and looked at with
+> human eyes for the first time (2026-08-14) — it composes correctly, with
+> the portrait card rotated into the 1014x638 landscape canvas.
+> **The only remaining software blocker is `evolis_bridge.py` itself,
+> still v0.3.1 and front-only.** Beyond that: the ribbon decision (§3.1)
+> and the on-plastic flip-direction check (§3.2), neither of which is code.
+>
+> ⛔ **Not yet safe to print at scale.** The rendered back truncates the
+> address — see §3.5. One verification card is fine; a cohort batch is
+> not, until that lands.
 
 **Context (locked facts):**
 
 - The Primacy 2 at the office has the **dual-side module INSTALLED**
   (printer's own config report, 2026-07-23). The Director confirms it
   prints both sides by default — the gap is software only.
+- **The policy already asks for two sides, and the bridge disagrees.**
+  Read live from `platform_policies` on 2026-08-14:
+  `id_card.printer.sides = 2`, `id_card.printer.ribbon_type = "YMCKO"`,
+  `id_card.printer.model = "primacy_2"`. So nothing needs changing in the
+  policy to enable duplex — the bridge is simply not honouring it yet.
 - Back-side rendering is LIVE cloud-side since PR #2370:
   `GET /api/id-cards/templates/:tid/render?profile_id=...&side=back&`
   `format=png` returns the back PNG, or 404 `back_not_configured` while
-  the template's `back_layout_json` is NULL (all prod templates today).
-  The SAME `AGENT_PRINT_TOKEN` bearer works — auth on that route runs
-  before any side handling.
-- **Duplex pickup contract (this PR):** the pickup response
-  (`POST /api/id-cards/jobs/:id/pickup`) now carries
-  `has_back: boolean` — true ⇔ the job's template has a configured back
-  ⇔ `?side=back` will render. Old bridges ignore the field (front-only,
-  unchanged). Bridge rule: `claim.get("has_back", False)` so an old
-  cloud (missing key) also means front-only.
+  the template's `back_layout_json` is NULL. The SAME
+  `AGENT_PRINT_TOKEN` bearer works — auth on that route runs before any
+  side handling.
+- **Duplex pickup contract — SHIPPED, read off `main` 2026-08-14.**
+  `POST /api/id-cards/jobs/:id/pickup` returns the claimed job row plus
+  `has_back: boolean`. True ⇔ the job's template has a non-null
+  `back_layout_json` ⇔ `?side=back` will render with the same bearer.
+  The lookup is **fail-soft**: if the template read errors, the claim
+  still succeeds and `has_back` comes back false, so the duplex hint can
+  never block a pickup or strand a job. Old bridges ignore the field
+  (front-only, unchanged). Bridge rule: `claim.get("has_back", False)`
+  so an old cloud (missing key) also means front-only.
+
+**Which templates have a back — read live from `id_card_templates`,
+2026-08-14 (3 rows in the table, all of production):**
+
+```
+active  back_layout_json           template
+------  -------------------------  ------------------------------------------
+yes     11 elements, portrait      Engineering Learner - Tall (2026)
+                                   ad0642ec-10c5-4b06-859e-7006734eb8f8
+yes     11 elements, portrait      Engineering Senior Learner (Facilitator)
+                                   - Tall (2026)
+                                   138ea0e4-11ec-4ac2-aa58-060ec888b3aa
+no      NULL                       DO NOT USE - E2E Test Template (2026-07-23)
+                                   79cb8a5b-e1bd-465d-b587-1370945890cd
+```
+
+The two backs are byte-identical to each other (1,281 bytes as compact
+JSON, measured 2026-08-14). Only the inactive E2E row is still NULL — so
+`back_not_configured` is now the exception in production, not the rule.
+
+**What the live back actually contains.** Both backs are driven ENTIRELY
+by their 11 positioned `elements`; every default block is switched OFF
+(`show_blood_group`, `show_dob`, `show_guardian`, `show_address`,
+`show_contact` and `show_barcode` are all `false`). In particular
+**`show_barcode` is `false` — there is no barcode on the printed back.**
+The 11 elements are four label+value pairs (BLOOD GROUP, DATE OF BIRTH,
+ADDRESS, CONTACT) plus three fixed lines (the three office phone numbers,
+`engg@jkkn.ac.in`, `www.engg.jkkn.ac.in`), over the footer band
+`TAMIL NADU, INDIA` — which reads as a green sidebar once the portrait
+composition is rotated into the landscape canvas. This matters below: a
+text-only mono back is **more** favourable to YMCKOK than §3.1 originally
+assumed.
 
 ### 3.1 SDK duplex flow
 
@@ -360,13 +414,26 @@ the exact BACK member name, and whether duplex needs an explicit print
 setting or auto-enables when both faces have images (check
 `help(evolis.PrintSession)` for duplex/side settings).
 
-**Ribbon math (verify on the first duplex print):** with the loaded
-YMCKO ribbon a colour back is expected to burn a SECOND panel set per
-card — halving the ~244-card capacity. YMCKOK prints a mono back on the
-K panel (1 set per duplex card) and the current back design (barcode +
-contact text) is mono-friendly. Flag for the Director's spare-ribbon
-order; read the ribbon % before/after the first duplex print to learn
-the true cost.
+**Ribbon math — a purchasing decision, not a code decision.**
+
+| Ribbon | What one duplex card costs | Cards per ribbon |
+|---|---|---|
+| **YMCKO** — loaded today | a SECOND full panel set, for a colour back | ~244 front-only → roughly **~122** duplex |
+| **YMCKOK** | the extra **K** panel only — ONE set per duplex card | duplex at roughly the front-only rate |
+
+(The ~244 figure is this runbook's own existing capacity number; §2
+records ~246 panels left on the loaded ribbon.)
+
+The live back is **text-only with no barcode at all** (`show_barcode` is
+`false` — see the context block above), so it needs no colour panels
+whatsoever. YMCKOK is therefore the right ribbon for this design, and the
+halving above is capacity paid for nothing. Raise it on the next
+spare-ribbon order.
+
+**Do not trust that estimate — measure it.** Read the printer's ribbon
+percentage immediately BEFORE and immediately AFTER the first duplex
+card. That one reading pair settles the true panel cost per duplex card
+and is worth more than any figure written in this runbook.
 
 ### 3.2 Bridge pseudo-diff (v0.3.1 → duplex-aware)
 
@@ -415,6 +482,26 @@ Keep the front path byte-for-byte identical to v0.3.1 — a job with
 `has_back` falsy must behave exactly as today. This diff composes with
 the §2 `get_state()` probe swap; if both land in one box session, ship
 them as a single v0.5 whole-file replacement.
+
+**Two levers now correct back rotation — reach for the cloud one first.**
+Since PR #2370's portrait engine, `back_layout_json.orientation` accepts
+`portrait` (composition rotated +90°) or `portrait-flipped` (−90°), and
+the back honours it independently of the front. Both live templates are
+`portrait` today (read live 2026-08-14), matching their fronts.
+
+- If the first duplex card's back comes out inverted, **flip that
+  template's `back_layout_json.orientation` to `portrait-flipped`** — a
+  one-row data change, no box visit, no service restart, and the next job
+  picks it up.
+- Keep `BACK_ROTATE_DEGREES` equal to `ROTATE_DEGREES` (90). It still
+  earns its place: the printer flips the card on one edge, there are two
+  rotation legs in series (cloud composition, then the bridge's own 90°
+  at print time), and which leg is wrong is only provable on plastic. The
+  constant is the bridge-side lever for the case where the cloud-side
+  flip turns out not to be the one at fault.
+- **Change ONE lever at a time.** Flipping both at once rotates the back
+  a full 180° and teaches you nothing — the card comes back wrong in a
+  new way and you have spent two pieces of plastic to learn it.
 
 ### 3.3 Paste-shuttle `.ps1` skeleton
 
@@ -477,18 +564,66 @@ Rollback: identical to §2.3 (`rollback-v04.ps1` pattern) — fill
 
 1. Service running + heartbeat fresh (same free checks as §2.4 — do
    these FIRST; a wedged service costs nothing to catch).
-2. Cloud contract check (free, from the Mac): enqueue NOTHING; instead
-   confirm one template has `back_layout_json` set and that
-   `?side=back&format=png` returns 200 for it with the agent token
-   (and 404 `back_not_configured` for a NULL template).
+2. Cloud contract check (free, from the Mac): enqueue NOTHING. Both
+   active templates already carry a back, so the check is now the other
+   way round — confirm `?side=back&format=png` returns 200 for one of
+   them with the agent token, that the inactive E2E row still answers
+   404 `back_not_configured`, and that a pickup response carries
+   `has_back: true`.
 3. **FIRST DUPLEX VERIFICATION PRINT — costs one card and burns panel(s),
-   and needs the Director AT THE BOX:** one real job on the
-   back-configured template. Check on the plastic: back present, back
-   orientation matches front (else flip `BACK_ROTATE_DEGREES` to -90
-   and re-run §3.3 — that second card is also not free), barcode scans.
+   and needs the Director AT THE BOX:** one real job on a back-configured
+   template. Check on the plastic: back present; back orientation matches
+   the front (if not, flip the template's `back_layout_json.orientation`
+   first — see §3.2 — and only then reach for `BACK_ROTATE_DEGREES`; that
+   second card is also not free); all four label+value pairs legible; the
+   three fixed contact lines present. **There is no barcode on this back
+   — do not look for one, and do not treat its absence as a defect.**
    Read ribbon % before/after to learn true panel cost per duplex card.
-4. Regression: one front-only job (template with NULL back) must print
-   exactly as today — no back face, single panel set.
+4. Regression: one front-only job must print exactly as today — no back
+   face, single panel set. Note the only NULL-back template left in
+   production is the **inactive** E2E row, so this check needs either
+   that row temporarily reactivated or a purpose-made template with
+   `back_layout_json` left NULL. Do NOT clear the back off a live
+   template to manufacture this check.
+
+### 3.5 ⛔ Blocker before any duplex BATCH — the address is truncated
+
+The back's ADDRESS value goes through the shared element render path,
+which hard-truncates every element's text at 80 characters
+(`truncateForCard(value, 80)` — `lib/id-cards/render-card.tsx:1399`; 79
+characters kept, then an ellipsis).
+
+Learner addresses are joined from five columns — street, taluk, district,
+state, PIN. Measured live against production on 2026-08-14, across the
+787 active learners of JKKN College of Engineering and Technology (the
+institution that owns both back-configured templates):
+
+- **402 of 787 — 51.1% — join to more than 80 characters.**
+- Every one of those loses the tail, which is exactly where district,
+  state and PIN sit.
+
+A real address from that roll, at 101 characters:
+
+```
+stored : 214 MALAIKARAN KADU, CHINNA ANDIPATTI, ATTAYAMPATTY VIA
+         RAJAPALAYAM, SALEM, SALEM, TAMIL NADU, 637501
+on card: 214 MALAIKARAN KADU, CHINNA ANDIPATTI, ATTAYAMPATTY VIA
+         RAJAPALAYAM, SALEM, SAL...
+```
+
+The card would carry a street and a village and then simply stop — no
+district, no state, no PIN. **A separate lane is fixing the truncation.**
+Until that ships:
+
+- ✅ A single verification print is fine. It is proving rotation and
+  panel cost, not address quality.
+- ⛔ Do **not** run a cohort batch on the back. Roughly half the stack
+  would come out with an unusable address, and cards are not reprintable
+  for free.
+
+Re-measure before the first batch. The fix is cloud-side so it costs no
+box visit — but it does have to be live, and the 402/787 number above is
+the check that tells you whether it is.
 
 ---
 
