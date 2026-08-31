@@ -288,6 +288,12 @@ export function useSplitTypeHelpers() {
         totalAmount: amount,
         hodDiscountApplied: Math.round(hodDiscountApplied * 100) / 100,
         referralBonusApplied: Math.round(referralBonusApplied * 100) / 100,
+        // This is a caller-driven what-if preview, never stored data. Say so, so a
+        // preview figure is never mistaken for an authoritative split.
+        adjustmentSources: {
+          hodDiscount: hodDiscountApplied > 0 ? 'caller_supplied' : 'not_stored',
+          referralBonus: referralBonusApplied > 0 ? 'caller_supplied' : 'not_applicable',
+        },
       };
     },
 
