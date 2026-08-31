@@ -292,6 +292,12 @@ export interface LeaveApproverCandidate {
   profile_id: string;
   full_name: string | null;
   email: string | null;
+  /**
+   * Which institution this person belongs to. The picker spans every
+   * institution the caller can access, so without this two people with similar
+   * names are indistinguishable.
+   */
+  institution_name: string | null;
   role_names: string | null;
   can_approve: boolean;
 }

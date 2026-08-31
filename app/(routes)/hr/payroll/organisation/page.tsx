@@ -129,6 +129,11 @@ function buildPayerOptions(
  * Distinct roles, collapsed on the normalised key so "Bus Cleaner" and
  * "Bus cleaner" are one option. Rows with no recorded role are skipped: their
  * key would be '', which is the sentinel for "no role filter".
+ *
+ * Iterates each of a row's roles, not the row: role_title is comma-joined for
+ * the 215 people holding more than one, so a whole-string key would offer
+ * "Facilitator, HOD" as its own option and hide those people from the plain
+ * "Facilitator" one.
  */
 function buildRoleOptions(
   rows: StaffPayerRow[],
@@ -136,13 +141,15 @@ function buildRoleOptions(
 ): FilterOption[] {
   const byKey = new Map<string, FilterOption>();
   for (const r of rows) {
-    const key = normaliseRole(r.role_title);
-    if (!key) continue;
     const hit = matchesDirectoryFilters(r, filters, 'role') ? 1 : 0;
-    const existing = byKey.get(key);
-    if (existing) existing.count += hit;
-    else
-      byKey.set(key, { value: key, label: (r.role_title ?? '').trim(), count: hit });
+    const labels = (r.role_title ?? '').split(',');
+    labels.forEach((label, i) => {
+      const key = normaliseRole(label);
+      if (!key) return;
+      const existing = byKey.get(key);
+      if (existing) existing.count += hit;
+      else byKey.set(key, { value: key, label: labels[i].trim(), count: hit });
+    });
   }
   return [...byKey.values()].sort(byCountThenLabel);
 }

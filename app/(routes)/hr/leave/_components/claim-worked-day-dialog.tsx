@@ -61,6 +61,9 @@ export function ClaimWorkedDayDialog({
   const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
   const closedHit = closedMonthsInRange(workedDate, workedDate, closedMonths);
 
+  /** Category excluded from HR — trg_hcoc_block_non_hr_staff refuses the claim. */
+  const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
+
   // Shown so the claimant knows the deadline before submitting, using the same
   // +90 rule the database applies.
   const expiresOn = useMemo(() => {
@@ -72,7 +75,7 @@ export function ClaimWorkedDayDialog({
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture &&
-    closedHit.length === 0 && !mutation.isPending && !uploading &&
+    closedHit.length === 0 && !notInHr && !mutation.isPending && !uploading &&
     // Proof of the worked day is required — CompOffService.claimWorkedDay
     // enforces the same rule; this only spares the round trip.
     documentFiles.length > 0;
@@ -156,6 +159,16 @@ export function ClaimWorkedDayDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {notInHr && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Your employment category is not managed in HR, so compensatory off
+                cannot be claimed here. Contact HR if you believe this is an error.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div>
             <Label htmlFor="cwd">Worked Date <span className="text-destructive">*</span></Label>
             <Input id="cwd" type="date" className="mt-1" value={workedDate}

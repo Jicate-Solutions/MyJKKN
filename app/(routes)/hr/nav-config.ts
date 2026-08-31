@@ -287,6 +287,28 @@ const config: ModuleNavConfig = {
           href: '/hr/payroll/bank-accounts',
           matchPaths: ['/hr/payroll/bank-accounts'],
         },
+        {
+          // Fourth payroll chip (2026-08-30). Shipped WITHOUT this entry first
+          // and reproduced the exact failure the two blocks above document:
+          // MENU_PERMISSIONS + a GetPages leaf + a route-manifest row gave a
+          // sidebar row and NO chip, because hasNavConfig makes AutoTabNav
+          // render only what is declared in this file. Three warnings in this
+          // one group is enough — anything added under /hr/payroll/* needs a
+          // child here, always.
+          //
+          // Last in the group because it is the step AFTER the three above are
+          // populated: a register reads the payer directory, the salary and the
+          // bank account, and reports whichever is missing.
+          //
+          // Gated on hr.payroll.register.view via MENU_PERMISSIONS[href] —
+          // hr_head alone, plus super admin. A register is the one screen
+          // showing amount AND destination AND day counts for everybody at
+          // once, so it does not ride on any of the other three keys.
+          label: 'Salary Register',
+          icon: 'FileSpreadsheet',
+          href: '/hr/payroll/register',
+          matchPaths: ['/hr/payroll/register'],
+        },
       ],
     },
     {

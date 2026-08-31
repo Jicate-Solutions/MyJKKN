@@ -92,6 +92,10 @@ export async function recomputeAttendanceDay(
         institution_id: '',
         staff_scope: w.matched_by as ResolvedShiftTiming['staff_scope'],
         employment_category_id: null,
+        // Placeholder, like institution_id above and day_of_week below:
+        // fn_shift_window returns the window only, and evaluateDay reads none of
+        // the three. The gender was already applied inside the resolver.
+        applicable_gender: 'all',
         day_of_week: 1,
         is_working_day: w.is_working_day as boolean,
         first_half_start: w.first_half_start as string | null,

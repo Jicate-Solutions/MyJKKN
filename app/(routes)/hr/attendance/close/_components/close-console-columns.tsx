@@ -16,7 +16,7 @@
 
 import type { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
-import { CalendarCheck, ExternalLink, Lock, LockOpen } from 'lucide-react';
+import { CalendarCheck, ExternalLink, FileSpreadsheet, Lock, LockOpen } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -168,6 +168,8 @@ export interface CloseColumnActions {
   month: number;
   canManage: boolean;
   isSuperAdmin: boolean;
+  /** hr.payroll.register.view — shows the Salary register link on closed rows. */
+  canViewRegister: boolean;
   busy: boolean;
   onClose: (row: AttendancePeriodConsoleRow) => void;
   onReopen: (row: AttendancePeriodConsoleRow) => void;
@@ -278,7 +280,7 @@ export function getCloseConsoleColumns(
     },
     {
       id: 'actions',
-      size: 150,
+      size: 300,
       header: '',
       enableSorting: false,
       enableHiding: false,
@@ -287,12 +289,33 @@ export function getCloseConsoleColumns(
         const state = closeStateOf(r);
 
         if (state === 'closed') {
-          return a.isSuperAdmin ? (
-            <Button variant='outline' size='sm' className='h-8' onClick={() => a.onReopen(r)}>
-              <LockOpen className='mr-1.5 h-3.5 w-3.5' />
-              Reopen
-            </Button>
-          ) : null;
+          // Closing is not the end of the errand — the month was frozen so
+          // payroll could read it. Carry the institution and month across so
+          // the register opens on the month just closed rather than making
+          // someone re-pick both. Gated on the register key, which HR Head
+          // holds and nobody else does.
+          const registerHref =
+            `/hr/payroll/register?institution=${r.institution_id}` +
+            `&year=${a.year}&month=${a.month}`;
+
+          return (
+            <div className='flex items-center justify-end gap-1.5'>
+              {a.canViewRegister && (
+                <Button asChild variant='outline' size='sm' className='h-8'>
+                  <Link href={registerHref}>
+                    <FileSpreadsheet className='mr-1.5 h-3.5 w-3.5' />
+                    Salary register
+                  </Link>
+                </Button>
+              )}
+              {a.isSuperAdmin && (
+                <Button variant='outline' size='sm' className='h-8' onClick={() => a.onReopen(r)}>
+                  <LockOpen className='mr-1.5 h-3.5 w-3.5' />
+                  Reopen
+                </Button>
+              )}
+            </div>
+          );
         }
         if (!a.canManage) return null;
 

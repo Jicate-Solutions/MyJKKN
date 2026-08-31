@@ -29,6 +29,7 @@ import type { WeekDayInput } from '@/lib/services/hr/shift-timing-service';
 import { todayISO } from '@/lib/services/hr/attendance-recompute-service';
 import {
   DAY_OF_WEEK_OPTIONS,
+  APPLICABLE_GENDER_OPTIONS,
   DEFAULT_WORKING_DAY,
   computeGraceDeadline,
   timeToMinutes,
@@ -36,6 +37,7 @@ import {
   validateTimingRow,
   type HRShiftTiming,
   type IsoDayOfWeek,
+  type ShiftApplicableGender,
   type ShiftStaffScope,
 } from '@/types/hr-shift-timings';
 
@@ -57,6 +59,25 @@ interface WeeklyTimingGridProps {
    */
   effectiveFrom: string;
   onEffectiveFromChange: (value: string) => void;
+  /**
+   * WHICH staff this week is for. Owned by the page, like effectiveFrom and for
+   * the same reason — Radix unmounts the inactive tab, so per-tab state would
+   * silently reset to 'all' and write the wrong row.
+   *
+   * It is part of `params` AND of `scopeKey` below. Missing from either one, the
+   * grid keeps showing the previous gender's week after the selector changes.
+   */
+  applicableGender?: ShiftApplicableGender;
+  /**
+   * Fired after a SUCCESSFUL save. The Override tab uses it to collapse the
+   * builder back to the list, so the override just written appears there and
+   * "Add another override" is reachable again — without it the builder stays
+   * open showing the row it just saved, which reads as "this is the only
+   * override you get".
+   *
+   * Not fired on failure: the operator must keep their unsaved edits.
+   */
+  onSaved?: () => void;
 }
 
 function blankWeek(): WeekDayInput[] {
@@ -176,10 +197,12 @@ export function WeeklyTimingGrid({
   scopeLabel,
   effectiveFrom,
   onEffectiveFromChange,
+  applicableGender = 'all',
+  onSaved,
 }: WeeklyTimingGridProps) {
   const params = useMemo(
-    () => ({ institutionId, staffScope, employmentCategoryId }),
-    [institutionId, staffScope, employmentCategoryId],
+    () => ({ institutionId, staffScope, employmentCategoryId, applicableGender }),
+    [institutionId, staffScope, employmentCategoryId, applicableGender],
   );
 
   const { data, isLoading } = useShiftTimingWeek(params);
@@ -190,7 +213,7 @@ export function WeeklyTimingGrid({
   // Hydrate once per scope, NOT on every `data` identity change. A background
   // refetch (this app refetches on window focus) would otherwise wipe an
   // in-progress edit the moment the user tabs away and back.
-  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}`;
+  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}|${applicableGender}`;
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!data || hydratedFor.current === scopeKey) return;
@@ -271,6 +294,17 @@ export function WeeklyTimingGrid({
     currentEffectiveFrom && effectiveFrom <= currentEffectiveFrom,
   );
 
+  // The toast must name the gender too: "Non-teaching timings saved" is the
+  // same sentence whether the Everyone or the Female week was written, and that
+  // is the one thing an operator needs to be sure of here.
+  const saveLabel =
+    applicableGender === 'all'
+      ? scopeLabel
+      : `${scopeLabel} (${
+          APPLICABLE_GENDER_OPTIONS.find((o) => o.value === applicableGender)?.label
+          ?? applicableGender
+        })`;
+
   const handleSave = useCallback(async () => {
     if (errors.length > 0) return;
     try {
@@ -278,6 +312,7 @@ export function WeeklyTimingGrid({
         institutionId,
         staffScope,
         employmentCategoryId,
+        applicableGender,
         effectiveFrom,
         days: rows,
       });
@@ -285,12 +320,12 @@ export function WeeklyTimingGrid({
       hydratedFor.current = null;
 
       if (isScheduledChange) {
-        toast.success(`${scopeLabel} timings scheduled from ${effectiveFrom}`);
+        toast.success(`${saveLabel} timings scheduled from ${effectiveFrom}`);
       } else if (result?.recomputeError) {
         // The timing IS saved; only the re-judging failed. Saying "save failed"
         // would send the operator back to re-enter data that is already stored.
         toast.warning(
-          `${scopeLabel} timings saved, but recomputing past attendance failed: ${result.recomputeError}`,
+          `${saveLabel} timings saved, but recomputing past attendance failed: ${result.recomputeError}`,
         );
       } else if (result?.recompute && result.recompute.changed > 0) {
         const t = result.recompute.transitions;
@@ -300,23 +335,25 @@ export function WeeklyTimingGrid({
           .map(([k, n]) => `${n} ${k}`)
           .join(', ');
         toast.success(
-          `${scopeLabel} timings saved — ${result.recompute.changed} attendance day(s) recomputed${
+          `${saveLabel} timings saved — ${result.recompute.changed} attendance day(s) recomputed${
             detail ? ` (${detail})` : ''
           }`,
         );
       } else if (result?.recompute) {
         toast.success(
-          `${scopeLabel} timings saved — ${result.recompute.examined} attendance day(s) re-checked, none changed`,
+          `${saveLabel} timings saved — ${result.recompute.examined} attendance day(s) re-checked, none changed`,
         );
       } else {
-        toast.success(`${scopeLabel} timings saved`);
+        toast.success(`${saveLabel} timings saved`);
       }
+
+      onSaved?.();
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   }, [
     errors.length, save, institutionId, staffScope, employmentCategoryId,
-    effectiveFrom, rows, isScheduledChange, scopeLabel,
+    applicableGender, effectiveFrom, rows, isScheduledChange, saveLabel, onSaved,
   ]);
 
   if (isLoading) {

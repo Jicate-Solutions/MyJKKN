@@ -23673,6 +23673,7 @@ export type Database = {
           id: string
           institution_scope: string | null
           is_active: boolean
+          is_privileged: boolean
           is_system_role: boolean | null
           module_scopes: Json
           permissions: Json | null
@@ -23687,6 +23688,7 @@ export type Database = {
           id?: string
           institution_scope?: string | null
           is_active?: boolean
+          is_privileged?: boolean
           is_system_role?: boolean | null
           module_scopes?: Json
           permissions?: Json | null
@@ -23701,6 +23703,7 @@ export type Database = {
           id?: string
           institution_scope?: string | null
           is_active?: boolean
+          is_privileged?: boolean
           is_system_role?: boolean | null
           module_scopes?: Json
           permissions?: Json | null
@@ -24898,6 +24901,7 @@ export type Database = {
           created_by: string | null
           description: string | null
           id: string
+          included_in_hr: boolean
           is_active: boolean | null
           is_teaching: boolean
           shows_extended_profile: boolean
@@ -24911,6 +24915,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          included_in_hr?: boolean
           is_active?: boolean | null
           is_teaching?: boolean
           shows_extended_profile?: boolean
@@ -24924,6 +24929,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          included_in_hr?: boolean
           is_active?: boolean | null
           is_teaching?: boolean
           shows_extended_profile?: boolean
@@ -52770,6 +52776,7 @@ export type Database = {
           phone: string | null
           pin_code: string | null
           placement_dept: Json | null
+          staff_code_prefix: string | null
           state: string | null
           timetable_type: string | null
           transportation_dept: Json | null
@@ -52811,6 +52818,7 @@ export type Database = {
           phone?: string | null
           pin_code?: string | null
           placement_dept?: Json | null
+          staff_code_prefix?: string | null
           state?: string | null
           timetable_type?: string | null
           transportation_dept?: Json | null
@@ -52852,6 +52860,7 @@ export type Database = {
           phone?: string | null
           pin_code?: string | null
           placement_dept?: Json | null
+          staff_code_prefix?: string | null
           state?: string | null
           timetable_type?: string | null
           transportation_dept?: Json | null
@@ -94442,6 +94451,7 @@ export type Database = {
           institution_id: string
           is_active: boolean | null
           last_name: string
+          legacy_staff_id: string | null
           login_enabled: boolean
           marital_status: string
           memberships: Json
@@ -94509,6 +94519,7 @@ export type Database = {
           institution_id: string
           is_active?: boolean | null
           last_name: string
+          legacy_staff_id?: string | null
           login_enabled?: boolean
           marital_status: string
           memberships?: Json
@@ -94576,6 +94587,7 @@ export type Database = {
           institution_id?: string
           is_active?: boolean | null
           last_name?: string
+          legacy_staff_id?: string | null
           login_enabled?: boolean
           marital_status?: string
           memberships?: Json
