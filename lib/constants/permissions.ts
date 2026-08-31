@@ -3030,7 +3030,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'meetings.embed.manage', label: 'Manage Embed & Theming' },
       { key: 'meetings.analytics.view', label: 'View Meeting Analytics' },
       { key: 'meetings.webhooks.view', label: 'View Webhooks' },
-      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' }
+      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' },
+      // Recurring series + scheduling rules (Monthly Slate, pieces 1 and 2).
+      // The RLS policies on meeting_recurring_series and the two rules tables
+      // reference these via user_has_permission(); registering them here makes
+      // them grantable in Role Management. The EAO reaches the Director's own
+      // series through the EXISTING meeting_host_delegates link, so these keys
+      // are for anyone else who needs the surface — not a replacement for it.
+      { key: 'meetings.series.view', label: 'View Recurring Series' },
+      { key: 'meetings.series.manage', label: 'Manage Recurring Series & Scheduling Rules' }
     ]
   },
   // ======================================================================

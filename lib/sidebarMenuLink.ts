@@ -1581,6 +1581,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/webhooks': 'meetings.webhooks.view',
   '/meetings/embed': 'meetings.embed.manage',
   '/meetings/triggers': 'meetings.view',
+  // Recurring series (Monthly Slate, pieces 1 and 2). Its own key rather than
+  // meetings.view: unlike the rest of the module, these two screens configure
+  // meetings for OTHER people's calendars across every college, so they are not
+  // something every meetings user should see by default.
+  '/meetings/series': 'meetings.series.view',
+  '/meetings/series/rules': 'meetings.series.view',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
@@ -3287,6 +3293,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },
+            { href: '/meetings/series', label: 'Recurring Series', active: pathname === '/meetings/series' },
+            // Listed explicitly, like /meetings/contacts/scan/saved: /meetings has
+            // no nav-config, so a tier-N+1 chip is never rendered for it and the
+            // reachability gate reports the rules screen as unreachable otherwise.
+            { href: '/meetings/series/rules', label: 'Scheduling Rules', active: pathname.startsWith('/meetings/series/rules') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
             { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },

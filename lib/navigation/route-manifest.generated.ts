@@ -5536,6 +5536,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/meetings/series",
+        "label": "Recurring Series",
+        "iconName": "Repeat",
+        "children": [
+          {
+            "path": "/meetings/series/rules",
+            "label": "Scheduling Rules",
+            "iconName": "SlidersHorizontal",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/meetings/triggers",
         "label": "Auto-Meetings",
         "iconName": "CalendarClock",
