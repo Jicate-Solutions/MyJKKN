@@ -65,6 +65,7 @@ import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import { IncompleteFeeBanner, getMissingFeeDimensions } from './incomplete-fee-banner';
 import { getErrorMessage } from '@/lib/utils';
+import { errorMessage } from '@/lib/utils/supabase-error';
 import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
@@ -105,7 +106,7 @@ export const enquiryFormSchema = z.object({
   emis: z.string().optional(),
   umis: z.string().optional(),
   date_of_birth: z.string().min(1, 'Date of birth is required'),
-  gender: z.enum(['MALE', 'FEMALE', 'OTHER'], { required_error: 'Gender is required' }),
+  gender: z.enum(['Male', 'Female', 'Other'], { required_error: 'Gender is required' }),
   religion: z.string().min(1, 'Religion is required'),
   // FK source of truth (DB-backed community_categories / castes).
   community_category_id: z.string().uuid('Community is required'),
@@ -859,7 +860,7 @@ export function EnquiryForm({
           emis: learner.emis || '',
           umis: learner.umis || '',
           date_of_birth: learner.date_of_birth || '',
-          gender: learner.gender?.toUpperCase() as 'MALE' | 'FEMALE' | 'OTHER' | undefined,
+          gender: (learner.gender || undefined) as 'Male' | 'Female' | 'Other' | undefined,
           religion: learner.religion || '',
           community_category_id: learner.community_category_id || '',
           caste_id: learner.caste_id || '',
@@ -1254,7 +1255,8 @@ export function EnquiryForm({
           }
         : {}),
       date_of_birth: values.date_of_birth || '',
-      gender: toUpperCaseField(values.gender) || '',
+      // NOT toUpperCaseField: gender is Title Case per learners_profiles_gender_check.
+      gender: values.gender || '',
       religion: toUpperCaseField(values.religion) || '',
       // FK source of truth; community/caste TEXT are auto-filled by the DB
       // shadow trigger (sync_learner_community_caste_text) from these ids.
@@ -1437,7 +1439,7 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving progress:', error);
-      toast.error('Failed to save progress');
+      toast.error(errorMessage(error, 'Failed to save progress'));
     } finally {
       setIsSavingDraft(false);
     }
@@ -1469,7 +1471,7 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving draft:', error);
-      toast.error('Failed to save progress');
+      toast.error(errorMessage(error, 'Failed to save progress'));
     } finally {
       setIsSavingDraft(false);
     }
@@ -1789,7 +1791,12 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving enquiry:', error);
-      toast.error('Failed to save enquiry');
+      // Surface the real reason. The service throws actionable messages here
+      // (duplicate college_email, email already in use by another user), and a
+      // bare 'Failed to save enquiry' makes every one of them look identical.
+      // errorMessage() also translates the raw postgrest codes that reach this
+      // path on create — 23505 unique violations and 42501 RLS refusals.
+      toast.error(errorMessage(error, 'Failed to save enquiry'));
     } finally {
       setIsSubmitting(false);
     }
@@ -1953,7 +1960,7 @@ export function EnquiryForm({
           community_category_id: resolvedCommunityId,
           accommodation_type_id: resolvedAccommodationId,
           admission_year_id: values.admission_year_id ?? undefined,
-          gender: (values as { gender?: string }).gender?.toUpperCase() || undefined,
+          gender: (values as { gender?: string }).gender || undefined,
         };
         const allDimsPresent = !!(
           dims.institution_id &&

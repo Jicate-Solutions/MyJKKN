@@ -23,6 +23,7 @@
 
 import { useState, useEffect, useMemo, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -35,6 +36,7 @@ import { RotateCcw, ChevronDown, ChevronUp, Search, X, SlidersHorizontal } from 
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { LookupService } from '@/lib/services/admission/lookup-service';
 import { useAcademicCascade } from '@/hooks/organization/use-academic-tree';
 import type { ProfilesSearchParams } from './data-table-schema';
 import {
@@ -64,6 +66,7 @@ const FILTER_PARAM_KEYS = [
   'academic_year_id',
   'gender',
   'is_profile_complete',
+  'accommodation_type_id',
 ] as const;
 
 type FilterKey = (typeof FILTER_PARAM_KEYS)[number];
@@ -71,12 +74,14 @@ type Draft = Partial<Record<FilterKey, string>>;
 
 const ALL = 'all';
 
-// learners_profiles.gender is stored upper-case. The old panel offered
-// 'Male'/'Female'/'Other', which matched zero rows on every search. 'Other' is
-// gone because no learner has it.
+// learners_profiles.gender is Title Case (Male/Female/Other) since 20260820160000 —
+// enforced by learners_profiles_gender_check and normalised on write by
+// trg_normalize_gender_learners_profiles. The query still matches with .ilike(), so a
+// bookmarked ?gender=MALE from the old uppercase panel keeps working.
 const GENDER_OPTIONS = [
-  { value: 'MALE', label: 'Male' },
-  { value: 'FEMALE', label: 'Female' },
+  { value: 'Male', label: 'Male' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Other', label: 'Other' },
 ];
 
 const PROFILE_STATUS_OPTIONS = [
@@ -99,6 +104,7 @@ function draftFromParams(searchParams: ProfilesSearchParams): Draft {
     academic_year_id: searchParams.academic_year_id || undefined,
     gender: searchParams.gender || undefined,
     is_profile_complete: searchParams.is_profile_complete || undefined,
+    accommodation_type_id: searchParams.accommodation_type_id || undefined,
   };
 }
 
@@ -157,6 +163,7 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
     searchParams.academic_year_id,
     searchParams.gender,
     searchParams.is_profile_complete,
+    searchParams.accommodation_type_id,
   ]);
 
   // Auto-select the institution ONLY when the user can reach exactly one.
@@ -187,6 +194,24 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
   const institutionOptions = useMemo(
     () => institutions.map((i) => ({ value: i.id, label: i.name })),
     [institutions]
+  );
+
+  /**
+   * accommodation_types is a small GLOBAL lookup (4 active rows, no institution
+   * scoping), so it is cached for the session and does not belong in the
+   * academic cascade — it has no parent and no children, and picking one must
+   * not clear anything. Same query and staleTime as the Billing Coverage filter
+   * bar, so the two share one cache entry.
+   */
+  const { data: accommodationTypes, isLoading: loadingAccommodation } = useQuery({
+    queryKey: ['accommodation-types', 'active'],
+    queryFn: () => LookupService.listAccommodationTypes(true),
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const accommodationOptions = useMemo(
+    () => (accommodationTypes ?? []).map((a) => ({ value: a.id, label: a.name })),
+    [accommodationTypes]
   );
 
   /**
@@ -318,8 +343,16 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
       'Profile',
       labelFor(PROFILE_STATUS_OPTIONS, searchParams.is_profile_complete)
     );
+    push(
+      'accommodation_type_id',
+      'Accommodation',
+      labelFor(accommodationOptions, searchParams.accommodation_type_id)
+    );
     return chips;
-  }, [searchParams, institutionOptions, cascade]);
+    // accommodationOptions is a real dependency: the chip's label is resolved
+    // from it, so a chip rendered before the lookup resolves would silently be
+    // dropped by `push` (which needs a value) and never come back.
+  }, [searchParams, institutionOptions, cascade, accommodationOptions]);
 
   const treeLoading = cascade.isLoading;
 
@@ -454,6 +487,21 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
               options={[{ value: ALL, label: 'All Profiles' }, ...PROFILE_STATUS_OPTIONS]}
               placeholder='Profile Status'
               searchPlaceholder='Search…'
+            />
+
+            {/* Where the learner lives. A flat filter like Gender — it sits
+                outside the academic cascade, so `pick` clears nothing under it
+                and it stays usable with no institution selected. */}
+            <SearchableSelect
+              value={draft.accommodation_type_id ?? ''}
+              onValueChange={(v) => pick('accommodation_type_id', v)}
+              options={[
+                { value: ALL, label: 'All Accommodation' },
+                ...accommodationOptions,
+              ]}
+              placeholder='Select Accommodation'
+              searchPlaceholder='Search accommodation…'
+              loading={loadingAccommodation}
             />
           </div>
 

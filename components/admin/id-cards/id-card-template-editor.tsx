@@ -2,9 +2,14 @@
 
 // ============================================================================
 // IdCardTemplateEditor — template editor tabs.
-// Created: 2026-05-07. Rewired: 2026-07-25.
+// Created: 2026-05-07. Rewired: 2026-07-25. Back tab wired: 2026-08-25.
 //
 // Tab 1: Card design — per-template artwork (IdCardDesignTab, live).
+// Tab 3: Back side — per-template back_layout_json (IdCardBackDesignTab).
+//         Shipped 2026-07-25 with no caller anywhere in the repo, so the
+//         back of a card could not be seen or edited from any screen for a
+//         month while three templates already carried a back layout.
+//         Always rendered — never gated on the printer policy (see below).
 // Tab 2: Field mappings — per-template `field_mappings` jsonb on
 //         id_card_templates, the SAME column the render engine reads
 //         (parseFieldMappings in the render route). Served by
@@ -22,6 +27,12 @@
 // sides lives at data.sides (the old top-level `json.sides` read plus the
 // missing query param made the badge always claim "Single-sided").
 // Fail-soft: any failure → 1.
+//
+// `sides` is DESCRIPTIVE ONLY. Nothing in the render or print path reads it:
+// the render route gates side=back on the template's own back_layout_json,
+// and /jobs/[id]/pickup derives has_back the same way. So the old hint
+// ("change in Printer Policy to enable it") pointed at a setting that
+// enables nothing — see sidesNoticeText below for the honest wording.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -57,6 +68,7 @@ import {
   type CardField,
 } from '@/app/(routes)/admin/id-cards/_types';
 import { IdCardDesignTab } from '@/components/admin/id-cards/id-card-design-tab';
+import { IdCardBackDesignTab } from '@/components/admin/id-cards/id-card-back-design-tab';
 
 // Display order for mapping rows = the order fields appear on the card.
 const CARD_FIELD_ORDER = Object.keys(CARD_FIELD_LABELS) as CardField[];
@@ -78,6 +90,26 @@ export function parseSidesFromPolicyResponse(json: unknown): 1 | 2 {
     }
   }
   return 1;
+}
+
+/**
+ * The note shown beside the "Printer configured as" badge.
+ *
+ * It must describe the ACTUAL state and must never tell someone to change a
+ * setting that is already correct. The previous copy ("Back layout not used —
+ * change in Printer Policy to enable it") failed both tests: `sides` is read
+ * by nothing in the render or print path, and on production it is already 2,
+ * so following the instruction changed nothing while the back stayed
+ * unreachable. What really decides a back is the per-template switch on the
+ * Back side tab, which writes back_layout_json.
+ *
+ * null (still loading) → no note.
+ */
+export function sidesNoticeText(sides: 1 | 2 | null): string | null {
+  if (sides === null) return null;
+  return sides === 2
+    ? 'Your printer is recorded as double-sided. Whether a card actually gets a back is set per template on the Back side tab.'
+    : 'Your printer is recorded as front-only. You can still prepare a back design — whether a card gets a back is set per template on the Back side tab, not by this setting.';
 }
 
 /**
@@ -306,6 +338,7 @@ export function IdCardTemplateEditor() {
   );
 
   const selectedTemplate = templates?.find((t) => t.id === selectedId) ?? null;
+  const sidesNotice = sidesNoticeText(sides);
 
   return (
     <div className="space-y-4">
@@ -321,10 +354,10 @@ export function IdCardTemplateEditor() {
         ) : (
           <Badge variant="outline">Single-sided</Badge>
         )}
-        {sides === 1 && (
+        {sidesNotice && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Info className="h-3 w-3" />
-            Back layout not used — change in Printer Policy to enable it.
+            {sidesNotice}
           </span>
         )}
       </div>
@@ -332,6 +365,7 @@ export function IdCardTemplateEditor() {
       <Tabs defaultValue="design">
         <TabsList>
           <TabsTrigger value="design">Card design</TabsTrigger>
+          <TabsTrigger value="back">Back side</TabsTrigger>
           <TabsTrigger value="mappings">Field mappings</TabsTrigger>
         </TabsList>
 
@@ -342,6 +376,15 @@ export function IdCardTemplateEditor() {
             details print on top. No artwork = the standard green design.
           </div>
           <IdCardDesignTab />
+        </TabsContent>
+
+        <TabsContent value="back" className="mt-4">
+          <div className="mb-3 text-sm text-muted-foreground">
+            The back of the card. Turn it on for a template, upload back
+            artwork if you have it, and preview the result. A template with the
+            back switched off prints front-only.
+          </div>
+          <IdCardBackDesignTab />
         </TabsContent>
 
         <TabsContent value="mappings" className="mt-4">

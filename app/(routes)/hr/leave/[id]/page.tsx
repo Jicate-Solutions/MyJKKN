@@ -19,6 +19,7 @@ import {
   useCancelApplication,
 } from '@/hooks/hr/use-leave';
 import { LEAVE_DURATION_LABELS, LEAVE_STATUS_LABELS } from '@/types/hr';
+import { LeaveDocumentList } from '../_components/leave-document-list';
 
 export default function ApplicationDetailPage() {
   const params = useParams();
@@ -78,6 +79,14 @@ export default function ApplicationDetailPage() {
             <div>
               <div className="text-muted-foreground mb-1">Reason</div>
               <p className="whitespace-pre-wrap">{app.reason}</p>
+            </div>
+            <div className="sm:col-span-2">
+              {/* The applicant's own view of what they attached — and, for an
+                  emergency filed empty, the reminder that it is still owed. */}
+              <LeaveDocumentList
+                documents={app.documents}
+                outstanding={(app.documents?.length ?? 0) === 0 && !!app.is_emergency}
+              />
             </div>
             {app.rejection_reason && (
               <div className="text-red-700 dark:text-red-400">

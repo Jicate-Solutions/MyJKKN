@@ -5,7 +5,6 @@
 // the eager-render gotcha (Radix TabsContent renders all children regardless
 // of visibility). Each tab's body is only mounted when active.
 
-import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -20,12 +19,8 @@ import { CategoryFeesTab } from './_components/category-fees-tab';
 import { ProfileTab } from './_components/profile-tab';
 import { RequestsTab } from './_components/requests-tab';
 import { PremiumInviteEntryCard } from './_components/premium-invite-entry-card';
-import {
-  Loader2,
-  AlertCircle,
-  Brush,
-  ChevronRight,
-} from 'lucide-react';
+import { RoomCleaningEntryCard } from './_components/room-cleaning-entry-card';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Page
@@ -98,21 +93,11 @@ export default function MyHostelPage() {
           </p>
         </div>
 
-        {/* Room Cleaning — housekeeping slot-booking entry (Agent C, 2026-06-10) */}
-        <Link href='/campus-living/my-hostel/housekeeping' className='block'>
-          <Card className='hover:bg-muted/50 transition-colors'>
-            <CardContent className='p-4 flex items-center gap-3'>
-              <Brush className='h-5 w-5 text-primary shrink-0' />
-              <div className='min-w-0 flex-1'>
-                <p className='font-medium'>Room Cleaning</p>
-                <p className='text-sm text-muted-foreground'>
-                  Book a 10-minute housekeeping slot for your room.
-                </p>
-              </div>
-              <ChevronRight className='h-4 w-4 text-muted-foreground shrink-0' />
-            </CardContent>
-          </Card>
-        </Link>
+        {/* Room Cleaning — housekeeping slot-booking entry (Agent C, 2026-06-10).
+            Self-gates to residents whose room category includes slot booking
+            (2026-08-25); Classic/Deluxe residents are not offered a booking
+            the next page would refuse. */}
+        <RoomCleaningEntryCard />
 
         {/* Invite a roommate — the flow shipped in May 2026 and had never been
             used because nothing linked to it. Self-gates to premium residents. */}

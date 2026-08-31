@@ -11,6 +11,7 @@ export const receiptCancelKeys = {
   lists: () => [...receiptCancelKeys.all, 'list'] as const,
   list: (filters: Record<string, unknown>) => [...receiptCancelKeys.lists(), filters] as const,
   detail: (id: string) => [...receiptCancelKeys.all, 'detail', id] as const,
+  fullDetail: (id: string) => [...receiptCancelKeys.all, 'full-detail', id] as const,
   pending: (receiptIds: string[]) => [...receiptCancelKeys.all, 'pending', receiptIds] as const,
 };
 
@@ -27,6 +28,15 @@ export function useReceiptCancelRequest(id: string) {
   return useQuery({
     queryKey: receiptCancelKeys.detail(id),
     queryFn: () => ReceiptCancellationService.getRequest(id),
+    enabled: !!id,
+  });
+}
+
+/** Request + action trail + learner + the bills the receipt settled. */
+export function useReceiptCancelRequestDetail(id: string | null) {
+  return useQuery({
+    queryKey: receiptCancelKeys.fullDetail(id ?? ''),
+    queryFn: () => ReceiptCancellationService.getRequestDetail(id!),
     enabled: !!id,
   });
 }

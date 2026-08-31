@@ -24,6 +24,26 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 
 type DropdownOption = { id: string; name: string; role?: string; extra?: string };
 
+// A referrer is not always a CURRENT learner or a SERVING employee: alumni and
+// former staff refer constantly. Filtering to active-only hid 1,106 graduated
+// learners and 114 former staff, so the operator fell back to typing a name for
+// someone who DOES have a record — producing a name-only referral that no
+// report can join on. Non-current rows are included and labelled instead.
+// Pre-admission stages (enquiry / reserved / admitted / …) stay out: they are
+// applicants, not referrers.
+const REFERRER_LEARNER_SCOPE = ['active', 'graduated', 'alumni', 'inactive', 'exited'];
+
+const LEARNER_SUFFIX: Record<string, string> = {
+  graduated: ' (Graduated)',
+  alumni: ' (Alumni)',
+  inactive: ' (Inactive)',
+  exited: ' (Exited)',
+};
+
+/** Institution-scoped lists stay well under this; the flag exists so a silent
+ *  truncation can never read as "that person has no record". */
+const OPTION_LIMIT = 2000;
+
 export const GET = withAuth(async (request, _auth) => {
   try {
     // Permission gate is enforced in the wrapper.
@@ -39,6 +59,7 @@ export const GET = withAuth(async (request, _auth) => {
     }
 
     let options: DropdownOption[] = [];
+    let truncated = false;
 
     if (type === 'institutions') {
       const { data, error } = await admin
@@ -66,17 +87,21 @@ export const GET = withAuth(async (request, _auth) => {
       }
       let q = admin
         .from('learners_profiles')
-        .select('id, first_name, last_name, department_id')
+        .select('id, first_name, last_name, department_id, lifecycle_status')
         .eq('institution_id', institutionId)
-        .eq('lifecycle_status', 'active')
+        .in('lifecycle_status', REFERRER_LEARNER_SCOPE)
         .order('first_name', { ascending: true })
-        .limit(500);
+        .limit(OPTION_LIMIT);
       if (departmentId) q = q.eq('department_id', departmentId);
       const { data, error } = await q;
       if (error) throw error;
+      truncated = (data || []).length >= OPTION_LIMIT;
       options = (data || []).map((s: any) => ({
         id: s.id,
-        name: `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Unnamed',
+        name:
+          (`${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Unnamed') +
+          (LEARNER_SUFFIX[s.lifecycle_status] || ''),
+        extra: s.lifecycle_status || undefined,
       }));
     } else if (type === 'staff') {
       if (!institutionId) {
@@ -84,26 +109,28 @@ export const GET = withAuth(async (request, _auth) => {
       }
       let q = admin
         .from('staff')
-        .select('id, first_name, last_name, designation, department_id')
+        .select('id, first_name, last_name, designation, department_id, is_active')
         .eq('institution_id', institutionId)
-        .eq('is_active', true)
+        .order('is_active', { ascending: false })
         .order('first_name', { ascending: true })
-        .limit(500);
+        .limit(OPTION_LIMIT);
       if (departmentId) q = q.eq('department_id', departmentId);
       const { data, error } = await q;
       if (error) throw error;
+      truncated = (data || []).length >= OPTION_LIMIT;
       options = (data || []).map((f: any) => ({
         id: f.id,
         name:
           `${f.first_name || ''} ${f.last_name || ''}`.trim() +
-          (f.designation ? ` (${f.designation})` : ''),
+          (f.designation ? ` (${f.designation})` : '') +
+          (f.is_active === false ? ' (Former)' : ''),
         extra: f.designation || undefined,
       }));
     } else {
       return NextResponse.json({ error: `Unknown type: ${type}` }, { status: 400 });
     }
 
-    return NextResponse.json({ options });
+    return NextResponse.json({ options, truncated });
   } catch (err: any) {
     console.error('[api/admission/referral-dropdowns] Error:', err);
     return NextResponse.json(

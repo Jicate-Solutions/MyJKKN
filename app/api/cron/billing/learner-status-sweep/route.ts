@@ -23,8 +23,17 @@
 // while manual runs keep working, which is how razorpay-late-auth hid for
 // months (2026-07-29).
 //
-// NOT YET REGISTERED in vercel.json — that file is at exactly 100 cron entries.
-// Schedule it by retiring an existing entry, or run it manually:
+// REGISTERED in vercel.json as of 2026-08-21, nightly at 20:35 UTC (02:05 IST).
+// (The prior note here claimed vercel.json was at exactly 100 cron entries and
+// the sweep could not be scheduled; that was stale — the file held 55.)
+//
+// Registration became load-bearing with per-fee-item due dates: paid_pct is
+// measured on the DUE-as-on-date basis, so its denominator grows when a due
+// date ARRIVES, with no payment and therefore no trigger to fire. Without a
+// scheduled re-evaluation a learner who has already paid enough can sit in the
+// wrong status until their next receipt happens to land.
+//
+// Manual run:
 //   curl "$APP_URL/api/cron/billing/learner-status-sweep?secret=$CRON_SECRET"
 // ============================================================================
 

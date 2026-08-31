@@ -12,6 +12,15 @@ import type {
 } from '@/types/admission';
 
 /**
+ * One selectable hostel room / mess tier for a fee structure. `id` is the
+ * CANONICAL row for that name — see listHostelRoomCategoryOptions.
+ */
+export interface HostelTierOption {
+  id: string;
+  name: string;
+}
+
+/**
  * Read/write access to the three lookup tables that anchor the admission
  * fee-structure matrix: quotas (global), community_categories (global),
  * accommodation_types (institution-scoped).
@@ -204,5 +213,64 @@ export class LookupService {
       .order('name', { ascending: true });
     if (error) throw error;
     return data ?? [];
+  }
+
+  // ------- hostel room / mess tiers for the fee structure (global) -------
+  //
+  // hostel_categories and mess_categories are GENDER-PARTITIONED: "Classic
+  // Room" exists as both type='boys' and type='girls'. A fee structure
+  // normally leaves `gender` NULL because it covers both, so the picker offers
+  // one entry PER NAME and the stored id is a canonical handle — its `type` is
+  // not semantically meaningful. Readers remap by `name` to the learner's own
+  // gender variant, the same way fn_apply_hostel_fee_categories does.
+  //
+  // Only names present for EVERY gender variant are offered: a name that
+  // exists for boys but not girls would resolve to nothing for a girl learner.
+
+  private static dedupeByNameAcrossGenders(
+    rows: Array<{ id: string; name: string; type: string | null; sort_order: number | null }>,
+  ): HostelTierOption[] {
+    const genders = new Set(rows.map((r) => r.type).filter((t): t is string => !!t));
+    const byName = new Map<string, typeof rows>();
+    for (const r of rows) {
+      const bucket = byName.get(r.name);
+      if (bucket) bucket.push(r);
+      else byName.set(r.name, [r]);
+    }
+    const options: HostelTierOption[] = [];
+    for (const [name, bucket] of byName) {
+      const covered = new Set(bucket.map((r) => r.type).filter((t): t is string => !!t));
+      if (genders.size > 0 && covered.size < genders.size) continue;
+      // Canonical row = lowest (type, sort_order) — matches the backfill in
+      // migration 20260910110000 so the UI and the DB agree on which id
+      // represents a given name.
+      const canonical = [...bucket].sort(
+        (a, b) =>
+          (a.type ?? '').localeCompare(b.type ?? '') ||
+          (a.sort_order ?? 0) - (b.sort_order ?? 0),
+      )[0];
+      options.push({ id: canonical.id, name });
+    }
+    return options.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  static async listHostelRoomCategoryOptions(): Promise<HostelTierOption[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_categories')
+      .select('id, name, type, sort_order')
+      .eq('is_active', true);
+    if (error) throw error;
+    return this.dedupeByNameAcrossGenders(data ?? []);
+  }
+
+  static async listMessCategoryOptions(): Promise<HostelTierOption[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('mess_categories')
+      .select('id, name, type, sort_order')
+      .eq('is_active', true);
+    if (error) throw error;
+    return this.dedupeByNameAcrossGenders(data ?? []);
   }
 }

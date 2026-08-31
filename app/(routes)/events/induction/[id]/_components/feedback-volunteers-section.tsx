@@ -13,10 +13,12 @@ import { toast } from 'sonner';
 import {
   InductionVolunteerService,
   type FeedbackVolunteer,
-  type AssignablePeerMentor,
   type TrainingSession,
+  type AutobalanceMode,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { InductionService, type FeedbackMethodMix } from '@/lib/services/induction/induction-service';
+import { AppointMentorDialog } from './appoint-mentor-dialog';
+import { MentorIdentity } from './mentor-identity';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +27,12 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog';
-import { MessagesSquare, UserPlus, X, Loader2, Search, Scale, GraduationCap, AlertTriangle, ShieldCheck, CalendarClock, UserCheck } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { MessagesSquare, X, Loader2, GraduationCap, AlertTriangle, ShieldCheck, CalendarClock, UserCheck, Shuffle, UserPlus } from 'lucide-react';
 
 export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const [hidden, setHidden] = useState(false);
@@ -80,29 +87,69 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
     }
   };
 
+  // is_trained is a STORED GENERATED column: guide_read_at AND self_ack_at AND
+  // admin_trained_at. This button sets ONLY the admin leg — the other two are
+  // writable exclusively by the mentor (fn_induction_mentor_complete_self_training
+  // resolves the row from auth.uid()), so an admin cannot unlock anyone alone.
+  // Never claim "tools are unlocked" without checking the mentor's own two legs.
   const setTrained = async (learnerId: string, name: string, trained: boolean) => {
+    const vol = vols.find((v) => v.learner_id === learnerId);
+    const mentorLegsDone = Boolean(vol?.guide_read && vol?.self_ack);
     try {
       await InductionVolunteerService.adminSetTrained(eventId, learnerId, trained);
-      toast.success(trained ? `${name} marked as trained — their tools are unlocked.` : `${name} marked untrained.`);
+      if (!trained) {
+        toast.success(`${name} marked untrained.`);
+      } else if (mentorLegsDone) {
+        toast.success(`${name} is fully trained — their tools are unlocked.`);
+      } else {
+        toast.warning(
+          `${name}: your training sign-off is recorded, but their tools stay LOCKED. ` +
+          `${name} must open My Induction Feedback and complete the guide + acknowledgement themselves.`,
+        );
+      }
       load();
     } catch (e: any) {
       toast.error(`Couldn't update training: ${e.message ?? e}`);
     }
   };
 
-  const autobalance = async () => {
+  /**
+   * mode 'incremental' (the Assign pending button) keeps every existing
+   * mentor↔fresher pair and places only the unassigned. 'rebalance' re-deals
+   * the whole cohort and is therefore behind a confirmation.
+   */
+  const autobalance = async (mode: AutobalanceMode) => {
     setBalancing(true);
     try {
-      const r = await InductionVolunteerService.autobalanceVolunteers(eventId, capacity);
+      const r = await InductionVolunteerService.autobalanceVolunteers(eventId, capacity, mode);
       const mentors = `${activeCount} mentor${activeCount === 1 ? '' : 's'}`;
-      if (r.unassigned > 0) {
-        // Surface the coverage TRUTH — don't imply full coverage when freshers are unowned.
-        toast.warning(
-          `Assigned ${r.assigned} of ${r.enrolled} freshers across ${mentors}. ` +
-          `${r.unassigned} fresher${r.unassigned === 1 ? ' has' : 's have'} NO mentor — raise the per-mentor cap or appoint more mentors.`,
+
+      if (mode === 'rebalance') {
+        toast.success(`Re-dealt all ${r.assigned} fresher${r.assigned === 1 ? '' : 's'} across ${mentors}.`);
+      } else if (r.newly_assigned === 0 && r.unassigned === 0) {
+        // The common repeat press. Say plainly that nothing needed doing rather
+        // than reporting a success that implies work happened.
+        toast.success(
+          `Every fresher already has a mentor — nothing to assign. ` +
+          `Use Rebalance all only if you want to even out group sizes from scratch.`,
         );
-      } else {
-        toast.success(`Assigned all ${r.assigned} fresher${r.assigned === 1 ? '' : 's'} across ${mentors}.`);
+      } else if (r.newly_assigned > 0) {
+        const kept = r.kept > 0 ? ` ${r.kept} existing assignment${r.kept === 1 ? '' : 's'} left untouched.` : '';
+        const released = r.released > 0
+          ? ` ${r.released} stale assignment${r.released === 1 ? '' : 's'} released (mentor no longer active).`
+          : '';
+        toast.success(
+          `Assigned ${r.newly_assigned} pending fresher${r.newly_assigned === 1 ? '' : 's'} across ${mentors}.${kept}${released}`,
+        );
+      }
+
+      // Independent of the above: an uncovered fresher is the one thing that
+      // must never be implied away, so it warns even on an otherwise-good run.
+      if (r.unassigned > 0) {
+        toast.warning(
+          `${r.unassigned} fresher${r.unassigned === 1 ? ' has' : 's have'} NO mentor ` +
+          `(${r.assigned} of ${r.enrolled} covered) — raise the per-mentor cap or appoint more mentors.`,
+        );
       }
       load();
     } catch (e: any) {
@@ -149,10 +196,42 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
                 onChange={(e) => setCapacity(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
                 className="h-8 w-20" />
             </div>
-            <Button size="sm" variant="outline" onClick={autobalance} disabled={balancing || activeCount === 0}>
-              <Scale className="h-3.5 w-3.5 mr-1" />
-              {balancing ? 'Balancing…' : 'Auto-balance'}
+            {/* The everyday action. Additive: it never moves a fresher who
+                already has a mentor, so it is safe to press after every new
+                admission intake. */}
+            <Button size="sm" onClick={() => autobalance('incremental')} disabled={balancing || activeCount === 0}>
+              <UserPlus className="h-3.5 w-3.5 mr-1" />
+              {balancing ? 'Assigning…' : 'Assign pending'}
             </Button>
+            {/* The destructive one. Breaks every existing pair, so it is behind
+                a confirmation and worded as what it actually does. */}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline" disabled={balancing || activeCount === 0}>
+                  <Shuffle className="h-3.5 w-3.5 mr-1" />
+                  Rebalance all
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Re-deal every fresher from scratch?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This breaks <strong>all {totalAssigned} existing mentor assignments</strong> and
+                    deals the whole cohort again. Freshers a mentor has already walked will
+                    likely land with someone else, and any temporary cover in force is discarded.
+                    <br /><br />
+                    To place only freshers who have no mentor yet — new admissions, for instance —
+                    use <strong>Assign pending</strong> instead; it leaves existing pairs alone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => autobalance('rebalance')}>
+                    Yes, re-deal everyone
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
           <div className="text-xs text-muted-foreground tabular-nums">
             {activeCount} active mentor{activeCount === 1 ? '' : 's'} · {totalCaptured}/{totalAssigned} assigned freshers captured
@@ -189,15 +268,10 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
         ) : (
           <div className="space-y-2">
             {vols.map((v) => (
-              <div key={v.learner_id} className="flex items-center justify-between gap-3 rounded-lg border p-2.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{v.full_name || 'Unnamed'}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {v.register_number ?? '—'} · cap {v.capacity}
-                    </div>
-                  </div>
+              <div key={v.learner_id} className="flex items-start justify-between gap-3 rounded-lg border p-2.5">
+                <div className="flex items-start gap-2 min-w-0">
+                  <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <MentorIdentity mentor={v} />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Badge variant={v.group_size > 0 && v.captured >= v.group_size ? 'default' : 'secondary'} className="tabular-nums">
@@ -240,86 +314,6 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppointed: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<AssignablePeerMentor[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [appointing, setAppointing] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setSearching(true);
-    const t = setTimeout(async () => {
-      try {
-        const r = await InductionVolunteerService.assignablePeerMentors(eventId, query);
-        if (active) setResults(r);
-      } catch {
-        /* surfaced on appoint */
-      } finally {
-        if (active) setSearching(false);
-      }
-    }, 300);
-    return () => { active = false; clearTimeout(t); };
-  }, [open, query, eventId]);
-
-  const appoint = async (m: AssignablePeerMentor) => {
-    setAppointing(m.learner_id);
-    try {
-      await InductionVolunteerService.appointVolunteer(eventId, m.learner_id);
-      toast.success(`${m.full_name} is now a Senior Peer Mentor.`);
-      setOpen(false);
-      onAppointed();
-    } catch (e: any) {
-      toast.error(`Couldn't appoint: ${e.message ?? e}`);
-    } finally {
-      setAppointing(null);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline"><UserPlus className="h-3.5 w-3.5 mr-1" /> Appoint Senior Peer Mentor</Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Appoint a Senior Peer Mentor</DialogTitle>
-          <DialogDescription>
-            Only 3rd-year students (or final-year students of a 2-year PG programme) can be Senior Peer Mentors — the list below is already filtered to them. Freshers being inducted here can&apos;t be appointed.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Search by name or register number…"
-            value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
-        </div>
-        <div className="max-h-72 overflow-auto space-y-1">
-          {searching ? (
-            <p className="text-sm text-muted-foreground py-2">Searching…</p>
-          ) : results.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No appointable Senior Peer Mentors found.</p>
-          ) : (
-            results.map((m) => (
-              <button key={m.learner_id} type="button" onClick={() => appoint(m)} disabled={!!appointing}
-                className="w-full flex items-center justify-between gap-2 rounded-md border p-2 text-left hover:border-primary disabled:opacity-50">
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{m.full_name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{m.register_number ?? '—'}</div>
-                </div>
-                {appointing === m.learner_id
-                  ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                  : <UserPlus className="h-4 w-4 text-primary shrink-0" />}
-              </button>
-            ))
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 

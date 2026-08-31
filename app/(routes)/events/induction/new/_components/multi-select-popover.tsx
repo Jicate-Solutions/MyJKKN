@@ -2,8 +2,8 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Checkbox } from '@/components/ui/checkbox';
-import { ChevronsUpDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Check, ChevronsUpDown } from 'lucide-react';
 
 export function MultiSelectPopover({ options, value, onChange, placeholder, disabled }: {
   options: { id: string; name: string }[];
@@ -30,13 +30,28 @@ export function MultiSelectPopover({ options, value, onChange, placeholder, disa
       <PopoverContent className="w-[--radix-popover-trigger-width] max-h-64 overflow-y-auto p-1" align="start">
         {options.length === 0 ? (
           <p className="p-2 text-xs text-muted-foreground">No options.</p>
-        ) : options.map((o) => (
-          <button type="button" key={o.id} onClick={() => toggle(o.id)}
-            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-left hover:bg-accent">
-            <Checkbox checked={value.includes(o.id)} onCheckedChange={() => {}} className="pointer-events-none" />
-            <span className="truncate">{o.name}</span>
-          </button>
-        ))}
+        ) : (
+          <div role="listbox" aria-multiselectable>
+            {options.map((o) => {
+              const checked = value.includes(o.id);
+              return (
+                <button type="button" key={o.id} role="option" aria-selected={checked} onClick={() => toggle(o.id)}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-left hover:bg-accent">
+                  {/* Painted tick box, not a <Checkbox> — Radix's checkbox is itself a <button>,
+                      and a button inside this row's button is invalid HTML (hydration mismatch).
+                      The row already owns the toggle; this is decoration only. */}
+                  <span aria-hidden className={cn(
+                    'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary shadow',
+                    checked && 'bg-primary text-primary-foreground',
+                  )}>
+                    {checked && <Check className="h-3.5 w-3.5" />}
+                  </span>
+                  <span className="truncate">{o.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
