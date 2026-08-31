@@ -57,13 +57,23 @@ $$;
 -- Next.js bundle. anon must be named. (CLAUDE.md, "Lock new RPCs from anon".)
 REVOKE ALL     ON FUNCTION public.sh_get_overdue_prospects() FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.sh_get_overdue_prospects() FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.sh_get_overdue_prospects() TO authenticated, service_role;
+-- Narrowed to service_role 2026-08-31: the function returns EVERY overdue
+-- prospect regardless of RLS and carries no authorization check, so an
+-- `authenticated` grant made the whole pipeline readable by any signed-in
+-- account. Its only caller, getOverdueProspects() in
+-- lib/services/solutions/prospect-reminders-service.ts, builds a
+-- createServiceRoleClient(), so the cron is unaffected.
+REVOKE EXECUTE ON FUNCTION public.sh_get_overdue_prospects() FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public.sh_get_overdue_prospects() TO service_role;
 
 -- Guard: refuse the migration if anon can still reach it.
 DO $anon_check$
 BEGIN
   IF has_function_privilege('anon', 'public.sh_get_overdue_prospects()', 'EXECUTE') THEN
     RAISE EXCEPTION 'sh_get_overdue_prospects is still EXECUTE-able by anon - refusing to ship an unauthenticated RPC';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.sh_get_overdue_prospects()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'sh_get_overdue_prospects is still EXECUTE-able by authenticated - it exposes the whole prospect pipeline';
   END IF;
   IF NOT has_function_privilege('service_role', 'public.sh_get_overdue_prospects()', 'EXECUTE') THEN
     RAISE EXCEPTION 'service_role cannot EXECUTE sh_get_overdue_prospects - the cron would still fail';
