@@ -66,7 +66,10 @@ export async function GET(request: NextRequest) {
       // A failed identity resolution is a server fault, not an authorisation
       // decision — 500 rather than a 403 that would look like a policy denial.
       console.error('[hr/leave/balance] fn_my_staff_ids failed', identityError);
-      return NextResponse.json({ error: 'Could not resolve your staff record' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Could not resolve your team member record' },
+        { status: 500 }
+      );
     }
     const isSelf = ((myStaffIds ?? []) as string[]).includes(employee_id);
 
