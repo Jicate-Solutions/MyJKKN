@@ -215,7 +215,7 @@ export function ProblemsList() {
                     </TableCell>
                     <TableCell>
                       <span className="capitalize">
-                        {problem.severity ?? '-'}
+                        {problem.severity_rating ?? '-'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
