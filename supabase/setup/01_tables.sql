@@ -8711,3 +8711,71 @@ DROP INDEX IF EXISTS public.uq_hr_salary_register_runs_live;
 CREATE UNIQUE INDEX uq_hr_salary_register_runs_live
   ON public.hr_salary_register_runs (institution_id, period_year, period_month)
   WHERE superseded_at IS NULL;
+
+-- ============================================================================
+-- 2026-08-31 — leave approval flows: parallel/sequential, ladder
+-- Migration: 20260831120000_hr_leave_approval_flow_parallel_ladder.sql
+-- Applied AFTER the hr_approval_flows definition above; defaults reproduce the
+-- pre-existing behaviour for all 63 rows (23 leave + 40 recruitment).
+-- ============================================================================
+ALTER TABLE public.hr_approval_flows
+  ADD COLUMN IF NOT EXISTS step_source text NOT NULL DEFAULT 'explicit',
+  ADD COLUMN IF NOT EXISTS run_mode text NOT NULL DEFAULT 'sequential',
+  ADD COLUMN IF NOT EXISTS role_ladder jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS fallback_approver jsonb;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hr_approval_flows_step_source_check') THEN
+    ALTER TABLE public.hr_approval_flows ADD CONSTRAINT hr_approval_flows_step_source_check
+      CHECK (step_source IN ('explicit', 'role_ladder'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hr_approval_flows_run_mode_check') THEN
+    ALTER TABLE public.hr_approval_flows ADD CONSTRAINT hr_approval_flows_run_mode_check
+      CHECK (run_mode IN ('sequential', 'parallel'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hr_approval_flows_ladder_check') THEN
+    ALTER TABLE public.hr_approval_flows ADD CONSTRAINT hr_approval_flows_ladder_check
+      CHECK (step_source <> 'role_ladder'
+             OR (jsonb_typeof(role_ladder) = 'array' AND jsonb_array_length(role_ladder) > 0));
+  END IF;
+END $$;
+
+-- ============================================================================
+-- Bill cancellation audit (mig 20260901010000_billing_bill_cancellations).
+-- One row per cancelled bill, holding the reason, the reason code, the
+-- supporting documents and a frozen snapshot of the bill. Written ONLY by
+-- fn_cancel_student_bill; RLS below is SELECT-only so the trail cannot be
+-- edited by whoever it incriminates.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancellations (
+  id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  bill_id                     uuid NOT NULL
+                              REFERENCES public.billing_student_bills(id) ON DELETE CASCADE,
+  institution_id              uuid NOT NULL,
+  student_id                  uuid NOT NULL,
+  reason_code                 text NOT NULL
+                              CHECK (reason_code IN ('duplicate_bill','raised_in_error','fee_waived',
+                                                     'learner_withdrawn','structure_corrected','other')),
+  reason                      text NOT NULL,
+  attachments                 jsonb NOT NULL DEFAULT '[]'::jsonb,
+  bill_snapshot               jsonb NOT NULL DEFAULT '{}'::jsonb,
+  amount_cancelled            numeric NOT NULL,
+  cancelled_by                uuid,
+  cancelled_by_name           text,
+  cancelled_by_email          text,
+  cancelled_by_role           text,
+  cancelled_by_is_super_admin boolean,
+  cancelled_at                timestamptz NOT NULL DEFAULT now(),
+  created_at                  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancellation_per_bill
+  ON public.billing_bill_cancellations (bill_id);
+CREATE INDEX IF NOT EXISTS idx_bill_cancellations_student
+  ON public.billing_bill_cancellations (student_id, cancelled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bill_cancellations_institution
+  ON public.billing_bill_cancellations (institution_id, cancelled_at DESC);
+
+REVOKE ALL ON TABLE public.billing_bill_cancellations FROM anon, PUBLIC;
+ALTER TABLE public.billing_bill_cancellations ENABLE ROW LEVEL SECURITY;

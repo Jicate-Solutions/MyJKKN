@@ -2934,11 +2934,20 @@ CREATE POLICY "workflow_configs_delete" ON admission_workflow_configs FOR DELETE
 -- ============================================================================
 ALTER TABLE admission_years ENABLE ROW LEVEL SECURITY;
 
+-- 2026-08-31: `learners.profiles.view` added as a second accepted key. This is
+-- a 79-row lookup naming the cohort on learners_profiles.admission_year_id, and
+-- 17 of the 24 roles that can read a learner could not read that learner's
+-- cohort name — leaving the admission-year filters on /learners/profiles and on
+-- the Analytics Profile Completion drill-down silently empty for them.
+-- Institution scope is unchanged.
 DROP POLICY IF EXISTS "admission_years_select" ON admission_years;
 CREATE POLICY "admission_years_select" ON admission_years
     FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (user_has_permission('admission.settings.years.view')
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR ((
+                (SELECT user_has_permission('admission.settings.years.view'))
+                OR (SELECT user_has_permission('learners.profiles.view'))
+            )
             AND role_has_institution_access(institution_id))
     );
 
@@ -10072,3 +10081,24 @@ REVOKE ALL ON public.hr_salary_register_runs  FROM anon;
 REVOKE ALL ON public.hr_salary_register_lines FROM anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_runs  TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_lines TO authenticated;
+
+-- ============================================================================
+-- billing_bill_cancellations (mig 20260901010000). SELECT-only, and ONE
+-- permissive policy rather than several ORed together: multiple permissive
+-- policies are all evaluated per candidate row. No UPDATE/DELETE policy --
+-- every write goes through fn_cancel_student_bill.
+-- ============================================================================
+DROP POLICY IF EXISTS billing_bill_cancellations_select ON public.billing_bill_cancellations;
+CREATE POLICY billing_bill_cancellations_select
+  ON public.billing_bill_cancellations FOR SELECT
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      role_has_institution_access(institution_id)
+      AND (
+        (SELECT user_has_permission('billing.schedule.view'))
+        OR (SELECT user_has_permission('billing.bills.view'))
+      )
+    )
+  );

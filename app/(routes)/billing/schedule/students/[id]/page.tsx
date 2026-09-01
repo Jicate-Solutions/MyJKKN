@@ -784,6 +784,7 @@ export default function StudentBillingDetailPage() {
                     statusFilter={billStatusFilter}
                     onRefresh={refetchSummary}
                     isStudentView={isStudent}
+                    institutionName={student.institution?.name || 'Unknown Institution'}
                   />
                 </TabsContent>
 

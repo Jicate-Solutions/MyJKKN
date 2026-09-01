@@ -780,6 +780,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
+      // Cancelling a bill writes off money, so it is deliberately NOT
+      // billing.schedule.update: that key is held by 6 roles and also covers
+      // fixing a typo. fn_cancel_student_bill gates on THIS key, and a trigger
+      // rejects any other route into status='cancelled'.
+      { key: 'billing.schedule.cancel', label: 'Cancel Bills' },
       // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
       // the /billing/schedule/bulk-create flow (pick many learners, or upload
       // an Excel of bills). Separate from billing.schedule.create so the bulk

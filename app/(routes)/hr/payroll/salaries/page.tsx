@@ -12,14 +12,26 @@
  * what stops them reading the data.
  *
  * THE LIST IS THE ROSTER, NOT THE SALARY TABLE. Reading hr_staff_salaries showed
- * "0 employees" against 754 staff, because the work this screen exists for is
- * the people who have NO salary yet. hr_staff_salary_directory() drives from
- * staff and LEFT JOINs the salary, ordering the unset ones first.
+ * "0 employees" against the whole staff body, because the work this screen exists
+ * for is the people who have NO salary yet. hr_staff_salary_directory() drives
+ * from staff and LEFT JOINs the salary, ordering the unset ones first.
  *
- * Rows are fetched once and filtered in memory: 754 rows, and the RPC takes no
- * arguments. The cards, the filter counts and the table all read that one array
- * through the same predicate, so a card cannot advertise a count the table
- * cannot deliver.
+ * THE ROSTER IS HR-CATEGORY GATED IN POSTGRES. The RPC selects FROM v_hr_staff,
+ * which is `staff JOIN employment_categories WHERE ec.included_in_hr` — so the
+ * 161 active people in excluded categories (Ayaah, Driver, Security, Warden,
+ * Hostel, Cooking Master) never reach this screen. Do not swap it back to the
+ * base staff table; that flag is what gates the entire HR module.
+ *
+ * THE DEFAULT SCOPE IS ACTIVE (2026-08-31). The RPC also admits a relieved
+ * employee who still carries an unsuperseded salary — see DEFAULT_SALARY_FILTERS
+ * for why that OR stays in the RPC and is narrowed here instead. Before this,
+ * the screen opened on 616 against HR Directory's and Payroll Organisation's 594
+ * over the same population, which read as a category leak and was not one.
+ *
+ * Rows are fetched once and filtered in memory; the RPC takes no arguments. The
+ * filter counts and the table read that one array through the same predicate, so
+ * a filter cannot advertise a count the table cannot deliver. The cards are the
+ * deliberate exception — see `stats` below.
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -192,14 +204,29 @@ export default function EmployeeSalariesPage() {
     [filters, list]
   );
 
+  /**
+   * THE CARDS COUNT THE ACTIVE ROSTER, not every row the RPC returned.
+   *
+   * Filter-insensitive on purpose — PayrollOrgStats derives its cards from the
+   * whole array too, so both screens state a stable headcount that does not move
+   * as someone narrows the table. What changes here is the denominator: `list`
+   * also carries the relieved employees the RPC admits via `OR sal.id IS NOT
+   * NULL`, and counting them made this screen say 616 where HR Directory and
+   * Payroll Organisation both say 594 over the same v_hr_staff population.
+   *
+   * It also mis-stated money. The 22 relieved rows still hold an unsuperseded
+   * salary, so they were adding 6,33,440 a month — 76 lakh a year — to a card
+   * labelled "Monthly commitment", for people the organisation no longer pays.
+   */
   const stats = useMemo(() => {
-    const salaried = list.filter((r) => r.salary_id !== null);
+    const roster = list.filter((r) => r.is_active);
+    const salaried = roster.filter((r) => r.salary_id !== null);
     const monthly = salaried.reduce((sum, r) => sum + (r.monthly_gross ?? 0), 0);
     return {
-      people: list.length,
+      people: roster.length,
       salaried: salaried.length,
-      awaiting: list.filter((r) => r.salary_id === null && r.is_active).length,
-      noPayer: list.filter((r) => r.payer_org_id === null).length,
+      awaiting: roster.filter((r) => r.salary_id === null).length,
+      noPayer: roster.filter((r) => r.payer_org_id === null).length,
       monthly,
       annual: monthly * 12,
     };

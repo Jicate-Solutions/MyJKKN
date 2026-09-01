@@ -457,25 +457,40 @@ export class HostelAllocationService {
   }
 
   // ── Vacate ────────────────────────────────────────────────────────
+  // Routes through fn_cl_vacate_allocation (SECURITY DEFINER) so flipping the
+  // allocation and releasing the bed happen in ONE transaction. This used to be
+  // a bare UPDATE of status/vacate_reason/actual_vacate_date, which stranded the
+  // bed two ways with no error: hostel_beds kept status='occupied' plus a
+  // current_occupant_id pointing at the departed learner (so it vanished from
+  // getAvailableBeds and fn_cl_admin_allocatable_rooms), and a NULL
+  // check_out_date kept hostel_allocations_room_bed_active_uidx — UNIQUE
+  // (room_id, bed_id) WHERE check_out_date IS NULL — holding the slot, so even a
+  // forced re-allocation hit 23505. No trigger compensates: none of the nine on
+  // hostel_allocations fires on a transition INTO 'vacated'.
+  //
+  // It must be an RPC rather than a second .update() here because freeing the bed
+  // needs campus_living.beds.edit — a DIFFERENT key from the
+  // campus_living.allocations.edit that gates the allocation write — so the bed
+  // write would be silently refused by RLS for exactly the hostel admins who use
+  // this button. The RPC is idempotent on an already-vacated row.
   static async vacate(allocationId: string, reason: VacateReason) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
-        .from('hostel_allocations')
-        .update({
-          status: 'vacated',
-          vacate_reason: reason,
-          actual_vacate_date: new Date().toISOString().split('T')[0],
-        })
-        .eq('id', allocationId)
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('fn_cl_vacate_allocation', {
+        p_allocation_id: allocationId,
+        p_vacate_reason: reason,
+      });
 
       if (error) {
         logger.error('campus-living/allocations', 'Failed to vacate', error);
         throw error;
       }
-      return data as HostelAllocation;
+      return data as {
+        success: boolean;
+        allocation_id: string;
+        already_vacated: boolean;
+        freed_bed_id: string | null;
+      };
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in vacate', error);
       throw error;

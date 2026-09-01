@@ -13,7 +13,8 @@ import type {
   DashboardFilters,
   AttendanceTrendData,
   IntakeReadinessRow,
-  IntakeReadinessInstitutionSummary
+  IntakeReadinessInstitutionSummary,
+  ScheduledTimetable
 } from '@/types/attendance-dashboard';
 import { getPolicyString, getPolicyInt } from '@/lib/policies/get-policy-client';
 import { POLICY_KEYS } from '@/lib/policies/keys';
@@ -254,6 +255,12 @@ export class AttendanceDashboardService {
           institution_id: row.institution_id,
           institution_name: row.institution_name,
           total_students: 0,
+          total_active: 0,
+          total_reserved: 0,
+          total_admitted: 0,
+          total_scheduled: 0,
+          total_scheduled_marked: 0,
+          has_scheduling: false,
           total_present: 0,
           total_absent: 0,
           total_marked: 0,
@@ -263,6 +270,21 @@ export class AttendanceDashboardService {
           departments: new Map()
         };
         institutions.set(row.institution_id, institution);
+      }
+
+      // Whether the RPC EMITS the scheduling columns at all — deliberately not
+      // "is any learner scheduled". On a Sunday nothing is scheduled anywhere and
+      // every counter is legitimately 0; testing the value would read that as "no
+      // scheduling data" and fall back to counting the whole roster as pending,
+      // which is precisely the misleading state this split exists to remove.
+      //
+      // Set BEFORE the is_empty_view return below: column presence is a property
+      // of the function, not of the row, and an empty-view row carries it too.
+      if (
+        row.scheduled_students !== undefined &&
+        row.scheduled_students !== null
+      ) {
+        institution.has_scheduling = true;
       }
 
       // A college that holds learners in this scope but none once the view's
@@ -280,6 +302,8 @@ export class AttendanceDashboardService {
           department_id: row.department_id,
           department_name: row.department_name,
           total_students: 0,
+          total_scheduled: 0,
+          total_scheduled_marked: 0,
           total_present: 0,
           total_absent: 0,
           total_marked: 0,
@@ -296,6 +320,8 @@ export class AttendanceDashboardService {
           semester_id: row.semester_id,
           semester_name: row.semester_name,
           total_students: 0,
+          total_scheduled: 0,
+          total_scheduled_marked: 0,
           total_present: 0,
           total_absent: 0,
           total_marked: 0,
@@ -328,10 +354,35 @@ export class AttendanceDashboardService {
       const marked = Math.min(markedReported, totalStudents);
       const unmarked = Math.max(totalStudents - marked, 0);
 
+      // Timetable-driven split. Absent columns coerce to 0 / [], which the UI
+      // reads as "no scheduling information" and falls back to the roster-only
+      // presentation — same defensive shape as the `marked` fallback above, so
+      // the screen stays correct against a database where the migration that
+      // adds these has not landed.
+      //
+      // Clamped to the section headcount for the same reason `marked` is: the
+      // RPC already caps them, but a stale row must never render "-3 pending".
+      const scheduled = Math.min(
+        Math.max(Number(row.scheduled_students) || 0, 0),
+        totalStudents
+      );
+      const scheduledMarked = Math.min(
+        Math.max(Number(row.scheduled_marked) || 0, 0),
+        scheduled
+      );
+      const timetables: ScheduledTimetable[] = Array.isArray(
+        row.scheduled_timetables
+      )
+        ? row.scheduled_timetables
+        : [];
+
       semester.sections.push({
         section_id: row.section_id,
         section_name: row.section_name,
         total_students: totalStudents,
+        scheduled,
+        scheduled_marked: scheduledMarked,
+        timetables,
         present,
         absent,
         marked,
@@ -344,18 +395,37 @@ export class AttendanceDashboardService {
       });
 
       semester.total_students += totalStudents;
+      semester.total_scheduled += scheduled;
+      semester.total_scheduled_marked += scheduledMarked;
       semester.total_present += present;
       semester.total_absent += absent;
       semester.total_marked += marked;
       semester.total_unmarked += unmarked;
 
       department.total_students += totalStudents;
+      department.total_scheduled += scheduled;
+      department.total_scheduled_marked += scheduledMarked;
       department.total_present += present;
       department.total_absent += absent;
       department.total_marked += marked;
       department.total_unmarked += unmarked;
 
+      // The lifecycle split behind `total_students`, so the card can say "498
+      // active + 14 reserved" instead of an unexplained 512 that disagrees with
+      // the Learner Profiles Active tab. Institution level only — that is the
+      // only level the RPC emits it at, and the only level anything renders.
+      //
+      // Absent columns coerce to 0, which the UI reads as "no breakdown
+      // available" and falls back to the static subtitle. That keeps the screen
+      // correct against a database where this migration has not landed yet,
+      // exactly as the `marked` fallback above does.
+      institution.total_active += Number(row.active_students) || 0;
+      institution.total_reserved += Number(row.reserved_students) || 0;
+      institution.total_admitted += Number(row.admitted_students) || 0;
+
       institution.total_students += totalStudents;
+      institution.total_scheduled += scheduled;
+      institution.total_scheduled_marked += scheduledMarked;
       institution.total_present += present;
       institution.total_absent += absent;
       institution.total_marked += marked;
@@ -420,7 +490,16 @@ export class AttendanceDashboardService {
     timetable: any,
     dayOfWeek: string
   ): boolean {
-    if (timetable?.timetable_format === 'cycle') return true;
+    // Cycle and batch timetables are not weekday-driven and must not be gated on
+    // `selected_days`: a cycle's date→cycle map already returns null for a
+    // non-teaching day, and a batch timetable's `timetable_data` is keyed by the
+    // date itself, so an absent date simply yields no periods. Applying a weekday
+    // rule on top could only ever remove a day the schedule does list.
+    if (
+      timetable?.timetable_format === 'cycle' ||
+      timetable?.timetable_format === 'batch'
+    )
+      return true;
 
     const selectedDays = Array.isArray(timetable?.selected_days)
       ? timetable.selected_days
@@ -753,12 +832,22 @@ export class AttendanceDashboardService {
             timetable.timetable_format === 'cycle'
               ? cycleMaps[timetable.id]?.[date] ?? null
               : null;
+          // Updated: 2026-08-31 - `batch` was falling through to the weekday
+          // branch. Its `timetable_data` is keyed by ISO DATE ('2026-03-02'), not
+          // by weekday, so `timetableData['MONDAY']` never resolved and EVERY
+          // batch timetable produced zero pending rows — measured on production,
+          // all 25 active ones, 24 of them JKKN Dental's entire schedule. The
+          // three key shapes are regular=weekday, batch=ISO date, cycle=cycle-N;
+          // this must stay in step with fn_timetable_scheduled_sections, which
+          // the Statistics tab now reads.
           const dayKey =
             timetable.timetable_format === 'cycle'
               ? cycleNum !== null
                 ? `cycle-${cycleNum}`
                 : null
-              : dayOfWeek;
+              : timetable.timetable_format === 'batch'
+                ? date
+                : dayOfWeek;
 
           if (dayKey && timetableData && timetableData[dayKey]) {
             Object.entries(timetableData[dayKey]).forEach(
@@ -1040,6 +1129,16 @@ export class AttendanceDashboardService {
           page,
           limit,
           totalPages: Math.ceil(totalCount / limit),
+          // The denominator the summary cards need. Both are counted over the
+          // FULL scheduled set (pre-search, pre-pagination): `allScheduledPeriods`
+          // is every markable period today's timetables produced, and
+          // `skippedMarkedCount` is how many of those were already marked.
+          //
+          // Without these the cards had nothing but the pending list to count,
+          // so "Total Periods" and "Pending Periods" were the same number and
+          // the completion rate was structurally 0%.
+          scheduledCount: allScheduledPeriods.size,
+          markedCount: skippedMarkedCount.count,
           overdueCount,
           todayCount,
           sectionsCount,

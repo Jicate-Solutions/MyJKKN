@@ -21,7 +21,8 @@ import {
   MoreHorizontal,
   ChevronDown,
   ChevronRight,
-  CalendarClock
+  CalendarClock,
+  Ban
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -71,23 +72,39 @@ import {
 import type { StudentBill } from '@/types/billing-schedule';
 import { isBillableBill } from '@/lib/billing/bill-status';
 import { Card } from '@/components/ui/card';
+import { BillCancelDialog } from '@/components/billing/bill-cancel-dialog';
+import { BillCancellationDetails } from '@/components/billing/bill-cancellation-details';
+import {
+  useCancelBill,
+  useStudentBillCancellations,
+} from '@/hooks/billing/use-bill-cancellation';
 
 interface StudentBillsTableProps {
   bills: StudentBill[];
   statusFilter: string;
   onRefresh: () => void;
   isStudentView?: boolean; // New prop to indicate if viewing as student
+  /** Drive folder segment for cancellation documents. */
+  institutionName?: string;
 }
 
 export function StudentBillsTable({
   bills,
   statusFilter,
   onRefresh,
-  isStudentView = false
+  isStudentView = false,
+  institutionName = 'Unknown Institution'
 }: StudentBillsTableProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
   const [selectedBills, setSelectedBills] = useState<string[]>([]);
+  const [cancelTarget, setCancelTarget] = useState<StudentBill | null>(null);
+
+  // Every bill on this page belongs to one learner, so the cancellations come
+  // back in a single query keyed by bill_id rather than one lookup per row.
+  const studentIdForBills = bills[0]?.student_id;
+  const { data: cancellations } = useStudentBillCancellations(studentIdForBills);
+  const cancelBill = useCancelBill(studentIdForBills);
 
   // Payment schedules, keyed by bill id. A bill collectable in tranches is ONE
   // bill of the full amount, so without this the table shows only the bill's
@@ -137,6 +154,10 @@ export function StudentBillsTable({
   const canEditBills = !isStudentView && (isSuperAdmin || canAccess('billing.schedule', 'update'));
   const canDeleteBills =
     !isStudentView && (isSuperAdmin || canAccess('billing.schedule', 'delete'));
+  // Cancelling writes off money, so it is gated on its own key rather than on
+  // billing.schedule.update, which also covers fixing a typo.
+  const canCancelBills =
+    !isStudentView && (isSuperAdmin || canAccess('billing.schedule', 'cancel'));
   const canCreateReceipts =
     !isStudentView && (isSuperAdmin || canAccess('billing.receipts', 'create'));
   const canApplyDiscounts =
@@ -306,6 +327,13 @@ export function StudentBillsTable({
     return new Date(dueDate) < new Date();
   };
 
+  // Mirrors fn_cancel_student_bill's status allow-list. The RPC is the rule —
+  // this only decides whether the menu item is worth showing. A bill with
+  // money receipted against it passes here and is refused by the RPC, whose
+  // message names the receipt to cancel first.
+  const isCancellable = (bill: StudentBill) =>
+    ['unpaid', 'partially_paid', 'overdue'].includes(bill.status);
+
   const canSelectBill = (bill: StudentBill) => {
     // Students cannot select bills (view-only access)
     if (isStudentView) return false;
@@ -424,6 +452,18 @@ export function StudentBillsTable({
                     </Link>
                   </DropdownMenuItem>
                 )}
+                {canCancelBills && isCancellable(bill) && (
+                  <DropdownMenuItem
+                    className='text-amber-700 focus:text-amber-800 focus:bg-amber-50'
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setCancelTarget(bill);
+                    }}
+                  >
+                    <Ban className='mr-2 h-4 w-4' />
+                    Cancel Bill
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -474,6 +514,10 @@ export function StudentBillsTable({
             rows do, and a scheduled bill is the case worth seeing in full. */}
         {(schedules.get(bill.id)?.length ?? 0) > 0 && (
           <BillInstalmentSchedule rows={schedules.get(bill.id)!} className='mt-3' />
+        )}
+
+        {bill.status === 'cancelled' && cancellations?.get(bill.id) && (
+          <BillCancellationDetails cancellation={cancellations.get(bill.id)!} />
         )}
 
         {/* Additional Info */}
@@ -642,6 +686,18 @@ export function StudentBillsTable({
                 </Link>
               </DropdownMenuItem>
             )}
+            {canCancelBills && isCancellable(bill) && (
+              <DropdownMenuItem
+                className='text-amber-700 focus:text-amber-800 focus:bg-amber-50'
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setCancelTarget(bill);
+                }}
+              >
+                <Ban className='mr-2 h-4 w-4' />
+                Cancel Bill
+              </DropdownMenuItem>
+            )}
             {canDeleteBills && (
               <>
                 <DropdownMenuSeparator />
@@ -680,6 +736,18 @@ export function StudentBillsTable({
         </DropdownMenu>
       </TableCell>
     </TableRow>
+
+    {/* Why the bill was cancelled, directly under it — this is where the
+        question gets asked, and the reason used to live nowhere at all. */}
+    {bill.status === 'cancelled' && cancellations?.get(bill.id) && (
+      <TableRow className='hover:bg-transparent'>
+        <TableCell colSpan={7} className='p-0'>
+          <div className='px-4 pb-3 pt-1'>
+            <BillCancellationDetails cancellation={cancellations.get(bill.id)!} />
+          </div>
+        </TableCell>
+      </TableRow>
+    )}
 
     {/* The schedule spans the full width beneath its bill rather than
         squeezing into the Due Date column — six columns of money and dates
@@ -877,6 +945,28 @@ export function StudentBillsTable({
           </div>
         </Card>
       )}
+
+      <BillCancelDialog
+        open={!!cancelTarget}
+        onOpenChange={(next) => {
+          if (!next) setCancelTarget(null);
+        }}
+        bills={cancelTarget ? [cancelTarget] : []}
+        institutionName={institutionName}
+        isPending={cancelBill.isPending}
+        onConfirm={async (payload) => {
+          if (!cancelTarget) return;
+          try {
+            await cancelBill.mutateAsync({ billId: cancelTarget.id, ...payload });
+            setCancelTarget(null);
+            onRefresh();
+          } catch {
+            // The hook already surfaced the RPC's guard message. Keep the
+            // dialog OPEN so the operator can read it beside what they typed
+            // and fix the input rather than start over.
+          }
+        }}
+      />
     </div>
   );
 }

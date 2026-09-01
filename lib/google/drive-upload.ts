@@ -486,3 +486,55 @@ export async function uploadLeaveDocument(
     sizeBytes: buffer.byteLength,
   };
 }
+
+export interface BillCancellationAttachmentUploadOptions {
+  institutionName: string;
+  billRef: string; // bill id, or a short human ref for the folder name
+  file: File;
+}
+
+/**
+ * Upload a bill-cancellation supporting document to
+ * <ROOT>/Bill Cancellations/<Institution>/<BillRef>.
+ *
+ * Cancelling a bill writes off money, so the evidence has to outlive the
+ * session that raised it: fn_cancel_student_bill refuses to cancel without at
+ * least one of these. Shared-readable like refund attachments, because the
+ * links are opened straight from the audit strip by whoever reviews the
+ * cancellation later.
+ */
+export async function uploadBillCancellationAttachment(
+  opts: BillCancellationAttachmentUploadOptions
+): Promise<{ name: string; driveFileId: string; url: string }> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+  const folderId = await ensureFolderPath(drive, [
+    'Bill Cancellations',
+    opts.institutionName,
+    opts.billRef,
+  ]);
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'file').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: {
+      mimeType: opts.file.type || 'application/octet-stream',
+      body: Readable.from(buffer),
+    },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+  return {
+    name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}

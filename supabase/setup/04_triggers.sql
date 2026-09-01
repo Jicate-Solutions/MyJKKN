@@ -2433,3 +2433,31 @@ DROP TRIGGER IF EXISTS trg_hr_salary_register_lines_touch ON public.hr_salary_re
 CREATE TRIGGER trg_hr_salary_register_lines_touch
   BEFORE UPDATE ON public.hr_salary_register_lines
   FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+-- ============================================================================
+-- 2026-08-31 — guard: a decision may only be recorded by the approver making it
+-- Migration: 20260831120000_hr_leave_approval_flow_parallel_ladder.sql
+-- hla_update's USING clause admits the APPLICANT and its WITH CHECK only bites
+-- when status becomes approved/rejected. Until quorum='all' existed every
+-- decision flipped status, so that window was closed by accident.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_hla_guard_chain_decisions ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_guard_chain_decisions
+  BEFORE UPDATE ON public.hr_leave_applications
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_trig_leave_guard_chain_decisions();
+
+-- ============================================================================
+-- Bills may only reach status='cancelled' through fn_cancel_student_bill
+-- (mig 20260901010000). Without this the mandatory reason + documents are
+-- advisory: the UPDATE policy on billing_student_bills lets any
+-- billing.schedule.update holder -- and anyone is_admin() accepts, with no
+-- permission key at all -- set the status directly from a browser console.
+-- Only transitions INTO cancelled are guarded, so editing an already-cancelled
+-- bill is untouched and 'superseded' keeps its own flow.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_billing_bills_guard_cancel ON public.billing_student_bills;
+CREATE TRIGGER trg_billing_bills_guard_cancel
+  BEFORE UPDATE ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_bill_cancellation();

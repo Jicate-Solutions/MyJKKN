@@ -21,6 +21,7 @@
 export type SalaryRowStatus =
   | 'ok'
   | 'unmatched'          // no staff row carries this code
+  | 'not_in_hr'          // matched, but their employment category is out of HR
   | 'no_payroll_org'     // matched, but hr_staff_payroll has no paying org
   | 'duplicate_in_file'  // the same code appears more than once
   | 'invalid_amount';    // missing, zero or negative monthly gross
@@ -31,6 +32,15 @@ export interface SalaryStaffRow {
   first_name: string | null;
   last_name: string | null;
   is_active: boolean | null;
+  /**
+   * employment_categories.included_in_hr for this person's category.
+   *
+   * Carried rather than filtered out upstream so the verdict can say "this
+   * person is not in HR" instead of "no staff record carries this code". Both
+   * skip the row; only one of them sends the user hunting for a staff record
+   * that exists and is sitting right in front of them.
+   */
+  included_in_hr: boolean;
   /** From hr_staff_payroll. Null when the person has no paying organisation. */
   hr_organization_id: string | null;
 }
@@ -73,6 +83,8 @@ export interface SalaryUploadValidation {
     total: number;
     importable: number;
     unmatched: number;
+    /** Matched a real person whose employment category is excluded from HR. */
+    not_in_hr: number;
     no_payroll_org: number;
     duplicate_in_file: number;
     invalid_amount: number;
@@ -152,6 +164,15 @@ export function validateSalaryUpload(input: {
       return { ...base, status: 'unmatched' as const, importable: false,
         reason: 'No staff record carries this employee ID. The row is skipped.' };
     }
+    // Checked BEFORE the amount: someone outside HR is not paid through this
+    // module whatever the sheet says, so quibbling about their figure first
+    // would report the wrong problem.
+    if (!match.included_in_hr) {
+      return { ...base, status: 'not_in_hr' as const, importable: false,
+        reason:
+          'This employee’s employment category is excluded from HR, so they are ' +
+          'not paid through payroll. The row is skipped.' };
+    }
     if (r.monthly_gross === null || r.monthly_gross <= 0) {
       return { ...base, status: 'invalid_amount' as const, importable: false,
         reason: 'Basic Salary is missing, zero or negative.' };
@@ -168,6 +189,7 @@ export function validateSalaryUpload(input: {
     total: out.length,
     importable: importable.length,
     unmatched: out.filter((r) => r.status === 'unmatched').length,
+    not_in_hr: out.filter((r) => r.status === 'not_in_hr').length,
     no_payroll_org: out.filter((r) => r.status === 'no_payroll_org').length,
     duplicate_in_file: out.filter((r) => r.status === 'duplicate_in_file').length,
     invalid_amount: out.filter((r) => r.status === 'invalid_amount').length,
@@ -210,6 +232,24 @@ export function validateSalaryUpload(input: {
         'Add them to the staff module first if they should be paid.',
       detail: out.filter((r) => r.status === 'unmatched')
         .slice(0, DETAIL_LIMIT).map((r) => `${r.employee_code} · ${r.employee_name_in_file ?? '(no name)'}`),
+    });
+  }
+
+  // Skipped, not blocked — same treatment as an unmatched code. The category
+  // flag is an HR-scope decision, not a data error in the sheet, so the rest of
+  // the file still imports; the block just makes the exclusion visible instead
+  // of letting these rows vanish into a bare "skipped" count.
+  if (counts.not_in_hr > 0) {
+    blocks.push({
+      kind: 'not_in_hr',
+      severity: 'acknowledgeable',
+      count: counts.not_in_hr,
+      message:
+        `${counts.not_in_hr} employee ID(s) belong to an employment category excluded from HR ` +
+        '(Ayaah, Driver, Security, Warden, Hostel, Cooking Master) and will be skipped. ' +
+        'Turn on "Included in HR" for the category if they should be paid through payroll.',
+      detail: out.filter((r) => r.status === 'not_in_hr')
+        .slice(0, DETAIL_LIMIT).map((r) => `${r.employee_code} · ${r.staff_name ?? ''}`),
     });
   }
 
