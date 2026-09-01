@@ -57071,3 +57071,91 @@ AS $function$
 $function$;
 
 REVOKE ALL ON FUNCTION public.fn_is_configured_leave_approver() FROM anon;
+
+-- ============================================================================
+-- Induction integrity gate: a sitting that has not happened yet cannot be rated
+-- (mig 20260901160000). Sibling of fn_induction_assert_live -- that one asks
+-- whether the EVENT is Live, this one asks whether the SITTING has started.
+-- A Live induction's sitting three months out passes the first and fails this.
+--
+-- Measured on production 2026-09-01: 4,080 feedback rows carry
+-- created_at < start_at (Pharmacy 61% of its rows, Arts & Science 24.7%,
+-- Engineering 16.5%). Tolerance is platform_policies
+-- 'induction.feedback.early_capture_minutes', default 10080 (7 days) as a
+-- deploy-safety bound. See the migration header for the full reasoning.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_induction_assert_session_started(p_session_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_start_at     timestamptz;
+  v_is_induction boolean;
+  v_tolerance    integer;
+  v_earliest     timestamptz;
+BEGIN
+  SELECT s.start_at,
+         EXISTS (SELECT 1 FROM public.induction_programs ip WHERE ip.event_id = s.event_id)
+    INTO v_start_at, v_is_induction
+    FROM public.event_sessions s
+   WHERE s.id = p_session_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION
+      'This rating points at a sitting that no longer exists. Refresh the schedule and try again.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF NOT v_is_induction THEN
+    RETURN;  -- not an induction; not this guard's business
+  END IF;
+
+  IF v_start_at IS NULL THEN
+    RAISE EXCEPTION
+      'This sitting has no start time, so there is no way to tell whether it has happened yet. Set its schedule before collecting ratings.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  v_tolerance := GREATEST(
+    fn_get_policy_int('induction.feedback.early_capture_minutes', 10080, NULL),
+    0
+  );
+
+  v_earliest := v_start_at - make_interval(mins => v_tolerance);
+
+  IF now() < v_earliest THEN
+    RAISE EXCEPTION
+      'This sitting starts %. It cannot be rated yet -- %.',
+      to_char(v_start_at AT TIME ZONE 'Asia/Kolkata', 'DD Mon YYYY at HH12:MI AM'),
+      CASE
+        WHEN v_tolerance = 0    THEN 'ratings open when it begins'
+        WHEN v_tolerance < 60   THEN 'ratings open ' || v_tolerance || ' minutes before it begins'
+        WHEN v_tolerance < 1440 THEN 'ratings open ' || round(v_tolerance / 60.0) || ' hours before it begins'
+        ELSE 'ratings open ' || round(v_tolerance / 1440.0) || ' days before it begins'
+      END
+      USING ERRCODE = 'check_violation';
+  END IF;
+END
+$function$;
+
+COMMENT ON FUNCTION public.fn_induction_assert_session_started(uuid) IS
+  'Raises unless the given induction sitting has started, or is within the induction.feedback.early_capture_minutes tolerance of starting. No-op for non-induction sessions; fails closed on a missing session or a null start_at.';
+
+-- Only caller is the SECURITY DEFINER trigger adapter below, which executes as
+-- its owner; no signed-in user needs EXECUTE. See the migration header.
+REVOKE EXECUTE ON FUNCTION public.fn_induction_assert_session_started(uuid) FROM anon, authenticated, PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.trg_induction_require_session_started()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  PERFORM public.fn_induction_assert_session_started(NEW.session_id);
+  RETURN NEW;
+END
+$function$;
