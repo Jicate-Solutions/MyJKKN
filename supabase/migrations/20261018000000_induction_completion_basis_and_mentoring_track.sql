@@ -123,7 +123,7 @@ COMMENT ON COLUMN public.induction_completion.mentoring_sessions_total IS
 COMMENT ON COLUMN public.induction_completion.mentoring_sessions_attended IS
   'Of those due check-ins, how many this fresher was present or on-duty for.';
 COMMENT ON COLUMN public.induction_completion.mentoring_complete IS
-  'mentoring_sessions_attended / mentoring_sessions_total >= induction_programs.completion_mentoring_pct. Legitimately false for everyone until the first check-in of the year has come due — the year has not happened yet, and a zero denominator must never read as complete.';
+  'mentoring_sessions_attended / mentoring_sessions_total >= induction_programs.completion_mentoring_pct. A RUNNING verdict over the year, not a permanent award: it is legitimately false for everyone until the first check-in has come due, and it can fall again if a fresher attends the first check-in and then stops. Made monotonic it would be clearable by turning up once in September.';
 
 -- ── 3. Recompute: two bases, one pass ───────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_induction_recompute_completion(p_event_id uuid)
