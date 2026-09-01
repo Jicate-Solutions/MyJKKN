@@ -44,8 +44,40 @@ const SETUP_FUNCTIONS = path.resolve(process.cwd(), 'supabase/setup/02_functions
 
 const sql = readFileSync(MIGRATION, 'utf8');
 
+/**
+ * THE TWO WRITERS. Both reach induction_completion.outcome_complete, and both
+ * derive it from their OWN copy of the denominator — this is the whole reason
+ * every case below is driven through both.
+ *
+ *   RECOMPUTE    fn_induction_recompute_completion(uuid)
+ *                Called by the admin/coordinator recompute and by the
+ *                attendance writers (fn_induction_mark_attendance,
+ *                fn_induction_mark_day_attendance). Authoritative: it
+ *                OVERWRITES outcome_complete and can move a learner either way.
+ *
+ *   ON_FEEDBACK  fn_induction_completion_on_feedback()
+ *                The AFTER INSERT / AFTER UPDATE statement-level triggers on
+ *                event_session_feedback. Does NOT call RECOMPUTE — it carries a
+ *                SECOND copy of the same CTE.
+ *
+ * induction_multipath_completion_option2.sql created both in one commit. Its
+ * header at line 16 states that RECOMPUTE "becomes the SINGLE authority for
+ * outcome_complete", and line 137 of the same file has ON_FEEDBACK writing
+ * outcome_complete itself. The prose describes the intended design; the code
+ * below it forked. Line 51 and line 115 are the two copies.
+ *
+ * WHY THE FORK STAYED INVISIBLE, and why every assertion here is doubled: the
+ * merge at line 137 is monotonic —
+ *     outcome_complete = induction_completion.outcome_complete
+ *                        OR EXCLUDED.outcome_complete
+ * — so a stale denominator on that path CANNOT demote anyone. It can only
+ * decline to promote the exact learners a denominator fix is for. There is no
+ * regression to notice and nothing to report. A test that drove only RECOMPUTE
+ * would have passed against precisely that.
+ */
 const RECOMPUTE = 'fn_induction_recompute_completion';
 const ON_FEEDBACK = 'fn_induction_completion_on_feedback';
+
 const MENTOR_KIND = 'mentor_checkin';
 /** The mentoring bar's config column, asserted in both places it appears. */
 const MENTORING_PCT_COLUMN = 'completion_mentoring_pct';
@@ -104,19 +136,19 @@ function functionBody(source: string, fnName: string): string {
 
 const recomputeExec = executable(functionBody(sql, RECOMPUTE));
 const feedbackExec = executable(functionBody(sql, ON_FEEDBACK));
+/** Every shared case runs against both writers, labelled by which one it drives. */
+const BOTH_WRITERS: [string, () => string][] = [
+  [`${RECOMPUTE} — the authoritative recompute`, () => recomputeExec],
+  [`${ON_FEEDBACK} — the trigger on event_session_feedback`, () => feedbackExec],
+];
+
 
 describe('induction completion basis — only what has already happened counts', () => {
-  it.each([
-    ['the recompute path', () => recomputeExec],
-    ['the living gate on feedback', () => feedbackExec],
-  ])('%s admits a sitting only once it has begun', (_label, get) => {
+  it.each(BOTH_WRITERS)('%s admits a sitting only once it has begun', (_writer, get) => {
     expect(get()).toContain('s.start_at IS NOT NULL AND s.start_at <= now()');
   });
 
-  it.each([
-    ['the recompute path', () => recomputeExec],
-    ['the living gate on feedback', () => feedbackExec],
-  ])('%s keeps the date test in the ON clause, never a WHERE', (_label, get) => {
+  it.each(BOTH_WRITERS)('%s keeps the date test in the ON clause, never a WHERE', (_writer, get) => {
     // In a WHERE, the LEFT JOIN collapses to an inner join and a learner with no
     // qualifying sitting vanishes from the result — their rollup row is then
     // left frozen at its old value rather than reset to a truthful zero.
@@ -128,10 +160,7 @@ describe('induction completion basis — only what has already happened counts',
     expect(body).not.toMatch(/WHERE[^;]{0,120}s\.start_at/);
   });
 
-  it.each([
-    ['the recompute path', () => recomputeExec],
-    ['the living gate on feedback', () => feedbackExec],
-  ])('%s measures backwards from now(), not forwards and not a fixed date', (_label, get) => {
+  it.each(BOTH_WRITERS)('%s measures backwards from now(), not forwards and not a fixed date', (_writer, get) => {
     expect(get()).not.toContain('s.start_at >= now()');
     expect(get()).not.toContain('s.start_at > now()');
     expect(get()).not.toContain('CURRENT_DATE');
@@ -251,6 +280,42 @@ describe('induction completion basis — what must NOT have changed', () => {
       expect(header, fn).toMatch(/SECURITY DEFINER/);
       expect(header, fn).toMatch(/SET search_path TO 'public'/);
     }
+  });
+});
+
+describe('induction completion basis — the fork cannot re-open', () => {
+  // The defect was never one wrong line; it was two copies of the same line and
+  // a header claiming there was one. These assert the shape of the FILE rather
+  // than either writer, so correcting one and forgetting the other fails here
+  // even if every per-writer case above were somehow satisfied.
+
+  it('leaves exactly two denominator CTEs in the migration, no more', () => {
+    // A third copy is the next instance of this bug. If one is ever added
+    // deliberately, this test is the place to say so out loud.
+    //   RECOMPUTE:   total + attended + rated + m_total + m_attended = 5
+    //   ON_FEEDBACK: total + attended + rated                        = 3
+    const copies = executable(sql).match(/count\(DISTINCT s\.id\)/g) ?? [];
+    expect(copies).toHaveLength(8);
+  });
+
+  it('guards EVERY denominator in the file, not just the one being edited', () => {
+    // The date guard is counted against the number of joins onto event_sessions.
+    // Correcting one writer and not the other makes these two numbers disagree.
+    const exec = executable(sql);
+    const joins = exec.match(/LEFT JOIN public\.event_sessions s/g) ?? [];
+    const guards = exec.match(/s\.start_at IS NOT NULL AND s\.start_at <= now\(\)/g) ?? [];
+    expect(joins.length).toBeGreaterThan(1);
+    expect(guards).toHaveLength(joins.length);
+  });
+
+  it('accounts for mentor check-ins on every one of those joins', () => {
+    // Either excluded outright (the trigger) or split out and counted on its own
+    // (the recompute). What must not exist is a join that silently folds them
+    // back into the induction denominator.
+    const exec = executable(sql);
+    const joins = (exec.match(/LEFT JOIN public\.event_sessions s/g) ?? []).length;
+    const excluded = (exec.match(/s\.kind IS DISTINCT FROM 'mentor_checkin'/g) ?? []).length;
+    expect(excluded).toBeGreaterThanOrEqual(joins);
   });
 });
 
