@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
+import { withAuth } from '@/lib/auth/with-auth';
 import { LearnerAdvancedAnalyticsService } from '@/lib/services/learner-advanced-analytics-service';
 import type { LearnerDashboardFilters } from '@/types/learner-analytics';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -22,7 +23,14 @@ import { logger } from '@/lib/utils/enhanced-logger';
  * - dateFrom: Start date filter
  * - dateTo: End date filter
  */
-export async function GET(request: NextRequest) {
+/**
+ * Guarded 2026-09-01. Unauthenticated callers got HTTP 200 with every array
+ * empty and every ratio 0 — not a leak (RLS blocked the reads) but a dishonest
+ * answer: 'you are not signed in' rendered identically to 'the cohort has no
+ * learners'. The same failure this codebase names elsewhere, where a missing
+ * permission made everyone read as excluded. 401 says which it is.
+ */
+export const GET = withAuth(async (request: NextRequest) => {
   await connection();
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -70,4 +78,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { requiredPermission: 'read' });
