@@ -23,6 +23,7 @@ import {
   type CoverageMode,
   type SeriesCadence,
 } from '@/lib/services/meetings/recurring-series-config';
+import { labelInstitutions } from '@/lib/services/meetings/institution-labels';
 
 // NOTE: repo compiles with strictNullChecks:false — flat optional-field shape,
 // not a discriminated union (matches meetings/manage/actions.ts).
@@ -258,10 +259,7 @@ export async function listInstitutionOptions(): Promise<ActionResult<Institution
     if (error) return { success: false, error: error.message };
     return {
       success: true,
-      data: ((data ?? []) as any[]).map((i) => ({
-        id: i.id,
-        name: i.display_name || i.name,
-      })),
+      data: labelInstitutions((data ?? []) as any[]),
     };
   } catch (err: any) {
     return { success: false, error: err?.message ?? 'Could not load the list of colleges.' };
