@@ -47,16 +47,50 @@ export default function ServiceRequestsHubPage() {
   const approvalsPaging = useTablePagination();
   const allPaging = useTablePagination();
 
-  const { data: myRequestsData, isLoading: myLoading, isFetching: myFetching } =
-    useMyServiceRequests(myPaging.queryParams);
+  const {
+    data: myRequestsData,
+    isLoading: myLoading,
+    isFetching: myFetching,
+    error: myError,
+  } = useMyServiceRequests(myPaging.queryParams);
   const {
     data: pendingApprovalsData,
     isLoading: approvalsLoading,
     isFetching: approvalsFetching,
+    error: approvalsError,
   } = usePendingApprovals(approvalsPaging.queryParams);
-  const { data: allRequestsData, isLoading: allLoading, isFetching: allFetching } =
-    useServiceRequests(allPaging.queryParams);
+  const {
+    data: allRequestsData,
+    isLoading: allLoading,
+    isFetching: allFetching,
+    error: allError,
+  } = useServiceRequests(allPaging.queryParams);
   const { data: counts } = useRequestCountsByStatus();
+
+  /**
+   * A failed fetch used to fall through to the same empty state as a genuine
+   * zero-row result: on error the data is undefined and isLoading is false, so
+   * every tab rendered "No requests found". An API 500 was indistinguishable
+   * from "you have nothing", which is how an empty All Requests tab could not
+   * be told apart from a broken one.
+   */
+  const renderError = (error: unknown) => (
+    <div className="flex flex-col items-center justify-center py-12">
+      <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+      <p className="text-sm font-medium">Couldn't load requests</p>
+      <p className="text-xs text-muted-foreground mt-1 max-w-md text-center">
+        {error instanceof Error ? error.message : 'Unexpected error'}
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-4"
+        onClick={() => window.location.reload()}
+      >
+        Retry
+      </Button>
+    </div>
+  );
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -133,7 +167,14 @@ export default function ServiceRequestsHubPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">Approved</p>
-                    <p className="text-2xl font-bold">{counts.approved || 0}</p>
+                    {/* 'fulfilled' counts as approved. Types with
+                      * auto_fulfill_on_approval never pass through 'approved'
+                      * at all -- they jump straight to 'fulfilled' -- so
+                      * counting the literal status alone left this card
+                      * reading 0 forever while 39 requests sat fulfilled. */}
+                    <p className="text-2xl font-bold">
+                      {(counts.approved || 0) + (counts.fulfilled || 0)}
+                    </p>
                   </div>
                   <CheckCircle className="h-6 w-6 text-green-500" />
                 </div>
@@ -168,7 +209,9 @@ export default function ServiceRequestsHubPage() {
           <TabsContent value="my-requests" className="mt-4">
             <Card>
               <CardContent className="p-6">
-                {myLoading ? (
+                {myError ? (
+                  renderError(myError)
+                ) : myLoading ? (
                   <div className="flex justify-center items-center min-h-[200px]">
                     <p className="text-sm text-muted-foreground">Loading...</p>
                   </div>
@@ -207,7 +250,9 @@ export default function ServiceRequestsHubPage() {
             <TabsContent value="pending-approvals" className="mt-4">
               <Card>
                 <CardContent className="p-6">
-                  {approvalsLoading ? (
+                  {approvalsError ? (
+                    renderError(approvalsError)
+                  ) : approvalsLoading ? (
                     <div className="flex justify-center items-center min-h-[200px]">
                       <p className="text-sm text-muted-foreground">Loading...</p>
                     </div>
@@ -241,7 +286,9 @@ export default function ServiceRequestsHubPage() {
             <TabsContent value="all-requests" className="mt-4">
               <Card>
                 <CardContent className="p-6">
-                  {allLoading ? (
+                  {allError ? (
+                    renderError(allError)
+                  ) : allLoading ? (
                     <div className="flex justify-center items-center min-h-[200px]">
                       <p className="text-sm text-muted-foreground">Loading...</p>
                     </div>

@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "next-env.d.ts",
+    "types/service-request.ts",
+    "lib/services/service-requests/**/*.ts",
+    "hooks/service-requests/**/*.ts",
+    "app/api/service-requests/**/*.ts",
+    "app/(routes)/service-requests/page.tsx"
+  ]
+}
