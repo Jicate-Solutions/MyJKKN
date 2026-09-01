@@ -9,7 +9,7 @@ vi.mock('@/lib/supabase/client', () => ({ createClientSupabaseClient: vi.fn(() =
 vi.mock('@/lib/services/integrations/google-calendar-service', () => ({}));
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn(async () => ({})) }));
 
-import { labelInstitutions } from '@/app/(routes)/meetings/series/actions';
+import { labelInstitutions } from '@/lib/services/meetings/institution-labels';
 
 // The real production rows, verified 2026-08-31.
 const AIDED = { id: 'a33138b6', name: 'JKKN College of Arts and Science (Aided)', display_name: 'JKKN College of Arts and Science (Autonomous)' };
