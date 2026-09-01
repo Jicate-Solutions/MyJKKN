@@ -265,7 +265,7 @@ export default function ReferralReviewWorklistPage() {
                 <CountChip n={counts?.no_enquiry_trail} />
               </TabsTrigger>
               <TabsTrigger value="attendance">
-                Not yet seen in class
+                Not yet seen in session
                 <CountChip n={counts?.attendance_held} />
               </TabsTrigger>
             </TabsList>
@@ -371,22 +371,22 @@ export default function ReferralReviewWorklistPage() {
                 </CardContent>
               </Card>
             </TabsContent>
-            {/* D — held: class attendance has never recorded them */}
+            {/* D — held: session attendance has never recorded them */}
             <TabsContent value="attendance">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Lock className="h-5 w-5 text-muted-foreground" />
-                    Enrolled, but not yet seen in class
+                    Enrolled, but not yet seen in session
                   </CardTitle>
                   <CardDescription className="space-y-2">
                     <span className="block">
-                      These learners took the seat, an agency is credited, and their class{' '}
+                      These learners took the seat, an agency is credited, and their sessions{' '}
                       <strong>is</strong> being marked — but no register has recorded them present
                       since July. They are held out of the payment run until someone releases each.
                     </span>
                     <span className="block text-muted-foreground">
-                      Only classes that are actually being marked appear here. A learner whose class
+                      Only sessions that are actually being marked appear here. A learner whose sessions
                       nobody marks is never held and never listed — an empty register says nothing
                       about the learner, and holding them would measure whose attendance is being
                       taken rather than who is turning up.
@@ -400,7 +400,7 @@ export default function ReferralReviewWorklistPage() {
                     showLifecycle
                     onRelease={(r) => { setReleasingAtt(r); setNote(''); }}
                     releaseKey="learner"
-                    empty={`Every agency-referred learner with a marked class has been seen in ${yearLabel(year)}.`}
+                    empty={`Every agency-referred learner with a marked session has been seen in ${yearLabel(year)}.`}
                   />
                 </CardContent>
               </Card>
@@ -484,7 +484,7 @@ export default function ReferralReviewWorklistPage() {
                   <div className="space-y-2 text-sm">
                     <p>
                       <strong>{releasingAtt?.learner_name || 'This learner'}</strong> has not been
-                      recorded present in class since July, though their class is being marked.
+                      recorded present in session since July, though their sessions are being marked.
                     </p>
                     <p>
                       Release only if you know they are genuinely attending — a transfer, a late

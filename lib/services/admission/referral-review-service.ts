@@ -69,8 +69,8 @@ export interface ReferralReviewWorklist {
     cleared: number;
     total: number;
   };
-  /** Enrolled referrals whose class IS marked and who have never been recorded
-   *  present. Listed only where a register exists — an unmarked class says
+  /** Enrolled referrals whose sessions ARE marked and who have never been recorded
+   *  present. Listed only where a register exists — an unmarked session says
    *  nothing about the learner, so those are never held and never shown. */
   attendance_held: ReferralReviewRow[];
   /** Read live, not asserted, so the "nothing is payable yet" banner cannot go
@@ -101,7 +101,7 @@ export class ReferralReviewService {
   }
 
   /**
-   * Release ONE referral held because class attendance has never recorded its
+   * Release ONE referral held because session attendance has never recorded its
    * learner. Records who and when. Writes no money row and pays nobody.
    */
   static async clearAttendanceHold(

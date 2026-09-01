@@ -206,7 +206,7 @@ export default function ReferralRatesPage() {
                     <Stat label="Referrals found" value={String(preview.candidates)} />
                     <Stat label="Never enrolled" value={String(preview.blocked_not_enrolled ?? 0)} warn={(preview.blocked_not_enrolled ?? 0) > 0} />
                     <Stat label="Held for checking" value={String(preview.held_walkin ?? 0)} warn={(preview.held_walkin ?? 0) > 0} />
-                    <Stat label="Held — not seen in class" value={String(preview.held_attendance ?? 0)} warn={(preview.held_attendance ?? 0) > 0} />
+                    <Stat label="Held — not seen in session" value={String(preview.held_attendance ?? 0)} warn={(preview.held_attendance ?? 0) > 0} />
                     <Stat label="Payable now" value={String(preview.payable_now)} />
                     <Stat label="Blocked (no bank/PAN)" value={String(preview.blocked_no_bank)} warn={preview.blocked_no_bank > 0} />
                     <Stat label="Net total" value={rupees(preview.total_net)} />
@@ -234,10 +234,10 @@ export default function ReferralRatesPage() {
                     <div className="rounded-md border border-amber-300 bg-amber-50/60 dark:bg-amber-950/20 p-3 text-sm space-y-1">
                       <p className="font-medium">
                         {preview.held_attendance} more {preview.held_attendance === 1 ? 'is' : 'are'} held because
-                        class attendance has never recorded them — worth {rupees(preview.held_attendance_gross ?? 0)}.
+                        session attendance has never recorded them — worth {rupees(preview.held_attendance_gross ?? 0)}.
                       </p>
                       <p className="text-muted-foreground">
-                        Only referrals whose class IS being marked can be held this way. A learner whose class
+                        Only referrals whose sessions ARE being marked can be held this way. A learner whose sessions
                         nobody marks is never held — an empty register says nothing about the learner. Release
                         each on the{' '}
                         <Link href="/admission/consultants/review-worklist" className="text-primary underline">
@@ -392,7 +392,7 @@ export default function ReferralRatesPage() {
                     will <strong>not</strong> be created —{' '}
                     {preview?.blocked_not_enrolled ?? 0} never enrolled,{' '}
                     {preview?.held_walkin ?? 0} held for checking,{' '}
-                    {preview?.held_attendance ?? 0} never seen in class.
+                    {preview?.held_attendance ?? 0} never seen in session.
                   </>
                 )}{' '}
                 They are <strong>not paid</strong> — they wait for the four-stage approval on the Commissions page.
