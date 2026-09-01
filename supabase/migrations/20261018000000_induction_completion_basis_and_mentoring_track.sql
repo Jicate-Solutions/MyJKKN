@@ -84,33 +84,58 @@
 -- fail to PROMOTE the freshers this fix exists for, on every subsequent
 -- feedback write, with no error anywhere. Both copies are corrected here.
 --
--- PROVEN AGAINST PRODUCTION, 2026-09-01, by transaction-and-rollback. This
--- migration was applied inside a transaction, all five programmes recomputed as
--- the Director, the results read, and the transaction rolled back. Production
--- was not modified. Measured at 14:2x:
+-- PROVEN AGAINST PRODUCTION, 2026-09-01, by transaction-and-rollback. Applied
+-- inside a transaction, all five programmes recomputed as the Director, EVERY
+-- learner's outcome_complete compared before and after, transaction rolled
+-- back. Production was not modified.
 --
---   programme        denominator   complete
---   Arts & Science        20          404
---   Engineering           19          151   <- the control, byte-identical
---   Pharmacy              18           82
---   Nursing               13           44
---   Allied Health         22           34
---                                     ----
---                                      715   against a live baseline of 494
+-- BOTH SIDES FRESHLY RECOMPUTED, so staleness is not a variable on either:
 --
--- ENGINEERING IS THE EVIDENCE, not a footnote. It is the one programme with no
--- future sittings and no mentor check-ins, so a correct fix must leave it
--- exactly where it stood — 19 -> 19, 151 -> 151 — and it did. Any change that
--- MOVED Engineering would be a blanket loosening of the completion bar wearing
--- the costume of a targeted fix, and the +221 elsewhere would be worth nothing.
+--   programme          no migration   with this change   attributable
+--   Arts & Science          222             404              +182
+--   Pharmacy                 51              82               +31
+--   Allied Health            25              34                +9
+--   Nursing                  44              44                 0   <- control
+--   Engineering             151             151                 0   <- control
+--                          ----            ----             ------
+--                           493             715              +222
 --
--- The net decays, and that is the induction still running rather than a defect:
--- measured 13:0x it was 484 -> 712 (+228); measured 14:2x, 494 -> 715 (+221).
--- The corrected figure moved by 3; the BASELINE moved by 10, because learners
--- keep clearing the existing bar on their own as ratings arrive. Quote the
--- range, never a single number.
+--   222 learners gained. ZERO withdrawn.
 --
--- This proof matters more than usual here: the repo has no job that applies a
+-- TWO CONTROLS HELD, and they are what make the other three columns mean
+-- anything. Engineering has no future sittings and no mentor check-ins, so
+-- there is nothing here for this change to correct and it must come back
+-- untouched; Nursing proved to be a second control once measured properly. A
+-- change that MOVED either one would be a blanket loosening of the completion
+-- bar wearing the costume of a targeted fix, and the +222 would be worthless.
+--
+-- ZERO WITHDRAWN was worth verifying rather than assuming, because this
+-- function OVERWRITES outcome_complete and is not monotonic: dropping sittings
+-- that have not happened removes them from the NUMERATOR too, so completion
+-- built on ratings of unhappened sittings is taken back. A first pass did show
+-- LOST=1, an Engineering learner falling off exactly the 75 bar (20->19
+-- sittings, 15->14 attended, 75.00 -> 73.68). The control disposes of it:
+-- recomputing with the CURRENT function and NO migration gives the identical
+-- result, same learner. It is a stale stored row, not this change.
+--
+-- SEPARATE PRE-EXISTING DEFECT, NOT FIXED HERE. induction_completion is a
+-- stored snapshot refreshed only when something calls a recompute; nothing
+-- refreshes it on a schedule. Arts & Science was last recomputed 2026-08-26
+-- against 30 sittings and 43 now exist; Engineering on 2026-08-31 against 20
+-- when 19 exist. One Engineering learner is presently recorded complete against
+-- a sitting that no longer exists. That is a refresh-CADENCE problem, not a
+-- denominator problem — the stored rows are stale against ANY definition, and
+-- correcting the definition does not make a snapshot current. Fixing it means
+-- deciding who recomputes and how often, which is its own change and its own
+-- decision. Named here so it is never mistaken for something this migration
+-- introduced, or quietly fixed.
+--
+-- An earlier reading of +228, and then +221, compared a fresh recompute against
+-- the STORED baseline. That mixes this change together with days of
+-- un-recomputed drift and credits all of it here. Both are superseded by the
+-- fresh-against-fresh +222 above.
+--
+-- This proof matters more than usual: the repo has no job that applies a
 -- migration to a scratch database before running tests, so the guard tests that
 -- ship alongside this file read SQL off disk and cannot execute any of it.
 --
