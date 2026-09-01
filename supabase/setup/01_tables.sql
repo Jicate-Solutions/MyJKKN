@@ -8139,6 +8139,13 @@ CREATE TABLE IF NOT EXISTS public.hr_staff_salaries (
   eligible_for_insurance boolean NOT NULL DEFAULT false,
   eligible_for_gratuity  boolean NOT NULL DEFAULT false,
   eligible_for_etf       boolean NOT NULL DEFAULT false,
+  -- Statutory contributions as a FLAT MONTHLY RUPEE FIGURE per person, added
+  -- 2026-09-01. Not a rate and not an employee/employer split: the register
+  -- deducts exactly what is stored, in full, even in a month with unpaid days.
+  -- eligible_for_pf is labelled "EPF" in the UI — same scheme, one flag.
+  epf_amount             numeric(12,2) NOT NULL DEFAULT 0 CHECK (epf_amount >= 0),
+  eligible_for_esi       boolean NOT NULL DEFAULT false,
+  esi_amount             numeric(12,2) NOT NULL DEFAULT 0 CHECK (esi_amount >= 0),
   effective_from         date NOT NULL,
   -- DEFERRABLE is load-bearing, not stylistic: fn_hr_set_staff_salary points
   -- the incumbent at a row it inserts one statement later, and that order is
@@ -8660,6 +8667,10 @@ CREATE TABLE IF NOT EXISTS public.hr_salary_register_lines (
   actual_gross           numeric(12,2) NOT NULL DEFAULT 0,
   basic_pay              numeric(12,2) NOT NULL DEFAULT 0,
   unpaid_leave_deduction numeric(12,2) NOT NULL DEFAULT 0,
+  -- Broken out of total_deductions (which still carries them) so a PF/ESI
+  -- return can be read straight off the register. Added 2026-09-01.
+  epf_deduction          numeric(12,2) NOT NULL DEFAULT 0,
+  esi_deduction          numeric(12,2) NOT NULL DEFAULT 0,
   total_earnings         numeric(12,2) NOT NULL DEFAULT 0,
   total_deductions       numeric(12,2) NOT NULL DEFAULT 0,
   -- A prior-month recovery the formula cannot produce. SUBTRACTED from net pay.

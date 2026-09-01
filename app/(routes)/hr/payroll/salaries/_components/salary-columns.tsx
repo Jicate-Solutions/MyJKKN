@@ -55,6 +55,36 @@ function NotSet() {
   return <span className='text-xs italic text-muted-foreground'>Not set</span>;
 }
 
+/**
+ * One statutory contribution cell — THREE distinct states, not two.
+ *
+ *   no salary row at all  → "Not set", the queue this screen exists to work through
+ *   salary but not eligible → an em dash: decided, and the answer is "does not apply"
+ *   eligible                → the figure, ₹0 included
+ *
+ * Collapsing the middle case into a blank would read as zero, and zero here is a
+ * claim about money the register will act on.
+ */
+function ContributionCell({
+  row,
+  kind,
+}: {
+  row: StaffSalaryDirectoryRow;
+  kind: 'epf' | 'esi';
+}) {
+  if (!row.salary_id) return <span className='block text-right'><NotSet /></span>;
+
+  const eligible = kind === 'epf' ? row.eligible_for_pf : row.eligible_for_esi;
+  if (!eligible) {
+    return <span className='block text-right text-sm text-muted-foreground'>—</span>;
+  }
+
+  const value = kind === 'epf' ? row.epf_amount : row.esi_amount;
+  return (
+    <span className='block text-right text-sm tabular-nums'>{INR.format(value ?? 0)}</span>
+  );
+}
+
 export interface SalaryColumnActions {
   onEdit: (row: StaffSalaryDirectoryRow) => void;
   onViewHistory: (row: StaffSalaryDirectoryRow) => void;
@@ -177,6 +207,18 @@ export function getSalaryColumns(
         ),
     },
     {
+      accessorKey: 'epf_amount',
+      size: 110,
+      header: ({ column }) => <DataTableColumnHeader column={column} title='EPF' />,
+      cell: ({ row }) => <ContributionCell row={row.original} kind='epf' />,
+    },
+    {
+      accessorKey: 'esi_amount',
+      size: 110,
+      header: ({ column }) => <DataTableColumnHeader column={column} title='ESI' />,
+      cell: ({ row }) => <ContributionCell row={row.original} kind='esi' />,
+    },
+    {
       accessorKey: 'effective_from',
       size: 130,
       header: ({ column }) => <DataTableColumnHeader column={column} title='Effective from' />,
@@ -194,7 +236,8 @@ export function getSalaryColumns(
         // Only what is TRUE is shown. Five "No" badges on every row would be
         // noise; the exceptions are the thing worth spotting.
         const on: string[] = [];
-        if (r.eligible_for_pf) on.push('PF');
+        if (r.eligible_for_pf) on.push('EPF');
+        if (r.eligible_for_esi) on.push('ESI');
         if (r.eligible_for_insurance) on.push('Insurance');
         if (r.eligible_for_gratuity) on.push('Gratuity');
         if (r.eligible_for_etf) on.push('ETF');

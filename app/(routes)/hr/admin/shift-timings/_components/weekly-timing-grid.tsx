@@ -129,6 +129,31 @@ function formatHM(mins: number): string {
 }
 
 /**
+ * How long ONE half runs, on its own terms: end - start.
+ *
+ * Deliberately independent of the other half AND of dailyWorkingMinutes below.
+ * A half's length is a fact about that half alone, so it appears as soon as its
+ * own two boxes are valid rather than waiting for the whole row -- and it is
+ * NOT reconciled against the union total, because on the real 09:00-13:00 /
+ * 12:30-16:30 pattern 4h + 4h legitimately does not equal 7h 30m. The overlap
+ * note under "Working hours" is what explains that gap; do not "fix" it here by
+ * pro-rating the shared 30 minutes across the two halves, which would report a
+ * half as shorter than the window staff are actually required to cover.
+ *
+ * Null when either box is empty or invalid, which renders as nothing at all
+ * rather than a misleading 0m.
+ */
+function halfMinutes(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): number | null {
+  const s = timeToMinutes(start);
+  const e = timeToMinutes(end);
+  if (s === null || e === null || e <= s) return null;
+  return e - s;
+}
+
+/**
  * Hours actually worked in a day: the UNION of the two halves, never their sum
  * and never the outer span.
  *
@@ -257,18 +282,26 @@ export function WeeklyTimingGrid({
 
   const weekly = useMemo(() => {
     let minutes = 0;
+    let firstHalf = 0;
+    let secondHalf = 0;
     let days = 0;
     let hasSecondSaturdayOff = false;
     for (const row of rows) {
       const worked = dailyWorkingMinutes(row);
+      // The half totals accumulate under the SAME guard as the union total, so
+      // all three figures in the footer describe an identical set of days. Were
+      // the halves summed outside it, a week with one incomplete row would show
+      // a full-week first-half total against a five-day working total.
       if (!worked) continue;
       minutes += worked.minutes;
+      firstHalf += halfMinutes(row.first_half_start, row.first_half_end) ?? 0;
+      secondHalf += halfMinutes(row.second_half_start, row.second_half_end) ?? 0;
       days += 1;
       if (row.day_of_week === 6 && row.second_saturday_holiday) {
         hasSecondSaturdayOff = true;
       }
     }
-    return { minutes, days, hasSecondSaturdayOff };
+    return { minutes, firstHalf, secondHalf, days, hasSecondSaturdayOff };
   }, [rows]);
 
   const isScheduledChange = effectiveFrom > todayISO();
@@ -460,6 +493,8 @@ export function WeeklyTimingGrid({
               const day = DAY_OF_WEEK_OPTIONS.find((d) => d.value === row.day_of_week)!;
               const deadline = computeGraceDeadline(row.first_half_start, row.grace_minutes ?? 0);
               const worked = dailyWorkingMinutes(row);
+              const firstHalf = halfMinutes(row.first_half_start, row.first_half_end);
+              const secondHalf = halfMinutes(row.second_half_start, row.second_half_end);
               const rowError = errors.find((e) => e.dow === row.day_of_week);
 
               return (
@@ -489,26 +524,33 @@ export function WeeklyTimingGrid({
 
                   <td className="py-3">
                     {row.is_working_day ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={row.first_half_start ?? ''}
-                          onChange={(e) =>
-                            patchDay(row.day_of_week, { first_half_start: e.target.value })
-                          }
-                          aria-label={`${day.label} first half start`}
-                        />
-                        <span className="text-muted-foreground">–</span>
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={row.first_half_end ?? ''}
-                          onChange={(e) =>
-                            patchDay(row.day_of_week, { first_half_end: e.target.value })
-                          }
-                          aria-label={`${day.label} first half end`}
-                        />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={row.first_half_start ?? ''}
+                            onChange={(e) =>
+                              patchDay(row.day_of_week, { first_half_start: e.target.value })
+                            }
+                            aria-label={`${day.label} first half start`}
+                          />
+                          <span className="text-muted-foreground">–</span>
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={row.first_half_end ?? ''}
+                            onChange={(e) =>
+                              patchDay(row.day_of_week, { first_half_end: e.target.value })
+                            }
+                            aria-label={`${day.label} first half end`}
+                          />
+                        </div>
+                        {firstHalf !== null && (
+                          <p className="text-[11px] leading-snug text-muted-foreground tabular-nums">
+                            {formatHM(firstHalf)}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -517,26 +559,33 @@ export function WeeklyTimingGrid({
 
                   <td className="py-3">
                     {row.is_working_day ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={row.second_half_start ?? ''}
-                          onChange={(e) =>
-                            patchDay(row.day_of_week, { second_half_start: e.target.value })
-                          }
-                          aria-label={`${day.label} second half start`}
-                        />
-                        <span className="text-muted-foreground">–</span>
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={row.second_half_end ?? ''}
-                          onChange={(e) =>
-                            patchDay(row.day_of_week, { second_half_end: e.target.value })
-                          }
-                          aria-label={`${day.label} second half end`}
-                        />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={row.second_half_start ?? ''}
+                            onChange={(e) =>
+                              patchDay(row.day_of_week, { second_half_start: e.target.value })
+                            }
+                            aria-label={`${day.label} second half start`}
+                          />
+                          <span className="text-muted-foreground">–</span>
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={row.second_half_end ?? ''}
+                            onChange={(e) =>
+                              patchDay(row.day_of_week, { second_half_end: e.target.value })
+                            }
+                            aria-label={`${day.label} second half end`}
+                          />
+                        </div>
+                        {secondHalf !== null && (
+                          <p className="text-[11px] leading-snug text-muted-foreground tabular-nums">
+                            {formatHM(secondHalf)}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -641,6 +690,12 @@ export function WeeklyTimingGrid({
               </td>
               <td className="py-3">
                 <p className="font-semibold tabular-nums">{formatHM(weekly.minutes)}</p>
+                {weekly.days > 0 && (
+                  <p className="text-[11px] leading-snug text-muted-foreground tabular-nums">
+                    1st half {formatHM(weekly.firstHalf)} · 2nd half{' '}
+                    {formatHM(weekly.secondHalf)}
+                  </p>
+                )}
                 {weekly.hasSecondSaturdayOff && (
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     before the monthly 2nd-Saturday off

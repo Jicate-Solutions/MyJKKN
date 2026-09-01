@@ -145,24 +145,48 @@ describe('salary register workbook', () => {
     expect(reg.getCell('A2').value).toBe('SALARY REGISTER FOR THE MONTH OF JUNE 2026');
   });
 
-  it('keeps columns A-S exactly as the hand-kept file has them', async () => {
+  /**
+   * COLUMNS A-P STILL MATCH THE HAND-KEPT FILE. Everything up to and including
+   * Unpaid Leave keeps its original letter.
+   *
+   * PAST P, THE LETTERS MOVED ON 2026-09-01. EPF and ESI were inserted at Q and
+   * R, pushing the three summary columns and the two appended ones two places
+   * right. That is deliberate: a deduction printed AFTER Net Pay reads as an
+   * afterthought, and the register is meant to show how the net was arrived at.
+   *
+   * Nothing reads the register sheet by letter — the only cell formulas in the
+   * workbook are on the BANK STATEMENT and PAYER SPLIT sheets, which have their
+   * own layouts — and the in-sheet number formats are derived from
+   * REGISTER_HEADERS rather than hardcoded, precisely so this move could not
+   * mis-format a column silently.
+   */
+  it('keeps columns A-P exactly as the hand-kept file has them', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
     expect(reg.getCell('A3').value).toBe('S.No');
     expect(reg.getCell('B3').value).toBe('Employee Id');
     expect(reg.getCell('H3').value).toBe('Business Working Days');
-    // The money block must not shift — everything downstream reads it by letter.
     expect(reg.getCell('N3').value).toBe('Actual Gross Salary');
-    expect(reg.getCell('S3').value).toBe('Net Pay');
+    expect(reg.getCell('O3').value).toBe('Basic Pay');
+    expect(reg.getCell('P3').value).toBe('Unpaid Leave');
+  });
+
+  it('breaks the statutory deductions out between Unpaid Leave and the totals', async () => {
+    const wb = await build();
+    const reg = wb.getWorksheet('Salary Register')!;
+    expect(reg.getCell('Q3').value).toBe('EPF');
+    expect(reg.getCell('R3').value).toBe('ESI');
+    expect(reg.getCell('S3').value).toBe('Total Earnings');
+    expect(reg.getCell('T3').value).toBe('Total Deductions');
+    expect(reg.getCell('U3').value).toBe('Net Pay');
   });
 
   it('appends Paid By and Remarks after Net Pay', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
-    // Both are additions to the hand-kept layout, placed AFTER the money block
-    // so columns A-S keep their letters.
-    expect(reg.getCell('T3').value).toBe('Paid By');
-    expect(reg.getCell('U3').value).toBe('Remarks');
+    // Both are additions to the hand-kept layout, placed after the money block.
+    expect(reg.getCell('V3').value).toBe('Paid By');
+    expect(reg.getCell('W3').value).toBe('Remarks');
   });
 
   it('writes only payable rows to the register, renumbered from 1', async () => {
@@ -329,8 +353,8 @@ describe('salary register workbook — the Main Office case', () => {
 
   it('prints the payer on each register row', async () => {
     const reg = (await buildMixed()).getWorksheet('Salary Register')!;
-    expect(reg.getCell('T4').value).toBe('JKKN College of Pharmacy');
+    expect(reg.getCell('V4').value).toBe('JKKN College of Pharmacy');
     // Blank, not "Unknown" — a data gap someone can go and fill.
-    expect(reg.getCell('T7').value).toBe('');
+    expect(reg.getCell('V7').value).toBe('');
   });
 });

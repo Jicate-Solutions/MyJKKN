@@ -130,6 +130,15 @@ interface RegisterContext {
   /** work institution id -> its locked period (only locked ones are present). */
   lockedPeriodByInstitution: Map<string, { id: string; workingDays: number }>;
   salaryByStaff: Map<string, number>;
+  /**
+   * EPF/ESI in force, already zeroed where the eligibility flag is off.
+   *
+   * A SEPARATE MAP rather than a reshaped salaryByStaff: that map's value is
+   * read as a bare number in two places to decide inclusion (`salary <= 0`),
+   * and widening it to an object would turn both of those into silently-true
+   * comparisons against an object.
+   */
+  statutoryByStaff: Map<string, { epf: number; esi: number }>;
   bankByStaff: Map<string, string>;
   /** Who bears each salary. Absent for the 105 staff with no payer recorded. */
   payerByStaff: Map<string, { id: string; name: string }>;
@@ -164,6 +173,8 @@ export interface RegisterLineFigures {
   actual_gross: number;
   basic_pay: number;
   unpaid_leave_deduction: number;
+  epf_deduction: number;
+  esi_deduction: number;
   total_earnings: number;
   total_deductions: number;
   net_pay: number;
@@ -195,6 +206,8 @@ export const ZERO_FIGURES: RegisterLineFigures = {
   actual_gross: 0,
   basic_pay: 0,
   unpaid_leave_deduction: 0,
+  epf_deduction: 0,
+  esi_deduction: 0,
   total_earnings: 0,
   total_deductions: 0,
   net_pay: 0,
@@ -216,6 +229,17 @@ export function computeRegisterLine(input: {
   monthlyGross: number;
   /** The month standard for the calendar this person actually worked. */
   workingDaysBasis: number;
+  /**
+   * The statutory contributions in force for this person, already zeroed by the
+   * caller when the corresponding eligibility flag is off.
+   *
+   * DEDUCTED IN FULL, NOT PRO-RATED. These are stored as a flat monthly rupee
+   * figure per employee, so the number recorded is the number withheld even in
+   * a month with unpaid days — unlike the unpaid-leave deduction above, which is
+   * day-rated by definition.
+   */
+  epfAmount?: number;
+  esiAmount?: number;
   summary: Pick<
     AttendanceSummaryRow,
     'present_days' | 'leave_days' | 'on_duty_days' | 'comp_off_days' | 'payable_days' | 'leave_by_type'
@@ -262,6 +286,23 @@ export function computeRegisterLine(input: {
   const unpaidLeaveDeduction = round2(dayRate * unpaidLeaveDays);
   const totalEarnings = round2(monthlyGross);
 
+  /**
+   * The statutory pair, capped at what is left after the unpaid-leave deduction.
+   *
+   * Deducting a flat EPF + ESI in full is right for an ordinary partial month,
+   * but a line with ZERO paid days earns nothing to deduct from and would
+   * otherwise net a negative figure — the register would be asking the employee
+   * to pay the institution. The cap takes EPF first, then ESI from whatever
+   * remains, so net_pay floors at 0 and the shortfall is visible as a reduced
+   * contribution rather than a negative payment.
+   */
+  const afterUnpaid = Math.max(0, round2(totalEarnings - unpaidLeaveDeduction));
+  const epfDeduction = round2(Math.min(Math.max(0, input.epfAmount ?? 0), afterUnpaid));
+  const esiDeduction = round2(
+    Math.min(Math.max(0, input.esiAmount ?? 0), round2(afterUnpaid - epfDeduction))
+  );
+  const totalDeductions = round2(unpaidLeaveDeduction + epfDeduction + esiDeduction);
+
   return {
     business_working_days: basis,
     paid_leave_days: paidLeaveDays,
@@ -273,11 +314,15 @@ export function computeRegisterLine(input: {
     // Identical to gross in this register: there is no component breakdown.
     basic_pay: totalEarnings,
     unpaid_leave_deduction: unpaidLeaveDeduction,
+    epf_deduction: epfDeduction,
+    esi_deduction: esiDeduction,
     total_earnings: totalEarnings,
-    total_deductions: unpaidLeaveDeduction,
+    // Carries the statutory pair as well, so net_pay, the run totals and the
+    // per-payer split subtotals all keep deriving from this one figure.
+    total_deductions: totalDeductions,
     // Whole rupees, as the hand-kept register pays. An adjustment recorded
     // later re-derives this the same way.
-    net_pay: Math.round(totalEarnings - unpaidLeaveDeduction),
+    net_pay: Math.round(totalEarnings - totalDeductions),
   };
 }
 
@@ -387,6 +432,7 @@ export class SalaryRegisterService {
         dependencies: [],
         lockedPeriodByInstitution: new Map(),
         salaryByStaff: new Map(),
+        statutoryByStaff: new Map(),
         bankByStaff: new Map(),
         payerByStaff: new Map(),
         summaryByStaff: new Map(),
@@ -463,15 +509,28 @@ export class SalaryRegisterService {
 
     // 5. Salaries. superseded_by IS NULL = the currently effective row.
     const salaryByStaff = new Map<string, number>();
+    const statutoryByStaff = new Map<string, { epf: number; esi: number }>();
     for (const ids of chunk(staffIds)) {
       const { data, error } = await (supabase as any)
         .from('hr_staff_salaries')
-        .select('staff_id, monthly_gross')
+        .select(
+          'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount'
+        )
         .in('staff_id', ids)
         .is('superseded_by', null);
 
       if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
-      for (const s of (data ?? []) as any[]) salaryByStaff.set(s.staff_id, num(s.monthly_gross));
+      for (const s of (data ?? []) as any[]) {
+        salaryByStaff.set(s.staff_id, num(s.monthly_gross));
+        // The flag decides, not the amount. fn_hr_set_staff_salary already
+        // zeroes an amount whose flag is off, but the register must not depend
+        // on that: a row written before this feature existed, or by the
+        // service-role path, can carry a figure the flag does not authorise.
+        statutoryByStaff.set(s.staff_id, {
+          epf: s.eligible_for_pf ? num(s.epf_amount) : 0,
+          esi: s.eligible_for_esi ? num(s.esi_amount) : 0,
+        });
+      }
     }
 
     // Empty salaries across a non-empty roster is ambiguous the same way the
@@ -567,6 +626,7 @@ export class SalaryRegisterService {
       dependencies,
       lockedPeriodByInstitution,
       salaryByStaff,
+      statutoryByStaff,
       bankByStaff,
       payerByStaff,
       summaryByStaff,
@@ -849,9 +909,12 @@ export class SalaryRegisterService {
       }
 
       const s = summary as AttendanceSummaryRow;
+      const statutory = ctx.statutoryByStaff.get(member.staff_id);
       const figures = computeRegisterLine({
         monthlyGross: salary as number,
         workingDaysBasis: workingDaysByPeriod.get(s.period_id) || runBasis,
+        epfAmount: statutory?.epf ?? 0,
+        esiAmount: statutory?.esi ?? 0,
         summary: s,
       });
 

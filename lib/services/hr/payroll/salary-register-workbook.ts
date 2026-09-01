@@ -41,11 +41,18 @@ const REGISTER_HEADERS = [
   'Date Of Join', 'Bank Account Number', 'Business Working Days',
   'Paid Leave Days', 'Unpaid Leave Days', 'On Duty Days', 'Worked Days',
   'Paid Days', 'Actual Gross Salary', 'Basic Pay', 'Unpaid Leave',
+  'EPF', 'ESI',
   'Total Earnings', 'Total Deductions', 'Net Pay', 'Paid By', 'Remarks',
 ];
 
-/** Widths lifted from the hand-kept file so the export looks familiar. */
-const REGISTER_WIDTHS = [7, 10.6, 21.1, 12.7, 21.9, 14.4, 15.9, 12.7, 12, 13, 11, 11, 10, 15, 11, 12, 13, 14, 11, 28, 34];
+/**
+ * Widths lifted from the hand-kept file so the export looks familiar.
+ *
+ * POSITIONAL — index N is the width of REGISTER_HEADERS[N]. A column inserted
+ * above without a width inserted here shifts every remaining column's width by
+ * one, which reads as a formatting glitch rather than the off-by-one it is.
+ */
+const REGISTER_WIDTHS = [7, 10.6, 21.1, 12.7, 21.9, 14.4, 15.9, 12.7, 12, 13, 11, 11, 10, 15, 11, 12, 10, 10, 13, 14, 11, 28, 34];
 
 /** DD/MM/YYYY — the format the hand-kept register uses. */
 function formatDMY(iso: string | null): string {
@@ -143,6 +150,10 @@ export async function buildSalaryRegisterWorkbook(
       // Blank rather than 0.00 when nothing was deducted — the hand-kept file
       // leaves these empty, and a column of zeroes hides the rows that matter.
       l.unpaid_leave_deduction || null,
+      // Same blank-not-zero treatment: only the people who actually contribute
+      // should carry a figure, so the rows that matter stand out.
+      l.epf_deduction || null,
+      l.esi_deduction || null,
       l.total_earnings,
       l.total_deductions,
       l.net_pay,
@@ -157,20 +168,35 @@ export async function buildSalaryRegisterWorkbook(
   const firstDataRow = 4;
   const lastDataRow = firstDataRow + included.length - 1;
 
+  /**
+   * Formatting runs are DERIVED from the header array, not hardcoded.
+   *
+   * They used to be literals (`c = 14; c <= 19`, then cells 20 and 21), which
+   * meant inserting the EPF and ESI columns left the last two money columns
+   * unformatted and put the wrap-text alignment on Net Pay and Paid By instead
+   * of Paid By and Remarks — a quiet cosmetic wrong-answer in a finance
+   * document. ExcelJS columns are 1-based, hence the +1.
+   */
+  const colOf = (header: string): number => REGISTER_HEADERS.indexOf(header) + 1;
+  const firstDayCol = colOf('Business Working Days');
+  const lastDayCol = colOf('Paid Days');
+  const firstMoneyCol = colOf('Actual Gross Salary');
+  const lastMoneyCol = colOf('Net Pay');
+
   if (included.length > 0) {
     for (let r = firstDataRow; r <= lastDataRow; r++) {
       const row = reg.getRow(r);
-      for (let c = 8; c <= 13; c++) {
+      for (let c = firstDayCol; c <= lastDayCol; c++) {
         row.getCell(c).numFmt = DAYS_FMT;
         row.getCell(c).alignment = { horizontal: 'center' };
       }
-      for (let c = 14; c <= 19; c++) {
+      for (let c = firstMoneyCol; c <= lastMoneyCol; c++) {
         row.getCell(c).numFmt = MONEY_FMT;
       }
       // Text, so a leading zero survives.
-      row.getCell(7).alignment = { horizontal: 'left' };
-      row.getCell(20).alignment = { wrapText: true, vertical: 'top' };
-      row.getCell(21).alignment = { wrapText: true, vertical: 'top' };
+      row.getCell(colOf('Bank Account Number')).alignment = { horizontal: 'left' };
+      row.getCell(colOf('Paid By')).alignment = { wrapText: true, vertical: 'top' };
+      row.getCell(colOf('Remarks')).alignment = { wrapText: true, vertical: 'top' };
     }
   }
 

@@ -55,6 +55,11 @@ function cellsFor(r: StaffSalaryDirectoryRow): Record<string, string | number> {
     Overtime_Level: r.overtime_level ?? 'No overtime',
     Overtime_Amount: r.overtime_amount ?? 0,
     Eligible_For_PF: YES_NO(r.eligible_for_pf),
+    // Blank rather than 0 when the flag is off — an amount beside a "No" is a
+    // figure nobody decided, and the importer would discard it anyway.
+    EPF_Amount: r.eligible_for_pf ? (r.epf_amount ?? 0) : '',
+    Eligible_For_ESI: YES_NO(r.eligible_for_esi),
+    ESI_Amount: r.eligible_for_esi ? (r.esi_amount ?? 0) : '',
     Exempt_EDLI: YES_NO(r.exempt_edli),
     Eligible_For_Insurance: YES_NO(r.eligible_for_insurance),
     Eligible_For_Gratuity: YES_NO(r.eligible_for_gratuity),

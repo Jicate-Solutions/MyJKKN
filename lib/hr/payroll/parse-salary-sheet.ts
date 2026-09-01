@@ -38,7 +38,13 @@ export const SALARY_TEMPLATE_COLUMNS = [
   'Gross_Annual_Salary',
   'Overtime_Level',
   'Overtime_Amount',
+  // Each amount sits beside the flag that authorises it. Placement is for the
+  // human filling the sheet in — the parser reads every column by NAME, so the
+  // order here never affects what is imported.
   'Eligible_For_PF',
+  'EPF_Amount',
+  'Eligible_For_ESI',
+  'ESI_Amount',
   'Exempt_EDLI',
   'Eligible_For_Insurance',
   'Eligible_For_Gratuity',
@@ -59,7 +65,10 @@ export const SALARY_TEMPLATE_LABELS: Record<(typeof SALARY_TEMPLATE_COLUMNS)[num
   Gross_Annual_Salary: 'Gross Annual Salary',
   Overtime_Level: 'Overtime Level',
   Overtime_Amount: 'Overtime Amount',
-  Eligible_For_PF: 'Eligible For PF',
+  Eligible_For_PF: 'Eligible For EPF',
+  EPF_Amount: 'EPF Amount',
+  Eligible_For_ESI: 'Eligible For ESI',
+  ESI_Amount: 'ESI Amount',
   Exempt_EDLI: 'Exempt EDLI',
   Eligible_For_Insurance: 'Eligible For Insurance',
   Eligible_For_Gratuity: 'Eligible For Gratuity',
@@ -80,6 +89,10 @@ export interface ParsedSalaryRow {
   overtime_level: string | null;
   overtime_amount: number | null;
   eligible_for_pf: boolean;
+  /** Blank cell → null, so "left empty" stays distinguishable from a typed 0. */
+  epf_amount: number | null;
+  eligible_for_esi: boolean;
+  esi_amount: number | null;
   exempt_edli: boolean;
   eligible_for_insurance: boolean;
   eligible_for_gratuity: boolean;
@@ -214,6 +227,9 @@ export function parseSalarySheet(data: Uint8Array): ParsedSalarySheet {
       overtime_level: String(cell(r, 'Overtime_Level') ?? '').trim() || null,
       overtime_amount: toNumber(cell(r, 'Overtime_Amount')) ?? 0,
       eligible_for_pf: toBool(cell(r, 'Eligible_For_PF')),
+      epf_amount: toNumber(cell(r, 'EPF_Amount')),
+      eligible_for_esi: toBool(cell(r, 'Eligible_For_ESI')),
+      esi_amount: toNumber(cell(r, 'ESI_Amount')),
       exempt_edli: toBool(cell(r, 'Exempt_EDLI')),
       eligible_for_insurance: toBool(cell(r, 'Eligible_For_Insurance')),
       eligible_for_gratuity: toBool(cell(r, 'Eligible_For_Gratuity')),

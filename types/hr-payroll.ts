@@ -275,6 +275,11 @@ export interface HRSalaryRegisterLine {
   actual_gross: number;
   basic_pay: number;
   unpaid_leave_deduction: number;
+  // Statutory deductions, snapshotted from the salary in force at generation.
+  // Broken out rather than buried in total_deductions (which still carries
+  // them) so a PF/ESI return can be read straight off the register.
+  epf_deduction: number;
+  esi_deduction: number;
   total_earnings: number;
   total_deductions: number;
   adjustment_amount: number;

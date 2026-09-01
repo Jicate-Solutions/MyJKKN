@@ -169,6 +169,19 @@ function SalaryHistorySheet({
               <p className='mt-1 text-xs text-muted-foreground'>
                 Effective {formatDate(h.effective_from)} · {INR.format(h.annual_gross)} a year
               </p>
+              {/* The statutory pair in force at the time, so a past register can
+                  be reconciled against the figures that produced it. Only shown
+                  where the entry actually carries one. */}
+              {(h.eligible_for_pf || h.eligible_for_esi) && (
+                <p className='mt-1 text-xs text-muted-foreground tabular-nums'>
+                  {[
+                    h.eligible_for_pf ? `EPF ${INR.format(h.epf_amount)}` : null,
+                    h.eligible_for_esi ? `ESI ${INR.format(h.esi_amount)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              )}
               {h.notes && <p className='mt-1.5 text-xs'>{h.notes}</p>}
             </div>
           ))}

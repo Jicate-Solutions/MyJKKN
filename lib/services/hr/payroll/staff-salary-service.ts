@@ -46,6 +46,10 @@ export interface StaffSalaryRow {
   eligible_for_insurance: boolean;
   eligible_for_gratuity: boolean;
   eligible_for_etf: boolean;
+  /** Monthly EPF contribution in rupees. 0 whenever eligible_for_pf is false. */
+  epf_amount: number;
+  eligible_for_esi: boolean;
+  esi_amount: number;
   effective_from: string;
   notes: string | null;
   updated_at: string;
@@ -72,6 +76,9 @@ const SELECT_CURRENT = `
   eligible_for_insurance,
   eligible_for_gratuity,
   eligible_for_etf,
+  epf_amount,
+  eligible_for_esi,
+  esi_amount,
   effective_from,
   notes,
   updated_at,
@@ -95,6 +102,9 @@ interface RawSalaryRow {
   eligible_for_insurance: boolean;
   eligible_for_gratuity: boolean;
   eligible_for_etf: boolean;
+  epf_amount: number | string;
+  eligible_for_esi: boolean;
+  esi_amount: number | string;
   effective_from: string;
   notes: string | null;
   updated_at: string;
@@ -134,6 +144,9 @@ function shape(r: RawSalaryRow): StaffSalaryRow {
     eligible_for_insurance: r.eligible_for_insurance,
     eligible_for_gratuity: r.eligible_for_gratuity,
     eligible_for_etf: r.eligible_for_etf,
+    epf_amount: toNumber(r.epf_amount),
+    eligible_for_esi: r.eligible_for_esi,
+    esi_amount: toNumber(r.esi_amount),
     effective_from: r.effective_from,
     notes: r.notes,
     updated_at: r.updated_at,
@@ -168,6 +181,13 @@ export interface StaffSalaryDirectoryRow {
   eligible_for_insurance: boolean;
   eligible_for_gratuity: boolean;
   eligible_for_etf: boolean;
+  /**
+   * Null when this person has no salary row at all — the same distinction the
+   * other money fields carry here. Zero means "recorded, and it is nothing".
+   */
+  epf_amount: number | null;
+  eligible_for_esi: boolean;
+  esi_amount: number | null;
   effective_from: string | null;
   notes: string | null;
 }
@@ -198,6 +218,8 @@ export class StaffSalaryService {
       monthly_gross: r.monthly_gross === null ? null : Number(r.monthly_gross),
       annual_gross: r.annual_gross === null ? null : Number(r.annual_gross),
       overtime_amount: r.overtime_amount === null ? null : Number(r.overtime_amount),
+      epf_amount: r.epf_amount === null ? null : Number(r.epf_amount),
+      esi_amount: r.esi_amount === null ? null : Number(r.esi_amount),
     })) as StaffSalaryDirectoryRow[];
   }
 
@@ -269,6 +291,10 @@ export class StaffSalaryService {
       eligibleForInsurance?: boolean;
       eligibleForGratuity?: boolean;
       eligibleForEtf?: boolean;
+      /** Ignored by the RPC unless eligibleForPf is true — it zeroes it there. */
+      epfAmount?: number;
+      eligibleForEsi?: boolean;
+      esiAmount?: number;
       notes?: string | null;
     }
   ): Promise<string> {
@@ -286,6 +312,9 @@ export class StaffSalaryService {
       p_eligible_for_gratuity: input.eligibleForGratuity ?? false,
       p_eligible_for_etf: input.eligibleForEtf ?? false,
       p_notes: input.notes ?? null,
+      p_epf_amount: input.epfAmount ?? 0,
+      p_eligible_for_esi: input.eligibleForEsi ?? false,
+      p_esi_amount: input.esiAmount ?? 0,
     });
 
     if (error) {
