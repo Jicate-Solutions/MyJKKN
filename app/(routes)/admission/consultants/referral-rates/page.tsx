@@ -202,13 +202,51 @@ export default function ReferralRatesPage() {
                   {preview.dry_run
                     ? <p className="text-xs text-muted-foreground">Preview only — nothing has been written.</p>
                     : <p className="text-xs text-green-700 font-medium">Generated {preview.rows_written} pending commission(s).</p>}
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Stat label="Referrals found" value={String(preview.candidates)} />
+                    <Stat label="Never enrolled" value={String(preview.blocked_not_enrolled ?? 0)} warn={(preview.blocked_not_enrolled ?? 0) > 0} />
                     <Stat label="Held for checking" value={String(preview.held_walkin ?? 0)} warn={(preview.held_walkin ?? 0) > 0} />
+                    <Stat label="Held — not seen in class" value={String(preview.held_attendance ?? 0)} warn={(preview.held_attendance ?? 0) > 0} />
                     <Stat label="Payable now" value={String(preview.payable_now)} />
                     <Stat label="Blocked (no bank/PAN)" value={String(preview.blocked_no_bank)} warn={preview.blocked_no_bank > 0} />
                     <Stat label="Net total" value={rupees(preview.total_net)} />
                   </div>
+
+                  {/* Never enrolled — a block, not a hold. There is nothing to review:
+                      these people did not take the seat. */}
+                  {(preview.blocked_not_enrolled ?? 0) > 0 && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm space-y-1">
+                      <p className="font-medium">
+                        {preview.blocked_not_enrolled} referral{preview.blocked_not_enrolled === 1 ? '' : 's'} will
+                        never be generated — worth {rupees(preview.blocked_not_enrolled_gross ?? 0)} at this rate.
+                      </p>
+                      <p className="text-muted-foreground">
+                        Their learner never took the seat, or has since left — still an enquiry, rejected,
+                        inactive or withdrawing. This is a block, not a hold: there is nothing to release,
+                        because nobody joined. If a learner&apos;s status later becomes admitted or active,
+                        the next run picks them up automatically.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Attendance hold — scoped to marked registers, and said so plainly. */}
+                  {(preview.held_attendance ?? 0) > 0 && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50/60 dark:bg-amber-950/20 p-3 text-sm space-y-1">
+                      <p className="font-medium">
+                        {preview.held_attendance} more {preview.held_attendance === 1 ? 'is' : 'are'} held because
+                        class attendance has never recorded them — worth {rupees(preview.held_attendance_gross ?? 0)}.
+                      </p>
+                      <p className="text-muted-foreground">
+                        Only referrals whose class IS being marked can be held this way. A learner whose class
+                        nobody marks is never held — an empty register says nothing about the learner. Release
+                        each on the{' '}
+                        <Link href="/admission/consultants/review-worklist" className="text-primary underline">
+                          Review Worklist
+                        </Link>
+                        .
+                      </p>
+                    </div>
+                  )}
 
                   {/* The hold is the Director's, so it explains itself rather than
                       appearing as an unexplained shortfall in the numbers above. */}
@@ -238,6 +276,7 @@ export default function ReferralRatesPage() {
                             <TableHead>Agency</TableHead>
                             <TableHead className="text-right">Referrals</TableHead>
                             <TableHead className="text-right">Held</TableHead>
+                            <TableHead className="text-right">Not enrolled</TableHead>
                             <TableHead className="text-right">Net</TableHead>
                             <TableHead>Payable</TableHead>
                           </TableRow>
@@ -250,6 +289,13 @@ export default function ReferralRatesPage() {
                               <TableCell className="text-right">
                                 {a.held ? (
                                   <span className="text-amber-700 dark:text-amber-400">{a.held}</span>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {a.not_enrolled ? (
+                                  <span className="text-destructive">{a.not_enrolled}</span>
                                 ) : (
                                   <span className="text-muted-foreground">—</span>
                                 )}
@@ -339,10 +385,14 @@ export default function ReferralRatesPage() {
               <DialogDescription>
                 This creates {preview?.eligible ?? preview?.candidates ?? 0} pending commission record(s) for{' '}
                 {year}–{String(year + 1).slice(2)}.
-                {(preview?.held_walkin ?? 0) > 0 && (
+                {((preview?.held_walkin ?? 0) + (preview?.held_attendance ?? 0) + (preview?.blocked_not_enrolled ?? 0)) > 0 && (
                   <>
-                    {' '}The other {preview?.held_walkin} are held for checking and will{' '}
-                    <strong>not</strong> be created.
+                    {' '}The other{' '}
+                    {(preview?.held_walkin ?? 0) + (preview?.held_attendance ?? 0) + (preview?.blocked_not_enrolled ?? 0)}{' '}
+                    will <strong>not</strong> be created —{' '}
+                    {preview?.blocked_not_enrolled ?? 0} never enrolled,{' '}
+                    {preview?.held_walkin ?? 0} held for checking,{' '}
+                    {preview?.held_attendance ?? 0} never seen in class.
                   </>
                 )}{' '}
                 They are <strong>not paid</strong> — they wait for the four-stage approval on the Commissions page.

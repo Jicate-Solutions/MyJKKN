@@ -74,6 +74,7 @@ export default function ReferralReviewWorklistPage() {
 
   // The row awaiting a release confirmation, and the note being typed for it.
   const [releasing, setReleasing] = useState<ReferralReviewRow | null>(null);
+  const [releasingAtt, setReleasingAtt] = useState<ReferralReviewRow | null>(null);
   const [note, setNote] = useState('');
 
   const release = useMutation({
@@ -95,6 +96,28 @@ export default function ReferralReviewWorklistPage() {
       queryClient.invalidateQueries({ queryKey: ['referral-review-worklist', year] });
     },
     onError: (e: any) => toast.error(e?.message || 'Could not release this credit.'),
+  });
+
+  // Attendance holds release by learner + year, not by attribution id — a
+  // different grain, so a separate call rather than an overloaded one.
+  const releaseAttendance = useMutation({
+    mutationFn: ({ id, text }: { id: string; text: string }) =>
+      ReferralReviewService.clearAttendanceHold(id, year, text),
+    onSuccess: (res) => {
+      if (!res.ok) {
+        toast.error(
+          res.reason === 'already_cleared'
+            ? 'Already released by someone else — the list has been refreshed.'
+            : 'That learner could not be found.',
+        );
+      } else {
+        toast.success('Released. It can now enter a payment run.');
+      }
+      setReleasingAtt(null);
+      setNote('');
+      queryClient.invalidateQueries({ queryKey: ['referral-review-worklist', year] });
+    },
+    onError: (e: any) => toast.error(e?.message || 'Could not release this referral.'),
   });
 
   const counts = data?.counts;
@@ -241,6 +264,10 @@ export default function ReferralReviewWorklistPage() {
                 Credits with no enquiry behind them
                 <CountChip n={counts?.no_enquiry_trail} />
               </TabsTrigger>
+              <TabsTrigger value="attendance">
+                Not yet seen in class
+                <CountChip n={counts?.attendance_held} />
+              </TabsTrigger>
             </TabsList>
 
             {/* A — walk-in credited */}
@@ -344,6 +371,40 @@ export default function ReferralReviewWorklistPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+            {/* D — held: class attendance has never recorded them */}
+            <TabsContent value="attendance">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Lock className="h-5 w-5 text-muted-foreground" />
+                    Enrolled, but not yet seen in class
+                  </CardTitle>
+                  <CardDescription className="space-y-2">
+                    <span className="block">
+                      These learners took the seat, an agency is credited, and their class{' '}
+                      <strong>is</strong> being marked — but no register has recorded them present
+                      since July. They are held out of the payment run until someone releases each.
+                    </span>
+                    <span className="block text-muted-foreground">
+                      Only classes that are actually being marked appear here. A learner whose class
+                      nobody marks is never held and never listed — an empty register says nothing
+                      about the learner, and holding them would measure whose attendance is being
+                      taken rather than who is turning up.
+                    </span>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <RowTable
+                    rows={data?.attendance_held}
+                    isLoading={isLoading}
+                    showLifecycle
+                    onRelease={(r) => { setReleasingAtt(r); setNote(''); }}
+                    releaseKey="learner"
+                    empty={`Every agency-referred learner with a marked class has been seen in ${yearLabel(year)}.`}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
 
           {/* Releasing one credit. Deliberately one at a time and deliberately
@@ -407,6 +468,66 @@ export default function ReferralReviewWorklistPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* Releasing an attendance hold. Separate dialog because it asks a
+              different question and calls a different RPC. */}
+          <Dialog
+            open={!!releasingAtt}
+            onOpenChange={(o) => { if (!o) { setReleasingAtt(null); setNote(''); } }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <LockOpen className="h-5 w-5" /> Release this referral for payment?
+                </DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      <strong>{releasingAtt?.learner_name || 'This learner'}</strong> has not been
+                      recorded present in class since July, though their class is being marked.
+                    </p>
+                    <p>
+                      Release only if you know they are genuinely attending — a transfer, a late
+                      join, or a register that simply missed them. Once released, the referral is
+                      included the next time commissions are generated. It is <strong>not paid</strong>{' '}
+                      by this action. Your name and the date are recorded, and it cannot be undone
+                      from this screen.
+                    </p>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-1">
+                <Label htmlFor="att-note">What did you check? (optional)</Label>
+                <Textarea
+                  id="att-note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="e.g. Joined late in August — HOD confirmed she is attending."
+                  rows={3}
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => { setReleasingAtt(null); setNote(''); }}
+                  disabled={releaseAttendance.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (releasingAtt?.learner_profile_id) {
+                      releaseAttendance.mutate({ id: releasingAtt.learner_profile_id, text: note });
+                    }
+                  }}
+                  disabled={releaseAttendance.isPending || !releasingAtt?.learner_profile_id}
+                >
+                  {releaseAttendance.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                  Yes, release it
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </PermissionGuard>
     </ContentLayout>
@@ -428,7 +549,9 @@ function RowTable({
   showGap,
   showSource,
   showHold,
+  showLifecycle,
   onRelease,
+  releaseKey = 'attribution',
   agencyHeader = 'Agency',
 }: {
   rows?: ReferralReviewRow[];
@@ -438,7 +561,11 @@ function RowTable({
   showSource?: boolean;
   /** Bucket A only — the payment hold does not apply to the other two. */
   showHold?: boolean;
+  /** Bucket D — where the learner stands in the admission lifecycle. */
+  showLifecycle?: boolean;
   onRelease?: (row: ReferralReviewRow) => void;
+  /** Which id the release call needs: an attribution (bucket A) or a learner (D). */
+  releaseKey?: 'attribution' | 'learner';
   agencyHeader?: string;
 }) {
   if (isLoading) return <Skeleton className="h-40 w-full" />;
@@ -459,7 +586,9 @@ function RowTable({
             {showGap && <TableHead>Attached</TableHead>}
             {showSource && <TableHead>Recorded via</TableHead>}
             <TableHead>Verified</TableHead>
+            {showLifecycle && <TableHead>Status</TableHead>}
             {showHold && <TableHead>Payment</TableHead>}
+            {showLifecycle && <TableHead>Payment</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -519,6 +648,25 @@ function RowTable({
                   <Badge variant="secondary">Not verified</Badge>
                 )}
               </TableCell>
+              {showLifecycle && (
+                <TableCell>
+                  <Badge variant="secondary">{r.lifecycle_status || '—'}</Badge>
+                </TableCell>
+              )}
+              {showLifecycle && (
+                <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <Badge variant="secondary" className="gap-1">
+                      <Lock className="h-3 w-3" /> Held
+                    </Badge>
+                    {onRelease && r.learner_profile_id && (
+                      <Button size="sm" variant="outline" onClick={() => onRelease(r)}>
+                        Release
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              )}
               {showHold && (
                 <TableCell>
                   {r.payout_cleared_at ? (
