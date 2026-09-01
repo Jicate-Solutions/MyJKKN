@@ -26,7 +26,7 @@ export const POST = withAuth(
 
       return NextResponse.json(stats);
     } catch (error) {
-      console.error('Error fetching staff dashboard stats:', error);
+      console.error('Error fetching team member dashboard stats:', error);
 
       return NextResponse.json(
         {
@@ -49,7 +49,7 @@ export const GET = withAuth(
 
       return NextResponse.json(stats);
     } catch (error) {
-      console.error('Error fetching staff dashboard stats:', error);
+      console.error('Error fetching team member dashboard stats:', error);
 
       return NextResponse.json(
         {
