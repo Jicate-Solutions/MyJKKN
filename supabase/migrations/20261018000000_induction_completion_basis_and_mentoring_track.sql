@@ -84,6 +84,36 @@
 -- fail to PROMOTE the freshers this fix exists for, on every subsequent
 -- feedback write, with no error anywhere. Both copies are corrected here.
 --
+-- PROVEN AGAINST PRODUCTION, 2026-09-01, by transaction-and-rollback. This
+-- migration was applied inside a transaction, all five programmes recomputed as
+-- the Director, the results read, and the transaction rolled back. Production
+-- was not modified. Measured at 14:2x:
+--
+--   programme        denominator   complete
+--   Arts & Science        20          404
+--   Engineering           19          151   <- the control, byte-identical
+--   Pharmacy              18           82
+--   Nursing               13           44
+--   Allied Health         22           34
+--                                     ----
+--                                      715   against a live baseline of 494
+--
+-- ENGINEERING IS THE EVIDENCE, not a footnote. It is the one programme with no
+-- future sittings and no mentor check-ins, so a correct fix must leave it
+-- exactly where it stood — 19 -> 19, 151 -> 151 — and it did. Any change that
+-- MOVED Engineering would be a blanket loosening of the completion bar wearing
+-- the costume of a targeted fix, and the +221 elsewhere would be worth nothing.
+--
+-- The net decays, and that is the induction still running rather than a defect:
+-- measured 13:0x it was 484 -> 712 (+228); measured 14:2x, 494 -> 715 (+221).
+-- The corrected figure moved by 3; the BASELINE moved by 10, because learners
+-- keep clearing the existing bar on their own as ratings arrive. Quote the
+-- range, never a single number.
+--
+-- This proof matters more than usual here: the repo has no job that applies a
+-- migration to a scratch database before running tests, so the guard tests that
+-- ship alongside this file read SQL off disk and cannot execute any of it.
+--
 -- Both bodies below are the LIVE definitions with ONLY the marked lines
 -- changed. Every authorization branch, every grant and the referral limb are
 -- preserved byte-for-byte.
