@@ -74,8 +74,12 @@
 -- classifies ASK because of the role UPDATEs — expected.
 --
 -- Reversible (in this order):
---   DELETE FROM user_roles WHERE role_id = 'd2c74371-…' AND user_id IN
---     (SELECT id FROM profiles WHERE institution_id = '29c221d1-…');
+--   DELETE FROM user_roles ur USING profiles p
+--     WHERE ur.user_id = p.id AND ur.role_id = 'd2c74371-…' AND ur.is_primary = false
+--       AND p.institution_id = '29c221d1-…' AND p.role IN ('faculty','hod','principal')
+--       AND ur.assigned_at >= '<apply timestamp>';   -- spares the ONE pre-existing holder
+--   DELETE FROM school_jkkn_owners WHERE school_id = (SELECT id FROM schools WHERE name = 'Nattraja Vidhyalya CBSE'
+--       AND institution_id = '29c221d1-…') AND role = 'outreach_coordinator' AND assigned_at >= '<apply timestamp>';
 --   UPDATE custom_roles SET permissions = permissions - 'foundation.practice.take'
 --     WHERE role_key = 'student';
 --   UPDATE custom_roles SET permissions = permissions - ARRAY['foundation.dashboard.view',
@@ -660,6 +664,30 @@ WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
 
 
 -- =============================================================================
+-- 12b. School owners — the key to the roster that step 11 alone does not turn.
+--      fp_students_insert (20260706063000) requires fn_fp_manages_school(school_id),
+--      which is ONLY a school_jkkn_owners row; fn_fp_can_manage_student (the vault's
+--      write gate) reads the same table. With no row, only a super admin could enrol
+--      at Nattraja and the vault would be unwritable. Seeded: exactly the profiles that
+--      hold foundation_programme_manager at Nattraja (its principal and HOD, read live
+--      2026-09-02). Role outreach_coordinator — program_lead demands a partner id.
+--      Senior Learners on school_faculty approve and facilitate; they do NOT enrol
+--      unless also made owners ([risky] #8).
+INSERT INTO public.school_jkkn_owners (school_id, jkkn_user_id, role, is_active, assigned_at)
+SELECT s.id, p.id, 'outreach_coordinator'::public.school_owner_role, true, now()
+FROM public.schools s
+JOIN public.profiles p ON p.institution_id = s.institution_id AND p.is_active
+JOIN public.user_roles ur ON ur.user_id = p.id
+JOIN public.custom_roles cr ON cr.id = ur.role_id AND cr.role_key = 'foundation_programme_manager'
+WHERE s.name = 'Nattraja Vidhyalya CBSE'
+  AND s.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+  AND NOT EXISTS (
+    SELECT 1 FROM public.school_jkkn_owners o
+    WHERE o.school_id = s.id AND o.jkkn_user_id = p.id
+  );
+
+
+-- =============================================================================
 -- 13. End-state assertion — raise on any miss so the file cannot land half-applied.
 -- =============================================================================
 DO $$
@@ -677,6 +705,7 @@ DECLARE
   v_sf_ok      boolean;
   v_unassigned int;
   v_associates int;
+  v_owners int;
 BEGIN
   SELECT count(*) INTO v_exams FROM public.exam_definitions WHERE config_key IN ('tn_hsc_physics', 'tn_hsc_english');
   SELECT count(*) INTO v_schools FROM public.schools
@@ -725,8 +754,15 @@ BEGIN
     FROM public.profiles p
     JOIN public.jkkn_identities i ON i.profile_id = p.id AND i.person_kind = 'associate'
    WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
-     AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active;
+     AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active
+     AND i.issued_at >= transaction_timestamp();   -- ONLY identities minted by THIS apply (P4)
+  SELECT count(*) INTO v_owners
+    FROM public.school_jkkn_owners o
+    JOIN public.schools s ON s.id = o.school_id
+   WHERE s.name = 'Nattraja Vidhyalya CBSE' AND s.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+     AND o.is_active;
 
+  IF v_owners < 2      THEN RAISE EXCEPTION 'onemark wave1: expected >= 2 active school_jkkn_owners for Nattraja, found %', v_owners; END IF;
   IF v_exams <> 2      THEN RAISE EXCEPTION 'onemark wave1: expected 2 subject exam rows, found %', v_exams; END IF;
   IF v_schools < 1     THEN RAISE EXCEPTION 'onemark wave1: no ''Nattraja Vidhyalya CBSE'' schools row at institution 29c221d1'; END IF;
   IF v_topics < 18     THEN RAISE EXCEPTION 'onemark wave1: expected >= 18 onemark_ topics, found %', v_topics; END IF;
