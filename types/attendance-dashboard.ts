@@ -234,7 +234,12 @@ export interface DashboardFilters {
   // Search
   search?: string;
 
-  // Date filtering
+  /**
+   * Which DATES get scanned. A timetable is included on a given date whenever
+   * that date falls inside its own start_date/end_date — overlap, not
+   * containment. A semester timetable running to October counts for an August
+   * window; it does not have to end inside it.
+   */
   startDate?: string;
   endDate?: string;
 

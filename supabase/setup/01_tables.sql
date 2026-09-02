@@ -8139,6 +8139,17 @@ CREATE TABLE IF NOT EXISTS public.hr_staff_salaries (
   eligible_for_insurance boolean NOT NULL DEFAULT false,
   eligible_for_gratuity  boolean NOT NULL DEFAULT false,
   eligible_for_etf       boolean NOT NULL DEFAULT false,
+  -- Statutory contributions as a FLAT MONTHLY RUPEE FIGURE per person, added
+  -- 2026-09-01. Not a rate and not an employee/employer split: the register
+  -- deducts exactly what is stored, in full, even in a month with unpaid days.
+  -- eligible_for_pf is labelled "EPF" in the UI — same scheme, one flag.
+  epf_amount             numeric(12,2) NOT NULL DEFAULT 0 CHECK (epf_amount >= 0),
+  eligible_for_esi       boolean NOT NULL DEFAULT false,
+  esi_amount             numeric(12,2) NOT NULL DEFAULT 0 CHECK (esi_amount >= 0),
+  -- Paid on top of the gross (2026-09-02). Counts toward earnings and is
+  -- pro-rated with them, but is NEVER part of the TDS base.
+  allowance_amount       numeric(12,2) NOT NULL DEFAULT 0 CHECK (allowance_amount >= 0),
+  allowance_label        text,
   effective_from         date NOT NULL,
   -- DEFERRABLE is load-bearing, not stylistic: fn_hr_set_staff_salary points
   -- the incumbent at a row it inserts one statement later, and that order is
@@ -8162,6 +8173,47 @@ CREATE INDEX IF NOT EXISTS hr_staff_salaries_org_idx
   ON public.hr_staff_salaries (hr_organization_id);
 CREATE INDEX IF NOT EXISTS hr_staff_salaries_effective_idx
   ON public.hr_staff_salaries (staff_id, effective_from DESC);
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+-- Source: 20260902100000_hr_tds_slabs_and_allowance.sql
+--
+-- Monthly-gross bands with a FLAT rate: a salary inside a band is taxed at that
+-- band's percentage of its WHOLE monthly gross, and a salary outside every band
+-- is not taxed at all. Not the statutory progressive calculation -- that lives
+-- (dead) in deduction-engine.ts against platform_policies 'hr.payroll.tds_slabs'.
+--
+-- NO institution_id, on purpose. Income tax is national, and leaving it out
+-- keeps the EXCLUDE below a pure range overlap, which plain GiST handles -- an
+-- equality column would need btree_gist, which is not installed.
+--
+-- BOUNDS ARE [min, max). Bands written the way people say them ("1,06,250 to
+-- 2,00,000", next starting at 2,00,001) leave 2,00,000.50 matching nothing.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_tds_slabs (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  min_monthly_gross numeric(12,2) NOT NULL CHECK (min_monthly_gross >= 0),
+  -- NULL = open-ended top band. Exactly one row must be, whenever any exist.
+  max_monthly_gross numeric(12,2),
+  rate_pct          numeric(5,2)  NOT NULL CHECK (rate_pct >= 0 AND rate_pct <= 100),
+  label             text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  created_by        uuid,
+  updated_by        uuid,
+  CONSTRAINT hr_tds_slabs_max_above_min
+    CHECK (max_monthly_gross IS NULL OR max_monthly_gross > min_monthly_gross),
+  -- Two bands may not both claim the same rupee; without this the band that wins
+  -- a lookup is whichever the planner returns first.
+  CONSTRAINT hr_tds_slabs_no_overlap EXCLUDE USING gist (
+    numrange(min_monthly_gross, max_monthly_gross, '[)') WITH &&
+  )
+);
+
+-- Set-level rules a per-row CHECK cannot express (exactly one open-ended band,
+-- no gaps) live in hr_tds_slabs_validate_set() -- see 02_functions.sql -- fired
+-- by a DEFERRABLE INITIALLY DEFERRED constraint trigger so a multi-row edit is
+-- judged once, at COMMIT.
 
 DROP TRIGGER IF EXISTS trg_hr_staff_salaries_updated_at ON public.hr_staff_salaries;
 CREATE TRIGGER trg_hr_staff_salaries_updated_at
@@ -8659,7 +8711,16 @@ CREATE TABLE IF NOT EXISTS public.hr_salary_register_lines (
   paid_days              numeric(5,1) NOT NULL DEFAULT 0,
   actual_gross           numeric(12,2) NOT NULL DEFAULT 0,
   basic_pay              numeric(12,2) NOT NULL DEFAULT 0,
+  allowance              numeric(12,2) NOT NULL DEFAULT 0,
   unpaid_leave_deduction numeric(12,2) NOT NULL DEFAULT 0,
+  -- Broken out of total_deductions (which still carries them) so a PF/ESI
+  -- return can be read straight off the register. Added 2026-09-01.
+  epf_deduction          numeric(12,2) NOT NULL DEFAULT 0,
+  esi_deduction          numeric(12,2) NOT NULL DEFAULT 0,
+  -- Resolved from hr_tds_slabs against the monthly gross ALONE and
+  -- snapshotted, so an issued register stays explicable after a band is
+  -- edited -- which is why the bands need no effective-dating.
+  tds_deduction          numeric(12,2) NOT NULL DEFAULT 0,
   total_earnings         numeric(12,2) NOT NULL DEFAULT 0,
   total_deductions       numeric(12,2) NOT NULL DEFAULT 0,
   -- A prior-month recovery the formula cannot produce. SUBTRACTED from net pay.

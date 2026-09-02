@@ -5,7 +5,7 @@
  *
  * Column order matches the exported workbook exactly, so what HR checks here is
  * what finance receives. The table scrolls inside its own container rather than
- * pushing the page sideways — twenty-one columns will not fit any laptop.
+ * pushing the page sideways — twenty-six columns will not fit any laptop.
  *
  * "Paid By" matters because the register is grouped by WORK location: at Main
  * Office all 121 rows are paid by five other institutions.
@@ -52,7 +52,7 @@ export function RegisterTable({ lines, canManage, isSuperseded, onAdjust }: Regi
   return (
     <div className="space-y-6">
       <div className="overflow-x-auto rounded-md border border-border">
-        <table className="w-full min-w-[1780px] text-sm">
+        <table className="w-full min-w-[2060px] text-sm">
           <thead className="border-b border-border bg-muted/50">
             <tr>
               <th className={HEAD}>S.No</th>
@@ -70,7 +70,11 @@ export function RegisterTable({ lines, canManage, isSuperseded, onAdjust }: Regi
               <th className={`${HEAD} text-center`}>Paid Days</th>
               <th className={`${HEAD} text-right`}>Actual Gross</th>
               <th className={`${HEAD} text-right`}>Basic Pay</th>
+              <th className={`${HEAD} text-right`}>Allowance</th>
               <th className={`${HEAD} text-right`}>Unpaid Leave ₹</th>
+              <th className={`${HEAD} text-right`}>EPF</th>
+              <th className={`${HEAD} text-right`}>ESI</th>
+              <th className={`${HEAD} text-right`}>TDS</th>
               <th className={`${HEAD} text-right`}>Total Earnings</th>
               <th className={`${HEAD} text-right`}>Total Deductions</th>
               <th className={`${HEAD} text-right`}>Net Pay</th>
@@ -111,9 +115,13 @@ export function RegisterTable({ lines, canManage, isSuperseded, onAdjust }: Regi
                 <td className={CTR}>{days(l.paid_days)}</td>
                 <td className={NUM}>{money(l.actual_gross)}</td>
                 <td className={NUM}>{money(l.basic_pay)}</td>
+                <td className={NUM}>{l.allowance > 0 ? money(l.allowance) : '—'}</td>
                 <td className={NUM}>
                   {l.unpaid_leave_deduction > 0 ? money(l.unpaid_leave_deduction) : '—'}
                 </td>
+                <td className={NUM}>{l.epf_deduction > 0 ? money(l.epf_deduction) : '—'}</td>
+                <td className={NUM}>{l.esi_deduction > 0 ? money(l.esi_deduction) : '—'}</td>
+                <td className={NUM}>{l.tds_deduction > 0 ? money(l.tds_deduction) : '—'}</td>
                 <td className={NUM}>{money(l.total_earnings)}</td>
                 <td className={NUM}>{money(l.total_deductions)}</td>
                 <td className={`${NUM} font-semibold`}>{money(l.net_pay)}</td>
@@ -146,7 +154,7 @@ export function RegisterTable({ lines, canManage, isSuperseded, onAdjust }: Regi
             ))}
             {included.length === 0 && (
               <tr>
-                <td colSpan={22} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={26} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   No payable rows in this register.
                 </td>
               </tr>

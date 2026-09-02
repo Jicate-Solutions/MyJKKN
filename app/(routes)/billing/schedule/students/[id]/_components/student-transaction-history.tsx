@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import {
   FileText,
-  Receipt,
+  ReceiptIndianRupee,
   Percent,
   RefreshCw,
   Clock,
@@ -217,7 +217,7 @@ export function StudentTransactionHistory({
       case 'bill_cancelled':
         return <Ban className='h-4 w-4' />;
       case 'payment_received':
-        return <Receipt className='h-4 w-4' />;
+        return <ReceiptIndianRupee className='h-4 w-4' />;
       case 'discount_applied':
         return <Percent className='h-4 w-4' />;
       case 'refund_processed':

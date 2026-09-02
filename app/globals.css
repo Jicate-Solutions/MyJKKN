@@ -798,3 +798,27 @@ body {
     white-space: normal;
   }
 }
+/* ── IA question paper rich editor ─────────────────────────────────────────
+   The paper-wide language/font is a PAPER-level choice (ia_question_papers.
+   default_font): the authoring screen sets --qp-editor-font on a wrapper and it
+   cascades into every question and option editor, so the screen matches what the
+   COE PDF renderer prints from the same column.
+
+   Bamini and Suntommy must NEVER appear in the FALLBACK stack — they are legacy
+   glyph faces whose LATIN codepoints carry Tamil shapes, so English text would
+   render as Tamil. They only ever apply when explicitly selected.
+
+   Inline font marks saved on older papers are spans with their own font-family
+   and still override this, matching the renderer. */
+.qp-rich-editor-body {
+  font-family: var(--qp-editor-font, inherit);
+}
+
+/* The placeholder is driven by the data-placeholder attribute the editor sets. */
+.qp-rich-editor-root .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: hsl(var(--muted-foreground));
+}

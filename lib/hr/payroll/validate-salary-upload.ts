@@ -108,6 +108,16 @@ export function validateSalaryUpload(input: {
     employee_name: string | null;
     monthly_gross: number | null;
     annual_gross_in_file: number | null;
+    /**
+     * The statutory pair, optional so a caller that does not parse them (and
+     * every existing test) keeps compiling. Read only to WARN about a figure
+     * sitting beside a "No" — the import writes the flags either way, and the
+     * RPC zeroes an unauthorised amount rather than refusing the row.
+     */
+    eligible_for_pf?: boolean;
+    epf_amount?: number | null;
+    eligible_for_esi?: boolean;
+    esi_amount?: number | null;
   }>;
   /** FULL roster — needed to tell "not our employee" from "not payable". */
   staff: SalaryStaffRow[];
@@ -299,6 +309,26 @@ export function validateSalaryUpload(input: {
         'The monthly figure is what gets stored — check these before continuing.',
       detail: mismatched.slice(0, DETAIL_LIMIT).map(
         (r) => `${r.employee_code}: ${r.monthly_gross} x 12 != ${r.annual_gross_in_file}`),
+    });
+  }
+
+  // An EPF/ESI figure typed against a flag that reads "No". Informational, never
+  // blocking: the amount is simply not stored, and aborting a 754-row import
+  // over a leftover cell would be a worse outcome than a line of explanation.
+  const orphanedContribution = rows.filter(
+    (r) =>
+      (!r.eligible_for_pf && (r.epf_amount ?? 0) > 0) ||
+      (!r.eligible_for_esi && (r.esi_amount ?? 0) > 0)
+  );
+  if (orphanedContribution.length > 0) {
+    blocks.push({
+      kind: 'no_change', severity: 'info', count: orphanedContribution.length,
+      message:
+        `${orphanedContribution.length} row(s) carry an EPF or ESI amount while the matching ` +
+        'eligibility column reads "No". Those amounts will not be stored — set the flag to Yes ' +
+        'if the deduction is real.',
+      detail: orphanedContribution.slice(0, DETAIL_LIMIT).map(
+        (r) => `row ${r.row_number}: ${r.employee_code}`),
     });
   }
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Row } from '@tanstack/react-table';
-import { MoreHorizontal, Edit, Trash2, Receipt, Ban } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, ReceiptIndianRupee, Ban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -98,7 +98,7 @@ export function DataTableRowActions<TData>({
           <DropdownMenuLabel>Actions</DropdownMenuLabel>
           <DropdownMenuItem asChild>
             <Link href={`/billing/schedule/students/${bill.student_id}?tab=bills`}>
-              <Receipt className='mr-2 h-4 w-4' />
+              <ReceiptIndianRupee className='mr-2 h-4 w-4' />
               View / Student Bills
             </Link>
           </DropdownMenuItem>

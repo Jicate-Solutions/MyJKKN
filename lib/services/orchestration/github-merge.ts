@@ -72,8 +72,14 @@ interface GitHubCheckRun {
  * 'startup_failure' and 'stale'. Unknown conclusions block BY DESIGN: this
  * guard fails closed, so a conclusion it cannot classify is never treated as
  * green.
+ *
+ * Second consumer, opposite posture: lib/services/loops/pending-prs.ts uses
+ * this same set to decide which PRs appear on the Director's "Waiting on
+ * you" panel. The guard wants it NARROW (never merge on doubt); the panel
+ * wants it ACCURATE (never hide a build he could merge). Narrowing it here
+ * silently shrinks what the Director sees — change both, or neither.
  */
-const NON_BLOCKING_CONCLUSIONS: ReadonlySet<string> = new Set([
+export const NON_BLOCKING_CONCLUSIONS: ReadonlySet<string> = new Set([
   'success',
   'skipped',
   'neutral',

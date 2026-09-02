@@ -48449,23 +48449,35 @@ COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
   'Refuses a day-leave request whose dates overlap another live request for the same employee. Not fired on status changes, so pre-existing overlaps stay decidable.';
 
 -- ===========================================================================
--- fn_hr_set_staff_salary (2026-08-21)
+-- fn_hr_set_staff_salary (2026-08-21, EPF/ESI added 2026-09-01)
 -- Source: 20260821201000_fn_hr_set_staff_salary.sql
+--         20260901120000_hr_salary_epf_esi_values.sql
+--
+-- The 2026-09-01 revision DROPPED the 13-argument signature before recreating
+-- it at 16. `CREATE OR REPLACE` with a changed parameter list creates an
+-- OVERLOAD rather than replacing, and PostgREST then answers PGRST203 on every
+-- call. A rebuild from this file starts clean, so only the final shape is
+-- recorded here — but the drop is why the grants below are restated.
 -- ===========================================================================
 CREATE OR REPLACE FUNCTION public.fn_hr_set_staff_salary(
-  p_staff_id             uuid,
-  p_hr_organization_id   uuid,
-  p_monthly_gross        numeric,
-  p_effective_from       date,
-  p_salary_structure     text    DEFAULT 'Monthly',
-  p_overtime_level       text    DEFAULT 'No overtime',
-  p_overtime_amount      numeric DEFAULT 0,
-  p_eligible_for_pf      boolean DEFAULT false,
-  p_exempt_edli          boolean DEFAULT false,
+  p_staff_id               uuid,
+  p_hr_organization_id     uuid,
+  p_monthly_gross          numeric,
+  p_effective_from         date,
+  p_salary_structure       text    DEFAULT 'Monthly',
+  p_overtime_level         text    DEFAULT 'No overtime',
+  p_overtime_amount        numeric DEFAULT 0,
+  p_eligible_for_pf        boolean DEFAULT false,
+  p_exempt_edli            boolean DEFAULT false,
   p_eligible_for_insurance boolean DEFAULT false,
   p_eligible_for_gratuity  boolean DEFAULT false,
-  p_eligible_for_etf     boolean DEFAULT false,
-  p_notes                text    DEFAULT NULL
+  p_eligible_for_etf       boolean DEFAULT false,
+  p_notes                  text    DEFAULT NULL,
+  p_epf_amount             numeric DEFAULT 0,
+  p_eligible_for_esi       boolean DEFAULT false,
+  p_esi_amount             numeric DEFAULT 0,
+  p_allowance_amount       numeric DEFAULT 0,
+  p_allowance_label        text    DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -48474,6 +48486,10 @@ AS $function$
 DECLARE
   v_new_id  uuid := gen_random_uuid();
   v_current record;
+  v_epf       numeric;
+  v_esi       numeric;
+  v_allowance numeric;
+  v_alw_label text;
 BEGIN
   IF p_staff_id IS NULL OR p_hr_organization_id IS NULL THEN
     RAISE EXCEPTION 'Staff and payroll organisation are both required'
@@ -48485,18 +48501,61 @@ BEGIN
   IF p_effective_from IS NULL THEN
     RAISE EXCEPTION 'Effective date is required' USING ERRCODE = '22023';
   END IF;
+  IF COALESCE(p_epf_amount, 0) < 0 OR COALESCE(p_esi_amount, 0) < 0 THEN
+    RAISE EXCEPTION 'EPF and ESI amounts cannot be negative' USING ERRCODE = '22023';
+  END IF;
+
+  -- An amount against a flag that is OFF is zeroed, not rejected. The bulk
+  -- importer feeds this from a spreadsheet where a leftover figure beside a "No"
+  -- is a formatting slip, and a hard failure there would abort a 754-row import.
+  IF COALESCE(p_allowance_amount, 0) < 0 THEN
+    RAISE EXCEPTION 'Allowance cannot be negative' USING ERRCODE = '22023';
+  END IF;
+
+  v_epf := CASE WHEN p_eligible_for_pf  THEN COALESCE(p_epf_amount, 0) ELSE 0 END;
+  v_esi := CASE WHEN p_eligible_for_esi THEN COALESCE(p_esi_amount, 0) ELSE 0 END;
+
+  v_allowance := COALESCE(p_allowance_amount, 0);
+  -- A label with no money behind it is noise on every screen that renders it.
+  v_alw_label := CASE WHEN v_allowance > 0
+                      THEN NULLIF(TRIM(COALESCE(p_allowance_label, '')), '')
+                      ELSE NULL END;
 
   PERFORM pg_advisory_xact_lock(hashtextextended(p_staff_id::text || ':salary', 0));
 
-  SELECT id, monthly_gross, effective_from INTO v_current
+  SELECT * INTO v_current
     FROM public.hr_staff_salaries
    WHERE staff_id = p_staff_id AND superseded_by IS NULL;
 
-  -- Re-writing the identical figure would bury the real history under
-  -- duplicates, so the incumbent is returned untouched instead.
+  -- Re-writing an IDENTICAL record would bury the real history under duplicates,
+  -- so the incumbent is returned untouched instead.
+  --
+  -- COMPARES THE WHOLE PAYLOAD (widened 2026-09-01). It used to test only
+  -- monthly_gross and effective_from, which meant changing a flag, the overtime
+  -- or the notes saved NOTHING and still reported success. Adding EPF/ESI made
+  -- that the common case: tick ESI, type 165, save, nothing happens.
+  --
+  -- IS DISTINCT FROM throughout, not <>. p_notes is nullable and `x <> NULL` is
+  -- NULL rather than false — a plain <> chain would evaluate to NULL, be read as
+  -- "not different", and silently restore the exact bug this widening fixes.
   IF FOUND
-     AND v_current.monthly_gross = p_monthly_gross
-     AND v_current.effective_from = p_effective_from THEN
+     AND v_current.monthly_gross          IS NOT DISTINCT FROM p_monthly_gross
+     AND v_current.effective_from         IS NOT DISTINCT FROM p_effective_from
+     AND v_current.hr_organization_id     IS NOT DISTINCT FROM p_hr_organization_id
+     AND v_current.salary_structure       IS NOT DISTINCT FROM p_salary_structure
+     AND v_current.overtime_level         IS NOT DISTINCT FROM p_overtime_level
+     AND v_current.overtime_amount        IS NOT DISTINCT FROM COALESCE(p_overtime_amount, 0)
+     AND v_current.eligible_for_pf        IS NOT DISTINCT FROM p_eligible_for_pf
+     AND v_current.exempt_edli            IS NOT DISTINCT FROM p_exempt_edli
+     AND v_current.eligible_for_insurance IS NOT DISTINCT FROM p_eligible_for_insurance
+     AND v_current.eligible_for_gratuity  IS NOT DISTINCT FROM p_eligible_for_gratuity
+     AND v_current.eligible_for_etf       IS NOT DISTINCT FROM p_eligible_for_etf
+     AND v_current.epf_amount             IS NOT DISTINCT FROM v_epf
+     AND v_current.eligible_for_esi       IS NOT DISTINCT FROM p_eligible_for_esi
+     AND v_current.esi_amount             IS NOT DISTINCT FROM v_esi
+     AND v_current.allowance_amount       IS NOT DISTINCT FROM v_allowance
+     AND v_current.allowance_label        IS NOT DISTINCT FROM v_alw_label
+     AND v_current.notes                  IS NOT DISTINCT FROM p_notes THEN
     RETURN v_current.id;
   END IF;
 
@@ -48510,11 +48569,15 @@ BEGIN
     id, staff_id, hr_organization_id, salary_structure, monthly_gross,
     overtime_level, overtime_amount, eligible_for_pf, exempt_edli,
     eligible_for_insurance, eligible_for_gratuity, eligible_for_etf,
+    epf_amount, eligible_for_esi, esi_amount,
+    allowance_amount, allowance_label,
     effective_from, notes, created_by, updated_by
   ) VALUES (
     v_new_id, p_staff_id, p_hr_organization_id, p_salary_structure, p_monthly_gross,
     p_overtime_level, p_overtime_amount, p_eligible_for_pf, p_exempt_edli,
     p_eligible_for_insurance, p_eligible_for_gratuity, p_eligible_for_etf,
+    v_epf, p_eligible_for_esi, v_esi,
+    v_allowance, v_alw_label,
     p_effective_from, p_notes, auth.uid(), auth.uid()
   );
 
@@ -48522,18 +48585,25 @@ BEGIN
 END;
 $function$;
 
--- CREATE OR REPLACE keeps existing grants, but a later DROP FUNCTION would
--- discard them and revert EXECUTE to PUBLIC. Restated so a rebuild from these
--- files lands in the same place.
-REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) TO authenticated, service_role;
+-- CREATE OR REPLACE keeps existing grants, but a DROP FUNCTION discards them and
+-- reverts EXECUTE to PUBLIC — which is exactly what the 2026-09-01 signature
+-- change did, and had to be undone. Restated so a rebuild from these files lands
+-- in the same place. PUBLIC is revoked as well as anon: a grant to PUBLIC is not
+-- removed by revoking from anon.
+REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) TO authenticated, service_role;
 
-COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) IS
-  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage.';
+COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) IS
+  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage. Returns the incumbent unchanged when the whole payload matches.';
 
 -- ===========================================================================
--- hr_staff_salary_directory (2026-08-21)
+-- hr_staff_salary_directory (2026-08-21, EPF/ESI added 2026-09-01)
 -- Source: 20260821220000_hr_staff_salary_directory_rpc.sql
+--         20260901120000_hr_salary_epf_esi_values.sql
+--
+-- The 2026-09-01 revision had to DROP this one too: its RETURNS TABLE gained
+-- three columns, and Postgres refuses CREATE OR REPLACE on a changed return
+-- type outright.
 -- ===========================================================================
 CREATE OR REPLACE FUNCTION public.hr_staff_salary_directory()
 RETURNS TABLE(
@@ -48557,6 +48627,11 @@ RETURNS TABLE(
   eligible_for_insurance boolean,
   eligible_for_gratuity  boolean,
   eligible_for_etf       boolean,
+  epf_amount             numeric,
+  eligible_for_esi       boolean,
+  esi_amount             numeric,
+  allowance_amount       numeric,
+  allowance_label        text,
   effective_from         date,
   notes                  text
 )
@@ -48565,6 +48640,8 @@ STABLE SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 BEGIN
+  -- RAISES rather than returning zero rows, so an empty list from this function
+  -- always means "no staff in scope" and never "you are not allowed".
   IF NOT public.user_has_permission('hr.payroll.salary.view') THEN
     RAISE EXCEPTION 'hr.payroll.salary.view is required to see employee salaries.'
       USING ERRCODE = 'insufficient_privilege';
@@ -48591,19 +48668,21 @@ BEGIN
          sal.eligible_for_insurance,
          sal.eligible_for_gratuity,
          sal.eligible_for_etf,
+         sal.epf_amount,
+         sal.eligible_for_esi,
+         sal.esi_amount,
+         sal.allowance_amount,
+         sal.allowance_label,
          sal.effective_from,
          sal.notes
-    FROM public.staff s
+    -- v_hr_staff, never the base staff table: employment_categories.included_in_hr
+    -- gates the whole HR module and payroll is no exception.
+    FROM public.v_hr_staff s
     JOIN public.institutions i ON i.id = s.institution_id
     LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
     LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
-    -- The salary IN FORCE only. Without superseded_by IS NULL a person who has
-    -- had two raises would appear three times in a roster listing.
     LEFT JOIN public.hr_staff_salaries sal
            ON sal.staff_id = s.id AND sal.superseded_by IS NULL
-   -- Active staff, PLUS anyone inactive who still holds a salary. Filtering on
-   -- is_active alone would hide a relieved employee awaiting final settlement --
-   -- money attached to an invisible row is the one thing this list must not do.
    WHERE (COALESCE(s.is_active, false) OR sal.id IS NOT NULL)
      AND public.role_has_institution_access(s.institution_id)
    -- Unset first: this is a work queue before it is a report.
@@ -48611,8 +48690,9 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.hr_staff_salary_directory() FROM anon;
+REVOKE ALL ON FUNCTION public.hr_staff_salary_directory() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_staff_salary_directory() TO authenticated, service_role;
+
 
 COMMENT ON FUNCTION public.hr_staff_salary_directory() IS
   'Every active staff member with their salary in force, or NULL where none is recorded. Gated on hr.payroll.salary.view; raises rather than returning [] so an empty list never means "denied".';
@@ -55569,7 +55649,7 @@ END;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.hr_staff_salary_directory()
- RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, is_active boolean, works_at_id uuid, works_at_name text, payer_org_id uuid, payer_org_name text, salary_id uuid, salary_structure text, monthly_gross numeric, annual_gross numeric, overtime_level text, overtime_amount numeric, eligible_for_pf boolean, exempt_edli boolean, eligible_for_insurance boolean, eligible_for_gratuity boolean, eligible_for_etf boolean, effective_from date, notes text)
+ RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, is_active boolean, works_at_id uuid, works_at_name text, payer_org_id uuid, payer_org_name text, salary_id uuid, salary_structure text, monthly_gross numeric, annual_gross numeric, overtime_level text, overtime_amount numeric, eligible_for_pf boolean, exempt_edli boolean, eligible_for_insurance boolean, eligible_for_gratuity boolean, eligible_for_etf boolean, epf_amount numeric, eligible_for_esi boolean, esi_amount numeric, allowance_amount numeric, allowance_label text, effective_from date, notes text)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
@@ -55601,6 +55681,11 @@ BEGIN
          sal.eligible_for_insurance,
          sal.eligible_for_gratuity,
          sal.eligible_for_etf,
+         sal.epf_amount,
+         sal.eligible_for_esi,
+         sal.esi_amount,
+         sal.allowance_amount,
+         sal.allowance_label,
          sal.effective_from,
          sal.notes
     FROM public.v_hr_staff s

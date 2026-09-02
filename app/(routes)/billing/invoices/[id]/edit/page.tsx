@@ -15,7 +15,7 @@ import {
   Calendar,
   User,
   Building,
-  Receipt
+  ReceiptIndianRupee
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -381,7 +381,7 @@ export default function EditInvoicePage({ params }: EditInvoicePageProps) {
                 <Card>
                   <CardHeader>
                     <CardTitle className='flex items-center gap-2'>
-                      <Receipt className='h-5 w-5' />
+                      <ReceiptIndianRupee className='h-5 w-5' />
                       Financial Adjustments
                     </CardTitle>
                   </CardHeader>

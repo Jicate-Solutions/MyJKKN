@@ -94,7 +94,18 @@ const INR = new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 0,
 });
 
-function formatDate(iso: string): string {
+/**
+ * `effective_from` is NULLABLE and usually null -- 369 of the 433 salaries in
+ * force carry no date, because the bulk import that created them left the
+ * column blank on every row. This used to take `string` and went straight into
+ * `iso.split('-')`, so opening the history sheet threw for 85% of staff.
+ *
+ * It is also a DATE, not a timestamptz, so it is parsed from its parts:
+ * `new Date('2026-08-01')` is read as UTC midnight and renders as the 31st in
+ * IST. Same treatment as salary-columns.tsx, which had the null guard already.
+ */
+function formatDate(iso: string | null): string {
+  if (!iso) return 'no date';
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return iso;
   return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
@@ -167,8 +178,33 @@ function SalaryHistorySheet({
                 {i === 0 && <Badge variant='outline' className='font-normal'>In force</Badge>}
               </div>
               <p className='mt-1 text-xs text-muted-foreground'>
-                Effective {formatDate(h.effective_from)} · {INR.format(h.annual_gross)} a year
+                {h.effective_from
+                  ? `Effective ${formatDate(h.effective_from)}`
+                  : 'No effective date recorded'}{' '}
+                · {INR.format(h.annual_gross)} a year
               </p>
+              {/* The allowance in force at the time. Shown beside the gross
+                  rather than folded into it — the two are taxed differently. */}
+              {h.allowance_amount > 0 && (
+                <p className='mt-1 text-xs text-muted-foreground tabular-nums'>
+                  + {INR.format(h.allowance_amount)} allowance
+                  {h.allowance_label ? ` (${h.allowance_label})` : ''} ·{' '}
+                  {INR.format(h.monthly_gross + h.allowance_amount)} total
+                </p>
+              )}
+              {/* The statutory pair in force at the time, so a past register can
+                  be reconciled against the figures that produced it. Only shown
+                  where the entry actually carries one. */}
+              {(h.eligible_for_pf || h.eligible_for_esi) && (
+                <p className='mt-1 text-xs text-muted-foreground tabular-nums'>
+                  {[
+                    h.eligible_for_pf ? `EPF ${INR.format(h.epf_amount)}` : null,
+                    h.eligible_for_esi ? `ESI ${INR.format(h.esi_amount)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              )}
               {h.notes && <p className='mt-1.5 text-xs'>{h.notes}</p>}
             </div>
           ))}
