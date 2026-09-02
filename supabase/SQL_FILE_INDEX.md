@@ -1,6 +1,7 @@
 # Supabase SQL File Index
 
 ## ⚠️ IMPORTANT: SINGLE SOURCE OF TRUTH
+- **2026-08-26** — **Wave-2 regress runners — three live-column repairs** (`20261005010000_fix_wave2_regress_live_columns.sql`; **APPLIED to prod 2026-08-26 ~08:07 IST via Mgmt API + ledgered** — this file is the repo-sync copy). Running the five new regress sims ON PRODUCTION minutes after the wave applied exposed three runtime defects CI structurally cannot see (migrations parse, never execute; plpgsql bodies fail only at runtime): `fn_loops_regress_attendance` borrowed/seeded `student_attendance.marked_by` which does not exist; `fn_loops_measure_ops_cycletime` read `resource_approvals.rejected_at` which does not exist (rejection-close now `updated_at` at the `status='rejected'` flip); `fn_consultants_measure_conversion` hit the plpgsql `RETURNS TABLE(consultant_id …)` vs `ON CONFLICT` arbiter ambiguity (fixed with `#variable_conflict use_column`). Post-fix: **all five sims return measure-verified** (attendance 0.00/+50.00pp · learner-360 0/1 · work-pulse 0/-5 · ops-cycletime 0/7200.00 · consultants 0.00/50.00). ACLs restated (anon,PUBLIC revoked). Companion in-place edit: `20260929010000` gains `owner_email='director@jkkn.ac.in'` (constitutional NOT NULL — an owner-less birth cannot apply; Director-interim standing ruling 2026-08-26).
 
 **This is the ONLY place to track all SQL files. DO NOT create duplicate SQL files.**
 
