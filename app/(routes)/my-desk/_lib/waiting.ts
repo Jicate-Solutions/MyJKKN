@@ -32,7 +32,16 @@ export const WAITING_SOURCES = [
 
 export type WaitingSource = (typeof WAITING_SOURCES)[number];
 
-/** One row of fn_my_desk_waiting(), exactly as the contract names it. */
+/**
+ * One row of fn_my_desk_waiting() (migration 20261018020000), exactly as the
+ * contract names it:
+ *   RETURNS TABLE(source text, item_id uuid, title text, detail text,
+ *                 amount numeric, waiting_since timestamptz, age_days integer,
+ *                 href text)   ORDER BY waiting_since ASC   LIMIT 500
+ * `amount` is RUPEES (numeric), never paise. `href` is one of
+ * /hr/recruitment/approvals · /billing/refunds · /hr/leave/approvals ·
+ * /meetings/triggers · /learners-council/issues.
+ */
 export interface WaitingRow {
   source: WaitingSource | string;
   item_id: string;
@@ -41,12 +50,13 @@ export interface WaitingRow {
   amount: number | null;
   /** ISO timestamp — when the item started waiting on this person. */
   waiting_since: string;
+  /** The database's own floor((now() - waiting_since) / 1 day). A FALLBACK only — see rowAgeDays. */
   age_days: number;
   /** The module page where the action already exists. */
   href: string;
 }
 
-/** The RPC caps its answer here; at the cap, some waiting work is off screen. */
+/** The RPC caps its answer here (LIMIT 500, no truncation flag); at the cap, the list is a floor. */
 export const WAITING_ROW_CAP = 500;
 
 /** How long a fresh answer is trusted before the next open of the page re-reads. */
@@ -73,16 +83,28 @@ const SOURCE_WORDS: Record<WaitingSource, SourceWords> = {
   grievance: { label: 'Grievances to assign', verb: 'Assign', queue: 'grievances' },
 };
 
+const OTHER_WORDS: SourceWords = { label: 'Other', verb: 'Open', queue: 'other' };
+
 /**
  * Plain words for a queue. A source this file has never heard of (the RPC
  * grew a sixth queue before this page did) still gets a readable heading
- * rather than crashing or being dropped.
+ * rather than crashing or being dropped. A source that is missing, empty or
+ * not even a string reads as "Other" — a malformed row must not take the
+ * page down.
  */
-export function sourceWords(source: string): SourceWords {
-  const known = (SOURCE_WORDS as Record<string, SourceWords | undefined>)[source];
+export function sourceWords(source: string | null | undefined): SourceWords {
+  const key = typeof source === 'string' ? source : '';
+  const known = (SOURCE_WORDS as Record<string, SourceWords | undefined>)[key];
   if (known) return known;
-  const plain = source.replace(/_/g, ' ').trim() || 'other';
+  const plain = key.replace(/_/g, ' ').trim();
+  if (!plain || plain === 'other') return OTHER_WORDS;
   return { label: `${plain[0].toUpperCase()}${plain.slice(1)} to act on`, verb: 'Open', queue: plain };
+}
+
+/** The group key for a row: its source, or "other" when it has none. */
+function sourceKey(row: Partial<WaitingRow> | null | undefined): string {
+  const s = row && typeof row === 'object' ? row.source : undefined;
+  return typeof s === 'string' && s.trim() ? s : 'other';
 }
 
 /** "today", "1 day", "48 days". Unusable input reads as unknown, not as zero. */
@@ -150,6 +172,50 @@ export function checkedAtWords(checkedAt: Date | number | string): string {
 }
 
 // ---------------------------------------------------------------------------
+// One clock
+// ---------------------------------------------------------------------------
+//
+// The RPC returns both `waiting_since` and its own `age_days`. The page reads
+// ONE of them: every age it prints — chip, sort, "oldest" in the summary — is
+// derived from `waiting_since` against the moment the answer arrived, so the
+// chip, the order and the "checked HH:MM" stamp can never disagree with each
+// other. `age_days` is used only when `waiting_since` is missing or unusable.
+
+const DAY_MS = 86_400_000;
+
+/** Milliseconds for any of the clock inputs this file accepts; NaN when unusable. */
+function toMs(at: Date | number | string | null | undefined): number {
+  if (at === null || at === undefined) return Number.NaN;
+  if (typeof at === 'number') return at;
+  return new Date(at).getTime();
+}
+
+/**
+ * Whole days between `waitingSince` and `now`, floored the way the database
+ * floors it. Null when either side is unusable. A clock a few seconds behind
+ * the server would otherwise floor a just-created item to -1, so the result
+ * is clamped at 0.
+ */
+export function ageDaysFrom(
+  waitingSince: string | null | undefined,
+  now: Date | number | string,
+): number | null {
+  const since = toMs(waitingSince);
+  const at = toMs(now);
+  if (Number.isNaN(since) || Number.isNaN(at) || at <= 0) return null;
+  return Math.max(0, Math.floor((at - since) / DAY_MS));
+}
+
+/** The age of a row on the one clock; the RPC's age_days only as a fallback. */
+export function rowAgeDays(row: WaitingRow, now: Date | number | string): number | null {
+  const derived = ageDaysFrom(row.waiting_since, now);
+  if (derived !== null) return derived;
+  return typeof row.age_days === 'number' && Number.isFinite(row.age_days) && row.age_days >= 0
+    ? Math.floor(row.age_days)
+    : null;
+}
+
+// ---------------------------------------------------------------------------
 // Ordering
 // ---------------------------------------------------------------------------
 
@@ -169,13 +235,20 @@ function sinceMs(row: WaitingRow): number {
  * themselves are ordered by their oldest item, so the queue that has been
  * waiting longest is the one at the top. The RPC already sorts oldest-first,
  * but this does not rely on it — a re-ordered answer must not re-order the page.
+ *
+ * Anything that is not an array of rows (a malformed payload) groups to
+ * nothing rather than throwing inside render; rows that are not objects are
+ * skipped, and a row with no source goes under "other".
  */
-export function groupBySource(rows: readonly WaitingRow[]): WaitingGroup[] {
+export function groupBySource(rows: unknown): WaitingGroup[] {
+  if (!Array.isArray(rows)) return [];
   const bySource = new Map<string, WaitingRow[]>();
-  for (const row of rows) {
-    const list = bySource.get(row.source);
-    if (list) list.push(row);
-    else bySource.set(row.source, [row]);
+  for (const row of rows as unknown[]) {
+    if (!row || typeof row !== 'object') continue;
+    const key = sourceKey(row as WaitingRow);
+    const list = bySource.get(key);
+    if (list) list.push(row as WaitingRow);
+    else bySource.set(key, [row as WaitingRow]);
   }
   const groups: WaitingGroup[] = [];
   for (const [source, list] of bySource) {
@@ -184,25 +257,54 @@ export function groupBySource(rows: readonly WaitingRow[]): WaitingGroup[] {
   return groups.sort((a, b) => sinceMs(a.rows[0]) - sinceMs(b.rows[0]));
 }
 
-/** The largest age in the list, or null for an empty one. */
-export function oldestAgeDays(rows: readonly WaitingRow[]): number | null {
+/** The largest age in the list on the one clock, or null for an empty one. */
+export function oldestAgeDays(rows: readonly WaitingRow[], now: Date | number | string): number | null {
   let oldest: number | null = null;
   for (const row of rows) {
-    if (typeof row.age_days !== 'number' || Number.isNaN(row.age_days)) continue;
-    if (oldest === null || row.age_days > oldest) oldest = row.age_days;
+    const age = rowAgeDays(row, now);
+    if (age === null) continue;
+    if (oldest === null || age > oldest) oldest = age;
   }
   return oldest;
+}
+
+// ---------------------------------------------------------------------------
+// Links
+// ---------------------------------------------------------------------------
+
+/**
+ * The href a row may be linked to: an in-app path only. Anything that is not
+ * a string starting with a single "/" — an absolute URL, a protocol-relative
+ * "//host", javascript:, an empty value — gets no link at all; the row is
+ * still shown, with a note that it has no page.
+ */
+export function safeHref(href: unknown): string | null {
+  if (typeof href !== 'string') return null;
+  if (!href.startsWith('/') || href.startsWith('//')) return null;
+  return href;
 }
 
 // ---------------------------------------------------------------------------
 // Sentences
 // ---------------------------------------------------------------------------
 
-/** "59 items waiting · oldest 48 days · checked 07:12" */
+/** What the header count reads: the number below the cap, a floor at it. */
+export function countWords(rows: readonly WaitingRow[]): string {
+  return isCapped(rows) ? `${WAITING_ROW_CAP}+` : String(rows.length);
+}
+
+/**
+ * "59 items waiting · oldest 48 days · checked 07:12" — or, at the RPC's
+ * LIMIT, "Showing the first 500 — open the modules for the rest · oldest 48
+ * days · checked 07:12". At the cap no total is printed: the RPC does not say
+ * how much more there is, so neither does this.
+ */
 export function summaryLine(rows: readonly WaitingRow[], checkedAt: Date | number | string): string {
   const n = rows.length;
-  const count = `${n} item${n === 1 ? '' : 's'} waiting`;
-  const oldest = oldestAgeDays(rows);
+  const count = isCapped(rows)
+    ? `Showing the first ${WAITING_ROW_CAP} — open the modules for the rest`
+    : `${n} item${n === 1 ? '' : 's'} waiting`;
+  const oldest = oldestAgeDays(rows, checkedAt);
   const age = oldest === null ? null : `oldest ${ageWords(oldest)}`;
   return [count, age, `checked ${checkedAtWords(checkedAt)}`].filter(Boolean).join(' · ');
 }
@@ -252,4 +354,42 @@ export function describeError(err: unknown): string {
 /** At the RPC's ceiling the list is a floor, not a total. */
 export function isCapped(rows: readonly WaitingRow[]): boolean {
   return rows.length >= WAITING_ROW_CAP;
+}
+
+// ---------------------------------------------------------------------------
+// Which branch renders
+// ---------------------------------------------------------------------------
+
+/** The slice of a React Query result the branch decision reads. */
+export interface QueryLike {
+  status: 'pending' | 'error' | 'success' | string;
+  fetchStatus: 'fetching' | 'paused' | 'idle' | string;
+  data: unknown;
+  error?: unknown;
+}
+
+export type RenderState = 'error' | 'paused' | 'loading' | 'empty' | 'rows';
+
+/**
+ * THE rule that chooses what the section shows, as a pure function so the
+ * test file can state it directly.
+ *
+ *   error   — the call failed, or the answer arrived in a shape that is not a
+ *             list. Never the all-clear.
+ *   paused  — no answer yet AND React Query has paused the fetch (offline
+ *             phone). This is the case `isLoading` misses: with react-query 5,
+ *             isLoading = isPending && fetchStatus === 'fetching', so a paused
+ *             fetch has isLoading=false and data=undefined — keyed on isLoading
+ *             it fell through to "nothing waiting".
+ *   loading — no answer yet, fetch in flight (or not started).
+ *   empty   — the call SUCCEEDED and the list has no rows. The only branch
+ *             allowed to say "nothing waiting".
+ *   rows    — the call succeeded and there are rows.
+ */
+export function renderState(q: QueryLike): RenderState {
+  if (q.error || q.status === 'error') return 'error';
+  if (q.data !== undefined && !Array.isArray(q.data)) return 'error';
+  if (q.data === undefined) return q.fetchStatus === 'paused' ? 'paused' : 'loading';
+  if (q.status !== 'success') return 'loading';
+  return (q.data as unknown[]).length === 0 ? 'empty' : 'rows';
 }

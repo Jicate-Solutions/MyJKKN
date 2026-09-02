@@ -11,16 +11,23 @@
 // standing between the Director and the sentence "nothing is waiting on you"
 // — a sentence the page must never say off a check that did not happen.
 //
+// The fixtures mirror fn_my_desk_waiting() (migration 20261018020000): amount
+// in rupees, hrefs exactly as the RPC emits them — /hr/recruitment/approvals,
+// /billing/refunds, /hr/leave/approvals, /meetings/triggers,
+// /learners-council/issues — LIMIT 500 with no truncation flag.
+//
 // NOTE: __tests__/director-desk is NOT run by CI (every workflow names explicit
-// paths). Run locally: npx vitest run __tests__/director-desk/waiting-on-you.test.ts
+// paths). Run locally: npx vitest run __tests__/director-desk/waiting-on-you*
 // ============================================================================
 
 import { describe, it, expect } from 'vitest';
 import {
   ageChipClasses,
+  ageDaysFrom,
   ageTone,
   ageWords,
   checkedAtWords,
+  countWords,
   describeError,
   emptyVerdict,
   formatRupees,
@@ -28,6 +35,9 @@ import {
   isCapped,
   oldestAgeDays,
   queuesChecked,
+  renderState,
+  rowAgeDays,
+  safeHref,
   sourceWords,
   summaryLine,
   WAITING_ROW_CAP,
@@ -64,6 +74,50 @@ describe('sourceWords — the five queues have plain names', () => {
     const w = sourceWords('purchase_order');
     expect(w.label).toBe('Purchase order to act on');
     expect(w.verb).toBe('Open');
+  });
+
+  it('a missing, empty or non-string source reads as "Other" rather than throwing', () => {
+    expect(sourceWords(null).label).toBe('Other');
+    expect(sourceWords(undefined).label).toBe('Other');
+    expect(sourceWords('').label).toBe('Other');
+    expect(sourceWords('   ').label).toBe('Other');
+    expect(sourceWords(42 as unknown as string).label).toBe('Other');
+  });
+});
+
+describe('one clock — age comes from waiting_since, age_days is only a fallback', () => {
+  const NOW = CHECKED_AT; // 2026-09-03T01:42Z
+
+  it('ageDaysFrom floors whole days the way the database does', () => {
+    expect(ageDaysFrom('2026-07-17T01:42:00.000Z', NOW)).toBe(48);
+    expect(ageDaysFrom('2026-07-17T01:43:00.000Z', NOW)).toBe(47); // one minute short of 48
+    expect(ageDaysFrom('2026-09-03T00:00:00.000Z', NOW)).toBe(0);
+  });
+
+  it('a clock a few seconds behind the server reads today, not -1', () => {
+    expect(ageDaysFrom('2026-09-03T01:42:30.000Z', NOW)).toBe(0);
+  });
+
+  it('an unusable date or the never-fetched stamp gives no age', () => {
+    expect(ageDaysFrom('not a date', NOW)).toBeNull();
+    expect(ageDaysFrom(null, NOW)).toBeNull();
+    expect(ageDaysFrom('2026-07-17T01:42:00.000Z', 0)).toBeNull();
+  });
+
+  it('when age_days and waiting_since DISAGREE, the screen uses waiting_since', () => {
+    // The RPC said 2 days; the timestamp says 48. The timestamp wins.
+    const r = row({ item_id: 'x', waiting_since: '2026-07-17T01:42:00.000Z', age_days: 2 });
+    expect(rowAgeDays(r, NOW)).toBe(48);
+    expect(ageWords(rowAgeDays(r, NOW))).toBe('48 days');
+    expect(ageTone(rowAgeDays(r, NOW))).toBe('old');
+    expect(summaryLine([r], NOW)).toBe('1 item waiting · oldest 48 days · checked 07:12');
+  });
+
+  it('falls back to age_days only when waiting_since is unusable', () => {
+    expect(rowAgeDays(row({ item_id: 'x', waiting_since: 'garbage', age_days: 9 }), NOW)).toBe(9);
+    expect(rowAgeDays(row({ item_id: 'x', waiting_since: '', age_days: 9 }), NOW)).toBe(9);
+    expect(rowAgeDays(row({ item_id: 'x', waiting_since: 'garbage', age_days: Number.NaN }), NOW)).toBeNull();
+    expect(rowAgeDays(row({ item_id: 'x', waiting_since: 'garbage', age_days: -3 }), NOW)).toBeNull();
   });
 });
 
@@ -143,10 +197,10 @@ describe('checkedAtWords — the Indian clock', () => {
 
 describe('groupBySource — oldest first, inside and between groups', () => {
   const rows: WaitingRow[] = [
-    row({ item_id: 'g1', source: 'grievance', waiting_since: '2026-08-20T00:00:00Z', age_days: 14, href: '/grievances' }),
-    row({ item_id: 'r1', source: 'recruitment', waiting_since: '2026-07-21T00:00:00Z', age_days: 44, href: '/hr/recruitment' }),
+    row({ item_id: 'g1', source: 'grievance', waiting_since: '2026-08-20T00:00:00Z', age_days: 14, href: '/learners-council/issues' }),
+    row({ item_id: 'r1', source: 'recruitment', waiting_since: '2026-07-21T00:00:00Z', age_days: 44, href: '/hr/recruitment/approvals' }),
     row({ item_id: 'f1', source: 'refund', waiting_since: '2026-08-28T00:00:00Z', age_days: 6, amount: 54500 }),
-    row({ item_id: 'r2', source: 'recruitment', waiting_since: '2026-07-25T00:00:00Z', age_days: 40, href: '/hr/recruitment' }),
+    row({ item_id: 'r2', source: 'recruitment', waiting_since: '2026-07-25T00:00:00Z', age_days: 40, href: '/hr/recruitment/approvals' }),
     row({ item_id: 'f2', source: 'refund', waiting_since: '2026-07-29T00:00:00Z', age_days: 36, amount: 12000 }),
   ];
 
@@ -175,27 +229,95 @@ describe('groupBySource — oldest first, inside and between groups', () => {
   it('an empty answer is an empty list of groups', () => {
     expect(groupBySource([])).toEqual([]);
   });
+
+  it('a payload that is not a list groups to nothing instead of throwing', () => {
+    expect(groupBySource(null)).toEqual([]);
+    expect(groupBySource(undefined)).toEqual([]);
+    expect(groupBySource({ rows: [] })).toEqual([]);
+    expect(groupBySource('[]')).toEqual([]);
+  });
+
+  it('a row with no source lands under "other"; a non-object row is skipped', () => {
+    const groups = groupBySource([
+      row({ item_id: 'n1', source: null as unknown as string }),
+      null,
+      'junk',
+      row({ item_id: 'f1' }),
+    ]);
+    expect(groups.map((g) => g.source).sort()).toEqual(['other', 'refund']);
+    expect(sourceWords(groups.find((g) => g.source === 'other')!.source).label).toBe('Other');
+    expect(groups.flatMap((g) => g.rows.map((r) => r.item_id)).sort()).toEqual(['f1', 'n1']);
+  });
+});
+
+describe('safeHref — only an in-app path is ever linked', () => {
+  it('accepts exactly the paths the RPC emits', () => {
+    for (const h of [
+      '/hr/recruitment/approvals',
+      '/billing/refunds',
+      '/hr/leave/approvals',
+      '/meetings/triggers',
+      '/learners-council/issues',
+    ]) {
+      expect(safeHref(h)).toBe(h);
+    }
+  });
+
+  it('refuses anything that is not a single-slash path', () => {
+    expect(safeHref('//evil.example/x')).toBeNull();
+    expect(safeHref('https://evil.example/x')).toBeNull();
+    expect(safeHref('javascript:alert(1)')).toBeNull();
+    expect(safeHref('billing/refunds')).toBeNull();
+    expect(safeHref('')).toBeNull();
+    expect(safeHref(null)).toBeNull();
+    expect(safeHref(undefined)).toBeNull();
+    expect(safeHref(7)).toBeNull();
+  });
 });
 
 describe('summaryLine', () => {
-  it('counts, names the oldest, and says when it checked', () => {
+  it('counts, names the oldest (on the one clock), and says when it checked', () => {
     const rows = [
-      row({ item_id: 'a', age_days: 48 }),
-      row({ item_id: 'b', age_days: 3 }),
-      row({ item_id: 'c', age_days: 0 }),
+      // age_days deliberately WRONG on every row: the summary must not read it.
+      row({ item_id: 'a', waiting_since: '2026-07-17T01:42:00.000Z', age_days: 5 }),
+      row({ item_id: 'b', waiting_since: '2026-08-31T01:42:00.000Z', age_days: 99 }),
+      row({ item_id: 'c', waiting_since: '2026-09-03T00:00:00.000Z', age_days: 1 }),
     ];
     expect(summaryLine(rows, CHECKED_AT)).toBe('3 items waiting · oldest 48 days · checked 07:12');
   });
 
   it('uses the singular for one item', () => {
-    expect(summaryLine([row({ item_id: 'a', age_days: 1 })], CHECKED_AT)).toBe(
+    expect(summaryLine([row({ item_id: 'a', waiting_since: '2026-09-02T01:42:00.000Z' })], CHECKED_AT)).toBe(
       '1 item waiting · oldest 1 day · checked 07:12',
     );
   });
 
-  it('oldestAgeDays ignores an unusable age rather than treating it as zero', () => {
-    expect(oldestAgeDays([row({ item_id: 'a', age_days: Number.NaN }), row({ item_id: 'b', age_days: 5 })])).toBe(5);
-    expect(oldestAgeDays([])).toBeNull();
+  it('oldestAgeDays ignores an unusable row rather than treating it as zero', () => {
+    expect(
+      oldestAgeDays(
+        [
+          row({ item_id: 'a', waiting_since: 'garbage', age_days: Number.NaN }),
+          row({ item_id: 'b', waiting_since: '2026-08-29T01:42:00.000Z' }),
+        ],
+        CHECKED_AT,
+      ),
+    ).toBe(5);
+    expect(oldestAgeDays([], CHECKED_AT)).toBeNull();
+  });
+
+  it('at the RPC LIMIT it says "first 500" and prints NO total', () => {
+    const full = Array.from({ length: WAITING_ROW_CAP }, (_, i) => row({ item_id: `i${i}` }));
+    const line = summaryLine(full, CHECKED_AT);
+    expect(line.startsWith('Showing the first 500 — open the modules for the rest')).toBe(true);
+    expect(line).not.toContain('500 items');
+    expect(line).toContain('checked 07:12');
+    expect(countWords(full)).toBe('500+');
+  });
+
+  it('below the LIMIT it prints the count', () => {
+    const some = Array.from({ length: WAITING_ROW_CAP - 1 }, (_, i) => row({ item_id: `i${i}` }));
+    expect(summaryLine(some, CHECKED_AT).startsWith('499 items waiting')).toBe(true);
+    expect(countWords(some)).toBe('499');
   });
 });
 
@@ -254,5 +376,44 @@ describe('isCapped — at the ceiling the list is a floor', () => {
     const full = Array.from({ length: WAITING_ROW_CAP }, (_, i) => row({ item_id: `i${i}` }));
     expect(isCapped(full)).toBe(true);
     expect(isCapped(full.slice(0, -1))).toBe(false);
+  });
+});
+
+describe('renderState — the ONE rule that chooses what the section shows', () => {
+  const pendingIdle = { status: 'pending', fetchStatus: 'idle', data: undefined, error: null };
+
+  it('a PAUSED fetch (offline phone) is "paused" — never "empty"', () => {
+    // react-query 5: isLoading = isPending && fetchStatus === 'fetching', so a
+    // paused fetch has isLoading=false and data=undefined. Keyed on isLoading
+    // this fell through to "nothing waiting". It must not.
+    const paused = { status: 'pending', fetchStatus: 'paused', data: undefined, error: null };
+    expect(renderState(paused)).toBe('paused');
+    expect(renderState(paused)).not.toBe('empty');
+  });
+
+  it('a fetch in flight, or not started, is "loading"', () => {
+    expect(renderState({ status: 'pending', fetchStatus: 'fetching', data: undefined, error: null })).toBe('loading');
+    expect(renderState(pendingIdle)).toBe('loading');
+  });
+
+  it('a failed call is "error" whatever the data says', () => {
+    expect(renderState({ status: 'error', fetchStatus: 'idle', data: undefined, error: new Error('x') })).toBe('error');
+    expect(renderState({ status: 'error', fetchStatus: 'idle', data: [], error: new Error('x') })).toBe('error');
+  });
+
+  it('an answer that is not a list is "error", not the all-clear', () => {
+    expect(renderState({ status: 'success', fetchStatus: 'idle', data: { rows: [] }, error: null })).toBe('error');
+    expect(renderState({ status: 'success', fetchStatus: 'idle', data: 'nope', error: null })).toBe('error');
+    expect(renderState({ status: 'success', fetchStatus: 'idle', data: null, error: null })).toBe('error');
+  });
+
+  it('"empty" is reachable ONLY from a successful call that returned a list', () => {
+    expect(renderState({ status: 'success', fetchStatus: 'idle', data: [], error: null })).toBe('empty');
+    expect(renderState({ status: 'success', fetchStatus: 'fetching', data: [], error: null })).toBe('empty');
+    expect(renderState({ status: 'pending', fetchStatus: 'paused', data: [], error: null })).not.toBe('empty');
+  });
+
+  it('a successful call with rows is "rows"', () => {
+    expect(renderState({ status: 'success', fetchStatus: 'idle', data: [row({ item_id: 'a' })], error: null })).toBe('rows');
   });
 });
