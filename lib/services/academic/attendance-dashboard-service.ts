@@ -534,6 +534,16 @@ export class AttendanceDashboardService {
         )
         .eq('is_active', true);
 
+      // No start_date/end_date predicate here on purpose.
+      //
+      // A timetable qualifies by OVERLAP with the requested window, which the
+      // per-date `isValidForDate` check in the day loop below already enforces.
+      // Filtering the query by containment instead (start_date >= from AND
+      // end_date <= to) was tried and reverted: every timetable at CAS (Aided)
+      // runs to 31 Oct, so any window ending earlier matched zero of 26 and the
+      // report went blank. A semester that ends in October still teaches in
+      // August, and this report is about the sessions, not the timetable's life.
+      //
       // Apply hierarchy filters
       const effectiveInstitutionId = institutionId || userInstitutionId;
       if (effectiveInstitutionId) {
@@ -670,6 +680,61 @@ export class AttendanceDashboardService {
 
       const allScheduledPeriods = new Map<string, PendingAttendancePeriod>();
 
+      /**
+       * How each scheduled session decides whether it was marked.
+       *
+       * A combined slot produces two sessions from ONE period key, so its map
+       * key carries a `::n` suffix to keep them apart — but student_attendance
+       * is keyed by the bare period, so the lookup has to use `base`. For a
+       * combined session the course is what distinguishes Group A from Group B;
+       * for every ordinary slot the period alone is enough, and it keeps the
+       * exact behaviour it has always had.
+       */
+      const scheduledMarkKeys = new Map<
+        string,
+        { base: string; course: string | null; combined: boolean }
+      >();
+
+      /**
+       * Split a timetable slot into the sessions that actually need marking.
+       *
+       * A "combined" slot teaches two cohorts in the same period — different
+       * course, different member of staff — and carries them in `sub_slots`
+       * while its own `course_id` is null. The caller's guard requires a
+       * course_id, so such a slot was skipped entirely and BOTH groups vanished
+       * from the pending list. Measured: 6 slots across 3 timetables losing 12
+       * group-sessions outright, plus 2 more where only the extra sub-slot was
+       * lost — each repeating every cycle.
+       */
+      const expandSlotVariants = (
+        slot: any
+      ): Array<{ slot: any; suffix: string | null; combined: boolean }> => {
+        const subs = Array.isArray(slot?.sub_slots) ? slot.sub_slots : [];
+        if (subs.length === 0) {
+          return [{ slot, suffix: null, combined: false }];
+        }
+        // Merge each sub-slot over its parent so the shared fields (slot_id,
+        // period_mode, section_ids) survive while course and staff come from
+        // the group.
+        return subs.map((sub: any, i: number) => ({
+          slot: {
+            ...slot,
+            course_id: sub?.course_id ?? slot?.course_id ?? null,
+            staff_ids: Array.isArray(sub?.staff_ids) && sub.staff_ids.length
+              ? sub.staff_ids
+              : slot?.staff_ids || [],
+            primary_staff_id:
+              sub?.primary_staff_id ??
+              (Array.isArray(sub?.staff_ids) ? sub.staff_ids[0] : undefined) ??
+              slot?.primary_staff_id,
+            section_ids: sub?.section_ids ?? slot?.section_ids,
+            is_break_slot: sub?.is_break_slot ?? slot?.is_break_slot
+          },
+          suffix: String(sub?.sub_slot_order ?? i + 1),
+          combined: true
+        }));
+      };
+
       filteredWorkingDates.forEach((date) => {
         // Updated: 2026-08-05 - Parse as local midnight, matching the sibling at
         // line 382. `new Date("YYYY-MM-DD")` is UTC midnight, so at a negative UTC
@@ -762,7 +827,10 @@ export class AttendanceDashboardService {
 
           if (dayKey && timetableData && timetableData[dayKey]) {
             Object.entries(timetableData[dayKey]).forEach(
-              ([periodId, slot]) => {
+              ([periodId, rawSlot]) => {
+                // One iteration per group on a combined slot, one otherwise.
+                expandSlotVariants(rawSlot).forEach((variant) => {
+                const slot = variant.slot;
                 if (slot && !slot.is_break_slot && slot.course_id) {
                   // Updated: 2026-08-08 - `timetables.periods` stores each period's
                   // identifier as `id`, not `period_id`. Matching only on `period_id`
@@ -799,7 +867,18 @@ export class AttendanceDashboardService {
                     // IMPORTANT: The period key should use the slot_id if available,
                     // because attendance is stored using slot_id, not period_id
                     const actualPeriodId = slot.slot_id || periodId;
-                    const periodKey = `${date}_${timetable.id}_${actualPeriodId}`;
+                    const baseKey = `${date}_${timetable.id}_${actualPeriodId}`;
+                    // Both groups of a combined slot share one slot_id, so the
+                    // map key needs the group suffix or the second would
+                    // overwrite the first and only one would ever be listed.
+                    const periodKey = variant.suffix
+                      ? `${baseKey}::${variant.suffix}`
+                      : baseKey;
+                    scheduledMarkKeys.set(periodKey, {
+                      base: baseKey,
+                      course: slot.course_id || null,
+                      combined: variant.combined
+                    });
 
                     // Apply staff filter if provided
                     if (
@@ -868,69 +947,128 @@ export class AttendanceDashboardService {
                     allScheduledPeriods.set(periodKey, pendingPeriod);
                   }
                 }
+                });
               }
             );
           }
         });
       });
 
-      // Step 4: Find marked attendance for the date range
-      // Force fresh data by adding a timestamp to avoid caching issues
-      let attendanceQuery = this.supabase
-        .from('student_attendance')
-        .select('attendance_date, timetable_id, attendance_data, updated_at')
-        .in('attendance_date', dates)
-        .order('updated_at', { ascending: false }); // Get most recent updates first
-
-      if (effectiveInstitutionId) {
-        attendanceQuery = attendanceQuery.eq(
-          'institution_id',
-          effectiveInstitutionId
-        );
-      }
-
-      const { data: markedAttendance, error: attendanceError } =
-        await attendanceQuery;
-
-      if (attendanceError) {
-        logger.error('academic/attendance-dashboard', 'Error fetching marked attendance', attendanceError);
-        throw attendanceError;
-      }
-
-      // Type cast to fix TypeScript inference after React 19 upgrade
-      const markedAttendanceData = markedAttendance as { attendance_date: string; timetable_id: string; attendance_data: any; updated_at: string }[] | null;
-
-      // Create set of marked periods with enhanced validation
+      // Step 4: Find marked attendance for the date range.
+      //
+      // Only the (date, timetable, slot) triples are needed, so the database
+      // unnests attendance_data and returns them directly. Selecting the column
+      // instead moved 4.6 MB of roster JSON per college-quarter to extract 84 KB
+      // of keys, and the browser had to JSON.parse all of it before the pending
+      // maths could start. See 20260926000000.
       const markedPeriods = new Set<string>();
-      const markedPeriodsDetails = new Map<string, any>(); // For debugging
 
-      markedAttendanceData?.forEach((record) => {
-        const attendanceData = record.attendance_data as any;
-        if (attendanceData && typeof attendanceData === 'object') {
-          Object.keys(attendanceData).forEach((periodId) => {
-            // Validate that the period actually has attendance data
-            const periodData = attendanceData[periodId];
-            if (
-              periodData &&
-              periodData.students &&
-              Array.isArray(periodData.students) &&
-              periodData.students.length > 0
-            ) {
-              const periodKey = `${record.attendance_date}_${record.timetable_id}_${periodId}`;
-              markedPeriods.add(periodKey);
-              markedPeriodsDetails.set(periodKey, {
-                date: record.attendance_date,
-                timetableId: record.timetable_id,
-                periodId: periodId,
-                studentsCount: periodData.students.length,
-                updatedAt: record.updated_at
-              });
-            } else {
-              logger.warn('academic/attendance-dashboard', 'Period exists but has no valid student data', { periodId, timetableId: record.timetable_id, attendanceDate: record.attendance_date });
+      const { data: slotRows, error: slotError } = await (this.supabase as any).rpc(
+        'get_marked_attendance_slots',
+        {
+          p_date_from: queryStartDate,
+          p_date_to: queryEndDate,
+          p_institution_id: effectiveInstitutionId || null
+        }
+      );
+
+      // A combined slot teaches two cohorts in one period, each with its own
+      // course. student_attendance keys only by PERIOD, so "was this period
+      // marked?" cannot tell Group A from Group B — only the course can. This
+      // second set carries `${date}_${timetable}_${period}_${course}` so each
+      // group is checked against its own course.
+      const markedPeriodCourses = new Set<string>();
+
+      if (!slotError) {
+        // One row per timetable, `marked` = { date: { slot_id: course_id } }.
+        // Folded this way on purpose: the per-slot grain reached 21,991 rows for
+        // a 92-day all-college window and PostgREST truncates at 10,000 without
+        // saying so, which turns already-marked sessions into phantom pending
+        // ones. Per timetable the count cannot exceed ~200 at any window size.
+        (slotRows as { timetable_id: string; marked: Record<string, Record<string, string>> | null }[] | null)
+          ?.forEach((row) => {
+            const byDate = row.marked || {};
+            for (const date of Object.keys(byDate)) {
+              const slots = byDate[date];
+              if (!slots || typeof slots !== 'object') continue;
+              for (const periodId of Object.keys(slots)) {
+                markedPeriods.add(`${date}_${row.timetable_id}_${periodId}`);
+                const courseId = slots[periodId];
+                if (courseId) {
+                  markedPeriodCourses.add(
+                    `${date}_${row.timetable_id}_${periodId}_${courseId}`
+                  );
+                }
+              }
             }
           });
+      } else {
+        // The function is absent from the schema cache, which here means the
+        // migration has not been applied. Fall back to the old column read so
+        // the page keeps working — slower, never wrong.
+        logger.warn(
+          'academic/attendance-dashboard',
+          'get_marked_attendance_slots unavailable; falling back to attendance_data read',
+          { message: slotError.message, code: slotError.code }
+        );
+
+        let attendanceQuery = this.supabase
+          .from('student_attendance')
+          .select('attendance_date, timetable_id, attendance_data')
+          .in('attendance_date', dates);
+
+        if (effectiveInstitutionId) {
+          attendanceQuery = attendanceQuery.eq(
+            'institution_id',
+            effectiveInstitutionId
+          );
         }
-      });
+
+        const { data: markedAttendance, error: attendanceError } =
+          await attendanceQuery;
+
+        if (attendanceError) {
+          logger.error('academic/attendance-dashboard', 'Error fetching marked attendance', attendanceError);
+          throw attendanceError;
+        }
+
+        const markedAttendanceData = markedAttendance as { attendance_date: string; timetable_id: string; attendance_data: any }[] | null;
+
+        // This path is capped by PostgREST max_rows and cannot page past it.
+        // Over a year across every college the record count reaches ~13,000, so
+        // a truncated read here would silently report already-marked sessions as
+        // pending. Say so loudly rather than printing a wrong backlog.
+        if ((markedAttendanceData?.length || 0) >= 10000) {
+          logger.error(
+            'academic/attendance-dashboard',
+            'Marked-attendance fallback hit the row ceiling; pending results will over-report. Apply migration 20260927000000 so the folded RPC is used.',
+            { returned: markedAttendanceData?.length, queryStartDate, queryEndDate }
+          );
+        }
+
+        markedAttendanceData?.forEach((record) => {
+          const attendanceData = record.attendance_data as any;
+          if (attendanceData && typeof attendanceData === 'object') {
+            Object.keys(attendanceData).forEach((periodId) => {
+              const periodData = attendanceData[periodId];
+              if (
+                periodData &&
+                Array.isArray(periodData.students) &&
+                periodData.students.length > 0
+              ) {
+                markedPeriods.add(
+                  `${record.attendance_date}_${record.timetable_id}_${periodId}`
+                );
+                if (periodData.course_id) {
+                  markedPeriodCourses.add(
+                    `${record.attendance_date}_${record.timetable_id}_${periodId}_${periodData.course_id}`
+                  );
+                }
+              }
+            });
+          }
+        });
+      }
 
       // Day-wise (session_wise) marks live in student_attendance keyed 'FN'/'AN'
       // and are already folded into markedPeriods by the generic builder above
@@ -942,7 +1080,17 @@ export class AttendanceDashboardService {
       const debugPendingPeriods: string[] = [];
 
       allScheduledPeriods.forEach((period, periodKey) => {
-        const isMarked = markedPeriods.has(periodKey);
+        const mark = scheduledMarkKeys.get(periodKey);
+
+        // Ordinary slots keep the period-only test they have always used, so
+        // this change cannot alter their results. Only a combined slot asks the
+        // course-aware question, because only there does one period key stand
+        // for two sessions that must be marked separately — marking Group A
+        // would otherwise clear Group B.
+        const isMarked =
+          mark && mark.combined && mark.course
+            ? markedPeriodCourses.has(`${mark.base}_${mark.course}`)
+            : markedPeriods.has(mark?.base ?? periodKey);
 
         if (isMarked) {
           skippedMarkedCount.count++;

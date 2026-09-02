@@ -48,6 +48,7 @@ import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
 import { StudentRefundHistory } from './_components/student-refund-history';
 import { ReevaluateStatusButton } from './_components/reevaluate-status-button';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
+import { QuickReceiptDialog } from '../../../receipts/_components/quick-receipt-dialog';
 import { isBillableBill } from '@/lib/billing/bill-status';
 import { toast } from 'react-hot-toast';
 
@@ -74,6 +75,10 @@ export default function StudentBillingDetailPage() {
 
   const [billStatusFilter, setBillStatusFilter] = useState<string>('all');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  // Non-null = the Collect Payment popup is showing, for these bills. Keeps the
+  // operator on this page instead of navigating to /billing/receipts/new and
+  // losing the tab, filter and scroll position they were working in.
+  const [receiptBillIds, setReceiptBillIds] = useState<string[] | null>(null);
   const previousBillCountRef = useRef<number | null>(null);
 
   const {
@@ -784,6 +789,9 @@ export default function StudentBillingDetailPage() {
                     statusFilter={billStatusFilter}
                     onRefresh={refetchSummary}
                     isStudentView={isStudent}
+                    onGenerateReceipt={(billIds) =>
+                      setReceiptBillIds(billIds)
+                    }
                   />
                 </TabsContent>
 
@@ -814,6 +822,28 @@ export default function StudentBillingDetailPage() {
           onOpenChange={setShowPaymentModal}
           bills={billingSummary.bills}
           studentId={studentId}
+        />
+
+        {/* Collect Payment — same form as /billing/receipts/new, in place */}
+        <QuickReceiptDialog
+          open={receiptBillIds !== null}
+          onOpenChange={(receiptOpen) => {
+            if (!receiptOpen) setReceiptBillIds(null);
+          }}
+          billIds={receiptBillIds ?? []}
+          studentId={studentId}
+          studentName={
+            [student.first_name, student.last_name]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
+          subtitle={
+            student.roll_number ? `Roll ${student.roll_number}` : undefined
+          }
+          onGenerated={() => {
+            setReceiptBillIds(null);
+            refetchSummary();
+          }}
         />
       </div>
     </ContentLayout>
