@@ -673,6 +673,16 @@ WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
 --      2026-09-02). Role outreach_coordinator — program_lead demands a partner id.
 --      Senior Learners on school_faculty approve and facilitate; they do NOT enrol
 --      unless also made owners ([risky] #8).
+--      BLAST RADIUS (read live 2026-09-02, disclosed as [risky] #9): school_jkkn_owners
+--      is Schools-Network substrate, not Foundation-local. An owner row also makes
+--      user_owns_school(nattraja_school_id) true for these two profiles, which is
+--      the predicate on 15 policies over school_contacts / school_contributions /
+--      school_sessions / program_partner_schools / schools — scoped to THIS school
+--      row by argument, so it is read/write on Nattraja's own school record only.
+--      It does NOT widen the outreach assignment picker
+--      (fn_schools_network_list_assignable_owners): that already admits every
+--      faculty / school_faculty / staff holder (Director 2026-07-06), so step 12
+--      places all 30 Nattraja Senior Learners there with or without these rows.
 INSERT INTO public.school_jkkn_owners (school_id, jkkn_user_id, role, is_active, assigned_at)
 SELECT s.id, p.id, 'outreach_coordinator'::public.school_owner_role, true, now()
 FROM public.schools s
