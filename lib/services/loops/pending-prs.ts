@@ -23,9 +23,12 @@ import 'server-only';
 // "Blocking" uses the SAME vocabulary as the merge guard — the exported
 // NON_BLOCKING_CONCLUSIONS set in lib/services/orchestration/github-merge.ts
 // (success / skipped / neutral / cancelled are non-blocking; anything else
-// that completed is red) — so a PR listed here is exactly one the console's
-// Merge button would accept. A PR with CI still running, or with a red gate,
-// is NOT waiting on the Director yet; it is waiting on the build.
+// that completed is red). A PR listed here with `checks: 'green'` is one the
+// console's Merge button would accept; a `checks: 'none'` row is NOT — the
+// guard's checkRunsVerdict refuses a head with zero runs — so that row is a
+// "merge on GitHub" hint, not a console-merge candidate (post-verdict note a).
+// A PR with CI still running, or with a red gate, is NOT waiting on the
+// Director yet; it is waiting on the build.
 //
 // A PR with ZERO check runs is NOT "waiting on the build" — nothing will ever
 // run. Workflows in this repo fire only on PRs into `main`, so a PR whose base
@@ -74,7 +77,7 @@ import 'server-only';
 // 403 / 429 is reported as the same class of failure, explicitly.
 //
 // Deadline (obj. 2/3): one AbortController per read, TOTAL_DEADLINE_MS under
-// the page's `maxDuration` (60 s), raced to `{ ok: false, reason: 'GitHub
+// the page's `maxDuration` (120 s), raced to `{ ok: false, reason: 'GitHub
 // read timed out …' }` — so a slow GitHub renders an explicit line instead
 // of a Suspense fallback that never resolves.
 
@@ -109,8 +112,9 @@ const MAX_TIMELINE_PAGES = 5;
 /**
  * Overall deadline for one GitHub read. Same idiom as TOTAL_DEADLINE_MS in
  * app/api/cdc/career-guidance/route.ts — kept under the page's
- * `maxDuration = 60` (app/(routes)/admin/loops/page.tsx) with headroom for
- * the rest of the render. Measured cold read 2026-09-02: 26 s.
+ * `maxDuration = 120` (app/(routes)/admin/loops/page.tsx); this bounds only
+ * the GitHub tail, the page limit covers the whole render. Measured cold
+ * read 2026-09-02: 26 s.
  */
 const TOTAL_DEADLINE_MS = 40_000;
 /**

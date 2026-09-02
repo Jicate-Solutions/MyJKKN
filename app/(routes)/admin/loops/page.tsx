@@ -18,10 +18,12 @@
 export const dynamic = 'force-dynamic';
 // The builds block streams a GitHub read (measured cold: 26 s) inside this
 // page's render; Vercel's default function limit would cut it off mid-stream
-// and leave the Suspense fallback on screen forever. 60 s, with the reader's
-// own 40 s deadline (lib/services/loops/pending-prs.ts) underneath it, so a
-// slow GitHub renders an explicit line instead (reconcile round, obj. 2).
-export const maxDuration = 60;
+// and leave the Suspense fallback on screen forever. 120 s: the reader's own
+// 40 s deadline (lib/services/loops/pending-prs.ts) bounds only the GitHub
+// tail, and the rest of the render (the Supabase reads above it, streamed
+// under Suspense) must fit in the remainder — so a slow GitHub renders an
+// explicit line instead (reconcile round, obj. 2; post-verdict note b).
+export const maxDuration = 120;
 export const navMeta = { label: 'Loop Control Tower', icon: 'Repeat' } as const;
 
 import Link from 'next/link';
