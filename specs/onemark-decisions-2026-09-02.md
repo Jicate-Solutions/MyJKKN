@@ -19,7 +19,7 @@ What exists and is reused, not rebuilt:
 | Subject rows for Class 12 | `exam_definitions.tn_hsc` live since 2026-08-15 (PR #3090 still open, rows applied) |
 | Tamil-capable PDF | `lib/utils/bos/pdf-fonts.ts` loads Noto Sans Tamil; `public/fonts/pdf/noto-sans-tamil-*`; `@react-pdf/renderer` + puppeteer present |
 | AI drafting | `ai_job_types` on the `max` lane — 9,158 jobs / 60 days, 99.6% success; a new capability is a config row |
-| JABT tagging on the bank | **Designed and merged (PR #2861) but NOT APPLIED.** `fp_items.bloom_level` and `advanced_dimension` do not exist live. Migration `20260908034127_fp_items_bloom_level.sql` must be applied by a human before decision 6 can be honoured. |
+| JABT tagging on the bank | ✅ **Applied to production 2026-09-02 22:20 IST** (migration `20260908034127`, ledger row written, read back: 2 columns · 2 CHECKs · 1 index · 125 rows untouched). It had sat merged-but-unapplied since 2026-08-15. Decision 6 is now honourable. |
 
 What does not exist: bilingual item text, `option_layout`, provenance (year / sitting / series / question number), Class 12 chapter rows in `cdc_exam_syllabus_topics` (18 rows, 0 for Class 12), the test wizard, board-format paper rendering, the Mistake Vault, the ingestion pipeline, `QuestionAssets`, `CategoryWeights`.
 
@@ -69,7 +69,7 @@ What does not exist: bilingual item text, `option_layout`, provenance (year / si
 ## 2. Three flags the Director has seen
 
 1. **Decision 2 overrides the PRD's own escalation.** Recorded, not re-litigated. Prefer clean government sources over watermarked scans.
-2. **Decision 6 depends on an unapplied migration.** `20260908034127_fp_items_bloom_level.sql` — file on main, columns absent live (verified 2026-09-02). Apply before authoring begins, or every drafted item lands untagged.
+2. ~~Decision 6 depends on an unapplied migration.~~ **Resolved 2026-09-02 22:20 IST** — `20260908034127` applied and ledgered at the chain gate; JABT columns are live before any item is authored.
 3. **Decision 4 ("both together") doubles Phase 1.** 600 approved items, two chapter maps, two renderers. PRD C.2 suggested proving one subject's PDF fidelity first.
 
 ---
