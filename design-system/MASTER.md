@@ -57,7 +57,7 @@ The depth mechanism is **theme-dependent** and the two themes are opposites:
 - Popovers use `surface-2.5`: a true float in dark, a shadow-driven float in light.
 - **Never** treat `--secondary` as a neutral surface. It is neutral grey in dark and saturated yellow in light. Shipped code has largely abandoned it (33 uses vs `bg-muted`'s 3,352).
 
-> **Shipped reality:** `components/ui/card.tsx:12` is `'rounded-xl border bg-background text-card-foreground shadow'` — border *and* shadow, and note `bg-background`, **not** `bg-card`. **2,068 files** under `app/` + `components/` import this primitive. Against it there is exactly **1** `dark:shadow-none` in the entire repo (`components/Sidebar/Sidebar.tsx:24`), versus several hundred unprefixed `shadow-*` classes that therefore render in dark too (~350 counting only plain `shadow-sm|md|lg|xl|none` inside class strings, ~670 if variant prefixes such as `hover:` are included — that figure is regex-sensitive; the `1` is exact). The code is right; a doc that banned shadows outright was wrong.
+> **Shipped reality:** `components/ui/card.tsx:12` is `'rounded-xl border bg-background text-card-foreground shadow'` — border *and* shadow, and note `bg-background`, **not** `bg-card`. **2,068 files** under `app/` + `components/` import this primitive. Against it there is exactly **1** `dark:shadow-none` in the entire repo (`components/Sidebar/Sidebar.tsx:24`), versus several hundred unprefixed `shadow-*` utilities that therefore render in dark too (~350 counting only plain `shadow-sm|md|lg|xl|none` inside class strings, ~670 if variant prefixes such as `hover:` are included — that figure is regex-sensitive; the `1` is exact). The code is right; a doc that banned shadows outright was wrong.
 
 ---
 
