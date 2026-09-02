@@ -839,46 +839,46 @@ export function AllAllocationsTab() {
             </div>
           );
         }
+        // Unplaced rows get the SAME ⋮ menu as allocated ones. Two inline
+        // buttons (eye + Allocate) did not survive contact with the real table:
+        // the actions cell is sticky-pinned at a fixed width, so the second
+        // button was clipped off the right edge and the view action was
+        // effectively invisible. One 32px trigger always fits.
         const c = r.raw as UnallocatedCandidate;
         return (
-          <div className="flex items-center justify-end gap-1">
-            {/* View details for an UNPLACED learner, restored from the removed
-                Not Allocated tab. It has to be a drawer, not a link: an
-                unplaced learner has no allocation row, so /allocations/[id]
-                does not exist for them — the drawer keyed on their
-                learners_profiles.id is the only detail view they have.
-                Deliberately OUTSIDE the canManage gate, which used to return
-                null and leave a view-only role staring at an empty cell. */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={() => setDetailLearnerId(c.learner_id)}
-            >
-              <span className="sr-only">View details</span>
-              <Eye className="h-4 w-4" />
-            </Button>
-            {canManage &&
-              (r.readiness === 'ready' ? (
-                <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setAllocateTarget(c)}>
-                  <BedDouble className="h-3.5 w-3.5" /> Allocate
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <span className="sr-only">Open actions menu</span>
+                  <MoreHorizontal className="h-4 w-4" />
                 </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-xs text-muted-foreground"
-                  onClick={() => setAllocateTarget(c)}
-                >
-                  Assign anyway
-                </Button>
-              ))}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {/* An unplaced learner has no allocation row, so
+                    /allocations/[id] does not exist for them — the drawer keyed
+                    on their learners_profiles.id is the only detail view they
+                    have. Outside the canManage gate, which used to return null
+                    and leave a view-only role staring at an empty cell. */}
+                <DropdownMenuItem onClick={() => setDetailLearnerId(c.learner_id)}>
+                  <Eye className="mr-2 h-4 w-4" /> View details
+                </DropdownMenuItem>
+                {canManage && (
+                  <DropdownMenuItem onClick={() => setAllocateTarget(c)}>
+                    <BedDouble className="mr-2 h-4 w-4" />
+                    {/* "Assign anyway" keeps the warning that this learner
+                        still has unmet readiness conditions. */}
+                    {r.readiness === 'ready' ? 'Allocate' : 'Assign anyway'}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         );
       },
       enableSorting: false,
       enableHiding: false,
-      size: 150,
+      size: 80,
     });
 
     return cols;
@@ -1028,7 +1028,10 @@ export function AllAllocationsTab() {
         unplaced ones.
       </p>
 
-      <div className="pinned-actions-col">
+      {/* allocations-wide-table: folding the tabs in took this table to 14
+          columns, and <table class="w-full"> squeezed every one of them below
+          its declared size with no scrollbar to recover them. See globals.css. */}
+      <div className="pinned-actions-col allocations-wide-table">
         <DataTable
           fetchDataFn={fetchData}
           fetchAllItemsFn={canManage ? fetchAllItems : undefined}
