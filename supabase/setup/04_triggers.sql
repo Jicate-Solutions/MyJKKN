@@ -2461,3 +2461,17 @@ CREATE TRIGGER trg_billing_bills_guard_cancel
   BEFORE UPDATE ON public.billing_student_bills
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_bill_cancellation();
+
+-- ============================================================================
+-- A sitting that has not happened yet cannot be rated (mig 20260901160000).
+-- Named trg_b_* so it fires AFTER the live gate's trg_a_induction_require_live
+-- (alphabetical order) -- when an induction is still in Draft, "activate it
+-- first" is the useful refusal, not "this sitting has not started".
+-- BEFORE INSERT OR UPDATE because all three feedback writers upsert via
+-- ON CONFLICT ... DO UPDATE, so the UPDATE arm is the re-rating path.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_b_induction_require_session_started ON public.event_session_feedback;
+CREATE TRIGGER trg_b_induction_require_session_started
+  BEFORE INSERT OR UPDATE ON public.event_session_feedback
+  FOR EACH ROW
+  EXECUTE FUNCTION public.trg_induction_require_session_started();
