@@ -92,6 +92,7 @@ import {
 import { TransferDialog } from './transfer-dialog';
 import { ResetAllocationDialog } from './reset-allocation-dialog';
 import { AllocateRoomDialog } from '../../residents/_components/allocate-room-dialog';
+import { LearnerDetailDrawer } from '../../residents/_components/learner-detail-drawer';
 import {
   MoreHorizontal,
   Eye,
@@ -312,12 +313,21 @@ export function AllAllocationsTab() {
   const [transferTarget, setTransferTarget] = useState<Alloc | null>(null);
   const [resetTarget, setResetTarget] = useState<Alloc | null>(null);
   const [allocateTarget, setAllocateTarget] = useState<UnallocatedCandidate | null>(null);
+  const [detailLearnerId, setDetailLearnerId] = useState<string | null>(null);
   // Bulk reset: the rows to act on plus the table's own selection-clearing
   // callback, captured together when the confirm dialog opens.
   const [pendingBulk, setPendingBulk] = useState<
     { rows: UnifiedRow[]; clearSelection: () => void } | null
   >(null);
   const bulkReset = useResetAllocationsBulk();
+
+  // The candidate behind the open detail drawer, so the drawer's own
+  // "Allocate to a block" CTA can hand back a real row to allocate.
+  const detailCandidate = useMemo(
+    () =>
+      (candidates as UnallocatedCandidate[]).find((c) => c.learner_id === detailLearnerId) ?? null,
+    [candidates, detailLearnerId]
+  );
 
   // Active allocations only — the cascade filter OPTIONS derive from these, so
   // the Type/Block/Floor and academic lists stay stable whichever Status is
@@ -829,30 +839,46 @@ export function AllAllocationsTab() {
             </div>
           );
         }
-        if (!canManage) return null;
         const c = r.raw as UnallocatedCandidate;
         return (
-          <div className="flex justify-end">
-            {r.readiness === 'ready' ? (
-              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setAllocateTarget(c)}>
-                <BedDouble className="h-3.5 w-3.5" /> Allocate
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs text-muted-foreground"
-                onClick={() => setAllocateTarget(c)}
-              >
-                Assign anyway
-              </Button>
-            )}
+          <div className="flex items-center justify-end gap-1">
+            {/* View details for an UNPLACED learner, restored from the removed
+                Not Allocated tab. It has to be a drawer, not a link: an
+                unplaced learner has no allocation row, so /allocations/[id]
+                does not exist for them — the drawer keyed on their
+                learners_profiles.id is the only detail view they have.
+                Deliberately OUTSIDE the canManage gate, which used to return
+                null and leave a view-only role staring at an empty cell. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={() => setDetailLearnerId(c.learner_id)}
+            >
+              <span className="sr-only">View details</span>
+              <Eye className="h-4 w-4" />
+            </Button>
+            {canManage &&
+              (r.readiness === 'ready' ? (
+                <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setAllocateTarget(c)}>
+                  <BedDouble className="h-3.5 w-3.5" /> Allocate
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs text-muted-foreground"
+                  onClick={() => setAllocateTarget(c)}
+                >
+                  Assign anyway
+                </Button>
+              ))}
           </div>
         );
       },
       enableSorting: false,
       enableHiding: false,
-      size: 80,
+      size: 150,
     });
 
     return cols;
@@ -1124,7 +1150,31 @@ export function AllAllocationsTab() {
         />
       )}
 
-      {/* Not-allocated-row action — same dialog as the Not Allocated tab. */}
+      {/* Read-only detail for an UNPLACED learner. Keyed on
+          learners_profiles.id, which is exactly what
+          fn_hostel_unallocated_candidates returns as `learner_id`.
+          An ALLOCATED row deliberately does NOT open this: its
+          hostel_allocations.learner_id is a profiles.id, a disjoint key space,
+          so it links to /allocations/[id] instead.
+
+          `onAllocate` routes the drawer's "Allocate to a block" CTA into the
+          same inline dialog this table uses — without it the drawer falls back
+          to /allocations/new?learner=, a wizard that ignores the learner and
+          has a broken submit. */}
+      <LearnerDetailDrawer
+        learnerId={detailLearnerId}
+        onClose={() => setDetailLearnerId(null)}
+        onAllocate={
+          canManage && detailCandidate
+            ? () => {
+                setAllocateTarget(detailCandidate);
+                setDetailLearnerId(null);
+              }
+            : undefined
+        }
+      />
+
+      {/* Not-allocated-row action — the same dialog the removed tab used. */}
       <AllocateRoomDialog
         learner={allocateTarget ? toAllocatable(allocateTarget) : null}
         onClose={() => setAllocateTarget(null)}
