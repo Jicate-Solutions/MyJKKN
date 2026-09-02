@@ -25,6 +25,9 @@
 --   2. One `schools` row for Nattraja Vidhyalya CBSE (internal, institution
 --      29c221d1-…). `fp_cohorts.school_id` and `fp_students.school_id` are
 --      NOT NULL → schools(id) and Nattraja has 0 rows today (read live).
+--      Guarded AND reversed on the same (name, institution_id) predicate —
+--      `schools` has no UNIQUE beyond its PK (read live), so "any school at
+--      this institution" would not have been this row's idempotency key.
 --   3. 18 chapter topics in `cdc_exam_syllabus_topics` (11 Physics units,
 --      6 English units, 1 cross-unit grammar bucket) + 18 `exam_topic_map`
 --      rows. Tamil unit names were sliced programmatically out of PRD
@@ -39,7 +42,12 @@
 --   8. `onemark_mistake_vault` — THE table this wave exists for. Per
 --      (learner, question), with the session-separated streak the PRD §6.3
 --      rule needs. `fp_student_weakness` is a per-topic counter and is NOT
---      the vault; nothing here reads or writes it.
+--      the vault; nothing here reads or writes it. RLS: read via
+--      fn_fp_can_view_student, write via fn_fp_can_manage_student — the
+--      20260706065000 split every sibling PII table uses (a learner never
+--      writes their own performance state directly; the Wave 2 SECURITY
+--      DEFINER RPC does). [risky — departs from lane spec §8's literal
+--      "INSERT/UPDATE via fn_fp_can_view_student"; listed for the Director]
 --   9. `fp_attempts.mode` + `session_id`; `fp_responses.skipped`.
 --  10. Six `platform_policies` rows (the 20260808180000 idiom) so every
 --      number the PRD hard-codes is a one-row UPDATE, not a deploy.
@@ -49,7 +57,11 @@
 --  12. `user_roles` rows giving `school_faculty` to every active Nattraja
 --      profile whose role is 'faculty' / 'hod' / 'principal' (30 read live).
 --  13. A DO block asserting the end state, so the file cannot land
---      half-applied.
+--      half-applied — including a probe that step 12 minted NO 'associate'
+--      JKKN ID (user_roles carries trg_jkkn_auto_issue_associate, which
+--      allocates a permanent identity for any profile with no learner_id
+--      and no staff-email match and swallows its own failures; 30/30 target
+--      profiles match a staff row today, so the expected count is 0).
 --
 -- TIER: additive + two data UPDATEs on custom_roles + user_roles INSERTs.
 -- Creates 5 tables, alters 3 (ADD COLUMN IF NOT EXISTS only), drops nothing,
@@ -103,11 +115,16 @@ ON CONFLICT (config_key) DO NOTHING;
 -- Enum label read live 2026-09-02: school_ownership = external | internal.
 -- CHECK schools_internal_requires_institution: internal ⇒ institution_id NOT NULL.
 -- `status` defaults to 'active', `metadata` to '{}' (read live).
+-- Idempotency key = (name, institution_id), the same predicate the header's
+-- reversal uses. `schools` has no UNIQUE beyond its PK (read live 2026-09-02),
+-- so guarding on institution_id alone would silently bind to any other lane's
+-- Nattraja row and leave the documented rollback matching nothing.
 INSERT INTO public.schools (name, ownership, institution_id)
 SELECT 'Nattraja Vidhyalya CBSE', 'internal'::public.school_ownership, '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
 WHERE NOT EXISTS (
   SELECT 1 FROM public.schools
-  WHERE institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+  WHERE name = 'Nattraja Vidhyalya CBSE'
+    AND institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
 );
 
 
@@ -398,6 +415,8 @@ CREATE TABLE IF NOT EXISTS public.onemark_category_weights (
   exam_definition_id uuid NOT NULL REFERENCES public.exam_definitions(id) ON DELETE CASCADE,
   tag_key            text NOT NULL REFERENCES public.onemark_item_tags(key) ON DELETE CASCADE,
   weight             numeric NOT NULL CHECK (weight >= 0),
+  description        text,
+  is_active          boolean NOT NULL DEFAULT true,
   created_at         timestamptz NOT NULL DEFAULT now(),
   updated_at         timestamptz NOT NULL DEFAULT now(),
   updated_by         uuid REFERENCES public.profiles(id),
@@ -405,7 +424,7 @@ CREATE TABLE IF NOT EXISTS public.onemark_category_weights (
   CONSTRAINT onemark_category_weights_unique UNIQUE (exam_definition_id, tag_key)
 );
 COMMENT ON TABLE public.onemark_category_weights IS
-  'Per-subject empirical weight of each category tag for the proportional generator (PRD English §4.3, Q7–Q20 pool). Seeded with papers-appearing-of-8; a subject Senior Learner re-weights as more papers are ingested. Added 2026-09-02 (OneMark Wave 1).';
+  'Per-subject empirical weight of each category tag for the proportional generator (PRD English §4.3, Q7–Q20 pool). Seeded with papers-appearing-of-8; a subject Senior Learner re-weights as more papers are ingested. Carries the config-table mixin (description / is_active / updated_by / change_reason) like the two masters — the generator draws only is_active rows. Added 2026-09-02 (OneMark Wave 1).';
 
 DROP TRIGGER IF EXISTS trg_onemark_category_weights_touch ON public.onemark_category_weights;
 CREATE TRIGGER trg_onemark_category_weights_touch BEFORE UPDATE ON public.onemark_category_weights FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
@@ -482,7 +501,7 @@ CREATE TABLE IF NOT EXISTS public.onemark_mistake_vault (
   CONSTRAINT onemark_mistake_vault_unique UNIQUE (student_id, item_id)
 );
 COMMENT ON TABLE public.onemark_mistake_vault IS
-  'Spaced-repetition Mistake Vault: per (learner, question) state for PRD §6.3 — session-separated streak (last_correct_session_id), revocable mastery (status / mastered_at), earliest next review (next_eligible_at). Learner performance = PII: RLS via fn_fp_can_view_student. NOT fp_student_weakness (a per-topic counter, unrelated). Added 2026-09-02 (OneMark Wave 1).';
+  'Spaced-repetition Mistake Vault: per (learner, question) state for PRD §6.3 — session-separated streak (last_correct_session_id), revocable mastery (status / mastered_at), earliest next review (next_eligible_at). Learner performance = PII: read via fn_fp_can_view_student, written via fn_fp_can_manage_student or the Wave 2 SECURITY DEFINER RPC (20260706065000 pattern). NOT fp_student_weakness (a per-topic counter, unrelated). Added 2026-09-02 (OneMark Wave 1).';
 COMMENT ON COLUMN public.onemark_mistake_vault.consecutive_correct_count IS 'Correct answers in DISTINCT review sessions since the last wrong answer. Reset to 0 on any wrong answer.';
 COMMENT ON COLUMN public.onemark_mistake_vault.last_correct_session_id   IS 'fp_attempts.session_id of the most recent counted correct answer — a second correct in the same session must not count (decision 9).';
 COMMENT ON COLUMN public.onemark_mistake_vault.next_eligible_at          IS 'Earliest time the item may be drawn for review again: last counted answer + onemark.vault.min_gap_days.';
@@ -493,9 +512,20 @@ CREATE INDEX IF NOT EXISTS idx_onemark_mistake_vault_item ON public.onemark_mist
 DROP TRIGGER IF EXISTS trg_onemark_mistake_vault_touch ON public.onemark_mistake_vault;
 CREATE TRIGGER trg_onemark_mistake_vault_touch BEFORE UPDATE ON public.onemark_mistake_vault FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
 
--- RLS: fn_fp_can_view_student already encodes all four readers — the learner
--- themself, their guardian, the Senior Learner who facilitates their cohort,
--- and the school owner (20260706065000). Reused, not re-derived. No DELETE
+-- RLS: READ via fn_fp_can_view_student — it already encodes all four readers:
+-- the learner themself, their guardian, the Senior Learner who facilitates
+-- their cohort, and the school owner (20260706065000). Reused, not re-derived.
+-- WRITE via fn_fp_can_manage_student — the split every sibling PII table in
+-- this family uses (fp_attempts / fp_student_weakness / fp_baselines /
+-- fp_revision_plans, 20260706065000). The vault's columns (status, streak,
+-- mastered_at, next_eligible_at) are DERIVED state the PRD §6.3 rules
+-- compute; the learner's own answers reach them only through the Wave 2
+-- SECURITY DEFINER RPC (as fn_fp_record_attempt already does for attempts),
+-- never by a direct PATCH — otherwise a learner holding only their own JWT
+-- could set status='mastered' on every question they got wrong and erase
+-- the remediation signal their Senior Learner's dashboard reads. The lane
+-- spec's §8 literally said INSERT/UPDATE via fn_fp_can_view_student; this
+-- is the deliberate, listed departure (Reviewer B, 2026-09-02). No DELETE
 -- policy on purpose: a vault row is reset, never removed, by any client.
 ALTER TABLE public.onemark_mistake_vault ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS onemark_mistake_vault_select ON public.onemark_mistake_vault;
@@ -504,10 +534,10 @@ DROP POLICY IF EXISTS onemark_mistake_vault_update ON public.onemark_mistake_vau
 CREATE POLICY onemark_mistake_vault_select ON public.onemark_mistake_vault FOR SELECT
   USING (public.fn_fp_can_view_student(student_id));
 CREATE POLICY onemark_mistake_vault_insert ON public.onemark_mistake_vault FOR INSERT
-  WITH CHECK (public.fn_fp_can_view_student(student_id));
+  WITH CHECK (public.fn_fp_can_manage_student(student_id));
 CREATE POLICY onemark_mistake_vault_update ON public.onemark_mistake_vault FOR UPDATE
-  USING (public.fn_fp_can_view_student(student_id))
-  WITH CHECK (public.fn_fp_can_view_student(student_id));
+  USING (public.fn_fp_can_manage_student(student_id))
+  WITH CHECK (public.fn_fp_can_manage_student(student_id));
 
 REVOKE ALL ON TABLE public.onemark_mistake_vault FROM anon, PUBLIC;
 
@@ -646,9 +676,11 @@ DECLARE
   v_student_ok boolean;
   v_sf_ok      boolean;
   v_unassigned int;
+  v_associates int;
 BEGIN
   SELECT count(*) INTO v_exams FROM public.exam_definitions WHERE config_key IN ('tn_hsc_physics', 'tn_hsc_english');
-  SELECT count(*) INTO v_schools FROM public.schools WHERE institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid;
+  SELECT count(*) INTO v_schools FROM public.schools
+   WHERE name = 'Nattraja Vidhyalya CBSE' AND institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid;
   SELECT count(*) INTO v_topics FROM public.cdc_exam_syllabus_topics WHERE config_key LIKE 'onemark\_%';
   SELECT count(*) INTO v_maps
     FROM public.exam_topic_map m
@@ -683,11 +715,22 @@ BEGIN
      AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active
      AND NOT EXISTS (SELECT 1 FROM public.user_roles ur
                       WHERE ur.user_id = p.id AND ur.role_id = 'd2c74371-6091-4f9e-b15a-9a5204dbd745'::uuid);
+  -- Step 12 fires trg_jkkn_auto_issue_associate (20260827110000) once per
+  -- user_roles row. It mints a PERMANENT 'associate' JKKN ID for any profile
+  -- with no learner_id and no staff-email match, and swallows its own errors.
+  -- Read live 2026-09-02: 30/30 target profiles match a staff row and 0 hold
+  -- any identity → expected 0. Raising here rolls the mint back with the
+  -- rest of the file; the header's reversal alone would not undo it.
+  SELECT count(*) INTO v_associates
+    FROM public.profiles p
+    JOIN public.jkkn_identities i ON i.profile_id = p.id AND i.person_kind = 'associate'
+   WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+     AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active;
 
   IF v_exams <> 2      THEN RAISE EXCEPTION 'onemark wave1: expected 2 subject exam rows, found %', v_exams; END IF;
-  IF v_schools < 1     THEN RAISE EXCEPTION 'onemark wave1: Nattraja has no schools row'; END IF;
-  IF v_topics <> 18    THEN RAISE EXCEPTION 'onemark wave1: expected 18 onemark_ topics, found %', v_topics; END IF;
-  IF v_maps <> 18      THEN RAISE EXCEPTION 'onemark wave1: expected 18 exam_topic_map rows, found %', v_maps; END IF;
+  IF v_schools < 1     THEN RAISE EXCEPTION 'onemark wave1: no ''Nattraja Vidhyalya CBSE'' schools row at institution 29c221d1'; END IF;
+  IF v_topics < 18     THEN RAISE EXCEPTION 'onemark wave1: expected >= 18 onemark_ topics, found %', v_topics; END IF;
+  IF v_maps < 18       THEN RAISE EXCEPTION 'onemark wave1: expected >= 18 exam_topic_map rows, found %', v_maps; END IF;
   IF v_tags < 38       THEN RAISE EXCEPTION 'onemark wave1: expected >= 38 item tags, found %', v_tags; END IF;
   IF v_sources < 5     THEN RAISE EXCEPTION 'onemark wave1: expected >= 5 item sources, found %', v_sources; END IF;
   IF v_weights < 22    THEN RAISE EXCEPTION 'onemark wave1: expected >= 22 category weights, found %', v_weights; END IF;
@@ -696,7 +739,8 @@ BEGIN
   IF NOT COALESCE(v_student_ok, false) THEN RAISE EXCEPTION 'onemark wave1: student role lacks foundation.practice.take'; END IF;
   IF NOT COALESCE(v_sf_ok, false)      THEN RAISE EXCEPTION 'onemark wave1: school_faculty lacks one of the 9 foundation.* keys'; END IF;
   IF v_unassigned <> 0 THEN RAISE EXCEPTION 'onemark wave1: % Nattraja profiles still lack school_faculty', v_unassigned; END IF;
+  IF v_associates <> 0 THEN RAISE EXCEPTION 'onemark wave1: step 12 would leave % Nattraja faculty/hod/principal profile(s) holding an ''associate'' JKKN ID (trg_jkkn_auto_issue_associate) — a profile has no staff-email match; fix the staff row first', v_associates; END IF;
 
-  RAISE NOTICE 'onemark wave1 end state OK: exams=% schools=% topics=% maps=% tags=% sources=% weights=% policies=%',
-    v_exams, v_schools, v_topics, v_maps, v_tags, v_sources, v_weights, v_policies;
+  RAISE NOTICE 'onemark wave1 end state OK: exams=% schools=% topics=% maps=% tags=% sources=% weights=% policies=% associates_minted=%',
+    v_exams, v_schools, v_topics, v_maps, v_tags, v_sources, v_weights, v_policies, v_associates;
 END $$;
