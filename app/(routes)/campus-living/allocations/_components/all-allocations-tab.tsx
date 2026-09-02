@@ -1167,6 +1167,28 @@ export function AllAllocationsTab() {
       <LearnerDetailDrawer
         learnerId={detailLearnerId}
         onClose={() => setDetailLearnerId(null)}
+        // Rule-resolved categories + readiness, so the drawer agrees with the
+        // row it was opened from. Without this the drawer falls back to the
+        // learner's PROFILE category, which disagreed with the resolved one for
+        // 14 of 61 unplaced learners (measured 2026-09-02) — mostly a profile
+        // saying Deluxe against a rule resolving Classic. `blockers` is built
+        // from the same BILL_STATE_LABEL the table column uses, so the two can
+        // never word the same reason differently.
+        placement={
+          detailCandidate
+            ? {
+                readiness: detailCandidate.readiness,
+                resolvedRoomCategory: detailCandidate.resolved_room_category_name,
+                resolvedMessCategory: detailCandidate.resolved_mess_category_name,
+                blockers:
+                  (detailCandidate.missing_items ?? []).length > 0
+                    ? detailCandidate.missing_items
+                    : detailCandidate.bill_state && detailCandidate.bill_state !== 'matched'
+                      ? [BILL_STATE_LABEL[detailCandidate.bill_state] ?? detailCandidate.bill_state]
+                      : [],
+              }
+            : null
+        }
         onAllocate={
           canManage && detailCandidate
             ? () => {
