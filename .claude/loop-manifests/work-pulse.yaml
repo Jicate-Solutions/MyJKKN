@@ -1,0 +1,57 @@
+# Work-Pulse Weekly Suggestion loop manifest — CADENCE loop (not yet chartered).
+# Registered 2026-08-26 (Wave-2 return edge PR: adoption mark reuse + delta
+# measurement + regress runner). Gates: g=on a=on m=off f=on.
+#
+# HONESTY NOTE (moat-loop discipline): the "adoption mark" was NOT built by
+# this PR — it already shipped 2026-07-25 as work_signal_suggestions.human_verdict
+# ('tried_helped'|'tried_no_change'|'not_tried', fn_work_signal_suggestion_verdict,
+# weekly-suggestion-card.tsx). "Adopted" is DEFINED as verdict in
+# (tried_helped, tried_no_change). What the Wave-2 PR adds is the MEASUREMENT
+# leg (fn_work_signal_suggestion_measure_deltas) + this regress runner. All
+# five charter legs stay NULL in loop_registry until the measurer has run in
+# prod data with a receipt — MetaLoop drafts, humans sign. m-gate flips are a
+# separate, Director-gated DB change.
+loop_key: work-pulse
+name: Work-Pulse Weekly Suggestion Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: leave_onduty_approvals     # the od_* signal source (approver_id scope)
+  action: work_signal_suggestions   # one row per (subject, week): suggestion + verdict + snapshot + outcome
+
+mechanism:
+  generate: /api/cron/work-signal-suggestions        # Mondays: assemble grounded prompt per active approver, Max lane (worksignals.weekly_suggestion); ?mode=collect drains hourly via fn_work_signal_suggestion_upsert
+  surface: components/work-signals/weekly-suggestion-card.tsx   # subject-only (RLS), inside WorkSignalsCard
+  act: fn_work_signal_suggestion_verdict(id, verdict)           # the adoption mark — subject-only; tried_helped | tried_no_change | not_tried
+  feed_forward: priorVerdictLine in the enqueue cron            # last week's verdict is quoted into next week's prompt
+
+measure:
+  fn: fn_work_signal_suggestion_measure_deltas(p_min_age_days int default 7, p_subject_profile_id uuid default null)  # 20261001010000; RETURNS int measured-count
+  ledger: work_signal_suggestions.outcome_signals / outcome_delta / outcome_measured_at   # on the suggestion row (SCF mould, not a side table)
+  ground_truth: leave_onduty_approvals re-read with the enqueue cron's EXACT od_* definitions; delta = next - snapshot per key
+  scope: ADOPTED rows only (verdict tried_helped/tried_no_change); not_tried and unverdicted stay NULL = honestly unmeasured
+
+sim:
+  sentinel: ZZREGRESS
+  runner: fn_loops_regress_workpulse                 # 20261001020000; weekly via /api/cron/loops-regress LOOP_FNS
+  # Seeds (all inside the runner's rolled-back subtransaction):
+  #   subject — oldest profiles row with ZERO leave_onduty_approvals approver
+  #             rows ⇒ live od_* signals are 0/0/0 by construction (the
+  #             measurer re-reads LIVE signals; a zero-activity subject is what
+  #             makes both deltas fully known)
+  #   rows    — three sentinel suggestions at far-past week_starts
+  #             (2001-01-01/-08/-15; UNIQUE(subject, week_start)-safe)
+  verifier: "public.fn_work_signal_suggestion_measure_deltas(0, '<sentinel subject>'::uuid)"
+  asserts:
+    no_change: "snapshot {0,0,0} vs live zeros => outcome_delta exactly {0,0,0}"
+    known_delta: { seed: "snapshot {od_pending:5, od_oldest_days:9, od_decided_30d:2} vs live zeros", expect: "-5 / -9 / -2" }
+    scope: "'not_tried' sentinel row stays unmeasured (outcome_measured_at IS NULL)"
+  notes:
+    - the measurer is called SCOPED (p_subject_profile_id) so real unmeasured
+      rows are untouched even transiently inside the subtransaction.
+    - no reset between deltas — A and B are separate sentinel rows measured in
+      one call.
+    - the measurer has no auth gate (SECURITY DEFINER, service_role-only
+      EXECUTE) — no impersonation GUC needed.
+
+registry_gates_hint: '{"g":"on","a":"on","m":"off","f":"on"}'

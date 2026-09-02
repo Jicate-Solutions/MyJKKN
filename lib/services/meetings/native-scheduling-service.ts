@@ -20,6 +20,7 @@
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
+import { bookingEventTitle } from './booking-event-title';
 import { formatVenueDirections } from './venue-directions';
 import { resolveVenuePlan, createVenueReservation } from './venue-reservation';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
@@ -86,6 +87,11 @@ export interface NativeMeetingType {
   /** deposit to collect, in paise (e.g. ₹500 → 50000). NULL when no deposit. */
   deposit_amount_paise: number | null;
 }
+
+// The title itself lives in its own module so a CLI can import it without
+// booting this file's Resend / Supabase / ActivityService import chain.
+// Re-exported here because this is where every existing caller looks for it.
+export { bookingEventTitle } from './booking-event-title';
 
 /**
  * Why a meeting that had ALREADY ENDED is being given a new time.
@@ -361,6 +367,9 @@ export class NativeSchedulingService {
   } | null> {
     let scheduleId = mt.schedule_id;
     let timezone = 'Asia/Kolkata';
+    // True when we already landed on the host's DEFAULT schedule, so the
+    // empty-hours fallback below has nothing left to fall back to.
+    let usedDefault = false;
 
     if (scheduleId) {
       const { data } = await supabase
@@ -384,6 +393,7 @@ export class NativeSchedulingService {
       }
       scheduleId = data.id;
       timezone = data.timezone;
+      usedDefault = true;
     }
 
     const [{ data: windows, error: wErr }, { data: overrides, error: oErr }] = await Promise.all([
@@ -401,9 +411,46 @@ export class NativeSchedulingService {
       return null;
     }
 
+    let windowRows = windows ?? [];
+
+    // ── EMPTY HOURS → the host's normal hours (Director ruling, 2026-08-21) ──
+    // A type pinned to a schedule with no weekly windows used to render a BLANK
+    // calendar with no explanation, because a pinned type never fell back. It
+    // now borrows the host's DEFAULT schedule's weekly windows instead.
+    //
+    // TIMEZONE: unchanged on purpose — the schedule the type actually points at
+    // still wins. A schedule with no windows says nothing about WHEN the host
+    // works, but its timezone is still the host's deliberate choice for this
+    // kind of meeting, and swapping it would silently move every slot. Date
+    // overrides also stay with the pinned schedule: an override is an exception
+    // the host wrote against THAT schedule.
+    //
+    // NO LOOP: the default is read at most once, and only when we did not
+    // already resolve through it. If the default is itself empty the windows
+    // stay empty — the same as today.
+    if (!usedDefault && windowRows.length === 0) {
+      const { data: fallback } = await supabase
+        .from('meeting_host_schedules')
+        .select('id')
+        .eq('host_profile_id', mt.host_profile_id)
+        .eq('is_default', true)
+        .maybeSingle();
+      if (fallback && fallback.id !== scheduleId) {
+        const { data: defaultWindows, error: dErr } = await supabase
+          .from('meeting_schedule_windows')
+          .select('weekday, start_minute, end_minute')
+          .eq('schedule_id', fallback.id);
+        if (dErr) {
+          console.error(`${LOG_PREFIX} default-hours fallback failed:`, dErr.message);
+        } else {
+          windowRows = defaultWindows ?? [];
+        }
+      }
+    }
+
     return {
       timezone,
-      windows: (windows ?? []).map((w) => ({
+      windows: windowRows.map((w) => ({
         weekday: w.weekday,
         startMinute: w.start_minute,
         endMinute: w.end_minute,
@@ -884,9 +931,12 @@ export class NativeSchedulingService {
         : false;
 
       const event = await GoogleCalendarService.createEvent(supabase, primaryHost, {
-        summary: noteInTitle
-          ? `${mt.title} — ${input.attendeeName} — ${discussionNote}`
-          : `${mt.title} — ${input.attendeeName}`,
+        summary: bookingEventTitle({
+          attendeeName: input.attendeeName,
+          typeTitle: mt.title,
+          note: discussionNote,
+          showNote: noteInTitle,
+        }),
         description: [
           `Booked via JKKN (${input.source ?? 'direct'}). Reference: ${uid}`,
           discussionNote ? `Discussion note: ${discussionNote}` : '',
@@ -913,7 +963,7 @@ export class NativeSchedulingService {
     // link this time" rather than blocking the booking.
     if (wantsVideo && !videoUrl && (provider === 'zoom' || provider === 'teams')) {
       videoUrl = await this.mintProviderVideoUrl(supabase, primaryHost, provider, {
-        topic: `${mt.title} — ${input.attendeeName}`,
+        topic: bookingEventTitle({ attendeeName: input.attendeeName, typeTitle: mt.title }),
         startIso,
         durationMin: mt.duration_min,
         timezone: sched.timezone,

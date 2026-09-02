@@ -577,20 +577,42 @@ export async function buildSoiApplyContext(
     );
   }
 
-  // D5 — capacity. When no batch can take anybody AND no batch keeps a waiting
-  // list, say so now rather than after the applicant has filled the form in.
-  const noBatchAcceptingNow = batches.every((b) => !b.acceptingNow);
-  const anyWaitlists = batches.some((b) => b.fullBehaviour === 'waitlist');
-  if (noBatchAcceptingNow && !anyWaitlists) {
-    const everyWindowShut = batches.every((b) => !b.intakeOpen);
+  // D13 — the calendar, checked BEFORE capacity and independently of it. A shut
+  // intake window is not a full batch, and soi.batch_full_behaviour has nothing
+  // to say about a closed window: it answers "what do we do when there are no
+  // seats", not "what do we do when the round is over". Collapsing the two let a
+  // programme that keeps a waiting list tell people a place might open up when
+  // the real obstacle was the date — on 2026-08-21 all three batches shut at
+  // midnight holding 0 of 50 seats and six applicants were waitlisted against
+  // empty batches.
+  //
+  // An empty `batches` array lands here too, and deliberately so: every() is
+  // vacuously true, and "no batches exist" must read as closed rather than fall
+  // through to a capacity question about batches that are not there.
+  const everyWindowShut = batches.every((b) => !b.intakeOpen);
+  if (everyWindowShut) {
     return refuseWithBatches({
       code: 'no_open_batch',
       status: 422,
-      message: everyWindowShut
+      message: batches.length
         ? 'Every batch of this programme has closed its applications. Contact the ' +
           'programme coordinator to ask about the next round.'
-        : 'Every batch of this programme is full, and this programme does not keep ' +
-          'a waiting list. Contact the programme coordinator to ask about the next round.',
+        : 'This programme is not taking applications yet — no batch has been opened. ' +
+          'Contact the programme coordinator to ask when the next round starts.',
+    });
+  }
+
+  // D5 — capacity. At least one window is open by now, so what is left is a
+  // genuine seat question and full-behaviour is the right policy to consult.
+  const noBatchAcceptingNow = batches.every((b) => !b.acceptingNow);
+  const anyWaitlists = batches.some((b) => b.fullBehaviour === 'waitlist');
+  if (noBatchAcceptingNow && !anyWaitlists) {
+    return refuseWithBatches({
+      code: 'no_open_batch',
+      status: 422,
+      message:
+        'Every batch of this programme is full, and this programme does not keep ' +
+        'a waiting list. Contact the programme coordinator to ask about the next round.',
     });
   }
 
@@ -836,11 +858,20 @@ export async function submitSoiApplication(
 
   // D5 — the applicant is waitlisted when the batch they will land in is full
   // and the programme's answer to a full batch is to hold them. With
-  // staff_assign there is no chosen batch, so the question is whether ANY batch
-  // can take somebody today.
+  // staff_assign there is no chosen batch, so the question is whether every batch
+  // that is STILL OPEN is full.
+  //
+  // Only open batches are counted. `acceptingNow` is intakeOpen && !isFull, so
+  // asking every(!acceptingNow) would read a closed window as a full one and
+  // stamp 'waitlisted' on somebody who is really just late — the message they
+  // then get ('a coordinator will contact you when a place opens up') would
+  // promise a seat that was never the obstacle. buildSoiApplyContext has already
+  // refused the all-windows-shut case above, so openBatches is non-empty here;
+  // the length check keeps this honest if that guard is ever moved.
+  const openBatches = context.batches.filter((b) => b.intakeOpen);
   const isWaitlisted = requestedBatch
     ? requestedBatch.isFull && requestedBatch.fullBehaviour === 'waitlist'
-    : context.batches.every((b) => !b.acceptingNow);
+    : openBatches.length > 0 && openBatches.every((b) => b.isFull);
 
   // Required questions are validated with the SAME helper the tournament path
   // uses, so "required" means one thing across the platform.

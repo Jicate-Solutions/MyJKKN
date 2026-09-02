@@ -1,3 +1,42 @@
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║  SUPERSEDED — DO NOT APPLY / DO NOT REPLAY THIS FILE.                     ║
+-- ║  Replaced by 20260909010000_induction_peer_mentor_band_second_year_and_-  ║
+-- ║  above.sql, which is what is live.                                        ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+--
+-- IT NEVER APPLIED. Verified against production 2026-08-21: pg_proc held zero
+-- rows for public.fn_induction_peer_mentor_year, and the deployed
+-- fn_induction_assignable_peer_mentors was still the 20260818100000 body with
+-- the `ceil(sem.semester_order::numeric / 2)` band. It could not have applied as
+-- written: it declares p_duration_yrs as `integer` and then calls the function
+-- with programs.program_duration_yrs, which is numeric(3,1). numeric -> integer
+-- is an assignment cast, not an implicit one, so the call did not resolve and
+-- the file errored out. Its header claims production measurements; those were
+-- taken, but the migration that was supposed to act on them never landed.
+--
+-- IT IS NOW ACTIVELY DANGEROUS, which it was not before. 20260909010000 created
+-- fn_induction_peer_mentor_year with a `numeric` duration parameter — the type
+-- this file was missing. So the resolution failure that used to make this file
+-- abort harmlessly no longer happens. Replaying it today would SUCCEED, and in
+-- succeeding would:
+--   1. add a second, integer-duration overload of fn_induction_peer_mentor_year,
+--      making the call site ambiguous; and
+--   2. recreate BOTH picker functions with the old capped band
+--      `BETWEEN 2 AND LEAST(3, duration)` — silently reverting the live rule
+--      back to "2nd and 3rd year only" and re-emptying the picker for JKKN
+--      Dental (500 eligible), Nursing (229) and Allied Health (240).
+--
+-- A fresh `db reset` is safe: 20260909010000 sorts after this file and drops the
+-- integer overload before recreating everything. The danger is an out-of-order
+-- manual run of THIS file alone — in the SQL Editor, or by someone working
+-- through the migration list by hand. Do not do that.
+--
+-- Everything below is kept verbatim as history. The reasoning about
+-- semester_order being untrustworthy is correct and was carried into
+-- 20260909010000; only the band and the parameter type changed.
+--
+-- ── original header follows ─────────────────────────────────────────────────
+--
 -- 20260901020000_induction_peer_mentor_year_band_from_admission_year.sql
 -- Senior Peer Mentor picker — the year band stops trusting semesters.semester_order.
 --

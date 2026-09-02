@@ -117,14 +117,27 @@ export async function GET(request: NextRequest) {
   // ── COLLECT first (both modes): drain done jobs → record drafts ──────────
   let collected = 0;
   let recorded = 0;
+  // REPAIR (2026-08-26): this loop shipped reading item.payload/.result/.id,
+  // but collectJobsLane has returned CollectedJobsLaneItem
+  // { jobId, jobType, context, message } since #2310 — so ctx was ALWAYS
+  // undefined, every drafted suggestion was claimed (fn_ai_collect_claim
+  // stamps delivered_at) and then silently dropped, and `recorded` could
+  // never move. Rewritten to the real lane API (house pattern:
+  // scf-learner-notes' collector — context cast + text blocks off message).
   const items = await collectJobsLane(admin, [JOB_TYPE], 50);
   for (const item of items) {
     collected++;
-    const ctx = (item.payload as { _ctx?: SuggestionCtx } | null)?._ctx;
+    const ctx = item.context as unknown as SuggestionCtx | undefined;
     if (!ctx?.subject_profile_id) continue;
-    const suggestion = parseSuggestion(item.result);
+    let resultText: string | null = null;
+    if (item.message) {
+      for (const block of item.message.content) {
+        if (block.type === 'text') resultText = (resultText ?? '') + block.text;
+      }
+    }
+    const suggestion = parseSuggestion(resultText);
     if (!suggestion) {
-      console.warn(`[cron/work-signal-suggestions] unparseable result for job ${item.id}`);
+      console.warn(`[cron/work-signal-suggestions] unparseable result for job ${item.jobId}`);
       continue;
     }
     const { data, error } = await admin.rpc('fn_work_signal_suggestion_upsert', {
@@ -132,7 +145,7 @@ export async function GET(request: NextRequest) {
       p_subject_email: ctx.subject_email,
       p_week_start: ctx.week_start,
       p_suggestion: suggestion,
-      p_ai_draft: { raw: item.result },
+      p_ai_draft: { raw: resultText },
       p_signals_snapshot: ctx.signals ?? {},
     });
     if (error) {
@@ -146,7 +159,27 @@ export async function GET(request: NextRequest) {
   let enqueued = 0;
   let skipped = 0;
   let termClosed = 0;
+  let deltasMeasured = 0;
   if (!collectOnly) {
+    // ── Adoption-delta ride-along (weekly, same clock) ──────────────────────
+    // The return edge's measurement leg: for suggestions the subject marked
+    // tried (tried_helped / tried_no_change — the adoption mark), record next
+    // week's od_* signals minus the suggestion week's snapshot.
+    // fn_work_signal_suggestion_measure_deltas is service_role-only and only
+    // measures rows at least a week old, so the weekly clock makes the
+    // re-read land one week after the snapshot. Failures are logged, never
+    // fatal — the measurement must not break the loop it rides on.
+    {
+      const { data: dm, error: dmErr } = await admin.rpc(
+        'fn_work_signal_suggestion_measure_deltas',
+      );
+      if (dmErr) {
+        console.warn(`[cron/work-signal-suggestions] delta measure skipped: ${dmErr.message}`);
+      } else {
+        deltasMeasured = Number(dm ?? 0);
+      }
+    }
+
     // ── Term-close ride-along (weekly, same clock — spec decision 7) ────────
     // Two-sided close for re-explanation asks: still-silent asks whose
     // academic year has ENDED close as 'term_ended_unreported' — excluded
@@ -260,5 +293,6 @@ export async function GET(request: NextRequest) {
     enqueued,
     skipped,
     term_closed: termClosed,
+    deltas_measured: deltasMeasured,
   });
 }

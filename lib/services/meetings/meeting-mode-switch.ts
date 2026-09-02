@@ -14,6 +14,14 @@
 //   C. The notice check runs TWICE — when the request is made and again when
 //      it is approved. A request made Monday and approved Thursday must not
 //      move a Tuesday meeting.
+//
+// Director's decisions of 2026-08-21, added here:
+//   1. A PHONE booking switches to a video call exactly as a face-to-face one
+//      does. Phone was excluded on 2026-08-19 as "never decided"; it is now
+//      decided, and it is the bigger population (95 live phone types with 95
+//      hosts, against 141 in-person types with 110 hosts).
+//   2. Switching BACK is HOST ONLY. A visitor may ask to go online; only the
+//      person who owns the room and the calendar may undo it.
 
 /** Where a meeting happens. Mirrors meeting_types.location_mode. */
 export type LocationMode = 'in_person' | 'phone' | 'online';
@@ -93,27 +101,55 @@ export function switchRequestState(
 /**
  * Can this booking's CURRENT mode be switched to online, and if not, why?
  *
- * The approved scope is in_person -> online, one direction only. Enforcing that
- * needs a stricter reading than effectiveLocationMode gives: that function
- * deliberately coerces anything it does not recognise to 'in_person' so a live
- * booking never renders as an unknown mode. That is the right default for
- * DISPLAY and the wrong one for a GATE — it would wave through a mode nobody
- * has decided about.
+ * Answering this needs a stricter reading than effectiveLocationMode gives:
+ * that function deliberately coerces anything it does not recognise to
+ * 'in_person' so a live booking never renders as an unknown mode. That is the
+ * right default for DISPLAY and the wrong one for a GATE — it would wave
+ * through a mode nobody has decided about.
  *
- * The type's raw mode must therefore be exactly 'in_person' here. A phone
- * booking (95 of the 236 live meeting types) and any future or misspelled mode
- * both land on 'unsupported' instead of being switched.
+ * The type's raw mode must therefore be one this feature has actually been
+ * decided for. Since the Director's ruling of 2026-08-21 that is BOTH
+ * 'in_person' and 'phone' — a phone call becomes a video call the same way a
+ * face-to-face meeting does, and phone is the larger population (95 live phone
+ * types against 141 in-person). Anything else still lands on 'unsupported'
+ * rather than being switched.
  *
  *   'online'      — already online, via the type or the booking override.
- *   'in_person'   — the one switchable source.
- *   'unsupported' — phone, or a mode this feature has never been scoped for.
+ *   'switchable'  — in person or on the phone; a Meet link can be added.
+ *   'unsupported' — a mode this feature has never been scoped for.
  */
 export function switchSourceMode(
   typeMode: LocationMode | string | null | undefined,
   override: string | null | undefined,
-): 'online' | 'in_person' | 'unsupported' {
+): 'online' | 'switchable' | 'unsupported' {
   if (effectiveLocationMode(typeMode, override) === 'online') return 'online';
-  return typeMode === 'in_person' ? 'in_person' : 'unsupported';
+  return typeMode === 'in_person' || typeMode === 'phone' ? 'switchable' : 'unsupported';
+}
+
+/**
+ * Can this booking be turned BACK into a face-to-face or phone meeting?
+ *
+ * Turning it back means CLEARING location_mode_override, because the column's
+ * CHECK constraint admits only 'online' or NULL
+ * (20260909100000_meeting_booking_mode_switch.sql:49). That single fact decides
+ * every answer here:
+ *
+ *   'switchable'     — the override is what made this booking online, so
+ *                      clearing it returns the booking to its type's own mode.
+ *   'online_by_type' — the MEETING TYPE is online, for everyone who books it.
+ *                      Clearing the override would change nothing, and the
+ *                      column cannot say "in person" for one booking. Refused
+ *                      with its own answer rather than a misleading failure:
+ *                      the fix is to change the type, not this booking.
+ *   'not_online'     — it is not a video call, so there is nothing to undo.
+ */
+export function switchBackState(
+  typeMode: LocationMode | string | null | undefined,
+  override: string | null | undefined,
+): 'switchable' | 'online_by_type' | 'not_online' {
+  if (typeMode === 'online') return 'online_by_type';
+  if (override === 'online') return 'switchable';
+  return 'not_online';
 }
 
 /** The columns that clear a request, whatever its outcome. */
@@ -124,4 +160,62 @@ export function resolvedRequestPatch(status: Exclude<SwitchRequestStatus, 'pendi
   // The requested start is cleared with the request: keeping it would let a
   // stale time be re-applied by a later approval of an already-closed request.
   return { mode_switch_request_status: status, mode_switch_requested_start: null };
+}
+
+/**
+ * Which of a host's schedules holds their ONLINE hours.
+ *
+ * `meeting_host_schedules` has no mode column — its columns are exactly
+ * id, host_profile_id, institution_id, name, timezone, is_default, created_at,
+ * updated_at. A schedule therefore has no idea it is "the online one", and its
+ * NAME is a human convention rather than data: "Online Meeting Schedule" is a
+ * title somebody typed, and matching on it would break the first time anyone
+ * renamed it, in a language the code cannot see.
+ *
+ * So the online schedule is derived STRUCTURALLY — it is the schedule the
+ * host's own online meeting types already point at via meeting_types.schedule_id.
+ *
+ * Two real cases this must survive, both measured in production 2026-08-31:
+ *
+ *   NONE — of the 110 hosts who own an in-person type, most own no online type
+ *     at all. There is nothing to derive, so this returns null and the caller
+ *     keeps exactly today's behaviour. Never an error: those hosts switch
+ *     meetings to online today and must go on doing so.
+ *
+ *   MORE THAN ONE — the 14 live online types sit on 2 distinct schedules
+ *     (13 types on one, 1 on the other), both owned by the same host. Picking
+ *     whichever row the database happened to return first would make the same
+ *     switch resolve different hours on different days.
+ *
+ * The rule for more than one, therefore: the schedule used by the MOST online
+ * types — the host's de-facto online hours — and, if two are level, the lowest
+ * schedule id. Ids are immutable, so that tie-break gives the same answer every
+ * time; row order and created_at do not (Postgres promises no order without an
+ * ORDER BY, and two schedules seeded by one script share a timestamp).
+ *
+ * A type pinned to NO schedule is skipped rather than counted: it runs on the
+ * host's default schedule, which says nothing about which schedule is the
+ * online one. Zero of the 14 live online types are in that state.
+ */
+export function pickOnlineScheduleId(
+  onlineTypes: Array<{ schedule_id?: string | null }> | null | undefined,
+): string | null {
+  const counts = new Map<string, number>();
+  for (const t of onlineTypes ?? []) {
+    const id = t?.schedule_id;
+    if (typeof id !== 'string' || id === '') continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [id, n] of counts) {
+    // Strictly more types wins; level on count, the lower id wins. Both
+    // comparisons are independent of the order this map was filled in.
+    if (n > bestCount || (n === bestCount && best !== null && id < best)) {
+      best = id;
+      bestCount = n;
+    }
+  }
+  return best;
 }

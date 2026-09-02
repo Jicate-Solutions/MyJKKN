@@ -13,13 +13,15 @@
 // (react-hook-form + zod + Shadcn Dialog) and the card/list conventions used
 // across app/(routes)/**/_components/*-list.tsx.
 
-import { useState, useTransition } from 'react';
+import Link from 'next/link';
+import { useEffect, useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import {
   Calendar,
+  CalendarClock,
   Clock,
   CreditCard,
   EyeOff,
@@ -56,17 +58,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { cn } from '@/lib/utils';
 
 import {
   addMyEventTypeLocation,
   createMyEventType,
   deleteMyEventType,
+  listMyScheduleChoices,
+  moveOnlineMeetingsToOnlineHours,
   removeMyEventTypeLocation,
   updateMyEventType,
   type EventTypeFormInput,
   type ManageEventType,
   type ManageEventTypeLocation,
   type MeetingLocationMode,
+  type ScheduleChoice,
 } from '../actions';
 import { VenueRoomPicker } from './venue-room-picker';
 
@@ -94,6 +100,8 @@ const formSchema = z.object({
   locationText: z.string().trim().max(200, 'Keep the location short').optional().or(z.literal('')),
   // Venue from Resource Management (PR1): a "Spaces & Venues" room id ('' = none).
   locationResourceId: z.string().optional().or(z.literal('')),
+  // Which of the host's schedules this type is bookable in ('' = normal hours).
+  scheduleId: z.string().optional().or(z.literal('')),
   // ── M2 slot rules ──────────────────────────────────────────────────────────
   bufferBeforeMin: z.coerce
     .number({ invalid_type_error: 'Enter a number' })
@@ -194,6 +202,80 @@ function locationLabel(et: ManageEventType): string {
   return et.locationResourceName || et.locationText || 'In person';
 }
 
+// The list's word for "schedule_id is NULL" — the host's default working hours.
+// Deliberately plainer than the dialog's "My normal working hours" button so it
+// fits a card line on a phone.
+const NORMAL_HOURS_LABEL = 'Normal hours';
+
+/**
+ * Which working-hours calendar a meeting type is bookable in, for the list card.
+ *
+ * `scheduleId === null` means the host's normal working hours, and a type pinned
+ * AT the default schedule means the same thing (some production types were
+ * pinned outside the app) — both read as NORMAL_HOURS_LABEL.
+ *
+ * Returns null only while the host's schedules are still loading AND the type
+ * points at a named one: printing a name we cannot resolve yet would be a guess,
+ * so the line appears when the data does.
+ */
+function hoursLabel(
+  et: ManageEventType,
+  schedules: ScheduleChoice[],
+  defaultScheduleId: string | null,
+): { name: string; tone: 'normal' | 'named' | 'unknown' } | null {
+  if (!et.scheduleId || et.scheduleId === defaultScheduleId) {
+    return { name: NORMAL_HOURS_LABEL, tone: 'normal' };
+  }
+  if (schedules.length === 0) return null;
+  const match = schedules.find((s) => s.id === et.scheduleId);
+  return match
+    ? { name: match.name, tone: 'named' }
+    : { name: 'Other hours', tone: 'unknown' };
+}
+
+/**
+ * The "which hours does this use?" line on a list card (2026-08-31).
+ *
+ * This answer already existed, but only inside the edit dialog — one page away
+ * from where the calendars are created — so the whole model was invisible from
+ * the list. Reads from the schedules the manager already loaded; no extra fetch.
+ */
+function HoursLine({
+  et,
+  schedules,
+  defaultScheduleId,
+}: {
+  et: ManageEventType;
+  schedules: ScheduleChoice[];
+  defaultScheduleId: string | null;
+}) {
+  const hours = hoursLabel(et, schedules, defaultScheduleId);
+  if (!hours) return null;
+
+  const title =
+    hours.tone === 'normal'
+      ? 'Bookable inside your normal working hours.'
+      : hours.tone === 'named'
+        ? `Bookable inside your “${hours.name}” working hours.`
+        : 'These working hours are not one of yours — open Edit to pick one.';
+
+  return (
+    <p className="flex items-center gap-1 text-xs text-muted-foreground" title={title}>
+      <CalendarClock className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="sr-only">Working hours: </span>
+      <span
+        className={cn(
+          'truncate',
+          hours.tone === 'named' && 'font-medium text-foreground',
+          hours.tone === 'unknown' && 'font-medium text-destructive',
+        )}
+      >
+        {hours.name}
+      </span>
+    </p>
+  );
+}
+
 /** Same label, for one row of the places list. */
 function placeLabel(place: ManageEventTypeLocation): string {
   if (place.locationMode === 'phone') return 'Phone call';
@@ -235,6 +317,64 @@ export function EventTypesManager({
   const [editing, setEditing] = useState<ManageEventType | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ManageEventType | null>(null);
   const [isDeleting, startDelete] = useTransition();
+
+  // The host's own working-hours schedules, for the picker in the dialog and
+  // for the online-hours shortcut below. Loaded once — the page itself does not
+  // fetch them, so a host who has never opened Availability still sees the
+  // single "My normal working hours" option rather than an empty control.
+  const [schedules, setSchedules] = useState<ScheduleChoice[]>([]);
+  const [onlineScheduleId, setOnlineScheduleId] = useState<string | null>(null);
+  const [isMoving, startMove] = useTransition();
+
+  useEffect(() => {
+    let cancelled = false;
+    listMyScheduleChoices().then((res) => {
+      if (cancelled || !res.success) return;
+      setSchedules(res.data.schedules);
+      setOnlineScheduleId(res.data.onlineScheduleId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // "My normal working hours" is stored as NULL, so a type pinned AT the default
+  // schedule means the same thing and must read the same on the list.
+  const defaultScheduleId = schedules.find((s) => s.isDefault)?.id ?? null;
+
+  // Offer the shortcut only when it would actually do something: the host has
+  // one clearly-online schedule AND at least one online meeting type still on
+  // their normal hours.
+  const movableOnlineCount = eventTypes.filter(
+    (e) => e.locationMode === 'online' && e.scheduleId === null,
+  ).length;
+  const canUseOnlineHours = Boolean(onlineScheduleId) && movableOnlineCount > 0;
+  const onlineScheduleName =
+    schedules.find((s) => s.id === onlineScheduleId)?.name ?? 'your online hours';
+
+  function moveOnlineTypes() {
+    startMove(async () => {
+      const res = await moveOnlineMeetingsToOnlineHours();
+      if (!res.success) {
+        toast.error(res.error);
+        return;
+      }
+      if (res.data.moved === 0) {
+        toast.info('Nothing to move — your online meeting types already have their own hours.');
+        return;
+      }
+      toast.success(
+        `Moved ${res.data.moved} online meeting type${res.data.moved === 1 ? '' : 's'} to "${res.data.scheduleName}".`,
+      );
+      setEventTypes((prev) =>
+        prev.map((e) =>
+          e.locationMode === 'online' && e.scheduleId === null
+            ? { ...e, scheduleId: onlineScheduleId }
+            : e,
+        ),
+      );
+    });
+  }
 
   function openCreate() {
     setEditing(null);
@@ -286,16 +426,48 @@ export function EventTypesManager({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {eventTypes.length === 0
-            ? 'No meeting types yet.'
-            : `${eventTypes.length} meeting type${eventTypes.length === 1 ? '' : 's'}`}
-        </p>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="mr-1.5 h-4 w-4" aria-hidden />
-          New meeting type
-        </Button>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm text-muted-foreground">
+            {eventTypes.length === 0
+              ? 'No meeting types yet.'
+              : `${eventTypes.length} meeting type${eventTypes.length === 1 ? '' : 's'}`}
+          </p>
+          {/* The calendars themselves are created and named on Availability.
+              Nothing here used to say so, which is why hosts believed the
+              multiple-hours model did not exist (2026-08-31). */}
+          <p className="text-xs text-muted-foreground">
+            Each one is bookable inside a working-hours calendar.{' '}
+            <Link
+              href="/meetings/availability"
+              className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+            >
+              Add or rename calendars on Availability
+            </Link>
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canUseOnlineHours && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={moveOnlineTypes}
+              disabled={isMoving}
+              title={`Put your ${movableOnlineCount} online meeting type${movableOnlineCount === 1 ? '' : 's'} on "${onlineScheduleName}" instead of your normal working hours.`}
+            >
+              {isMoving ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Clock className="mr-1.5 h-4 w-4" aria-hidden />
+              )}
+              Use &ldquo;{onlineScheduleName}&rdquo; for online meetings
+            </Button>
+          )}
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="mr-1.5 h-4 w-4" aria-hidden />
+            New meeting type
+          </Button>
+        </div>
       </div>
 
       {eventTypes.length === 0 ? (
@@ -318,7 +490,7 @@ export function EventTypesManager({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {eventTypes.map((et) => (
             <Card key={et.id} className="group transition-colors hover:bg-accent/40">
               <CardContent className="flex h-full flex-col gap-3 p-4">
@@ -353,6 +525,11 @@ export function EventTypesManager({
                         ? `${et.locations.length} places`
                         : locationLabel(et)}
                     </p>
+                    <HoursLine
+                      et={et}
+                      schedules={schedules}
+                      defaultScheduleId={defaultScheduleId}
+                    />
                   </div>
                   <Badge variant="outline" className="shrink-0 gap-1">
                     <Clock className="h-3 w-3" aria-hidden />
@@ -404,6 +581,7 @@ export function EventTypesManager({
           if (!o) setEditing(null);
         }}
         editing={editing}
+        schedules={schedules}
         onSaved={handleSaved}
         onLocationsChanged={handleLocationsChanged}
       />
@@ -450,12 +628,15 @@ function EventTypeDialog({
   open,
   onOpenChange,
   editing,
+  schedules,
   onSaved,
   onLocationsChanged,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: ManageEventType | null;
+  /** The host's own working-hours schedules; empty until they load. */
+  schedules: ScheduleChoice[];
   onSaved: (saved: ManageEventType) => void;
   onLocationsChanged: (typeId: string, locations: ManageEventTypeLocation[]) => void;
 }) {
@@ -481,6 +662,8 @@ function EventTypeDialog({
       locationMode: editing?.locationMode ?? 'in_person',
       locationText: editing?.locationText ?? '',
       locationResourceId: editing?.locationResourceId ?? '',
+      // '' = "My normal working hours" (schedule_id NULL in the database).
+      scheduleId: editing?.scheduleId ?? '',
       // A NEW type starts with a 5-minute gap on each side, so a stranger
       // cannot chain-book straight onto the end of an existing meeting. `??`
       // falls through only when `editing` is absent, so an existing type keeps
@@ -514,6 +697,19 @@ function EventTypeDialog({
   const slotIntervalValue = watch('slotIntervalMin');
   const kindValue = watch('kind');
   const requiresDepositValue = watch('requiresDeposit');
+  const scheduleIdValue = watch('scheduleId');
+
+  // "My normal working hours" is stored as NULL. A type that already points AT
+  // the default schedule (47 of production's 250 types were pinned outside the
+  // app) means the same thing, so it highlights the same button.
+  const defaultScheduleId = schedules.find((s) => s.isDefault)?.id ?? null;
+  const usingNormalHours = !scheduleIdValue || scheduleIdValue === defaultScheduleId;
+  const otherSchedules = schedules.filter((s) => !s.isDefault);
+  // Only a NON-default pick can carry the "no hours set yet" warning; saying it
+  // about the normal hours themselves would be circular.
+  const pickedSchedule = usingNormalHours
+    ? null
+    : otherSchedules.find((s) => s.id === scheduleIdValue) ?? null;
 
   function onTitleChange(value: string) {
     setValue('title', value, { shouldValidate: true });
@@ -541,6 +737,8 @@ function EventTypeDialog({
       locationMode: values.locationMode,
       locationText: values.locationText?.trim() || undefined,
       locationResourceId: values.locationResourceId?.trim() || undefined,
+      // '' → null = "my normal working hours" (the host's default schedule).
+      scheduleId: values.scheduleId?.trim() || null,
       bufferBeforeMin: values.bufferBeforeMin,
       bufferAfterMin: values.bufferAfterMin,
       minNoticeMin: values.minNoticeMin,
@@ -866,6 +1064,47 @@ function EventTypeDialog({
                 <p className="text-xs text-destructive">{errors.purposeGroup.message}</p>
               )}
             </div>
+
+            {/* Which working hours this meeting kind is bookable in (2026-08-21).
+                Hidden when the host has only one schedule — the answer is then
+                always "my normal working hours" and the control is noise. */}
+            {schedules.length > 1 && (
+              <div className="space-y-1.5">
+                <Label>Which hours does this use?</Label>
+                <div className="flex flex-wrap gap-1">
+                  <Button
+                    type="button"
+                    variant={usingNormalHours ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setValue('scheduleId', '', { shouldValidate: true })}
+                  >
+                    My normal working hours
+                  </Button>
+                  {otherSchedules.map((s) => (
+                    <Button
+                      key={s.id}
+                      type="button"
+                      variant={scheduleIdValue === s.id ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setValue('scheduleId', s.id, { shouldValidate: true })}
+                    >
+                      {s.name}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {pickedSchedule && !pickedSchedule.hasHours
+                    ? `"${pickedSchedule.name}" has no hours set yet, so your normal working hours are used until you add some — nobody ever sees an empty calendar.`
+                    : 'People can only book this inside the hours you pick here. Change the hours themselves on the Availability tab.'}
+                </p>
+                {scheduleIdValue && !usingNormalHours && !pickedSchedule && (
+                  <p className="text-xs text-destructive">
+                    This meeting type points at working hours that are not yours. Pick one
+                    of the above to fix it.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* ── M2 scheduling rules ─────────────────────────────────────────
                 Buffers, minimum notice and slot increment. All optional; the

@@ -80,29 +80,46 @@ export async function cancelMyBooking(uid: string, reason?: string): Promise<Can
   return { success: true };
 }
 
-/** The only two outcomes a host can record. Mirrors the status CHECK. */
+/** The only two outcomes that can be recorded. Mirrors the status CHECK. */
 export type MeetingOutcome = 'completed' | 'no_show';
 
+export interface MarkOutcomeResult extends CancelResult {
+  /**
+   * Which arm of the gate the caller came through — 'host' when they own the
+   * booking, 'admin' when a super admin closed it for the host. Echoed from the
+   * database rather than inferred here, so it always matches the row that was
+   * actually written.
+   */
+  markedBy?: 'host' | 'admin';
+}
+
 /**
- * Record whether the meeting actually happened.
+ * Record whether the meeting actually happened, AND who said so.
  *
  * Unlike cancel/reschedule above, this does NOT take the service-role path.
- * The authorization it needs is "are you this booking's host", which
- * fn_meeting_mark_outcome answers from auth.uid() inside the database — so the
- * SESSION client is both sufficient and strictly safer here: no service-role
- * key participates, and the caller can change one column in one direction on
- * one booking they host. Cancel needs service-role for a different reason
- * (it also touches the attendee's cancel_token path and the venue hold).
+ * The authorization it needs is "are you this booking's host, or a super admin
+ * acting for them", which fn_meeting_mark_outcome answers from auth.uid() and
+ * is_super_admin() inside the database — so the SESSION client is both
+ * sufficient and strictly safer here: no service-role key participates, and the
+ * caller can change one booking in one direction. Cancel needs service-role for
+ * a different reason (it also touches the attendee's cancel_token path and the
+ * venue hold).
  *
- * Migration 20260831010000 is FILE ONLY until the Director applies it, so the
- * RPC may not exist yet. That case is surfaced as an explicit message rather
- * than a generic failure — a silent "could not save" here would look identical
- * to the bug this PR exists to fix.
+ * WHO gets recorded is the whole point of 20260926010000. The actor is never
+ * passed from here — it is taken from auth.uid() inside the function, so a
+ * caller cannot claim to be someone else. The returned `markedBy` says which
+ * arm of the gate the caller came through, which is what lets the confirmation
+ * be honest when a super admin closes a meeting they do not host.
+ *
+ * Migrations 20260831010000 and 20260926010000 are FILE ONLY until the Director
+ * applies them, so the RPC may not exist yet. That case is surfaced as an
+ * explicit message rather than a generic failure — a silent "could not save"
+ * here would look identical to the bug this exists to fix.
  */
 export async function markMeetingOutcome(
   uid: string,
   outcome: MeetingOutcome,
-): Promise<CancelResult> {
+): Promise<MarkOutcomeResult> {
   const session = (await createClient()) as unknown as SupabaseClient;
   const {
     data: { user },
@@ -135,7 +152,12 @@ export async function markMeetingOutcome(
     return { success: false, error: 'Could not save the outcome. Please try again.' };
   }
 
-  const result = (data ?? {}) as { success?: boolean; error_code?: string; message?: string };
+  const result = (data ?? {}) as {
+    success?: boolean;
+    error_code?: string;
+    message?: string;
+    marked_by?: 'host' | 'admin';
+  };
   if (!result.success) {
     const message =
       result.error_code === 'not_found'
@@ -150,7 +172,7 @@ export async function markMeetingOutcome(
 
   revalidatePath(`/meetings/${uid}`);
   revalidatePath('/meetings/inbox');
-  return { success: true };
+  return { success: true, markedBy: result.marked_by };
 }
 
 export interface HostSlotsResult {
@@ -295,11 +317,18 @@ function modeSwitchMessage(code: ModeSwitchError | undefined): string {
     case 'ALREADY_ONLINE':
       return 'This meeting is already online.';
     case 'UNSUPPORTED_SOURCE_MODE':
-      return 'Only an in-person meeting can be moved online. This one is a phone call, so there is nothing to add a Meet link to.';
+      // Since 2026-08-21 a phone call CAN be moved online, so this no longer
+      // names phone. It is now only reached by a mode nobody has decided about.
+      return 'This meeting is not set up as an in-person or phone meeting, so it cannot be moved online.';
+    case 'NOT_ONLINE':
+      return 'This meeting is not a video call, so there is nothing to switch back.';
+    case 'ONLINE_BY_TYPE':
+      return 'This meeting type is online for everyone who books it, so this one booking cannot be switched back on its own. Change the meeting type, or cancel and rebook.';
     case 'TOO_LATE':
-      return 'It is too close to the start time to move this meeting online.';
+      // Reached from BOTH directions now, so it no longer says "online".
+      return 'It is too close to the start time to change how this meeting happens.';
     case 'CALENDAR_NOT_CONNECTED':
-      return 'Your Google Calendar is not connected, so no Meet link can be created. Connect it under Availability, then try again.';
+      return 'Your Google Calendar is not connected, so the calendar event cannot be changed. Connect it under Availability, then try again.';
     case 'NO_CALENDAR_EVENT':
       return 'This booking has no Google Calendar event, so there is no meeting to add a link to.';
     case 'INVALID_SLOT':
@@ -312,8 +341,10 @@ function modeSwitchMessage(code: ModeSwitchError | undefined): string {
       return 'Google Calendar could not be updated, so nothing was changed. Try again in a moment.';
     case 'GOOGLE_OUT_OF_SYNC':
       // Deliberately NOT "nothing was changed" — that would be untrue. The
-      // booking is back to in-person but Google could not be put back.
-      return 'The switch did not complete, and this booking is back to in person — but the Google Calendar event may still show a video call. Please open it in Google Calendar and check.';
+      // booking no longer reads as a video call but Google could not be put
+      // back. Says "not a video call" rather than "in person" because a phone
+      // booking can reach this too now.
+      return 'The change did not complete, and this booking no longer shows as a video call — but the Google Calendar event may still show one. Please open it in Google Calendar and check.';
     case 'NO_REQUEST':
       return 'There is no pending request on this booking.';
     case 'NOT_FOUND':
@@ -328,6 +359,12 @@ export interface ModeSwitchActionResult extends CancelResult {
   videoUrl?: string | null;
   /** True when the switch also moved the meeting. */
   timeMoved?: boolean;
+  /**
+   * The meeting kept its time and that time is not one the host's ONLINE hours
+   * offer. The switch SUCCEEDED — this is a warning for the host to check, not
+   * an error, and the meeting was deliberately not moved to fit.
+   */
+  outsideOnlineHours?: boolean;
 }
 
 /**
@@ -370,7 +407,53 @@ export async function switchMyBookingToOnline(
 
   revalidatePath(`/meetings/${uid}`);
   revalidatePath('/meetings/inbox');
-  return { success: true, videoUrl: result.data?.videoUrl, timeMoved: result.data?.timeMoved };
+  return {
+    success: true,
+    videoUrl: result.data?.videoUrl,
+    timeMoved: result.data?.timeMoved,
+    outsideOnlineHours: result.data?.outsideOnlineHours,
+  };
+}
+
+/**
+ * Host turns their own video meeting back into a face-to-face or phone one
+ * (Director ruling 2, 2026-08-21).
+ *
+ * HOST ONLY, and enforced HERE rather than by hiding the button: the page's
+ * gate decides what is worth rendering, and this action would happily be POSTed
+ * without it. MeetingModeSwitchService.switchBackFromOnline verifies the
+ * signed-in user IS the booking's host (or a super admin) before anything is
+ * written, and returns FORBIDDEN otherwise. There is deliberately no
+ * cancel_token path: a visitor may ask to go ONLINE, never to come back off it.
+ *
+ * No startIso argument, and that is the point — switching back never moves the
+ * meeting, so it cannot touch reschedule_count.
+ */
+export async function switchMyBookingBackFromOnline(
+  uid: string,
+): Promise<ModeSwitchActionResult> {
+  const session = await createClient();
+  const { data: { user }, error: authError } = await session.auth.getUser();
+  if (authError || !user) {
+    return { success: false, error: 'You are signed out. Please sign in and try again.' };
+  }
+  if (!uid || typeof uid !== 'string') {
+    return { success: false, error: 'Invalid booking reference.' };
+  }
+
+  const service = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+
+  const result = await MeetingModeSwitchService.switchBackFromOnline(service, uid, {
+    actorProfileId: user.id,
+  });
+  if (!result.ok) return { success: false, error: modeSwitchMessage(result.error) };
+
+  revalidatePath(`/meetings/${uid}`);
+  revalidatePath('/meetings/inbox');
+  return { success: true, videoUrl: null, timeMoved: false };
 }
 
 /**
@@ -409,5 +492,10 @@ export async function resolveBookingModeSwitchRequest(
 
   revalidatePath(`/meetings/${uid}`);
   revalidatePath('/meetings/inbox');
-  return { success: true, videoUrl: result.data?.videoUrl, timeMoved: result.data?.timeMoved };
+  return {
+    success: true,
+    videoUrl: result.data?.videoUrl,
+    timeMoved: result.data?.timeMoved,
+    outsideOnlineHours: result.data?.outsideOnlineHours,
+  };
 }

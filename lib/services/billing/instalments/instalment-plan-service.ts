@@ -13,27 +13,51 @@ import { getErrorMessage } from '@/lib/utils';
 //     `billing_get_instalment_split`. Two paths, one engine: a learner's
 //     schedule can never differ by path.
 //   - This file holds (a) the consumption side for the TS path — fetch,
-//     verify, expand — and (b) plan CRUD + authoring-time validation for the
+//     verify, attach — and (b) plan CRUD + authoring-time validation for the
 //     (future) admin surface. `computeInstalmentAmounts` here is the
 //     documented TS REFERENCE MIRROR of the engine arithmetic, used for
 //     authoring previews and unit tests; it is NOT what generates bills.
 //
-// DORMANCY CONTRACT (load-bearing): with zero plans configured — or before
-// migration 20260825013000 is applied at all — every function on the read path
-// degrades to "no split": `fetchInstalmentSplit` returns null on ANY error
-// (including the RPC not existing yet) and `expandBillsWithInstalmentPlans`
-// then returns its input untouched, so bill generation behaves exactly as
-// today, byte for byte. Never let an error escape onto the generation path.
+// ONE BILL PER FEE (2026-08-22): a schedule no longer becomes N sibling bills.
+// `attachInstalmentSchedules` returns one row per fee, carrying its tranches in
+// `__instalments` for the caller to write to billing_bill_instalments once the
+// bill has an id. The previous expander is why three fee items produced five
+// bills.
+//
+// DORMANCY CONTRACT (load-bearing): with nothing configured — or before the
+// engine migration is applied at all — every function on the read path degrades
+// to "no schedule": `fetchInstalmentSplit` returns null on ANY error (including
+// the RPC not existing yet) and `attachInstalmentSchedules` then returns its
+// input untouched, so bill generation behaves exactly as before, byte for byte.
+// Never let an error escape onto the generation path.
 // ============================================
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/** One computed instalment row, as returned by the split RPC. */
+/**
+ * One computed schedule row, as returned by the split RPC.
+ *
+ * `instalment_count === 1` is NOT a split — it means the engine resolved a
+ * DUE DATE for an unsplit fee item from its fee structure, and the caller must
+ * emit one bill on that date WITHOUT stamping an instalment group
+ * (chk_bsb_instalment_triplet forbids a group of one).
+ */
 export interface InstalmentSplitRow {
   instalment_no: number;
   instalment_count: number;
   instalment_amount: number;
   instalment_due_date: string; // ISO date (yyyy-mm-dd)
+  /** Lifecycle status settling THIS instalment promotes to. null = no rule. */
+  promotes_to_status_code?: string | null;
+  /** Which config source matched: item schedule, unsplit item, or legacy plan. */
+  matched_source?: 'item_schedule' | 'item_single' | 'plan' | null;
+  /**
+   * The matched row's id. A fee-structure ITEM id for the two `item_*` sources,
+   * but a PLAN id for `plan` — writing the latter into
+   * billing_student_bills.fee_structure_item_id would violate its FK, so always
+   * discriminate on matched_source before using it.
+   */
+  matched_ref_id?: string | null;
 }
 
 /** Authoring shape of one plan line (mirrors billing_instalment_plan_lines). */
@@ -66,7 +90,30 @@ export interface ExpandableBillRow {
   final_amount?: number;
   balance_amount?: number;
   remarks?: string | null;
+  /** Set by the caller from fee_items; drives schedule lookup and status rules. */
+  fee_structure_item_id?: string | null;
   [key: string]: unknown;
+}
+
+/** One tranche to write to billing_bill_instalments once the bill has an id. */
+export interface PendingInstalment {
+  sequence_no: number;
+  amount: number;
+  due_date: string;
+  promotes_to_status_code: string | null;
+}
+
+/**
+ * A bill row plus the schedule that belongs INSIDE it.
+ *
+ * The tranches ride on the row rather than being returned separately because
+ * the caller inserts bills in a batch and needs to know which schedule belongs
+ * to which row without threading a parallel array through and hoping the
+ * indexes stay aligned. The key is `__` prefixed as a reminder that it is not a
+ * billing_student_bills column and must be stripped before the insert.
+ */
+export interface ScheduledBillRow extends ExpandableBillRow {
+  __instalments?: PendingInstalment[];
 }
 
 /** Minimal client surface the read path needs — keeps tests honest and free of
@@ -218,7 +265,13 @@ export function verifyInstalmentSplitRows(
   totalAmount: number,
   rows: InstalmentSplitRow[]
 ): boolean {
-  if (!Array.isArray(rows) || rows.length < 2) return false;
+  // Was `< 2`: before 2026-08-21 the engine only ever spoke about splits, so a
+  // single row could only be malformed output. It now also returns exactly one
+  // row to mean "unsplit, but here is the due date this fee structure
+  // configures" — rejecting that would silently discard the configured date and
+  // fall back to +30 days, which is the whole defect this feature removes.
+  // Every other invariant below holds identically for one row.
+  if (!Array.isArray(rows) || rows.length < 1) return false;
 
   let sumPaise = 0;
   for (let i = 0; i < rows.length; i++) {
@@ -246,13 +299,18 @@ export async function fetchInstalmentSplit(
   supabase: SupabaseRpcClient,
   learnerId: string,
   categoryId: string,
-  amount: number
+  amount: number,
+  feeStructureItemId?: string | null
 ): Promise<InstalmentSplitRow[] | null> {
   try {
     const { data, error } = await supabase.rpc('billing_get_instalment_split', {
       p_learner_id: learnerId,
       p_category_id: categoryId,
       p_amount: amount,
+      // Passing the item id skips the engine's 8-dimension re-match. Omitted for
+      // fee_items snapshots written before the id existed, where the engine
+      // falls back to admission_match_fee_structure_for_learner.
+      p_fee_structure_item_id: feeStructureItemId ?? null,
     });
     if (error) return null;
     const rows = (data ?? []) as InstalmentSplitRow[];
@@ -264,24 +322,42 @@ export async function fetchInstalmentSplit(
 }
 
 /**
- * Expands candidate bill rows through the instalment plans: a row whose
- * (learner, category) has an active matching plan becomes N rows — amounts
- * from the plan summing exactly to the original amount, each with its own due
- * date, otherwise identical. Rows with no plan (or no category, or any error)
- * pass through UNTOUCHED, so with zero plans configured the output array is
- * the input array, element for element.
+ * Attaches the fee-structure schedule to candidate bill rows.
+ *
+ * ONE ROW IN, ONE ROW OUT — always. This function used to EXPAND a scheduled
+ * fee into N sibling bills, which is why three fee items produced five bills.
+ * A fee split 30/40/30 is one debt of Rs 1,00,000 collectable in three
+ * tranches, not three debts; the tranches now ride on the row in
+ * `__instalments` and the caller writes them to billing_bill_instalments once
+ * the bill has an id.
+ *
+ * Three outcomes per row, matching the engine's contract:
+ *
+ *   engine returns 0 rows  → pass through UNTOUCHED (the caller's own due date
+ *                            stands). This is what every row does when nothing
+ *                            is configured, so the output is the input,
+ *                            element for element.
+ *   engine returns 1 row   → same single bill, on the due date the fee
+ *                            structure configures. No tranches: an unsplit fee
+ *                            is not a schedule.
+ *   engine returns N rows  → the same single bill for the FULL amount, dated
+ *                            at its earliest tranche, carrying N tranches.
+ *
+ * Because there is only ever one bill per fee, billing_categories
+ * .once_per_learner is satisfied naturally — the instalment_group_id machinery
+ * that existed to work around it is no longer used.
  */
-export async function expandBillsWithInstalmentPlans<T extends ExpandableBillRow>(
+export async function attachInstalmentSchedules<T extends ExpandableBillRow>(
   supabase: SupabaseRpcClient,
   learnerId: string,
   rows: T[]
-): Promise<T[]> {
-  const expanded: T[] = [];
+): Promise<Array<T & ScheduledBillRow>> {
+  const out: Array<T & ScheduledBillRow> = [];
 
   for (const row of rows) {
     const amount = Number(row.final_amount ?? 0);
     if (!row.item_category_id || !(amount > 0)) {
-      expanded.push(row);
+      out.push(row as T & ScheduledBillRow);
       continue;
     }
 
@@ -289,28 +365,56 @@ export async function expandBillsWithInstalmentPlans<T extends ExpandableBillRow
       supabase,
       learnerId,
       row.item_category_id,
-      amount
+      amount,
+      row.fee_structure_item_id ?? null
     );
-    if (!split) {
-      expanded.push(row);
+    if (!split || split.length === 0) {
+      out.push(row as T & ScheduledBillRow);
       continue;
     }
 
-    for (const part of split) {
-      expanded.push({
-        ...row,
-        bill_description: `${row.bill_description ?? 'Fee'} — Instalment ${part.instalment_no}/${part.instalment_count}`,
-        due_date: part.instalment_due_date,
-        unit_amount: part.instalment_amount,
-        total_amount: part.instalment_amount,
-        final_amount: part.instalment_amount,
-        balance_amount: part.instalment_amount,
-        remarks: `${row.remarks ?? ''} (instalment ${part.instalment_no}/${part.instalment_count} per instalment plan)`.trim(),
-      });
-    }
+    // Only the item_* sources carry a fee-structure ITEM id; `plan` carries a
+    // plan id, which would violate the FK on fee_structure_item_id.
+    const head = split[0];
+    const itemId =
+      head.matched_source === 'item_schedule' || head.matched_source === 'item_single'
+        ? (head.matched_ref_id ?? row.fee_structure_item_id ?? null)
+        : (row.fee_structure_item_id ?? null);
+
+    const isScheduled = split.length > 1;
+
+    // Earliest tranche, not split[0]: the engine orders by sequence_no, and a
+    // schedule may be authored out of chronological order. The bill's due_date
+    // means "when the next money is owed", so it has to be the earliest date.
+    const firstDue = isScheduled
+      ? split.reduce(
+          (min, p) => (p.instalment_due_date < min ? p.instalment_due_date : min),
+          split[0].instalment_due_date,
+        )
+      : head.instalment_due_date;
+
+    out.push({
+      ...row,
+      // The amount is untouched: the bill is still for the whole fee.
+      due_date: firstDue,
+      fee_structure_item_id: itemId,
+      remarks: isScheduled
+        ? `${row.remarks ?? ''} (${split.length} instalments per fee structure schedule)`.trim()
+        : (row.remarks ?? null),
+      ...(isScheduled
+        ? {
+            __instalments: split.map((p) => ({
+              sequence_no: p.instalment_no,
+              amount: p.instalment_amount,
+              due_date: p.instalment_due_date,
+              promotes_to_status_code: p.promotes_to_status_code ?? null,
+            })),
+          }
+        : {}),
+    } as T & ScheduledBillRow);
   }
 
-  return expanded;
+  return out;
 }
 
 // ─── Plan CRUD (admin surface — no UI yet; see PR body) ──────────────────────
