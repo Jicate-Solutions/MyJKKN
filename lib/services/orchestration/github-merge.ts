@@ -73,7 +73,7 @@ interface GitHubCheckRun {
  * guard fails closed, so a conclusion it cannot classify is never treated as
  * green.
  */
-const NON_BLOCKING_CONCLUSIONS: ReadonlySet<string> = new Set([
+export const NON_BLOCKING_CONCLUSIONS: ReadonlySet<string> = new Set([
   'success',
   'skipped',
   'neutral',
