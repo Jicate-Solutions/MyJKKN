@@ -9,7 +9,7 @@ import {
   FileText,
   TrendingUp,
   AlertCircle,
-  Receipt,
+  ReceiptIndianRupee,
   Percent,
   Download,
   Building2,
@@ -215,7 +215,7 @@ export function DashboardMetrics({
             <CardTitle className='text-sm font-medium'>
               Recent Receipts
             </CardTitle>
-            <Receipt className='h-4 w-4 text-muted-foreground' />
+            <ReceiptIndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold'>
@@ -360,7 +360,7 @@ export function DashboardMetrics({
                     className='flex items-center justify-between p-3 border rounded-lg'
                   >
                     <div className='flex items-center gap-3'>
-                      <Receipt className='h-4 w-4 text-muted-foreground' />
+                      <ReceiptIndianRupee className='h-4 w-4 text-muted-foreground' />
                       {/* The dashboard RPC's recent-receipts sub-select only
                           emits id, receipt_number, receipt_date,
                           payment_amount, payment_mode — no student name and

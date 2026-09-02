@@ -116,6 +116,10 @@ import { CustomRole } from '@/types/auth';
 // `super_admin` sentinel. permission-filter imports only a type from
 // ./navigation/types, so there is no import cycle back into this file.
 import { isSentinelPermission } from '@/lib/navigation/permission-filter';
+import {
+  INDUCTION_ONLY_NAV_HREFS,
+  INDUCTION_ONLY_NAV_REWRITES,
+} from '@/lib/constants/induction-access';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
 
 /**
@@ -3879,24 +3883,35 @@ export function isStudentPortalRoute(href: string): boolean {
   );
 }
 
-// Pre-onboarding (induction-only) learners may navigate to ONLY these two pages
-// (mirrors the proxy.ts whitelist). Second-stage filter applied AFTER
-// GetRoleBasedPages in the nav consumers (menu.tsx, bottom-navbar.tsx) so the
-// sidebar shows only what they can actually reach. The proxy is the real gate.
+// Pre-onboarding (induction-only) learners may navigate to ONLY the allowlisted
+// pages. Second-stage filter applied AFTER GetRoleBasedPages in the nav
+// consumers (menu.tsx, bottom-navbar.tsx) so the sidebar shows only what they
+// can actually reach. The proxy is the real gate; the href list is shared with
+// it (lib/constants/induction-access.ts) so the two can't drift.
 // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
-const INDUCTION_ONLY_NAV_HREFS = new Set<string>([
-  '/learners/my-induction',
-  '/learners/my-profile',
-]);
 
-/** Keep only the My Induction + My Profile menu entries; drop everything else. */
+/** Keep only the induction-only menu entries; drop everything else. */
 export function filterToInductionOnlyMenu(groups: MenuGroup[]): MenuGroup[] {
   return groups
     .map((group) => ({
       ...group,
       menus: group.menus
         .filter((menu) => INDUCTION_ONLY_NAV_HREFS.has(menu.href))
-        .map((menu) => ({ ...menu, submenus: [] })),
+        .map((menu) => {
+          // Accordion parents are retargeted at the one leaf these learners can
+          // actually use (see INDUCTION_ONLY_NAV_REWRITES); submenus always go,
+          // so the entry renders as a plain link.
+          const rewrite = INDUCTION_ONLY_NAV_REWRITES[menu.href];
+          return rewrite
+            ? {
+                ...menu,
+                href: rewrite.href,
+                label: rewrite.label,
+                noSubmenus: true,
+                submenus: [],
+              }
+            : { ...menu, submenus: [] };
+        }),
     }))
     .filter((group) => group.menus.length > 0);
 }
