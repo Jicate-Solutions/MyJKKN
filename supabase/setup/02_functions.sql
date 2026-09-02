@@ -57261,11 +57261,13 @@ SET search_path = public
 AS $$
 #variable_conflict use_column
 DECLARE
-  v_uid       uuid := auth.uid();
-  v_is_super  boolean;
-  v_is_admin  boolean;
-  v_org_ids   uuid[];
-  v_staff_ids uuid[];
+  v_uid                uuid := auth.uid();
+  v_is_super           boolean;
+  v_is_admin           boolean;
+  v_has_leave_perm     boolean;
+  v_org_ids            uuid[];
+  v_designated_org_ids uuid[];
+  v_staff_ids          uuid[];
 BEGIN
   -- No identity, no answer. Every branch below is keyed on v_uid, so a NULL
   -- would match nothing anyway — but returning here keeps the helper calls
@@ -57274,12 +57276,15 @@ BEGIN
     RETURN;
   END IF;
 
-  v_is_super  := COALESCE(public.is_super_admin(), false);
-  v_is_admin  := COALESCE(public.is_admin(), false);
-  -- Computed ONCE. Both are SECURITY DEFINER helpers keyed on auth.uid(); the
-  -- leave queue calls them per row, which is the cost this function avoids.
-  v_org_ids   := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
-  v_staff_ids := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+  v_is_super       := COALESCE(public.is_super_admin(), false);
+  v_is_admin       := COALESCE(public.is_admin(), false);
+  -- Computed ONCE. All are SECURITY DEFINER helpers keyed on auth.uid(); the
+  -- leave rule (fn_leave_step_admits) calls them per row, which is the cost
+  -- this function avoids. These four together are the inputs of that rule.
+  v_has_leave_perm     := COALESCE(public.user_has_permission('hr.leave.approve'), false);
+  v_org_ids            := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_designated_org_ids := COALESCE(public.fn_my_designated_hr_org_ids(), ARRAY[]::uuid[]);
+  v_staff_ids          := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
 
   RETURN QUERY
   WITH my_roles AS (
@@ -57303,13 +57308,14 @@ BEGIN
         ELSE 'you hold role ' || COALESCE(s.step ->> 'approver_role', '?')
       END                                                  AS detail,
       NULL::numeric                                        AS amount,
-      c.updated_at                                         AS waiting_since,
+      c.submitted_at                                       AS waiting_since,
       '/hr/recruitment/approvals'::text                    AS href
     FROM public.hr_recruitment_candidates c
     CROSS JOIN LATERAL (
       SELECT CASE
         WHEN jsonb_typeof(c.approval_chain) = 'array'
          AND jsonb_array_length(c.approval_chain) > 0
+         AND c.current_step >= 0
         THEN c.approval_chain -> c.current_step
       END AS step
     ) s
@@ -57349,6 +57355,7 @@ BEGIN
     CROSS JOIN LATERAL (
       SELECT CASE
         WHEN jsonb_typeof(r.flow_snapshot -> 'stages') = 'array'
+         AND r.current_stage_index >= 0
         THEN r.flow_snapshot -> 'stages' -> r.current_stage_index
       END AS stage
     ) s
@@ -57357,9 +57364,12 @@ BEGIN
       AND public.fn_refund_assignee_match(s.stage -> 'assignee_roles', s.stage -> 'assignee_users', v_uid)
   ),
 
-  -- 3. LEAVE — the designated-approver branch of hr_leave_my_approval_queue,
-  --    set-based: same inputs (fn_leave_step_approvers, fn_my_hr_organization_ids,
-  --    fn_my_staff_ids, active role_key match) evaluated once instead of per row.
+  -- 3. LEAVE — fn_leave_step_admits (20260831140000) minus its super-admin
+  --    "may act" clause, set-based: the same four inputs (hr.leave.approve,
+  --    fn_my_hr_organization_ids, fn_my_designated_hr_org_ids, fn_my_staff_ids)
+  --    evaluated once above instead of per row. The step is read through
+  --    fn_leave_step_approvers exactly as the rule does, so a legacy single
+  --    approver step and a multi-approver / ladder step resolve identically.
   leave AS (
     SELECT
       'leave'::text                                        AS source,
@@ -57369,16 +57379,8 @@ BEGIN
         || ' — ' || to_char(a.start_date::date, 'DD Mon')
         || ' to ' || to_char(a.end_date::date, 'DD Mon YYYY')    AS title,
       CASE
-        WHEN EXISTS (
-          SELECT 1 FROM public.fn_leave_step_approvers(s.step) e
-          WHERE e.approver_user_id = v_uid
-        ) THEN 'pinned to you by name'
-        ELSE 'you hold role ' || COALESCE((
-          SELECT string_agg(DISTINCT e.approver_role, '/')
-          FROM public.fn_leave_step_approvers(s.step) e
-          WHERE e.approver_role IS NOT NULL
-            AND e.approver_role IN (SELECT role_key FROM my_roles WHERE is_active)
-        ), '?')
+        WHEN m.pinned_to_me THEN 'pinned to you by name'
+        ELSE 'you hold role ' || m.my_step_roles
       END                                                  AS detail,
       NULL::numeric                                        AS amount,
       a.created_at                                         AS waiting_since,
@@ -57388,55 +57390,80 @@ BEGIN
     CROSS JOIN LATERAL (
       SELECT CASE
         WHEN jsonb_typeof(a.approval_chain) = 'array'
+         AND a.current_step >= 0
         THEN a.approval_chain -> a.current_step
       END AS step
     ) s
+    CROSS JOIN LATERAL (
+      -- One pass over the step's approver entries: am I named, and which of
+      -- the step's roles do I actively hold (fn_leave_step_admits: exact
+      -- role_key, cr.is_active).
+      SELECT
+        COALESCE(bool_or(e.approver_user_id = v_uid), false)           AS pinned_to_me,
+        string_agg(DISTINCT e.approver_role, '/')
+          FILTER (WHERE e.approver_role IS NOT NULL
+                    AND e.approver_role IN (SELECT role_key FROM my_roles WHERE is_active))
+                                                                        AS my_step_roles
+      FROM public.fn_leave_step_approvers(s.step) e
+    ) m
     WHERE a.status IN ('pending', 'escalated')
       AND s.step IS NOT NULL
-      AND a.hr_organization_id = ANY (v_org_ids)
       AND NOT (a.employee_id = ANY (v_staff_ids))
-      AND EXISTS (
-        SELECT 1
-        FROM public.fn_leave_step_approvers(s.step) e
-        WHERE e.approver_user_id = v_uid
-           OR (
-             e.approver_role IS NOT NULL
-             AND e.approver_role IN (SELECT role_key FROM my_roles WHERE is_active)
-           )
+      AND (
+        -- PINNED: an explicit naming, reachable from any institution.
+        m.pinned_to_me
+        OR (
+          -- ROLE: only inside institutions I genuinely reach (140000's rule,
+          -- without the is_super_admin() clause — see the header).
+          m.my_step_roles IS NOT NULL
+          AND (
+            (v_has_leave_perm AND a.hr_organization_id = ANY (v_org_ids))
+            OR a.hr_organization_id = ANY (v_designated_org_ids)
+          )
+        )
       )
   ),
 
-  -- 4. MEETING TRIGGER — /meetings/triggers gate + the console's DECIDABLE set.
+  -- 4. MEETING TRIGGER — /meetings/triggers gate + the console's DECIDABLE set,
+  --    restricted to rows decidable NOW (deadline passed, already explained, or
+  --    no deadline ever stamped). A broadcast: identical for every admin.
   meeting_trigger AS (
     SELECT
       'meeting_trigger'::text                              AS source,
       e.id                                                 AS item_id,
       e.metric_key || COALESCE(' — ' || e.subject_label, '') AS title,
-      'admin/super_admin gate'::text                       AS detail,
+      'admin/super_admin gate — shown to every admin'::text AS detail,
       NULL::numeric                                        AS amount,
-      e.explanation_deadline                               AS waiting_since,
+      COALESCE(e.explanation_deadline, e.created_at)       AS waiting_since,
       '/meetings/triggers'::text                           AS href
     FROM public.meeting_trigger_events e
     WHERE (v_is_super OR v_is_admin)
       AND e.director_decision IS NULL
-      AND e.explanation_deadline < now()
       AND e.status IN ('notified', 'explained', 'meeting_pending')
+      AND (
+        e.explanation_deadline IS NULL
+        OR e.explanation_deadline < now()
+        OR e.status = 'explained'
+      )
   ),
 
-  -- 5. GRIEVANCE — unassigned and live; super admin only (Director fallback).
+  -- 5. GRIEVANCE — unassigned and live, exactly as director-signals.ts reads it;
+  --    super admin only (Director fallback). A broadcast: identical for every
+  --    super admin.
   grievance AS (
     SELECT
       'grievance'::text                                    AS source,
       g.id                                                 AS item_id,
       g.ticket_number || ' — ' || g.subject                AS title,
-      'no assignee — Director fallback'::text              AS detail,
+      'no assignee — Director fallback, shown to every super admin'::text AS detail,
       NULL::numeric                                        AS amount,
       g.created_at                                         AS waiting_since,
       '/learners-council/issues'::text                     AS href
     FROM public.grievance_tickets g
     WHERE v_is_super
       AND g.assigned_to IS NULL
-      AND g.status IN ('open', 'in_progress')
+      AND g.resolved_at IS NULL
+      AND g.withdrawn_at IS NULL
   ),
 
   everything AS (
@@ -57453,7 +57480,9 @@ BEGIN
     x.detail,
     x.amount,
     x.waiting_since,
-    floor(extract(epoch FROM (now() - COALESCE(x.waiting_since, now()))) / 86400)::integer AS age_days,
+    -- Floored at 0: an 'explained' trigger whose deadline is still ahead is
+    -- decidable today, not in negative days.
+    GREATEST(0, floor(extract(epoch FROM (now() - COALESCE(x.waiting_since, now()))) / 86400))::integer AS age_days,
     x.href
   FROM everything x
   ORDER BY x.waiting_since ASC NULLS LAST, x.source, x.item_id
@@ -57462,7 +57491,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_my_desk_waiting() IS
-  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance; each branch mirrors its module page''s own queue rule (see the migration header of 20261018020000). Zero rows for a missing identity; never raises on a malformed approval_chain.';
+  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance; each branch mirrors its module page''s own queue rule (see the migration header of 20261018020000; leave follows fn_leave_step_admits as of 20260831140000, minus its super-admin may-act clause). Zero rows for a missing identity; never raises on a malformed approval_chain.';
 
 -- Lock from anon. Supabase's default privileges grant EXECUTE to anon
 -- directly, separate from PUBLIC, so both must be revoked (CLAUDE.md rule).
