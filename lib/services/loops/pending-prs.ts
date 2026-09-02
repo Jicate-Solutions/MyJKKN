@@ -27,6 +27,21 @@ import 'server-only';
 // Merge button would accept. A PR with CI still running, or with a red gate,
 // is NOT waiting on the Director yet; it is waiting on the build.
 //
+// A PR with ZERO check runs is NOT "waiting on the build" — nothing will ever
+// run. Workflows in this repo fire only on PRs into `main`, so a PR whose base
+// is a feature branch never gets a check run, and PRs opened while Actions
+// was dark (2026-08-22→25) never got one either. Measured 2026-09-02: 4 of
+// 30 open non-draft PRs, three of them security fixes 9 days old. Such a PR
+// is still his decision, so it is an aging row marked "no checks ran"
+// (`checks: 'none'`) — never dropped (reviewer B, reconcile round, obj. 1).
+//
+// Every open, non-draft PR lands in exactly ONE bucket, so the counts
+// reconcile against GitHub's open-PR list (obj. 5):
+//   prs (checks green|none, mergeable) · unverified · conflicted · red
+//   (a completed blocking gate — waiting on the build) · parked · unchecked.
+// Merge state is read for every PR that is not red, so a conflicted PR with
+// no checks (or unreadable checks) is counted as conflicted, not lost.
+//
 // Token / client shape: deliberately the same as the two existing GitHub
 // readers (github-merge.ts and app/api/cron/orchestration-sync/route.ts) —
 // plain fetch against api.github.com with a Bearer PAT from ORCH_GITHUB_TOKEN
@@ -51,6 +66,17 @@ import 'server-only';
 // module-level memo (per warm server instance, PENDING_PRS_TTL_MS) reuses one
 // read for 5 minutes — no table, no cron, no new mechanism. A stale-by-up-to-
 // 5-minutes answer is fine for a panel measured in days.
+//
+// Budget guard (obj. 4): every response's `x-ratelimit-remaining` is read;
+// below RATE_LIMIT_FLOOR the read stops issuing calls and comes back as
+// `{ ok: false }` naming the remaining budget, so a burst of cold panel loads
+// can never exhaust the PAT the sync cron and the merge guard depend on. A
+// 403 / 429 is reported as the same class of failure, explicitly.
+//
+// Deadline (obj. 2/3): one AbortController per read, TOTAL_DEADLINE_MS under
+// the page's `maxDuration` (60 s), raced to `{ ok: false, reason: 'GitHub
+// read timed out …' }` — so a slow GitHub renders an explicit line instead
+// of a Suspense fallback that never resolves.
 
 import { NON_BLOCKING_CONCLUSIONS } from '@/lib/services/orchestration/github-merge';
 
@@ -80,6 +106,19 @@ const GH_CONCURRENCY = 6;
  * over-stated, never hidden.
  */
 const MAX_TIMELINE_PAGES = 5;
+/**
+ * Overall deadline for one GitHub read. Same idiom as TOTAL_DEADLINE_MS in
+ * app/api/cdc/career-guidance/route.ts — kept under the page's
+ * `maxDuration = 60` (app/(routes)/admin/loops/page.tsx) with headroom for
+ * the rest of the render. Measured cold read 2026-09-02: 26 s.
+ */
+const TOTAL_DEADLINE_MS = 40_000;
+/**
+ * Stop issuing calls when the shared PAT's hourly budget drops below this.
+ * The orchestration-sync cron (22,52 * * * *) needs ~380 calls/hour and the
+ * merge guard a handful per merge; 1,000 keeps both alive through the hour.
+ */
+const RATE_LIMIT_FLOOR = 1_000;
 
 export interface PendingPr {
   number: number;
@@ -101,6 +140,13 @@ export interface PendingPr {
    * and the panel says so.
    */
   readySinceSource: 'ready_for_review' | 'created_at' | 'unverified';
+  /**
+   * 'green' — every head-commit check run completed and none blocks;
+   * 'none'  — the head commit has NO check runs at all (no workflow will
+   *           ever fire on it, e.g. base is a feature branch). Still his
+   *           decision; the row says "no checks ran".
+   */
+  checks: 'green' | 'none';
 }
 
 /** A PR whose checks or merge state could not be read — shown, never aged. */
@@ -115,12 +161,19 @@ export interface UnverifiedPr {
 export type PendingPrsResult =
   | {
       ok: true;
-      /** Green, non-conflicted, non-parked, non-draft — waiting on the Director. */
+      /**
+       * Mergeable, non-parked, non-draft, checks green OR none — waiting on
+       * the Director. Oldest wait first.
+       */
       prs: PendingPr[];
-      /** Green PRs whose checks/merge state could not be read (rule #27). */
+      /** PRs whose checks/merge state could not be read (rule #27). */
       unverified: UnverifiedPr[];
-      /** Green PRs GitHub reports as merge-conflicted — not waiting on him (P1). */
+      /** PRs GitHub reports as merge-conflicted — not waiting on him (P1). */
       conflicted: number;
+      /** PRs with a completed blocking gate — waiting on the build, not him. */
+      red: number;
+      /** Open non-draft PRs carrying the `parked` label (D1) — set aside. */
+      parked: number;
       /** Candidate PRs past MAX_PRS_CHECKED whose checks were NOT read. */
       unchecked: number;
     }
@@ -159,15 +212,54 @@ function ghHeaders(token: string): HeadersInit {
   };
 }
 
-async function fetchOpenPrList(token: string): Promise<GitHubPrListItem[]> {
-  const headers = ghHeaders(token);
+/**
+ * One read's shared state: the PAT headers, the deadline signal, and the
+ * rate budget seen so far. `stopReason` is set the moment a response shows
+ * the budget below RATE_LIMIT_FLOOR or a 403/429; every later ghFetch throws
+ * without issuing a call, and readPendingPrs turns it into `{ ok: false }`.
+ */
+interface GhContext {
+  headers: HeadersInit;
+  signal: AbortSignal;
+  /** Last `x-ratelimit-remaining` seen; null until the first response. */
+  remaining: number | null;
+  stopReason: string | null;
+}
+
+/** Thrown by ghFetch once the read must stop — never surfaces as a row. */
+class GhStopError extends Error {}
+
+/**
+ * The only way this file talks to GitHub: carries the abort signal, reads
+ * the rate budget off every response, and refuses to issue a call once the
+ * read has been told to stop (budget low, 403/429, or deadline).
+ */
+async function ghFetch(ctx: GhContext, url: string): Promise<Response> {
+  if (ctx.stopReason) throw new GhStopError(ctx.stopReason);
+  const res = await fetch(url, { headers: ctx.headers, cache: 'no-store', signal: ctx.signal });
+  const remainingHeader = res.headers.get('x-ratelimit-remaining');
+  const remaining = remainingHeader === null ? NaN : Number(remainingHeader);
+  if (Number.isFinite(remaining)) ctx.remaining = remaining;
+  if (res.status === 403 || res.status === 429) {
+    const seen = ctx.remaining === null ? '' : `, ${ctx.remaining} remaining`;
+    ctx.stopReason = `GitHub refused the read (HTTP ${res.status}${seen}) — rate limit or token scope; protecting the sync cron`;
+    throw new GhStopError(ctx.stopReason);
+  }
+  if (ctx.remaining !== null && ctx.remaining < RATE_LIMIT_FLOOR) {
+    ctx.stopReason = `GitHub rate budget low (${ctx.remaining} remaining) — protecting the sync cron`;
+    throw new GhStopError(ctx.stopReason);
+  }
+  return res;
+}
+
+async function fetchOpenPrList(ctx: GhContext): Promise<GitHubPrListItem[]> {
   const out: GitHubPrListItem[] = [];
   let page = 1;
   // Same 10-page safety cap as the sync cron.
   while (page <= 10) {
-    const res = await fetch(
+    const res = await ghFetch(
+      ctx,
       `${GITHUB_API}/repos/${REPO_OWNER}/${REPO_NAME}/pulls?state=open&per_page=100&page=${page}&sort=created&direction=asc`,
-      { headers, cache: 'no-store' },
     );
     if (!res.ok) {
       throw new Error(`GitHub pulls list failed: HTTP ${res.status}`);
@@ -184,17 +276,21 @@ function isParked(pr: GitHubPrListItem): boolean {
   return (pr.labels ?? []).some((l) => l?.name === PARKED_LABEL);
 }
 
+type ChecksState = 'green' | 'red' | 'none';
+
 /**
- * Reads the head commit's check runs and says whether they are all green.
- * Any failure to read → `null` ("cannot verify"). The caller never treats
- * null as green AND never drops the PR for it — it becomes a visible
- * "checks could not be verified" row (rule #27).
+ * Reads the head commit's check runs: 'green' (all completed, none blocking),
+ * 'red' (still running or a blocking conclusion — waiting on the build),
+ * 'none' (no check run exists — no workflow fires on this PR, so it will
+ * never become green or red; still his decision). Any failure to read →
+ * `null` ("cannot verify"), which the caller never treats as green AND never
+ * drops — it becomes a visible "checks could not be verified" row (rule #27).
  */
-async function checksAreGreen(headers: HeadersInit, sha: string): Promise<boolean | null> {
+async function checksState(ctx: GhContext, sha: string): Promise<ChecksState | null> {
   try {
-    const res = await fetch(
+    const res = await ghFetch(
+      ctx,
       `${GITHUB_API}/repos/${REPO_OWNER}/${REPO_NAME}/commits/${sha}/check-runs?per_page=100`,
-      { headers, cache: 'no-store' },
     );
     if (!res.ok) return null;
     const json = (await res.json()) as {
@@ -203,13 +299,14 @@ async function checksAreGreen(headers: HeadersInit, sha: string): Promise<boolea
     };
     const runs = Array.isArray(json.check_runs) ? json.check_runs : null;
     if (!runs) return null;
-    // Zero runs = CI has not started (this repo runs ~26 gates on every PR).
-    if (runs.length === 0) return false;
+    if (runs.length === 0) return 'none';
     // Short page = cannot verify.
     if (typeof json.total_count === 'number' && json.total_count > runs.length) return null;
     return runs.every(
       (r) => r.status === 'completed' && NON_BLOCKING_CONCLUSIONS.has(String(r.conclusion)),
-    );
+    )
+      ? 'green'
+      : 'red';
   } catch {
     return null;
   }
@@ -222,14 +319,11 @@ async function checksAreGreen(headers: HeadersInit, sha: string): Promise<boolea
  * computing (`mergeable: null`) — treated as "cannot verify", never as clear.
  */
 async function mergeState(
-  headers: HeadersInit,
+  ctx: GhContext,
   number: number,
 ): Promise<'conflicted' | 'clear' | null> {
   try {
-    const res = await fetch(`${GITHUB_API}/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${number}`, {
-      headers,
-      cache: 'no-store',
-    });
+    const res = await ghFetch(ctx, `${GITHUB_API}/repos/${REPO_OWNER}/${REPO_NAME}/pulls/${number}`);
     if (!res.ok) return null;
     const json = (await res.json()) as GitHubPrDetail;
     if (json.mergeable === false || json.mergeable_state === 'dirty') return 'conflicted';
@@ -245,14 +339,14 @@ async function mergeState(
  * ISO timestamp, `'none'` when the timeline was read and holds no flip (the
  * PR was never a draft), or null when the timeline could not be read.
  */
-async function readyForReviewAt(headers: HeadersInit, number: number): Promise<string | 'none' | null> {
+async function readyForReviewAt(ctx: GhContext, number: number): Promise<string | 'none' | null> {
   try {
     let latest: string | null = null;
     let page = 1;
     while (page <= MAX_TIMELINE_PAGES) {
-      const res = await fetch(
+      const res = await ghFetch(
+        ctx,
         `${GITHUB_API}/repos/${REPO_OWNER}/${REPO_NAME}/issues/${number}/timeline?per_page=100&page=${page}`,
-        { headers, cache: 'no-store' },
       );
       if (!res.ok) return null;
       const events = (await res.json()) as GitHubTimelineEvent[];
@@ -293,55 +387,77 @@ type PrVerdict =
   | { kind: 'ready'; pr: PendingPr }
   | { kind: 'unverified'; pr: UnverifiedPr }
   | { kind: 'conflicted' }
-  | { kind: 'not-ready' };
+  | { kind: 'red' };
 
-/** One PR's full verdict — calls are gated so a red PR costs one request. */
-async function judgePr(headers: HeadersInit, pr: GitHubPrListItem): Promise<PrVerdict> {
+/**
+ * One PR's full verdict. Exactly one bucket per PR (obj. 5): a red PR costs
+ * one request and stops there (it is waiting on the build); everything else
+ * — green, no checks, OR unreadable checks — goes on to merge state, so a
+ * conflicted PR is counted as conflicted whatever its checks say.
+ */
+async function judgePr(ctx: GhContext, pr: GitHubPrListItem): Promise<PrVerdict> {
   const base = { number: pr.number, title: pr.title ?? '', url: pr.html_url };
 
-  const green = pr.head?.sha ? await checksAreGreen(headers, pr.head.sha) : null;
-  if (green === null) {
+  const checks = pr.head?.sha ? await checksState(ctx, pr.head.sha) : null;
+  if (checks === 'red') return { kind: 'red' };
+
+  const merge = await mergeState(ctx, pr.number);
+  if (merge === 'conflicted') return { kind: 'conflicted' };
+  if (merge === null) {
+    const reason =
+      checks === null
+        ? 'checks and merge state could not be verified'
+        : 'merge state could not be verified';
+    return { kind: 'unverified', pr: { ...base, reason } };
+  }
+  if (checks === null) {
     return { kind: 'unverified', pr: { ...base, reason: 'checks could not be verified' } };
   }
-  if (green === false) return { kind: 'not-ready' };
 
-  const merge = await mergeState(headers, pr.number);
-  if (merge === null) {
-    return { kind: 'unverified', pr: { ...base, reason: 'merge state could not be verified' } };
-  }
-  if (merge === 'conflicted') return { kind: 'conflicted' };
-
-  const ready = await readyForReviewAt(headers, pr.number);
+  const ready = await readyForReviewAt(ctx, pr.number);
   const readySince = ready === null || ready === 'none' ? pr.created_at : ready;
   const readySinceSource: PendingPr['readySinceSource'] =
     ready === null ? 'unverified' : ready === 'none' ? 'created_at' : 'ready_for_review';
   return {
     kind: 'ready',
-    pr: { ...base, createdAt: pr.created_at, readySince, readySinceSource },
+    pr: { ...base, createdAt: pr.created_at, readySince, readySinceSource, checks },
   };
 }
 
-async function readPendingPrs(token: string): Promise<Extract<PendingPrsResult, { ok: true }>> {
-  const listed = await fetchOpenPrList(token);
-  // D1: non-draft and not carrying the `parked` label.
-  const candidates = listed.filter((pr) => !pr.draft && !isParked(pr));
+async function readPendingPrs(ctx: GhContext): Promise<PendingPrsResult> {
+  const listed = await fetchOpenPrList(ctx);
+  const nonDraft = listed.filter((pr) => !pr.draft);
+  // D1: not carrying the `parked` label.
+  const candidates = nonDraft.filter((pr) => !isParked(pr));
   const checked = candidates.slice(0, MAX_PRS_CHECKED);
-  const headers = ghHeaders(token);
 
-  const verdicts = await mapWithConcurrency(checked, GH_CONCURRENCY, (pr) => judgePr(headers, pr));
+  const verdicts = await mapWithConcurrency(checked, GH_CONCURRENCY, (pr) => judgePr(ctx, pr));
+  // A budget stop mid-fan-out leaves every later PR "unverified" for a
+  // reason that is not about that PR — report the stop itself instead.
+  if (ctx.stopReason) return { ok: false, reason: ctx.stopReason };
 
   const prs: PendingPr[] = [];
   const unverified: UnverifiedPr[] = [];
   let conflicted = 0;
+  let red = 0;
   for (const v of verdicts) {
     if (v.kind === 'ready') prs.push(v.pr);
     else if (v.kind === 'unverified') unverified.push(v.pr);
     else if (v.kind === 'conflicted') conflicted += 1;
+    else red += 1;
   }
   // Longest wait first, by the D3 clock (the list came created-ascending).
   prs.sort((a, b) => new Date(a.readySince).getTime() - new Date(b.readySince).getTime());
 
-  return { ok: true, prs, unverified, conflicted, unchecked: candidates.length - checked.length };
+  return {
+    ok: true,
+    prs,
+    unverified,
+    conflicted,
+    red,
+    parked: nonDraft.length - candidates.length,
+    unchecked: candidates.length - checked.length,
+  };
 }
 
 // ── In-process memo ──────────────────────────────────────────────────────────
@@ -368,20 +484,51 @@ export async function loadPendingPrs(now: number = Date.now()): Promise<PendingP
   }
 
   if (inflight) return inflight;
-  inflight = readPendingPrs(token)
-    .then(
-      (result): PendingPrsResult => result,
-      (err): PendingPrsResult => ({
-        ok: false,
-        reason: err instanceof Error ? err.message : 'GitHub read failed',
-      }),
-    )
-    .then((result) => {
-      // Failures are memoised too: a GitHub outage shows as a notice for up
-      // to one TTL rather than hammering a failing API on every load.
-      memo = { at: now, result };
-      inflight = null;
-      return result;
-    });
+  inflight = readWithDeadline(token).then((result) => {
+    // Failures are memoised too: a GitHub outage, a timeout or a low budget
+    // shows as a notice for up to one TTL rather than hammering a failing
+    // (or nearly exhausted) API on every load.
+    memo = { at: now, result };
+    inflight = null;
+    return result;
+  });
   return inflight;
+}
+
+/**
+ * The read raced against TOTAL_DEADLINE_MS. On the deadline every in-flight
+ * fetch is aborted (one controller per read) and the answer is an explicit
+ * `{ ok: false, reason: 'GitHub read timed out …' }` — the panel renders a
+ * line, not a Suspense fallback that never resolves (obj. 2/3). Never
+ * rejects: every failure is an `{ ok: false, reason }`.
+ */
+function readWithDeadline(token: string): Promise<PendingPrsResult> {
+  const controller = new AbortController();
+  const ctx: GhContext = {
+    headers: ghHeaders(token),
+    signal: controller.signal,
+    remaining: null,
+    stopReason: null,
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<PendingPrsResult>((resolve) => {
+    timer = setTimeout(() => {
+      const reason = `GitHub read timed out after ${TOTAL_DEADLINE_MS / 1000}s`;
+      ctx.stopReason = reason;
+      controller.abort();
+      resolve({ ok: false, reason });
+    }, TOTAL_DEADLINE_MS);
+  });
+  const read = readPendingPrs(ctx).then(
+    (result) => result,
+    (err): PendingPrsResult => ({
+      ok: false,
+      // A stop raised inside the list read carries its own reason (budget
+      // low / 403 / 429); anything else is the plain failure message.
+      reason: err instanceof Error ? err.message : 'GitHub read failed',
+    }),
+  );
+  return Promise.race([read, deadline]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }

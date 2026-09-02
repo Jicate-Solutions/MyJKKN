@@ -27,9 +27,15 @@
 // is its own async server component, <BuildsWaitingForMerge/>, streamed in
 // under a <Suspense> boundary BELOW the decision rows — it can never bury a
 // promotion or a charter review (P4). It reads lib/services/loops/pending-prs.ts:
-// open, non-draft, green, not `parked`, not merge-conflicted, aged from the
-// ready-for-review flip. When GitHub cannot be read the block says so in one
-// explicit line — never a silent empty (rule #27).
+// open, non-draft, green OR with no checks at all, not `parked`, not
+// merge-conflicted, aged from the ready-for-review flip. A PR with no check
+// runs (base is a feature branch, or opened while Actions was dark) is still
+// his decision — it ages like the rest and its subtitle says "no checks ran"
+// (reconcile round, obj. 1). When GitHub cannot be read — or times out, or
+// the shared rate budget is low — the block says so in one explicit line;
+// never a silent empty, never a fallback that stays forever (rule #27).
+// Phone-first: at most BUILD_ROWS rows render; the rest is one counted link
+// to GitHub, mirroring the "not checked" overflow notice.
 // ============================================================================
 
 import { Suspense } from 'react';
@@ -197,6 +203,14 @@ function AgedRow({
 
 const PULLS_URL = 'https://github.com/Jicate-Solutions/MyJKKN/pulls';
 const BUILDS_SOURCE_LABEL = 'Builds ready to merge';
+/** Every open non-draft PR minus the ones he set aside — the same list, on GitHub. */
+const PULLS_OPEN_URL = `${PULLS_URL}?q=is%3Apr+is%3Aopen+draft%3Afalse+-label%3A${PARKED_LABEL}`;
+/**
+ * Rows rendered before the list folds into one "N more" link. Measured
+ * 2026-09-02: ~40 mergeable PRs — a phone screen of the oldest waits is the
+ * useful part; the overdue chip above still counts every one of them.
+ */
+const BUILD_ROWS = 12;
 
 /**
  * The builds block — an async server component so the GitHub read streams in
@@ -223,6 +237,9 @@ async function BuildsWaitingForMerge() {
   }
 
   const overdue = res.prs.filter((pr) => ageDays(pr.readySince) > STUCK_DAYS).length;
+  const noChecks = res.prs.filter((pr) => pr.checks === 'none').length;
+  const shown = res.prs.slice(0, BUILD_ROWS);
+  const folded = res.prs.length - shown.length;
 
   return (
     <div className="border-t border-border">
@@ -240,6 +257,13 @@ async function BuildsWaitingForMerge() {
                 past {STUCK_DAYS}d <span className="tabular-nums">{overdue}</span>
               </span>
             )}
+            {/* Obj. 1: a build nothing will ever check is still counted, and
+                named as such, so the number above never hides it. */}
+            {noChecks > 0 && (
+              <span className={`${CHIP_CLS} ${AGE_CLS.amber}`}>
+                no checks <span className="tabular-nums">{noChecks}</span>
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -250,20 +274,38 @@ async function BuildsWaitingForMerge() {
         </div>
       ) : (
         <ul className="flex flex-col divide-y divide-border/60">
-          {res.prs.map((pr) => (
+          {shown.map((pr) => (
             <li key={`ready-prs:${pr.number}`}>
               <AgedRow
                 href={pr.url}
                 label={`#${pr.number} ${pr.title}`}
-                subtitle={
+                subtitle={[
                   pr.readySinceSource === 'unverified'
                     ? `open since ${pr.readySince.slice(0, 10)} · ready date could not be verified`
-                    : `ready since ${pr.readySince.slice(0, 10)}`
-                }
+                    : `ready since ${pr.readySince.slice(0, 10)}`,
+                  // Obj. 1: no workflow fires on this PR — say so on the row
+                  // rather than let "ready" imply a green gate.
+                  pr.checks === 'none' ? 'no checks ran' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
                 waitingSince={pr.readySince}
               />
             </li>
           ))}
+          {/* Note 6: past BUILD_ROWS the list folds into one counted link —
+              the oldest waits stay on screen, the rest is one tap away. */}
+          {folded > 0 && (
+            <li key="ready-prs:folded">
+              <Link
+                href={PULLS_OPEN_URL}
+                className="block px-4 py-2 text-xs text-muted-foreground hover:underline"
+              >
+                <span className="tabular-nums">{folded}</span> more builds are waiting — see
+                all on GitHub
+              </Link>
+            </li>
+          )}
           {/* P2 / rule #27: an unreadable check-runs or merge-state response
               is a visible row, never a deletion. No age chip — nothing is
               known to be waiting on him yet. */}
@@ -302,10 +344,7 @@ async function BuildsWaitingForMerge() {
           {/* Past the reader's cap: say how many newest builds were not
               checked rather than let them vanish. */}
           {res.unchecked > 0 && (
-            <Link
-              href={`${PULLS_URL}?q=is%3Apr+is%3Aopen+draft%3Afalse+-label%3A${PARKED_LABEL}`}
-              className="hover:underline"
-            >
+            <Link href={PULLS_OPEN_URL} className="hover:underline">
               <span className="tabular-nums">{res.unchecked}</span> newer open builds were not
               checked this load — open GitHub to see them
             </Link>
