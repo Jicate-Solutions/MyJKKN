@@ -280,6 +280,29 @@ const config: ModuleNavConfig = {
           matchPaths: ['/hr/payroll/salaries'],
         },
         {
+          // THE FOURTH TIME THIS GROUP LEARNED THE SAME LESSON (2026-09-02).
+          // Shipped with a MENU_PERMISSIONS entry, a GetPages submenu row and a
+          // route-manifest row -- and no chip, because hasNavConfig makes
+          // AutoTabNav render only what is declared in this file.
+          //
+          // check:reachability did NOT catch it, and cannot: it SEEDS its BFS
+          // from every literal href in lib/sidebarMenuLink.ts, so adding the
+          // sidebar row made this route a seed and therefore reachable by
+          // definition. The gate passing is not evidence of a chip.
+          //
+          // Directly after Employee Salaries because the bands are configuration
+          // FOR that screen -- its TDS column is derived from them rather than
+          // stored per person -- and because Salary Register has to stay last.
+          //
+          // Gated on hr.payroll.salary.view via MENU_PERMISSIONS[href], the same
+          // key as Employee Salaries: setting the rate and seeing what people
+          // earn are one decision by one person (hr_head, plus super admin).
+          label: 'TDS Bands',
+          icon: 'Percent',
+          href: '/hr/payroll/tds-slabs',
+          matchPaths: ['/hr/payroll/tds-slabs'],
+        },
+        {
           // Third payroll chip. Added in the SAME change as the route this
           // time: hasNavConfig means AutoTabNav renders only what is declared
           // here, so a MENU_PERMISSIONS entry and a GetPages leaf alone give a

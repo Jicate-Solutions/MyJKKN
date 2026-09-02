@@ -146,13 +146,12 @@ describe('salary register workbook', () => {
   });
 
   /**
-   * COLUMNS A-P STILL MATCH THE HAND-KEPT FILE. Everything up to and including
-   * Unpaid Leave keeps its original letter.
+   * COLUMNS A-O STILL MATCH THE HAND-KEPT FILE, through Basic Pay.
    *
-   * PAST P, THE LETTERS MOVED ON 2026-09-01. EPF and ESI were inserted at Q and
-   * R, pushing the three summary columns and the two appended ones two places
-   * right. That is deliberate: a deduction printed AFTER Net Pay reads as an
-   * afterthought, and the register is meant to show how the net was arrived at.
+   * PAST O THE LETTERS HAVE MOVED TWICE: EPF and ESI went in on 2026-09-01,
+   * then Allowance and TDS on 2026-09-02. That is deliberate — a deduction
+   * printed AFTER Net Pay reads as an afterthought, and the register is meant to
+   * show how the net was arrived at.
    *
    * Nothing reads the register sheet by letter — the only cell formulas in the
    * workbook are on the BANK STATEMENT and PAYER SPLIT sheets, which have their
@@ -160,7 +159,31 @@ describe('salary register workbook', () => {
    * REGISTER_HEADERS rather than hardcoded, precisely so this move could not
    * mis-format a column silently.
    */
-  it('keeps columns A-P exactly as the hand-kept file has them', async () => {
+  /**
+   * THE WHOLE HEADER, PINNED IN ORDER.
+   *
+   * The per-letter assertions below are the contract finance reads; this one is
+   * the diff a developer needs. Inserting a column used to fail four or five
+   * cell-letter checks at once with messages like "expected 'Allowance' to be
+   * 'Unpaid Leave'", which say nothing about what actually changed. One failing
+   * array comparison says everything.
+   */
+  it('ships exactly these columns, in this order', async () => {
+    const wb = await build();
+    const reg = wb.getWorksheet('Salary Register')!;
+    // ExcelJS row.values is 1-based with a leading hole.
+    const header = (reg.getRow(3).values as unknown[]).slice(1);
+    expect(header).toEqual([
+      'S.No', 'Employee Id', 'Employee Name', 'Designation', 'Department',
+      'Date Of Join', 'Bank Account Number', 'Business Working Days',
+      'Paid Leave Days', 'Unpaid Leave Days', 'On Duty Days', 'Worked Days',
+      'Paid Days', 'Actual Gross Salary', 'Basic Pay', 'Allowance',
+      'Unpaid Leave', 'EPF', 'ESI', 'TDS',
+      'Total Earnings', 'Total Deductions', 'Net Pay', 'Paid By', 'Remarks',
+    ]);
+  });
+
+  it('keeps columns A-O exactly as the hand-kept file has them', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
     expect(reg.getCell('A3').value).toBe('S.No');
@@ -168,25 +191,27 @@ describe('salary register workbook', () => {
     expect(reg.getCell('H3').value).toBe('Business Working Days');
     expect(reg.getCell('N3').value).toBe('Actual Gross Salary');
     expect(reg.getCell('O3').value).toBe('Basic Pay');
-    expect(reg.getCell('P3').value).toBe('Unpaid Leave');
   });
 
-  it('breaks the statutory deductions out between Unpaid Leave and the totals', async () => {
+  it('breaks earnings and deductions out between Basic Pay and the totals', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
-    expect(reg.getCell('Q3').value).toBe('EPF');
-    expect(reg.getCell('R3').value).toBe('ESI');
-    expect(reg.getCell('S3').value).toBe('Total Earnings');
-    expect(reg.getCell('T3').value).toBe('Total Deductions');
-    expect(reg.getCell('U3').value).toBe('Net Pay');
+    expect(reg.getCell('P3').value).toBe('Allowance');
+    expect(reg.getCell('Q3').value).toBe('Unpaid Leave');
+    expect(reg.getCell('R3').value).toBe('EPF');
+    expect(reg.getCell('S3').value).toBe('ESI');
+    expect(reg.getCell('T3').value).toBe('TDS');
+    expect(reg.getCell('U3').value).toBe('Total Earnings');
+    expect(reg.getCell('V3').value).toBe('Total Deductions');
+    expect(reg.getCell('W3').value).toBe('Net Pay');
   });
 
   it('appends Paid By and Remarks after Net Pay', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
     // Both are additions to the hand-kept layout, placed after the money block.
-    expect(reg.getCell('V3').value).toBe('Paid By');
-    expect(reg.getCell('W3').value).toBe('Remarks');
+    expect(reg.getCell('X3').value).toBe('Paid By');
+    expect(reg.getCell('Y3').value).toBe('Remarks');
   });
 
   it('writes only payable rows to the register, renumbered from 1', async () => {
@@ -215,8 +240,8 @@ describe('salary register workbook', () => {
   it('leaves the deduction cell blank rather than writing 0', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
-    expect(reg.getCell('P4').value).toBeNull();
-    expect(reg.getCell('P5').value).toBe(1363.64);
+    expect(reg.getCell('Q4').value).toBeNull();
+    expect(reg.getCell('Q5').value).toBe(1363.64);
   });
 
   it('satisfies the register identities on every payable row', async () => {
@@ -353,8 +378,8 @@ describe('salary register workbook — the Main Office case', () => {
 
   it('prints the payer on each register row', async () => {
     const reg = (await buildMixed()).getWorksheet('Salary Register')!;
-    expect(reg.getCell('V4').value).toBe('JKKN College of Pharmacy');
+    expect(reg.getCell('X4').value).toBe('JKKN College of Pharmacy');
     // Blank, not "Unknown" — a data gap someone can go and fill.
-    expect(reg.getCell('V7').value).toBe('');
+    expect(reg.getCell('X7').value).toBe('');
   });
 });

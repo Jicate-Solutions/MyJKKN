@@ -49,6 +49,11 @@ export const SALARY_TEMPLATE_COLUMNS = [
   'Eligible_For_Insurance',
   'Eligible_For_Gratuity',
   'Eligible_For_ETF',
+  // User data, so it round-trips. TDS is deliberately absent: it is derived
+  // from the bands, and a column in a bulk-EDIT sheet that silently refuses to
+  // import is worse than no column at all.
+  'Allowance_Amount',
+  'Allowance_Label',
   'Effective_Date',
 ] as const;
 
@@ -73,6 +78,8 @@ export const SALARY_TEMPLATE_LABELS: Record<(typeof SALARY_TEMPLATE_COLUMNS)[num
   Eligible_For_Insurance: 'Eligible For Insurance',
   Eligible_For_Gratuity: 'Eligible For Gratuity',
   Eligible_For_ETF: 'Eligible For ETF',
+  Allowance_Amount: 'Allowance Amount',
+  Allowance_Label: 'Allowance For',
   Effective_Date: 'Effective Date',
 };
 
@@ -97,6 +104,8 @@ export interface ParsedSalaryRow {
   eligible_for_insurance: boolean;
   eligible_for_gratuity: boolean;
   eligible_for_etf: boolean;
+  allowance_amount: number | null;
+  allowance_label: string | null;
   /** 'yyyy-MM-dd', or null when the cell is blank — which it is on every row today. */
   effective_from: string | null;
 }
@@ -234,6 +243,8 @@ export function parseSalarySheet(data: Uint8Array): ParsedSalarySheet {
       eligible_for_insurance: toBool(cell(r, 'Eligible_For_Insurance')),
       eligible_for_gratuity: toBool(cell(r, 'Eligible_For_Gratuity')),
       eligible_for_etf: toBool(cell(r, 'Eligible_For_ETF')),
+      allowance_amount: toNumber(cell(r, 'Allowance_Amount')),
+      allowance_label: String(cell(r, 'Allowance_Label') ?? '').trim() || null,
       effective_from: toISODate(cell(r, 'Effective_Date')),
     });
   }

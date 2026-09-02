@@ -49,6 +49,8 @@ function row(o: Partial<StaffSalaryDirectoryRow> = {}): StaffSalaryDirectoryRow 
     epf_amount: 0,
     eligible_for_esi: false,
     esi_amount: 0,
+    allowance_amount: 0,
+    allowance_label: null,
     effective_from: '2026-08-01',
     notes: null,
     ...o,
@@ -133,11 +135,38 @@ describe('salary template round trip', () => {
     expect(r.effective_from).toBe('2026-04-01');
   });
 
+  it('preserves the allowance and its label', () => {
+    const [r] = roundTrip([
+      row({ allowance_amount: 3000, allowance_label: 'Conveyance' }),
+    ]).rows;
+
+    expect(r.allowance_amount).toBe(3000);
+    expect(r.allowance_label).toBe('Conveyance');
+  });
+
+  it('writes a BLANK allowance, not a zero, when there is none', () => {
+    const [r] = roundTrip([row({ allowance_amount: 0, allowance_label: null })]).rows;
+
+    expect(r.allowance_amount).toBeNull();
+    expect(r.allowance_label).toBeNull();
+  });
+
   it('ships every declared column in the header the parser reads', () => {
     // Guards the drift this whole file exists for: a column declared in the
     // parser but never populated by the exporter, or vice versa.
-    for (const col of ['EPF_Amount', 'Eligible_For_ESI', 'ESI_Amount']) {
+    for (const col of [
+      'EPF_Amount', 'Eligible_For_ESI', 'ESI_Amount',
+      'Allowance_Amount', 'Allowance_Label',
+    ]) {
       expect(SALARY_TEMPLATE_COLUMNS).toContain(col);
     }
+  });
+
+  /**
+   * TDS IS DELIBERATELY ABSENT. It is derived from the bands, so a column in a
+   * bulk-EDIT sheet that silently refuses to import would be worse than none.
+   */
+  it('does not ship a TDS column', () => {
+    expect(SALARY_TEMPLATE_COLUMNS.some((c) => c.toUpperCase().includes('TDS'))).toBe(false);
   });
 });

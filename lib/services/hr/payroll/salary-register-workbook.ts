@@ -14,10 +14,14 @@
  *   Sheet "Excluded Staff"  — only when somebody was left out, naming who and why.
  *
  * THREE DELIBERATE DEPARTURES FROM THE HAND-KEPT FILE:
- *   - Column T carries "Paid By" and column U "Remarks". The register is grouped
- *     by WORK location, so a row's payer may be another institution entirely —
- *     at Main Office every one of the 121 is. Both sit after Net Pay so columns
- *     A–S stay exactly where the hand-kept file puts them.
+ *   - "Paid By" and "Remarks" are appended after Net Pay. The register is
+ *     grouped by WORK location, so a row's payer may be another institution
+ *     entirely — at Main Office every one of the 121 is.
+ *   - Allowance, EPF, ESI and TDS were added inside the money block in
+ *     2026-09, so columns past Basic Pay no longer carry the letters the
+ *     hand-kept file gives them. Nothing reads this sheet by letter: the number
+ *     formats, the title merge and the tests all derive their positions from
+ *     REGISTER_HEADERS, which is what makes an insertion safe.
  *   - The original leaves the remarks header blank, which reads as an empty
  *     column until you find text in it eight rows down.
  *   - Account numbers are written as TEXT, not numbers. Excel drops leading
@@ -40,8 +44,8 @@ const REGISTER_HEADERS = [
   'S.No', 'Employee Id', 'Employee Name', 'Designation', 'Department',
   'Date Of Join', 'Bank Account Number', 'Business Working Days',
   'Paid Leave Days', 'Unpaid Leave Days', 'On Duty Days', 'Worked Days',
-  'Paid Days', 'Actual Gross Salary', 'Basic Pay', 'Unpaid Leave',
-  'EPF', 'ESI',
+  'Paid Days', 'Actual Gross Salary', 'Basic Pay', 'Allowance', 'Unpaid Leave',
+  'EPF', 'ESI', 'TDS',
   'Total Earnings', 'Total Deductions', 'Net Pay', 'Paid By', 'Remarks',
 ];
 
@@ -52,7 +56,7 @@ const REGISTER_HEADERS = [
  * above without a width inserted here shifts every remaining column's width by
  * one, which reads as a formatting glitch rather than the off-by-one it is.
  */
-const REGISTER_WIDTHS = [7, 10.6, 21.1, 12.7, 21.9, 14.4, 15.9, 12.7, 12, 13, 11, 11, 10, 15, 11, 12, 10, 10, 13, 14, 11, 28, 34];
+const REGISTER_WIDTHS = [7, 10.6, 21.1, 12.7, 21.9, 14.4, 15.9, 12.7, 12, 13, 11, 11, 10, 15, 11, 11, 12, 10, 10, 10, 13, 14, 11, 28, 34];
 
 /** DD/MM/YYYY — the format the hand-kept register uses. */
 function formatDMY(iso: string | null): string {
@@ -119,10 +123,16 @@ export async function buildSalaryRegisterWorkbook(
   const reg = wb.addWorksheet('Salary Register');
   REGISTER_WIDTHS.forEach((w, i) => { reg.getColumn(i + 1).width = w; });
 
-  // Merged across A:S, leaving T outside — as in the hand-kept file, where the
-  // remarks column sits apart from the titled body.
-  titleRow(reg, 1, 'S', heading, 14);
-  titleRow(reg, 2, 'S', subheading, 12);
+  // Merged from A through Net Pay, leaving Paid By and Remarks outside — as in
+  // the hand-kept file, where the remarks column sits apart from the titled body.
+  //
+  // DERIVED, not the literal 'S' it used to be. That letter was correct only
+  // while Net Pay happened to be the 19th column; after the EPF/ESI/TDS and
+  // allowance insertions it pointed at Total Earnings, so the title silently
+  // stopped three columns short of the table it titles.
+  const titleLastCol = reg.getColumn(REGISTER_HEADERS.indexOf('Net Pay') + 1).letter;
+  titleRow(reg, 1, titleLastCol, heading, 14);
+  titleRow(reg, 2, titleLastCol, subheading, 12);
 
   reg.addRow(REGISTER_HEADERS);
   styleHeaderRow(reg.getRow(3));
@@ -149,11 +159,14 @@ export async function buildSalaryRegisterWorkbook(
       l.basic_pay,
       // Blank rather than 0.00 when nothing was deducted — the hand-kept file
       // leaves these empty, and a column of zeroes hides the rows that matter.
+      l.allowance || null,
       l.unpaid_leave_deduction || null,
       // Same blank-not-zero treatment: only the people who actually contribute
-      // should carry a figure, so the rows that matter stand out.
+      // should carry a figure, so the rows that matter stand out. On a 433-strong
+      // roster only 9 salaries even reach the lowest TDS band.
       l.epf_deduction || null,
       l.esi_deduction || null,
+      l.tds_deduction || null,
       l.total_earnings,
       l.total_deductions,
       l.net_pay,

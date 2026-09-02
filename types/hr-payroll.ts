@@ -274,12 +274,20 @@ export interface HRSalaryRegisterLine {
 
   actual_gross: number;
   basic_pay: number;
+  /** Paid on top of basic_pay. Pro-rated with it, and never in the TDS base. */
+  allowance: number;
   unpaid_leave_deduction: number;
   // Statutory deductions, snapshotted from the salary in force at generation.
   // Broken out rather than buried in total_deductions (which still carries
   // them) so a PF/ESI return can be read straight off the register.
   epf_deduction: number;
   esi_deduction: number;
+  /**
+   * Resolved from hr_tds_slabs against the monthly gross ALONE and snapshotted
+   * here — which is what keeps an issued register explicable after someone
+   * edits a band, and why the slab table needs no effective-dating.
+   */
+  tds_deduction: number;
   total_earnings: number;
   total_deductions: number;
   adjustment_amount: number;

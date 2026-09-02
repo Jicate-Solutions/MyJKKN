@@ -27,6 +27,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
+import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
+import type { HrTdsSlab } from '@/lib/services/hr/payroll/tds-slab-service';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 const INR = new Intl.NumberFormat('en-IN', {
@@ -90,6 +92,12 @@ export interface SalaryColumnActions {
   onViewHistory: (row: StaffSalaryDirectoryRow) => void;
   /** Whether the viewer holds hr.payroll.salary.manage. */
   canManage: boolean;
+  /**
+   * The bands in force. TDS is never stored against a person, so the column is
+   * resolved per row from these — which is why editing a band updates every
+   * row's tax without touching a single salary record.
+   */
+  tdsSlabs: HrTdsSlab[];
 }
 
 export function getSalaryColumns(
@@ -196,7 +204,7 @@ export function getSalaryColumns(
     {
       accessorKey: 'annual_gross',
       size: 140,
-      header: ({ column }) => <DataTableColumnHeader column={column} title='Annual' />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title='Annual gross' />,
       cell: ({ row }) =>
         row.original.annual_gross === null ? (
           <span className='block text-right'><NotSet /></span>
@@ -206,52 +214,25 @@ export function getSalaryColumns(
           </span>
         ),
     },
+    
     {
-      accessorKey: 'epf_amount',
-      size: 110,
-      header: ({ column }) => <DataTableColumnHeader column={column} title='EPF' />,
-      cell: ({ row }) => <ContributionCell row={row.original} kind='epf' />,
-    },
-    {
-      accessorKey: 'esi_amount',
-      size: 110,
-      header: ({ column }) => <DataTableColumnHeader column={column} title='ESI' />,
-      cell: ({ row }) => <ContributionCell row={row.original} kind='esi' />,
-    },
-    {
-      accessorKey: 'effective_from',
+      id: 'total_monthly',
       size: 130,
-      header: ({ column }) => <DataTableColumnHeader column={column} title='Effective from' />,
-      cell: ({ row }) => (
-        <span className='text-sm tabular-nums'>{formatDate(row.original.effective_from)}</span>
-      ),
-    },
-    {
-      id: 'eligibility',
-      size: 180,
-      header: 'Eligibility',
+      header: ({ column }) => <DataTableColumnHeader column={column} title='Total monthly' />,
+      // Derived, so there is no accessorKey to sort on — the figure the person
+      // is actually paid each month, gross plus allowance.
+      accessorFn: (r) => (r.monthly_gross ?? 0) + (r.allowance_amount ?? 0),
       cell: ({ row }) => {
         const r = row.original;
-        if (!r.salary_id) return <NotSet />;
-        // Only what is TRUE is shown. Five "No" badges on every row would be
-        // noise; the exceptions are the thing worth spotting.
-        const on: string[] = [];
-        if (r.eligible_for_pf) on.push('EPF');
-        if (r.eligible_for_esi) on.push('ESI');
-        if (r.eligible_for_insurance) on.push('Insurance');
-        if (r.eligible_for_gratuity) on.push('Gratuity');
-        if (r.eligible_for_etf) on.push('ETF');
-        if (r.exempt_edli) on.push('EDLI exempt');
-        if (on.length === 0) return <span className='text-xs text-muted-foreground'>None</span>;
+        if (r.monthly_gross === null) return <span className='block text-right'><NotSet /></span>;
         return (
-          <div className='flex flex-wrap gap-1'>
-            {on.map((label) => (
-              <Badge key={label} variant='secondary' className='font-normal'>{label}</Badge>
-            ))}
-          </div>
+          <span className='block text-right text-sm font-medium tabular-nums'>
+            {INR.format(r.monthly_gross + (r.allowance_amount ?? 0))}
+          </span>
         );
       },
     },
+   
     {
       id: 'status',
       size: 120,
@@ -278,7 +259,7 @@ export function getSalaryColumns(
     {
       id: 'actions',
       size: 70,
-      header: '',
+      header: 'Action',
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => {

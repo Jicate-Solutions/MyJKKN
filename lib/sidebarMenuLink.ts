@@ -385,6 +385,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // '/hr/payroll' → 'hr.payroll.institution.view' and grant the second to
   // everyone holding the first.
   '/hr/payroll/salaries': 'hr.payroll.salary.view',
+  // The TDS bands sit on the SALARY key, not a new one: setting the rate and
+  // seeing what people earn are the same decision by the same person. This entry
+  // is mandatory rather than tidy — longest-prefix resolution would otherwise
+  // hand the page to '/hr/payroll' -> 'hr.payroll.institution.view', which
+  // hr_manager holds, quietly opening tax configuration to a wider audience than
+  // the salaries it is derived from.
+  '/hr/payroll/tds-slabs': 'hr.payroll.salary.view',
   // WHERE THE MONEY LANDS. A third key again, not a reuse of the salary one:
   // the amount and the destination are separate decisions, and the destination
   // is the field a change to redirects real money.
@@ -2715,6 +2722,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // roles on 2026-08-21; what someone earns is a tighter decision than
             // which organisation pays them.
             { href: '/hr/payroll/salaries', label: 'Employee Salaries', active: pathname.startsWith('/hr/payroll/salaries') },
+            // Directly under Employee Salaries and on the same key: the bands are
+            // configuration FOR that screen, and the TDS column there is derived
+            // from them rather than stored per person.
+            { href: '/hr/payroll/tds-slabs', label: 'TDS Bands', active: pathname.startsWith('/hr/payroll/tds-slabs') },
             // Gates on hr.payroll.bank.view — hr_head alone, plus the Super
             // Administrator via is_super_admin().
             { href: '/hr/payroll/bank-accounts', label: 'Bank Accounts', active: pathname.startsWith('/hr/payroll/bank-accounts') },

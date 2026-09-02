@@ -50,7 +50,20 @@ export interface StaffSalaryRow {
   epf_amount: number;
   eligible_for_esi: boolean;
   esi_amount: number;
-  effective_from: string;
+  /** Paid on top of the gross. Never part of the TDS base. */
+  allowance_amount: number;
+  allowance_label: string | null;
+  /**
+   * NULLABLE, and usually null: 369 of the 433 salaries in force carry no
+   * effective date, because the bulk import that created them had a blank
+   * Effective_Date on every row.
+   *
+   * This was typed `string` until 2026-09-02, which was simply false. With
+   * strictNullChecks off the compiler never questioned it, and the history
+   * sheet crashed on `iso.split('-')` for 85% of staff the first time anyone
+   * opened it. Every consumer must handle null.
+   */
+  effective_from: string | null;
   notes: string | null;
   updated_at: string;
 }
@@ -79,6 +92,8 @@ const SELECT_CURRENT = `
   epf_amount,
   eligible_for_esi,
   esi_amount,
+  allowance_amount,
+  allowance_label,
   effective_from,
   notes,
   updated_at,
@@ -105,7 +120,9 @@ interface RawSalaryRow {
   epf_amount: number | string;
   eligible_for_esi: boolean;
   esi_amount: number | string;
-  effective_from: string;
+  allowance_amount: number | string;
+  allowance_label: string | null;
+  effective_from: string | null;
   notes: string | null;
   updated_at: string;
   staff: {
@@ -147,6 +164,8 @@ function shape(r: RawSalaryRow): StaffSalaryRow {
     epf_amount: toNumber(r.epf_amount),
     eligible_for_esi: r.eligible_for_esi,
     esi_amount: toNumber(r.esi_amount),
+    allowance_amount: toNumber(r.allowance_amount),
+    allowance_label: r.allowance_label ?? null,
     effective_from: r.effective_from,
     notes: r.notes,
     updated_at: r.updated_at,
@@ -188,6 +207,8 @@ export interface StaffSalaryDirectoryRow {
   epf_amount: number | null;
   eligible_for_esi: boolean;
   esi_amount: number | null;
+  allowance_amount: number | null;
+  allowance_label: string | null;
   effective_from: string | null;
   notes: string | null;
 }
@@ -220,6 +241,7 @@ export class StaffSalaryService {
       overtime_amount: r.overtime_amount === null ? null : Number(r.overtime_amount),
       epf_amount: r.epf_amount === null ? null : Number(r.epf_amount),
       esi_amount: r.esi_amount === null ? null : Number(r.esi_amount),
+      allowance_amount: r.allowance_amount === null ? null : Number(r.allowance_amount),
     })) as StaffSalaryDirectoryRow[];
   }
 
@@ -295,6 +317,9 @@ export class StaffSalaryService {
       epfAmount?: number;
       eligibleForEsi?: boolean;
       esiAmount?: number;
+      allowanceAmount?: number;
+      /** Discarded by the RPC when the amount is zero - a label with no money behind it. */
+      allowanceLabel?: string | null;
       notes?: string | null;
     }
   ): Promise<string> {
@@ -315,6 +340,8 @@ export class StaffSalaryService {
       p_epf_amount: input.epfAmount ?? 0,
       p_eligible_for_esi: input.eligibleForEsi ?? false,
       p_esi_amount: input.esiAmount ?? 0,
+      p_allowance_amount: input.allowanceAmount ?? 0,
+      p_allowance_label: input.allowanceLabel ?? null,
     });
 
     if (error) {

@@ -236,6 +236,8 @@ export async function POST(request: NextRequest) {
         p_epf_amount: src.epf_amount ?? 0,
         p_eligible_for_esi: src.eligible_for_esi,
         p_esi_amount: src.esi_amount ?? 0,
+        p_allowance_amount: src.allowance_amount ?? 0,
+        p_allowance_label: src.allowance_label,
       });
 
       if (error) {

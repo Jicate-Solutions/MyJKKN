@@ -2461,3 +2461,21 @@ CREATE TRIGGER trg_billing_bills_guard_cancel
   BEFORE UPDATE ON public.billing_student_bills
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_bill_cancellation();
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+-- DEFERRABLE INITIALLY DEFERRED: a multi-band edit is judged once at COMMIT,
+-- not at every intermediate state -- reordering bands would be impossible
+-- otherwise. Constraint triggers must be FOR EACH ROW; the function reads the
+-- whole set regardless.
+-- ===========================================================================
+-- The set-level validator that used to live here was dropped on 2026-09-02
+-- (20260902120000): its rules could not be satisfied by any single row, so
+-- adding one band was impossible. Overlap is still refused by the EXCLUDE
+-- constraint on the table; coverage is now a warning on the TDS Bands screen.
+
+
+DROP TRIGGER IF EXISTS trg_hr_tds_slabs_updated_at ON public.hr_tds_slabs;
+CREATE TRIGGER trg_hr_tds_slabs_updated_at
+  BEFORE UPDATE ON public.hr_tds_slabs
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();

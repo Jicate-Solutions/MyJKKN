@@ -45,6 +45,8 @@ import {
 } from '@/components/ui/select';
 import { getErrorMessage } from '@/lib/utils';
 import { useSetStaffSalary } from '@/hooks/hr/use-staff-salaries';
+import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
+import { describeSlab, resolveTds } from '@/lib/hr/payroll/tds-slabs';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 const INR = new Intl.NumberFormat('en-IN', {
@@ -110,6 +112,9 @@ interface Props {
 
 export function EditSalaryDialog({ row, onOpenChange }: Props) {
   const setSalary = useSetStaffSalary();
+  // TDS is DERIVED, never stored against the person — so the dialog resolves it
+  // live from the bands rather than showing a figure someone typed.
+  const { data: tdsSlabs } = useTdsSlabs();
 
   const [monthly, setMonthly] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState('');
@@ -130,6 +135,8 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
     epf: '',
     esi: '',
   });
+  const [allowance, setAllowance] = useState('');
+  const [allowanceLabel, setAllowanceLabel] = useState('');
   const [notes, setNotes] = useState('');
 
   /**
@@ -170,6 +177,8 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
       epf: row.epf_amount ? String(row.epf_amount) : '',
       esi: row.esi_amount ? String(row.esi_amount) : '',
     });
+    setAllowance(row.allowance_amount ? String(row.allowance_amount) : '');
+    setAllowanceLabel(row.allowance_label ?? '');
     setNotes(row.notes ?? '');
   }
 
@@ -199,8 +208,28 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
     return null;
   }).filter(Boolean) as string[];
 
+  const allowanceAmount = Math.max(0, parseAmount(allowance) || 0);
+  const allowanceValid =
+    allowance.trim() === '' || (Number.isFinite(parseAmount(allowance)) && allowanceAmount >= 0);
+  const totalMonthly = (amountValid ? amount : 0) + allowanceAmount;
+
+  /**
+   * TDS resolves against the GROSS ALONE — never gross + allowance.
+   *
+   * This is the rule the whole feature turns on: an allowance must not push
+   * somebody into a tax band, so the figure fed here is `amount`, not
+   * `totalMonthly`. Same pure resolver the register uses, so the preview and the
+   * payslip cannot disagree.
+   */
+  const tds = resolveTds(amountValid ? amount : 0, tdsSlabs ?? []);
+
   const canSave =
-    hasPayer && amountValid && dateValid && contributionErrors.length === 0 && !setSalary.isPending;
+    hasPayer &&
+    amountValid &&
+    dateValid &&
+    allowanceValid &&
+    contributionErrors.length === 0 &&
+    !setSalary.isPending;
 
   /**
    * COMPARES THE WHOLE PAYLOAD, not just the gross and the date.
@@ -226,10 +255,15 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
       row.exempt_edli === flags.exempt_edli &&
       (row.epf_amount ?? 0) === epfAmount &&
       (row.esi_amount ?? 0) === esiAmount &&
+      (row.allowance_amount ?? 0) === allowanceAmount &&
+      // The RPC drops a label whose amount is zero, so the comparison must too —
+      // otherwise a stale label makes an otherwise-identical save look changed.
+      (row.allowance_label ?? '') ===
+        (allowanceAmount > 0 ? allowanceLabel.trim() : '') &&
       (row.notes ?? '') === notes.trim(),
     [
-      amount, effectiveFrom, epfAmount, esiAmount, flags, notes,
-      overtimeAmount, overtimeLevel, row, structure,
+      allowanceAmount, allowanceLabel, amount, effectiveFrom, epfAmount,
+      esiAmount, flags, notes, overtimeAmount, overtimeLevel, row, structure,
     ]
   );
 
@@ -252,6 +286,8 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
         epfAmount,
         eligibleForEsi: flags.eligible_for_esi,
         esiAmount,
+        allowanceAmount,
+        allowanceLabel: allowanceLabel.trim() || null,
         notes: notes.trim() || null,
       });
       toast.success(
@@ -264,8 +300,9 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
       toast.error(getErrorMessage(err));
     }
   }, [
-    amount, effectiveFrom, epfAmount, esiAmount, flags, notes, onOpenChange,
-    overtimeAmount, overtimeLevel, row, setSalary, structure,
+    allowanceAmount, allowanceLabel, amount, effectiveFrom, epfAmount, esiAmount,
+    flags, notes, onOpenChange, overtimeAmount, overtimeLevel, row, setSalary,
+    structure,
   ]);
 
   return (
@@ -329,6 +366,65 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
                 Payslips before this date keep the previous figure.
               </p>
             </div>
+          </div>
+
+          <div className='grid grid-cols-2 gap-3'>
+            <div className='space-y-2'>
+              <Label htmlFor='salary-allowance'>Allowance</Label>
+              <Input
+                id='salary-allowance'
+                inputMode='decimal'
+                placeholder='0'
+                value={allowance}
+                disabled={!hasPayer}
+                onChange={(e) => setAllowance(e.target.value)}
+              />
+              <p className='text-xs text-muted-foreground'>
+                Paid on top of the gross. Not counted for TDS.
+              </p>
+            </div>
+            <div className='space-y-2'>
+              <Label htmlFor='salary-allowance-label'>What it is for</Label>
+              <Input
+                id='salary-allowance-label'
+                placeholder='Conveyance'
+                value={allowanceLabel}
+                // A label with no money behind it is dropped on save, so there is
+                // nothing to type here until an amount exists.
+                disabled={!hasPayer || allowanceAmount <= 0}
+                onChange={(e) => setAllowanceLabel(e.target.value)}
+              />
+              <p className='text-xs text-muted-foreground'>
+                {allowanceAmount > 0
+                  ? `Total monthly ${INR.format(totalMonthly)}`
+                  : 'Optional, and only kept when there is an amount.'}
+              </p>
+            </div>
+          </div>
+
+          {/*
+            TDS IS SHOWN, NOT ENTERED. It falls out of the bands under
+            Payroll -> TDS Bands, so there is no field here to disagree with them.
+          */}
+          <div className='rounded-md border bg-muted/40 p-3'>
+            <div className='flex items-baseline justify-between gap-3'>
+              <Label className='text-xs uppercase tracking-wide text-muted-foreground'>
+                TDS
+              </Label>
+              <span className='text-sm font-semibold tabular-nums'>
+                {tds.amount > 0 ? `${INR.format(tds.amount)} a month` : 'None'}
+              </span>
+            </div>
+            <p className='mt-1 text-xs text-muted-foreground'>
+              {!amountValid
+                ? 'Enter a monthly gross to see the TDS it attracts.'
+                : tds.slab
+                  ? `${INR.format(amount)} falls in ${describeSlab(tds.slab, (n) => INR.format(n))} → ${tds.rate_pct}% of the monthly gross.`
+                  : (tdsSlabs?.length ?? 0) === 0
+                    ? 'No TDS bands are configured, so no tax is deducted from anyone.'
+                    : `${INR.format(amount)} falls outside every configured band, so no TDS is deducted.`}
+              {allowanceAmount > 0 && ' The allowance is excluded from this calculation.'}
+            </p>
           </div>
 
           <div className='grid grid-cols-2 gap-3'>

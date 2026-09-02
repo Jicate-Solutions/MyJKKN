@@ -10102,3 +10102,38 @@ CREATE POLICY billing_bill_cancellations_select
       )
     )
   );
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+--
+-- READ IS DELIBERATELY WIDER THAN WRITE. The register RESOLVES these bands
+-- while generating, under the generating user's own session -- and a slab read
+-- emptied by RLS is indistinguishable from 'no bands configured', which
+-- silently produces a register with no tax on it. Anyone who can see a salary
+-- or a register can read the bands; only salary.manage edits them.
+-- ===========================================================================
+ALTER TABLE public.hr_tds_slabs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hr_tds_slabs_select ON public.hr_tds_slabs
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.view'))
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+    OR (SELECT public.user_has_permission('hr.payroll.register.view'))
+    OR (SELECT public.user_has_permission('hr.payroll.register.manage'))
+  );
+
+CREATE POLICY hr_tds_slabs_write ON public.hr_tds_slabs
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+  );
+
+CREATE POLICY hr_tds_slabs_service_role ON public.hr_tds_slabs
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_tds_slabs TO authenticated;
+GRANT ALL ON public.hr_tds_slabs TO service_role;

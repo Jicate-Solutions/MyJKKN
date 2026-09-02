@@ -48475,7 +48475,9 @@ CREATE OR REPLACE FUNCTION public.fn_hr_set_staff_salary(
   p_notes                  text    DEFAULT NULL,
   p_epf_amount             numeric DEFAULT 0,
   p_eligible_for_esi       boolean DEFAULT false,
-  p_esi_amount             numeric DEFAULT 0
+  p_esi_amount             numeric DEFAULT 0,
+  p_allowance_amount       numeric DEFAULT 0,
+  p_allowance_label        text    DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -48484,8 +48486,10 @@ AS $function$
 DECLARE
   v_new_id  uuid := gen_random_uuid();
   v_current record;
-  v_epf     numeric;
-  v_esi     numeric;
+  v_epf       numeric;
+  v_esi       numeric;
+  v_allowance numeric;
+  v_alw_label text;
 BEGIN
   IF p_staff_id IS NULL OR p_hr_organization_id IS NULL THEN
     RAISE EXCEPTION 'Staff and payroll organisation are both required'
@@ -48504,8 +48508,18 @@ BEGIN
   -- An amount against a flag that is OFF is zeroed, not rejected. The bulk
   -- importer feeds this from a spreadsheet where a leftover figure beside a "No"
   -- is a formatting slip, and a hard failure there would abort a 754-row import.
+  IF COALESCE(p_allowance_amount, 0) < 0 THEN
+    RAISE EXCEPTION 'Allowance cannot be negative' USING ERRCODE = '22023';
+  END IF;
+
   v_epf := CASE WHEN p_eligible_for_pf  THEN COALESCE(p_epf_amount, 0) ELSE 0 END;
   v_esi := CASE WHEN p_eligible_for_esi THEN COALESCE(p_esi_amount, 0) ELSE 0 END;
+
+  v_allowance := COALESCE(p_allowance_amount, 0);
+  -- A label with no money behind it is noise on every screen that renders it.
+  v_alw_label := CASE WHEN v_allowance > 0
+                      THEN NULLIF(TRIM(COALESCE(p_allowance_label, '')), '')
+                      ELSE NULL END;
 
   PERFORM pg_advisory_xact_lock(hashtextextended(p_staff_id::text || ':salary', 0));
 
@@ -48539,6 +48553,8 @@ BEGIN
      AND v_current.epf_amount             IS NOT DISTINCT FROM v_epf
      AND v_current.eligible_for_esi       IS NOT DISTINCT FROM p_eligible_for_esi
      AND v_current.esi_amount             IS NOT DISTINCT FROM v_esi
+     AND v_current.allowance_amount       IS NOT DISTINCT FROM v_allowance
+     AND v_current.allowance_label        IS NOT DISTINCT FROM v_alw_label
      AND v_current.notes                  IS NOT DISTINCT FROM p_notes THEN
     RETURN v_current.id;
   END IF;
@@ -48554,12 +48570,14 @@ BEGIN
     overtime_level, overtime_amount, eligible_for_pf, exempt_edli,
     eligible_for_insurance, eligible_for_gratuity, eligible_for_etf,
     epf_amount, eligible_for_esi, esi_amount,
+    allowance_amount, allowance_label,
     effective_from, notes, created_by, updated_by
   ) VALUES (
     v_new_id, p_staff_id, p_hr_organization_id, p_salary_structure, p_monthly_gross,
     p_overtime_level, p_overtime_amount, p_eligible_for_pf, p_exempt_edli,
     p_eligible_for_insurance, p_eligible_for_gratuity, p_eligible_for_etf,
     v_epf, p_eligible_for_esi, v_esi,
+    v_allowance, v_alw_label,
     p_effective_from, p_notes, auth.uid(), auth.uid()
   );
 
@@ -48572,10 +48590,10 @@ $function$;
 -- change did, and had to be undone. Restated so a rebuild from these files lands
 -- in the same place. PUBLIC is revoked as well as anon: a grant to PUBLIC is not
 -- removed by revoking from anon.
-REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) TO authenticated, service_role;
 
-COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric) IS
+COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) IS
   'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage. Returns the incumbent unchanged when the whole payload matches.';
 
 -- ===========================================================================
@@ -48612,6 +48630,8 @@ RETURNS TABLE(
   epf_amount             numeric,
   eligible_for_esi       boolean,
   esi_amount             numeric,
+  allowance_amount       numeric,
+  allowance_label        text,
   effective_from         date,
   notes                  text
 )
@@ -48651,6 +48671,8 @@ BEGIN
          sal.epf_amount,
          sal.eligible_for_esi,
          sal.esi_amount,
+         sal.allowance_amount,
+         sal.allowance_label,
          sal.effective_from,
          sal.notes
     -- v_hr_staff, never the base staff table: employment_categories.included_in_hr
@@ -48670,6 +48692,7 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.hr_staff_salary_directory() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_staff_salary_directory() TO authenticated, service_role;
+
 
 COMMENT ON FUNCTION public.hr_staff_salary_directory() IS
   'Every active staff member with their salary in force, or NULL where none is recorded. Gated on hr.payroll.salary.view; raises rather than returning [] so an empty list never means "denied".';
@@ -55626,7 +55649,7 @@ END;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.hr_staff_salary_directory()
- RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, is_active boolean, works_at_id uuid, works_at_name text, payer_org_id uuid, payer_org_name text, salary_id uuid, salary_structure text, monthly_gross numeric, annual_gross numeric, overtime_level text, overtime_amount numeric, eligible_for_pf boolean, exempt_edli boolean, eligible_for_insurance boolean, eligible_for_gratuity boolean, eligible_for_etf boolean, epf_amount numeric, eligible_for_esi boolean, esi_amount numeric, effective_from date, notes text)
+ RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, is_active boolean, works_at_id uuid, works_at_name text, payer_org_id uuid, payer_org_name text, salary_id uuid, salary_structure text, monthly_gross numeric, annual_gross numeric, overtime_level text, overtime_amount numeric, eligible_for_pf boolean, exempt_edli boolean, eligible_for_insurance boolean, eligible_for_gratuity boolean, eligible_for_etf boolean, epf_amount numeric, eligible_for_esi boolean, esi_amount numeric, allowance_amount numeric, allowance_label text, effective_from date, notes text)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
@@ -55661,6 +55684,8 @@ BEGIN
          sal.epf_amount,
          sal.eligible_for_esi,
          sal.esi_amount,
+         sal.allowance_amount,
+         sal.allowance_label,
          sal.effective_from,
          sal.notes
     FROM public.v_hr_staff s

@@ -38,6 +38,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
+import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
+import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
@@ -138,7 +140,7 @@ interface RegisterContext {
    * and widening it to an object would turn both of those into silently-true
    * comparisons against an object.
    */
-  statutoryByStaff: Map<string, { epf: number; esi: number }>;
+  statutoryByStaff: Map<string, { epf: number; esi: number; allowance: number; tds: number }>;
   bankByStaff: Map<string, string>;
   /** Who bears each salary. Absent for the 105 staff with no payer recorded. */
   payerByStaff: Map<string, { id: string; name: string }>;
@@ -172,9 +174,11 @@ export interface RegisterLineFigures {
   paid_days: number;
   actual_gross: number;
   basic_pay: number;
+  allowance: number;
   unpaid_leave_deduction: number;
   epf_deduction: number;
   esi_deduction: number;
+  tds_deduction: number;
   total_earnings: number;
   total_deductions: number;
   net_pay: number;
@@ -205,9 +209,11 @@ export const ZERO_FIGURES: RegisterLineFigures = {
   paid_days: 0,
   actual_gross: 0,
   basic_pay: 0,
+  allowance: 0,
   unpaid_leave_deduction: 0,
   epf_deduction: 0,
   esi_deduction: 0,
+  tds_deduction: 0,
   total_earnings: 0,
   total_deductions: 0,
   net_pay: 0,
@@ -240,6 +246,18 @@ export function computeRegisterLine(input: {
    */
   epfAmount?: number;
   esiAmount?: number;
+  /**
+   * Paid on top of the gross, and PRO-RATED WITH IT: the day rate below divides
+   * gross + allowance, so an absent day costs a slice of both. That is the one
+   * behaviour that separates it from the flat statutory amounts around it.
+   */
+  allowance?: number;
+  /**
+   * Resolved from hr_tds_slabs against the MONTHLY GROSS ALONE — never the
+   * allowance. Passed in already computed so this stays a pure function of
+   * numbers, with the band lookup living in lib/hr/payroll/tds-slabs.ts.
+   */
+  tdsAmount?: number;
   summary: Pick<
     AttendanceSummaryRow,
     'present_days' | 'leave_days' | 'on_duty_days' | 'comp_off_days' | 'payable_days' | 'leave_by_type'
@@ -280,11 +298,17 @@ export function computeRegisterLine(input: {
    */
   const unpaidLeaveDays = Math.max(0, basis - paidDays);
 
+  const allowance = round2(Math.max(0, input.allowance ?? 0));
+
   // The day rate divides by the month's WORKING days, not calendar days. The
   // sample register does the same: 16000 / 22 x 6 = 4363.64.
-  const dayRate = basis > 0 ? monthlyGross / basis : 0;
+  //
+  // IT DIVIDES GROSS + ALLOWANCE. The allowance is earnings, so an absent day
+  // costs a proportional slice of it too — unlike EPF/ESI/TDS below, which are
+  // flat monthly figures and are withheld in full.
+  const dayRate = basis > 0 ? (monthlyGross + allowance) / basis : 0;
   const unpaidLeaveDeduction = round2(dayRate * unpaidLeaveDays);
-  const totalEarnings = round2(monthlyGross);
+  const totalEarnings = round2(monthlyGross + allowance);
 
   /**
    * The statutory pair, capped at what is left after the unpaid-leave deduction.
@@ -301,7 +325,17 @@ export function computeRegisterLine(input: {
   const esiDeduction = round2(
     Math.min(Math.max(0, input.esiAmount ?? 0), round2(afterUnpaid - epfDeduction))
   );
-  const totalDeductions = round2(unpaidLeaveDeduction + epfDeduction + esiDeduction);
+  // TDS is capped LAST, so a month with almost nothing left drops the tax
+  // rather than the provident fund.
+  const tdsDeduction = round2(
+    Math.min(
+      Math.max(0, input.tdsAmount ?? 0),
+      round2(afterUnpaid - epfDeduction - esiDeduction)
+    )
+  );
+  const totalDeductions = round2(
+    unpaidLeaveDeduction + epfDeduction + esiDeduction + tdsDeduction
+  );
 
   return {
     business_working_days: basis,
@@ -311,11 +345,15 @@ export function computeRegisterLine(input: {
     worked_days: workedDays,
     paid_days: paidDays,
     actual_gross: totalEarnings,
-    // Identical to gross in this register: there is no component breakdown.
-    basic_pay: totalEarnings,
+    // These finally differ. Before the allowance existed there was no component
+    // breakdown and both columns carried the same figure; now basic_pay is the
+    // contractual gross and actual_gross is what the person actually earns.
+    basic_pay: round2(monthlyGross),
+    allowance,
     unpaid_leave_deduction: unpaidLeaveDeduction,
     epf_deduction: epfDeduction,
     esi_deduction: esiDeduction,
+    tds_deduction: tdsDeduction,
     total_earnings: totalEarnings,
     // Carries the statutory pair as well, so net_pay, the run totals and the
     // per-payer split subtotals all keep deriving from this one figure.
@@ -508,20 +546,31 @@ export class SalaryRegisterService {
     }
 
     // 5. Salaries. superseded_by IS NULL = the currently effective row.
+    // THE BANDS ARE LOADED WITH throwOnDenied. A slab read that RLS empties looks
+    // exactly like "TDS is switched off", and the two demand opposite outcomes:
+    // one generates a register with no tax on it, the other must not generate at
+    // all. TdsSlabService.list asks user_has_permission rather than inferring
+    // from the row count.
+    const tdsSlabs = await TdsSlabService.list(supabase, { throwOnDenied: true });
+
     const salaryByStaff = new Map<string, number>();
-    const statutoryByStaff = new Map<string, { epf: number; esi: number }>();
+    const statutoryByStaff = new Map<
+      string,
+      { epf: number; esi: number; allowance: number; tds: number }
+    >();
     for (const ids of chunk(staffIds)) {
       const { data, error } = await (supabase as any)
         .from('hr_staff_salaries')
         .select(
-          'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount'
+          'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount, allowance_amount'
         )
         .in('staff_id', ids)
         .is('superseded_by', null);
 
       if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
       for (const s of (data ?? []) as any[]) {
-        salaryByStaff.set(s.staff_id, num(s.monthly_gross));
+        const gross = num(s.monthly_gross);
+        salaryByStaff.set(s.staff_id, gross);
         // The flag decides, not the amount. fn_hr_set_staff_salary already
         // zeroes an amount whose flag is off, but the register must not depend
         // on that: a row written before this feature existed, or by the
@@ -529,6 +578,11 @@ export class SalaryRegisterService {
         statutoryByStaff.set(s.staff_id, {
           epf: s.eligible_for_pf ? num(s.epf_amount) : 0,
           esi: s.eligible_for_esi ? num(s.esi_amount) : 0,
+          allowance: num(s.allowance_amount),
+          // Resolved against the GROSS ALONE. The allowance is deliberately not
+          // in the tax base, so a person pushed over a band threshold by their
+          // allowance is not taxed for it.
+          tds: resolveTds(gross, tdsSlabs).amount,
         });
       }
     }
@@ -915,6 +969,8 @@ export class SalaryRegisterService {
         workingDaysBasis: workingDaysByPeriod.get(s.period_id) || runBasis,
         epfAmount: statutory?.epf ?? 0,
         esiAmount: statutory?.esi ?? 0,
+        allowance: statutory?.allowance ?? 0,
+        tdsAmount: statutory?.tds ?? 0,
         summary: s,
       });
 
