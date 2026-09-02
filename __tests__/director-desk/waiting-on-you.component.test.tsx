@@ -32,8 +32,8 @@ vi.mock('@/lib/supabase/client', () => ({
 
 // next/link needs no router here; a plain anchor carries the same href.
 vi.mock('next/link', () => ({
-  default: ({ href, children, ...rest }: any) =>
-    React.createElement('a', { href, ...rest }, children),
+  default: ({ href, children: inner, ...rest }: any) =>
+    React.createElement('a', { href, ...rest }, inner),
 }));
 
 const DAY = 86_400_000;
