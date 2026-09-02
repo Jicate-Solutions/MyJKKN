@@ -232,4 +232,25 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-collect', migration 20260927040000), NOT vercel.json. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Exactly-once across both clocks: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE — whichever of the daily/Sunday collects fires first wins, the other is a clean no-op. Safe no-op while the job type is dark or migrations are unapplied.",
   },
+  {
+    id: 'attendance-intervention-measure',
+    name: 'Attendance → Intervention — Daily Effect Measure (the loop\'s return edge)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 10:07 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/attendance-intervention-measure',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based SQL — one RPC to fn_attendance_measure_intervention_effect; no model is resolved and nothing is enqueued.',
+    whatItDoes:
+      "Closes the attendance loop by measuring whether nudges and interventions actually moved attendance. Each day it (1) ENROLLS every unseen intervention as a pending measurement — staff-logged learner_interventions AND automated risk nudges from learner_risk_notification_log — deduped by UNIQUE(source, source_id) with a 120-day lookback, and (2) MEASURES pending rows whose after-window has elapsed: the learner's mark-level attendance % in the 14 days AFTER vs the learner's OWN 14 days BEFORE, writing net_effect (percentage points) into attendance_intervention_effects — the row the Tower and audits read.",
+    configKnobs:
+      'None in the route. Windows (14-day before/after, 120-day lookback) are the defaults of fn_attendance_measure_intervention_effect (migration 20260929010000). Schedule editable on /admin/ai-routines.',
+    sideEffects:
+      "DB writes only, via the SECDEF fn: INSERTs pending rows into attendance_intervention_effects and UPDATEs measured ones with net_effect. Never writes learner_interventions, learner_risk_notification_log or loop_registry. No notifications, no emails, no model calls.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'attendance-intervention-measure', migration 20261018010000), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: enrolment is deduped by UNIQUE(source, source_id) and measurement only touches still-pending rows, so a re-run is a clean no-op. Returns {enrolled, measured, insufficient}; an empty RPC result is surfaced as HTTP 500 so the dispatcher records the failure. The weekly known-delta regress (fn_loops_regress_attendance via /api/cron/loops-regress) proves the SAME measurer this route runs. Safe no-op (500, not a crash) while 20260929010000 is unapplied.",
+  },
 ];
