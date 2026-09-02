@@ -57156,3 +57156,84 @@ AS $function$
 $function$;
 
 REVOKE ALL ON FUNCTION public.fn_is_configured_leave_approver() FROM anon;
+
+-- ===========================================================================
+-- Calendar holidays -> attendance (2026-09-02)
+-- Source: 20260902140000_hr_calendar_holidays_drive_attendance.sql
+--
+-- /calendar/holidays writes calendar_entries; attendance used to watch only
+-- institution_leaves, so a declared holiday left everyone ABSENT -- and ABSENT
+-- carries affects_lop, so the Salary Register deducted a day's pay for a paid
+-- holiday. 232 of 238 declared institution-days had no institution_leaves row.
+--
+-- DATES ARE EXTRACTED IN UTC. An all-day entry is stored 00:00:00+00 to
+-- 23:59:59.999+00; read at Asia/Kolkata the end lands on the NEXT day, which
+-- would stamp the day after every holiday as a holiday too.
+--
+-- These are the single definition of 'is this a holiday here': the trigger, the
+-- backfill, the biometric import and both recompute paths all go through them,
+-- so SQL and TypeScript cannot disagree about which days count.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_calendar_holiday_dates(
+  p_institution_id uuid,
+  p_from           date,
+  p_to             date
+)
+RETURNS TABLE(holiday_date date, title text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT g.d::date, ce.title
+    FROM public.calendar_entries ce
+    CROSS JOIN LATERAL generate_series(
+      (ce.start_at AT TIME ZONE 'UTC')::date,
+      (ce.end_at   AT TIME ZONE 'UTC')::date,
+      interval '1 day'
+    ) g(d)
+   WHERE ce.kind = 'holiday'
+     AND ce.is_active
+     AND ce.blocks_attendance
+     -- NULL or empty scope = every institution.
+     AND (ce.scope_institution_ids IS NULL
+          OR cardinality(ce.scope_institution_ids) = 0
+          OR p_institution_id = ANY (ce.scope_institution_ids))
+     AND g.d::date BETWEEN p_from AND p_to;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_is_calendar_holiday(
+  p_institution_id uuid, p_date date
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.fn_hr_calendar_holiday_dates(p_institution_id, p_date, p_date)
+  );
+$function$;
+
+-- Used only to stop the calendar mechanism un-stamping a day institution_leaves
+-- still declares a holiday.
+CREATE OR REPLACE FUNCTION public.fn_hr_is_institution_leave_day(
+  p_institution_id uuid, p_date date
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.institution_leaves il
+     WHERE il.institution_id = p_institution_id
+       AND p_date BETWEEN il.start_date AND il.end_date
+  );
+$function$;
+
+-- The trigger body itself is long; see the migration for the full text. It
+-- restamps ABSENT -> HOLIDAY where the calendar declares one and back where it
+-- no longer does, never touches PRESENT/HALF_DAY, and never reaches inside a
+-- LOCKED attendance period.
+
+REVOKE ALL ON FUNCTION public.fn_hr_calendar_holiday_dates(uuid, date, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_is_calendar_holiday(uuid, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_is_institution_leave_day(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_calendar_holiday_dates(uuid, date, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_is_calendar_holiday(uuid, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_is_institution_leave_day(uuid, date) TO authenticated, service_role;

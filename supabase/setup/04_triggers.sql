@@ -2479,3 +2479,15 @@ DROP TRIGGER IF EXISTS trg_hr_tds_slabs_updated_at ON public.hr_tds_slabs;
 CREATE TRIGGER trg_hr_tds_slabs_updated_at
   BEFORE UPDATE ON public.hr_tds_slabs
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ===========================================================================
+-- calendar_entries -> attendance (2026-09-02)
+-- No WHEN clause: it would reference OLD, which Postgres refuses on a trigger
+-- that also fires for INSERT. The kind='holiday' check is the first thing the
+-- function does instead.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS tr_recompute_attendance_on_calendar_holiday ON public.calendar_entries;
+CREATE TRIGGER tr_recompute_attendance_on_calendar_holiday
+  AFTER INSERT OR UPDATE OR DELETE ON public.calendar_entries
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_recompute_attendance_on_calendar_holiday();

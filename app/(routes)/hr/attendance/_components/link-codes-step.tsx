@@ -158,9 +158,11 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
             {c.inactive_staff} enrolment(s) resolve to a team member record marked{' '}
-            <strong>relieved</strong> (inactive). Their punches will still import — MyJKKN matches on
-            the stored enrolment code and does not check employment status. Clear the code on those
-            team member records if their attendance should stop.
+            <strong>relieved</strong> (inactive). Their punches are <strong>not imported</strong> —
+            since 2026-09-02 the import resolves active team members only, and these codes are
+            reported as skipped rather than turned into attendance. Records imported while they were
+            still active are left untouched. Clear the code on those team member records to stop
+            them appearing here.
           </AlertDescription>
         </Alert>
       )}
@@ -242,7 +244,7 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
                     </Button>
                     {picked?.is_active === false && (
                       <p className="mt-1 text-xs text-amber-700">
-                        This team member record is relieved.
+                        This team member record is relieved — their punches will not be imported.
                       </p>
                     )}
                     {picked?.other_machine && (
@@ -341,7 +343,9 @@ function IdentityCell({ row, pickedManually }: { row: BiometricMappingRow; picke
   return (
     <div className="space-y-1">
       {badge}
-      {relieved && <p className="text-xs text-amber-700">Team member record is relieved</p>}
+      {relieved && (
+        <p className="text-xs text-amber-700">Team member record is relieved — punches not imported</p>
+      )}
     </div>
   );
 }

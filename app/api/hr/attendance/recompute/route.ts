@@ -40,6 +40,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { createClient } from '@/lib/supabase/server';
 import { evaluateDay, type AttendanceVerdict } from '@/lib/hr/biometric/evaluate-day';
+import {
+  applyHolidayToStatusCode,
+  fetchHolidayKeys,
+  holidayKey,
+} from '@/lib/hr/attendance/holiday-dates';
 import { fetchApprovedPermissions, permissionKey } from '@/lib/hr/biometric/fetch-permissions';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { ResolvedShiftTiming } from '@/types/hr-shift-timings';
@@ -170,6 +175,28 @@ export async function POST(request: NextRequest) {
       codeById.set(s.id, s.code);
     }
 
+    /**
+     * DECLARED HOLIDAYS OVER THE EXAMINED RANGE.
+     *
+     * Same hazard the leave re-stamp below documents: this route writes
+     * status_type_id straight from the punch verdict, and a festival has no
+     * punches, so every holiday in range would revert to ABSENT. That took the
+     * calendar's stamps AND the older institution_leaves trigger's with it,
+     * because a holiday stamped onto a biometric row keeps source='biometric'
+     * and is not excluded by anything.
+     *
+     * Applied inline rather than as a post-pass so ABSENT is never written in
+     * the first place.
+     */
+    const holidayKeys = await fetchHolidayKeys(
+      session,
+      (records as Array<Record<string, unknown>>)
+        .map((r) => r.institution_id as string | null)
+        .filter((v): v is string => !!v),
+      from,
+      to,
+    );
+
     const VERDICT_TO_CODE: Record<Exclude<AttendanceVerdict, 'EXCEPTION'>, string> = {
       PRESENT: 'PRESENT', HALF_DAY: 'HALF_DAY', ABSENT: 'ABSENT', WEEKLY_OFF: 'WEEKLY_OFF',
     };
@@ -258,7 +285,14 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const nextStatusId = idByCode.get(VERDICT_TO_CODE[verdict.verdict]);
+      const nextStatusId = idByCode.get(
+        applyHolidayToStatusCode(
+          VERDICT_TO_CODE[verdict.verdict],
+          holidayKeys.has(
+            holidayKey(r.institution_id as string, String(r.work_date).slice(0, 10)),
+          ),
+        ),
+      );
       if (!nextStatusId) continue;
 
       const sameStatus = nextStatusId === r.status_type_id;
