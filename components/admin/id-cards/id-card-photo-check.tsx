@@ -40,7 +40,6 @@ import {
   Download,
   Loader2,
   RefreshCw,
-  UserCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -98,7 +97,7 @@ const SCOPE_CHOICES = [
 type ScopeValue = (typeof SCOPE_CHOICES)[number]['value'];
 
 /** Which list is on screen. Defaults to the drive list — the actionable one. */
-type ViewFilter = 'missing' | 'unofficial' | 'all';
+type ViewFilter = 'missing' | 'all';
 
 interface LearnerPhotoRow {
   id: string;
@@ -116,12 +115,7 @@ const VERDICT_META: Record<
     badge: 'bg-red-100 text-red-800 border-red-200',
     whatToDo: 'Take their photograph and add it to their record. No card can be printed until then.',
   },
-  account_only: {
-    label: 'Account picture only',
-    badge: 'bg-amber-100 text-amber-900 border-amber-200',
-    whatToDo:
-      'A card will print, using the picture from their own login account. Take an official photograph to replace it.',
-  },
+
   official: {
     label: 'Official photograph',
     badge: 'bg-emerald-100 text-emerald-800 border-emerald-200',
@@ -209,44 +203,19 @@ export function IdCardPhotoCheck() {
         if (!data || data.length < FETCH_PAGE_SIZE) break;
       }
 
-      // 2. Their login-account picture, the renderer's fallback. Fetched as a
-      //    separate keyed read rather than an embedded join: profiles points AT
-      //    learners_profiles (profiles.learner_id), so the embed would be a
-      //    reverse relation, and an !inner one would silently drop every
-      //    learner who has no account at all — which is most of the people this
-      //    page exists to list.
-      const avatarByLearnerId = new Map<string, string | null>();
-      const learnerIds = learners.map((l) => l.id);
-
-      for (let from = 0; from < learnerIds.length; from += FETCH_PAGE_SIZE) {
-        const slice = learnerIds.slice(from, from + FETCH_PAGE_SIZE);
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('learner_id, avatar_url')
-          .in('learner_id', slice);
-
-        if (error) throw error;
-        for (const record of data ?? []) {
-          if (record.learner_id) avatarByLearnerId.set(record.learner_id, record.avatar_url ?? null);
-        }
-      }
-
+      // The login-account picture is deliberately NOT read. Until 2026-09-03
+      // it was a qualifying fallback and this screen fetched it in a second
+      // keyed query; the Director withdrew that, so only the institutional
+      // photograph decides and the extra round trip is gone with it.
       const collected: LearnerPhotoRow[] = learners.map((learner) => ({
         id: learner.id,
         name: learner.name,
         rollNumber: learner.rollNumber,
-        verdict: classifyCardPhoto({
-          officialPhotoUrl: learner.photoUrl,
-          accountAvatarUrl: avatarByLearnerId.get(learner.id) ?? null,
-        }),
+        verdict: classifyCardPhoto({ officialPhotoUrl: learner.photoUrl }),
       }));
 
       // Worst first — the people who cannot be printed at all lead the list.
-      const rank: Record<PhotoVerdict['kind'], number> = {
-        missing: 0,
-        account_only: 1,
-        official: 2,
-      };
+      const rank: Record<PhotoVerdict['kind'], number> = { missing: 0, official: 1 };
       collected.sort(
         (a, b) => rank[a.verdict.kind] - rank[b.verdict.kind] || a.name.localeCompare(b.name)
       );
@@ -266,21 +235,18 @@ export function IdCardPhotoCheck() {
 
   const summary = useMemo(() => {
     let missing = 0;
-    let unofficial = 0;
     let official = 0;
     for (const row of rows) {
       if (row.verdict.kind === 'missing') missing += 1;
-      else if (row.verdict.kind === 'account_only') unofficial += 1;
       else official += 1;
     }
-    return { missing, unofficial, official, total: rows.length };
+    return { missing, official, total: rows.length };
   }, [rows]);
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (view === 'missing' && row.verdict.kind !== 'missing') return false;
-      if (view === 'unofficial' && row.verdict.kind !== 'account_only') return false;
       if (term === '') return true;
       return (
         row.name.toLowerCase().includes(term) || row.rollNumber.toLowerCase().includes(term)
@@ -407,12 +373,6 @@ export function IdCardPhotoCheck() {
           hint={`${percent(summary.missing)} of this cohort — no card can be printed for them`}
         />
         <SummaryTile
-          icon={UserCircle}
-          label="Account picture only"
-          value={String(summary.unofficial)}
-          hint="A card prints, but it uses their own login picture"
-        />
-        <SummaryTile
           icon={CheckCircle2}
           label="Ready to print"
           value={String(summary.official)}
@@ -426,9 +386,7 @@ export function IdCardPhotoCheck() {
             <CardTitle className="text-base">
               {view === 'missing'
                 ? 'Needs a photograph'
-                : view === 'unofficial'
-                  ? 'Printing an unofficial picture'
-                  : 'Everyone in this cohort'}
+                : 'Everyone in this cohort'}
             </CardTitle>
             <CardDescription>
               {visible.length} of {summary.total} learners. Use Open to reach the learner&apos;s own
@@ -442,7 +400,6 @@ export function IdCardPhotoCheck() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="missing">Needs a photograph</SelectItem>
-                <SelectItem value="unofficial">Account picture only</SelectItem>
                 <SelectItem value="all">Everyone</SelectItem>
               </SelectContent>
             </Select>

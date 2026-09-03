@@ -77,7 +77,7 @@ export const setupSections: GuideSection[] = [
         action: "Know what happens when a learner has **no photograph**.",
         detail:
           "Their card is not printed. A card with no face shows only initials, and the code beside it carries just a number — a photo of somebody else's card scans the same way, so the photograph IS the identity check. The print screen refuses and says whose photograph is missing.",
-        tip: "If the only picture on file comes from the learner's own login account, the card still prints — but you have to confirm it, because an account picture is not one the institution took.",
+        tip: "A picture from the learner's own login account does NOT count. It is not evidence anyone here photographed them, so the card is still refused. Only a photograph the institution took will print.",
       },
     ],
   },
@@ -151,9 +151,9 @@ export const printSections: GuideSection[] = [
         link: { label: "Open Photo Check", href: "/admin/id-cards/photo-check" },
       },
       {
-        action: "Read the three states.",
+        action: "Read the two states.",
         detail:
-          "**No photograph** — no card can be printed at all; this is the drive list and the page opens on it. **Account picture only** — a card will print, using the picture from their own login account, after you confirm it. **Ready to print** — nothing to do.",
+          "**No photograph** — no card can be printed at all; this is the drive list and the page opens on it. A picture from the learner's own login account does not count here. **Ready to print** — an institutional photograph is on file and nothing needs doing.",
       },
       {
         action: "Use **Export** to hand the list to whoever is taking the photographs.",

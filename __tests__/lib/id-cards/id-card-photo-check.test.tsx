@@ -87,17 +87,23 @@ const LEARNERS = [
   },
 ];
 
-// Only Bhuvana has a login-account picture. Chandran has no profile row at all —
-// the majority case this page exists to list, and the reason the component reads
-// profiles as a separate keyed query instead of an !inner embed.
+// RETAINED DELIBERATELY THOUGH NOTHING SHOULD READ IT. Until 2026-09-03 the
+// component fetched these avatars as a qualifying fallback. The Director
+// withdrew that, so the profiles query is gone — and `queriedTables` below
+// asserts it is never issued. Bhuvana keeps her account picture precisely so a
+// regression that starts honouring it again turns this file red.
 const PROFILES = [
   { learner_id: 'l-bhuvana', avatar_url: 'https://kvizhngldtiuufknvehv.supabase.co/storage/v1/object/public/avatars/b.png' },
   { learner_id: 'l-divya', avatar_url: null },
 ];
 
+/** Every table the component actually queries, in order. */
+const queriedTables: string[] = [];
+
 vi.mock('@/lib/supabase/client', () => ({
   createClientSupabaseClient: () => ({
     from(table: string) {
+      queriedTables.push(table);
       const builder: Record<string, unknown> = {};
       const self = () => builder;
       builder.select = self;
@@ -164,19 +170,15 @@ function rowNames() {
 }
 
 describe('IdCardPhotoCheck — the summary tiles', () => {
-  it('counts the three buckets from the real classifier, not a null check', async () => {
+  it('counts the two buckets from the real classifier, not a null check', async () => {
     await renderWorklist();
 
-    // 2 missing (no value at all, and a roll number in the photo field),
-    // 1 account-picture-only, 2 ready. An empty string and 'EM25305' are real
-    // stored values: a null check would have counted 4 ready.
-    expect(tile('40% of this cohort — no card can be printed for them')).toEqual({
-      value: '2',
+    // 3 refused — no value at all, a roll number in the photo field, AND the
+    // empty string whose owner has a login-account picture. All three are real
+    // stored values a null check would have waved through as ready.
+    expect(tile('60% of this cohort — no card can be printed for them')).toEqual({
+      value: '3',
       label: 'No photograph',
-    });
-    expect(tile('A card prints, but it uses their own login picture')).toEqual({
-      value: '1',
-      label: 'Account picture only',
     });
     expect(tile('40% have an official photograph on record')).toEqual({
       value: '2',
@@ -187,9 +189,17 @@ describe('IdCardPhotoCheck — the summary tiles', () => {
   it('shows each bucket as a share of the cohort, not a bare number', async () => {
     await renderWorklist();
     expect(
-      screen.getByText('40% of this cohort — no card can be printed for them')
+      screen.getByText('60% of this cohort — no card can be printed for them')
     ).toBeInTheDocument();
     expect(screen.getByText('40% have an official photograph on record')).toBeInTheDocument();
+  });
+
+  it('never reads profiles.avatar_url at all (reversed 2026-09-03)', async () => {
+    await renderWorklist();
+    // The strongest form of the rule: the account picture is not weighed and
+    // then rejected — it is never fetched. One table, one round trip.
+    expect(queriedTables).toContain('learners_profiles');
+    expect(queriedTables).not.toContain('profiles');
   });
 });
 
@@ -201,20 +211,22 @@ describe('IdCardPhotoCheck — the drive list', () => {
     expect(screen.getByRole('combobox', { name: 'Which list' })).toHaveTextContent(
       'Needs a photograph'
     );
-    expect(screen.getByText('2 of 5 learners.', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('3 of 5 learners.', { exact: false })).toBeInTheDocument();
 
+    expect(screen.getByText('Bhuvana S')).toBeInTheDocument();
     expect(screen.getByText('Chandran K')).toBeInTheDocument();
     expect(screen.getByText('Divya P')).toBeInTheDocument();
     expect(screen.queryByText('Anitha Raman')).not.toBeInTheDocument();
     expect(screen.queryByText('Elango M')).not.toBeInTheDocument();
   });
 
-  it('keeps an account-picture learner OUT of the refusal list', async () => {
+  it('puts the account-picture learner INTO the refusal list (reversed 2026-09-03)', async () => {
     await renderWorklist();
-    // Bhuvana's official column is an empty string but her account picture will
-    // render, so Guard 3 prints her card with a confirmation — she is NOT
-    // someone the photo drive must chase before a card can exist.
-    expect(screen.queryByText('Bhuvana S')).not.toBeInTheDocument();
+    // This asserted the opposite until 2026-09-03. Bhuvana's official column is
+    // an empty string; her login-account picture would render, and under the
+    // old rule that printed her card behind a confirmation. It no longer counts,
+    // so the photo drive must chase her like anyone else.
+    expect(screen.getByText('Bhuvana S')).toBeInTheDocument();
   });
 
   it('rows lead with the state chip and a link to the fix', async () => {
@@ -230,7 +242,7 @@ describe('IdCardPhotoCheck — the drive list', () => {
 
   it('orders the refusal list by name', async () => {
     await renderWorklist();
-    expect(rowNames()).toEqual(['Chandran K', 'Divya P']);
+    expect(rowNames()).toEqual(['Bhuvana S', 'Chandran K', 'Divya P']);
   });
 
   it('orders the WHOLE cohort worst-first, then by name', async () => {
@@ -243,12 +255,12 @@ describe('IdCardPhotoCheck — the drive list', () => {
 
     await waitFor(() => expect(screen.getByText('5 of 5 learners.', { exact: false })).toBeInTheDocument());
 
-    // Cannot be printed at all first, then the unofficial picture, then the
-    // people the office does not need to chase — each group alphabetical.
+    // Cannot be printed at all first, then the people the office does not need
+    // to chase — each group alphabetical.
     expect(rowNames()).toEqual([
+      'Bhuvana S',
       'Chandran K',
       'Divya P',
-      'Bhuvana S',
       'Anitha Raman',
       'Elango M',
     ]);
@@ -265,12 +277,12 @@ describe('IdCardPhotoCheck — the drive list', () => {
 
     const chipOf = (name: string) =>
       within(screen.getByText(name).closest('tr') as HTMLElement).getByText(
-        /No photograph|Account picture only|Official photograph/
+        /No photograph|Official photograph/
       ).textContent;
 
     expect(chipOf('Chandran K')).toBe('No photograph');
     expect(chipOf('Divya P')).toBe('No photograph');
-    expect(chipOf('Bhuvana S')).toBe('Account picture only');
+    expect(chipOf('Bhuvana S')).toBe('No photograph');
     expect(chipOf('Anitha Raman')).toBe('Official photograph');
     expect(chipOf('Elango M')).toBe('Official photograph');
   });
