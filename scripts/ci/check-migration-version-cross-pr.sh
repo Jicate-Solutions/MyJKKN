@@ -79,7 +79,7 @@
 #     push` never reads nested directories, so supabase/migrations/admission/*
 #     is not a migration and must not be version-checked.
 #   · The version is the filename token before the FIRST underscore — which is
-#     what the Supabase CLI keys on — NOT the leading 14 digits. 522 live files
+#     what the Supabase CLI keys on — NOT the leading 14 digits. 444 live files
 #     use the short `YYYYMMDD_` form and a couple carry a lettered suffix
 #     (`...000008a_`). Read the sibling guard's header before changing this.
 #   · claimed = versions(files added) MINUS versions(files removed). That

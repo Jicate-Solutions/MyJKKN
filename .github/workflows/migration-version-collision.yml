@@ -46,6 +46,36 @@ name: Migration version collision
 # Measured 2026-08-11, with `audit` green on every one of them: 20260810120000 was
 # claimed by #2959, by #2961 AND by a file already on main; 20260817000000 was
 # claimed by #2936 and #2945. `cross-pr` reports all of them.
+#
+# ─── THE THIRD JOB, AND WHY IT WAS MISSING ───────────────────────────────────
+#
+# `cross-pr` fails OPEN by design, and a fail-open guard is the one shape that
+# can rot completely invisibly: a guard that skips on every run looks, from the
+# checks UI, exactly like a guard that keeps passing. Its 20 regression cases in
+# __tests__/ci/check-migration-version-cross-pr.test.ts exist precisely to police
+# that — they assert the WORDING of the skip path, not just its exit code.
+#
+# Those 20 cases were never executed by CI. Verified on jicate/main at 1dacf18d
+# (2026-09-03): `grep -rn check-migration-version-cross-pr.test .github/` returned
+# nothing. This repository has no blanket vitest run — every workflow that runs
+# vitest names its files by exact path (see the header of
+# notification-link-preview-guards.yml, which was written after a guard shipped
+# under __tests__/ci/ that nothing ran) — so a test file nobody names is dead
+# code. The sibling workflow migration-rename-applied.yml already does this
+# correctly and states the reason: "A guard whose logic is never executed is a
+# guard that has quietly stopped guarding."
+#
+# `guard-tests` below closes that. It is a SEPARATE job, not a step inside
+# `cross-pr`, for the same reason this whole file is a separate workflow: a
+# broken guard and a real collision are different facts and must not share one
+# status check. It also keeps `npm ci` off the two guard jobs, which need only
+# bash, node and `gh`.
+#
+# The `paths:` filter gained two entries for the same class of reason. It
+# previously did not name this workflow file or the test file, so a pull request
+# that deleted the `cross-pr` job — or deleted its tests — did not trigger the
+# workflow and left no evidence in the checks UI. A guard should witness its own
+# removal. migration-rename-applied.yml already lists both; this now matches.
 
 on:
   pull_request:
@@ -55,6 +85,8 @@ on:
       - 'supabase/migrations/**'
       - 'scripts/ci/check-migration-version-collision.mjs'
       - 'scripts/ci/check-migration-version-cross-pr.sh'
+      - '__tests__/ci/check-migration-version-cross-pr.test.ts'
+      - '.github/workflows/migration-version-collision.yml'
 
 permissions:
   contents: read
@@ -103,3 +135,29 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: scripts/ci/check-migration-version-cross-pr.sh --base "origin/${{ github.base_ref }}"
+
+  guard-tests:
+    name: Migration version guards' own tests pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # Drives the REAL script as a subprocess against a fixture standing in for
+      # the GitHub API and the base branch, so every verdict — pass, collision,
+      # rename, and each of the four fail-open skip paths — is exercised with no
+      # credentials and no network. Runs on forks and on PRs that add no
+      # migration, which is the point: the decision logic must be executed even
+      # when there is nothing to decide.
+      - name: Test the cross-PR guard
+        run: npx vitest run __tests__/ci/check-migration-version-cross-pr.test.ts
