@@ -93,7 +93,12 @@ const learner: CardPersonData = {
   contactPhone: '9123456780',
   idCode: '21AI042',
   studyPeriod: '2025-2028',
-  staffId: null
+  staffId: null,
+  // Pre-existing omission, surfaced only now: the PR-scoped typecheck compiles
+  // test files, but tsconfig.json excludes __tests__ so a local `tsc` never
+  // reaches them. This fixture has been missing a required field since
+  // courseEndDate was added, invisibly, because no PR had touched this file.
+  courseEndDate: null
 };
 
 const teamMember: CardPersonData = {
