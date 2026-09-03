@@ -217,7 +217,7 @@ export async function loadStaffDepartments(
     .in('id', ids);
 
   if (error) {
-    console.error('[campus-walk/scoreboard] staff read failed:', error.message);
+    console.error('[campus-walk/scoreboard] team member read failed:', error.message);
     return index;
   }
 

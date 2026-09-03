@@ -81,7 +81,7 @@ const NOW = new Date('2026-09-03T12:00:00.000Z');
 // ── D9 — departments, never named people ─────────────────────────────────────
 
 describe('D9 — the fixing board names departments and never people', () => {
-  it('carries no staff id or person field anywhere in its output', () => {
+  it('carries no team member id or person field anywhere in its output', () => {
     const rows = [
       closed({ owner_staff_id: 'staff-a' }),
       closed({ owner_staff_id: 'staff-b' }),
