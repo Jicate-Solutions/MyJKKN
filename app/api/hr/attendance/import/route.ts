@@ -651,6 +651,84 @@ export async function POST(request: NextRequest) {
       });
     }
 
+
+    /**
+     * DAYS THIS IMPORT MARKED AS A PENALTY THAT SOMEBODY HAS ALREADY CLAIMED.
+     *
+     * Attendance restamps only on APPROVAL -- status feeds payable_days and the
+     * Salary Register -- so an ABSENT or HALF_DAY with an undecided request
+     * behind it is correct, and was also indistinguishable from an unexplained
+     * one. This REPORTS the overlap; it changes nothing that gets written.
+     *
+     * One query over the import's own range, matched in memory against the rows
+     * being written -- not a lookup per row.
+     */
+    const pendingOnMarkedDays: {
+      count: number;
+      staff: number;
+      sample: Array<{ staff_name: string; work_date: string; request: string; category: string }>;
+    } = { count: 0, staff: 0, sample: [] };
+
+    if (dateFrom && dateTo && matched.length > 0) {
+      const penaltyIds = new Set(
+        ['ABSENT', 'HALF_DAY'].map((c) => statusIdByCode.get(c)).filter(Boolean) as string[],
+      );
+      const marked = new Set(
+        records
+          .filter((r) => penaltyIds.has(r.status_type_id as string))
+          .map((r) => `${r.employee_id as string}|${r.work_date as string}`),
+      );
+
+      if (marked.size > 0) {
+        const { data: pendingRows } = await svc
+          .from('hr_leave_applications')
+          .select('employee_id, start_date, end_date, hr_leave_types:leave_type_id ( leave_type_name, request_category )')
+          .in('employee_id', matched.map((m) => m.staff.id))
+          .in('status', ['pending', 'escalated'])
+          .lte('start_date', dateTo)
+          .gte('end_date', dateFrom)
+          .limit(5000);
+
+        const nameById = new Map(
+          matched.map((m) => [
+            m.staff.id,
+            [m.staff.first_name, m.staff.last_name].filter(Boolean).join(' ').trim() || m.emp.name,
+          ]),
+        );
+        const seenStaff = new Set<string>();
+
+        for (const row of (pendingRows ?? []) as Array<Record<string, unknown>>) {
+          const emb = row.hr_leave_types as
+            | { leave_type_name?: string; request_category?: string }
+            | Array<{ leave_type_name?: string; request_category?: string }>
+            | null;
+          const lt = Array.isArray(emb) ? emb[0] : emb;
+          const empId = row.employee_id as string;
+
+          // Expand the request across its days and keep only those this import
+          // actually penalised.
+          for (
+            let d = new Date(`${row.start_date as string}T00:00:00`);
+            d <= new Date(`${row.end_date as string}T00:00:00`);
+            d.setDate(d.getDate() + 1)
+          ) {
+            const key = `${empId}|${d.toISOString().slice(0, 10)}`;
+            if (!marked.has(key)) continue;
+            pendingOnMarkedDays.count += 1;
+            seenStaff.add(empId);
+            if (pendingOnMarkedDays.sample.length < PREVIEW_LIMIT) {
+              pendingOnMarkedDays.sample.push({
+                staff_name: nameById.get(empId) ?? 'unknown',
+                work_date: d.toISOString().slice(0, 10),
+                request: lt?.leave_type_name ?? 'Time off',
+                category: lt?.request_category ?? 'leave',
+              });
+            }
+          }
+        }
+        pendingOnMarkedDays.staff = seenStaff.size;
+      }
+    }
     const base = {
       success: true,
       dry_run: dryRun,
@@ -662,6 +740,7 @@ export async function POST(request: NextRequest) {
       matched_employees: matched.length,
       unmatched_codes: unmatched,
       relieved_skipped: relievedSkipped,
+      pending_requests_on_marked_days: pendingOnMarkedDays,
       total_day_cells: report.employees.reduce((n, e) => n + e.days.length, 0),
       counts,
       preview,

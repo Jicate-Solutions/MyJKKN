@@ -172,6 +172,12 @@ export function useApplyLeave() {
       qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // ATTENDANCE TOO. The attendance log and calendar now show undecided
+      // requests beside the day's status, so a request that moves and does not
+      // invalidate these leaves that page quoting a stale answer -- and nothing
+      // in this app self-refreshes (staleTime 5 min, focus refetch off).
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
     },
   });
 }
@@ -207,6 +213,12 @@ export function useDecideApplication() {
       qc.invalidateQueries({ queryKey: ['hr-leave-application', data.id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // ATTENDANCE TOO. The attendance log and calendar now show undecided
+      // requests beside the day's status, so a request that moves and does not
+      // invalidate these leaves that page quoting a stale answer -- and nothing
+      // in this app self-refreshes (staleTime 5 min, focus refetch off).
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
       // The Approvals tab reads hr_leave_approval_queue() under its own key;
       // without this the decided row stays on screen until a manual refresh.
       qc.invalidateQueries({ queryKey: ['hr-leave-approval-flows'] });
@@ -233,6 +245,12 @@ export function useCancelApplication() {
       qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // ATTENDANCE TOO. The attendance log and calendar now show undecided
+      // requests beside the day's status, so a request that moves and does not
+      // invalidate these leaves that page quoting a stale answer -- and nothing
+      // in this app self-refreshes (staleTime 5 min, focus refetch off).
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
     },
   });
 }
