@@ -37,6 +37,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Step 4: Extract request meta ONCE
   const { ipAddress, userAgent } = extractRequestMeta(request);
 
+  // Step 4.5: Reject an institution scope this API key is not bound to.
+  // resolveInstitutionId returns null when a bound key supplies a MISMATCHED
+  // institutionId param. Without this guard that null falls straight through to
+  // the `if (institutionId)` filter below, which is then skipped — so the query
+  // runs UNSCOPED across every institution, strictly wider than the mismatch it
+  // was meant to reject. Same guard as app/api/b2a/competency/route.ts:39-45.
+  // (A null from an UNBOUND key is the documented super-key case and is allowed.)
+  if (institutionId === null && context.institutionId !== null) {
+    logApiUsage({
+      apiKeyId: context.keyId,
+      endpoint: '/api/b2a/grievance/dashboard',
+      module: 'grievance',
+      institutionId,
+      statusCode: 403,
+      responseTimeMs: Date.now() - startTime,
+      ipAddress,
+      userAgent,
+    });
+    return NextResponse.json(
+      { error: { code: 'FORBIDDEN', message: 'Institution mismatch with API key binding' } },
+      { status: 403 }
+    );
+  }
+
   // Step 5: Fetch aggregate counts in parallel — one query per status.
   // Also emergency + sla_breached counters (NAAC 7.7.1 surfaces these).
   type DashboardData = {
