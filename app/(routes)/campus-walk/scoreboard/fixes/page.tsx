@@ -46,7 +46,11 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import { buildFixBoard, MIN_DISTINCT_FIXERS_TO_SHOW_A_DEPARTMENT } from '@/lib/campus-walk/scoreboard';
+import {
+  buildFixBoard,
+  MIN_DISTINCT_FIXERS_TO_SHOW_A_DEPARTMENT,
+  type FixBoard
+} from '@/lib/campus-walk/scoreboard';
 import {
   adminClient,
   BoardShell,
@@ -98,7 +102,7 @@ export default async function CampusWalkFixesBoardPage() {
     );
   }
 
-  let board;
+  let board: FixBoard;
   try {
     const tasks = await loadWalkTasks(admin, projectId);
     const staffIndex = await loadStaffDepartments(

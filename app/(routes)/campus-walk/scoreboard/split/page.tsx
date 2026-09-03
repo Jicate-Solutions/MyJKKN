@@ -54,7 +54,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import { buildSplitBoard } from '@/lib/campus-walk/scoreboard';
+import { buildSplitBoard, type SplitBoard } from '@/lib/campus-walk/scoreboard';
 import {
   adminClient,
   BoardShell,
@@ -106,7 +106,7 @@ export default async function CampusWalkSplitBoardPage() {
     );
   }
 
-  let board;
+  let board: SplitBoard;
   try {
     board = buildSplitBoard(await loadWalkTasks(admin, projectId));
   } catch {
