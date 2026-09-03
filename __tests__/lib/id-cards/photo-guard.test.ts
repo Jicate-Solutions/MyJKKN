@@ -1,6 +1,6 @@
 // ============================================================================
-// Guard 3: a card with no drawable photograph on file never reaches the printer,
-// and a card that would print a login-account picture is not printed unnoticed.
+// Guard 3: a card with no INSTITUTIONAL photograph on file never reaches the
+// printer, and there is no override.
 //
 // THE GUARD'S LIMIT IS PINNED HERE TOO. Every check is a SHAPE check on the
 // stored value; none of them fetch. A well-formed but dead URL therefore passes
@@ -25,11 +25,11 @@
 // 20 and 21 August, is 808 of 1,019 (79%). Refusing those is the intended
 // effect of the rule, not a regression.
 //
-// THE THIRD OUTCOME (Director, 2026-08-26): "print any, but warn with an extra
-// click for a non-official photo". 26 eligible learners have no institutional
-// photograph but DO have a picture on their login account, which the renderer
-// will draw. Those are not refused — the card prints — but the caller has to
-// confirm deliberately, the same contract Guard 2 already uses for a fee.
+// REVERSED (Director, 2026-09-03). An earlier ruling let a login-account
+// picture print behind a confirmation click. WITHDRAWN — the click existed only
+// in the endpoint's contract and no screen ever sent it, so it was unreachable.
+// A login-account picture no longer qualifies at all: 30 learners move from
+// "prints with a warning" to "refused", taking blocked from 2,575 to 2,605.
 //
 // WHY PURE-FUNCTION TESTED. vitest here defaults to environment: 'node'
 // (vitest.config.js) and the rule lives inside a route handler. The decision is
@@ -57,7 +57,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   PHOTO_MISSING_CODE,
-  PHOTO_UNOFFICIAL_CODE,
   classifyCardPhoto,
   describePhotoVerdict,
   isPrintablePhoto,
@@ -73,24 +72,20 @@ import {
 /** A picture the renderer can actually draw. */
 const OFFICIAL = 'https://cdn.example.test/photos/learner.jpg';
 const INLINE = 'data:image/png;base64,iVBORw0KGgo=';
+/** A login-account picture. Renderable, but NOT an institutional photograph. */
 const AVATAR = 'https://lh3.example.test/a/account-picture';
 
-/** Guard 3 with the rule ON and nothing acknowledged — the default posture. */
+/** Guard 3 with the rule ON — the default posture. */
 const gate = (
-  photo: { officialPhotoUrl?: string | null; accountAvatarUrl?: string | null },
-  opts: { required?: boolean; acknowledged?: boolean } = {}
-) =>
-  judgeCardPhoto({
-    photo,
-    required: opts.required ?? true,
-    unofficialAcknowledged: opts.acknowledged ?? false
-  });
+  photo: { officialPhotoUrl?: string | null },
+  opts: { required?: boolean } = {}
+) => judgeCardPhoto({ photo, required: opts.required ?? true });
 
 // ---------------------------------------------------------------------------
 
 describe('guard 3 — no photograph, no card', () => {
   it('refuses when both picture slots are absent', () => {
-    const verdict = gate({ officialPhotoUrl: null, accountAvatarUrl: null });
+    const verdict = gate({ officialPhotoUrl: null });
     expect(verdict.kind).toBe('refused');
     if (verdict.kind !== 'refused') return;
     expect(verdict.code).toBe(PHOTO_MISSING_CODE);
@@ -99,13 +94,13 @@ describe('guard 3 — no photograph, no card', () => {
   it("refuses the empty string — 420 of 764 active team members store ''", () => {
     // A null check alone passes every one of these. The empty string is a real
     // stored value, not an absent one.
-    expect(gate({ officialPhotoUrl: '', accountAvatarUrl: '' }).kind).toBe('refused');
-    expect(gate({ officialPhotoUrl: '', accountAvatarUrl: null }).kind).toBe('refused');
-    expect(gate({ officialPhotoUrl: null, accountAvatarUrl: '' }).kind).toBe('refused');
+    expect(gate({ officialPhotoUrl: '' }).kind).toBe('refused');
+    expect(gate({ officialPhotoUrl: '' }).kind).toBe('refused');
+    expect(gate({ officialPhotoUrl: null }).kind).toBe('refused');
   });
 
   it('refuses whitespace-only values', () => {
-    expect(gate({ officialPhotoUrl: '   ', accountAvatarUrl: '\t\n' }).kind).toBe('refused');
+    expect(gate({ officialPhotoUrl: '   ' }).kind).toBe('refused');
   });
 
   it('refuses values the renderer cannot draw, even though they are non-empty', () => {
@@ -124,7 +119,7 @@ describe('guard 3 — no photograph, no card', () => {
     // The point of the rule is that a card showing initials is not an identity
     // document. Confirming that would not make it one, so unlike the unofficial
     // -picture case there is deliberately no escape hatch here.
-    const verdict = gate({ officialPhotoUrl: null, accountAvatarUrl: null }, { acknowledged: true });
+    const verdict = gate({ officialPhotoUrl: null });
     expect(verdict.kind).toBe('refused');
   });
 
@@ -137,38 +132,42 @@ describe('guard 3 — no photograph, no card', () => {
   });
 });
 
-describe('guard 3 — an unofficial picture prints, but not unnoticed', () => {
-  it('stops a card whose only picture is the login-account avatar', () => {
-    const verdict = gate({ officialPhotoUrl: null, accountAvatarUrl: AVATAR });
-    expect(verdict.kind).toBe('needs_acknowledgement');
-    if (verdict.kind !== 'needs_acknowledgement') return;
-    expect(verdict.code).toBe(PHOTO_UNOFFICIAL_CODE);
+describe('guard 3 — a login-account picture does NOT qualify (reversed 2026-09-03)', () => {
+  // These four asserted the OPPOSITE until 2026-09-03. The earlier ruling let an
+  // account picture print behind a confirmation click; that click existed only
+  // in the endpoint's contract — components/id-cards/bulk-print-dialog.tsx
+  // understands only queued / already_queued and never sent it — so the promise
+  // was unreachable and the Director withdrew it. 30 learners move here.
+
+  it('refuses a person whose only picture is their login-account avatar', () => {
+    // AVATAR is perfectly renderable; it is refused for WHAT it is, not its shape.
+    expect(isRenderablePhotoRef(AVATAR)).toBe(true);
+    const verdict = gate({ officialPhotoUrl: null });
+    expect(verdict.kind).toBe('refused');
+    if (verdict.kind !== 'refused') return;
+    expect(verdict.code).toBe(PHOTO_MISSING_CODE);
   });
 
-  it('prints it once the caller acknowledges', () => {
-    const verdict = gate(
-      { officialPhotoUrl: null, accountAvatarUrl: AVATAR },
-      { acknowledged: true }
-    );
-    expect(verdict.kind).toBe('allowed');
+  it('refuses an empty official column even when an avatar exists', () => {
+    expect(gate({ officialPhotoUrl: '' }).kind).toBe('refused');
   });
 
-  it("names the flag the caller must send, so the message is actionable", () => {
-    const message = describePhotoVerdict({ kind: 'account_only' });
-    expect(message).toContain('unofficial_photo_acknowledged');
-    expect(message).toMatch(/will print/i);
+  it('the account avatar never reaches the classifier at all', () => {
+    // The field is gone from CardPhotoInput; only the institutional photo counts.
+    expect(classifyCardPhoto({ officialPhotoUrl: null }).kind).toBe('missing');
+    expect(classifyCardPhoto({ officialPhotoUrl: AVATAR }).kind).toBe('official');
   });
 
-  it('treats an empty official column with a good avatar as unofficial, not missing', () => {
-    expect(gate({ officialPhotoUrl: '', accountAvatarUrl: AVATAR }).kind).toBe(
-      'needs_acknowledgement'
-    );
+  it('the refusal message says why an account picture is not enough', () => {
+    const message = describePhotoVerdict({ kind: 'missing' });
+    expect(message).toMatch(/login account does not count/i);
+    expect(message).toMatch(/photographed them/i);
   });
 });
 
 describe('guard 3 — opposite control: what must keep printing', () => {
-  it('allows an official photograph with nothing to acknowledge', () => {
-    expect(gate({ officialPhotoUrl: OFFICIAL, accountAvatarUrl: null }).kind).toBe('allowed');
+  it('allows an institutional photograph', () => {
+    expect(gate({ officialPhotoUrl: OFFICIAL }).kind).toBe('allowed');
   });
 
   it('allows an inline data: photograph', () => {
@@ -178,13 +177,13 @@ describe('guard 3 — opposite control: what must keep printing', () => {
   it('never asks to acknowledge when an official photo exists alongside an avatar', () => {
     // 2,808 eligible learners are in this shape. A guard that stopped them
     // would halt the whole print office.
-    expect(gate({ officialPhotoUrl: OFFICIAL, accountAvatarUrl: AVATAR }).kind).toBe('allowed');
+    expect(gate({ officialPhotoUrl: OFFICIAL }).kind).toBe('allowed');
   });
 
   it('respects the config row when the rule is switched off', () => {
     // docs/architecture/config-table-pattern.md — a Director decision is a
     // config row, so it must be retunable without a deploy.
-    expect(gate({ officialPhotoUrl: null, accountAvatarUrl: null }, { required: false }).kind).toBe(
+    expect(gate({ officialPhotoUrl: null }, { required: false }).kind).toBe(
       'allowed'
     );
   });
@@ -192,21 +191,18 @@ describe('guard 3 — opposite control: what must keep printing', () => {
 
 describe('classifyCardPhoto — which picture the card would actually print', () => {
   it('prefers the official photograph over the account avatar', () => {
-    expect(classifyCardPhoto({ officialPhotoUrl: OFFICIAL, accountAvatarUrl: AVATAR }).kind).toBe(
+    expect(classifyCardPhoto({ officialPhotoUrl: OFFICIAL }).kind).toBe(
       'official'
     );
   });
 
-  it('falls back to the account avatar, matching the render engine', () => {
-    expect(classifyCardPhoto({ officialPhotoUrl: null, accountAvatarUrl: AVATAR }).kind).toBe(
-      'account_only'
-    );
+  it('does NOT fall back to the account avatar (reversed 2026-09-03)', () => {
+    // The render engine still falls back to profiles.avatar_url, but nobody
+    // reaches the renderer on the strength of one — this guard refuses first.
+    expect(classifyCardPhoto({ officialPhotoUrl: null }).kind).toBe('missing');
   });
 
-  it('isPrintablePhoto counts an unofficial picture as printable', () => {
-    // The worklist asks "can this person be handed a card at all?" — the rule
-    // refuses an EMPTY card, not an unofficial one.
-    expect(isPrintablePhoto({ kind: 'account_only' })).toBe(true);
+  it('isPrintablePhoto is true only for an institutional photograph', () => {
     expect(isPrintablePhoto({ kind: 'official' })).toBe(true);
     expect(isPrintablePhoto({ kind: 'missing' })).toBe(false);
   });

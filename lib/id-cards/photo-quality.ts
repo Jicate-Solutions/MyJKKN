@@ -17,13 +17,20 @@
 //   2,620 (48.0%) have no picture that would render. That is the intended
 //   effect of the rule, not a side effect of it.
 //
-// THE THIRD OUTCOME (Director, 2026-08-26)
-//   Some people have no official photograph but DO have a picture on their own
-//   login account, which the render engine will happily draw. Measured: 26
-//   learners. Those are not refused — the card prints — but the caller has to
-//   confirm it deliberately, because an account picture can be anything and
-//   nobody should print one without noticing. "Print any, but warn with an
-//   extra click for a non-official photo."
+// ONLY AN INSTITUTIONAL PHOTOGRAPH COUNTS (Director, 2026-09-03)
+//   An earlier ruling (2026-08-26) let a picture from the person's own login
+//   account print behind an extra confirmation click. That is WITHDRAWN. The
+//   click was found to exist only in this endpoint's contract — no screen ever
+//   sent it (components/id-cards/bulk-print-dialog.tsx understands only
+//   queued / already_queued), so the promised confirmation was unreachable and
+//   those people hit a dead end at the counter.
+//
+//   So `profiles.avatar_url` no longer qualifies at all. A picture the person
+//   put on their own login account is not evidence the institution
+//   photographed anyone, and it is now treated exactly like no picture:
+//   refused. Two outcomes, no override. Measured on production 2026-09-03:
+//   this moves 30 learners from "prints with a warning" to "refused", taking
+//   the blocked count from 2,575 to 2,605 of 5,487 eligible.
 //
 // WHY THE SHAPE CHECK IS DUPLICATED HERE RATHER THAN IMPORTED
 //   lib/id-cards/render-data.ts owns the canonical fetch, but it is a SERVER
@@ -53,7 +60,8 @@
 //   for it twice: measured read-only on production 2026-08-26, all 4,111
 //   https photo references across the three columns
 //   (learners_profiles.student_photo_url 3,306, staff.profile_picture 372,
-//   profiles.avatar_url 433) are unsigned, non-expiring links — 3,793 of them
+//   profiles.avatar_url 433 — the last no longer qualifying) are unsigned,
+//   non-expiring links — 3,793 of them
 //   Supabase public-bucket URLs, and ZERO signed or expiring URLs anywhere.
 //   The "valid when stored, dead by print time" case therefore has no
 //   instances today. If signed or expiring URLs ever enter these columns this
@@ -85,21 +93,19 @@ export function isRenderablePhotoRef(value: string | null | undefined): boolean 
 }
 
 /**
- * The two picture slots that feed a card, in the order the render engine
- * consults them.
+ * The one picture slot that qualifies a card.
  *
  * `officialPhotoUrl` is the picture the institution took and holds on the
  * person's own record — learners_profiles.student_photo_url for a learner,
  * staff.profile_picture for a team member.
  *
- * `accountAvatarUrl` is profiles.avatar_url: whatever picture is on their login
- * account. The render engine falls back to it (render-data.ts step 3), so a
- * card WILL print off it — but it is not evidence the institution photographed
- * anyone.
+ * There is deliberately no account-avatar field. The render engine still falls
+ * back to profiles.avatar_url (render-data.ts step 3), but nobody reaches the
+ * renderer on the strength of one: this guard refuses them first, so that
+ * fallback is now unreachable for a card printed through the queue.
  */
 export interface CardPhotoInput {
   officialPhotoUrl?: string | null;
-  accountAvatarUrl?: string | null;
 }
 
 /**
@@ -109,30 +115,21 @@ export interface CardPhotoInput {
  * fails to compile at every use site. A string tag narrows correctly.
  */
 export type PhotoVerdict =
-  /** An official photograph will print. Nothing to confirm. */
+  /** An institutional photograph will print. */
   | { kind: 'official' }
-  /**
-   * No official photograph, but the account picture will render. The card is
-   * printable and is NOT refused — the caller confirms it knowingly.
-   */
-  | { kind: 'account_only' }
-  /** No drawable reference anywhere. The card would print initials. Refuse. */
+  /** No drawable institutional photograph. The card would print initials. Refuse. */
   | { kind: 'missing' };
 
 /** Which picture, if any, this card would actually print. */
 export function classifyCardPhoto(input: CardPhotoInput): PhotoVerdict {
-  if (isRenderablePhotoRef(input.officialPhotoUrl)) return { kind: 'official' };
-  if (isRenderablePhotoRef(input.accountAvatarUrl)) return { kind: 'account_only' };
-  return { kind: 'missing' };
+  return isRenderablePhotoRef(input.officialPhotoUrl)
+    ? { kind: 'official' }
+    : { kind: 'missing' };
 }
 
-/**
- * True when this person can be handed a card at all — the worklist's question.
- * `account_only` counts as printable: the Director's rule refuses an EMPTY
- * card, not an unofficial one.
- */
+/** True when this person can be handed a card at all — the worklist's question. */
 export function isPrintablePhoto(verdict: PhotoVerdict): boolean {
-  return verdict.kind !== 'missing';
+  return verdict.kind === 'official';
 }
 
 /**
@@ -140,7 +137,6 @@ export function isPrintablePhoto(verdict: PhotoVerdict): boolean {
  * and the worklist cannot drift on what they call the same situation.
  */
 export const PHOTO_MISSING_CODE = 'photo_missing';
-export const PHOTO_UNOFFICIAL_CODE = 'unofficial_photo_requires_acknowledgement';
 
 /**
  * What the person at the counter reads. Refusals here are never generic and
@@ -151,19 +147,14 @@ export function describePhotoVerdict(verdict: PhotoVerdict): string {
   switch (verdict.kind) {
     case 'official':
       return 'An official photograph is on file — the card will print with it.';
-    case 'account_only':
-      return (
-        'The only picture on file for this person is the one from their own login account, ' +
-        'not a photograph taken by the institution. The card WILL print, using that picture. ' +
-        'Re-submit with "unofficial_photo_acknowledged": true to print it as it is, or take ' +
-        'an official photograph and add it to their record first.'
-      );
     case 'missing':
       return (
-        'No photograph is on file for this person, so an ID card cannot be printed. ' +
-        'A card with no face on it shows only initials, which proves nothing at a gate — ' +
-        'the photograph is the identity check. Take their photograph, add it to their ' +
-        'record, then print the card. Nothing was printed and no ribbon was used.'
+        'No photograph taken by the institution is on file for this person, so an ID card ' +
+        'cannot be printed. A picture from their own login account does not count — it is ' +
+        'not evidence anyone here photographed them. A card with no face shows only initials, ' +
+        'which proves nothing at a gate; the photograph IS the identity check. Take their ' +
+        'photograph, add it to their record, then print the card. Nothing was printed and no ' +
+        'ribbon was used.'
       );
   }
 }

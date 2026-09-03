@@ -179,20 +179,25 @@ function isRenderablePhotoRef(value: string | null): boolean {
 }
 
 /**
- * "Has a photo" = the card would render with a real photo, per the render
- * engine's fallback chain (learners_profiles photo → profiles.avatar_url).
- * Either slot holding a renderable value counts — never skip a learner whose
- * card would print fine off their account avatar. Junk values (e.g. a roll
- * number stored in the photo column) count as no photo, matching what the
- * engine would actually draw. (Exported for unit tests.)
+ * "Has a photo" = the card would print, per Guard 3 on POST /api/id-cards/jobs.
+ *
+ * REVERSED 2026-09-03 (Director): the account avatar NO LONGER counts. It used
+ * to — this screen mirrored the render engine's fallback chain
+ * (learners_profiles photo → profiles.avatar_url) and an avatar was enough. The
+ * server rule now requires a photograph the institution took, with no override,
+ * so a screen that still counted avatars would offer the office 30 learners the
+ * endpoint refuses — the office chasing a different list than the printer.
+ *
+ * `avatarUrl` is retained in the signature (callers still pass it) but is
+ * deliberately IGNORED. Junk values (e.g. a roll number stored in the photo
+ * column) count as no photo, matching what the engine would actually draw.
+ * (Exported for unit tests.)
  */
 export function hasPrintablePhoto(
   learnerPhotoUrl: string | null,
-  avatarUrl: string | null
+  _avatarUrl?: string | null
 ): boolean {
-  return (
-    isRenderablePhotoRef(learnerPhotoUrl) || isRenderablePhotoRef(avatarUrl)
-  );
+  return isRenderablePhotoRef(learnerPhotoUrl);
 }
 
 export function IdCardBatchPrint() {

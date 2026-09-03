@@ -16,11 +16,13 @@
 //   The QR carries a number, and a photograph of somebody else's card scans
 //   identically. The PHOTO is the identity control. Without one the renderer
 //   draws initials (render-card.tsx `initialsFromName`) and the card proves
-//   nothing at a gate, so it is refused outright. A person whose ONLY picture
-//   is their login-account avatar is not refused — the card prints — but the
-//   caller must acknowledge it, the same shape Guard 2 uses for a fee. The
-//   decision itself lives in lib/id-cards/photo-quality.ts, which the batch
-//   worklist screen imports too so both cannot drift.
+//   nothing at a gate, so it is refused outright. A picture from the person's
+//   own LOGIN ACCOUNT does not qualify (Director 2026-09-03, reversing an
+//   earlier ruling that let it print behind a confirmation click — that click
+//   existed only in this endpoint's contract and no screen ever sent it). Two
+//   outcomes, no override. The decision itself lives in
+//   lib/id-cards/photo-quality.ts, which the worklist screen imports too so
+//   both cannot drift.
 //
 // WHY THE MONEY IS NOT IN THIS FILE. The replacement fee AMOUNT is a Director
 // decision that has not been made. Per the standing config-table rule
@@ -39,7 +41,6 @@ import {
   classifyCardPhoto,
   describePhotoVerdict,
   PHOTO_MISSING_CODE,
-  PHOTO_UNOFFICIAL_CODE,
   type CardPhotoInput,
   type PhotoVerdict
 } from '@/lib/id-cards/photo-quality';
@@ -186,29 +187,26 @@ export function judgeCardSubject(
 
 /** String-tagged for the same `strict: false` narrowing reason as above. */
 export type PhotoGateVerdict =
-  /** Print it. Either an official photo, or an acknowledged account picture. */
+  /** An institutional photograph is on file — print it. */
   | { kind: 'allowed'; verdict: PhotoVerdict }
-  /** Printable, but the caller has not accepted the unofficial picture yet. */
-  | { kind: 'needs_acknowledgement'; code: string; message: string }
-  /** Nothing renderable. No override exists for this. */
+  /** No institutional photograph. No override exists for this. */
   | { kind: 'refused'; code: string; message: string };
 
 export type PhotoGateInput = {
   photo: CardPhotoInput;
   /** False disables the rule entirely (config row); defaults to on. */
   required: boolean;
-  /** The caller has seen the warning and is printing the account picture. */
-  unofficialAcknowledged: boolean;
 };
 
 /**
  * Decide whether this card may be printed on the strength of its photograph.
  *
- * Three outcomes, not two — an unofficial picture is a WARNING with an extra
- * confirmation, never a refusal (Director 2026-08-26). Only a card with no
- * drawable photo REFERENCE on file is refused, and that refusal has no
- * override: the whole point of the rule is that a card showing initials is not
- * an identity document, and acknowledging that would not make it one.
+ * TWO outcomes, and the refusal has NO override (Director 2026-09-03). An
+ * earlier ruling let a login-account picture print behind a confirmation
+ * click; that is WITHDRAWN — the click existed only in this endpoint's
+ * contract and no screen ever sent it, so it was unreachable. Only a
+ * photograph the institution took qualifies. A card showing initials is not an
+ * identity document, and confirming that would not make it one.
  *
  * LIMIT: this judges the shape of the stored value, not whether the image is
  * still fetchable. A well-formed but dead URL passes here and the renderer
@@ -221,24 +219,13 @@ export function judgeCardPhoto(input: PhotoGateInput): PhotoGateVerdict {
   // Rule switched off by config — every card prints, as before this guard.
   if (!input.required) return { kind: 'allowed', verdict };
 
-  switch (verdict.kind) {
-    case 'official':
-      return { kind: 'allowed', verdict };
-    case 'account_only':
-      return input.unofficialAcknowledged
-        ? { kind: 'allowed', verdict }
-        : {
-            kind: 'needs_acknowledgement',
-            code: PHOTO_UNOFFICIAL_CODE,
-            message: describePhotoVerdict(verdict)
-          };
-    case 'missing':
-      return {
+  return verdict.kind === 'official'
+    ? { kind: 'allowed', verdict }
+    : {
         kind: 'refused',
         code: PHOTO_MISSING_CODE,
         message: describePhotoVerdict(verdict)
       };
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -522,10 +509,7 @@ export async function lookupCardSubject(
       kind: 'found',
       subject: { kind: 'learner', lifecycleStatus: l.lifecycle_status },
       institutionId: l.institution_id ?? p.institution_id ?? null,
-      photo: {
-        officialPhotoUrl: l.student_photo_url,
-        accountAvatarUrl: p.avatar_url
-      }
+      photo: { officialPhotoUrl: l.student_photo_url }
     };
   }
 
@@ -548,12 +532,9 @@ export async function lookupCardSubject(
           kind: 'found',
           subject: { kind: 'team_member', isActive: s.is_active },
           institutionId: s.institution_id ?? p.institution_id ?? null,
-          // 420 of 764 active team members store '' here, which is a real
+          // 397 of 734 active team members store '' here, which is a real
           // stored value — isRenderablePhotoRef treats it as no photo.
-          photo: {
-            officialPhotoUrl: s.profile_picture,
-            accountAvatarUrl: p.avatar_url
-          }
+          photo: { officialPhotoUrl: s.profile_picture }
         };
       }
     }
@@ -563,10 +544,13 @@ export async function lookupCardSubject(
     kind: 'found',
     subject: { kind: 'unclassified' },
     institutionId: p.institution_id ?? null,
-    // No learner and no team-member record, so the account avatar is the only
-    // picture that exists for them. Guard 3 still applies: an administrative
-    // account with no picture at all cannot be handed a card either.
-    photo: { officialPhotoUrl: null, accountAvatarUrl: p.avatar_url }
+    // No learner and no team-member record, so there is no institutional
+    // photograph anywhere for them — an administrative or service account.
+    // Since 2026-09-03 a login-account avatar no longer qualifies, so Guard 3
+    // refuses every unclassified profile. Guard 1 still admits them (it only
+    // refuses people who can be SHOWN to have left); Guard 3 is what stops
+    // them, and an account with no institutional photo should not hold a card.
+    photo: { officialPhotoUrl: null }
   };
 }
 
