@@ -358,7 +358,7 @@ export async function routeAccountable(
     } else {
       if (!headProfileId) {
         console.error(
-          `[campus-walk] accountable team member ${leaveOriginalStaffId} is on approved leave; no department head on record (staff.department_id or departments.head_of_department_id missing) — routing to EAO`
+          `[campus-walk] accountable team member ${leaveOriginalStaffId} is on approved leave; no department head on record (the department link or its head-of-department link is missing) — routing to EAO`
         );
       } else {
         console.error(
