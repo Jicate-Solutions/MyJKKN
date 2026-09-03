@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
+import { toPaise } from './instalment-arithmetic';
 
 // ============================================
 // INSTALMENT PLAN SERVICE
@@ -125,63 +126,12 @@ export interface SupabaseRpcClient {
   ) => PromiseLike<{ data: unknown; error: unknown }>;
 }
 
-// ─── Money helper ─────────────────────────────────────────────────────────────
-
-/** Work in integer paise to keep sums exact — 2dp floats drift. */
-function toPaise(amount: number): number {
-  return Math.round(amount * 100);
-}
-
-// ─── Reference mirror of the SQL engine arithmetic ───────────────────────────
-
-/**
- * Splits `totalAmount` across `lines` (ordered by sequence_no):
- *   - lines 1..n-1 take their own size — fixed_amount, or share_percent of the
- *     total rounded to 2dp;
- *   - the LAST line absorbs rounding: total minus the sum of the earlier
- *     lines — so the instalments always sum EXACTLY to the total.
- * Returns null (meaning: do not split) when the plan has fewer than 2 lines or
- * any computed amount is not strictly positive.
- *
- * MIRROR NOTE: this is the TS reference implementation of the arithmetic in
- * `billing_instalment_split_for_learner` (migration 20260825013000). The SQL
- * engine is what generates bills at runtime; keep the two in step when either
- * changes. Used for authoring-time previews/validation and unit tests.
- */
-export function computeInstalmentAmounts(
-  totalAmount: number,
-  lines: Pick<InstalmentPlanLineInput, 'share_percent' | 'fixed_amount'>[]
-): number[] | null {
-  if (!Number.isFinite(totalAmount) || totalAmount <= 0) return null;
-  const n = lines.length;
-  if (n < 2) return null;
-
-  const totalPaise = toPaise(totalAmount);
-  const amountsPaise: number[] = [];
-  let sumPrev = 0;
-
-  for (let i = 0; i < n; i++) {
-    let paise: number;
-    if (i < n - 1) {
-      const line = lines[i];
-      if (line.fixed_amount != null) {
-        paise = toPaise(line.fixed_amount);
-      } else if (line.share_percent != null) {
-        // round(total * pct / 100, 2) — computed in paise
-        paise = Math.round((totalPaise * line.share_percent) / 100);
-      } else {
-        return null; // malformed line
-      }
-    } else {
-      paise = totalPaise - sumPrev; // last absorbs rounding
-    }
-    if (!Number.isFinite(paise) || paise <= 0) return null;
-    sumPrev += paise;
-    amountsPaise.push(paise);
-  }
-
-  return amountsPaise.map((p) => p / 100);
-}
+// ─── Money + split arithmetic ────────────────────────────────────────────────
+// Moved to ./instalment-arithmetic (pure, no client import) so the fee-structure
+// sheet resolver — a "no DB access" module — can check a spreadsheet against the
+// SAME rupees the engine would bill. Re-exported so every import of
+// computeInstalmentAmounts from this service keeps working.
+export { computeInstalmentAmounts } from './instalment-arithmetic';
 
 // ─── Authoring-time validation ────────────────────────────────────────────────
 
