@@ -355,11 +355,7 @@ describe('the documented limit — a shape check is not a reachability check', (
     expect(isRenderablePhotoRef(dead)).toBe(true);
     expect(classifyCardPhoto({ officialPhotoUrl: dead }).kind).toBe('official');
     expect(
-      judgeCardPhoto({
-        photo: { officialPhotoUrl: dead },
-        required: true,
-        unofficialAcknowledged: false
-      }).kind
+      judgeCardPhoto({ photo: { officialPhotoUrl: dead }, required: true }).kind
     ).toBe('allowed');
   });
 });
