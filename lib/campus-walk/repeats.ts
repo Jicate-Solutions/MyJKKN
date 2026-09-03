@@ -27,6 +27,17 @@
  * COUNT(*) query. Prior occurrences are copied forward untouched on every
  * reopen — never overwritten, never trimmed.
  *
+ * ── AN UNSAFE RECURRENCE RE-ALERTS (Director ruling, 2026-09-04) ─────────
+ * D6's phone alert used to fire only at capture time, so "Block C, ninth
+ * time, still unsafe" reopened the ticket and paged nobody — a repeatedly
+ * ignored danger went quieter with every repeat, which is exactly backwards.
+ * A reopen of a ticket carrying metadata.unsafe now fires the same alert the
+ * first report did, through the same module
+ * (lib/campus-walk/urgent-alert.ts), carrying the occurrence number so the
+ * phone says "9th time" rather than reading like a fresh report. One reopen
+ * fires one alert: the send sits on the single, linear path below, and the
+ * undelivered alarm behind it is keyed per (task, occurrence).
+ *
  * ── ROUTING IS NOT RE-IMPLEMENTED HERE ───────────────────────────────────
  * Due date by kind/unsafe, the EAO fallback when there is no valid owner,
  * and leave reassignment are the exact rules createWalkTask already runs for
@@ -43,6 +54,10 @@ import {
   mapStaffToProfilesLocal,
   type WalkKind
 } from '@/lib/services/campus-walk/campus-walk-service';
+import {
+  sendUrgentConditionAlert,
+  type UrgentAlertOutcome
+} from '@/lib/campus-walk/urgent-alert';
 
 /**
  * Terminal states a ticket must be in before "same as before" applies. A
@@ -82,6 +97,15 @@ export type ReopenAsRepeatResult =
        * RACI write this replaced was.
        */
       ownerAssignmentFailed: boolean;
+      /**
+       * D6 on a recurrence (Director ruling, 2026-09-04). Present ONLY when
+       * the reopened ticket is marked unsafe; undefined otherwise, so an
+       * ordinary recurrence's result shape is unchanged. Carries whether a
+       * phone was actually reached — the caller is expected to surface
+       * `failureReason` rather than discard it, because a danger reported for
+       * the ninth time that paged nobody must not read as one that did.
+       */
+      urgentAlert?: UrgentAlertOutcome;
     }
   | {
       ok: false;
@@ -256,6 +280,60 @@ export async function reopenAsRepeat(
       };
     }
 
+    // Mutable view of what is on the row right now, so the two best-effort
+    // follow-up writes below (the urgent-alert outcome, and the unowned-reopen
+    // flags) compose instead of clobbering one another. Each advances it only
+    // after its own write actually landed.
+    let persistedMetadata: Record<string, any> = newMetadata;
+
+    // ── D6 on a recurrence (Director ruling, 2026-09-04) ────────────────────
+    // Placed here, immediately after the reopen commits and BEFORE the RACI
+    // sync below, for the same reason createWalkTask puts it before its own
+    // attachment/RACI/notification steps: those are bookkeeping that can
+    // survive arriving a second late, and if anything after this point fails
+    // the phone has still rung. routeAccountable() above has already settled
+    // who owns the recurrence — including the EAO fallback and any on-leave
+    // reassignment — so no recipient logic is duplicated here, and paging the
+    // intended owner is right even if the assignee write below then fails
+    // (that failure has its own alarm).
+    let urgentAlert: UrgentAlertOutcome | undefined;
+    if (isUnsafe) {
+      const geo = metadata.geo as { lat?: unknown; lng?: unknown } | null | undefined;
+      urgentAlert = await sendUrgentConditionAlert(db, {
+        taskId: task.id,
+        title: task.title,
+        dueDate: routing.dueDate,
+        category: (metadata.category as string | null) ?? null,
+        locationHint:
+          geo && geo.lat != null && geo.lng != null ? `${geo.lat}, ${geo.lng}` : null,
+        accountableProfileId: routing.accountableProfileId,
+        // "Block C — 9th time" on the phone, and the key that stops occurrence
+        // #1's undelivered alarm from suppressing occurrence #9's.
+        occurrenceNumber: occurrenceCount
+      });
+
+      const withAlert = { ...persistedMetadata, urgent_alert: urgentAlert };
+      try {
+        const { error: alertMetaError } = await db
+          .from('project_tasks')
+          .update({ metadata: withAlert })
+          .eq('id', task.id);
+        if (alertMetaError) {
+          console.error(
+            '[campus-walk/repeats] could not record the urgent-alert outcome on the task:',
+            alertMetaError.message
+          );
+        } else {
+          persistedMetadata = withAlert;
+        }
+      } catch (e: any) {
+        console.error(
+          '[campus-walk/repeats] urgent-alert metadata write threw:',
+          e?.message ?? e
+        );
+      }
+    }
+
     // Keep RACI's accountable role in sync with any re-routing (EAO
     // fallback / leave reassignment). Delete/delete/insert — the exact shape
     // lib/campus-walk/chase-up.ts's departure-handover path uses (read only;
@@ -322,7 +400,7 @@ export async function reopenAsRepeat(
           .from('project_tasks')
           .update({
             metadata: {
-              ...newMetadata,
+              ...persistedMetadata,
               accountable_assignment_failed: true,
               accountable_assignment_failure_reason: ownerAssignmentFailureReason
             }
@@ -392,7 +470,8 @@ export async function reopenAsRepeat(
       accountableProfileId: routing.accountableProfileId,
       routedToEaoNoOwner: routing.routedToEaoNoOwner,
       onApprovedLeave: routing.onApprovedLeave,
-      ownerAssignmentFailed
+      ownerAssignmentFailed,
+      urgentAlert
     };
   } catch (e: any) {
     console.error('[campus-walk/repeats] reopenAsRepeat threw:', e?.message ?? e);
