@@ -54,7 +54,13 @@ const lookups = {
     ['uniform fee', UNIFORM],
   ]),
   amountHeaders: ['1 Year Tuition Fee', 'Uniform Fee'],
-  learnerStatuses: new Map<string, string>(),
+  // "Promotes To" resolves through this map. Every structure must name both
+  // rungs (Reserved AND Admitted) somewhere, so the fixtures below — which are
+  // about "Applies To" — carry them on rows that say nothing else about it.
+  learnerStatuses: new Map([
+    ['reserved', 'reserved'],
+    ['admitted', 'admitted'],
+  ]),
 } as unknown as BulkResolveLookups;
 
 const STRUCTURE = {
@@ -133,11 +139,13 @@ describe('resolveUnifiedSheet — Applies To', () => {
         'Fee Category': '1 Year Tuition Fee',
         Amount: 100000,
         'Applies To': APPLIES_TO_LABELS.every_year,
+        'Promotes To': 'Reserved',
       }),
       row({
         'Fee Category': 'Uniform Fee',
         Amount: 5000,
         'Applies To': APPLIES_TO_LABELS.first_year_only,
+        'Promotes To': 'Admitted',
       }),
     ]);
     expect(res.errors).toEqual([]);
@@ -154,7 +162,9 @@ describe('resolveUnifiedSheet — Applies To', () => {
         Amount: 2500,
         'Applies To': APPLIES_TO_LABELS.specific_year,
         'Year of Study': 3,
+        'Promotes To': 'Reserved',
       }),
+      row({ 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Promotes To': 'Admitted' }),
     ]);
     expect(res.errors).toEqual([]);
     expect(itemFor(res, UNIFORM).applies_to).toBe('specific_year');
@@ -164,7 +174,8 @@ describe('resolveUnifiedSheet — Applies To', () => {
   // The whole reason a blank cell cannot mean "every year".
   it('OMITS the keys on a blank cell, so the stored value survives', () => {
     const res = one([
-      row({ 'Fee Category': 'Uniform Fee', Amount: 5000, 'Applies To': '' }),
+      row({ 'Fee Category': 'Uniform Fee', Amount: 5000, 'Applies To': '', 'Promotes To': 'Reserved' }),
+      row({ 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Promotes To': 'Admitted' }),
     ]);
     expect(res.errors).toEqual([]);
     expect(itemFor(res, UNIFORM)).not.toHaveProperty('applies_to');
@@ -172,7 +183,10 @@ describe('resolveUnifiedSheet — Applies To', () => {
   });
 
   it('OMITS the keys for a workbook with no Applies To column at all', () => {
-    const res = one([legacyRow({ 'Fee Category': 'Uniform Fee', Amount: 5000 })]);
+    const res = one([
+      legacyRow({ 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Reserved' }),
+      legacyRow({ 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Promotes To': 'Admitted' }),
+    ]);
     expect(res.errors).toEqual([]);
     expect(itemFor(res, UNIFORM)).not.toHaveProperty('applies_to');
   });
@@ -182,12 +196,12 @@ describe('resolveUnifiedSheet — Applies To', () => {
       row({
         'Fee Category': '1 Year Tuition Fee', Amount: 100000,
         'Applies To': APPLIES_TO_LABELS.every_year,
-        'Instalment #': 1, 'Share %': 60, 'Due After (Days)': 15,
+        'Instalment #': 1, 'Share %': 60, 'Due After (Days)': 15, 'Promotes To': 'Reserved',
       }),
       row({
         'Fee Category': '1 Year Tuition Fee', Amount: 100000,
         'Applies To': APPLIES_TO_LABELS.every_year,
-        'Instalment #': 2, 'Share %': 40, 'Due After (Days)': 90,
+        'Instalment #': 2, 'Share %': 40, 'Due After (Days)': 90, 'Promotes To': 'Admitted',
       }),
     ]);
     expect(res.errors).toEqual([]);

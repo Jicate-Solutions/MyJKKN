@@ -303,6 +303,10 @@ export interface LeaveApprovalStep {
   step_order: number;
   approver_role: string;
   approver_user_id?: string | null;
+  /** Display name frozen with the step — a pinned person's name, or the org
+   *  catch-all's "HR / Approving Authority". Written by the flow editor and
+   *  buildApprovalChain; absent on the oldest chains. */
+  approver_name?: string | null;
   status: 'pending' | 'approved' | 'rejected' | 'skipped';
   decided_at?: string | null;
   decided_by?: string | null;
@@ -410,6 +414,25 @@ export interface HRLeaveApplication {
   superseded_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Names for the ids frozen into approval_chain. profiles and custom_roles are
+ * RLS-hidden to a member of staff, so decided_by, decisions[].by and
+ * approver_role are opaque in the browser — the detail route resolves them with
+ * the service-role client, AFTER the RLS-gated read of the application has
+ * already proved the caller may see it.
+ */
+export interface LeaveChainNames {
+  /** profiles.id → full_name, else email. */
+  people: Record<string, string>;
+  /** custom_roles.role_key → role_name. */
+  roles: Record<string, string>;
+}
+
+/** What GET /api/hr/leave/applications/[id] returns: the row plus the names. */
+export interface HRLeaveApplicationDetail extends HRLeaveApplication {
+  chain_names?: LeaveChainNames;
 }
 
 export interface HRLeaveApplicationInsert {

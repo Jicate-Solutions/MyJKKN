@@ -57852,3 +57852,56 @@ GRANT EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) TO authentic
 
 REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_event_feedback_form_open(uuid) TO authenticated;
+
+-- ============================================================================
+-- 2026-09-03 — fn_leave_step_admits: CASE-guard the hr.leave.approve org build
+-- Migration: 20260903130000_hr_leave_step_admits_case_guard.sql
+-- Supersedes the fn_leave_step_admits definition earlier in this file. The
+-- queue timed out (8s) for role-step approvers because fn_my_hr_organization_ids()
+-- ran per row; CASE makes it lazy. See the migration header for the numbers.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_leave_step_admits(
+  p_step jsonb,
+  p_uid uuid,
+  p_hr_organization_id uuid
+) RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.fn_leave_step_approvers(p_step) e
+    WHERE p_uid IS NOT NULL
+      AND (
+        -- Pinned: an explicit naming, reachable from any institution.
+        e.approver_user_id = p_uid
+        OR (
+          e.approver_role IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM public.user_roles ur
+            JOIN public.custom_roles cr ON cr.id = ur.role_id
+            WHERE ur.user_id = p_uid
+              AND cr.role_key = e.approver_role
+              AND cr.is_active
+          )
+          AND (
+            public.is_super_admin()
+            -- CASE, not AND. AND carries no evaluation-order guarantee, and
+            -- this array build (3.7 ms) was running once per row for callers
+            -- who do not hold the key. See the header.
+            OR CASE
+                 WHEN public.user_has_permission('hr.leave.approve')
+                 THEN p_hr_organization_id = ANY (
+                        COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]))
+                 ELSE false
+               END
+            OR p_hr_organization_id = ANY (
+                 COALESCE(public.fn_my_designated_hr_org_ids(), ARRAY[]::uuid[]))
+          )
+        )
+      )
+  );
+$function$;

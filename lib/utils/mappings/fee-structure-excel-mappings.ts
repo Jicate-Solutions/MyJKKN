@@ -4,6 +4,12 @@
 // The import route builds the `BulkResolveLookups` maps from the DB, then calls
 // resolveRow() once per spreadsheet row to get a payload or a list of errors.
 
+// The one implementation of "how big is instalment i of a ₹N fee" — the TS
+// mirror of the SQL engine that sizes the bills. Pure (no client import), so
+// this module stays DB-free, and the sheet is checked against the exact rupees
+// a bill would carry rather than a re-derivation that could drift.
+import { computeInstalmentAmounts } from '@/lib/services/billing/instalments/instalment-arithmetic';
+
 export const FEE_STRUCTURE_SHEET_NAME = 'Fee Structures';
 
 // Fixed (non-amount) columns, left→right. Amount columns (one per active
@@ -170,6 +176,13 @@ export function parseAmountCell(cell: unknown): number | null {
   if (s === '') return null;
   return Number(s.replace(/,/g, ''));
 }
+
+/** Rupees → integer paise, the unit the engine sums in; 2dp floats drift. */
+const toPaise = (amount: number): number => Math.round(amount * 100);
+
+/** "₹1,40,000" — a figure the way the accounts team reads it. */
+const rupees = (amount: number): string =>
+  `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
 export function normalizeGender(cell: unknown): string | null | 'INVALID' {
   const s = norm(cell).toUpperCase();
@@ -431,7 +444,9 @@ export function resolveRow(
 //                          category. Use it to set a single due date, or a
 //                          status rule, on a fee that is paid in one go.
 //   Instalment # 1..N   -> a split. At least 2 rows, numbered contiguously
-//                          from 1, percentages totalling 100.
+//                          from 1, percentages totalling 100 — and once any
+//                          row states rupees (Fixed Amount) the instalments
+//                          must add up to the fee's Amount exactly.
 //
 // A category with NO rows here is left exactly as it is — the sheet only needs
 // to carry what you are changing. To REMOVE a split, include a single blank-#
@@ -454,9 +469,12 @@ export const SCHEDULE_REF_HEADERS = [
   'Structure Name (ref)',
   // What this instalment actually bills, in rupees — the same number the
   // on-screen editor shows in its "Amount" column, computed by the shared
-  // last-absorbs-rounding rule. Export-only: editing it changes nothing,
-  // because the SIZE of an instalment is Share % or Fixed Amount. It is here
-  // so "30 / 40 / 30" can be checked against real money without a calculator.
+  // last-absorbs-rounding rule. It never SETS the size of an instalment (that
+  // is Share % or Fixed Amount) — it is a cross-check, so "30 / 40 / 30" can
+  // be read against real money without a calculator. And on the unified tab,
+  // where the fee's Amount sits on the same row, a filled-in figure that
+  // disagrees with what the instalment would bill is an ERROR: a mistyped or
+  // stale rupee value must not sit beside a share it contradicts.
   'Amount (ref)',
 ] as const;
 
@@ -529,6 +547,8 @@ interface ScheduleCells {
   instalmentNo: number | null; // null = the whole fee
   sharePercent: number | null;
   fixedAmount: number | null;
+  /** "Amount (ref)" — a cross-check of the rupees, never a size. */
+  amountRef: number | null;
   dueAnchor: ScheduleDueAnchor | null;
   dueOffsetDays: number | null;
   dueDate: string | null;
@@ -564,6 +584,19 @@ export interface ItemScheduleConfig {
     promotes_to_status_code: string | null;
   }>;
 }
+
+/**
+ * The two rungs of the learner ladder (account → reserved → admitted) that
+ * EVERY structure must be able to climb. "Promotes To" on a fee or an
+ * instalment is what moves a learner up when it is settled; a structure that
+ * names only one rung, or neither, strands learners on it however much they
+ * pay. Codes are `admission_statuses.code` (scope 'learner'); the labels are
+ * what the sheet's "Promotes To" column shows and what the error names.
+ */
+export const REQUIRED_PROMOTIONS = [
+  { code: 'reserved', label: 'Reserved' },
+  { code: 'admitted', label: 'Admitted' },
+] as const;
 
 export interface ScheduleSheetResolution {
   /** structure_id -> the schedules to apply to it. */
@@ -608,6 +641,9 @@ function parseScheduleCells(
   if (sharePercent !== null && Number.isNaN(sharePercent)) { fail('Share % is not a number.'); return null; }
   if (fixedAmount !== null && Number.isNaN(fixedAmount)) { fail('Fixed Amount is not a number.'); return null; }
 
+  const amountRef = parseAmountCell(raw['Amount (ref)']);
+  if (amountRef !== null && Number.isNaN(amountRef)) { fail('Amount (ref) is not a number.'); return null; }
+
   const dueAnchor = normalizeDueAnchor(raw['Due Anchor']);
   if (dueAnchor === 'INVALID') {
     fail(`Due Anchor "${norm(raw['Due Anchor'])}" must be ${Object.values(DUE_ANCHOR_LABELS).join(', ')}, or blank to leave it unchanged.`);
@@ -644,7 +680,7 @@ function parseScheduleCells(
     promotesTo = code;
   }
 
-  return { instalmentNo, sharePercent, fixedAmount, dueAnchor, dueOffsetDays, dueDate, promotesTo };
+  return { instalmentNo, sharePercent, fixedAmount, amountRef, dueAnchor, dueOffsetDays, dueDate, promotesTo };
 }
 
 /**
@@ -657,6 +693,13 @@ function resolveScheduleGroup(
   group: RawScheduleLine[],
   where: string,
   at: (rowNumber: number, msg: string) => void,
+  /**
+   * The fee's Amount, when the sheet carries it beside the instalments (the
+   * unified tab). null on the legacy schedules tab, which knows the structure
+   * only by ID — the rupee checks are skipped there, exactly as before,
+   * because that sheet holds nothing to check against.
+   */
+  amount: number | null,
 ): ItemScheduleConfig | null {
   const first = group[0];
   const whole = group.filter((l) => l.instalmentNo === null);
@@ -715,6 +758,11 @@ function resolveScheduleGroup(
       return null;
     }
 
+    if (amount !== null && w.amountRef !== null && toPaise(w.amountRef) !== toPaise(amount)) {
+      at(w.rowNumber, `${where}: Amount (ref) says ${rupees(w.amountRef)}, but the fee's Amount is ${rupees(amount)}. Amount (ref) only cross-checks the Amount — make them agree, or clear Amount (ref).`);
+      return null;
+    }
+
     return {
       billing_category_id: w.categoryId,
       schedule_mode: 'single',
@@ -743,6 +791,15 @@ function resolveScheduleGroup(
     if ((l.sharePercent === null) === (l.fixedAmount === null)) {
       at(l.rowNumber, 'set EITHER Share % OR Fixed Amount, not both or neither.');
       bad = true;
+    } else if (l.sharePercent !== null && !(l.sharePercent > 0 && l.sharePercent <= 100)) {
+      // 120 / -20 totals 100 and would bill instalment 1 for more than the
+      // whole fee; the engine then refuses to split and bills it in one go,
+      // silently.
+      at(l.rowNumber, 'Share % must be more than 0 and at most 100.');
+      bad = true;
+    } else if (l.fixedAmount !== null && !(l.fixedAmount > 0)) {
+      at(l.rowNumber, 'Fixed Amount must be more than 0.');
+      bad = true;
     }
     if ((l.dueOffsetDays === null) === (l.dueDate === null)) {
       at(l.rowNumber, 'set EITHER Due After (Days) OR Due Date.');
@@ -762,11 +819,73 @@ function resolveScheduleGroup(
     }
   }
 
+  // ── The instalments must add up to the fee ──────────────────────────────
+  // The engine sizes lines 1..n-1 as typed and gives the LAST line whatever is
+  // left, so a sheet whose parts do not total the Amount is not rejected by
+  // the engine — it is quietly corrected: 70,000 + 80,000 on a ₹1,40,000 fee
+  // bills 70,000 + 70,000, and 1,50,000 + 20,000 leaves nothing for the
+  // second instalment, so the fee is billed in one go with no split at all.
+  // A percent-only split is already pinned by the 100% rule above (the last
+  // line absorbs only rounding paise there); the moment any row states rupees
+  // the parts must total the Amount exactly, as the operator typed them. Each
+  // part is sized the way the engine sizes it — a percent in paise, rounded.
+  if (amount !== null && sorted.some((l) => l.fixedAmount !== null)) {
+    const totalPaise = toPaise(amount);
+    const typedPaise = sorted.reduce(
+      (s, l) =>
+        s + (l.fixedAmount !== null ? toPaise(l.fixedAmount) : Math.round((totalPaise * l.sharePercent!) / 100)),
+      0,
+    );
+    if (typedPaise !== totalPaise) {
+      const diff = (typedPaise - totalPaise) / 100;
+      at(
+        // The last instalment: the line the engine would silently resize.
+        sorted[sorted.length - 1].rowNumber,
+        `${where} instalments add up to ${rupees(typedPaise / 100)}, not the fee's Amount of ${rupees(amount)} (${rupees(Math.abs(diff))} ${diff > 0 ? 'too much' : 'short'}). Size the instalments with Share % / Fixed Amount so they total the Amount exactly.`,
+      );
+      return null;
+    }
+  }
+
   // On a split the anchor only bases the per-line "Due After (Days)"; the
   // lines carry their own dates, so 'fixed_date' has nothing to point at.
   if (explicitAnchor === 'fixed_date') {
     at(sorted[0].rowNumber, `${where} is split into instalments, so Due Anchor ${DUE_ANCHOR_LABELS.fixed_date} means nothing — each instalment carries its own Due Date. Use ${DUE_ANCHOR_LABELS.generation_date} or ${DUE_ANCHOR_LABELS.academic_year_start}.`);
     return null;
+  }
+
+  // ── Amount (ref), when filled in, must be what the instalment bills ──────
+  // The column is a cross-check, not a size: the export writes the rupees each
+  // instalment will carry, and an operator who then retypes a share — or the
+  // Amount — is looking at a figure that no longer matches it. Compared
+  // against the same arithmetic that sizes the bills, so the sheet and the
+  // bill cannot disagree. Skipped on the legacy tab (no Amount to derive from).
+  if (amount !== null && sorted.some((l) => l.amountRef !== null)) {
+    const billed = computeInstalmentAmounts(
+      amount,
+      sorted.map((l) => ({ share_percent: l.sharePercent, fixed_amount: l.fixedAmount })),
+    );
+    // null = the engine would not split this (an instalment ≤ 0). Once rupees
+    // are stated the totals rule above has already reported every way that can
+    // happen; for a percent-only split it takes a sub-paisa fee.
+    if (billed) {
+      let refBad = false;
+      sorted.forEach((l, i) => {
+        if (l.amountRef === null || toPaise(l.amountRef) === toPaise(billed[i])) return;
+        const basis =
+          l.fixedAmount !== null
+            ? 'its Fixed Amount'
+            : i === sorted.length - 1
+              ? `what is left of ${rupees(amount)} after the earlier instalments`
+              : `${l.sharePercent}% of ${rupees(amount)}`;
+        at(
+          l.rowNumber,
+          `${where} instalment ${l.instalmentNo}: Amount (ref) says ${rupees(l.amountRef)}, but this instalment bills ${rupees(billed[i])} (${basis}). Amount (ref) never sets the size — correct the Share % / Fixed Amount, or clear Amount (ref).`,
+        );
+        refBad = true;
+      });
+      if (refBad) return null;
+    }
   }
 
   return {
@@ -840,8 +959,9 @@ export function resolveScheduleSheet(
   for (const [key, group] of groups) {
     const structureId = structureOf.get(key)!;
     const where = `${group[0].categoryName} (structure ${structureId.slice(0, 8)}…)`;
+    // null: this tab carries no Amount, so the rupee checks cannot run here.
     const config = resolveScheduleGroup(group, where, (rowNumber, msg) =>
-      errors.push(`Schedules row ${rowNumber}: ${msg}`));
+      errors.push(`Schedules row ${rowNumber}: ${msg}`), null);
     if (!config) continue;
 
     const list = byStructure.get(structureId);
@@ -870,6 +990,13 @@ export function resolveScheduleSheet(
 // structure columns and buys a single consistent grain: 29 real columns instead
 // of 57, every field sortable and filterable, "show me every Tuition row across
 // 237 structures" is one filter, and adding a fee is adding a row.
+//
+// EVERY STRUCTURE PROMOTES TO BOTH RUNGS. "Promotes To" is how a settled fee
+// moves a learner account → reserved → admitted. A structure on this sheet
+// must name Reserved somewhere and Admitted somewhere — any fee, any
+// instalment, in any combination — or it is rejected (REQUIRED_PROMOTIONS).
+// This tab carries every fee of a structure, so it can be held to that; the
+// legacy schedules tab only carries what is being changed, and cannot be.
 //
 // REPEATED VALUES MUST AGREE. A structure column filled differently on two of
 // its rows is a contradiction — the structure stores one value. Blank rows
@@ -1198,10 +1325,15 @@ export function resolveUnifiedSheet(
       }
       if (lineFailed) continue;
 
+      // The rupee checks need the fee's Amount as a number. A bad cell is
+      // resolveRow()'s to report — hand over null then, and for a ₹0 fee,
+      // which has nothing to split — so it is reported once, not twice.
+      const feeAmount = parseAmountCell(amountRows[0].raw['Amount']);
       const config = resolveScheduleGroup(
         lines,
         `"${categoryName}"${structureName ? ` on ${structureName}` : ''}`,
         at,
+        feeAmount !== null && feeAmount > 0 ? feeAmount : null,
       );
       if (config) schedules.push(config);
     }
@@ -1209,6 +1341,27 @@ export function resolveUnifiedSheet(
     // ── Structure validation, through the one resolver both layouts share ──
     const resolved = resolveRow(structureCells, headRow, lookups);
     resolved.errors = [...resolved.errors, ...errors];
+
+    // ── Every structure must promote to BOTH Reserved and Admitted ─────────
+    // Any fee, any instalment may carry either rung; what matters is that both
+    // appear somewhere on the structure. Checked only once every row of the
+    // structure resolved cleanly: a fee whose rows failed has not yet said what
+    // it promotes to, and a second error about that would only be noise.
+    // Archived structures bill nobody and are exempt.
+    if (resolved.errors.length === 0 && resolved.payload!.status !== 'archived') {
+      const promoted = new Set<string>();
+      for (const s of schedules) {
+        if (s.promotes_to_status_code) promoted.add(s.promotes_to_status_code);
+        for (const l of s.lines) if (l.promotes_to_status_code) promoted.add(l.promotes_to_status_code);
+      }
+      const missing = REQUIRED_PROMOTIONS.filter((p) => !promoted.has(p.code));
+      if (missing.length > 0) {
+        resolved.errors.push(
+          `Row ${headRow}: "${resolved.name}" must promote a learner to both Reserved and Admitted — set "Promotes To" to Reserved on one fee or instalment and to Admitted on another (any fee category will do). Missing: ${missing.map((p) => p.label).join(' and ')}.`,
+        );
+      }
+    }
+
     if (resolved.errors.length > 0) {
       resolutions.push({
         rowNumber: headRow,
