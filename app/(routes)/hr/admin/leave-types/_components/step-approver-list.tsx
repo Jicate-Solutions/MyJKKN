@@ -28,6 +28,7 @@ import type {
 } from '@/types/hr-leave-types';
 
 import { ApproverPersonPicker } from './approver-person-picker';
+import { RolePicker } from './role-picker';
 
 export interface DraftApprover {
   key: string;
@@ -131,24 +132,14 @@ export function StepApproverList({
                 {a.mode === 'role' ? (
                   <>
                     <Label className="text-xs">Role</Label>
-                    <Select
+                    <RolePicker
+                      roles={roles}
                       value={a.approver_role}
-                      onValueChange={(v) => patch(a.key, { approver_role: v })}
-                    >
-                      <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Select a role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(roles ?? []).map((r) => (
-                          <SelectItem key={r.role_key} value={r.role_key}>
-                            {r.role_name}
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              {r.user_count} {r.user_count === 1 ? 'person' : 'people'}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      onChange={(v) => patch(a.key, { approver_role: v })}
+                      placeholder="Select a role"
+                      className="mt-1"
+                      aria-label={`Role for approver ${i + 1}`}
+                    />
                   </>
                 ) : (
                   <>

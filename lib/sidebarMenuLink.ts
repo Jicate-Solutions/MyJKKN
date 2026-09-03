@@ -553,6 +553,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/courses': 'courses.view',
   '/courses/new': 'courses.create',
   '/projects': 'projects.view',
+  // Campus Walk — the Director photographs a physical campus condition while
+  // walking and it routes as a project_task under CAMPUS-OPS. Same module, so
+  // same key. D2 restricts *posting* to the Director for v1, but that is
+  // enforced in the API layer (app/api/campus-walk/observations/route.ts):
+  // project_* RLS is auth.uid() IS NOT NULL for read AND write, so the database
+  // will not enforce it and a menu key must not be mistaken for a security gate.
+  '/campus-walk': 'projects.view',
+  // The Director's approval queue. D4 makes his sign-off the closing step, so
+  // without a way to reach this the fixer's proof photo sits in `review`
+  // forever and the loop never closes.
+  '/campus-walk/review': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -3239,6 +3250,32 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/projects'),
           icon: FolderKanban,
           submenus: []
+        },
+        {
+          // Sits beside Projects because a walk observation IS a project_task
+          // under the standing CAMPUS-OPS project — not a separate module.
+          // This literal href is also the reachability seed: without it
+          // check-nav-reachability.ts reports /campus-walk as unreachable and
+          // the Director has no way to open his own capture screen.
+          href: '/campus-walk',
+          label: 'Campus Walk',
+          active: pathname.startsWith('/campus-walk'),
+          icon: ClipboardCheck,
+          submenus: [
+            {
+              href: '/campus-walk',
+              label: 'Capture',
+              active: pathname === '/campus-walk'
+            },
+            {
+              // Literal href, so check-nav-reachability.ts can reach it. The
+              // fixer screen deliberately is NOT here — it is ?task=-invoked
+              // from its bell notification and has no standalone surface.
+              href: '/campus-walk/review',
+              label: 'Awaiting approval',
+              active: pathname.startsWith('/campus-walk/review')
+            }
+          ]
         }
       ]
     },

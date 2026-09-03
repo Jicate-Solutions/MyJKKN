@@ -30,6 +30,7 @@ import {
   Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import { StatusBadge } from './request-table';
+import { ApprovalChainTimeline } from './approval-chain-timeline';
 import { LeaveDocumentList } from './leave-document-list';
 import { formatBiometricGap, formatDays, formatHours } from './format';
 import { hoursFor } from './approval-queue-columns';
@@ -197,28 +198,10 @@ export function ApprovalDetailSheet({
                 <p className="mb-2 text-xs font-medium text-muted-foreground">
                   Approval chain (frozen at apply-time)
                 </p>
-                {isLoading ? (
+                {isLoading || !app ? (
                   <Skeleton className="h-16 w-full" />
-                ) : app?.approval_chain?.length ? (
-                  <ol className="space-y-2">
-                    {app.approval_chain.map((step, idx) => (
-                      <li key={`${step.step_order}-${idx}`} className="flex flex-wrap items-center gap-2 text-sm">
-                        <span
-                          className={`h-2 w-2 shrink-0 rounded-full ${
-                            step.status === 'approved' ? 'bg-emerald-500'
-                              : step.status === 'rejected' ? 'bg-red-500'
-                              : idx === app.current_step ? 'bg-amber-500'
-                              : 'bg-muted-foreground/30'
-                          }`}
-                        />
-                        <span className="font-medium">Step {step.step_order}</span>
-                        <span className="text-muted-foreground">{step.approver_role}</span>
-                        <span className="text-xs text-muted-foreground">({step.status})</span>
-                      </li>
-                    ))}
-                  </ol>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No approval steps recorded.</p>
+                  <ApprovalChainTimeline app={app} />
                 )}
               </div>
 
