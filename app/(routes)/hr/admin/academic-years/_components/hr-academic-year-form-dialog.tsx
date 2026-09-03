@@ -53,7 +53,7 @@ export function HRAcademicYearFormDialog({ open, onOpenChange, year }: Props) {
   }, [open, year]);
 
   /**
-   * Typing '2027-2028' fills Apr 1 2027 -> Mar 31 2028. Only ever fills blanks:
+   * Typing '2027-2028' fills Jun 1 2027 -> May 31 2028. Only ever fills blanks:
    * silently rewriting dates an operator has already adjusted would undo a
    * deliberate change.
    */
@@ -111,8 +111,8 @@ export function HRAcademicYearFormDialog({ open, onOpenChange, year }: Props) {
           <DialogHeader>
             <DialogTitle>{isEdit ? 'Edit HR academic year' : 'New HR academic year'}</DialogTitle>
             <DialogDescription>
-              HR years run the financial year, Apr 1 to Mar 31, and apply to every
-              institution. Active years may not overlap.
+              HR years run Jun 1 to May 31 and apply to every institution.
+              Active years may not overlap.
             </DialogDescription>
           </DialogHeader>
 

@@ -30,7 +30,25 @@ export default function CreateMarathonEventPage() {
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
   const createMutation = useCreateMarathonEvent();
 
-  // Block non-admin users from creating events
+  const currentYear = new Date().getFullYear();
+
+  const [form, setForm] = useState({
+    name: '',
+    year: currentYear,
+    theme: '',
+    tagline: '',
+    event_date: '',
+    start_time: '',
+    venue: '',
+    venue_address: '',
+    target_registrations: '',
+    description: '',
+  });
+
+  // Blocked AFTER the useState above, not before it. Above, this return made
+  // useState conditional: the moment `access` resolved from loading to denied
+  // the component went from calling a hook to calling none, which React reports
+  // as "Expected static flag was missing".
   if (!access.isLoading && !access.canManage) {
     return (
       <ContentLayout title="Access Denied">
@@ -47,21 +65,6 @@ export default function CreateMarathonEventPage() {
       </ContentLayout>
     );
   }
-
-  const currentYear = new Date().getFullYear();
-
-  const [form, setForm] = useState({
-    name: '',
-    year: currentYear,
-    theme: '',
-    tagline: '',
-    event_date: '',
-    start_time: '',
-    venue: '',
-    venue_address: '',
-    target_registrations: '',
-    description: '',
-  });
 
   // Preview slug (may differ from final slug if collision detected)
   const slugPreview = EventBaseService.generateSlug(form.name, form.year);

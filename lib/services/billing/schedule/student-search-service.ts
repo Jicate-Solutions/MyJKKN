@@ -433,6 +433,7 @@ export class StudentSearchService {
           `
           *,
           creator:profiles!fk_billing_receipts_created_by(id, full_name),
+          accountant:profiles!fk_billing_receipts_accountant(id, full_name),
           receipt_items:billing_receipt_items(
             *,
             bill:billing_student_bills(*)

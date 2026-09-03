@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Row } from '@tanstack/react-table';
-import { MoreHorizontal, Edit, Trash2, Receipt, Ban } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, ReceiptIndianRupee, Ban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -24,11 +24,14 @@ import {
 } from '@/components/ui/alert-dialog';
 import { StudentBill } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
-import {
-  useDeleteStudentBill,
-  useCancelStudentBill
-} from '@/hooks/billing/use-student-bills';
+import { useDeleteStudentBill } from '@/hooks/billing/use-student-bills';
+import { useCancelBill } from '@/hooks/billing/use-bill-cancellation';
+import { BillCancelDialog } from '@/components/billing/bill-cancel-dialog';
 import Link from 'next/link';
+import type {
+  BillCancelReasonCode,
+  BillCancellationAttachment
+} from '@/types/billing-bill-cancellation';
 
 const CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
 
@@ -45,10 +48,11 @@ export function DataTableRowActions<TData>({
   const bill = row.original as StudentBill;
   const { canAccess, isSuperAdmin } = usePermissions();
   const deleteStudentBill = useDeleteStudentBill();
-  const cancelStudentBill = useCancelStudentBill();
+  const cancelBill = useCancelBill();
 
   const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
-  const canCancelBills = isSuperAdmin || canAccess('billing.schedule', 'update');
+  // Its own key, not billing.schedule.update: cancelling writes off money.
+  const canCancelBills = isSuperAdmin || canAccess('billing.schedule', 'cancel');
   const isCancellable = CANCELLABLE_STATUSES.includes(bill.status);
 
   const handleDelete = async () => {
@@ -60,13 +64,21 @@ export function DataTableRowActions<TData>({
     }
   };
 
-  const handleCancel = async () => {
-    if (cancelStudentBill.isPending) return;
+  // The dialog collects the reason code, notes and documents that
+  // fn_cancel_student_bill requires. This used to send NOTHING but the id --
+  // the service accepted a `reason` argument no caller ever passed.
+  const handleCancel = async (payload: {
+    reasonCode: BillCancelReasonCode;
+    reason: string;
+    attachments: BillCancellationAttachment[];
+  }) => {
+    if (cancelBill.isPending) return;
     try {
-      await cancelStudentBill.mutateAsync({ id: bill.id });
+      await cancelBill.mutateAsync({ billId: bill.id, ...payload });
       setShowCancelDialog(false);
-    } catch (error) {
-      console.error('Error cancelling bill:', error);
+    } catch {
+      // Guard message already surfaced by the hook; keep the dialog open so
+      // the operator can read it beside what they typed.
     }
   };
 
@@ -86,7 +98,7 @@ export function DataTableRowActions<TData>({
           <DropdownMenuLabel>Actions</DropdownMenuLabel>
           <DropdownMenuItem asChild>
             <Link href={`/billing/schedule/students/${bill.student_id}?tab=bills`}>
-              <Receipt className='mr-2 h-4 w-4' />
+              <ReceiptIndianRupee className='mr-2 h-4 w-4' />
               View / Student Bills
             </Link>
           </DropdownMenuItem>
@@ -123,33 +135,24 @@ export function DataTableRowActions<TData>({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Cancel Dialog */}
-      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel Student Bill</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to cancel the bill &quot;
-              {bill.bill_description}&quot; for{' '}
-              {`${bill.student?.first_name || ''} ${
-                bill.student?.last_name || ''
-              }`.trim()}
-              ? The outstanding balance will be set to zero. Existing
-              payment records will not be affected.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep Bill</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleCancel}
-              className='bg-amber-600 hover:bg-amber-700 text-white'
-              disabled={cancelStudentBill.isPending}
-            >
-              {cancelStudentBill.isPending ? 'Cancelling...' : 'Cancel Bill'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <BillCancelDialog
+        open={showCancelDialog}
+        onOpenChange={setShowCancelDialog}
+        bills={[
+          {
+            id: bill.id,
+            bill_description: bill.bill_description,
+            final_amount: bill.final_amount,
+            status: bill.status,
+            student_name: `${bill.student?.first_name || ''} ${
+              bill.student?.last_name || ''
+            }`.trim()
+          }
+        ]}
+        institutionName={bill.institution?.name || 'Unknown Institution'}
+        isPending={cancelBill.isPending}
+        onConfirm={handleCancel}
+      />
 
       {/* Delete Dialog — super admin only */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

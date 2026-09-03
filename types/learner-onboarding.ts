@@ -136,6 +136,20 @@ export interface OnboardingPaymentProgress {
   meets_threshold: boolean;
   /** False when no bill has come due on the configured basis yet. */
   has_basis_due: boolean;
+  /**
+   * The earliest instalment this learner still owes, and what falls due on
+   * that date. NULL for a learner with no payment schedule — which is every
+   * learner billed before per-fee schedules existed, so the UI must render an
+   * em-dash rather than invent a date.
+   *
+   * `next_due_amount` SUMS every unsettled tranche sharing that date: two
+   * tranches can fall due together, and the caller is owed both.
+   */
+  next_due_date: string | null;
+  next_due_amount: number | null;
+  /** 0 when the learner has no schedule at all. */
+  instalments_total: number;
+  instalments_settled: number;
 }
 
 /**

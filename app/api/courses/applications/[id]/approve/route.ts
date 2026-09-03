@@ -12,10 +12,17 @@
 // TWO CLIENTS, and the split is load-bearing:
 //   • auth.supabase — the REQUEST-SCOPED client carrying the admin's identity.
 //     The RPC is called with it, because fn_course_approve_application reads
-//     auth.uid() for decided_by and because fn_issue_jkkn_id runs its own
-//     user_has_permission('users.jkkn_id.issue') check against the caller.
-//     Calling through the service role would make auth.uid() NULL and the
-//     issuer would refuse — 42501 — with a message about the wrong person.
+//     auth.uid() for decided_by and because fn_issue_jkkn_id, nested inside it,
+//     runs its OWN permission check against the caller — nesting one SECURITY
+//     DEFINER function in another does not change auth.uid(). Calling through
+//     the service role would make auth.uid() NULL and the issuer would refuse
+//     — 42501 — with a message about the wrong person.
+//     For the external_participant kind that issuer accepts
+//     courses.applications.decide, so the permission required here is the only
+//     one required anywhere in the chain. It did not always: until
+//     20260821070100 the issuer demanded users.jkkn_id.issue as well, and a
+//     Course Coordinator holding only the decide key got 'Not authorised to
+//     issue a JKKN ID' after the auth user had already been created.
 //   • serviceClient() — service role, used for auth.admin.createUser ONLY.
 //
 // Ordering: auth user first, then the RPC. If the RPC fails we delete the auth

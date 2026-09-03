@@ -7,8 +7,11 @@
 // let the eligibility copy drift; one copy now, so the year-band wording and the
 // search affordances can only ever change in one place.
 //
-// Eligibility is enforced server-side by fn_induction_assignable_peer_mentors
-// (2nd year up to the mentor year — 3rd, or the final year of a 2-year PG).
+// Eligibility is enforced server-side by fn_induction_assignable_peer_mentors:
+// every active learner of the college from their 2nd year upward — no upper
+// bound, so final-year students of a 4- or 5-year programme count too. Only
+// first-years are out, and they are out because they have no senior year behind
+// them, not because of a policy cap.
 // The search box is a thin pass-through: the RPC matches name, register/roll
 // number, college email, student email, mobile and programme as %value%.
 //
@@ -77,6 +80,39 @@ function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+
+const nameById = (list: PeerMentorFilterOption[]) =>
+  new Map(list.map((o) => [o.id, o.name]));
+
+/** Two options with the SAME label are indistinguishable in a dropdown, and this
+ *  is not hypothetical: JKKN College of Pharmacy has 25 section rows carrying
+ *  only 7 distinct names — six different sections are all called "A", one per
+ *  programme. Picking one of six identical entries is a coin flip, and the
+ *  result set that came back looked like a broken filter.
+ *
+ *  So: where a name repeats in the VISIBLE list, append the parent it belongs
+ *  to. Unique names are left untouched, and choosing a parent level above
+ *  collapses the duplicates anyway, so the suffix appears only while it is
+ *  actually needed. `parents` is tried in order — a section prefers to be
+ *  identified by its semester, falling back to its programme. */
+function disambiguate(
+  list: PeerMentorFilterOption[],
+  parents: [keyof PeerMentorFilterOption, Map<string, string>][],
+): PeerMentorFilterOption[] {
+  const counts = new Map<string, number>();
+  list.forEach((o) => counts.set(o.name, (counts.get(o.name) ?? 0) + 1));
+  if (![...counts.values()].some((n) => n > 1)) return list;
+
+  return list.map((o) => {
+    if ((counts.get(o.name) ?? 0) < 2) return o;
+    for (const [key, names] of parents) {
+      const parentId = o[key];
+      const parentName = typeof parentId === 'string' ? names.get(parentId) : undefined;
+      if (parentName) return { ...o, name: `${o.name} · ${parentName}` };
+    }
+    return o;
+  });
 }
 
 /** One compact filter dropdown. Disabled when its list is empty — that only
@@ -188,25 +224,40 @@ export function AppointMentorDialog({
       return { degrees: [], departments: [], programs: [], semesters: [], sections: [] };
     }
     const { degreeId, departmentId, programId, semesterId } = filters;
+    const degreeNames = nameById(options.degrees);
+    const deptNames = nameById(options.departments);
+    const progNames = nameById(options.programs);
+    const semNames = nameById(options.semesters);
+
     return {
       degrees: options.degrees,
-      departments: options.departments.filter(
-        (d) => !degreeId || d.degree_id === degreeId,
+      departments: disambiguate(
+        options.departments.filter((d) => !degreeId || d.degree_id === degreeId),
+        [['degree_id', degreeNames]],
       ),
-      programs: options.programs.filter(
-        (p) => (!degreeId || p.degree_id === degreeId)
-            && (!departmentId || p.department_id === departmentId),
+      programs: disambiguate(
+        options.programs.filter(
+          (p) => (!degreeId || p.degree_id === degreeId)
+              && (!departmentId || p.department_id === departmentId),
+        ),
+        [['department_id', deptNames], ['degree_id', degreeNames]],
       ),
-      semesters: options.semesters.filter(
-        (s) => (!degreeId || s.degree_id === degreeId)
-            && (!departmentId || s.department_id === departmentId)
-            && (!programId || s.program_id === programId),
+      semesters: disambiguate(
+        options.semesters.filter(
+          (s) => (!degreeId || s.degree_id === degreeId)
+              && (!departmentId || s.department_id === departmentId)
+              && (!programId || s.program_id === programId),
+        ),
+        [['program_id', progNames], ['department_id', deptNames]],
       ),
-      sections: options.sections.filter(
-        (s) => (!degreeId || s.degree_id === degreeId)
-            && (!departmentId || s.department_id === departmentId)
-            && (!programId || s.program_id === programId)
-            && (!semesterId || s.semester_id === semesterId),
+      sections: disambiguate(
+        options.sections.filter(
+          (s) => (!degreeId || s.degree_id === degreeId)
+              && (!departmentId || s.department_id === departmentId)
+              && (!programId || s.program_id === programId)
+              && (!semesterId || s.semester_id === semesterId),
+        ),
+        [['semester_id', semNames], ['program_id', progNames]],
       ),
     };
   }, [options, filters]);
@@ -257,8 +308,8 @@ export function AppointMentorDialog({
             Appoint a Senior Peer Mentor
           </DialogTitle>
           <DialogDescription className="text-xs leading-relaxed">
-            <span className="font-medium text-foreground">2nd- and 3rd-year students</span> of this
-            college can be Senior Peer Mentors (for a 2-year PG programme, its final year). The list
+            <span className="font-medium text-foreground">Any student past their first year</span> of
+            this college can be a Senior Peer Mentor — 2nd year right through to final year. The list
             below is already filtered to them — freshers being inducted here can&apos;t be appointed.
           </DialogDescription>
         </DialogHeader>
@@ -410,7 +461,7 @@ export function AppointMentorDialog({
               <p className="text-xs text-muted-foreground max-w-xs">
                 {query || activeCount > 0
                   ? 'Widen or clear the filters, or search part of the name, register number, college email or mobile instead.'
-                  : 'Every eligible 2nd/3rd-year student is either already a mentor here, or their programme duration / semester is not filled in yet.'}
+                  : 'Every senior (2nd year and above) is either already a mentor here, or their programme duration / admission year is not filled in yet.'}
               </p>
               {activeCount > 0 && (
                 <Button

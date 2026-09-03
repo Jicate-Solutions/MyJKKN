@@ -42,7 +42,10 @@ export function ReportsFilters({
   onFilterChange,
   onClearFilters
 }: ReportsFiltersProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  // Open by default. The reports below cannot run until Institution, Academic
+  // Year and Semester are chosen, so opening collapsed hid the only controls
+  // that make the page do anything.
+  const [isOpen, setIsOpen] = useState(true);
   const { isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
   const label = useAdaptiveLabels();
@@ -501,6 +504,34 @@ export function ReportsFilters({
                     <SelectItem value='pending'>Pending</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* From Date */}
+              <div className='space-y-2'>
+                <Label htmlFor='date_from'>From Date</Label>
+                <Input
+                  id='date_from'
+                  type='date'
+                  max={searchParams.date_to || undefined}
+                  value={searchParams.date_from || ''}
+                  onChange={(e) =>
+                    onFilterChange('date_from', e.target.value || undefined)
+                  }
+                />
+              </div>
+
+              {/* To Date */}
+              <div className='space-y-2'>
+                <Label htmlFor='date_to'>To Date</Label>
+                <Input
+                  id='date_to'
+                  type='date'
+                  min={searchParams.date_from || undefined}
+                  value={searchParams.date_to || ''}
+                  onChange={(e) =>
+                    onFilterChange('date_to', e.target.value || undefined)
+                  }
+                />
               </div>
 
               {/* Attendance Threshold */}

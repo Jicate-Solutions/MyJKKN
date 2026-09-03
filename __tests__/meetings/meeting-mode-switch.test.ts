@@ -25,6 +25,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   effectiveLocationMode,
   isSwitchAllowedNow,
+  switchBackState,
   switchRequestState,
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
@@ -40,6 +41,7 @@ const patchEventToOnline = vi.fn();
 const getEvent = vi.fn();
 const revertEventFromOnline = vi.fn();
 const sendSwitchedEmails = vi.fn();
+const sendSwitchedBackEmails = vi.fn();
 const getMeetingType = vi.fn();
 const resolveMoveContext = vi.fn();
 
@@ -55,6 +57,7 @@ vi.mock('@/lib/services/integrations/google-calendar-service', () => ({
 vi.mock('@/lib/services/email/meeting-booking-email-service', () => ({
   MeetingBookingEmailService: {
     sendBookingSwitchedToOnlineEmails: (...a: unknown[]) => sendSwitchedEmails(...a),
+    sendBookingSwitchedBackEmails: (...a: unknown[]) => sendSwitchedBackEmails(...a),
   },
 }));
 
@@ -117,6 +120,14 @@ interface DbOpts {
   /** Result of a plain awaited UPDATE (link write-back, revert, request). */
   plainUpdate?: { error: { code?: string; message: string } | null };
   profile?: Record<string, unknown> | null;
+  /**
+   * The host's ACTIVE online meeting types, which is how the service works out
+   * which schedule holds their online hours. Default `[]` — this file's HOST
+   * owns one in-person type and nothing else, which is the state most of the
+   * 110 in-person hosts are in, so every expectation below is the unchanged
+   * behaviour of a host with no online schedule to switch to.
+   */
+  onlineTypes?: Array<{ schedule_id: string | null }>;
 }
 
 /**
@@ -143,6 +154,15 @@ function makeDb(opts: DbOpts = {}) {
             }),
           }),
         };
+      }
+      if (table === 'meeting_types') {
+        // Three chained .eq() and then AWAITED as a list — no maybeSingle.
+        const rows = opts.onlineTypes ?? [];
+        const builder: Record<string, unknown> = {};
+        builder.eq = () => builder;
+        builder.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+          Promise.resolve({ data: rows, error: null }).then(res, rej);
+        return { select: () => builder };
       }
       // meeting_bookings
       return {
@@ -182,6 +202,7 @@ beforeEach(() => {
   getEvent.mockResolvedValue({ startIso: START, endIso: END, meetUrl: null });
   revertEventFromOnline.mockResolvedValue(true);
   sendSwitchedEmails.mockResolvedValue({ attendee: { success: true }, host: { success: true } });
+  sendSwitchedBackEmails.mockResolvedValue({ attendee: { success: true }, host: { success: true } });
   getMeetingType.mockResolvedValue({ ...MEETING_TYPE });
   // Default: no move requested → timezone only. When a start IS requested the
   // mock echoes it back as a valid slot, mirroring the real engine's contract.
@@ -215,19 +236,36 @@ describe('meeting-mode-switch (pure rules)', () => {
   // we SHOW", and it deliberately falls back to 'in_person' for a mode it does
   // not recognise — which as a gate would wave through exactly the modes nobody
   // has decided about. switchSourceMode reads the type's RAW mode instead.
-  it('only a genuinely in_person type is a switchable source', () => {
-    expect(switchSourceMode('in_person', null)).toBe('in_person');
+  it('in person AND phone are switchable sources (ruling 1, 2026-08-21)', () => {
+    expect(switchSourceMode('in_person', null)).toBe('switchable');
+    // 95 live phone types with 95 hosts — the bigger of the two populations,
+    // and locked out of this feature until the Director decided it.
+    expect(switchSourceMode('phone', null)).toBe('switchable');
     expect(switchSourceMode('online', null)).toBe('online');
     expect(switchSourceMode('in_person', 'online')).toBe('online');
+    expect(switchSourceMode('phone', 'online')).toBe('online');
   });
 
-  it('phone and any unrecognised mode are unsupported, not in_person', () => {
-    // 95 of the live meeting types are phone. Scope is in_person -> online only.
-    expect(switchSourceMode('phone', null)).toBe('unsupported');
+  it('an unrecognised mode is still unsupported, never waved through', () => {
     // The exact shape effectiveLocationMode would have mislabelled 'in_person'.
     expect(switchSourceMode('nonsense', null)).toBe('unsupported');
     expect(switchSourceMode(null, null)).toBe('unsupported');
     expect(switchSourceMode(undefined, null)).toBe('unsupported');
+  });
+
+  it('switching back is only possible when the OVERRIDE made it online', () => {
+    // The column's CHECK admits NULL or 'online' and nothing else, so the only
+    // thing "switch back" can do is clear it.
+    expect(switchBackState('in_person', 'online')).toBe('switchable');
+    expect(switchBackState('phone', 'online')).toBe('switchable');
+    // Online by TYPE: clearing the override would change nothing, and the
+    // column cannot say "in person" for one booking.
+    expect(switchBackState('online', null)).toBe('online_by_type');
+    expect(switchBackState('online', 'online')).toBe('online_by_type');
+    // Nothing to undo.
+    expect(switchBackState('in_person', null)).toBe('not_online');
+    expect(switchBackState('phone', null)).toBe('not_online');
+    expect(switchBackState('nonsense', null)).toBe('not_online');
   });
 
   it('the cut-off is min_notice_min before the meeting starts', () => {
@@ -427,19 +465,25 @@ describe('MeetingModeSwitchService.switchToOnline (host)', () => {
     expect(updates).toHaveLength(0);
   });
 
-  it('refuses a PHONE booking, with its own code rather than ALREADY_ONLINE', async () => {
-    // A phone booking is not online, so ALREADY_ONLINE would be a lie to the
-    // host. Scope is in_person -> online; phone was never decided.
+  it('switches a PHONE booking too (ruling 1, 2026-08-21)', async () => {
+    // The gap this closes: phone is the LARGER population (95 live types / 95
+    // hosts against 141 in-person types / 110 hosts) and was refused outright
+    // until the Director decided it. A phone call becomes a video call exactly
+    // as a face-to-face meeting does — same claim, same Google patch, same one
+    // email.
     getMeetingType.mockResolvedValue({ ...MEETING_TYPE, location_mode: 'phone' });
     const { db, updates } = makeDb();
     const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
       actorProfileId: HOST,
     }, { now: NOW });
 
-    expect(res).toMatchObject({ ok: false, error: 'UNSUPPORTED_SOURCE_MODE' });
-    expect(updates).toHaveLength(0);
-    expect(patchEventToOnline).not.toHaveBeenCalled();
-    expect(sendSwitchedEmails).not.toHaveBeenCalled();
+    expect(res.ok).toBe(true);
+    expect(res.data?.videoUrl).toBe('https://meet.google.com/abc-defg-hij');
+    expect(claimPatch(updates)).toMatchObject({ location_mode_override: 'online' });
+    expect(patchEventToOnline).toHaveBeenCalledOnce();
+    expect(sendSwitchedEmails).toHaveBeenCalledOnce();
+    // Still mode-only: switching a phone call must not look like a reschedule.
+    expect(claimPatch(updates)).not.toHaveProperty('reschedule_count');
   });
 
   it('refuses an unrecognised source mode instead of defaulting it to in_person', async () => {
@@ -672,10 +716,25 @@ describe('MeetingModeSwitchService — all-or-nothing', () => {
 // ── visitor asks, host decides ───────────────────────────────────────────────
 
 describe('MeetingModeSwitchService.requestSwitchToOnline (visitor)', () => {
-  it('refuses a PHONE booking from the visitor path too (both gates, not one)', async () => {
-    // The guard lives in applySwitch AND requestSwitchToOnline. A visitor must
-    // not be able to open a pending request the host could never approve.
+  it('lets a visitor on a PHONE booking ask, now that phone is decided', async () => {
+    // The two gates must move together. If applySwitch accepted phone while
+    // requestSwitchToOnline still refused it, a visitor holding a phone booking
+    // would be told "no" about something their host can do.
     getMeetingType.mockResolvedValue({ ...MEETING_TYPE, location_mode: 'phone' });
+    const { db, updates } = makeDb();
+    const res = await MeetingModeSwitchService.requestSwitchToOnline(db, 'bk-abc', TOKEN, {
+      now: NOW,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.data?.pending).toBe(true);
+    expect(updates[0]).toMatchObject({ mode_switch_request_status: 'pending' });
+    // Still only a REQUEST (decision 4) — nothing about the booking changed.
+    expect(updates[0]).not.toHaveProperty('location_mode_override');
+  });
+
+  it('still refuses an unrecognised mode from the visitor path (both gates)', async () => {
+    getMeetingType.mockResolvedValue({ ...MEETING_TYPE, location_mode: 'hologram' });
     const { db, updates } = makeDb();
     const res = await MeetingModeSwitchService.requestSwitchToOnline(db, 'bk-abc', TOKEN, {
       now: NOW,
@@ -904,5 +963,273 @@ describe('MeetingModeSwitchService.resolveSwitchRequest (host decides)', () => {
     );
     expect(res).toMatchObject({ ok: false, error: 'FORBIDDEN' });
     expect(updates).toHaveLength(0);
+  });
+});
+
+// ── host turns a video meeting back (ruling 2, 2026-08-21) ───────────────────
+//
+// Until this existed the switch was one-way: a host who moved a meeting online
+// by mistake, or whose visitor turned out to be on campus after all, had no way
+// back except cancel + rebook. The revert/revertBoth paths in the service are
+// FAILURE ROLLBACK — they undo a half-applied switch — and are not this.
+
+describe('MeetingModeSwitchService.switchBackFromOnline (host only)', () => {
+  const MEET = 'https://meet.google.com/abc-defg-hij';
+
+  /** A booking that is online BECAUSE the forward switch set the override. */
+  const onlineBooking = (over: Record<string, unknown> = {}) =>
+    makeBooking({ location_mode_override: 'online', video_url: MEET, ...over });
+
+  /** The claim: the update that CLEARS the override. */
+  const backClaim = (updates: Record<string, unknown>[]) =>
+    updates.find((u) => 'location_mode_override' in u && u.location_mode_override === null);
+  /** The rollback: the update that puts 'online' back. */
+  const backRestore = (updates: Record<string, unknown>[]) =>
+    updates.find((u) => u.location_mode_override === 'online');
+
+  it('clears the override and the Meet link, and emails both sides', async () => {
+    const { db, updates } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.data?.videoUrl).toBeNull();
+    expect(backClaim(updates)).toMatchObject({
+      location_mode_override: null,
+      video_url: null,
+    });
+    // Google was told to strip the conferencing off the SAME event.
+    expect(revertEventFromOnline).toHaveBeenCalledOnce();
+    expect(revertEventFromOnline.mock.calls[0][2]).toBe('gcal-evt-1');
+    expect(sendSwitchedBackEmails).toHaveBeenCalledOnce();
+    expect(sendSwitchedBackEmails.mock.calls[0][0]).toMatchObject({
+      locationMode: 'in_person',
+      videoUrl: null,
+    });
+    // And it is NOT the "moved online" mail.
+    expect(sendSwitchedEmails).not.toHaveBeenCalled();
+  });
+
+  it('a phone-typed booking goes back to a PHONE call, not to in person', async () => {
+    // The mode it lands in is the TYPE's own mode with the override gone. Get
+    // this wrong and 95 hosts' visitors are told to travel to a phone call.
+    getMeetingType.mockResolvedValue({ ...MEETING_TYPE, location_mode: 'phone' });
+    const { db } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(sendSwitchedBackEmails.mock.calls[0][0]).toMatchObject({ locationMode: 'phone' });
+  });
+
+  it('never moves the meeting, so reschedule_count is untouched (decision A)', async () => {
+    const { db, updates } = makeDb({
+      booking: onlineBooking({ reschedule_count: 2, rescheduled_at: '2026-08-30T00:00:00.000Z' }),
+    });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.data?.timeMoved).toBe(false);
+    // No update anywhere in the flow may carry a scheduling column.
+    for (const patch of updates) {
+      expect(patch).not.toHaveProperty('reschedule_count');
+      expect(patch).not.toHaveProperty('rescheduled_at');
+      expect(patch).not.toHaveProperty('previous_start_time');
+      expect(patch).not.toHaveProperty('start_time');
+      expect(patch).not.toHaveProperty('end_time');
+    }
+    // Google was told to strip conferencing WITHOUT a new time.
+    expect(revertEventFromOnline.mock.calls[0][3]).toBeUndefined();
+  });
+
+  it('refuses a NON-host holding a perfectly valid booking id', async () => {
+    // Ruling 2 is the whole point: a visitor may ASK to go online, never to
+    // come back off it. Hiding the button is not the control — this is.
+    const { db, updates } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: 'someone-else' },
+      { now: NOW },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'FORBIDDEN' });
+    expect(updates).toHaveLength(0);
+    expect(revertEventFromOnline).not.toHaveBeenCalled();
+    expect(sendSwitchedBackEmails).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unauthenticated caller outright', async () => {
+    const { db, updates } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: null },
+      { now: NOW },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'FORBIDDEN' });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('lets a super admin switch back a booking they do not host', async () => {
+    const { db } = makeDb({
+      booking: onlineBooking(),
+      profile: { is_super_admin: true, full_name: 'Admin', email: 'admin@jkkn.ac.in' },
+    });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: 'admin-1' },
+      { now: NOW },
+    );
+
+    expect(res.ok).toBe(true);
+  });
+
+  it('refuses a booking that is not a video call at all', async () => {
+    const { db, updates } = makeDb();
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'NOT_ONLINE' });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('refuses a booking that is online because its TYPE is online', async () => {
+    // location_mode_override's CHECK admits only NULL or 'online', so one
+    // booking cannot be pulled out of an online type. Named honestly rather
+    // than failing in a way that reads like a bug.
+    getMeetingType.mockResolvedValue({ ...MEETING_TYPE, location_mode: 'online' });
+    const { db, updates } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'ONLINE_BY_TYPE' });
+    expect(updates).toHaveLength(0);
+    expect(revertEventFromOnline).not.toHaveBeenCalled();
+  });
+
+  it('refuses inside the notice window — travel time is the reason it matters', async () => {
+    const { db, updates } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      // 30 minutes before a meeting with a 60-minute notice window.
+      { now: new Date('2026-09-02T04:00:00.000Z') },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'TOO_LATE' });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('blocks with the REAL reason when the calendar is not connected', async () => {
+    getConnection.mockResolvedValue({ status: 'broken' });
+    const { db, updates } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'CALENDAR_NOT_CONNECTED' });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('changes NOTHING when the booking moved underneath us', async () => {
+    const { db } = makeDb({
+      booking: onlineBooking(),
+      claim: { data: null, error: null },
+    });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'SLOT_TAKEN' });
+    expect(revertEventFromOnline).not.toHaveBeenCalled();
+    expect(sendSwitchedBackEmails).not.toHaveBeenCalled();
+  });
+
+  // ── all-or-nothing, in this direction too ──────────────────────────────────
+
+  it('puts the row back exactly as it was when Google refuses', async () => {
+    revertEventFromOnline.mockResolvedValue(false);
+    const { db, updates } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    // The PATCH never applied, so restoring the row makes both systems agree
+    // and the honest answer is "nothing was changed".
+    expect(res).toMatchObject({ ok: false, error: 'GOOGLE_FAILED' });
+    expect(backRestore(updates)).toMatchObject({
+      location_mode_override: 'online',
+      video_url: MEET,
+    });
+    expect(sendSwitchedBackEmails).not.toHaveBeenCalled();
+  });
+
+  it('rolls back when the Google call THROWS rather than returning false', async () => {
+    revertEventFromOnline.mockRejectedValue(new Error('socket hang up'));
+    const { db, updates } = makeDb({ booking: onlineBooking() });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'GOOGLE_FAILED' });
+    expect(backRestore(updates)).toMatchObject({ location_mode_override: 'online' });
+  });
+
+  it('names the inconsistency when the row cannot be put back either', async () => {
+    // Google refused AND the rollback write failed: the booking now reads
+    // face-to-face while the calendar event still carries the video call.
+    // Reporting "nothing was changed" here would be a plain lie — the same
+    // reasoning GOOGLE_OUT_OF_SYNC exists for on the forward path.
+    revertEventFromOnline.mockResolvedValue(false);
+    const { db } = makeDb({
+      booking: onlineBooking(),
+      plainUpdate: { error: { message: 'connection reset' } },
+    });
+    const res = await MeetingModeSwitchService.switchBackFromOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { now: NOW },
+    );
+
+    expect(res).toMatchObject({ ok: false, error: 'GOOGLE_OUT_OF_SYNC' });
+    expect(sendSwitchedBackEmails).not.toHaveBeenCalled();
   });
 });

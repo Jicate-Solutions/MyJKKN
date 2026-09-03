@@ -4,7 +4,7 @@
 // Purpose: Allow users to select multiple bills for payment
 // Used in: Student billing pages
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -51,6 +51,10 @@ export function PaymentSelectionModal({
   }, [open]);
   const [step, setStep] = useState<'select' | 'amount'>('select');
   const [billAmounts, setBillAmounts] = useState<Record<string, number>>({});
+  // Reported by the amount selector. A partial payment stays invalid until the
+  // operator enters an amount for every bill, so "Pay Online" cannot fire with
+  // a blank or over-balance amount.
+  const [amountsValid, setAmountsValid] = useState(false);
   // The Razorpay hosted-redirect component lives OUTSIDE the <Dialog> so closing
   // the dialog (handleClose) doesn't unmount it before it POSTs the form to
   // Razorpay's hosted page.
@@ -145,6 +149,7 @@ export function PaymentSelectionModal({
     setSelectedBillIds(new Set());
     setStep('select');
     setBillAmounts({});
+    setAmountsValid(false);
     onOpenChange(false);
   };
 
@@ -154,7 +159,16 @@ export function PaymentSelectionModal({
 
   const handleBackToSelect = () => {
     setStep('select');
+    // Drop the amounts of the selection being left behind; the selector
+    // re-reports them when the user comes forward again.
+    setBillAmounts({});
+    setAmountsValid(false);
   };
+
+  // Stable identity — the selector reports validity from an effect.
+  const handleValidityChange = useCallback((valid: boolean) => {
+    setAmountsValid(valid);
+  }, []);
 
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
@@ -295,7 +309,9 @@ export function PaymentSelectionModal({
                         Total: ₹{Number(bill.total_amount || 0).toLocaleString('en-IN')}
                       </span>
                       <span className="font-semibold text-primary">
-                        Balance: ₹{Number((bill as any).bill_balance ?? bill.total_amount ?? 0).toLocaleString('en-IN')}
+                        {/* balance_amount is the live outstanding (trigger-maintained);
+                            total_amount only backstops rows that predate it. */}
+                        Balance: ₹{Number(bill.balance_amount ?? bill.total_amount ?? 0).toLocaleString('en-IN')}
                       </span>
                     </div>
                   </div>
@@ -339,6 +355,7 @@ export function PaymentSelectionModal({
             <OnlinePaymentAmountSelector
               bills={selectedBills}
               onAmountsChange={setBillAmounts}
+              onValidityChange={handleValidityChange}
               defaultToFullPayment={true}
             />
           </div>
@@ -367,7 +384,7 @@ export function PaymentSelectionModal({
                 billIds={Array.from(selectedBillIds)}
                 billAmounts={billAmounts}
                 totalAmount={totalAmount}
-                disabled={selectedBillIds.size === 0 || Object.keys(billAmounts).length === 0}
+                disabled={selectedBillIds.size === 0 || !amountsValid}
                 onSuccess={handleClose}
                 onRazorpaySession={(p) => {
                   // Mount the redirect component (sibling of this Dialog) FIRST,
