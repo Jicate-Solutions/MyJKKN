@@ -289,6 +289,40 @@ describe('D9 — a department is never charged for time it could not end', () =>
     );
     expect(board.rows.find((r) => r.departmentName === 'Maintenance')?.overdueJobs).toBe(1);
   });
+
+  it('does not call a job due TODAY overdue', () => {
+    // D6 gives an unsafe condition a 0-day due date — due today, deliberately.
+    // Comparing instants rather than days would show every urgent job as late
+    // the moment it was reported.
+    const dueToday = task({ owner_staff_id: 's1', due_date: '2026-09-03' });
+    const dueYesterday = task({ owner_staff_id: 's2', due_date: '2026-09-02' });
+    const board = buildFixBoard(
+      [dueToday, dueYesterday],
+      staffIndex([
+        ['s1', 'd', 'Maintenance'],
+        ['s2', 'd', 'Maintenance']
+      ]),
+      NOW // 2026-09-03T12:00:00Z — midday on the day the first job is due
+    );
+    expect(board.rows.find((r) => r.departmentName === 'Maintenance')?.overdueJobs).toBe(1);
+  });
+
+  it('never counts a job with no due date as overdue', () => {
+    // Two fixers, or the department is folded into the privacy bucket and
+    // there is no named row to assert on.
+    const board = buildFixBoard(
+      [
+        task({ owner_staff_id: 's1', due_date: null }),
+        task({ owner_staff_id: 's2', due_date: null })
+      ],
+      staffIndex([
+        ['s1', 'd', 'Maintenance'],
+        ['s2', 'd', 'Maintenance']
+      ]),
+      NOW
+    );
+    expect(board.rows.find((r) => r.departmentName === 'Maintenance')?.overdueJobs).toBe(0);
+  });
 });
 
 // ── D12 — a day with no reading is never a zero ──────────────────────────────

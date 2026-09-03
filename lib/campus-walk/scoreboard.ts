@@ -220,11 +220,31 @@ export function daysToVerifiedClosure(row: WalkTaskRow): number | null {
   return Math.max(0, Math.round((raw - pausedDays(row)) * 10) / 10);
 }
 
-/** Open, has a due date, and that date has passed. */
+/** The UTC calendar day as YYYY-MM-DD, for comparing against a stored date. */
+function calendarDay(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}
+
+/**
+ * Open, and its due DAY is already behind us.
+ *
+ * ── WHY THIS COMPARES DAYS AND NOT INSTANTS ─────────────────────────────────
+ * `due_date` is written as a plain calendar day (campus-walk-service does
+ * `.toISOString().slice(0, 10)`), and a job due today is not late until today
+ * is over. Parsing that day as an instant makes it midnight UTC, so a
+ * same-day comparison marks the job overdue from the moment it is filed.
+ *
+ * That is not a rounding nit on this board. D6 gives an UNSAFE condition a
+ * 0-day due date — due today, on purpose — so instant comparison would show
+ * every urgent job as already late the second it was reported, and the
+ * "past its date" column exists to be fair about exactly this.
+ */
 export function isOverdue(row: WalkTaskRow, now: Date): boolean {
   if (!isOpen(row) || !row.due_date) return false;
-  const due = Date.parse(row.due_date);
-  return Number.isFinite(due) && due < now.getTime();
+  // String comparison is correct for both shapes this column takes: a plain
+  // 'YYYY-MM-DD' and an ISO timestamp both order correctly against a day, and
+  // a timestamp on the due day sorts after the bare day so it is not counted.
+  return row.due_date < calendarDay(now);
 }
 
 /** Median, not mean: one pathological ticket must not define a department. */
