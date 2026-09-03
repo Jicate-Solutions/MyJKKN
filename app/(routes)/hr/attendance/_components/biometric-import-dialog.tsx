@@ -29,7 +29,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {
-  ANOMALY_LABEL, VERDICT_CLASS, VERDICT_LABEL,
+  ANOMALY_LABEL, SHIFT_SCOPE_LABEL, VERDICT_CLASS, VERDICT_LABEL,
   type BiometricAnomalyKind, type BiometricImportReport,
   type BiometricSuggestResponse, type ImportVerdict,
 } from '@/types/hr-biometric';
@@ -310,8 +310,15 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
                       <th className="px-3 py-2 font-medium">In</th>
                       <th className="px-3 py-2 font-medium">Out</th>
                       <th className="px-3 py-2 font-medium">Worked</th>
-                      <th className="px-3 py-2 font-medium">Machine</th>
-                      <th className="px-3 py-2 font-medium">Our verdict</th>
+                      {/* The machine's own P/A used to sit here. It is still
+                          parsed, still stored on the row and still grades our
+                          totals in the Validate step — but showing it per row
+                          invited the reading that a machine "P" outranks our
+                          "Half day". The verdict comes from the shift timing.
+                          The shift is shown instead, so the rule that produced
+                          the verdict is visible next to it. */}
+                      <th className="px-3 py-2 font-medium">Shift applied</th>
+                      <th className="px-3 py-2 font-medium">Verdict</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -326,7 +333,9 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
                         <td className="px-3 py-2 font-mono text-xs">{r.in_time ?? '—'}</td>
                         <td className="px-3 py-2 font-mono text-xs">{r.out_time ?? '—'}</td>
                         <td className="px-3 py-2 font-mono text-xs">{fmtMinutes(r.work_minutes)}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{r.device_status || '—'}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                          {r.shift_window ?? '—'}
+                        </td>
                         <td className="px-3 py-2">
                           <Badge variant="secondary" className={VERDICT_CLASS[r.verdict]}>
                             {VERDICT_LABEL[r.verdict]}
@@ -354,6 +363,95 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
                 <Stat label="Need review" value={report.counts.EXCEPTION} tone="warn" />
                 <Stat label="Unmapped codes" value={report.unmatched_codes.length} tone="bad" />
               </div>
+
+              {/* --- which shift rule applied to whom --- */}
+              {report.shift_coverage.length > 0 && (() => {
+                const noTiming = report.shift_coverage.filter((r) => r.days_without_timing > 0);
+                const byScope = report.shift_coverage.reduce<Record<string, number>>((acc, r) => {
+                  const k = r.matched_by ?? 'none';
+                  acc[k] = (acc[k] ?? 0) + 1;
+                  return acc;
+                }, {});
+                return (
+                  <Section
+                    title={`Shift timings applied — ${report.shift_coverage.length} employee(s)`}
+                    tone={noTiming.length > 0 ? 'bad' : 'warn'}
+                  >
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      A timing can be set for <strong>Teaching</strong>, <strong>Non-teaching</strong>,
+                      or as a <strong>category override</strong>, and the override wins. Which one
+                      matched decides every verdict below, so it is worth checking here rather than
+                      after committing. A day with no timing at all cannot be judged and lands in
+                      needs-review.
+                    </p>
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {Object.entries(byScope).map(([k, n]) => (
+                        <Badge
+                          key={k}
+                          variant="outline"
+                          className={k === 'none' ? 'border-red-300 text-red-700' : undefined}
+                        >
+                          {k === 'none' ? 'No timing' : SHIFT_SCOPE_LABEL[k] ?? k}: {n}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="max-h-56 overflow-y-auto rounded-md border">
+                      <table className="w-full min-w-[760px] text-sm">
+                        <thead className="bg-muted/50">
+                          <tr className="text-left">
+                            <th className="px-3 py-2 font-medium">Code</th>
+                            <th className="px-3 py-2 font-medium">Staff</th>
+                            <th className="px-3 py-2 font-medium">Category</th>
+                            <th className="px-3 py-2 font-medium">Matched by</th>
+                            <th className="px-3 py-2 font-medium">Shift</th>
+                            <th className="px-3 py-2 text-right font-medium">Days w/o timing</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {/* Anyone missing a timing first — they are the reason to read this. */}
+                          {[...report.shift_coverage]
+                            .sort((a, b) => b.days_without_timing - a.days_without_timing)
+                            .map((r) => (
+                              <tr key={r.code} className="border-t">
+                                <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
+                                <td className="px-3 py-2">{r.staff_name ?? '—'}</td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  {r.category_name ?? '—'}
+                                  {r.is_teaching === null ? '' : r.is_teaching ? ' · teaching' : ' · non-teaching'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {r.matched_by ? (
+                                    <Badge variant="outline">
+                                      {SHIFT_SCOPE_LABEL[r.matched_by] ?? r.matched_by}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="border-red-300 text-red-700">
+                                      None
+                                    </Badge>
+                                  )}
+                                  {r.mixed && (
+                                    <span className="ml-1 text-xs text-amber-700">mixed</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 font-mono text-xs">
+                                  {r.window ?? '—'}
+                                  {r.grace_minutes ? ` +${r.grace_minutes}m` : ''}
+                                </td>
+                                <td
+                                  className={`px-3 py-2 text-right tabular-nums ${
+                                    r.days_without_timing > 0 ? 'font-semibold text-red-700' : 'text-muted-foreground'
+                                  }`}
+                                >
+                                  {r.days_without_timing} / {r.days_total}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Section>
+                );
+              })()}
 
               {/* --- the machine's own totals grading our arithmetic --- */}
               <Section

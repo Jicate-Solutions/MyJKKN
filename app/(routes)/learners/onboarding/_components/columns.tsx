@@ -33,7 +33,8 @@ import {
   PaymentProgressCell,
   PaymentAmountCell,
   AmountToThresholdCell,
-  basisHint
+  basisHint,
+  NextInstalmentCell
 } from './payment-progress-cell';
 import { OnboardingRowActions } from './row-actions';
 
@@ -284,6 +285,19 @@ function paymentColumns(basis: Parameters<typeof basisHint>[0]): ColumnDef<Onboa
       header: () => moneyHeader('Balance', `Outstanding on those bills. ${hint}`),
       cell: ({ row }) => <PaymentAmountCell payment={row.original.payment} field="basis_balance" />,
       size: 120,
+      enableSorting: false
+    },
+    {
+      // Placed before 'Need to Admit' deliberately: how much and by when read
+      // as one thought, and a caller works down the row left to right.
+      id: 'next_instalment',
+      header: () => (
+        <span title="The earliest instalment this learner still owes. Blank when their fees are not split into instalments.">
+          Next Instalment
+        </span>
+      ),
+      cell: ({ row }) => <NextInstalmentCell payment={row.original.payment} />,
+      size: 140,
       enableSorting: false
     },
     {

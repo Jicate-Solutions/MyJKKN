@@ -143,7 +143,9 @@ export default function EncashmentPage() {
                         </SelectTrigger>
                         <SelectContent>
                           {balances.map((b) => {
-                            const available = (b.entitled + b.carried_forward - b.used).toFixed(1);
+                            // Read, not recomputed: days held by a request
+                            // awaiting approval are not encashable either.
+                            const available = b.available.toFixed(1);
                             return (
                               <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                                 {b.leave_type_name} — {available} day(s) available

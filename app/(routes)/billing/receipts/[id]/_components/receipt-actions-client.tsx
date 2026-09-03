@@ -2,8 +2,17 @@
 /**
  * Receipt Actions Client Component
  *
- * Interactive action buttons for receipt operations (send, download, delete).
- * Uses server actions with optimistic UI updates.
+ * Interactive action buttons for receipt operations (send, download, request
+ * cancellation). Uses server actions with optimistic UI updates.
+ *
+ * 2026-08-25: the Delete button was REMOVED in favour of "Request
+ * cancellation". Two reasons. It was gated only on `!isStudentView` and never
+ * on billing.receipts.delete — a key no role holds — so for staff the RLS
+ * DELETE matched zero rows, which Postgres does not treat as an error: the
+ * action returned success and this page toasted "Receipt deleted successfully"
+ * and navigated away while the receipt still existed. And for a super admin it
+ * DID delete, destroying the audit trail that the cancellation workflow
+ * (request → super-admin approval → bill reverted) exists to preserve.
  */
 
 
@@ -14,28 +23,18 @@ import {
   Download,
   Send,
   Edit,
-  Trash2,
+  Ban,
   ArrowLeft,
   Printer
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger
-} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
-import {
-  sendReceipt,
-  deleteReceipt
-} from '../../../_actions/receipt-actions';
+import { sendReceipt } from '../../../_actions/receipt-actions';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
+import { RequestReceiptCancellationDialog } from '@/components/billing/request-receipt-cancellation-dialog';
+import { usePendingCancellations } from '@/hooks/billing/use-receipt-cancellations';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { BillingReceipt } from '@/types/billing-schedule';
 
 interface ReceiptActionsClientProps {
@@ -51,6 +50,18 @@ export function ReceiptActionsClient({
   const [isPending, startTransition] = useTransition();
   const [sendLoading, setSendLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+
+  const { isSuperAdmin, canAccess } = usePermissions();
+  const canRequestCancel =
+    !isStudentView && (isSuperAdmin || canAccess('billing.receipts', 'cancel.request'));
+
+  // An open request must suppress the button — the RPC rejects a second one
+  // ("already awaiting approval"), so offering it again only produces an error.
+  const { data: pendingCancellations = {} } = usePendingCancellations(
+    canRequestCancel ? [receipt.id] : []
+  );
+  const hasPendingCancellation = !!pendingCancellations[receipt.id];
 
   const handleSendReceipt = async () => {
     if (!receipt.student?.college_email) {
@@ -85,19 +96,6 @@ export function ReceiptActionsClient({
     } finally {
       setDownloadLoading(false);
     }
-  };
-
-  const handleDelete = async () => {
-    startTransition(async () => {
-      const result = await deleteReceipt(receipt.id);
-
-      if (result.success) {
-        toast.success('Receipt deleted successfully');
-        router.push('/billing/receipts');
-      } else {
-        toast.error(result.error || 'Failed to delete receipt');
-      }
-    });
   };
 
   return (
@@ -152,38 +150,32 @@ export function ReceiptActionsClient({
           </Button>
         )}
 
-        {/* Hide Delete button for students */}
-        {!isStudentView && (
-          <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant='destructive' size='sm' disabled={isPending}>
-              <Trash2 className='mr-2 h-4 w-4' />
-              Delete
+        {hasPendingCancellation ? (
+          <Badge variant='secondary'>Cancellation pending approval</Badge>
+        ) : (
+          canRequestCancel && (
+            <Button
+              variant='destructive'
+              size='sm'
+              onClick={() => setCancelOpen(true)}
+              disabled={isPending}
+            >
+              <Ban className='mr-2 h-4 w-4' />
+              Request cancellation
             </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete Receipt</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to delete receipt{' '}
-                <span className='font-semibold'>{receipt.receipt_number}</span>? This
-                action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDelete}
-                className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                disabled={isPending}
-              >
-                {isPending ? 'Deleting...' : 'Delete Receipt'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          )
         )}
       </div>
+
+      <RequestReceiptCancellationDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        receiptId={receipt.id}
+        receiptNumber={receipt.receipt_number}
+        // Re-render the server component so the pending badge appears without
+        // a manual reload.
+        onRequested={() => router.refresh()}
+      />
     </div>
   );
 }

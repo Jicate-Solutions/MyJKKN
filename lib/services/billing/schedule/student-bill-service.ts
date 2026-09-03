@@ -6,6 +6,12 @@ import {
   oncePerLearnerMessage
 } from '@/lib/utils/billing-duplicate-error';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { BillCancellationService } from './bill-cancellation-service';
+import type {
+  BillCancelReasonCode,
+  BillCancellationAttachment,
+  CancelBillResult
+} from '@/types/billing-bill-cancellation';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -20,8 +26,77 @@ import type {
   BillForBulkEdit
 } from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
 
+/**
+ * One tranche of a bill's payment schedule, with the money already allocated
+ * to it by the waterfall.
+ *
+ * `allocated_amount` / `is_settled` are NOT stored on the tranche — they are
+ * derived per read from the bill's paid position, oldest tranche first. That
+ * is why a stale value can never be shown: there is no value to go stale.
+ */
+export interface BillInstalmentState {
+  instalment_id: string;
+  bill_id: string;
+  sequence_no: number;
+  amount: number;
+  due_date: string;
+  allocated_amount: number;
+  outstanding: number;
+  is_settled: boolean;
+  /** Its date has arrived — this is the part of the bill actually owed now. */
+  is_due: boolean;
+  promotes_to_status_code: string | null;
+}
+
 export class StudentBillService {
   private static supabase = createClientSupabaseClient();
+
+  /**
+   * Payment schedules for a set of bills, keyed by bill id.
+   *
+   * Batched on purpose: a learner's page renders every bill at once, and one
+   * request per bill would be N round trips to render a table. Bills with no
+   * schedule simply have no key — the caller shows them exactly as before.
+   *
+   * Reads vw_bill_instalment_state rather than the raw table so the allocation
+   * comes from the same waterfall the promotion engine and the fee-paid
+   * threshold use. Re-deriving "how much of this tranche is paid" in the client
+   * would be a third implementation of it, free to disagree with both.
+   */
+  static async getInstalmentsForBills(
+    billIds: string[],
+  ): Promise<Map<string, BillInstalmentState[]>> {
+    const byBill = new Map<string, BillInstalmentState[]>();
+    if (billIds.length === 0) return byBill;
+
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('vw_bill_instalment_state')
+      .select(
+        'instalment_id, bill_id, sequence_no, amount, due_date, allocated_amount, outstanding, is_settled, is_due, promotes_to_status_code',
+      )
+      .in('bill_id', billIds)
+      // The waterfall settles the oldest debt first, so the schedule must read
+      // in calendar order — a schedule authored out of sequence would otherwise
+      // display in an order that contradicts how its money was allocated.
+      .order('due_date', { ascending: true })
+      .order('sequence_no', { ascending: true });
+
+    // Supabase errors are plain objects, not Error instances — check, never
+    // try/catch. A failure here must not blank the bills table: the schedule is
+    // additional detail, and the bill rows are still correct without it.
+    if (error) {
+      console.warn('[billing] could not load bill instalments:', getErrorMessage(error));
+      return byBill;
+    }
+
+    for (const row of (data ?? []) as BillInstalmentState[]) {
+      const list = byBill.get(row.bill_id);
+      if (list) list.push(row);
+      else byBill.set(row.bill_id, [row]);
+    }
+    return byBill;
+  }
 
   static async createStudentBill(
     billData: CreateStudentBillDto
@@ -313,74 +388,48 @@ export class StudentBillService {
     return results;
   }
 
-  private static readonly CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
-
+  /**
+   * Cancel a bill.
+   *
+   * This used to be a plain UPDATE that set status and appended the reason to
+   * the free-text `remarks` column. It now delegates to
+   * BillCancellationService, which goes through fn_cancel_student_bill --
+   * a SECURITY DEFINER RPC that records the reason, the reason code and the
+   * supporting documents in billing_bill_cancellations, and refuses a bill
+   * that still has receipted money against it.
+   *
+   * The status allow-list, the receipted-money guard and the zeroing of
+   * balance_amount all live in the RPC now. Duplicating them here is how the
+   * two would drift apart, and a trigger rejects any UPDATE that tries to set
+   * status='cancelled' outside the RPC, so a second implementation could not
+   * work anyway.
+   */
   static async cancelStudentBill(
     id: string,
-    reason?: string
-  ): Promise<StudentBill> {
-    try {
-      const bill = await this.getStudentBill(id);
-
-      if (!this.CANCELLABLE_STATUSES.includes(bill.status)) {
-        throw new Error(
-          `Cannot cancel bill with status "${bill.status}". Only unpaid, partially paid, or overdue bills can be cancelled.`
-        );
-      }
-
-      const updateQuery: any = this.supabase.from('billing_student_bills');
-      const { data, error } = await updateQuery
-        .update({
-          status: 'cancelled',
-          balance_amount: 0,
-          remarks: reason
-            ? `${bill.remarks ? bill.remarks + ' | ' : ''}Cancelled: ${reason}`
-            : bill.remarks
-        })
-        .eq('id', id)
-        .select(
-          `
-          *,
-          student:learners_profiles(
-            id, first_name, last_name, roll_number
-          ),
-          institution:institutions(id, name),
-          item_category:billing_categories(id, category_name)
-        `
-        )
-        .single();
-
-      if (error) throw error;
-
-      const studentName = `${data.student?.first_name || ''} ${data.student?.last_name || ''}`.trim() || 'Unknown';
-      const template = BillingActivityTemplates.billCancelled(
-        bill.bill_description || 'Student bill',
-        studentName,
-        reason
-      );
-      logActivityForCurrentUser({
-        ...template,
-        resourceId: id,
-        institutionId: bill.institution_id,
-        metadata: {
-          sub_type: template.sub_type,
-          student_id: bill.student_id,
-          original_amount: bill.final_amount,
-          balance_at_cancel: bill.balance_amount,
-          reason,
-        },
-      });
-
-      return data;
-    } catch (error) {
-      console.error('Error cancelling student bill:', error);
-      throw error;
-    }
+    reasonCode: BillCancelReasonCode,
+    reason: string,
+    attachments: BillCancellationAttachment[]
+  ): Promise<CancelBillResult> {
+    return BillCancellationService.cancelBill({
+      billId: id,
+      reasonCode,
+      reason,
+      attachments,
+    });
   }
 
+  /**
+   * Cancel several bills under ONE reason and ONE set of documents -- the
+   * "these twelve rows are the same duplicate, here is the approval memo" case.
+   * Each bill still goes through the RPC individually, so a bill that is
+   * ineligible (wrong status, or money receipted against it) fails on its own
+   * and the rest continue.
+   */
   static async bulkCancelStudentBills(
     ids: string[],
-    reason?: string
+    reasonCode: BillCancelReasonCode,
+    reason: string,
+    attachments: BillCancellationAttachment[]
   ): Promise<BulkOperationResult> {
     const results: BulkOperationResult = {
       success: [],
@@ -389,12 +438,17 @@ export class StudentBillService {
 
     for (const id of ids) {
       try {
-        await this.cancelStudentBill(id, reason);
+        await BillCancellationService.cancelBill({
+          billId: id,
+          reasonCode,
+          reason,
+          attachments,
+        });
         results.success.push(id);
       } catch (error) {
         results.failed.push({
           id,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: getErrorMessage(error)
         });
       }
     }
@@ -411,6 +465,7 @@ export class StudentBillService {
           sub_type: template.sub_type,
           cancelled_ids: results.success,
           failed_count: results.failed.length,
+          reason_code: reasonCode,
           reason,
         },
       });

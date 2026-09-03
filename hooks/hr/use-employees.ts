@@ -52,6 +52,26 @@ export function useHREmployee(id: string | undefined, enabled = true) {
 }
 
 /**
+ * One page, fetched imperatively.
+ *
+ * The advanced DataTable owns its own page/search state and calls a plain
+ * async function — it does not read through React Query — so the directory
+ * needs this alongside useHREmployees(). The hook stays for anything that
+ * wants the cached, declarative form.
+ */
+export async function fetchHREmployeesPage(
+  filters: HRPersonFilters
+): Promise<HRPersonListResponse> {
+  const qs = buildQueryString(filters);
+  const res = await fetch(`${BASE}${qs ? `?${qs}` : ''}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HR people list failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
  * Fetch ALL rows matching the current filters (no pagination) for export.
  * Requires the caller's role to hold hr.employees.export (enforced server-side).
  */

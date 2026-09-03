@@ -60,9 +60,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/hr/recruitment/jobs'],
         },
         // Candidates list page not yet built (only [id] detail exists).
-        // Re-add this nav entry when app/(routes)/hr/recruitment/candidates/page.tsx
-        // ships. Removed 2026-05-11 so the nav-config-href-audit gate ships
-        // as-enforcing.
+        // Removed 2026-05-11 so the nav-config-href-audit gate ships
+        // as-enforcing. app/(routes)/hr/recruitment/candidates/page.tsx now
+        // exists, but only as a redirect to /hr/recruitment — it keeps the
+        // bare URL from 404ing, it is NOT a destination. A real candidates
+        // list is still the precondition for re-adding this nav entry;
+        // pointing nav at a redirect is worse UX than no link at all.
         {
           label: 'My Submissions',
           icon: 'ClipboardList',
@@ -176,6 +179,16 @@ const config: ModuleNavConfig = {
           href: '/hr/attendance/regularize',
           matchPaths: ['/hr/attendance/regularize'],
         },
+        {
+          // Month close. Declared here in the SAME change as the route: a module
+          // with hasNavConfig renders only the children in this file, so a
+          // MENU_PERMISSIONS entry and a GetPages leaf alone would give a
+          // sidebar row and no navbar chip.
+          label: 'Month Close',
+          icon: 'CalendarCheck',
+          href: '/hr/attendance/close',
+          matchPaths: ['/hr/attendance/close'],
+        },
       ],
     },
     // The 'Shifts' group (/hr/shifts, /hr/shifts/my, /hr/shifts/approvals) was
@@ -247,6 +260,80 @@ const config: ModuleNavConfig = {
           icon: 'Wallet',
           href: '/hr/payroll/organisation',
           matchPaths: ['/hr/payroll/organisation'],
+        },
+        {
+          // WHAT EACH PERSON EARNS (2026-08-21). Added here for the reason the
+          // block above records: hasNavConfig makes AutoTabNav render ONLY the
+          // children declared in this file, so a MENU_PERMISSIONS entry, a
+          // GetPages() submenu and a route-manifest row are together still not
+          // enough to give the page a chip. It had all three and no chip.
+          //
+          // Gated on hr.payroll.salary.view, not the Payroll group's
+          // hr.payroll.institution.view: chips inherit MENU_PERMISSIONS[href],
+          // and seeing who pays someone is a different decision from seeing
+          // what they are paid. Since 2026-08-21 that key is held by hr_head
+          // alone (super admin passes via is_super_admin()), so this chip is
+          // invisible to the rest of HR rather than visible-and-denied.
+          label: 'Employee Salaries',
+          icon: 'Banknote',
+          href: '/hr/payroll/salaries',
+          matchPaths: ['/hr/payroll/salaries'],
+        },
+        {
+          // THE FOURTH TIME THIS GROUP LEARNED THE SAME LESSON (2026-09-02).
+          // Shipped with a MENU_PERMISSIONS entry, a GetPages submenu row and a
+          // route-manifest row -- and no chip, because hasNavConfig makes
+          // AutoTabNav render only what is declared in this file.
+          //
+          // check:reachability did NOT catch it, and cannot: it SEEDS its BFS
+          // from every literal href in lib/sidebarMenuLink.ts, so adding the
+          // sidebar row made this route a seed and therefore reachable by
+          // definition. The gate passing is not evidence of a chip.
+          //
+          // Directly after Employee Salaries because the bands are configuration
+          // FOR that screen -- its TDS column is derived from them rather than
+          // stored per person -- and because Salary Register has to stay last.
+          //
+          // Gated on hr.payroll.salary.view via MENU_PERMISSIONS[href], the same
+          // key as Employee Salaries: setting the rate and seeing what people
+          // earn are one decision by one person (hr_head, plus super admin).
+          label: 'TDS Bands',
+          icon: 'Percent',
+          href: '/hr/payroll/tds-slabs',
+          matchPaths: ['/hr/payroll/tds-slabs'],
+        },
+        {
+          // Third payroll chip. Added in the SAME change as the route this
+          // time: hasNavConfig means AutoTabNav renders only what is declared
+          // here, so a MENU_PERMISSIONS entry and a GetPages leaf alone give a
+          // sidebar row and no chip -- which is exactly how Employee Salaries
+          // shipped half-wired.
+          label: 'Bank Accounts',
+          icon: 'Landmark',
+          href: '/hr/payroll/bank-accounts',
+          matchPaths: ['/hr/payroll/bank-accounts'],
+        },
+        {
+          // Fourth payroll chip (2026-08-30). Shipped WITHOUT this entry first
+          // and reproduced the exact failure the two blocks above document:
+          // MENU_PERMISSIONS + a GetPages leaf + a route-manifest row gave a
+          // sidebar row and NO chip, because hasNavConfig makes AutoTabNav
+          // render only what is declared in this file. Three warnings in this
+          // one group is enough — anything added under /hr/payroll/* needs a
+          // child here, always.
+          //
+          // Last in the group because it is the step AFTER the three above are
+          // populated: a register reads the payer directory, the salary and the
+          // bank account, and reports whichever is missing.
+          //
+          // Gated on hr.payroll.register.view via MENU_PERMISSIONS[href] —
+          // hr_head alone, plus super admin. A register is the one screen
+          // showing amount AND destination AND day counts for everybody at
+          // once, so it does not ride on any of the other three keys.
+          label: 'Salary Register',
+          icon: 'FileSpreadsheet',
+          href: '/hr/payroll/register',
+          matchPaths: ['/hr/payroll/register'],
         },
       ],
     },
