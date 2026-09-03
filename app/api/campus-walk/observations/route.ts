@@ -91,6 +91,18 @@ interface PhotoIssue {
   index: number;
   fileName: string;
   error: string;
+  /**
+   * Defect-2 fix: true ONLY for a storage/infrastructure failure (the
+   * `admin.storage.upload()` call itself errored — e.g. the private
+   * `campus-walk` bucket does not exist yet on a fresh deploy, or Storage is
+   * unreachable). Retrying the identical bytes could succeed once the
+   * infrastructure recovers. False for a genuine content rejection (wrong
+   * size, not a JPEG, corrupt, or could not be cleaned of metadata) — those
+   * exact bytes fail the same way on every retry, so retrying can never
+   * help. This flag is what decides, below, whether an all-photos-failed
+   * batch answers with a retryable status or a terminal one.
+   */
+  retryable: boolean;
 }
 
 function fail(error: string, status: number, extra?: Record<string, unknown>) {
@@ -226,11 +238,11 @@ export async function POST(request: NextRequest) {
     const label = file.name || `photo-${i + 1}`;
 
     if (file.size > MAX_BYTES) {
-      photoIssues.push({ index: i, fileName: label, error: `${(file.size / 1048576).toFixed(1)} MB exceeds the 10 MB limit.` });
+      photoIssues.push({ index: i, fileName: label, error: `${(file.size / 1048576).toFixed(1)} MB exceeds the 10 MB limit.`, retryable: false });
       continue;
     }
     if (file.size < MIN_BYTES) {
-      photoIssues.push({ index: i, fileName: label, error: 'Too small to be a real photo.' });
+      photoIssues.push({ index: i, fileName: label, error: 'Too small to be a real photo.', retryable: false });
       continue;
     }
 
@@ -238,7 +250,7 @@ export async function POST(request: NextRequest) {
 
     // Sniff the bytes rather than trusting the declared content type.
     if (!isJpegMagic(buf)) {
-      photoIssues.push({ index: i, fileName: label, error: 'Not a JPEG — retake or re-select the photo.' });
+      photoIssues.push({ index: i, fileName: label, error: 'Not a JPEG — retake or re-select the photo.', retryable: false });
       continue;
     }
 
@@ -246,12 +258,12 @@ export async function POST(request: NextRequest) {
     // fail closed if the rewrite didn't actually produce a clean file.
     const cleaned = stripJpegMetadata(buf);
     if (!cleaned) {
-      photoIssues.push({ index: i, fileName: label, error: 'Could not be read as a valid JPEG.' });
+      photoIssues.push({ index: i, fileName: label, error: 'Could not be read as a valid JPEG.', retryable: false });
       continue;
     }
     const scan = scanJpegForMetadata(cleaned);
     if (!scan.ok) {
-      photoIssues.push({ index: i, fileName: label, error: 'Could not be cleaned of embedded camera/location data — not saved.' });
+      photoIssues.push({ index: i, fileName: label, error: 'Could not be cleaned of embedded camera/location data — not saved.', retryable: false });
       continue;
     }
 
@@ -265,8 +277,14 @@ export async function POST(request: NextRequest) {
       .upload(storagePath, cleaned, { contentType: 'image/jpeg', upsert: true });
 
     if (upErr) {
+      // Infrastructure failure, not a content problem — e.g. the private
+      // `campus-walk` bucket does not exist yet on a fresh deploy, or
+      // Storage is transiently unreachable. The exact same cleaned bytes
+      // could upload successfully on a later attempt, so this is marked
+      // retryable (Defect-2 fix) — it must NOT be lumped in with a genuine
+      // photo rejection below, which never retries.
       console.error('[campus-walk] upload failed:', upErr.message);
-      photoIssues.push({ index: i, fileName: label, error: 'Could not be saved to storage.' });
+      photoIssues.push({ index: i, fileName: label, error: 'Could not be saved to storage.', retryable: true });
       continue;
     }
 
@@ -276,7 +294,32 @@ export async function POST(request: NextRequest) {
   if (uploaded.length === 0) {
     // Nothing was captured at all — this is a real failure, not a fail-soft
     // partial success, because there is no observation to route.
-    return fail('None of the photos could be saved. Please retake and try again.', 502, { photoIssues });
+    //
+    // Defect-2 fix: this used to always answer 502, which the offline queue
+    // (lib/campus-walk/offline-queue.ts) treated as terminal — "every photo
+    // failed validation, retrying is pointless." That was true for a genuine
+    // content rejection, but this branch is also reached when EVERY photo
+    // failed because the storage upload itself errored (see `retryable:
+    // true` above) — on a fresh deploy before the `campus-walk` bucket
+    // exists, that meant every queued observation was permanently discarded
+    // instead of recovering once the bucket was created. Split by whether
+    // ANY failure in this batch was infrastructure, not content:
+    //   - at least one retryable (infra) failure -> retryable status. The
+    //     identical bytes can still succeed once storage recovers, so the
+    //     queue must keep retrying, never discard.
+    //   - every failure is a genuine content rejection -> a real client
+    //     error. Retrying the same bytes produces the same rejection every
+    //     time (the existing "a real rejection must not retry forever"
+    //     rule), so this one stays non-retryable.
+    const anyInfraFailure = photoIssues.some((issue) => issue.retryable);
+    if (anyInfraFailure) {
+      return fail(
+        'Could not save to storage right now — this will be retried automatically.',
+        503,
+        { photoIssues },
+      );
+    }
+    return fail('None of the photos could be saved. Please retake and try again.', 422, { photoIssues });
   }
 
   const primary = uploaded[0];
@@ -301,15 +344,39 @@ export async function POST(request: NextRequest) {
     raisedByProfileId: user.id,
   };
 
-  // Session client, not service-role: project_* RLS already permits any
-  // authenticated write (see D2 note above), so there is nothing to bypass
-  // here, and using the session client keeps this insert attributable to the
-  // caller rather than laundered through the service role. Service-role is
-  // reserved for the storage upload above, which genuinely needs it (the
-  // `campus-walk` bucket has no client-facing storage policy at all).
+  // Defect-3 fix: service-role client, not the session client.
+  // createWalkTask() does far more than the project_tasks insert — it reads
+  // `profiles` (to resolve the EAO by role), `staff` (profile_id -> staff.id,
+  // twice over), `departments` (head_of_department_id, for leave
+  // reassignment) and `hr_leave_applications`, and writes bell notifications
+  // via createBellNotification(). Every one of those reads is governed by
+  // the CALLER's own row-level permissions when passed the session client —
+  // project_tasks itself is open to any authenticated write (D2 note above),
+  // but profiles/staff/departments/hr_leave_applications are not, and there
+  // is no guarantee a future reporter (isCampusWalkReporter() reads a
+  // platform_policies row, deliberately changeable without a deploy — see
+  // lib/campus-walk/reporters.ts) can see the rows this routing logic needs.
+  // Today it only worked because the one permitted reporter happens to be a
+  // super admin; the moment the allowed-reporters list widens, routing would
+  // silently resolve fewer people (EAO fallback, department heads,
+  // notification recipients) and tickets would land unowned, with no error
+  // to show for it.
+  //
+  // Using `admin` here (the same service-role client already used for the
+  // storage upload above) makes that internal resolution and every
+  // notification write independent of the caller's own permissions. This
+  // does NOT widen who may post: the D2 gate at the top of this route
+  // (isCampusWalkReporter(callerEmail), the sole authority on who may reach
+  // this point) is untouched and still runs on the session client before a
+  // single byte is read. `raisedByProfileId: user.id` above still carries
+  // the caller's own profile id through to `input`, so the task is still
+  // attributed to whoever actually filed it (stored in metadata for audit) —
+  // campus-walk-service.ts's own D10 rule keeps presenting every ticket as
+  // "Management walk", never a personal name, and that is unaffected by
+  // which client performs the write.
   let result: Awaited<ReturnType<typeof createWalkTask>> = null;
   try {
-    result = await createWalkTask(supabase, input);
+    result = await createWalkTask(admin, input);
   } catch (e: unknown) {
     // Belt-and-braces: createWalkTask already catches internally and returns
     // null, but nothing here may throw and lose an already-stored photo.
@@ -321,18 +388,38 @@ export async function POST(request: NextRequest) {
     // Fail soft (per spec): the photo(s) are already durably in storage. Losing
     // the routing must not lose the observation, and must not read as a
     // generic error to a Director standing in a corridor.
+    //
+    // Defect-1 fix: this used to answer `{ success: true, routed: false,
+    // ... }` — a plain-success envelope with the failure buried one field
+    // deep. The offline queue (lib/campus-walk/offline-queue.ts) reads only
+    // `success`/`error` as load-bearing and treated that as a normal
+    // delivery: it deleted the queued item's photo bytes and marked it
+    // 'done'. Net effect: the Director was told the observation was filed,
+    // the photo sat orphaned in storage, and no ticket existed — with
+    // nothing left in the queue to show for it.
+    //
+    // `success: false` here is deliberate, not an oversight: this response
+    // must never satisfy the queue's `success !== false` "delivered" check.
+    // `outcome: 'stored_unrouted'` is the machine-readable discriminator the
+    // queue now checks for explicitly (ahead of any status-code handling),
+    // so this exact case is classified correctly regardless of which HTTP
+    // status it happens to carry. Status 207 (Multi-Status) is used because
+    // that is literally what happened — the photo upload succeeded, the
+    // task-creation step did not — but the body's `outcome` field, not the
+    // status code, is the actual contract.
     return NextResponse.json(
       {
-        success: true,
+        success: false,
+        outcome: 'stored_unrouted',
         routed: false,
         taskId: null,
         attachmentId: null,
         photos: uploaded,
         photoIssues,
-        message:
-          'Photo saved. Routing could not complete automatically — this observation was not filed as a task yet.',
+        error:
+          'Photo saved. Ticket NOT created — routing could not complete automatically.',
       },
-      { status: 200 },
+      { status: 207 },
     );
   }
 

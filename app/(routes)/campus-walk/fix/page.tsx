@@ -193,7 +193,7 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
       <Shell>
         <DeniedCard
           heading="You don't have access to this screen"
-          reason="This screen is for the staff member a campus job was assigned to, and your account is not linked to an active staff record."
+          reason="This screen is for the team member a campus job was assigned to, and your account is not linked to an active personnel record."
           contact={await resolveContact(admin, null)}
         />
       </Shell>

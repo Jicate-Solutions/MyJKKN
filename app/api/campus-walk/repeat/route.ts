@@ -99,6 +99,14 @@ export async function POST(request: NextRequest) {
     accountableProfileId: result.accountableProfileId,
     routedToEaoNoOwner: result.routedToEaoNoOwner,
     onApprovedLeave: result.onApprovedLeave,
-    message: `Reopened — occurrence #${result.occurrenceCount}.`
+    // The reopen itself succeeded — status, due date and the occurrence log are
+    // committed — but the RACI write may still have left the ticket with nobody
+    // accountable. reopenAsRepeat records that on the task and rings a bell;
+    // without surfacing it here the caller is told "Reopened" and never learns
+    // the ticket is unowned, and an unowned ticket is one that never closes.
+    ownerAssignmentFailed: result.ownerAssignmentFailed,
+    message: result.ownerAssignmentFailed
+      ? `Reopened — occurrence #${result.occurrenceCount}. Nobody could be assigned to it; please pick an owner.`
+      : `Reopened — occurrence #${result.occurrenceCount}.`
   });
 }

@@ -68,6 +68,20 @@ export type ReopenAsRepeatResult =
       accountableProfileId: string | null;
       routedToEaoNoOwner: boolean;
       onApprovedLeave: boolean;
+      /**
+       * True when this reopen could NOT establish an accountable owner in
+       * project_task_assignees — either routing found nobody at all (not
+       * even the EAO fallback), or the delete/delete/insert RACI write
+       * itself failed. The status/due-date/occurrence-log changes above
+       * still committed (this stays ok:true — a RACI hiccup must not undo a
+       * reopen that already landed), but the ticket now has nobody
+       * accountable and cannot close until someone is assigned. Recorded on
+       * metadata.accountable_assignment_failed and pushed to whoever
+       * reopened it (input.reopenedByProfileId, D2-gated to the Director) as
+       * a bell notification — never left silent the way the naive two-step
+       * RACI write this replaced was.
+       */
+      ownerAssignmentFailed: boolean;
     }
   | {
       ok: false;
@@ -243,21 +257,96 @@ export async function reopenAsRepeat(
     }
 
     // Keep RACI's accountable role in sync with any re-routing (EAO
-    // fallback / leave reassignment). Best-effort, same doctrine as
-    // createWalkTask: a RACI hiccup must not undo the reopen that already
-    // committed above.
-    if (routing.accountableStaffId && routing.accountableStaffId !== currentAccountableStaffId) {
+    // fallback / leave reassignment). Delete/delete/insert — the exact shape
+    // lib/campus-walk/chase-up.ts's departure-handover path uses (read only;
+    // not duplicated here, same shape) — because the DB carries TWO unique
+    // constraints on project_task_assignees: ix_pta_one_accountable allows at
+    // most one 'accountable' row per task, and uq_project_task_assignees
+    // allows at most one role per (task_id, staff_id). So any pre-existing
+    // row for the INCOMING accountable (e.g. they were already Consulted on
+    // this task) has to be cleared FIRST, then the outgoing accountable row,
+    // before the new Accountable row can be inserted without a 23505. The
+    // two-step this replaced (delete role only, then insert) 23505'd on
+    // exactly that first case, and its try/catch swallowed the failure after
+    // the outgoing row was already gone — leaving the task with NO
+    // accountable row at all, silently, until the next reopen. Best-effort in
+    // the sense that a RACI failure must not undo the reopen that already
+    // committed above, but not silent any more: a failure is recorded and
+    // reported right below.
+    let ownerAssignmentFailed = false;
+    let ownerAssignmentFailureReason: 'no_owner_resolved' | 'assignee_write_failed' | null = null;
+
+    if (!routing.accountableStaffId) {
+      // Not even the EAO fallback resolved anyone — routeAccountable has
+      // already console.error'd why (no EAO role/fallback email configured).
+      // There is nothing to write to project_task_assignees: this reopen has
+      // produced a ticket with no accountable owner, and that must be said,
+      // not left to read as a normal success below.
+      ownerAssignmentFailed = true;
+      ownerAssignmentFailureReason = 'no_owner_resolved';
+    } else if (routing.accountableStaffId !== currentAccountableStaffId) {
       try {
         await db
           .from('project_task_assignees')
           .delete()
           .eq('task_id', task.id)
-          .eq('role', 'accountable');
+          .eq('staff_id', routing.accountableStaffId);
         await db
           .from('project_task_assignees')
+          .delete()
+          .eq('task_id', task.id)
+          .eq('role', 'accountable');
+        const { error: insErr } = await db
+          .from('project_task_assignees')
           .insert({ task_id: task.id, staff_id: routing.accountableStaffId, role: 'accountable' });
+        if (insErr) throw new Error(insErr.message);
       } catch (e: any) {
         console.error('[campus-walk/repeats] RACI update failed:', e?.message ?? e);
+        ownerAssignmentFailed = true;
+        ownerAssignmentFailureReason = 'assignee_write_failed';
+      }
+    }
+
+    // A reopen that could not establish an accountable owner must say so —
+    // recorded on the task itself (best-effort follow-up write; must not
+    // undo the reopen that already committed above, same doctrine as
+    // everything else in this function) and pushed to whoever reopened it.
+    // D2 gates this whole flow to the Director already, so notifying
+    // input.reopenedByProfileId IS notifying the Director — no separate
+    // director-resolution lookup needed. Nothing else in this codebase
+    // watches for "accountable row missing" the way it watches for overdue
+    // due dates, so without this the ticket goes quiet.
+    if (ownerAssignmentFailed) {
+      try {
+        await db
+          .from('project_tasks')
+          .update({
+            metadata: {
+              ...newMetadata,
+              accountable_assignment_failed: true,
+              accountable_assignment_failure_reason: ownerAssignmentFailureReason
+            }
+          })
+          .eq('id', task.id);
+      } catch (e: any) {
+        console.error('[campus-walk/repeats] failure-flag write failed:', e?.message ?? e);
+      }
+
+      try {
+        await createBellNotification(db, {
+          recipientIds: [input.reopenedByProfileId],
+          createdBy: input.reopenedByProfileId,
+          title: `Reopened but unowned — needs a manual assignment (occurrence #${occurrenceCount})`,
+          body:
+            ownerAssignmentFailureReason === 'no_owner_resolved'
+              ? `"${task.title}" was reopened as a recurrence, but no candidate owner and no Executive Admin Officer could be resolved. It has nobody accountable and will not close until someone is assigned.`
+              : `"${task.title}" was reopened as a recurrence, but assigning the new accountable owner failed. It has nobody accountable and will not close until someone is assigned.`,
+          url: '/projects',
+          category: 'campus-walk:reopen-unowned',
+          metadata: { task_id: task.id, source: 'campus-walk', reason: ownerAssignmentFailureReason }
+        });
+      } catch (e: any) {
+        console.error('[campus-walk/repeats] unowned-reopen notification failed:', e?.message ?? e);
       }
     }
 
@@ -302,7 +391,8 @@ export async function reopenAsRepeat(
       dueDate: routing.dueDate,
       accountableProfileId: routing.accountableProfileId,
       routedToEaoNoOwner: routing.routedToEaoNoOwner,
-      onApprovedLeave: routing.onApprovedLeave
+      onApprovedLeave: routing.onApprovedLeave,
+      ownerAssignmentFailed
     };
   } catch (e: any) {
     console.error('[campus-walk/repeats] reopenAsRepeat threw:', e?.message ?? e);

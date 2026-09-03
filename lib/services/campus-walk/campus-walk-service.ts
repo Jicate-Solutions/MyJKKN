@@ -358,11 +358,11 @@ export async function routeAccountable(
     } else {
       if (!headProfileId) {
         console.error(
-          `[campus-walk] accountable staff ${leaveOriginalStaffId} is on approved leave; no department head on record (staff.department_id or departments.head_of_department_id missing) — routing to EAO`
+          `[campus-walk] accountable team member ${leaveOriginalStaffId} is on approved leave; no department head on record (staff.department_id or departments.head_of_department_id missing) — routing to EAO`
         );
       } else {
         console.error(
-          `[campus-walk] accountable staff ${leaveOriginalStaffId} is on approved leave; department head profile ${headProfileId} has no active staff record — routing to EAO`
+          `[campus-walk] accountable team member ${leaveOriginalStaffId} is on approved leave; department head profile ${headProfileId} has no active personnel record — routing to EAO`
         );
       }
       const eao = await resolveEao(db);

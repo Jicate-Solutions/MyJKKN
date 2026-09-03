@@ -595,7 +595,7 @@ async function reassignDepartedAccountable(
           title: `Needs a new owner: ${truncate(taskTitle, 80)}`,
           body:
             `A Management walk item ("${truncate(taskTitle, 150)}", due ${dueDate}) can no longer be ` +
-            `chased automatically — the person responsible for it is no longer active staff, and no ` +
+            `chased automatically — the person responsible for it is no longer an active team member, and no ` +
             `department head or Campus Operations owner could be found to hand it to. It needs a manual reassignment.`,
           url: '/projects',
           category: 'campus-walk:reassign-failed',
@@ -673,7 +673,7 @@ async function reassignDepartedAccountable(
         title: `Reassigned — owner no longer active: ${truncate(taskTitle, 70)}`,
         body:
           `A Management walk item ("${truncate(taskTitle, 150)}") was assigned to someone who is no ` +
-          `longer active staff. It has been automatically reassigned to ${
+          `longer an active team member. It has been automatically reassigned to ${
             toRole === 'department_head' ? 'the department head' : 'the Campus Operations owner'
           } to keep it moving.`,
         url: '/projects',
@@ -694,7 +694,7 @@ async function reassignDepartedAccountable(
       title: `You have inherited a Management walk item: ${truncate(taskTitle, 70)}`,
       body:
         `"${truncate(taskTitle, 150)}" (due ${dueDate}) has been reassigned to you because its previous ` +
-        `owner is no longer active staff. Please action it, or mark it "blocked" if something is holding you up.`,
+        `owner is no longer an active team member. Please action it, or mark it "blocked" if something is holding you up.`,
       url: `/campus-walk/fix?task=${taskId}`,
       category: 'campus-walk:reassigned',
       metadata: { task_id: taskId, source: CAMPUS_WALK_SOURCE, to_role: toRole },
@@ -1071,7 +1071,7 @@ export async function runCampusWalkChaseUp(
           };
         } else {
           result.errors.push(
-            `task ${task.id}: accountable staff ${outcome.record.from_staff_id} is inactive and could not be reassigned (${outcome.record.outcome})`
+            `task ${task.id}: accountable team member ${outcome.record.from_staff_id} is inactive and could not be reassigned (${outcome.record.outcome})`
           );
         }
       }

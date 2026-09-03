@@ -397,6 +397,41 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
     json = null;
   }
 
+  // Defect-1 fix — checked BEFORE the generic success/status classification
+  // below, because this is a distinct outcome, not a variant of either
+  // "delivered" or "rejected". The intake route answers this way when the
+  // photo(s) are already durably saved in storage but the routing step
+  // (createWalkTask) could not create a task — e.g. app/api/campus-walk/
+  // observations/route.ts's `outcome: 'stored_unrouted'` response, status
+  // 207. Read the discriminator off the BODY, not `res.status`: the status
+  // code is informative only here, and pinning this check to one specific
+  // number would silently stop working if the route's status ever changes
+  // while the body contract does not.
+  //
+  // This must never be classified `ok` — that was the actual bug (see this
+  // file's header): a routing failure buried inside an otherwise-normal
+  // `{ success: true }` body was read as "delivered" and the record,
+  // including its photo bytes, was deleted. It is also deliberately NOT
+  // treated as a transient blip to silently hammer forever: `terminal: true`
+  // stops the automatic pump (pumpOnce() below sets status 'error') but —
+  // exactly like every other terminal classification in this file — the
+  // record itself is never deleted, only an explicit "Discard" tap removes
+  // it. He can see it in the queue with an honest message and tap Retry once
+  // it is expected to route (matches the queue's existing terminal-failure
+  // UI: AlertTriangle + Retry/Discard, rendered by the campus-walk screen
+  // off `item.lastError`/`item.status` — this file adds no new UI, only an
+  // honest message for the UI that already exists).
+  if (json?.outcome === 'stored_unrouted') {
+    return {
+      ok: false,
+      terminal: true,
+      message:
+        json?.error ??
+        'Photo saved. Ticket NOT created — tap Retry once routing is expected to work.',
+      duplicate: null,
+    };
+  }
+
   // Contract: { success: true, ... } | { success: false, error }. Tolerant of
   // extra/renamed fields either side adds later — only `success`/`error` are load-bearing.
   if (res.ok && json && json.success !== false) {
@@ -427,6 +462,10 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
     return { ok: false, terminal: true, message: serverMessage ?? 'Photo format not accepted.', duplicate: null };
   }
   if (res.status === 400 || res.status === 422) {
+    // 422 also covers the Defect-2 case: every photo in the batch was a
+    // genuine content rejection (not a JPEG, too small/large, or could not
+    // be cleaned of metadata) — see the 503 branch below for why that is
+    // deliberately kept separate from a storage/infrastructure failure.
     return {
       ok: false,
       terminal: true,
@@ -437,16 +476,35 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
   if (res.status === 429) {
     return { ok: false, terminal: false, message: serverMessage ?? 'Busy — will retry shortly.', duplicate: null };
   }
-  // 502 from THIS route specifically means every photo in the batch failed
-  // its own validation (not a JPEG, too small/large) — confirmed by reading
-  // app/api/campus-walk/observations/route.ts. Retrying the same bytes
-  // produces the same rejection every time, so this is terminal, not a
-  // server blip, even though 502 is a 5xx.
-  if (res.status === 502) {
+  // Defect-2 fix: 422 (handled by the 400/422 branch above) and 503 (below)
+  // replace what a single 502 used to mean for this route. 502 used to be
+  // overloaded with two different meanings from app/api/campus-walk/
+  // observations/route.ts: "every photo in the batch failed its own
+  // validation" (not a JPEG, too small/large — retrying is pointless) AND
+  // "the storage upload itself failed" (e.g. the private `campus-walk`
+  // bucket does not exist yet on a fresh deploy — retrying is exactly the
+  // right thing to do, since the identical bytes can succeed once storage
+  // recovers). Treating 502 as terminal made both cases stop retrying, so a
+  // missing bucket on a fresh deploy permanently discarded every queued
+  // observation instead of recovering once the bucket was created.
+  //
+  // The route now answers a genuine "every photo rejected" batch with 422
+  // (a real client error — retrying the same bytes can never help, so it
+  // stays terminal via the branch above) and a genuine storage/
+  // infrastructure failure with 503 below (retryable). A bare 502 reaching
+  // here now — e.g. a real upstream Bad Gateway from infra in front of this
+  // route, not from the route's own logic — is intentionally left
+  // unhandled by name and falls through to the generic 5xx case at the
+  // bottom of this function, which treats an unrecognised 5xx as transient.
+  // That is the correct default: assuming permanent failure on an
+  // unfamiliar status code risks silently discarding an observation, and a
+  // genuinely permanent one will keep coming back and stay visible in the
+  // queue either way.
+  if (res.status === 503) {
     return {
       ok: false,
-      terminal: true,
-      message: serverMessage ?? 'None of the photos could be saved — retake and try again.',
+      terminal: false,
+      message: serverMessage ?? 'Storage is temporarily unavailable — will retry automatically.',
       duplicate: null
     };
   }

@@ -55,6 +55,17 @@ const BUCKET = 'campus-walk';
 const MAX_BYTES = 10 * 1024 * 1024; // matches the bucket's file_size_limit
 const MIN_BYTES = 1024; // below this it is not a photograph
 
+/**
+ * A ticket in one of these is out of the lane entirely and cannot be acted
+ * on — same set, same meaning, as app/api/campus-walk/review/route.ts's own
+ * UNDECIDABLE_STATUSES. Without this, submitting a fix against a cancelled
+ * or archived ticket writes status_key = 'review' below and resurrects work
+ * the Director explicitly withdrew; review/route.ts already refuses to
+ * DECIDE on one of these, so this route must refuse to feed one INTO review
+ * in the first place.
+ */
+const UNDECIDABLE_STATUSES = new Set(['cancelled', 'archived']);
+
 /** Reasons a fix can stall that are NOT the fixer's fault (D8). */
 const BLOCK_REASONS = new Set([
   'no_budget',
@@ -240,7 +251,7 @@ async function resolveAccess(
       status: 403,
       code: 'not_staff',
       reason:
-        'This screen is for the staff member the job was assigned to. Your account is not linked to an active staff record.',
+        'This screen is for the team member the job was assigned to. Your account is not linked to an active personnel record.',
       contact: null,
     };
   }
@@ -495,6 +506,28 @@ export async function POST(request: NextRequest) {
   }
 
   const { task } = access;
+
+  // ── Refuse terminal tickets ────────────────────────────────────────────────
+  // Mirrors app/api/campus-walk/review/route.ts's UNDECIDABLE_STATUSES gate
+  // exactly — same codes, same wording, same 409 — so a fixer and a reviewer
+  // hitting a withdrawn ticket get the same explicit, structured refusal
+  // rather than one route silently letting it through. Placed before any
+  // photo bytes are read or written: nothing has been touched yet, so this
+  // refusal never costs the fixer an already-uploaded photo (fail soft).
+  if (UNDECIDABLE_STATUSES.has(task.status_key)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: 'not_open',
+        error:
+          task.status_key === 'cancelled'
+            ? 'This job was cancelled, so it cannot be approved or sent back.'
+            : 'This job has been archived, so it cannot be approved or sent back.',
+      },
+      { status: 409 }
+    );
+  }
+
   const metadata: Record<string, any> = { ...((task.metadata ?? {}) as Record<string, any>) };
   const nowIso = new Date().toISOString();
 

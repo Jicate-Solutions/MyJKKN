@@ -252,7 +252,7 @@ function ReviewCard({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <UserRound className="h-3.5 w-3.5" />
-            {item.submittedByName ? `Fixed by ${item.submittedByName}` : 'Fixed by a staff member'}
+            {item.submittedByName ? `Fixed by ${item.submittedByName}` : 'Fixed by a team member'}
           </span>
           {item.submittedAt && <span>Sent {formatMoment(item.submittedAt)}</span>}
           <span
