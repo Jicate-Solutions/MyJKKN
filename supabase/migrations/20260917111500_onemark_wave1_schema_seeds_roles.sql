@@ -668,17 +668,18 @@ WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
 --      fp_students_insert (20260706063000) requires fn_fp_manages_school(school_id),
 --      which is ONLY a school_jkkn_owners row; fn_fp_can_manage_student (the vault's
 --      write gate) reads the same table. With no row, only a super admin could enrol
---      at Nattraja and the vault would be unwritable. Seeded: exactly the profiles that
---      hold foundation_programme_manager at Nattraja (its principal and HOD, read live
---      2026-09-02). Role outreach_coordinator — program_lead demands a partner id.
---      Senior Learners on school_faculty approve and facilitate; they do NOT enrol
---      unless also made owners ([risky] #8).
+--      at Nattraja and the vault would be unwritable. Seeded: EVERY Nattraja profile
+--      with role faculty / hod / principal and is_active — the same 30 people step 12
+--      gives school_faculty to — so each Senior Learner can enrol their own learners
+--      (Director tap, 2026-09-03 00:1x IST: "All 30 teachers can enrol"). Role
+--      outreach_coordinator — program_lead demands a partner id.
 --      BLAST RADIUS (read live 2026-09-02, disclosed as [risky] #9): school_jkkn_owners
 --      is Schools-Network substrate, not Foundation-local. An owner row also makes
 --      user_owns_school(nattraja_school_id) true for these two profiles, which is
 --      the predicate on 15 policies over school_contacts / school_contributions /
 --      school_sessions / program_partner_schools / schools — scoped to THIS school
---      row by argument, so it is read/write on Nattraja's own school record only.
+--      row by argument, so it is read/write on Nattraja's own school record only,
+--      now for all 30 Senior Learners rather than two.
 --      It does NOT widen the outreach assignment picker
 --      (fn_schools_network_list_assignable_owners): that already admits every
 --      faculty / school_faculty / staff holder (Director 2026-07-06), so step 12
@@ -687,8 +688,13 @@ INSERT INTO public.school_jkkn_owners (school_id, jkkn_user_id, role, is_active,
 SELECT s.id, p.id, 'outreach_coordinator'::public.school_owner_role, true, now()
 FROM public.schools s
 JOIN public.profiles p ON p.institution_id = s.institution_id AND p.is_active
-JOIN public.user_roles ur ON ur.user_id = p.id
-JOIN public.custom_roles cr ON cr.id = ur.role_id AND cr.role_key = 'foundation_programme_manager'
+  AND p.role IN ('faculty', 'hod', 'principal')
+  -- school_jkkn_owners.jkkn_user_id REFERENCES auth.users, not profiles. A
+  -- PRE-REGISTERED profile (no auth row until first Google sign-in — 13 of
+  -- the 30 today, read live 2026-09-03) would raise 23503 and abort the whole
+  -- apply. Those Senior Learners still receive school_faculty (user_roles keys
+  -- on profiles); their owner row is a follow-up after first sign-in.
+  AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)
 WHERE s.name = 'Nattraja Vidhyalya CBSE'
   AND s.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
   AND NOT EXISTS (
@@ -716,6 +722,7 @@ DECLARE
   v_unassigned int;
   v_associates int;
   v_owners int;
+  v_owner_eligible int;
 BEGIN
   SELECT count(*) INTO v_exams FROM public.exam_definitions WHERE config_key IN ('tn_hsc_physics', 'tn_hsc_english');
   SELECT count(*) INTO v_schools FROM public.schools
@@ -766,13 +773,18 @@ BEGIN
    WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
      AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active
      AND i.issued_at >= transaction_timestamp();   -- ONLY identities minted by THIS apply (P4)
+  SELECT count(*) INTO v_owner_eligible
+    FROM public.profiles p
+   WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+     AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active
+     AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id);
   SELECT count(*) INTO v_owners
     FROM public.school_jkkn_owners o
     JOIN public.schools s ON s.id = o.school_id
    WHERE s.name = 'Nattraja Vidhyalya CBSE' AND s.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
      AND o.is_active;
 
-  IF v_owners < 2      THEN RAISE EXCEPTION 'onemark wave1: expected >= 2 active school_jkkn_owners for Nattraja, found %', v_owners; END IF;
+  IF v_owners < v_owner_eligible OR v_owners < 2 THEN RAISE EXCEPTION 'onemark wave1: expected an active school_jkkn_owners row for each of the % signed-in Senior Learner logins at Nattraja (and at least 2), found %', v_owner_eligible, v_owners; END IF;
   IF v_exams <> 2      THEN RAISE EXCEPTION 'onemark wave1: expected 2 subject exam rows, found %', v_exams; END IF;
   IF v_schools < 1     THEN RAISE EXCEPTION 'onemark wave1: no ''Nattraja Vidhyalya CBSE'' schools row at institution 29c221d1'; END IF;
   IF v_topics < 18     THEN RAISE EXCEPTION 'onemark wave1: expected >= 18 onemark_ topics, found %', v_topics; END IF;
