@@ -2,7 +2,7 @@
 -- Spec: specs/campus-walk-2026-08-17.md (13 Director decisions, 5 guardrails)
 --
 -- SPLIT FROM the bucket migration (2026-09-03): this used to share a transaction
--- with 20261020010000_campus_walk_storage_bucket.sql, which creates the private
+-- with 20261102010000_campus_walk_storage_bucket.sql, which creates the private
 -- `campus-walk` storage bucket that photo capture depends on. This half touches
 -- the shared, live ai_job_types table (a CHECK constraint and a seed row) whose
 -- current contents cannot be verified from the repo. It belongs to an AI
@@ -12,7 +12,7 @@
 -- now two independent migrations, ORDERED so this one lands SECOND, after the
 -- bucket, and can fail without affecting it.
 --
--- Version 20261020020000 is above the highest version on jicate/main at split time
+-- Version 20261102020000 is above the highest version on jicate/main at split time
 -- and clear of every version claimed by other open PRs (checked 2026-09-03).
 
 BEGIN;

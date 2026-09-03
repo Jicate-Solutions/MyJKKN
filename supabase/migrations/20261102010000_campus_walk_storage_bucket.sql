@@ -20,14 +20,14 @@
 -- SPLIT FROM the AI classification lane (2026-09-03): this migration used to also
 -- widen ai_job_types_lane_chk and seed the 'campus.walk_classify' job type in the
 -- same transaction. That lane is optional and currently has no consumer outside this
--- repo (see the deployment note in 20261020020000_campus_walk_ai_lane.sql); this
+-- repo (see the deployment note in 20261102020000_campus_walk_ai_lane.sql); this
 -- bucket is not — it is what makes photo capture work at all. A CHECK-widen on a
 -- shared, live table whose current contents cannot be verified from the repo must
 -- never be able to roll back the one object that makes capture possible. They are
 -- now two independent migrations, ORDERED so this one lands first: capture keeps
 -- working even if the classification lane migration never ships.
 --
--- Version 20261020010000 is above the highest version on jicate/main at split time
+-- Version 20261102010000 is above the highest version on jicate/main at split time
 -- and clear of every version claimed by other open PRs (checked 2026-09-03):
 -- parallel lanes otherwise all reach for the same "next" timestamp and collide.
 
