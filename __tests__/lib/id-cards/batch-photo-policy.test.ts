@@ -1,8 +1,9 @@
 // __tests__/lib/id-cards/batch-photo-policy.test.ts
 // 2026-07-25 — batch-print policy coverage (Director-locked decisions):
 //   • default "Which learners?" = Active + newly admitted
-//   • hasPrintablePhoto mirrors the render engine's photo fallback chain
-//     (learners_profiles.student_photo_url → profiles.avatar_url)
+//   • hasPrintablePhoto mirrors GUARD 3 on the print endpoint — since
+//     2026-09-03 that means learners_profiles.student_photo_url ONLY; the
+//     profiles.avatar_url fallback no longer qualifies
 
 import { describe, it, expect, vi } from 'vitest';
 
@@ -39,11 +40,16 @@ describe('hasPrintablePhoto', () => {
     expect(hasPrintablePhoto('data:image/png;base64,abc', null)).toBe(true);
   });
 
-  it('true when only the account avatar is set (render fallback chain)', () => {
+  it('FALSE when only the account avatar is set (reversed 2026-09-03)', () => {
+    // This asserted `true` until 2026-09-03, mirroring the render engine's
+    // fallback to profiles.avatar_url. The Director withdrew that: only a
+    // photograph the institution took qualifies, with no override. This screen
+    // must agree with Guard 3 on POST /api/id-cards/jobs, or the office is
+    // offered learners the printer will refuse.
     expect(hasPrintablePhoto(null, 'https://cdn.example/avatar.png')).toBe(
-      true
+      false
     );
-    expect(hasPrintablePhoto('', 'https://cdn.example/avatar.png')).toBe(true);
+    expect(hasPrintablePhoto('', 'https://cdn.example/avatar.png')).toBe(false);
   });
 
   it('false when both links of the chain are empty', () => {
@@ -68,10 +74,14 @@ describe('hasPrintablePhoto', () => {
     expect(hasPrintablePhoto(null, 'vigneshwaran')).toBe(false);
   });
 
-  it('a renderable value in either slot outweighs junk in the other', () => {
+  it('only the institutional slot decides — the avatar cannot rescue junk', () => {
+    // Reversed 2026-09-03. A roll number in the photo column is still junk even
+    // when a perfectly good account picture sits beside it: the account picture
+    // is not evidence the institution photographed anyone.
     expect(hasPrintablePhoto('EM25305', 'https://cdn.example/a.png')).toBe(
-      true
+      false
     );
+    // And a real institutional photo still wins regardless of what the avatar holds.
     expect(hasPrintablePhoto('https://cdn.example/p.jpg', 'junk')).toBe(true);
   });
 
