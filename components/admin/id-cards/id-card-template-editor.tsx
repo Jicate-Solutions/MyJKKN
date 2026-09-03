@@ -17,10 +17,13 @@
 //         The old /api/id-cards/template/mappings endpoints never existed —
 //         the tab stubbed to defaults and its Save posted into the void.
 //
-// Photo fallback: the old tab was REMOVED — the fallback chain is hardcoded
-// in lib/id-cards/render-data.ts (learner photo / team-member picture →
-// profile avatar → printed initials); there is no editable substrate. A
-// muted note below the tabs explains the fixed behaviour.
+// Photo: the old "Photo fallback" tab was REMOVED, and since 2026-09-03 there
+// is no fallback left to describe. Guard 3 on POST /api/id-cards/jobs refuses a
+// card outright when no institutional photograph is on file — an account avatar
+// does not qualify and there is no override. The render engine still carries a
+// candidate chain internally, but nothing printed through the queue reaches it
+// without a real photo. No editable substrate; the muted note below the tabs
+// explains the rule.
 //
 // Sides badge: GET /api/id-cards/policy?institution_id=<uuid>. The endpoint
 // REQUIRES institution_id and wraps responses as { data: IdCardPolicy }, so
@@ -249,7 +252,7 @@ const mappingConfig: LookupConfig<FieldMappingRow> = {
   columns: mappingColumns,
   rowHint: (row) => {
     if (row.card_field === 'photo') {
-      return 'This sets the primary photo source. If it has no image, the print engine automatically falls back to the profile avatar and finally to printed initials.';
+      return 'This sets the photo source. If it holds no image the card is REFUSED, not printed with a stand-in — an account avatar does not count and there is no override.';
     }
     return null;
   },
@@ -447,13 +450,15 @@ export function IdCardTemplateEditor() {
         </TabsContent>
       </Tabs>
 
-      {/* Photo fallback: no editable substrate — the chain is fixed in the
-          print engine (lib/id-cards/render-data.ts). Explains, no dead UI. */}
+      {/* No photo, no card. There is no fallback to describe any more and no
+          editable substrate — the rule lives in Guard 3 on POST /api/id-cards/jobs
+          (lib/services/id-cards/reprint-eligibility.ts). Explains, no dead UI. */}
       <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-        Photo fallback: when a learner has no uploaded photo (or a team member
-        has no profile picture), cards automatically fall back to the account
-        avatar, and finally to printed initials. This order is fixed in the
-        print engine today — an editing screen is planned.
+        No photograph, no card. When a learner has no uploaded photo (or a team member
+        has no profile picture), the card is refused rather than printed with a stand-in.
+        A picture from their own login account does not count — it is not evidence the
+        institution photographed anyone — and there is no override. Photo Check lists
+        who is affected, per college.
       </div>
     </div>
   );
