@@ -22,7 +22,8 @@
  * Two halves:
  *   expected-from-source  — always runs. Reads the source tables with the
  *                           service key and applies the rules the migration
- *                           documents (20261018020000).
+ *                           documents (20261018030000, which supersedes
+ *                           20261018020000 by adding the 'offer' source).
  *   function              — runs only when the function can be CALLED AS THE
  *                           USER: that needs SUPABASE_JWT_SECRET (the same env
  *                           lib/auth/impersonate.ts uses) to mint a short-lived
@@ -107,10 +108,17 @@ const institutions = await rest('institutions?select=id,counselling_code');
 
 const isSuper = profile.is_super_admin === true;
 const isAdmin = isSuper || ['admin', 'super_admin', 'administrator'].includes(profile.role);
-// user_has_permission('hr.leave.approve'), reproduced (super bypass, multi-role
-// OR, legacy profiles.role fallback; the director-handover tail is not modelled).
-const permTrue = (p) => p && p['hr.leave.approve'] === true;
-const hasLeavePerm = isSuper || roles.some((r) => permTrue(r.permissions)) || permTrue(legacyRole?.permissions);
+// user_has_permission(<key>), reproduced (super bypass, multi-role OR, legacy
+// profiles.role fallback; the director-handover tail is not modelled).
+const permTrue = (p, key) => !!p && p[key] === true;
+const hasPerm = (key) =>
+  isSuper || roles.some((r) => permTrue(r.permissions, key)) || permTrue(legacyRole?.permissions, key);
+const hasLeavePerm = hasPerm('hr.leave.approve');
+// The 'offer' branch's gate (migration 20261018030000): the recruitment
+// module's own management key, plus the key every page in the module needs to
+// open at all. Both, because a desk row is a link into one of those pages.
+const hasRecruitEdit = hasPerm('hr.recruitment.edit');
+const hasRecruitView = hasPerm('hr.recruitment.view');
 // role_has_institution_access(), reproduced — the WIDE rule.
 const scopeAll = isSuper || roles.some((r) => r.institution_scope === 'all') || legacyRole?.institution_scope === 'all';
 const hasInst = (inst) => inst == null || scopeAll || inst === profile.institution_id || uia.includes(inst);
@@ -133,7 +141,7 @@ const activeRoleKeys = new Set(roles.filter((r) => r.is_active).map((r) => r.rol
 const roleIds = new Set(roles.map((r) => r.id));
 
 out(`fn_my_desk_waiting — live verification (${MODE})`);
-out(`user ${USER} (${profile.full_name ?? '?'}) super_admin=${isSuper} admin=${isAdmin} hr.leave.approve=${hasLeavePerm} roles=[${roles.map((r) => r.role_key).join(',')}] hr_orgs(wide)=${myOrgIds.size} hr_orgs(designated)=${myDesignatedOrgIds.size} staff_rows=${myStaff.length}`);
+out(`user ${USER} (${profile.full_name ?? '?'}) super_admin=${isSuper} admin=${isAdmin} hr.leave.approve=${hasLeavePerm} hr.recruitment.edit=${hasRecruitEdit} hr.recruitment.view=${hasRecruitView} roles=[${roles.map((r) => r.role_key).join(',')}] hr_orgs(wide)=${myOrgIds.size} hr_orgs(designated)=${myDesignatedOrgIds.size} staff_rows=${myStaff.length}`);
 
 // --- expected-from-source ---------------------------------------------------
 const expected = {};
@@ -190,8 +198,38 @@ expected.grievance = isSuper
       .map((g) => ({ id: g.id, since: g.created_at, label: `${g.ticket_number} — ${g.subject}` }))
   : [];
 
+// 6. offer — migration 20261018030000. status='package_fixed' (salary agreed,
+//    onboarding not started), gated on hr.recruitment.edit AND .view, scoped on
+//    hr_organization_id (NOT NULL here) — never institution_id, because
+//    role_has_institution_access(NULL) is unconditionally true and would widen
+//    the NULL-institution rows to every college instead of scoping them.
+//    href mirrors the SQL CASE: the job workspace when the soft JSONB job_id is
+//    uuid-shaped (that page gates "Start Onboarding" on this exact status),
+//    else the candidate record.
+// Case-INSENSITIVE, matching the SQL's `~*`. A lowercase-only class here would
+// report MATCH against a lowercase-only class there and never surface the
+// divergence a mixed-case job_id would cause.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const rsdObj = (c) => (c.role_specific_details && typeof c.role_specific_details === 'object' && !Array.isArray(c.role_specific_details) ? c.role_specific_details : {});
+const jobIdOf = (c) => { const j = rsdObj(c).job_id; return j != null && UUID_RE.test(String(j)) ? String(j) : null; };
+const offerHref = (c) => (jobIdOf(c) ? `/hr/recruitment/approvals/${jobIdOf(c)}` : `/hr/recruitment/candidates/${c.id}`);
+// Mirrors the SQL's three-way detail CASE exactly.
+const offerDetail = (c) =>
+  rsdObj(c).onboarding_started_at != null ? 'salary agreed — onboarding started, not finished'
+  : jobIdOf(c) ? 'salary agreed — nobody has started onboarding'
+  : 'salary agreed — onboarding not started, and no job is linked';
+expected.offer = (hasRecruitEdit && hasRecruitView)
+  ? (await all('hr_recruitment_candidates?status=eq.package_fixed&select=id,name,role_title,submitted_at,hr_organization_id,role_specific_details'))
+      // Second half of isPostApproval — unreachable today (onboard-to-staff
+      // writes staff_record_id and status='joined' in one update) but encoded
+      // so the script is the whole gate, like the SQL.
+      .filter((c) => rsdObj(c).staff_record_id == null)
+      .filter((c) => myOrgIds.has(c.hr_organization_id))
+      .map((c) => ({ id: c.id, since: c.submitted_at, label: `${c.name} — ${c.role_title}`, href: offerHref(c), detail: offerDetail(c) }))
+  : [];
+
 out('\n== expected-from-source (rules reproduced in JS, read from the source tables)');
-const SOURCES = ['recruitment', 'refund', 'leave', 'meeting_trigger', 'grievance'];
+const SOURCES = ['recruitment', 'refund', 'leave', 'meeting_trigger', 'grievance', 'offer'];
 let total = 0;
 for (const s of SOURCES) {
   const rows = expected[s];
@@ -203,15 +241,21 @@ for (const s of SOURCES) {
 }
 out(`  ${'total'.padEnd(16)} ${String(total).padStart(4)}${total > 500 ? '  (function caps at 500)' : ''}`);
 
-// Why My Desk and the orchestration console disagree on recruitment: My Desk
-// mirrors fn_list_my_pending_recruitment ('submitted','pending_approval');
-// director-signals.ts counts ('pending_approval','package_fixed'). package_fixed
-// rows have a complete chain and no derivable approver — the next act is
-// "issue offer", which is not an approval waiting on anyone.
+// SUPERSEDED 2026-09-03 by migration 20261018030000. Until then this script
+// said "the console counts package_fixed, My Desk does not". My Desk now DOES
+// — as a separate 'offer' source, never merged into 'recruitment'. The two
+// still differ, but the difference is now a shape, not a blind spot:
+//   recruitment  mirrors fn_list_my_pending_recruitment ('submitted',
+//                'pending_approval') — chain rows with a derivable approver.
+//   offer        package_fixed — chain COMPLETE, no approver derivable, so it
+//                is gated on who may act in the college (hr.recruitment.edit +
+//                .view + org) rather than on whose step it is.
+//   console      director-signals.ts counts ('pending_approval','package_fixed')
+//                in one number, which is why it can never agree with either.
 const recA = await count('hr_recruitment_candidates?select=id&status=in.(submitted,pending_approval)');
 const recB = await count('hr_recruitment_candidates?select=id&status=in.(pending_approval,package_fixed)');
 const recFixed = await count('hr_recruitment_candidates?select=id&status=eq.package_fixed');
-out(`\n== recruitment status sets (all users): My Desk set (submitted,pending_approval)=${recA} · orchestration-console set (pending_approval,package_fixed)=${recB} · package_fixed alone=${recFixed} — the console counts package_fixed, My Desk does not`);
+out(`\n== recruitment status sets (all users): My Desk 'recruitment' set (submitted,pending_approval)=${recA} · My Desk 'offer' set (package_fixed)=${recFixed} · orchestration-console set (pending_approval,package_fixed)=${recB} — the console merges the two into one count; My Desk keeps them as separate sources`);
 
 // --- function half ----------------------------------------------------------
 if (MODE !== 'compare') {
@@ -244,6 +288,29 @@ for (const s of SOURCES) {
   out(`  ${s.padEnd(16)} fn=${String(g.size).padStart(4)} expected=${String(e.size).padStart(4)}  ${ok ? 'MATCH' : `MISMATCH missing=${missing.length} extra=${extra.length}`}`);
   if (!ok && SHOW) { for (const id of missing.slice(0, 5)) out(`      missing ${id}`); for (const id of extra.slice(0, 5)) out(`      extra   ${id}`); }
 }
+// 'offer' is the only source carrying a PER-ROW href, so the shape check above
+// (starts with '/') is not enough — compare each one to the JS-computed path.
+const offerHrefExpected = new Map(expected.offer.map((r) => [r.id, r.href]));
+const offerHrefBad = got
+  .filter((r) => r.source === 'offer' && offerHrefExpected.has(r.item_id) && r.href !== offerHrefExpected.get(r.item_id))
+  .map((r) => `${r.item_id} fn=${r.href} expected=${offerHrefExpected.get(r.item_id)}`);
+const offerToWorkspace = got.filter((r) => r.source === 'offer' && String(r.href).startsWith('/hr/recruitment/approvals/')).length;
+const offerToCandidate = got.filter((r) => r.source === 'offer' && String(r.href).startsWith('/hr/recruitment/candidates/')).length;
+out(`  offer href: ${offerHrefBad.length === 0 ? 'all match' : `${offerHrefBad.length} MISMATCH`} — ${offerToWorkspace} to the job workspace (has job_id), ${offerToCandidate} to the candidate record (no job_id; that page carries no control for package_fixed — known product gap)`);
+for (const b of offerHrefBad.slice(0, 5)) out(`      ${b}`);
+if (offerHrefBad.length) failed = true;
+
+// The detail sentence must not assert something the row's own data contradicts
+// (a candidate whose onboarding checklist is already started, or one with no
+// job linked at all). Compare the SQL's CASE to the JS one, per row.
+const offerDetailExpected = new Map(expected.offer.map((r) => [r.id, r.detail]));
+const offerDetailBad = got
+  .filter((r) => r.source === 'offer' && offerDetailExpected.has(r.item_id) && r.detail !== offerDetailExpected.get(r.item_id))
+  .map((r) => `${r.item_id} fn="${r.detail}" expected="${offerDetailExpected.get(r.item_id)}"`);
+out(`  offer detail: ${offerDetailBad.length === 0 ? 'all match' : `${offerDetailBad.length} MISMATCH`}`);
+for (const b of offerDetailBad.slice(0, 5)) out(`      ${b}`);
+if (offerDetailBad.length) failed = true;
+
 const badShape = got.filter((r) => !SOURCES.includes(r.source) || !r.item_id || !r.title || !String(r.href).startsWith('/') || typeof r.age_days !== 'number' || r.age_days < 0);
 const sorted = got.every((r, i) => i === 0 || got[i - 1].waiting_since <= r.waiting_since);
 out(`  contract: shape ${badShape.length === 0 ? 'ok' : `${badShape.length} bad rows`}, order ${sorted ? 'waiting_since ASC ok' : 'NOT sorted'}, cap ${got.length <= 500 ? 'ok' : 'EXCEEDED'}`);

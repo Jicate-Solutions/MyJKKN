@@ -109,12 +109,13 @@ describe('<WaitingOnYou/> — an offline phone is not an empty desk', () => {
     expect(screen.queryByText(/Nothing waiting/i)).toBeNull();
   });
 
-  it('SUCCESS, EMPTY: the five-queue all-clear with a time', async () => {
+  it('SUCCESS, EMPTY: the six-queue all-clear with a time', async () => {
     rpcAnswer = async () => ({ data: [], error: null });
     mount();
 
-    const p = await screen.findByText(/Nothing waiting across 5 queues/i);
-    expect(p.textContent).toMatch(/hires, refunds, leave, triggers, grievances/);
+    // Six since 2026-09-03 (migration 20261018030000 added 'offer').
+    const p = await screen.findByText(/Nothing waiting across 6 queues/i);
+    expect(p.textContent).toMatch(/hires, refunds, leave, triggers, grievances, onboarding/);
     expect(p.textContent).toMatch(/checked \d\d:\d\d$/);
   });
 
