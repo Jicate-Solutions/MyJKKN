@@ -48734,7 +48734,9 @@ AS $function$
 DECLARE
   v_new_id  uuid := gen_random_uuid();
   v_current record;
-  v_ifsc    text := upper(trim(coalesce(p_ifsc_code, '')));
+  -- nullif(...,'') is what makes "absent" a single value rather than two.
+  v_ifsc    text := nullif(upper(trim(coalesce(p_ifsc_code, ''))), '');
+  v_bank    text := nullif(trim(coalesce(p_bank_name, '')), '');
   v_acct    text := trim(coalesce(p_account_number, ''));
 BEGIN
   IF p_staff_id IS NULL THEN
@@ -48748,7 +48750,8 @@ BEGIN
   IF v_acct !~ '^[0-9]{6,20}$' THEN
     RAISE EXCEPTION 'Account number must be 6 to 20 digits' USING ERRCODE = '22023';
   END IF;
-  IF v_ifsc !~ '^[A-Z]{4}0[A-Z0-9]{6}$' THEN
+  -- Absent is fine (optional since 2026-09-02). Present and malformed is not.
+  IF v_ifsc IS NOT NULL AND v_ifsc !~ '^[A-Z]{4}0[A-Z0-9]{6}$' THEN
     RAISE EXCEPTION 'IFSC must be 4 letters, then 0, then 6 letters or digits'
       USING ERRCODE = '22023';
   END IF;
@@ -48760,8 +48763,12 @@ BEGIN
    WHERE staff_id = p_staff_id AND superseded_by IS NULL;
 
   -- Re-saving the identical destination would bury the real history under
-  -- duplicates, so the incumbent is returned untouched instead.
-  IF FOUND AND v_current.account_number = v_acct AND v_current.ifsc_code = v_ifsc THEN
+  -- duplicates, so the incumbent is returned untouched instead. IS NOT DISTINCT
+  -- FROM, not =: under NULL = NULL the test yields NULL rather than true, so an
+  -- IFSC-less account would supersede itself on every re-save.
+  IF FOUND
+     AND v_current.account_number IS NOT DISTINCT FROM v_acct
+     AND v_current.ifsc_code      IS NOT DISTINCT FROM v_ifsc THEN
     RETURN v_current.id;
   END IF;
 
@@ -48776,7 +48783,7 @@ BEGIN
     branch_name, account_type, effective_from, notes, created_by, updated_by
   ) VALUES (
     v_new_id, p_staff_id, trim(p_account_holder_name), v_acct, v_ifsc,
-    trim(p_bank_name), nullif(trim(coalesce(p_branch_name, '')), ''),
+    v_bank, nullif(trim(coalesce(p_branch_name, '')), ''),
     coalesce(p_account_type, 'savings'), coalesce(p_effective_from, CURRENT_DATE),
     p_notes, auth.uid(), auth.uid()
   );
@@ -57238,6 +57245,67 @@ GRANT EXECUTE ON FUNCTION public.fn_hr_calendar_holiday_dates(uuid, date, date) 
 GRANT EXECUTE ON FUNCTION public.fn_hr_is_calendar_holiday(uuid, date) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_hr_is_institution_leave_day(uuid, date) TO authenticated, service_role;
 
+-- ===========================================================================
+-- Leave: monthly accrual + pending reservation (2026-09-02)
+-- Source: 20260902160000_hr_leave_accrual_and_pending_reservation.sql
+--
+-- hr_trig_update_leave_balance only increments `used` on APPROVAL, so an
+-- unapproved request reserved nothing: apply for two days, apply again, and the
+-- second request saw the full balance. 354 applications / 371 days were
+-- invisible to the check.
+--
+-- accrual_type ('none'|'annual'|'monthly') and accrual_rate had existed on
+-- hr_leave_types since 20260721120000 and NOTHING read them.
+--
+-- THE ARITHMETIC IS SPLIT IN TWO ON PURPOSE. fn_hr_leave_accrual_days is pure
+-- and IMMUTABLE so the balance VIEW (7,471 rows) can call it inline at
+-- arithmetic cost; fn_hr_leave_accrued_days does the lookups and delegates to
+-- it. Duplicating the CASE into the view would have been the cheap fix and the
+-- one that drifts.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_leave_accrual_days(
+  p_accrual_type text, p_accrual_rate numeric, p_entitled numeric,
+  p_year_start date, p_joined_on date, p_on date
+) RETURNS numeric
+LANGUAGE sql IMMUTABLE
+AS $function$
+  SELECT CASE
+    -- Not an accruing type: the whole entitlement from day one, which is how
+    -- every type behaves today.
+    WHEN p_accrual_type IS DISTINCT FROM 'monthly' OR COALESCE(p_accrual_rate, 0) <= 0
+      THEN COALESCE(p_entitled, 0)
+    WHEN p_year_start IS NULL OR p_on IS NULL THEN COALESCE(p_entitled, 0)
+    WHEN p_on < GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)) THEN 0
+    ELSE LEAST(COALESCE(p_entitled, 0),
+      GREATEST(0,
+        (EXTRACT(YEAR  FROM p_on)::int
+         - EXTRACT(YEAR FROM GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)))::int) * 12
+      + (EXTRACT(MONTH FROM p_on)::int
+         - EXTRACT(MONTH FROM GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)))::int)
+      + 1) * p_accrual_rate)
+  END;
+$function$;
+
+-- Wrapper: resolves entitlement (override > frozen balance > type default), the
+-- year window and the joining date, then delegates to the kernel above.
+-- Full body in the migration.
+
+-- fn_hr_leave_pending_days(staff, type, year): day-leave days in
+-- status IN ('pending','escalated'), counted with hr_calc_leave_days so a day is
+-- never counted one way here and another way in the cap trigger. Comp off is
+-- credit-backed and STO minute-backed; neither draws on a day entitlement.
+
+-- hr_trig_leave_enforce_balance(): BEFORE INSERT/UPDATE on hr_leave_applications,
+-- refuses a day-leave request exceeding accrued + carried - used - pending. The
+-- database gate behind LeaveService's friendly message -- that check is
+-- TypeScript only and was bypassed once already when `error` went undestructured.
+
+REVOKE ALL ON FUNCTION public.fn_hr_leave_accrual_days(text, numeric, numeric, date, date, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_accrual_days(text, numeric, numeric, date, date, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) TO authenticated, service_role;
 -- ============================================================================
 -- Added: 2026-09-02 — /my-desk "what is waiting on me", computed from the queues
 -- Migration: supabase/migrations/20261018020000_fn_my_desk_waiting.sql (full
@@ -57265,6 +57333,8 @@ DECLARE
   v_is_super           boolean;
   v_is_admin           boolean;
   v_has_leave_perm     boolean;
+  v_has_recruit_edit   boolean;
+  v_has_recruit_view   boolean;
   v_org_ids            uuid[];
   v_designated_org_ids uuid[];
   v_staff_ids          uuid[];
@@ -57282,6 +57352,13 @@ BEGIN
   -- leave rule (fn_leave_step_admits) calls them per row, which is the cost
   -- this function avoids. These four together are the inputs of that rule.
   v_has_leave_perm     := COALESCE(public.user_has_permission('hr.leave.approve'), false);
+  -- The recruitment module's own management key — the gate the 'offer' branch
+  -- mirrors (see the header). Computed once, like the rest. .view is required
+  -- alongside .edit because the row is a LINK into a page every one of whose
+  -- screens gates on .view; today the .edit set is a strict subset of the
+  -- .view set, so the conjunct removes no row from anyone's desk.
+  v_has_recruit_edit   := COALESCE(public.user_has_permission('hr.recruitment.edit'), false);
+  v_has_recruit_view   := COALESCE(public.user_has_permission('hr.recruitment.view'), false);
   v_org_ids            := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
   v_designated_org_ids := COALESCE(public.fn_my_designated_hr_org_ids(), ARRAY[]::uuid[]);
   v_staff_ids          := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
@@ -57466,12 +57543,84 @@ BEGIN
       AND g.withdrawn_at IS NULL
   ),
 
+  -- 6. OFFER — salary agreed, nobody has started onboarding. Not a chain row:
+  --    at 'package_fixed' the chain is complete and no approver is derivable,
+  --    so this branch asks who may do the NEXT ACT in this college instead.
+  --    Gate mirrored: hr.recruitment.edit + .view (the module's own management
+  --    key, plus the key every page in the module requires to open at all —
+  --    the status route itself enforces nothing beyond authentication; see the
+  --    header for what was read and why that was not mirrored literally).
+  --    Scoped on hr_organization_id (NOT NULL here), never institution_id:
+  --    role_has_institution_access(NULL) is unconditionally TRUE, so scoping on
+  --    a nullable institution_id would show the two NULL rows to every .edit
+  --    holder in every college.
+  offer AS (
+    SELECT
+      'offer'::text                                        AS source,
+      c.id                                                 AS item_id,
+      -- role_title is NOT NULL on this table, so a naked concat is safe here
+      -- exactly as it is in the recruitment branch above.
+      c.name || ' — ' || c.role_title                      AS title,
+      -- The detail must not assert something the row's own data contradicts.
+      -- SARANYA R (26d) already has an onboarding checklist started — telling
+      -- her college "nobody has started onboarding" would be false — and the
+      -- two oldest rows have no job linked, so the page that starts onboarding
+      -- cannot be reached from them at all. Three states, three sentences.
+      CASE
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND (c.role_specific_details->>'onboarding_started_at') IS NOT NULL
+          THEN 'salary agreed — onboarding started, not finished'
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND c.role_specific_details->>'job_id'
+                 ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          THEN 'salary agreed — nobody has started onboarding'
+        ELSE 'salary agreed — onboarding not started, and no job is linked'
+      END                                                  AS detail,
+      -- The agreed figure lives on a package row, not on the candidate.
+      NULL::numeric                                        AS amount,
+      -- submitted_at, not updated_at: a BEFORE UPDATE trigger resets the latter.
+      c.submitted_at                                       AS waiting_since,
+      -- Point at the page that CAN act. The job workspace gates "Start
+      -- Onboarding" on exactly this status; the candidate page renders no
+      -- control for it. The link to the job is a soft JSONB value with no
+      -- foreign key, so the uuid shape is required before a path is built —
+      -- a junk value falls back rather than producing a broken URL, and a
+      -- missing key yields NULL (NULL ~ pattern is NULL, not true).
+      -- ~* not ~: Postgres regex matching is case-sensitive and the class is
+      -- lowercase-only, so an upper- or mixed-case uuid from any client would
+      -- silently take the ELSE branch and route a live candidate to the page
+      -- with no control. Nothing constrains the shape of this JSONB value.
+      -- jsonb_typeof guard for the same reason every other jsonb read in this
+      -- file carries one: the column is NOT NULL but may hold a scalar.
+      CASE
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND c.role_specific_details->>'job_id'
+                 ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          THEN '/hr/recruitment/approvals/' || (c.role_specific_details->>'job_id')
+        ELSE '/hr/recruitment/candidates/' || c.id::text
+      END                                                  AS href
+    FROM public.hr_recruitment_candidates c
+    WHERE v_has_recruit_edit
+      AND v_has_recruit_view
+      AND c.status = 'package_fixed'
+      -- The SECOND half of workspace-candidates-tab's isPostApproval. Today it
+      -- can never fire — onboard-to-staff writes staff_record_id and
+      -- status='joined' in ONE update, so 'package_fixed' + staff_record_id is
+      -- unreachable, and 0 of 34 candidates carry the key at all. Encoded so
+      -- that the branch is the WHOLE gate it claims to mirror rather than half
+      -- of it, and so a future partial write cannot strand an uncleanable row.
+      AND (jsonb_typeof(c.role_specific_details) <> 'object'
+           OR (c.role_specific_details->>'staff_record_id') IS NULL)
+      AND c.hr_organization_id = ANY (v_org_ids)
+  ),
+
   everything AS (
     SELECT * FROM recruitment
     UNION ALL SELECT * FROM refund
     UNION ALL SELECT * FROM leave
     UNION ALL SELECT * FROM meeting_trigger
     UNION ALL SELECT * FROM grievance
+    UNION ALL SELECT * FROM offer
   )
   SELECT
     x.source,
@@ -57491,9 +57640,215 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_my_desk_waiting() IS
-  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance; each branch mirrors its module page''s own queue rule (see the migration header of 20261018020000; leave follows fn_leave_step_admits as of 20260831140000, minus its super-admin may-act clause). Zero rows for a missing identity; never raises on a malformed approval_chain.';
+  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance | offer; each branch mirrors its module page''s own queue rule (see the migration header of 20261018030000, which supersedes 20261018020000; leave follows fn_leave_step_admits as of 20260831140000, minus its super-admin may-act clause). offer = hr_recruitment_candidates at status package_fixed (salary agreed, nobody has started onboarding; the UI heading is "Hires to bring on board" — the source string stays ''offer'' because it is the applied row contract, and status offer_issued has never been used in production) — no approver is derivable at that status, so the gate mirrored is the module''s own management key hr.recruitment.edit AND hr.recruitment.view, plus BOTH halves of workspace-candidates-tab''s isPostApproval (status AND no role_specific_details.staff_record_id), scoped by fn_my_hr_organization_ids() and NOT by institution_id (role_has_institution_access(NULL) is unconditionally true, so institution scoping would WIDEN the two NULL-institution rows to every college rather than drop them); href is the only per-row one in this function and points at /hr/recruitment/approvals/<job_id> when role_specific_details->>''job_id'' is uuid-shaped (the job workspace gates "Start Onboarding" on this status), else /hr/recruitment/candidates/<id>, which currently carries no control for it — a known product gap. user_has_permission() carries a super-admin bypass, so super admins see these as they do every other branch. Zero rows for a missing identity; never raises on a malformed approval_chain.';
 
 -- Lock from anon. Supabase's default privileges grant EXECUTE to anon
 -- directly, separate from PUBLIC, so both must be revoked (CLAUDE.md rule).
 REVOKE EXECUTE ON FUNCTION public.fn_my_desk_waiting() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_my_desk_waiting() TO authenticated;
+
+
+-- ── Event feedback forms (coordinator-editable questions per event) ──
+-- Migration: supabase/migrations/event_feedback_forms.sql
+-- ============================================================================
+-- Helper functions
+-- ============================================================================
+
+-- Resolve the caller's OWN registration on an event, or NULL when they hold
+-- none. Two identity paths because events_registrations records internal
+-- participants either way: profile_id is set when the person registered while
+-- signed in, learner_id when a roster import or bulk upload created the row
+-- against their learner record instead (auth.uid() -> profiles.learner_id).
+-- Cancelled and disqualified registrations are excluded — someone who withdrew
+-- is not a participant and should not be answering the participant survey.
+-- SECURITY DEFINER so it can read events_registrations regardless of the
+-- caller's own SELECT policy on that table; it returns only the caller's row.
+CREATE OR REPLACE FUNCTION public.fn_my_event_registration(p_event_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT r.id
+  FROM public.events_registrations r
+  WHERE r.event_id = p_event_id
+    AND r.status NOT IN ('cancelled', 'disqualified')
+    AND (
+      r.profile_id = (SELECT auth.uid())
+      OR (
+        r.learner_id IS NOT NULL
+        AND r.learner_id = (
+          SELECT p.learner_id FROM public.profiles p
+          WHERE p.id = (SELECT auth.uid())
+        )
+      )
+    )
+  ORDER BY r.created_at DESC
+  LIMIT 1;
+$$;
+
+COMMENT ON FUNCTION public.fn_my_event_registration(uuid) IS
+  'The signed-in user''s own non-cancelled registration id on an event, or NULL. Identity resolves through events_registrations.profile_id or .learner_id (auth.uid() -> profiles.learner_id). Used to gate event feedback to registered participants.';
+
+-- May the caller EDIT this event's feedback forms? One place, so the four
+-- policies below cannot drift. Mirrors the event_registration_form*_manage
+-- OR-chain: super admin, admin, the event coordinator (in-charge), or an
+-- events.view holder with access to the owning institution.
+CREATE OR REPLACE FUNCTION public.fn_can_manage_event_feedback(p_event_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.fn_is_event_incharge(p_event_id)
+    OR (
+      public.user_has_permission('events.view')
+      AND EXISTS (
+        SELECT 1 FROM public.events e
+        WHERE e.id = p_event_id
+          AND (e.scope = 'all_jkkn' OR public.role_has_institution_access(e.institution_id))
+      )
+    );
+$$;
+
+COMMENT ON FUNCTION public.fn_can_manage_event_feedback(uuid) IS
+  'Authority to create/edit/delete an event''s feedback forms and questions, and to read its responses. Super admin, admin, event in-charge (events.config->incharges), or events.view + institution access.';
+
+-- Is this form accepting answers RIGHT NOW? Enabled AND inside its window.
+--
+-- The same rule as feedbackFormState() in types/event-feedback.ts, restated
+-- here because the client's copy is a courtesy and this one is the gate: the
+-- respond page hides a closed form, but nothing stops a direct PostgREST call,
+-- and "the form closed on Friday" is worthless if answers can still be written
+-- on Sunday. Derived from the row rather than stored, so extending ends_at
+-- reopens the form with no further action.
+CREATE OR REPLACE FUNCTION public.fn_event_feedback_form_open(p_form_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_feedback_forms f
+    WHERE f.id = p_form_id
+      AND f.is_enabled
+      AND (f.starts_at IS NULL OR now() >= f.starts_at)
+      AND (f.ends_at   IS NULL OR now() <= f.ends_at)
+  );
+$$;
+
+COMMENT ON FUNCTION public.fn_event_feedback_form_open(uuid) IS
+  'True while an event feedback form is accepting answers: is_enabled AND now() inside [starts_at, ends_at]. The server-side twin of feedbackFormState() — this one is the gate, the client copy is a courtesy.';
+
+
+
+-- ============================================================================
+-- save_event_feedback_form — atomic bulk save of sections + questions
+-- ============================================================================
+-- SECURITY INVOKER on purpose, exactly as save_event_registration_form is: the
+-- _manage policies above already encode the coordinator rule, so running as the
+-- caller reuses that gate verbatim with no service-role and no re-encoded auth.
+-- A non-manager who calls this fails the RLS WITH CHECK inside the function,
+-- which raises and rolls the whole transaction back.
+--
+-- Strategy: delete-all-then-reinsert. Safe because event_feedback_responses
+-- .answers keys answers by question_key, never by a question row id, so
+-- churning ids on every save orphans nothing.
+CREATE OR REPLACE FUNCTION public.save_event_feedback_form(
+  p_form_id uuid,
+  p_is_enabled boolean,
+  p_sections jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_event_id   uuid;
+  v_section    jsonb;
+  v_section_id uuid;
+  v_question   jsonb;
+BEGIN
+  SELECT event_id INTO v_event_id
+    FROM public.event_feedback_forms WHERE id = p_form_id;
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Feedback form % not found', p_form_id;
+  END IF;
+
+  UPDATE public.event_feedback_forms
+     SET is_enabled = COALESCE(p_is_enabled, is_enabled),
+         updated_at = now()
+   WHERE id = p_form_id;
+
+  -- Questions cascade from their section, so deleting sections clears both.
+  DELETE FROM public.event_feedback_sections WHERE form_id = p_form_id;
+
+  FOR v_section IN SELECT * FROM jsonb_array_elements(COALESCE(p_sections, '[]'::jsonb))
+  LOOP
+    INSERT INTO public.event_feedback_sections (form_id, event_id, title, display_order)
+    VALUES (
+      p_form_id,
+      v_event_id,
+      COALESCE(NULLIF(v_section->>'title', ''), 'Section'),
+      COALESCE((v_section->>'display_order')::int, 0)
+    )
+    RETURNING id INTO v_section_id;
+
+    FOR v_question IN SELECT * FROM jsonb_array_elements(COALESCE(v_section->'questions', '[]'::jsonb))
+    LOOP
+      INSERT INTO public.event_feedback_questions (
+        section_id, form_id, event_id,
+        question_key, question_label, question_type,
+        is_required, display_order,
+        placeholder, help_text,
+        min_length, max_length, min_value, max_value, pattern,
+        options, condition, rating_scale
+      )
+      VALUES (
+        v_section_id, p_form_id, v_event_id,
+        v_question->>'question_key',
+        v_question->>'question_label',
+        v_question->>'question_type',
+        COALESCE((v_question->>'is_required')::boolean, false),
+        COALESCE((v_question->>'display_order')::int, 0),
+        NULLIF(v_question->>'placeholder', ''),
+        NULLIF(v_question->>'help_text', ''),
+        (v_question->>'min_length')::int,
+        (v_question->>'max_length')::int,
+        (v_question->>'min_value')::numeric,
+        (v_question->>'max_value')::numeric,
+        NULLIF(v_question->>'pattern', ''),
+        CASE WHEN v_question->'options'   = 'null'::jsonb THEN NULL ELSE v_question->'options'   END,
+        CASE WHEN v_question->'condition' = 'null'::jsonb THEN NULL ELSE v_question->'condition' END,
+        (v_question->>'rating_scale')::int
+      );
+    END LOOP;
+  END LOOP;
+END;
+$$;
+
+COMMENT ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) IS
+  'Atomically replace an event feedback form''s sections and questions with the desired state. SECURITY INVOKER — authorization is the event_feedback_*_manage RLS policies.';
+
+-- EXECUTE is granted explicitly rather than left to PUBLIC. (The registration
+-- builder learned this the hard way: a DROP FUNCTION during its multi-form
+-- migration discarded the ACL and handed EXECUTE back to PUBLIC.)
+REVOKE ALL ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_my_event_registration(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_my_event_registration(uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_can_manage_event_feedback(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_event_feedback_form_open(uuid) TO authenticated;

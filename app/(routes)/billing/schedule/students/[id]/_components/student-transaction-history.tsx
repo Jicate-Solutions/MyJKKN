@@ -11,6 +11,8 @@ import {
   XCircle,
   AlertCircle,
   Ban,
+  User,
+  Settings,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,6 +34,18 @@ interface StudentTransactionHistoryProps {
   onRefresh: () => void;
 }
 
+/**
+ * Who performed an event. A single row can carry more than one — a receipt
+ * keyed in by one user on behalf of the cashier who took the cash names both.
+ * `system` marks an actor that is not a person (the payment gateway), so it
+ * renders differently from a named staff member.
+ */
+interface TransactionActor {
+  label: string;
+  name: string;
+  system?: boolean;
+}
+
 interface TransactionEvent {
   id: string;
   type:
@@ -45,8 +59,53 @@ interface TransactionEvent {
   description: string;
   status: string;
   reference?: string;
-  createdBy?: string;
+  actors: TransactionActor[];
   details?: any;
+}
+
+/**
+ * Attribution for a receipt. The two identities are NOT interchangeable:
+ *
+ *   created_by    - the signed-in session that keyed the receipt in.
+ *   accountant_id - the cashier credited with collecting the money.
+ *
+ * Half of all receipts (4,159 of 8,318 on 2026-09-03) have created_by NULL,
+ * because /api/billing/receipts/bulk-import runs on a service-role client —
+ * auth.getUser() returns nothing there, so the RPC writes NULL. That route
+ * compensates by putting the importing user in accountant_id, which is why
+ * 4,084 of those 4,159 still name a real person. Reading created_by alone
+ * left every one of them blank.
+ *
+ * The remaining 74 are Razorpay captures finalized by the webhook, which has
+ * no user at all — they are labelled as the gateway rather than left empty,
+ * so a blank chip always means genuinely lost attribution, never "system".
+ */
+function getReceiptActors(receipt: any): TransactionActor[] {
+  const actors: TransactionActor[] = [];
+
+  if (receipt.creator?.full_name) {
+    actors.push({ label: 'Recorded by', name: receipt.creator.full_name });
+  }
+
+  // Only a second chip when it is genuinely a second person. On the manual
+  // form the operator usually picks themselves as the accountant, and
+  // "Recorded by X / Collected by X" is noise.
+  if (
+    receipt.accountant?.full_name &&
+    receipt.accountant.full_name !== receipt.creator?.full_name
+  ) {
+    actors.push({ label: 'Collected by', name: receipt.accountant.full_name });
+  }
+
+  if (actors.length === 0 && receipt.payment_mode === 'online') {
+    actors.push({
+      label: 'Captured by',
+      name: 'Online payment gateway',
+      system: true
+    });
+  }
+
+  return actors;
 }
 
 export function StudentTransactionHistory({
@@ -77,7 +136,12 @@ export function StudentTransactionHistory({
         amount: bill.final_amount,
         description: description,
         status: bill.status,
-        createdBy: bill.creator?.full_name,
+        // 1,079 of 20,960 bills carry no created_by (generator//import runs).
+        // Bills have no second identity column to fall back on, so those are
+        // named as a system action rather than shown blank.
+        actors: bill.creator?.full_name
+          ? [{ label: 'Created by', name: bill.creator.full_name }]
+          : [{ label: 'Created by', name: 'System / bulk generation', system: true }],
         details: bill
       });
     });
@@ -92,7 +156,7 @@ export function StudentTransactionHistory({
         description: `Payment via ${receipt.payment_mode}`,
         status: 'completed',
         reference: receipt.receipt_number,
-        createdBy: receipt.creator?.full_name,
+        actors: getReceiptActors(receipt),
         details: receipt
       });
     });
@@ -106,7 +170,9 @@ export function StudentTransactionHistory({
         amount: discount.discount_amount,
         description: `${discount.discount_category} discount`,
         status: discount.approval_status,
-        createdBy: discount.creator?.full_name,
+        actors: discount.creator?.full_name
+          ? [{ label: 'Applied by', name: discount.creator.full_name }]
+          : [],
         details: discount
       });
     });
@@ -120,7 +186,9 @@ export function StudentTransactionHistory({
         amount: refund.net_refund_amount,
         description: `${refund.refund_category} refund`,
         status: refund.approval_status,
-        createdBy: refund.creator?.full_name,
+        actors: refund.creator?.full_name
+          ? [{ label: 'Processed by', name: refund.creator.full_name }]
+          : [],
         details: refund
       });
     });
@@ -139,7 +207,9 @@ export function StudentTransactionHistory({
           c.reason_code
         }: ${c.reason}`,
         status: 'cancelled',
-        createdBy: c.cancelled_by_name ?? undefined,
+        actors: c.cancelled_by_name
+          ? [{ label: 'Cancelled by', name: c.cancelled_by_name }]
+          : [],
         details: c
       });
     });
@@ -379,9 +449,30 @@ export function StudentTransactionHistory({
                           <span className='text-xs text-muted-foreground'>
                             {formatDateTime(transaction.date)}
                           </span>
-                          {transaction.createdBy && (
-                            <span className='text-xs bg-muted px-1.5 py-0.5 rounded'>
-                              by {transaction.createdBy}
+                          {transaction.actors.length > 0 ? (
+                            transaction.actors.map((actor) => (
+                              <span
+                                key={`${actor.label}-${actor.name}`}
+                                className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded ${
+                                  actor.system
+                                    ? 'bg-muted/60 text-muted-foreground italic'
+                                    : 'bg-muted'
+                                }`}
+                              >
+                                {actor.system ? (
+                                  <Settings className='h-3 w-3' />
+                                ) : (
+                                  <User className='h-3 w-3' />
+                                )}
+                                <span className='text-muted-foreground'>
+                                  {actor.label}
+                                </span>
+                                <span className='font-medium'>{actor.name}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className='text-xs px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground italic'>
+                              User not recorded
                             </span>
                           )}
                         </div>

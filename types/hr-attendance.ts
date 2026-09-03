@@ -211,8 +211,18 @@ export function describeClosedMonths(months: readonly MonthKey[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-/** An approved application as fetched, before it is expanded across its days. */
-export interface ApprovedRequestRange {
+/**
+ * Whether a request has been decided.
+ *
+ * A single flag rather than the raw status string, because the UI must never
+ * re-derive it: 'escalated' is a request part-way up an approval ladder and is
+ * every bit as undecided as 'pending', and a component testing
+ * `status === 'pending'` would silently drop those.
+ */
+export type RequestDecision = 'approved' | 'awaiting';
+
+/** An application as fetched, before it is expanded across its days. */
+export interface TimeOffRange {
   id: string;
   start_date: string;
   end_date: string;
@@ -221,9 +231,18 @@ export interface ApprovedRequestRange {
   leave_type_name: string;
   leave_type_code: string | null;
   request_category: 'leave' | 'short_time_off' | 'compensatory_off';
+  /**
+   * ONLY APPROVED REQUESTS USED TO BE FETCHED AT ALL, which is why an absence
+   * with a request behind it was indistinguishable from an unexplained one --
+   * 695 records across ~200 staff as of 2026-09-02.
+   */
+  decision: RequestDecision;
 }
 
-/** One approved request overlapping a day, for the log's Time off column. */
+/** @deprecated Renamed to TimeOffRange -- it no longer carries only approved rows. */
+export type ApprovedRequestRange = TimeOffRange;
+
+/** One request overlapping a day, for the log's Time off column. */
 export interface DayRequest {
   id: string;
   category: 'leave' | 'short_time_off' | 'compensatory_off';
@@ -235,6 +254,12 @@ export interface DayRequest {
   end_time: string | null;
   /** True when the request spans more days than this one. */
   multi_day: boolean;
+  /**
+   * 'awaiting' means the day's STATUS is unaffected so far: attendance only
+   * restamps on approval, because status feeds payable_days and the Salary
+   * Register. The badge explains the gap; it must never close it.
+   */
+  decision: RequestDecision;
 }
 
 /** An open `hr_attendance_exceptions` row, used to explain an AEYP day. */
@@ -524,6 +549,7 @@ export function buildAttendanceDays({
         start_time: r.start_time ? r.start_time.slice(0, 5) : null,
         end_time: r.end_time ? r.end_time.slice(0, 5) : null,
         multi_day: multi,
+        decision: r.decision,
       });
       reqByDate.set(key, list);
     }

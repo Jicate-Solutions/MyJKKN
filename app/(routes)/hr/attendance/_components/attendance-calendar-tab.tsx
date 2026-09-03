@@ -77,6 +77,15 @@ export function AttendanceCalendarTab({
 function CalendarCell({ day, closed }: { day: AttendanceDay; closed: boolean }) {
   const tones = tonesFor(day.token);
   const showToken = day.inMonth && !day.isFuture;
+  /**
+   * An undecided request covering this day.
+   *
+   * The token is NOT changed — attendance restamps only on approval, because
+   * status feeds payable_days and the register. The dot distinguishes "absent,
+   * and somebody has claimed it" from "absent, unexplained", which read
+   * identically until 2026-09-02.
+   */
+  const awaiting = day.requests.some((r) => r.decision === 'awaiting');
   const [first, second] = day.halfPair;
   // halfPairFor repeats the day token unless the day is HALF_DAY, so a split
   // pair IS the half day. Rendering only the pair — the reference UI's
@@ -112,6 +121,14 @@ function CalendarCell({ day, closed }: { day: AttendanceDay; closed: boolean }) 
             <TooltipTrigger asChild>
               <span className={cn('text-xs font-bold', tones.text)}>
                 {day.tokenLabel}
+                {awaiting && (
+                  <span
+                    aria-label="a request is awaiting approval"
+                    className="ml-0.5 align-super text-[9px] text-amber-600 dark:text-amber-400"
+                  >
+                    ●
+                  </span>
+                )}
               </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
@@ -168,6 +185,20 @@ function CellTooltip({ day }: { day: AttendanceDay }) {
       {!day.lateMinutes && day.excusedMinutes ? (
         <p>{day.excusedMinutes} minute(s) covered by an approved permission.</p>
       ) : null}
+      {/* Names the pending claim behind the dot on the cell. A marker with no
+          explanation only moves the question from "why absent" to "why dot". */}
+      {day.requests
+        .filter((r) => r.decision === 'awaiting')
+        .map((r) => (
+          <p key={r.id} className="text-xs text-amber-300 dark:text-amber-400">
+            {r.type_name}
+            {r.start_time && r.end_time ? ` ${r.start_time}–${r.end_time}` : ''} — awaiting
+            approval
+            {r.category === 'short_time_off'
+              ? '; would excuse the shortfall'
+              : '; the day restamps once decided'}
+          </p>
+        ))}
       {day.exception?.reason && <p className="text-xs">{day.exception.reason}</p>}
     </div>
   );

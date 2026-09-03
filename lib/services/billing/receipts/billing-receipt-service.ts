@@ -603,7 +603,10 @@ export class BillingReceiptService {
             last_name,
             roll_number,
             college_email,
-            institution_id
+            institution_id,
+            student_mobile,
+            father_mobile,
+            mother_mobile
           ),
           institution:institutions (
             id,

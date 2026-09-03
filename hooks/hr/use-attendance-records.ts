@@ -20,7 +20,7 @@ import {
   chunkIntoWeeks,
   summariseDays,
   monthRange,
-  type ApprovedRequestRange,
+  type TimeOffRange,
   type AttendanceDay,
   type AttendanceMonthSummary,
   type AttendancePeriodState,
@@ -70,17 +70,25 @@ export function useAttendanceMonth(staffId: string | null, month: MonthKey) {
  * directly — RLS gives the caller their own rows and an approver the ones they
  * may see, which is the same scope the rest of this page already uses.
  */
-export function useApprovedTimeOff(staffId: string | null, month: MonthKey) {
+export function useTimeOffCoverage(staffId: string | null, month: MonthKey) {
   const supabase = createClientSupabaseClient();
   return useQuery({
     queryKey: [TIME_OFF_KEY, staffId, month],
-    queryFn: async (): Promise<ApprovedRequestRange[]> => {
+    queryFn: async (): Promise<TimeOffRange[]> => {
       const { from, to } = monthRange(month);
       const { data, error } = await supabase
         .from('hr_leave_applications')
-        .select('id, start_date, end_date, start_time, end_time, hr_leave_types:leave_type_id ( leave_type_name, leave_type_code, request_category )')
+        .select('id, status, start_date, end_date, start_time, end_time, hr_leave_types:leave_type_id ( leave_type_name, leave_type_code, request_category )')
         .eq('employee_id', staffId!)
-        .eq('status', 'approved')
+        // UNDECIDED REQUESTS ARE FETCHED TOO (2026-09-02). This was
+        // .eq('status', 'approved'), which is why a day could read ABSENT with a
+        // leave request already filed against it and show no trace of it --
+        // 695 records across ~200 staff. The STATUS is still only restamped on
+        // approval; this only makes the pending claim visible beside it.
+        //
+        // 'escalated' is included because it is a request part-way up an
+        // approval ladder: undecided, and exactly the state nobody could see.
+        .in('status', ['approved', 'pending', 'escalated'])
         .lte('start_date', to)
         .gte('end_date', from)
         .order('start_date');
@@ -102,7 +110,8 @@ export function useApprovedTimeOff(staffId: string | null, month: MonthKey) {
           leave_type_code: t?.leave_type_code ?? null,
           // A LEFT join, so an unreadable type degrades to 'leave' rather than
           // dropping the row — the day would otherwise show nothing at all.
-          request_category: (t?.request_category ?? 'leave') as ApprovedRequestRange['request_category'],
+          request_category: (t?.request_category ?? 'leave') as TimeOffRange['request_category'],
+          decision: r.status === 'approved' ? 'approved' : 'awaiting',
         };
       });
     },
@@ -202,7 +211,7 @@ export function useAttendanceMonthView(
   const qc = useQueryClient();
   const records = useAttendanceMonth(staffId, month);
   const exceptions = useAttendanceExceptions(staffId, month);
-  const timeOff = useApprovedTimeOff(staffId, month);
+  const timeOff = useTimeOffCoverage(staffId, month);
 
   // Any record of the month answers "which institution's close applies here";
   // they are all the same person's.

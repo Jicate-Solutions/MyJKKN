@@ -1865,3 +1865,24 @@ COMMENT ON VIEW public.v_staff_id_crosswalk IS
 -- every staff member's name, institution and old/new ID.
 REVOKE ALL ON TABLE public.v_staff_id_crosswalk FROM anon, PUBLIC;
 GRANT SELECT ON TABLE public.v_staff_id_crosswalk TO authenticated;
+
+-- ===========================================================================
+-- v_hr_leave_balance / _src gained `accrued` and `pending` (2026-09-02)
+-- Source: 20260902160000_hr_leave_accrual_and_pending_reservation.sql
+--
+--   available = accrued + carried_forward - used - pending
+--
+-- `entitled` and `used` keep their old meanings -- the ledger is NOT rewritten,
+-- which is what keeps existing reports honest. New columns are appended because
+-- CREATE OR REPLACE VIEW can only add at the end, and BOTH views move together
+-- since the outer one lists its columns explicitly.
+--
+-- Pending arrives from ONE pre-aggregated LEFT JOIN over the unapproved rows,
+-- and accrual from the IMMUTABLE kernel called inline: a querying function per
+-- row would have turned a 12 ms view into thousands of queries.
+--
+-- The FROZEN-year branch does not accrue and takes no new requests, so its
+-- available stays the arithmetic it always was.
+--
+-- Full definitions in the migration.
+-- ===========================================================================
