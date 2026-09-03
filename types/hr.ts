@@ -439,6 +439,21 @@ export interface HRLeaveBalance {
   entitled: number;
   used: number;
   carried_forward: number;
+  /**
+   * Days accrued so far. Equal to `entitled` for every type that is not
+   * accrual_type='monthly', which is how it behaved before accrual existed.
+   */
+  accrued: number;
+  /** Days locked up by requests awaiting a decision. */
+  pending: number;
+  /**
+   * accrued + carried_forward - used - pending, computed by the view.
+   *
+   * READ THIS, never recompute it. Three separate places used to derive
+   * `entitled + carried - used` by hand, which could not see an unapproved
+   * request -- so the screen offered days the database then refused.
+   */
+  available: number;
   created_at: string;
   updated_at: string;
 }

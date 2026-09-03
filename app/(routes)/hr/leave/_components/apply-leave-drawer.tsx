@@ -114,9 +114,15 @@ export function ApplyLeaveDrawer({
   const effectiveDuration: LeaveDurationType =
     selected?.allow_half_day && isSingleDay ? durationType : 'full';
 
-  const available = selected
-    ? selected.entitled + selected.carried_forward - selected.used
-    : null;
+  /**
+   * READ from the view, not recomputed.
+   *
+   * This was `entitled + carried_forward - used`, which cannot see a request
+   * awaiting approval -- so the drawer offered 12 days while the database, which
+   * does count them, refused. The view's `available` nets off pending and caps
+   * at what has actually accrued.
+   */
+  const available = selected ? selected.available : null;
 
   // Inclusive day span, adjusted for a half-day request.
   const requestedDays = useMemo(() => {
@@ -356,7 +362,8 @@ export function ApplyLeaveDrawer({
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((b) => {
-                      const avail = b.entitled + b.carried_forward - b.used;
+                      // Same figure the card below and the server use.
+                      const avail = b.available;
                       return (
                         <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                           {b.leave_type_name}
@@ -384,16 +391,43 @@ export function ApplyLeaveDrawer({
                       )}
                     </div>
 
-                    <div className="mt-2 grid grid-cols-4 gap-2 text-center">
+                    {/* Pending is named rather than silently deducted: "10
+                        available" is baffling to someone who believes they have
+                        12, when the two missing days are ones they filed
+                        themselves an hour ago. Shown only when there are any, so
+                        the common case keeps four columns. */}
+                    <div
+                      className={`mt-2 grid gap-2 text-center ${
+                        selected.pending > 0 ? 'grid-cols-5' : 'grid-cols-4'
+                      }`}
+                    >
                       <Figure label="Entitled" value={formatDays(selected.entitled)} />
                       <Figure label="Carried" value={formatDays(selected.carried_forward)} />
                       <Figure label="Used" value={formatDays(selected.used)} />
+                      {selected.pending > 0 && (
+                        <Figure label="Pending" value={formatDays(selected.pending)} />
+                      )}
                       <Figure label="Available" value={formatDays(available)} strong />
                     </div>
                     <Progress
                       className="mt-2 h-1.5"
-                      value={pct(selected.used, selected.entitled + selected.carried_forward)}
+                      value={pct(
+                        selected.used + selected.pending,
+                        selected.accrued + selected.carried_forward
+                      )}
                     />
+                    {selected.pending > 0 && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatDays(selected.pending)} day(s) are held by requests awaiting
+                        approval and cannot be applied for again.
+                      </p>
+                    )}
+                    {selected.accrued < selected.entitled && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatDays(selected.accrued)} of {formatDays(selected.entitled)} day(s)
+                        have accrued so far this year; the rest accrue month by month.
+                      </p>
+                    )}
 
                     {/* The per-period throttle sits ALONGSIDE the entitlement: a
                         request can be well inside the balance and still refused. */}

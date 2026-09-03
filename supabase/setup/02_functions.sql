@@ -57237,3 +57237,65 @@ REVOKE ALL ON FUNCTION public.fn_hr_is_institution_leave_day(uuid, date) FROM PU
 GRANT EXECUTE ON FUNCTION public.fn_hr_calendar_holiday_dates(uuid, date, date) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_hr_is_calendar_holiday(uuid, date) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_hr_is_institution_leave_day(uuid, date) TO authenticated, service_role;
+
+-- ===========================================================================
+-- Leave: monthly accrual + pending reservation (2026-09-02)
+-- Source: 20260902160000_hr_leave_accrual_and_pending_reservation.sql
+--
+-- hr_trig_update_leave_balance only increments `used` on APPROVAL, so an
+-- unapproved request reserved nothing: apply for two days, apply again, and the
+-- second request saw the full balance. 354 applications / 371 days were
+-- invisible to the check.
+--
+-- accrual_type ('none'|'annual'|'monthly') and accrual_rate had existed on
+-- hr_leave_types since 20260721120000 and NOTHING read them.
+--
+-- THE ARITHMETIC IS SPLIT IN TWO ON PURPOSE. fn_hr_leave_accrual_days is pure
+-- and IMMUTABLE so the balance VIEW (7,471 rows) can call it inline at
+-- arithmetic cost; fn_hr_leave_accrued_days does the lookups and delegates to
+-- it. Duplicating the CASE into the view would have been the cheap fix and the
+-- one that drifts.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_leave_accrual_days(
+  p_accrual_type text, p_accrual_rate numeric, p_entitled numeric,
+  p_year_start date, p_joined_on date, p_on date
+) RETURNS numeric
+LANGUAGE sql IMMUTABLE
+AS $function$
+  SELECT CASE
+    -- Not an accruing type: the whole entitlement from day one, which is how
+    -- every type behaves today.
+    WHEN p_accrual_type IS DISTINCT FROM 'monthly' OR COALESCE(p_accrual_rate, 0) <= 0
+      THEN COALESCE(p_entitled, 0)
+    WHEN p_year_start IS NULL OR p_on IS NULL THEN COALESCE(p_entitled, 0)
+    WHEN p_on < GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)) THEN 0
+    ELSE LEAST(COALESCE(p_entitled, 0),
+      GREATEST(0,
+        (EXTRACT(YEAR  FROM p_on)::int
+         - EXTRACT(YEAR FROM GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)))::int) * 12
+      + (EXTRACT(MONTH FROM p_on)::int
+         - EXTRACT(MONTH FROM GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)))::int)
+      + 1) * p_accrual_rate)
+  END;
+$function$;
+
+-- Wrapper: resolves entitlement (override > frozen balance > type default), the
+-- year window and the joining date, then delegates to the kernel above.
+-- Full body in the migration.
+
+-- fn_hr_leave_pending_days(staff, type, year): day-leave days in
+-- status IN ('pending','escalated'), counted with hr_calc_leave_days so a day is
+-- never counted one way here and another way in the cap trigger. Comp off is
+-- credit-backed and STO minute-backed; neither draws on a day entitlement.
+
+-- hr_trig_leave_enforce_balance(): BEFORE INSERT/UPDATE on hr_leave_applications,
+-- refuses a day-leave request exceeding accrued + carried - used - pending. The
+-- database gate behind LeaveService's friendly message -- that check is
+-- TypeScript only and was bypassed once already when `error` went undestructured.
+
+REVOKE ALL ON FUNCTION public.fn_hr_leave_accrual_days(text, numeric, numeric, date, date, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_accrual_days(text, numeric, numeric, date, date, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) TO authenticated, service_role;
