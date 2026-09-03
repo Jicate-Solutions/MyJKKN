@@ -554,7 +554,7 @@ export function ApplyShortTimeOffDrawer({
                       <>
                         <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                           <Figure label="Allowed" value={`${usage.max_requests ?? 0}`} />
-                          <Figure label="Used" value={`${usage.requests_used ?? 0}`} />
+                          <Figure label="Used *" value={`${usage.requests_used ?? 0}`} />
                           <Figure label="Left" value={`${usage.requests_left ?? 0}`} strong />
                         </div>
                         <Progress
@@ -567,7 +567,7 @@ export function ApplyShortTimeOffDrawer({
                       <>
                         <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                           <Figure label="Allowance" value={formatMinutes(usage.total_minutes)} />
-                          <Figure label="Used" value={formatMinutes(usage.minutes_used ?? 0)} />
+                          <Figure label="Used *" value={formatMinutes(usage.minutes_used ?? 0)} />
                           <Figure label="Remaining" value={formatMinutes(usage.minutes_left)} strong />
                         </div>
                         <Progress
@@ -576,6 +576,19 @@ export function ApplyShortTimeOffDrawer({
                         />
                       </>
                     )}
+
+                    {/* WHY "Used" IS LARGER THAN WHAT HAS BEEN APPROVED. Both
+                        hr_sto_usage and hr_trig_sto_enforce_limits count
+                        'pending' and 'escalated' beside 'approved', so a
+                        request still awaiting a decision is already spending
+                        the allowance. Staff read the old unlabelled figure as
+                        approved-only, applied again against hours that were
+                        held, and met the limit as a Submit-time rejection. */}
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      * Includes requests awaiting approval — they are held
+                      against your allowance until decided, and released if
+                      rejected, cancelled or withdrawn.
+                    </p>
 
                     {/* What this particular request would leave behind. */}
                     {requestMinutes !== null && usage.limit_mode === 'total_duration' && (

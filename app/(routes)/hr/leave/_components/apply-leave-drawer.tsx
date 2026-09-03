@@ -445,6 +445,16 @@ export function ApplyLeaveDrawer({
                             </>
                           )}
                         </p>
+                        {/* The balance card above already names its pending
+                            hold; this figure has the same one folded in and
+                            said nothing, so the two read as disagreeing.
+                            hr_leave_period_usage counts 'pending' and
+                            'escalated' beside 'approved', exactly as the cap
+                            trigger does. */}
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Requests awaiting approval are already counted here,
+                          and released if rejected, cancelled or withdrawn.
+                        </p>
                       </div>
                     )}
 

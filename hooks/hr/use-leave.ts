@@ -12,6 +12,8 @@ import type {
   LeaveApplicationStatus,
 } from '@/types/hr';
 import { invalidateAttendanceViews } from '@/hooks/hr/use-attendance-records';
+import { invalidateAllowanceViews } from '@/hooks/hr/use-hr-leave-types';
+import { invalidateCompOffViews } from '@/hooks/hr/use-comp-off';
 
 const BASE = '/api/hr/leave';
 
@@ -178,6 +180,11 @@ export function useApplyLeave() {
       // in this app self-refreshes (staleTime 5 min, focus refetch off).
       qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
       qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      // AND THE ALLOWANCE THE DRAWER JUST QUOTED. A brand-new request is
+      // 'pending', which both allowance RPCs already count -- so without this
+      // the drawer kept showing the remaining figure from before the submit
+      // and invited a second request against hours that were already spent.
+      invalidateAllowanceViews(qc);
     },
   });
 }
@@ -226,6 +233,13 @@ export function useDecideApplication() {
       // short time off moves the day's excused minutes — both land in
       // hr_attendance_records, which My Attendance reads under its own keys.
       invalidateAttendanceViews(qc);
+      // A REJECTION HANDS THE ALLOWANCE BACK. 'rejected' leaves the status set
+      // the allowance RPCs count, so the hours are free again the instant this
+      // returns — and an approval turns a held figure into a spent one.
+      invalidateAllowanceViews(qc);
+      // Approving comp-off is the moment hr_trig_comp_off_consume spends the
+      // credit, so the ledger the drawer quotes has just changed underneath it.
+      invalidateCompOffViews(qc);
     },
   });
 }
@@ -251,6 +265,10 @@ export function useCancelApplication() {
       // in this app self-refreshes (staleTime 5 min, focus refetch off).
       qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
       qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      // Cancelling releases the hold, so the drawer must stop counting it.
+      invalidateAllowanceViews(qc);
+      // Cancelling an APPROVED comp-off hands its credit back to the ledger.
+      invalidateCompOffViews(qc);
     },
   });
 }
@@ -269,6 +287,18 @@ export function useWithdrawApplication() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-leave-application', data.id] });
+      // WITHDRAW RELEASES EVERYTHING CANCEL DOES, and used to refresh none of
+      // it. It moves a request out of ('pending','escalated'), which is the set
+      // v_hr_leave_balance_src subtracts as `pending` and both allowance RPCs
+      // count — so the days and the hours are free the moment this returns.
+      // Refreshing only the two lists left the balance card and the apply
+      // drawer showing them as still consumed until the cache aged out.
+      qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      invalidateAllowanceViews(qc);
+      invalidateCompOffViews(qc);
     },
   });
 }
