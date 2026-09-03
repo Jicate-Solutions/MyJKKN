@@ -8238,7 +8238,7 @@ CREATE TABLE IF NOT EXISTS public.hr_staff_bank_accounts (
   account_number      text NOT NULL CHECK (account_number ~ '^[0-9]{6,20}$'),
 
   -- Indian IFSC: 4 letters, then a literal 0, then 6 alphanumerics.
-  -- OPTIONAL since 2026-09-02 (20260902100000): the account number alone is
+  -- OPTIONAL since 2026-09-02 (20261020000000): the account number alone is
   -- enough to record a row, because salary registers arrive with nothing else.
   -- A PRESENT value is still format-checked -- absent means "not known yet",
   -- malformed means "confidently wrong", and only the latter pays a wrong branch.

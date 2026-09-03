@@ -1,4 +1,30 @@
 -- ============================================================================
+-- ci:allow-secdef-authenticated  fn_my_event_registration and
+-- fn_event_feedback_form_open are callable by every authenticated user ON
+-- PURPOSE, and neither can be used to reach another person's data.
+--
+--   fn_my_event_registration(event_id) is SELF-SCOPED IN ITS OWN WHERE CLAUSE:
+--   every branch is pinned to (SELECT auth.uid()) -- directly via profile_id,
+--   or via the caller's own profiles.learner_id. There is no argument that
+--   names another user, so the most a caller can learn is whether THEY are
+--   registered for an event id they already had. It is SECURITY DEFINER only
+--   so it can read events_registrations past that table's own SELECT policy,
+--   which is what lets a participant see the form at all.
+--
+--   fn_event_feedback_form_open(form_id) returns a BOOLEAN about a form's own
+--   window -- is_enabled, starts_at, ends_at. It touches no user row and no
+--   answer; it reports whether a survey is open. It is the freshness half of
+--   the event_feedback_responses write policies, where the identity half is
+--   fn_my_event_registration.
+--
+-- This marker is file-scoped, so note what it does NOT excuse:
+-- fn_can_manage_event_feedback still carries its own super-admin / admin /
+-- fn_is_event_incharge / events.view OR-chain, and save_event_feedback_form is
+-- SECURITY INVOKER and authorised by the event_feedback_*_manage policies.
+-- The guard's own rule still applies to anything added here later: a predicate
+-- that IDENTIFIES a caller is not a predicate that AUTHORISES one.
+-- ============================================================================
+-- ============================================================================
 -- Event Feedback Forms — coordinator-editable feedback questions per event
 -- ============================================================================
 -- Every event (general, tournament, marathon, induction) may carry one or more
@@ -487,14 +513,14 @@ COMMENT ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) IS
 -- EXECUTE is granted explicitly rather than left to PUBLIC. (The registration
 -- builder learned this the hard way: a DROP FUNCTION during its multi-form
 -- migration discarded the ACL and handed EXECUTE back to PUBLIC.)
-REVOKE ALL ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) TO authenticated;
 
-REVOKE ALL ON FUNCTION public.fn_my_event_registration(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_my_event_registration(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_my_event_registration(uuid) TO authenticated;
 
-REVOKE ALL ON FUNCTION public.fn_can_manage_event_feedback(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_can_manage_event_feedback(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) TO authenticated;
 
-REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_event_feedback_form_open(uuid) TO authenticated;

@@ -57699,14 +57699,14 @@ COMMENT ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) IS
 -- EXECUTE is granted explicitly rather than left to PUBLIC. (The registration
 -- builder learned this the hard way: a DROP FUNCTION during its multi-form
 -- migration discarded the ACL and handed EXECUTE back to PUBLIC.)
-REVOKE ALL ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) TO authenticated;
 
-REVOKE ALL ON FUNCTION public.fn_my_event_registration(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_my_event_registration(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_my_event_registration(uuid) TO authenticated;
 
-REVOKE ALL ON FUNCTION public.fn_can_manage_event_feedback(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_can_manage_event_feedback(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) TO authenticated;
 
-REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_event_feedback_form_open(uuid) TO authenticated;
