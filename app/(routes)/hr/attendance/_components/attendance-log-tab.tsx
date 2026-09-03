@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { format } from 'date-fns';
 import { ArrowRight, TriangleAlert } from 'lucide-react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -49,11 +50,13 @@ export function AttendanceLogTab({
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[22%]">Date</TableHead>
-              <TableHead className="w-[34%]">Attendance Visual</TableHead>
-              <TableHead className="w-[14%] text-right">Effective hours</TableHead>
-              <TableHead className="w-[14%] text-right">Gross hours</TableHead>
-              <TableHead className="w-[16%] text-right">Actions</TableHead>
+              <TableHead className="w-[16%]">Date</TableHead>
+              <TableHead className="w-[22%]">Attendance Visual</TableHead>
+              <TableHead className="w-[12%]">Status</TableHead>
+              <TableHead className="w-[18%]">Time off</TableHead>
+              <TableHead className="w-[10%] text-right">Effective hours</TableHead>
+              <TableHead className="w-[10%] text-right">Gross hours</TableHead>
+              <TableHead className="w-[12%] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -67,30 +70,119 @@ export function AttendanceLogTab({
   );
 }
 
+const CATEGORY_LABEL: Record<string, string> = {
+  leave: 'Leave',
+  short_time_off: 'Permission',
+  compensatory_off: 'Comp off',
+};
+
+/**
+ * Time-off covering this day, decided or not.
+ *
+ * A LEAVE day already reads LEAVE from its status, but never WHICH leave. A
+ * permission reads nothing at all — it deliberately does not stamp attendance,
+ * it excuses a shortfall — so its only previous trace was an unexplained
+ * excused_minutes on a day that looked ordinary.
+ *
+ * UNDECIDED REQUESTS APPEAR HERE TOO (2026-09-02), marked. Attendance restamps
+ * only on approval — status feeds payable_days and the register — so until then
+ * the day genuinely reads ABSENT or HALF_DAY. That was indistinguishable from
+ * nobody having claimed anything: 695 records across ~200 staff. The badge
+ * explains the gap without closing it.
+ */
+function TimeOffCell({ day }: { day: AttendanceDay }) {
+  if (day.isFuture) return <span className="text-muted-foreground">—</span>;
+  if (day.requests.length === 0) {
+    // Excused with no request visible means the covering permission sits outside
+    // this month's fetch. Say something rather than nothing.
+    return day.excusedMinutes
+      ? <span className="text-xs text-muted-foreground">{day.excusedMinutes}m excused</span>
+      : <span className="text-muted-foreground">—</span>;
+  }
+
+  return (
+    <div className="space-y-1">
+      {day.requests.map((r) => (
+        <div key={r.id} className="space-y-0.5">
+          <div className="flex flex-wrap items-center gap-1">
+            <Badge
+              variant="outline"
+              className={cn(
+                'font-normal',
+                r.decision === 'awaiting' &&
+                  'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400',
+              )}
+            >
+              {CATEGORY_LABEL[r.category] ?? r.category}
+            </Badge>
+            <span className="truncate text-xs" title={r.type_name}>{r.type_name}</span>
+            {r.start_time && r.end_time && (
+              <span className="tabular-nums text-xs text-muted-foreground">
+                {r.start_time}–{r.end_time}
+              </span>
+            )}
+            {r.multi_day && <span className="text-[11px] text-muted-foreground">(multi-day)</span>}
+          </div>
+          {r.decision === 'awaiting' && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+              {/* A permission EXCUSES a shortfall rather than replacing the day,
+                  so it cannot promise the status will change — and permissions
+                  are the larger group (367 of the 695). */}
+              {r.category === 'short_time_off'
+                ? 'Awaiting approval — would excuse the shortfall'
+                : 'Awaiting approval — the day restamps once decided'}
+            </p>
+          )}
+        </div>
+      ))}
+      {day.excusedMinutes ? (
+        <p className="text-[11px] text-muted-foreground">
+          {day.excusedMinutes}m of lateness covered
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function LogRow({ day, canRegularize }: { day: AttendanceDay; canRegularize: boolean }) {
   const showRegularize =
     canRegularize && !day.isFuture && isRegularizable(day.token) && !isNonWorkingToken(day.token);
+  /** Past day with no record yet — nothing to correct until the import lands. */
+  const awaitingImport = !day.isFuture && day.token === 'AEYP';
 
   return (
     <TableRow className={cn(day.isToday && 'bg-muted/40')}>
       <TableCell className="font-medium">
-        <span className="flex items-center gap-2">
-          <span className={cn(day.isFuture && 'text-muted-foreground')}>
-            {format(day.dateObj, 'MMM dd, EEE')}
-          </span>
-          {!day.isFuture && isNonWorkingToken(day.token) && (
-            <>
-              <AttendanceTokenBadge token={day.token} />
-              {day.tokenDetail && (
-                <span className="text-[11px] text-muted-foreground">{day.tokenDetail}</span>
-              )}
-            </>
-          )}
+        <span className={cn(day.isFuture && 'text-muted-foreground')}>
+          {format(day.dateObj, 'MMM dd, EEE')}
         </span>
       </TableCell>
 
       <TableCell>
         <AttendanceVisual day={day} />
+      </TableCell>
+
+      {/* The day's CURRENT verdict, for every day — a punched day used to show
+          only its bar, so an approved leave/OD/regularization changing the
+          status was invisible unless the bar happened to change colour. The
+          badge reads hr_attendance_records via day.token, i.e. exactly what
+          the monthly report counts, and tokenLabel names the covering leave
+          type (CL/OD) rather than a bare L. */}
+      <TableCell>
+        {day.isFuture ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <AttendanceTokenBadge token={day.token} label={day.tokenLabel} />
+            {day.tokenDetail && (
+              <span className="text-[11px] text-muted-foreground">{day.tokenDetail}</span>
+            )}
+          </span>
+        )}
+      </TableCell>
+
+      <TableCell>
+        <TimeOffCell day={day} />
       </TableCell>
 
       <TableCell className="text-right tabular-nums text-muted-foreground">
@@ -109,6 +201,10 @@ function LogRow({ day, canRegularize }: { day: AttendanceDay; canRegularize: boo
               <ArrowRight className="ml-1 h-3 w-3" />
             </Link>
           </Button>
+        ) : awaitingImport ? (
+          // Says WHY there is no action: the day has no record yet, so there is
+          // no verdict to dispute. Without this the empty cell reads as a bug.
+          <span className="text-[11px] text-muted-foreground">Awaiting import</span>
         ) : (
           <span className="text-muted-foreground">—</span>
         )}

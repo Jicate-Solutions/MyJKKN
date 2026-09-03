@@ -22,6 +22,7 @@ import { resolveInstitutionFromReport } from '@/lib/hr/biometric/resolve-institu
 import { normBiometricCode } from '@/lib/hr/biometric/normalize-code';
 import { normPersonName } from '@/lib/hr/biometric/normalize-name';
 import type {
+  BiometricIdentityKind,
   BiometricMappingRow,
   BiometricStaffOption,
   BiometricSuggestResponse,
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
     // other institutions (13 of 36 on the real Main Office export).
     const { data: staffRows, error: staffErr } = await svc
       .from('staff')
-      .select('id, staff_id, first_name, last_name, institution_id, biometric_id, biometric_institution_id')
+      .select('id, staff_id, first_name, last_name, institution_id, biometric_id, biometric_institution_id, is_active')
       .limit(5000);
     if (staffErr) {
       console.error('[biometric-mapping/suggest] staff lookup error:', staffErr);
@@ -107,6 +108,7 @@ export async function POST(request: NextRequest) {
     interface Row {
       id: string; staff_id: string | null; first_name: string | null; last_name: string | null;
       institution_id: string | null; biometric_id: string | null; biometric_institution_id: string | null;
+      is_active: boolean | null;
     }
     const rows = (staffRows ?? []) as Row[];
 
@@ -118,7 +120,11 @@ export async function POST(request: NextRequest) {
       institution_name: s.institution_id ? (instName.get(s.institution_id) ?? null) : null,
       current_code: s.biometric_institution_id === machine.id ? s.biometric_id : null,
       other_machine: Boolean(s.biometric_id) && s.biometric_institution_id !== machine.id,
+      is_active: s.is_active,
     }));
+
+    const activeById = new Map<string, boolean | null>();
+    for (const s of rows) activeById.set(s.id, s.is_active);
 
     // Name index — only unambiguous names become suggestions.
     const byName = new Map<string, string[]>();
@@ -141,19 +147,30 @@ export async function POST(request: NextRequest) {
     let alreadyMapped = 0;
     let suggested = 0;
 
+    // A machine never forgets an enrolment, so a monthly export carries everyone
+    // who ever punched on it. Classifying identity separately from link state is
+    // what tells HR "link this" apart from "this person is not ours" — the
+    // second can never import however many times the file is re-uploaded.
     const mappingRows: BiometricMappingRow[] = report.employees.map((emp) => {
       const codeKey = normBiometricCode(emp.code);
       const mapped = codeKey ? (mappedByCode.get(codeKey) ?? null) : null;
       if (mapped) alreadyMapped++;
 
+      const hits = mapped ? [] : (byName.get(normPersonName(emp.name)) ?? []);
+
       let suggestion: string | null = null;
-      if (!mapped) {
-        const hits = byName.get(normPersonName(emp.name)) ?? [];
-        if (hits.length === 1) {
-          suggestion = hits[0];
-          suggested++;
-        }
+      if (!mapped && hits.length === 1) {
+        suggestion = hits[0];
+        suggested++;
       }
+
+      let identity: BiometricIdentityKind;
+      if (mapped) identity = 'linked';
+      else if (hits.length === 1) identity = 'name_match';
+      else if (hits.length > 1) identity = 'ambiguous';
+      else identity = 'not_in_myjkkn';
+
+      const known = mapped ?? suggestion;
 
       return {
         code: emp.code,
@@ -161,8 +178,13 @@ export async function POST(request: NextRequest) {
         mapped_staff_id: mapped,
         suggested_staff_id: suggestion,
         suggestion_reason: suggestion ? 'exact_name' : null,
+        identity,
+        name_candidates: hits.length,
+        staff_is_active: known ? (activeById.get(known) ?? null) : null,
       };
     });
+
+    const inMyjkkn = mappingRows.filter((r) => r.identity !== 'not_in_myjkkn');
 
     const body: BiometricSuggestResponse = {
       institution: {
@@ -173,11 +195,19 @@ export async function POST(request: NextRequest) {
       rows: mappingRows,
       staff,
       warnings: report.warnings,
+      roster: {
+        total: rows.length,
+        active: rows.filter((s) => s.is_active !== false).length,
+      },
       counts: {
         total: mappingRows.length,
         already_mapped: alreadyMapped,
         suggested,
         unresolved: mappingRows.length - alreadyMapped - suggested,
+        in_myjkkn: inMyjkkn.length,
+        not_in_myjkkn: mappingRows.length - inMyjkkn.length,
+        ambiguous: mappingRows.filter((r) => r.identity === 'ambiguous').length,
+        inactive_staff: inMyjkkn.filter((r) => r.staff_is_active === false).length,
       },
     };
 

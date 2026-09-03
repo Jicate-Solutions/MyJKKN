@@ -241,8 +241,48 @@ export interface LeavePeriodUsage {
 /** A step's approver is either a role or one named person — never both. */
 export type LeaveApproverMode = 'role' | 'user';
 
+/** Where a flow's steps come from. Independent of how they RUN. */
+export type LeaveFlowStepSource = 'explicit' | 'role_ladder';
+
+/**
+ * How the steps run. 'parallel' is not carried on the frozen chain — the
+ * builder emits ONE step holding every approver, so `current_step` keeps its
+ * meaning and nothing downstream needs a second completion rule.
+ */
+export type LeaveFlowRunMode = 'sequential' | 'parallel';
+
+/** 'any' = the first approver decides it; 'all' = every entry must be satisfied. */
+export type LeaveStepQuorum = 'any' | 'all';
+
+/**
+ * One approver slot on a step. Exactly one of role/user is meaningful; a role
+ * entry admits any holder of it inside the application's own HR organisation,
+ * a pinned entry admits that person from anywhere.
+ */
+export interface LeaveApproverEntry {
+  approver_role: string | null;
+  /** profiles.id — an AUTH UID, never a staff.id. */
+  approver_user_id: string | null;
+  approver_name: string | null;
+}
+
+/** Ladder rung -> the roles above it, as resolved by hr_resolve_leave_ladder(). */
+export interface LeaveLadderPreviewRow {
+  role_key: string;
+  role_name: string;
+  chain: string[];
+}
+
 export interface LeaveApprovalFlowStep {
   chain_order: number;
+  /**
+   * Every approver on this step. ABSENT on the 23 legacy flows, which carry a
+   * single approver in the sibling fields below — readApprovers() normalises
+   * both shapes so no caller has to know which it is holding.
+   */
+  approvers?: LeaveApproverEntry[];
+  /** Absent means 'any', which is what a one-approver step has always meant. */
+  quorum?: LeaveStepQuorum;
   /** 'review' passes to the next step; 'final' grants approval. Last step must be final. */
   step_type: 'review' | 'final';
   /**
@@ -272,6 +312,18 @@ export interface LeaveApprovalFlow {
   steps: LeaveApprovalFlowStep[];
   is_active: boolean;
   escalate_after_hours: number;
+  /** Defaults to 'explicit' in the database, so a legacy flow reads unchanged. */
+  step_source?: LeaveFlowStepSource;
+  /** Defaults to 'sequential' in the database. */
+  run_mode?: LeaveFlowRunMode;
+  /** Ordered role_keys, LOWEST rung first. Only read when step_source='role_ladder'. */
+  role_ladder?: string[];
+  /**
+   * Used ONLY when the ladder yields nobody — i.e. the person at the top of the
+   * ladder applying for their own leave. Without it their chain would be empty
+   * and the request would be approved with no approver on record.
+   */
+  fallback_approver?: LeaveApproverEntry | null;
 }
 
 /** From hr_leave_approver_role_options(). */
@@ -292,6 +344,12 @@ export interface LeaveApproverCandidate {
   profile_id: string;
   full_name: string | null;
   email: string | null;
+  /**
+   * Which institution this person belongs to. The picker spans every
+   * institution the caller can access, so without this two people with similar
+   * names are indistinguishable.
+   */
+  institution_name: string | null;
   role_names: string | null;
   can_approve: boolean;
 }

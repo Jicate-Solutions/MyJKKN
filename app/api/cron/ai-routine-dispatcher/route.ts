@@ -64,6 +64,10 @@ export async function GET(request: NextRequest) {
     'generated', 'measured', 'skipped', 'created', 'sent', 'updated',
     'concerns', 'candidates', 'processed', 'recorded', 'escalations',
     'nudged', 'tipped', 'delivered', 'flagged', 'events', 'count',
+    // metaloop-charter-drafts / -collect: without these, its "last run" line
+    // could only ever say "skipped 0, candidates 3" — the same
+    // allowlist-discards-the-story failure the BOS scheduler audit found.
+    'collected', 'filed', 'insufficient', 'enqueued',
   ];
   const summarize = async (resp: Response): Promise<string> => {
     const base = `HTTP ${resp.status}`;

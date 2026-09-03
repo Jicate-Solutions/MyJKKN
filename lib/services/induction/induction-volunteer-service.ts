@@ -22,7 +22,7 @@ export interface AssignablePeerMentor {
   program_name: string | null;
   department_name: string | null;
   section_name: string | null;
-  /** 2 or 3 — the eligibility band (2nd year up to the mentor year). */
+  /** 2 or higher — the eligibility band is "2nd year and above", uncapped. */
   year_of_study: number | null;
   college_email: string | null;
   student_email: string | null;
@@ -285,8 +285,9 @@ export class InductionVolunteerService {
   }
 
   /** Search senior students of the event's college appointable as peer mentors.
-   *  Eligible band = 2nd year up to the mentor year (3rd, or the final year of a
-   *  2-year PG). `query` matches name / register / roll number / college email /
+   *  Eligible band = 2nd year and above, with no upper bound — final-year
+   *  students of a 4- or 5-year programme are appointable; only first-years are
+   *  excluded. `query` matches name / register / roll number / college email /
    *  student email / mobile / programme as a case-insensitive %value%, and
    *  `filters` narrows by degree / department / programme / semester / section.
    *

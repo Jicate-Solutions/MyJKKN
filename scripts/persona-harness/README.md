@@ -85,7 +85,23 @@ script) for everything platform-specific:
 - **envPath** (optional, default `../../.env.local`): where to read `NEXT_PUBLIC_SUPABASE_URL` + `_ANON_KEY`.
 - **defaultSet** (optional): the `role:path` pairs run when you pass no args.
 
-Accounts use `Test@1234` unless you set `PERSONA_PASSWORD` (or add `"password"` to the config).
+Accounts need a password — set `PERSONA_PASSWORD` in your shell (or add
+`"password"` to the config). There is no default; it must match whatever the
+`test.*` accounts were actually seeded with (see `scripts/create-test-accounts.ts`).
+
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| `PERSONA_PASSWORD is not set` | Exactly that — export it before running. The harness stops here rather than sending an empty password. |
+| `Cannot read .../.env.local` | You are in a fresh worktree. Copy or symlink the repo's `.env.local` in, or point `envPath` at one. |
+| `signIn <email> on Supabase project <ref> …: Invalid login credentials` | The password you exported does not match what that project's `test.*` accounts hold. Check the `<ref>` in the message is the project you meant. |
+
+`Invalid login credentials` is Supabase's one answer for every password rejection,
+so it says nothing about whether the account exists. Before assuming an account is
+gone, check `auth.users` for it (`email_confirmed_at`, `banned_until`,
+`last_sign_in_at`) — a recent `last_sign_in_at` means the account and its password
+are fine and the problem is on this side.
 
 ## Use on another Supabase + Next.js app
 
@@ -105,7 +121,7 @@ app works; a non-Supabase app does not.
 - `.env.local` (or `envPath`) with `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`
   (public values — read at runtime; no secrets committed).
 - `puppeteer` + `@supabase/ssr` in the repo's dependencies.
-- Seeded `test.*` accounts with `Test@1234` (or `PERSONA_PASSWORD`) and complete profiles.
+- Seeded `test.*` accounts with the password set in `PERSONA_PASSWORD` and complete profiles.
 
 ## Env flags
 
@@ -116,7 +132,7 @@ app works; a non-Supabase app does not.
 | `PERSONA_BASE_URL` | Target origin (overrides `baseUrl` in `personas.json`) |
 | `PERSONA_HEADLESS=1` | Back-compat alias for `PERSONA_MODE=headless` (screenshots only, no windows) |
 | `PERSONA_DISMISS_MODALS=1` | Acknowledge a blocking mandatory-ack modal (a write) |
-| `PERSONA_PASSWORD` | Override the test-account password (default `Test@1234`) |
+| `PERSONA_PASSWORD` | The test-account password (required, no default — must match what the `test.*` accounts were seeded with) |
 
 ## Safety notes
 

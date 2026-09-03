@@ -11,6 +11,8 @@ import { Sparkles, BedDouble } from 'lucide-react';
 
 interface Props {
   tierKey: string | null;
+  /** hostel_categories.name — what the resident calls their room. */
+  categoryName?: string | null;
   weeklyQuota: number;
   usedThisWeek: number;
   blockName: string;
@@ -25,12 +27,17 @@ const TIER_LABELS: Record<string, string> = {
 
 export function EntitlementHeader({
   tierKey,
+  categoryName,
   weeklyQuota,
   usedThisWeek,
   blockName,
   roomNumber,
 }: Props) {
-  const tierLabel = (tierKey && TIER_LABELS[tierKey]) || tierKey || 'Standard';
+  // The room category is the name on the resident's fee receipt ("Premium
+  // Room + AC"); the tier key is the internal entitlement band it maps to.
+  // Show the former when we have it.
+  const tierLabel =
+    categoryName || (tierKey && TIER_LABELS[tierKey]) || tierKey || 'Standard';
   const pct = weeklyQuota > 0 ? Math.min(100, (usedThisWeek / weeklyQuota) * 100) : 0;
   const remaining = Math.max(0, weeklyQuota - usedThisWeek);
 
