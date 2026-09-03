@@ -82,7 +82,7 @@ export default function LeaveApprovalsPage() {
   const view = tab === 'comp-off' ? 'comp-off' : tab === 'short-time-off' ? 'short' : 'leave';
 
   const { data: canApprove, isLoading: gateLoading } = useCanApproveLeave();
-  const { data: queue, isLoading, refetch, isFetching, dataUpdatedAt } =
+  const { data: queue, error: queueError, isLoading, refetch, isFetching, dataUpdatedAt } =
     useLeaveApprovalQueue(canApprove === true);
   const decide = useDecideApplication();
   const { data: claims } = usePendingCompOffClaims(canApprove === true);
@@ -430,9 +430,34 @@ export default function LeaveApprovalsPage() {
             </Alert>
           )}
 
+          {/* A failed load MUST NOT look like an empty queue. `error` was never
+              read off the hook, so when hr_leave_approval_queue() hit the 8s
+              statement_timeout (57014 — 69 × 500 in one day for role-step
+              approvers, 2026-09-03) the table rendered zero rows and nothing
+              said why. The table is hidden while the error stands: an empty
+              table under a red banner still reads as "0 records". */}
+          {queueError && !queue && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                <span>Couldn&apos;t load the approvals queue: {getErrorMessage(queueError)}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7"
+                  onClick={() => refetch()}
+                  disabled={isFetching}
+                >
+                  <RotateCw className={`mr-2 h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+                  Retry
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
           {isLoading ? (
             <Skeleton className="h-96" />
-          ) : (
+          ) : queueError && !queue ? null : (
             <ApprovalsDataTable
               // Remount on tab switch so the table drops the previous tab's
               // page number and sort rather than carrying them across two
