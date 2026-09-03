@@ -89,9 +89,27 @@ export function DeniedCard({ heading, reason }: { heading: string; reason: strin
 
 // ── Gate ─────────────────────────────────────────────────────────────────────
 
-export type GateResult =
-  | { ok: true; profileId: string }
-  | { ok: false; heading: string; reason: string };
+/**
+ * A flat shape rather than a discriminated union, deliberately.
+ *
+ * `{ ok: true; … } | { ok: false; … }` is the natural way to write this, but
+ * this repo compiles with `strictNullChecks: false` (tsconfig.json, marked
+ * TEMPORARY for the Next.js 16 migration), and TypeScript cannot narrow a
+ * discriminated union on `if (!gate.ok)` with that flag off — every access to
+ * `gate.heading` after the guard fails to compile. Rather than sprinkle casts
+ * at three call sites, the fields are always present and the unused half is
+ * an empty string.
+ */
+export interface GateResult {
+  /** True when the caller may see the board. */
+  ok: boolean;
+  /** profiles.id of the caller. Empty string when `ok` is false. */
+  profileId: string;
+  /** Refusal heading. Empty string when `ok` is true. */
+  heading: string;
+  /** Refusal reason. Empty string when `ok` is true. */
+  reason: string;
+}
 
 /**
  * D2 — the same configuration-backed gate the capture screen and the approvals
@@ -108,6 +126,7 @@ export async function gateScoreboard(): Promise<GateResult> {
   if (!user?.id) {
     return {
       ok: false,
+      profileId: '',
       heading: 'You are not signed in',
       reason: 'Sign in with your JKKN account to see this board.'
     };
@@ -116,13 +135,14 @@ export async function gateScoreboard(): Promise<GateResult> {
   if (!(await isCampusWalkReporter(user.email))) {
     return {
       ok: false,
+      profileId: '',
       heading: "You don't have access to this board",
       reason:
         'Campus walk boards are limited to named people in this release, while routing is being proven before it opens up.'
     };
   }
 
-  return { ok: true, profileId: user.id };
+  return { ok: true, profileId: user.id, heading: '', reason: '' };
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────────
