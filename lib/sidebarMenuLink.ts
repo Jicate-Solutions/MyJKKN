@@ -776,6 +776,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // print wrong and links out to the learner's edit screen, so it shares the
   // view key rather than requiring manage.
   '/admin/id-cards/address-check': 'id_cards.jobs.view',
+  // Photo Check (2026-08-26) is read-only — it lists the learners Guard 3 will
+  // refuse to print a card for and links out to the learner's edit screen, so
+  // it shares the view key rather than requiring manage.
+  '/admin/id-cards/photo-check': 'id_cards.jobs.view',
   // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
   // so the nav entry mirrors it — no id_cards.* policy-view key exists.
   '/admin/id-cards/policy': 'super_admin',
@@ -3219,6 +3223,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/id-cards/morning', label: 'Morning Page', active: pathname.startsWith('/admin/id-cards/morning') },
             { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
             { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/photo-check', label: 'Photo Check', active: pathname.startsWith('/admin/id-cards/photo-check') },
             { href: '/admin/id-cards/address-check', label: 'Address Check', active: pathname.startsWith('/admin/id-cards/address-check') },
             { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
             { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
