@@ -50,8 +50,9 @@ export interface StaffBankAccountHistoryRow {
   id: string;
   account_holder_name: string;
   account_number: string;
-  ifsc_code: string;
-  bank_name: string;
+  /** Nullable since 2026-09-02 — an account may be recorded without one. */
+  ifsc_code: string | null;
+  bank_name: string | null;
   branch_name: string | null;
   account_type: string;
   verified_at: string | null;
@@ -65,8 +66,12 @@ export interface SetBankAccountInput {
   staffId: string;
   accountHolderName: string;
   accountNumber: string;
-  ifscCode: string;
-  bankName: string;
+  /**
+   * Optional since 2026-09-02. Omitting it records the account but leaves it
+   * UNPAYABLE — see isPayable() in lib/hr/payroll/bank-account-validation.
+   */
+  ifscCode?: string | null;
+  bankName?: string | null;
   branchName?: string | null;
   accountType?: string;
   effectiveFrom?: string;
@@ -135,8 +140,8 @@ export class StaffBankAccountService {
       p_staff_id: input.staffId,
       p_account_holder_name: input.accountHolderName,
       p_account_number: input.accountNumber,
-      p_ifsc_code: input.ifscCode,
-      p_bank_name: input.bankName,
+      p_ifsc_code: input.ifscCode ?? null,
+      p_bank_name: input.bankName ?? null,
       p_branch_name: input.branchName ?? null,
       p_account_type: input.accountType ?? 'savings',
       p_effective_from: input.effectiveFrom ?? null,

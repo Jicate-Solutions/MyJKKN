@@ -10,7 +10,7 @@
 
 import {
   validateBankAccount, errorsByField, maskAccountNumber,
-  normaliseIfsc, normaliseAccountNumber,
+  normaliseIfsc, normaliseAccountNumber, isPayable,
 } from '../lib/hr/payroll/bank-account-validation';
 
 let passed = 0, failed = 0;
@@ -38,8 +38,14 @@ check('too-short IFSC is rejected',
   errorsByField(validateBankAccount({ ...good, ifscCode: 'SBIN000123' })).ifscCode !== undefined);
 check('IFSC with a digit in the bank prefix is rejected',
   errorsByField(validateBankAccount({ ...good, ifscCode: 'SB1N0001234' })).ifscCode !== undefined);
-check('empty IFSC is rejected',
-  errorsByField(validateBankAccount({ ...good, ifscCode: '' })).ifscCode !== undefined);
+// Optional since 2026-09-02 -- absent is a record to finish later; malformed is
+// a payout into the wrong branch, so only the second is refused.
+check('empty IFSC is ACCEPTED (optional)',
+  errorsByField(validateBankAccount({ ...good, ifscCode: '' })).ifscCode === undefined);
+check('omitted IFSC is ACCEPTED (optional)',
+  errorsByField(validateBankAccount({ ...good, ifscCode: undefined })).ifscCode === undefined);
+check('whitespace-only IFSC is ACCEPTED (reads as absent)',
+  errorsByField(validateBankAccount({ ...good, ifscCode: '   ' })).ifscCode === undefined);
 check('normaliseIfsc upper-cases and trims', normaliseIfsc('  hdfc0000123 ') === 'HDFC0000123');
 
 // --- account number -------------------------------------------------------
@@ -67,10 +73,25 @@ check('confirmation tolerates different spacing',
 // --- other fields ---------------------------------------------------------
 check('missing holder name is rejected',
   errorsByField(validateBankAccount({ ...good, accountHolderName: '   ' })).accountHolderName !== undefined);
-check('missing bank name is rejected',
-  errorsByField(validateBankAccount({ ...good, bankName: '' })).bankName !== undefined);
+check('missing bank name is ACCEPTED (optional)',
+  errorsByField(validateBankAccount({ ...good, bankName: '' })).bankName === undefined);
+check('an account number with no IFSC or bank passes validation',
+  validateBankAccount({ accountHolderName: 'GUNASEKARAN S', accountNumber: '6152568589' }).length === 0);
 check('an unknown account type is rejected',
   errorsByField(validateBankAccount({ ...good, accountType: 'fixed' })).accountType !== undefined);
+
+// --- payability -----------------------------------------------------------
+// Where the old NOT NULL went: saving and paying are now separate questions.
+check('an account with number + IFSC is payable',
+  isPayable({ account_number: '6152568589', ifsc_code: 'SBIN0001234' }));
+check('an account with NO IFSC is recorded but NOT payable',
+  !isPayable({ account_number: '6152568589', ifsc_code: null }));
+check('an account with no number is not payable',
+  !isPayable({ account_number: null, ifsc_code: 'SBIN0001234' }));
+check('a malformed IFSC is not payable',
+  !isPayable({ account_number: '6152568589', ifsc_code: 'SBIN1001234' }));
+check('isPayable tolerates a passbook-spaced number',
+  isPayable({ account_number: '6152 5685-89', ifsc_code: 'sbin0001234' }));
 
 // --- masking --------------------------------------------------------------
 check('masking keeps only the last four', maskAccountNumber('123456789012') === '••••9012',
