@@ -1,3 +1,4 @@
+-- RENAME-SAFE: 20260504 -> 20261103000000 — the source version never applied, established from the repository because production is unreachable from this lane. types/supabase.ts is generated from the live database and contains NEITHER grievance_tickets.issue_type, requirement_id, migrated_from_subdomain or legacy_external_id (the four columns section 2 adds) NOR any of the eight tables sections 5-12 create — `requirement_requests` appears 0 times in that file. The objects this migration creates are therefore absent from production, which is the only honest test. The collision that caused it: 20260504_ai_pulse_rls_hardening.sql parses to the SAME version string `20260504`, and supabase_migrations.schema_migrations keys on version ALONE, so one recorded as applied and this one never executed. Renumbering the OTHER file was rejected — this session owns only this file, and ai_pulse_rls_hardening is the one that DID run. Re-applying this file is additive by construction: no DROP TABLE, no removed columns, every DDL guarded by IF NOT EXISTS / DO $$ blocks.
 -- =====================================================================
 -- Migration: instasolver_substrate (B.1 — Insta Solver core module)
 -- Created:   2026-05-04
@@ -33,10 +34,34 @@
 --  12. CREATE TABLE issue_escalation_rules    (LIKE counselor_routing_config)
 --  13. RLS policies — drop existing grievance_tickets_select, recreate
 --      with ICC clause; apply RLS to all new requirement_* tables
---  14. Seed defaults — 3 approval-threshold tiers + 5 platform_policies
---  15. Notification generator rename — fn_generate_unresolved_grievance_items
+--  14. fn_track_issue_by_token() — the anonymous filer's tracking-code path
+--  15. Seed defaults — 3 approval-threshold tiers + 5 platform_policies
+--  16. Notification generator rename — fn_generate_unresolved_grievance_items
 --      → fn_generate_unresolved_issue_items + filter by issue_type;
---      UPDATE notification_generator_config row accordingly
+--      UPDATE notification_generator_config row accordingly. The OLD name is
+--      kept as a delegating wrapper — it has a live caller.
+--
+-- REPAIR (2026-09-03) — this file had never applied to production. Proof:
+-- types/supabase.ts, generated from the live database, carries neither
+-- grievance_tickets.issue_type nor any requirement_requests table. Four
+-- defects were fixed; nothing else was rewritten:
+--   (a) the platform_policies seed used a bare ON CONFLICT target against an
+--       EXPRESSION unique index — 42P10, which rolls back all 941 lines
+--       because this file is one transaction (BEGIN L49 → COMMIT).
+--   (b) the same seed omitted data_type, which is NOT NULL with no default;
+--       ON CONFLICT cannot rescue a NOT NULL violation.
+--   (c) THE MECHANICAL REASON IT NEVER RAN. The filename was
+--       20260504_instasolver_substrate.sql, and
+--       20260504_ai_pulse_rls_hardening.sql parses to the SAME version,
+--       `20260504`. supabase_migrations.schema_migrations keys on version
+--       ALONE, so one file recorded as applied and this one never executed —
+--       with no error anywhere. Renamed to 20261103000000_.
+--   (d) the ICC branch of grievance_tickets_select carried no institution
+--       boundary while the ordinary branch two lines below did, so one
+--       icc_member role would have read confidential complaints from all 8
+--       colleges; and the complainant's own-row clause sat inside the
+--       is_icc_only = false branch, so she lost sight of her own case the
+--       moment it was marked confidential.
 --
 -- HARD CONSTRAINTS observed (from auto-loaded memory):
 --   - pgcrypto lives in extensions schema → use extensions.gen_random_uuid()
@@ -424,29 +449,59 @@ ALTER TABLE public.issue_escalation_rules        ENABLE ROW LEVEL SECURITY;
 -- Pattern: (custom_roles.role_key = 'icc_member')
 
 DROP POLICY IF EXISTS "grievance_tickets_select" ON public.grievance_tickets;
+-- INITPLAN DISCIPLINE — every per-row-CONSTANT call below is wrapped in a
+-- scalar sub-select, so PostgreSQL evaluates it once per query instead of once
+-- per row. This is not decoration: the platform-wide sweep of 2026-07-31
+-- (supabase/migrations/rls_initplan_wrap_sweep.sql, applied to production, bare
+-- auth.uid() policies 1,273 -> 1) already wrapped the LIVE grievance_tickets
+-- policies, and that file records the live text at line 2058. Recreating these
+-- policies with bare calls would silently undo that sweep for this table.
+-- role_has_institution_access(institution_id) is deliberately NOT wrapped — it
+-- takes a per-row column, so it is not a per-row constant. The sweep left it
+-- unwrapped for the same reason.
 CREATE POLICY "grievance_tickets_select" ON public.grievance_tickets FOR SELECT
 USING (
-  is_super_admin() OR is_admin()
-  -- ICC-only tickets: only ICC role members can see them
+  (SELECT is_super_admin()) OR (SELECT is_admin())
+  -- (2) The complainant always sees her own case.
+  -- This clause used to sit INSIDE the `is_icc_only = false` branch, so the
+  -- moment a complaint was flagged confidential the woman who raised it lost
+  -- sight of it entirely — she could file and then never learn what happened.
+  -- Hoisted here so it holds for EVERY row, ICC-only included.
+  -- Anonymous rows are unaffected: raised_by_id IS NULL there, and
+  -- NULL = (SELECT auth.uid()) evaluates to NULL, never TRUE. Their access path is
+  -- fn_track_issue_by_token() below.
+  OR raised_by_id = (SELECT auth.uid())
+  -- (1) ICC-only tickets: that college's committee, and no other.
+  -- role_has_institution_access(institution_id) was MISSING here while the
+  -- ordinary branch below has always carried it, so a single icc_member role
+  -- read confidential complaints from all 8 colleges.
   OR (
     is_icc_only = true
+    AND role_has_institution_access(institution_id)
     AND EXISTS (
       SELECT 1
       FROM public.user_roles ur
       JOIN public.custom_roles cr ON ur.role_id = cr.id
-      WHERE ur.user_id = auth.uid()
+      WHERE ur.user_id = (SELECT auth.uid())
         AND cr.role_key = 'icc_member'
     )
   )
-  -- Non-ICC-only tickets: existing institution + permission gate
+  -- Non-ICC-only tickets: existing institution + permission gate.
+  -- filed_by and assigned_to stay INSIDE this branch deliberately. Hoisting
+  -- them alongside raised_by_id was considered and rejected: both columns are
+  -- writable on an existing row, so a hoisted filed_by would let a complainant
+  -- editing her own open ICC ticket hand a third party read access to it, and
+  -- a hoisted assigned_to would put a confidential complaint in front of a
+  -- handler who is not on that college's committee. For an ICC-only row the
+  -- assignee must therefore also be an icc_member of that institution — which
+  -- is the confidentiality rule, stated as an access rule.
   OR (
     is_icc_only = false
     AND (
-      raised_by_id = auth.uid()        -- filer always sees own tickets
-      OR assigned_to = auth.uid()      -- assignee sees their queue
-      OR filed_by = auth.uid()         -- proxy filer sees what they filed
+      assigned_to = (SELECT auth.uid())         -- assignee sees their queue
+      OR filed_by = (SELECT auth.uid())         -- proxy filer sees what they filed
       OR (
-        user_has_permission('grievance.tickets.view')
+        (SELECT user_has_permission('grievance.tickets.view'))
         AND role_has_institution_access(institution_id)
       )
     )
@@ -468,17 +523,24 @@ WITH CHECK (
 DROP POLICY IF EXISTS "grievance_tickets_update" ON public.grievance_tickets;
 CREATE POLICY "grievance_tickets_update" ON public.grievance_tickets FOR UPDATE
 USING (
-  is_super_admin() OR is_admin()
-  -- ICC-only tickets: only ICC role members can edit them (super_admin
-  -- handled by first branch as break-glass; audit logged via trigger
-  -- in B.2 wave per spec R1.3).
+  (SELECT is_super_admin()) OR (SELECT is_admin())
+  -- (2) The complainant can still act on her own case while it is open —
+  -- correct it, add to it, withdraw it — whether or not it is confidential.
+  -- Hoisted out of the `is_icc_only = false` branch for the same reason as
+  -- the SELECT policy. The status guard is kept, so this never lets her edit
+  -- a case the committee has already taken up.
+  OR (raised_by_id = (SELECT auth.uid()) AND status IN ('open'))
+  -- (1) ICC-only tickets: that college's committee only (super_admin handled
+  -- by the first branch as break-glass; audit logged via trigger in B.2 wave
+  -- per spec R1.3). role_has_institution_access was missing here too.
   OR (
     is_icc_only = true
+    AND role_has_institution_access(institution_id)
     AND EXISTS (
       SELECT 1
       FROM public.user_roles ur
       JOIN public.custom_roles cr ON ur.role_id = cr.id
-      WHERE ur.user_id = auth.uid()
+      WHERE ur.user_id = (SELECT auth.uid())
         AND cr.role_key = 'icc_member'
     )
   )
@@ -486,34 +548,34 @@ USING (
   OR (
     is_icc_only = false
     AND (
-      assigned_to = auth.uid()
-      OR (raised_by_id = auth.uid() AND status IN ('open'))
+      assigned_to = (SELECT auth.uid())
       OR (
-        user_has_permission('grievance.tickets.edit')
+        (SELECT user_has_permission('grievance.tickets.edit'))
         AND role_has_institution_access(institution_id)
       )
     )
   )
 )
 WITH CHECK (
-  is_super_admin() OR is_admin()
+  (SELECT is_super_admin()) OR (SELECT is_admin())
+  OR raised_by_id = (SELECT auth.uid())
   OR (
     is_icc_only = true
+    AND role_has_institution_access(institution_id)
     AND EXISTS (
       SELECT 1
       FROM public.user_roles ur
       JOIN public.custom_roles cr ON ur.role_id = cr.id
-      WHERE ur.user_id = auth.uid()
+      WHERE ur.user_id = (SELECT auth.uid())
         AND cr.role_key = 'icc_member'
     )
   )
   OR (
     is_icc_only = false
     AND (
-      assigned_to = auth.uid()
-      OR raised_by_id = auth.uid()
+      assigned_to = (SELECT auth.uid())
       OR (
-        user_has_permission('grievance.tickets.edit')
+        (SELECT user_has_permission('grievance.tickets.edit'))
         AND role_has_institution_access(institution_id)
       )
     )
@@ -523,10 +585,110 @@ WITH CHECK (
 DROP POLICY IF EXISTS "grievance_tickets_delete" ON public.grievance_tickets;
 CREATE POLICY "grievance_tickets_delete" ON public.grievance_tickets FOR DELETE
 USING (
-  is_super_admin() OR is_admin()
+  (SELECT is_super_admin()) OR (SELECT is_admin())
   -- Tickets should be withdrawn (status=withdrawn), not deleted.
   -- Delete is reserved for super-admin/admin cleanup of test/spam data.
+  -- No is_icc_only branch and no identity branch exist here, so the two
+  -- defects fixed in the SELECT and UPDATE policies above have no equivalent
+  -- in this one. Left byte-for-byte unchanged, deliberately.
 );
+
+-- ---------------------------------------------------------------------
+-- 14b. ANONYMOUS FILER'S TRACKING CODE
+--
+-- (3) An anonymous complaint has no account attached: raised_by_id IS NULL,
+-- so hoisting `raised_by_id = auth.uid()` in the SELECT policy above does
+-- NOT give an anonymous filer her own case back. Her only handle is the
+-- anonymous_token issued at filing time. Today that token is WRITTEN by
+-- lib/services/grievance/grievance-service.ts and lib/services/issues/
+-- issue-service.ts and READ by nothing at all — she receives a code that
+-- does not work anywhere.
+--
+-- A table-level RLS policy cannot serve this: the token arrives in a URL
+-- path, not in a JWT, and widening grievance_tickets to the `anon` role at
+-- all would be the wrong shape. A narrow SECURITY DEFINER function is the
+-- access path instead — it bypasses RLS by design and returns only the
+-- columns below, so the surface is fixed at definition time rather than
+-- left to whatever the calling route happens to select.
+--
+-- (4) Status and progress ONLY. Returned: the ticket's own number and the
+-- subject she wrote, where it has got to, and `resolution` — the message
+-- written FOR her. Deliberately NOT returned: metadata and attachments
+-- (internal committee working notes live there), assigned_to (naming the
+-- handler of a harassment case to an unauthenticated caller is itself a
+-- disclosure), institution/department/category ids, and every raised_by_*
+-- column. resolution_letter_pdf_url is also withheld: serving that file
+-- needs a signed URL the route must mint, and this migration does not set
+-- storage policy.
+--
+-- Rate limiting is NOT enforced here. The per-IP ceiling is seeded as
+-- platform policy `issues.anonymous_track.rate_limit_per_hour` (section 17)
+-- and the /track/<token> route must read and enforce it; a bare token
+-- lookup is otherwise enumerable.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_track_issue_by_token(p_token text)
+RETURNS TABLE (
+  ticket_number text,
+  subject       text,
+  status        text,
+  created_at    timestamptz,
+  assigned_at   timestamptz,
+  resolved_at   timestamptz,
+  withdrawn_at  timestamptz,
+  resolution    text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $fn_track$
+  SELECT
+    gt.ticket_number::text,
+    gt.subject::text,
+    gt.status::text,
+    gt.created_at,
+    gt.assigned_at,
+    gt.resolved_at,
+    gt.withdrawn_at,
+    gt.resolution::text
+  FROM public.grievance_tickets gt
+  WHERE gt.is_anonymous = true
+    AND gt.anonymous_token IS NOT NULL
+    AND gt.anonymous_token = p_token
+    -- Both services mint the code as 'anon_' || crypto.randomUUID() — 41
+    -- characters, 122 bits. The shape guard stops a blank or truncated value
+    -- being probed at all; it is not the entropy defence, the UUID is.
+    AND p_token LIKE 'anon\_%'
+    AND length(coalesce(p_token, '')) >= 20
+  LIMIT 1;
+$fn_track$;
+
+COMMENT ON FUNCTION public.fn_track_issue_by_token(text) IS
+  'Status lookup for an anonymously filed /issues ticket, keyed on anonymous_token. Returns at most one row and only filer-facing fields (number, subject, status, the four progress timestamps, and the resolution message written for her) — never committee notes, attachments, handler identity or any raised_by_* column. SECURITY DEFINER because the filer is unauthenticated and has no RLS identity. NOT granted to anon: the /track/<token> route must call this with a service-role client and enforce platform policy issues.anonymous_track.rate_limit_per_hour, which the function itself does not do.';
+
+-- GRANT POSTURE — deliberately service_role, NOT anon.
+--
+-- Criterion (b) of scripts/ci/check-secdef-anon-revoke.mjs would accept an
+-- explicit `GRANT ... TO anon` here as an intentional-public RPC, but that
+-- guard's own header sets the bar: treat a lookup as intentional-public only
+-- if you can NAME the unauthenticated caller. There is no /track/<token>
+-- route under app/ yet — this migration ships the substrate and the route is
+-- a follow-up — so naming one would be a fiction, and the fn_get_policy*
+-- incident recorded in that header is what happens when the box is ticked
+-- anyway.
+--
+-- Granting anon now would also put a live public RPC on production with no
+-- consumer and, crucially, with its rate limit unenforced: the ceiling seeded
+-- as issues.anonymous_track.rate_limit_per_hour (section 17) is applied by the
+-- calling route, and there is no calling route. service_role keeps the lookup
+-- server-side — which is how the existing unauthenticated policy-reading
+-- routes in this codebase already work — and makes that ceiling real.
+--
+-- If the tracking page is later meant to query straight from the browser,
+-- widening this to anon is a one-line change; it belongs in the same PR as
+-- the route that enforces the limit, not ahead of it.
+REVOKE ALL ON FUNCTION public.fn_track_issue_by_token(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_track_issue_by_token(text) TO service_role;
 
 -- ---------------------------------------------------------------------
 -- 15. RLS policies on the new requirement_* + config tables.
@@ -692,35 +854,54 @@ ON CONFLICT (approval_authority, institution_id) DO NOTHING;
 -- ---------------------------------------------------------------------
 -- 17. SEED DEFAULTS — platform_policies (5 rows)
 -- Voting window/quorum, anonymous-track rate limit, attachment limits.
--- Schema: (policy_key, scope_type, scope_id, value jsonb, description).
+-- Schema: (policy_key, scope_type, scope_id, value jsonb, description,
+--          data_type). data_type is NOT NULL with NO default and its CHECK
+-- admits only number | string | boolean | array | object | enum
+-- (20260429000002_platform_policies_substrate.sql:21). All five rows below
+-- hold a scalar number, so all five are 'number'. Omitting the column — as
+-- this file did until now — raises a NOT NULL violation that ON CONFLICT
+-- cannot rescue, aborting the single transaction this whole file runs in.
+--
+-- CONFLICT TARGET: uniqueness on this table is the EXPRESSION index
+--   uq_platform_policies_key_scope
+--     (policy_key, scope_type, COALESCE(scope_id, '000…0'::uuid))
+-- (same file, line 32). A bare (policy_key, scope_type, scope_id) target
+-- cannot be inferred against an expression index and raises 42P10 — see
+-- 20260726193000, 20260809000000 and 20260807100000 for the same lesson.
+-- The COALESCE form below is what 66 other migration files already use.
 -- ---------------------------------------------------------------------
-INSERT INTO public.platform_policies (policy_key, scope_type, scope_id, value, description)
+INSERT INTO public.platform_policies (policy_key, scope_type, scope_id, value, description, data_type)
 VALUES
   ('issues.requirement.voting_window_days.default',
    'global', NULL,
    to_jsonb(14),
-   'Default voting window in days for new Requirements (used when category does not override). Director-tunable.'),
+   'Default voting window in days for new Requirements (used when category does not override). Director-tunable.',
+   'number'),
 
   ('issues.requirement.voting_quorum_pct',
    'global', NULL,
    to_jsonb(0.10),
-   'Minimum percent (0.0-1.0) of eligible voters needed for a Requirement to clear voting_closed and become eligible for approval. 0.10 = 10%.'),
+   'Minimum percent (0.0-1.0) of eligible voters needed for a Requirement to clear voting_closed and become eligible for approval. 0.10 = 10%.',
+   'number'),
 
   ('issues.anonymous_track.rate_limit_per_hour',
    'global', NULL,
    to_jsonb(60),
-   'Per-IP rate limit for /track/<token> public unauthenticated status check. Prevents enumeration attacks against anonymous_token.'),
+   'Per-IP rate limit for /track/<token> public unauthenticated status check. Prevents enumeration attacks against anonymous_token.',
+   'number'),
 
   ('issues.attachment.max_files',
    'global', NULL,
    to_jsonb(5),
-   'Max number of attachment files per /issues ticket (grievance OR requirement). Closes deferred PR #305 attachment gap.'),
+   'Max number of attachment files per /issues ticket (grievance OR requirement). Closes deferred PR #305 attachment gap.',
+   'number'),
 
   ('issues.attachment.max_size_mb',
    'global', NULL,
    to_jsonb(10),
-   'Max size in megabytes per attachment file. Combined with max_files = 50 MB total per ticket.')
-ON CONFLICT (policy_key, scope_type, scope_id) DO NOTHING;
+   'Max size in megabytes per attachment file. Combined with max_files = 50 MB total per ticket.',
+   'number')
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
 
 -- ---------------------------------------------------------------------
 -- 18. NOTIFICATION GENERATOR RENAME
@@ -744,8 +925,22 @@ SET generator_name = 'unresolved_issue',
     updated_at = now()
 WHERE generator_name = 'unresolved_grievance';
 
--- Drop old fn signature
-DROP FUNCTION IF EXISTS public.fn_generate_unresolved_grievance_items();
+-- The old signature is deliberately NOT dropped here.
+--
+-- fn_generate_unresolved_grievance_items() is live in production and has a
+-- caller: fn_generate_all_dashboard_work_items() invokes it as
+--   BEGIN r8 := fn_generate_unresolved_grievance_items();
+--   EXCEPTION WHEN OTHERS THEN e8 := SQLERRM; END;
+-- (20260428_hr_command_center_brief_digest.sql:164, and both definitions of
+-- the orchestrator in supabase/setup/02_functions.sql, lines 10098 and 10173).
+-- That handler swallows the error into a jsonb field nobody reads, so dropping
+-- the function would stop grievance work items appearing on dashboards
+-- permanently while surfacing nothing to a human — the dashboards would simply
+-- go quiet. (The match in 20260817030000 is a comment, not a call.)
+--
+-- The old name is kept below as a thin delegating wrapper instead, added after
+-- the new function exists. The orchestrator keeps working untouched, and the
+-- wrapper can be retired in the B.2 wave that rewires it.
 
 -- Recreate as fn_generate_unresolved_issue_items, filtering by
 -- issue_type to match the new config row. SECURITY DEFINER + the
@@ -880,6 +1075,42 @@ COMMENT ON FUNCTION public.fn_generate_unresolved_issue_items() IS
   'Renamed from fn_generate_unresolved_grievance_items (Insta Solver B.1). Generates dashboard work items for unresolved /issues tickets (grievance + requirement_link). Filters by issue_type from config. Reads policy from notification_generator_config(name=unresolved_issue). Wired into fn_generate_all_dashboard_work_items in B.2 wave (this PR ships substrate only — the orchestrator update is a follow-up so existing behavior stays intact during deploy window).';
 
 -- ---------------------------------------------------------------------
+-- 18b. COMPATIBILITY WRAPPER for the old function name.
+--
+-- fn_generate_all_dashboard_work_items() still calls the old name inside an
+-- EXCEPTION WHEN OTHERS handler, so a missing function there is silent. This
+-- keeps the name resolvable and delegates to the renamed implementation, so
+-- the orchestrator's r8 slot keeps producing grievance work items across the
+-- deploy window with no change to the caller.
+--
+-- CREATE OR REPLACE (not CREATE) so this is a no-op-shaped rewrite of the
+-- function that already exists in production. RETURNS INT matches the live
+-- signature exactly (supabase/setup/02_functions.sql:10025-10026) — a return
+-- type change would be rejected rather than applied.
+--
+-- The grant posture of the original is re-asserted below rather than assumed:
+-- 20260817030000 measured this family on production and recorded
+-- fn_generate_unresolved_grievance_items as postgres | service_role with no
+-- `authenticated` grant, and supabase/setup/02_functions.sql:10081 declares
+-- the same. Replacing a function does not reset its ACL, but stating it here
+-- means a later re-run of the 155-name loop in
+-- 20260605191101_revoke_platform_rpcs_anon_access.sql cannot quietly widen it.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_generate_unresolved_grievance_items()
+RETURNS INT
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $fn_griev_comfat$
+  SELECT public.fn_generate_unresolved_issue_items();
+$fn_griev_comfat$;
+
+REVOKE ALL ON FUNCTION public.fn_generate_unresolved_grievance_items() FROM PUBLIC, anon, authenticated;
+
+COMMENT ON FUNCTION public.fn_generate_unresolved_grievance_items() IS
+  'DEPRECATED compatibility wrapper (Insta Solver B.1). Delegates to fn_generate_unresolved_issue_items(). Kept because fn_generate_all_dashboard_work_items() calls this name inside an EXCEPTION WHEN OTHERS handler, so dropping it would stop grievance work items reaching dashboards silently. Retire together with the orchestrator rewire in the B.2 wave.';
+
+-- ---------------------------------------------------------------------
 -- 19. VERIFICATION BLOCK — best-effort sanity checks
 -- ---------------------------------------------------------------------
 DO $$
@@ -935,6 +1166,27 @@ BEGIN
   END IF;
   IF v_new_tables < 8 THEN
     RAISE EXCEPTION 'B.1 verification failed: expected 8 new tables, found %', v_new_tables;
+  END IF;
+
+  -- The five platform_policies rows are the seed that used to abort this whole
+  -- transaction — first on a NOT NULL violation for data_type, then on 42P10
+  -- from a bare ON CONFLICT target against an expression unique index. A
+  -- NOTICE-only check here would let either regression read as success.
+  IF v_seed_policies < 5 THEN
+    RAISE EXCEPTION 'B.1 verification failed: expected 5 platform_policies issues.* rows, found %', v_seed_policies;
+  END IF;
+
+  -- The orchestrator fn_generate_all_dashboard_work_items() calls the old
+  -- generator name inside an EXCEPTION WHEN OTHERS handler. If the wrapper is
+  -- missing, grievance work items stop reaching dashboards and nothing tells
+  -- anyone. Fail here instead, where a human is watching.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'fn_generate_unresolved_grievance_items'
+  ) THEN
+    RAISE EXCEPTION 'B.1 verification failed: compatibility wrapper fn_generate_unresolved_grievance_items() is absent — fn_generate_all_dashboard_work_items() would silently stop emitting grievance work items';
   END IF;
 END $$;
 
