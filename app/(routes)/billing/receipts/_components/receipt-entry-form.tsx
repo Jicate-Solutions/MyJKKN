@@ -42,6 +42,26 @@ const PAYMENT_MODE_OPTIONS = [
   { value: 'combined', label: 'Combined Payment' }
 ];
 
+/** "First Last" from a learner row, or '' when the row is absent / unreadable. */
+function learnerDisplayName(learner: any): string {
+  if (!learner) return '';
+  return `${learner.first_name || ''} ${learner.last_name || ''}`.trim();
+}
+
+/**
+ * The one number to print as Payer Contact. student_mobile is populated for
+ * every active learner, so it is the primary; father / mother cover the legacy
+ * rows that predate that and the odd staff-created profile.
+ */
+function learnerContact(learner: any): string {
+  if (!learner) return '';
+  return (
+    [learner.student_mobile, learner.father_mobile, learner.mother_mobile]
+      .map((v: unknown) => String(v || '').trim())
+      .find(Boolean) || ''
+  );
+}
+
 interface InstitutionOption {
   id: string;
   name: string;
@@ -114,6 +134,25 @@ export function ReceiptEntryForm({
 
   const amountInputRef = useRef<HTMLInputElement>(null);
   const hasAutoFocused = useRef(false);
+
+  /**
+   * Received From / Payer Contact are PREFILLED from the learner on the bill,
+   * but they stay editable — the person at the counter is often a parent, and
+   * the number on the profile is not always the one that should print on the
+   * receipt.
+   *
+   * The prefill arrives in up to two waves (the bill's embedded learner, then
+   * the server-side payer-summary fallback for roles that cannot read
+   * learners_profiles), and the second wave lands AFTER the form is already
+   * interactive. These flags record that the operator has taken the field
+   * over, so a late-arriving lookup can never overwrite what they typed —
+   * including the case where they deliberately cleared it, which a plain
+   * `prev.payer_name || fetched` guard would silently refill.
+   */
+  const payerNameTouched = useRef(false);
+  const payerContactTouched = useRef(false);
+  /** Whether the value currently shown came from the learner profile. */
+  const [payerAutoFilled, setPayerAutoFilled] = useState(false);
 
   const createReceiptMutation = useCreateBillingReceipt();
 
@@ -198,10 +237,25 @@ export function ReceiptEntryForm({
       if (!summary) return;
 
       if (summary.roll_number) setStudentRollNumber(summary.roll_number);
+
+      const name = !payerNameTouched.current ? summary.full_name || '' : '';
+      const contact = !payerContactTouched.current
+        ? summary.payer_contact || ''
+        : '';
+      if (name || contact) setPayerAutoFilled(true);
+
       setFormData((prev) => ({
         ...prev,
         student_id: prev.student_id || summary.student_id,
-        institution_id: prev.institution_id || summary.institution_id
+        institution_id: prev.institution_id || summary.institution_id,
+        // `|| prev.*` so a summary that resolves the name but not the number
+        // cannot blank a value the bill embed had already supplied.
+        payer_name: payerNameTouched.current
+          ? prev.payer_name
+          : name || prev.payer_name,
+        payer_contact: payerContactTouched.current
+          ? prev.payer_contact
+          : contact || prev.payer_contact
       }));
     } catch (error) {
       console.error('Error loading payer summary:', error);
@@ -236,6 +290,12 @@ export function ReceiptEntryForm({
       // an error — so for roles without a learners.*.view permission the embed
       // is silently null. Both columns exist on billing_student_bills itself,
       // which every receipt-creating role can already read.
+      // Payer identity, prefilled from the learner the bills belong to. Both
+      // fields stay editable — see the payer*Touched refs.
+      const prefillName = learnerDisplayName(firstBill?.student);
+      const prefillContact = learnerContact(firstBill?.student);
+      if (prefillName || prefillContact) setPayerAutoFilled(true);
+
       setFormData((prev) => ({
         ...prev,
         payment_amount: 0,
@@ -244,7 +304,13 @@ export function ReceiptEntryForm({
         institution_id:
           firstBill?.student?.institution_id ||
           firstBill?.institution_id ||
-          prev.institution_id
+          prev.institution_id,
+        payer_name: payerNameTouched.current
+          ? prev.payer_name
+          : prefillName || prev.payer_name,
+        payer_contact: payerContactTouched.current
+          ? prev.payer_contact
+          : prefillContact || prev.payer_contact
       }));
 
       setBillInstitutionName(firstBill?.institution?.name || '');
@@ -815,19 +881,37 @@ export function ReceiptEntryForm({
               id='payer_name'
               placeholder='Enter payer name'
               value={formData.payer_name || ''}
-              onChange={(e) => handleInputChange('payer_name', e.target.value)}
+              onChange={(e) => {
+                payerNameTouched.current = true;
+                handleInputChange('payer_name', e.target.value);
+              }}
               required
             />
+            {payerAutoFilled && !payerNameTouched.current && (
+              <p className='text-xs text-muted-foreground'>
+                From the learner profile — edit if someone else is paying
+              </p>
+            )}
           </div>
 
           <div className='space-y-2'>
             <Label htmlFor='payer_contact'>Payer Contact</Label>
             <Input
               id='payer_contact'
+              type='tel'
+              inputMode='tel'
               placeholder='Enter contact number'
               value={formData.payer_contact || ''}
-              onChange={(e) => handleInputChange('payer_contact', e.target.value)}
+              onChange={(e) => {
+                payerContactTouched.current = true;
+                handleInputChange('payer_contact', e.target.value);
+              }}
             />
+            {payerAutoFilled && !payerContactTouched.current && (
+              <p className='text-xs text-muted-foreground'>
+                From the learner profile — edit if the payer&apos;s number differs
+              </p>
+            )}
           </div>
 
           <div className='space-y-2'>
