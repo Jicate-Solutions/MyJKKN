@@ -6,8 +6,7 @@
 //   • fetchIdCardTemplates()          — template picker options (session RLS)
 //   • resolveProfileIdForLearner()    — learners_profiles.id → profiles.id
 //   • resolveProfileIdsForLearners()  — batch variant for bulk printing
-//   • resolveAccountsForLearners()    — batch variant incl. avatar_url (the
-//     photo-fallback signal for the batch-print "skip no-photo" policy)
+//   • resolveAccountsForLearners()    — batch variant returning the account id
 //   • resolveProfileIdByEmail()       — team-member fallback (profiles.email)
 //   • enqueuePrintJob()               — POST /api/id-cards/jobs, mapped outcomes
 //   • getLastTemplateId()/setLastTemplateId() — localStorage memory of the
@@ -94,7 +93,7 @@ export interface LearnerAccountInfo {
 
 /**
  * Batch account resolution: map learners_profiles.id → account info
- * (profiles.id + avatar_url), chunked to stay within URL limits at cohort
+ * (profiles.id), chunked to stay within URL limits at cohort
  * scale (freshers batch / whole class).
  * Learners without an account are simply absent from the returned map.
  */
