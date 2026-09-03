@@ -295,10 +295,9 @@ export default function MarathonResultsPage() {
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
   const { data: results, isLoading, error, refetch } = useMarathonResults(eventId);
 
-  // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
-    return <MarathonAccessDenied title="Results" eventId={eventId} />;
-  }
+  // The non-admin block lives BELOW the hooks — see the same note on the
+  // certificates page. Returning here made useRecalculateRankings, useMarkDNF
+  // and the columns useMemo conditional the moment access resolved to denied.
   const recalculateMutation = useRecalculateRankings();
   const markDNFMutation = useMarkDNF();
 
@@ -479,6 +478,11 @@ export default function MarathonResultsPage() {
       (r.certificate_id?.toLowerCase().includes(q) ?? false)
     );
   };
+
+  // Every hook has run — safe to bail out from here down.
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Results" eventId={eventId} />;
+  }
 
   if (eventLoading) {
     return (

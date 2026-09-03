@@ -563,8 +563,11 @@ export class HostelVacateRequestService {
 
   /**
    * Finalize a completed request: calls HostelAllocationService.vacate() to
-   * flip the allocation to status=vacated + stamps actual_vacate_date, then
-   * marks the request status=completed.
+   * flip the allocation to status=vacated, stamp actual_vacate_date +
+   * check_out_date AND free the bed (one transaction, via
+   * fn_cl_vacate_allocation), then marks the request status=completed.
+   * The RPC is idempotent on an already-vacated allocation, so a retried
+   * finalize does not fail here.
    *
    * Preconditions: engine run in status=completed AND all required clearance
    * items are cleared. Service enforces both; callers should check the

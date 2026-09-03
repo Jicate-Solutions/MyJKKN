@@ -21,6 +21,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 export type HousekeepingBookingStatus =
   | 'booked'
+  | 'assigned'
   | 'completed'
   | 'cancelled'
   | 'no_show';
@@ -46,6 +47,12 @@ export interface HostelCleaningBooking {
   notes: string | null;
   cancelled_at: string | null;
   completed_at: string | null;
+  /** profiles.id of the assigned cleaner (NULL for free-text-only assignees). */
+  assigned_profile_id: string | null;
+  /** Display name — resolved from profiles.full_name or typed free-text. */
+  assigned_staff_name: string | null;
+  assigned_at: string | null;
+  assigned_by: string | null;
   created_at: string;
   updated_at: string;
   [k: string]: unknown;
@@ -102,9 +109,29 @@ export interface BookingMutationResult {
 
 /** Staff/Director day-board row from fn_housekeeping_booking_board. */
 export interface BookingBoardRow extends HostelCleaningBooking {
+  institution_name: string | null;
   room_number: string | null;
+  /** hostel_rooms.floor (text/number in prod — render as-is). */
+  floor: string | number | null;
   block_name: string | null;
   learner_name: string | null;
+  roll_number: string | null;
+  program_name: string | null;
+  phone: string | null;
+  photo_url: string | null;
+}
+
+/** Date scope for the staff board: one day, a range, or (all empty) every booking. */
+export interface BookingBoardParams {
+  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/** One row of fn_housekeeping_assignable_staff — the assign-dialog picker. */
+export interface AssignableStaff {
+  id: string;
+  full_name: string | null;
 }
 
 /** Entitlement envelope returned verbatim by fn_housekeeping_my_entitlement. */
@@ -228,17 +255,28 @@ export class HousekeepingBookingService {
     }
   }
 
-  // ── Staff day board ────────────────────────────────────────────────
+  // ── Staff board (one day, a range, or all bookings) ────────────────
+  /**
+   * `institutionId` omitted / null = every institution the caller can access
+   * (the RPC applies the same per-row tenant scope RLS would). Never coerce a
+   * missing id to '' here — that would be sent as a real UUID param and match
+   * nothing, which is the platform's classic silent-empty-table bug.
+   */
   static async getBookingBoard(
-    institutionId: string,
-    date: string
+    institutionId?: string | null,
+    params: BookingBoardParams = {}
   ): Promise<BookingBoardRow[]> {
     try {
       const supabase = createClientSupabaseClient();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any).rpc(
         'fn_housekeeping_booking_board',
-        { p_institution_id: institutionId, p_date: date }
+        {
+          p_institution_id: institutionId ?? null,
+          p_date: params.date ?? null,
+          p_date_from: params.dateFrom ?? null,
+          p_date_to: params.dateTo ?? null,
+        }
       );
       if (error) {
         logger.error('campus-living/housekeeping', 'Failed to fetch booking board', error);
@@ -269,6 +307,58 @@ export class HousekeepingBookingService {
       return data as BookingMutationResult;
     } catch (error) {
       logger.error('campus-living/housekeeping', 'Unexpected error in markBooking', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Assign / re-assign a booking to a cleaner (fn_housekeeping_assign_booking,
+   * gated on campus_living.housekeeping.schedule). Either a profile id (system
+   * user) or a free-text name; `clear: true` reverts to plain 'booked'.
+   */
+  static async assignBooking(
+    bookingId: string,
+    opts: { profileId?: string | null; name?: string | null; clear?: boolean }
+  ): Promise<BookingMutationResult> {
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc(
+        'fn_housekeeping_assign_booking',
+        {
+          p_booking_id: bookingId,
+          p_assignee_profile_id: opts.profileId ?? null,
+          p_assignee_name: opts.name ?? null,
+          p_clear: opts.clear ?? false,
+        }
+      );
+      if (error) {
+        logger.error('campus-living/housekeeping', 'Failed to assign booking', error);
+        throw error;
+      }
+      return data as BookingMutationResult;
+    } catch (error) {
+      logger.error('campus-living/housekeeping', 'Unexpected error in assignBooking', error);
+      throw error;
+    }
+  }
+
+  /** Active profiles whose roles grant '.mark_done' in this institution. */
+  static async getAssignableStaff(institutionId: string): Promise<AssignableStaff[]> {
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc(
+        'fn_housekeeping_assignable_staff',
+        { p_institution_id: institutionId }
+      );
+      if (error) {
+        logger.error('campus-living/housekeeping', 'Failed to fetch assignable staff', error);
+        throw error;
+      }
+      return (data ?? []) as AssignableStaff[];
+    } catch (error) {
+      logger.error('campus-living/housekeeping', 'Unexpected error in getAssignableStaff', error);
       throw error;
     }
   }

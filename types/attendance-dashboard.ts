@@ -50,10 +50,26 @@ export interface PendingAttendancePeriod {
 export interface PendingAttendanceResponse {
   data: PendingAttendancePeriod[];
   metadata: {
+    /** PENDING periods after every filter — NOT the number scheduled. */
     total: number;
     page: number;
     limit: number;
     totalPages: number;
+    /**
+     * Every markable period the in-scope timetables scheduled over the range,
+     * and how many of those already carry a mark. `scheduledCount` is the real
+     * denominator: `scheduledCount = markedCount + total`.
+     *
+     * Added 2026-08-31. The summary cards were deriving "Total Periods" from
+     * `data.length` — the PENDING list — so Total and Pending were the same
+     * number by construction (both read 470) and "completed" was hard-coded 0,
+     * pinning the completion rate at 0% however much staff marked.
+     *
+     * Counted before the search/staff filters and before pagination, so the
+     * cards describe the workload rather than the current page.
+     */
+    scheduledCount: number;
+    markedCount: number;
     overdueCount: number;     // periods where attendance_date < today
     todayCount: number;       // periods where attendance_date === today
     sectionsCount: number;    // unique sections with pending periods
@@ -75,10 +91,71 @@ export interface PendingAttendanceResponse {
  * percentage is: a college that marked 1 learner of 93 would otherwise read as
  * "100% attendance" instead of "1 of 1 marked, 92 not yet marked".
  */
+/**
+ * A timetable that scheduled at least one markable period for a section on the
+ * selected date, as resolved by `fn_timetable_scheduled_sections`.
+ *
+ * Rendered under the section in the breakdown so "which timetable are these
+ * unmarked learners on?" has an answer on screen. An empty array means the
+ * section has no class that day at all.
+ */
+export interface ScheduledTimetable {
+  id: string;
+  name: string;
+  /** Validity window. Null means open-ended at that end. */
+  start_date: string | null;
+  end_date: string | null;
+  /** Markable periods this timetable scheduled for the section that day. */
+  periods: number;
+}
+
 export interface AttendanceStats {
   institution_id: string;
   institution_name: string;
   total_students: number;
+  /**
+   * `total_students` split by lifecycle_status, so the UI can say WHICH learners
+   * it counted rather than showing a bare headcount that disagrees with every
+   * other learner screen.
+   *
+   * 2026-08-31: the Statistics tab read 512 for Dental while Learner Profiles
+   * read 498. Both were right — this roster counts active + reserved + admitted
+   * (Director decision 2026-08-11) and the Profiles page defaults to its Active
+   * tab. The gap was exactly the 14 reserved learners. Nothing was miscounted;
+   * the number simply never stated its own definition, so the only way to
+   * reconcile the two screens was to query the database.
+   *
+   * These three sum to `total_students` by construction — they ARE the counted
+   * status set — so a caller may render them as a breakdown without a residual.
+   * Carried at institution level ONLY: no surface renders a per-department
+   * split, and the RPC deliberately doesn't emit one.
+   */
+  total_active: number;
+  total_reserved: number;
+  total_admitted: number;
+  /**
+   * The same headcount split by whether a class is actually SCHEDULED that day.
+   *
+   * `total_students` is a section roster and knows nothing about timetables, so
+   * "not yet marked" derived from it counted learners no staff member could have
+   * marked — 1,111 of 3,155 estate-wide on 2026-08-31, and every one of Dental's
+   * 357. The backlog the UI shows is therefore
+   * `total_scheduled - total_scheduled_marked`, and the remainder
+   * (`total_students - total_scheduled`) is surfaced separately as "No class today".
+   *
+   * `total_scheduled_marked` is NOT interchangeable with `total_marked`: 436
+   * learners estate-wide carry a mark while their section has no class that day,
+   * so `total_scheduled - total_marked` can go negative.
+   */
+  total_scheduled: number;
+  total_scheduled_marked: number;
+  /**
+   * Whether the RPC returned the scheduling columns at all — NOT whether anyone
+   * is scheduled. On a Sunday every counter above is legitimately 0, so a caller
+   * that inferred availability from the values would fall back to roster-only
+   * arithmetic on exactly the day the distinction matters most.
+   */
+  has_scheduling: boolean;
   total_present: number;
   total_absent: number;
   total_marked: number;
@@ -95,6 +172,9 @@ export interface AttendanceStats {
     department_id: string;
     department_name: string;
     total_students: number;
+    /** See the institution-level fields — same meaning, rolled up from sections. */
+    total_scheduled: number;
+    total_scheduled_marked: number;
     total_present: number;
     total_absent: number;
     total_marked: number;
@@ -104,6 +184,9 @@ export interface AttendanceStats {
       semester_id: string;
       semester_name: string;
       total_students: number;
+      /** See the institution-level fields — same meaning, rolled up from sections. */
+      total_scheduled: number;
+      total_scheduled_marked: number;
       total_present: number;
       total_absent: number;
       total_marked: number;
@@ -113,6 +196,14 @@ export interface AttendanceStats {
         section_id: string;
         section_name: string;
         total_students: number;
+        /**
+         * Scheduling is resolved per SECTION, so these are all-or-nothing at this
+         * level: `scheduled` is either `total_students` (this section has a class
+         * that day) or 0. `timetables` is empty exactly when `scheduled` is 0.
+         */
+        scheduled: number;
+        scheduled_marked: number;
+        timetables: ScheduledTimetable[];
         present: number;
         absent: number;
         marked: number;
@@ -143,7 +234,12 @@ export interface DashboardFilters {
   // Search
   search?: string;
 
-  // Date filtering
+  /**
+   * Which DATES get scanned. A timetable is included on a given date whenever
+   * that date falls inside its own start_date/end_date — overlap, not
+   * containment. A semester timetable running to October counts for an August
+   * window; it does not have to end inside it.
+   */
   startDate?: string;
   endDate?: string;
 

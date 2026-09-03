@@ -8,7 +8,7 @@ import {
   Eye,
   FileText,
   Loader2,
-  Receipt,
+  ReceiptIndianRupee,
   ShieldAlert,
   ShoppingBag,
   Plus,
@@ -377,7 +377,7 @@ export default function StudentBillDetailPage() {
               {calculateOutstanding(bill) > 0 && (
                 <div className='mt-4 p-3 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg'>
                   <div className='flex items-center gap-2 text-yellow-800 dark:text-yellow-200'>
-                    <Receipt className='h-4 w-4' />
+                    <ReceiptIndianRupee className='h-4 w-4' />
                     <span className='text-sm font-medium'>
                       Outstanding Amount: {formatCurrency(calculateOutstanding(bill))}
                     </span>
@@ -397,7 +397,7 @@ export default function StudentBillDetailPage() {
             <CardHeader className='bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950'>
               <CardTitle className='flex items-center gap-3 text-xl'>
                 <div className='p-2 bg-green-100 dark:bg-green-900 rounded-full'>
-                  <Receipt className='h-6 w-6 text-green-600 dark:text-green-400' />
+                  <ReceiptIndianRupee className='h-6 w-6 text-green-600 dark:text-green-400' />
                 </div>
                 Bill Actions
               </CardTitle>
@@ -418,7 +418,7 @@ export default function StudentBillDetailPage() {
                       onClick={() => router.push(`/billing/receipts/${bill.receipt_items?.[0]?.receipt?.id}`)}
                       className='w-full'
                     >
-                      <Receipt className='mr-2 h-4 w-4' />
+                      <ReceiptIndianRupee className='mr-2 h-4 w-4' />
                       View Receipt
                     </Button>
                   )}
@@ -535,7 +535,7 @@ export default function StudentBillDetailPage() {
                     item.receipt && (
                       <div key={item.id} className='p-4 border rounded-lg'>
                         <h4 className='font-semibold mb-2 flex items-center'>
-                          <Receipt className='mr-2 h-5 w-5 text-blue-600' />
+                          <ReceiptIndianRupee className='mr-2 h-5 w-5 text-blue-600' />
                           Payment via Receipt: {item.receipt.receipt_number}
                           <Button
                             variant='outline'

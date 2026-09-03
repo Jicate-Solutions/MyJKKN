@@ -359,6 +359,12 @@ export interface ModeSwitchActionResult extends CancelResult {
   videoUrl?: string | null;
   /** True when the switch also moved the meeting. */
   timeMoved?: boolean;
+  /**
+   * The meeting kept its time and that time is not one the host's ONLINE hours
+   * offer. The switch SUCCEEDED — this is a warning for the host to check, not
+   * an error, and the meeting was deliberately not moved to fit.
+   */
+  outsideOnlineHours?: boolean;
 }
 
 /**
@@ -401,7 +407,12 @@ export async function switchMyBookingToOnline(
 
   revalidatePath(`/meetings/${uid}`);
   revalidatePath('/meetings/inbox');
-  return { success: true, videoUrl: result.data?.videoUrl, timeMoved: result.data?.timeMoved };
+  return {
+    success: true,
+    videoUrl: result.data?.videoUrl,
+    timeMoved: result.data?.timeMoved,
+    outsideOnlineHours: result.data?.outsideOnlineHours,
+  };
 }
 
 /**
@@ -481,5 +492,10 @@ export async function resolveBookingModeSwitchRequest(
 
   revalidatePath(`/meetings/${uid}`);
   revalidatePath('/meetings/inbox');
-  return { success: true, videoUrl: result.data?.videoUrl, timeMoved: result.data?.timeMoved };
+  return {
+    success: true,
+    videoUrl: result.data?.videoUrl,
+    timeMoved: result.data?.timeMoved,
+    outsideOnlineHours: result.data?.outsideOnlineHours,
+  };
 }

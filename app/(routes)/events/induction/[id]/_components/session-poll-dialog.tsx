@@ -60,6 +60,10 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
   const [currentQid, setCurrentQid] = useState<string | null>(null);
   const [presenting, setPresenting] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Wall clock, ticked while the dialog is open, so the live→expired boundary flips
+  // on its own. Nothing else re-renders on that crossing: the totals poll keeps
+  // returning status 'open', so without this the badge would stay green for hours.
+  const [nowTs, setNowTs] = useState(() => Date.now());
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
@@ -108,6 +112,14 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
   useInductionPollRealtime(open && status === 'open' && pollId ? pollId : undefined, () => { if (pollId) refresh(pollId); });
 
   useEffect(() => { if (open) load(); else { stop(); setTotals(null); setResponders([]); setShowResponders(false); } }, [open, load]);
+
+  // Tick the clock only while the dialog is on screen (see nowTs).
+  useEffect(() => {
+    if (!open) return;
+    setNowTs(Date.now());
+    const t = setInterval(() => setNowTs(Date.now()), 15000);
+    return () => clearInterval(t);
+  }, [open]);
 
   // builder mutations
   const addQuestion = () => setQuestions((qs) => [...qs, { prompt: '', kind: 'single', position: qs.length, options: [{ label: '', position: 0 }] }]);
@@ -186,6 +198,19 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
     } catch (e: any) { toast.error(e?.message ?? 'Could not export'); } finally { setBusy(false); }
   };
 
+  // "open" and "live" are NOT the same thing. The learner RPCs filter on
+  // auto_close_at > now(), so once the lazy auto-close passes, the poll vanishes
+  // from every fresher's My Induction page while the row still reads status='open'.
+  // That state is recoverable — fn_induction_open_session_poll is idempotent and
+  // pushes auto_close_at forward without touching votes — so surface it as its own
+  // "paused" state with the reopen action attached, instead of a green badge and a
+  // hint pointing at a button that isn't rendered.
+  const expired = status === 'open' && !!autoCloseAt && new Date(autoCloseAt).getTime() <= nowTs;
+  const isLive = status === 'open' && !expired;
+  const autoCloseLabel = autoCloseAt
+    ? new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })
+    : '';
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -194,14 +219,26 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
       <DialogContent className="max-h-[88vh] sm:max-w-2xl flex flex-col gap-3">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">Poll — {sessionTitle}
-            <Badge variant={status === 'open' ? 'default' : 'secondary'}>{status}</Badge></DialogTitle>
+            <Badge variant={isLive ? 'default' : expired ? 'destructive' : 'secondary'}>
+              {expired ? 'paused' : status}
+            </Badge></DialogTitle>
           <DialogDescription>Build questions, open it live, and watch anonymized results (hidden until 3 answers).</DialogDescription>
-          {/* Surface the lazy auto-close: an open poll silently disappears for learners
-              after this time even though the status here still reads "open". */}
+          {/* Surface the lazy auto-close: past this time the poll silently disappears
+              for learners, so say so plainly and point at the button that fixes it. */}
           {status === 'open' && autoCloseAt && (
-            <p className="text-xs text-amber-600 dark:text-amber-500">
-              Auto-closes at {new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })} — reopen with &quot;Open live&quot; to extend.
-            </p>
+            expired ? (
+              <p className="flex items-start gap-1.5 text-xs font-medium text-destructive">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Auto-closed at {autoCloseLabel} — freshers can no longer see this poll on My Induction.
+                  Press &quot;Reopen live&quot; to bring it back; answers already given are kept.
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs text-amber-600 dark:text-amber-500">
+                Auto-closes at {autoCloseLabel} — reopen with &quot;Open live&quot; to extend.
+              </p>
+            )
           )}
         </DialogHeader>
 
@@ -395,11 +432,18 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
             </Button>
           )}
           <Button variant="outline" onClick={savePoll} disabled={busy}>Save poll</Button>
-          {status !== 'open'
-            ? <Button onClick={openLive} disabled={busy || !pollId} title={!pollId ? 'Save the poll first' : 'Open for learners to answer'}>
-                <Radio className="h-4 w-4 mr-1" /> Open live
-              </Button>
-            : <Button variant="secondary" onClick={closeLive} disabled={busy}><Square className="h-4 w-4 mr-1" /> Close</Button>}
+          {/* Reopen must stay reachable while the poll is open-but-expired — that is
+              exactly the state the coordinator needs to escape, and it used to be
+              the one state with no button for it. */}
+          {!isLive && (
+            <Button onClick={openLive} disabled={busy || !pollId}
+              title={!pollId ? 'Save the poll first' : expired ? 'Bring the poll back for learners (answers are kept)' : 'Open for learners to answer'}>
+              <Radio className="h-4 w-4 mr-1" /> {expired ? 'Reopen live' : 'Open live'}
+            </Button>
+          )}
+          {status === 'open' && (
+            <Button variant="secondary" onClick={closeLive} disabled={busy}><Square className="h-4 w-4 mr-1" /> Close</Button>
+          )}
           </div>
         </DialogFooter>
 

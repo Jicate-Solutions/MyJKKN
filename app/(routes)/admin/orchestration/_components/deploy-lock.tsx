@@ -56,6 +56,15 @@ function extractActionError(data: unknown, fallback: string): string {
   return fallback;
 }
 
+// Shape of GET /api/admin/orchestration/actions/deploy — kept local rather
+// than imported, because the service module is `server-only`.
+interface DeployPreview {
+  known: boolean;
+  aheadBy: number;
+  commits: { sha: string; title: string }[];
+  reason?: string;
+}
+
 interface DeployControlProps {
   // True only when process.env.ORCH_VERCEL_DEPLOY_HOOK is set on the
   // server. Never the hook URL itself.
@@ -67,10 +76,36 @@ export function DeployControl({ canDeploy }: DeployControlProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<DeployPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Fetched lazily when the dialog opens, never on page load: it costs a
+  // GitHub compare call and is only worth making when someone is actually
+  // about to deploy. Purely informational — a failure here shows an honest
+  // "couldn't determine" line and leaves Confirm enabled. It must never
+  // become a precondition for deploying.
+  async function loadPreview() {
+    setPreviewLoading(true);
+    setPreview(null);
+    try {
+      const resp = await fetch('/api/admin/orchestration/actions/deploy');
+      const data = (await resp.json().catch(() => null)) as DeployPreview | null;
+      if (!resp.ok || !data || typeof data.known !== 'boolean') {
+        setPreview({ known: false, aheadBy: 0, commits: [], reason: 'Preview request failed' });
+        return;
+      }
+      setPreview(data);
+    } catch {
+      setPreview({ known: false, aheadBy: 0, commits: [], reason: 'Preview request failed' });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   function openDialog() {
     setDeployError(null);
     setDialogOpen(true);
+    void loadPreview();
   }
 
   async function handleConfirm() {
@@ -167,6 +202,49 @@ export function DeployControl({ canDeploy }: DeployControlProps) {
                     </dd>
                   </div>
                 </dl>
+                {/* What would actually ship. The deploy hook rebuilds whatever
+                    `main` is right now, so without this the operator fires
+                    blind — a commit being deliberately held back looks exactly
+                    like nothing pending. This describes the WHOLE deploy, not
+                    any one module. */}
+                <div className="rounded-md border bg-muted/40 p-2.5">
+                  {previewLoading ? (
+                    <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Checking what would ship…
+                    </p>
+                  ) : !preview ? null : !preview.known ? (
+                    <p className="text-sm text-muted-foreground">
+                      Could not determine what would ship
+                      {preview.reason ? ` — ${preview.reason}` : ''}. The deploy can still go ahead.
+                    </p>
+                  ) : preview.aheadBy === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Nothing new to ship — production already matches{' '}
+                      <code className="font-mono">main</code>.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-foreground">
+                        {preview.aheadBy} commit{preview.aheadBy === 1 ? '' : 's'} will ship —
+                        everything on <code className="font-mono">main</code>, across all modules.
+                      </p>
+                      <ul className="mt-1.5 space-y-1">
+                        {preview.commits.map((c) => (
+                          <li key={c.sha} className="flex gap-2 text-sm text-muted-foreground">
+                            <code className="font-mono text-xs">{c.sha.slice(0, 7)}</code>
+                            <span className="min-w-0 break-words">{c.title}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {preview.aheadBy > preview.commits.length && (
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          …and {preview.aheadBy - preview.commits.length} more.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
                 {deployError && (
                   <p className="rounded-md bg-red-50 p-2 text-sm text-red-800" role="alert">
                     {deployError}

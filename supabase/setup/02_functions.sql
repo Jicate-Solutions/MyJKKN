@@ -3030,7 +3030,8 @@ CREATE OR REPLACE FUNCTION public.get_learners_distribution_by_institution(
     filter_gender text DEFAULT NULL,
     filter_is_profile_complete boolean DEFAULT NULL,
     filter_date_from timestamptz DEFAULT NULL,
-    filter_date_to timestamptz DEFAULT NULL
+    filter_date_to timestamptz DEFAULT NULL,
+    filter_admission_year_ids uuid[] DEFAULT NULL
 )
 RETURNS TABLE(id uuid, name text, count bigint, percentage numeric)
 LANGUAGE plpgsql
@@ -3050,10 +3051,11 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
-      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids));
 
     RETURN QUERY
     SELECT
@@ -3074,10 +3076,11 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
       AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids))
       AND lp.institution_id IS NOT NULL
     GROUP BY lp.institution_id, i.name
     ORDER BY count DESC;
@@ -3097,7 +3100,8 @@ CREATE OR REPLACE FUNCTION public.get_learners_distribution_by_department(
     filter_gender text DEFAULT NULL,
     filter_is_profile_complete boolean DEFAULT NULL,
     filter_date_from timestamptz DEFAULT NULL,
-    filter_date_to timestamptz DEFAULT NULL
+    filter_date_to timestamptz DEFAULT NULL,
+    filter_admission_year_ids uuid[] DEFAULT NULL
 )
 RETURNS TABLE(id uuid, name text, count bigint, percentage numeric)
 LANGUAGE plpgsql
@@ -3117,10 +3121,11 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
-      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids));
 
     RETURN QUERY
     SELECT
@@ -3141,10 +3146,11 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
       AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids))
       AND lp.department_id IS NOT NULL
     GROUP BY lp.department_id, d.department_name
     ORDER BY count DESC;
@@ -3164,7 +3170,8 @@ CREATE OR REPLACE FUNCTION public.get_learners_distribution_by_program(
     filter_gender text DEFAULT NULL,
     filter_is_profile_complete boolean DEFAULT NULL,
     filter_date_from timestamptz DEFAULT NULL,
-    filter_date_to timestamptz DEFAULT NULL
+    filter_date_to timestamptz DEFAULT NULL,
+    filter_admission_year_ids uuid[] DEFAULT NULL
 )
 RETURNS TABLE(id uuid, name text, count bigint, percentage numeric)
 LANGUAGE plpgsql
@@ -3184,10 +3191,11 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
-      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids));
 
     RETURN QUERY
     SELECT
@@ -3208,10 +3216,11 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
       AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids))
       AND lp.program_id IS NOT NULL
     GROUP BY lp.program_id, p.program_name
     ORDER BY count DESC;
@@ -3231,7 +3240,8 @@ CREATE OR REPLACE FUNCTION public.get_learners_distribution_by_gender(
     filter_gender text DEFAULT NULL,
     filter_is_profile_complete boolean DEFAULT NULL,
     filter_date_from timestamptz DEFAULT NULL,
-    filter_date_to timestamptz DEFAULT NULL
+    filter_date_to timestamptz DEFAULT NULL,
+    filter_admission_year_ids uuid[] DEFAULT NULL
 )
 RETURNS TABLE(id text, name text, count bigint, percentage numeric)
 LANGUAGE plpgsql
@@ -3251,15 +3261,16 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
-      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids));
 
     RETURN QUERY
     SELECT
-        lp.gender::text as id,
-        COALESCE(INITCAP(lp.gender), 'Unknown')::text as name,
+        COALESCE(NULLIF(btrim(lp.gender), ''), 'Unknown')::text as id,
+        INITCAP(COALESCE(NULLIF(btrim(lp.gender), ''), 'Unknown'))::text as name,
         COUNT(*)::bigint as count,
         CASE
             WHEN total_count > 0 THEN ROUND((COUNT(*)::numeric / total_count::numeric) * 100, 2)
@@ -3274,12 +3285,15 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
       AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
-      AND lp.gender IS NOT NULL
-    GROUP BY lp.gender
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids))
+    -- `lp.gender IS NOT NULL` deliberately removed: it was TRUE for the 59 ''
+    -- rows (so they rendered unlabelled) and excluded NULLs from the slices
+    -- while total_count still counted them. Both now land in 'Unknown'.
+    GROUP BY COALESCE(NULLIF(btrim(lp.gender), ''), 'Unknown')
     ORDER BY count DESC;
 END;
 $$;
@@ -3297,7 +3311,8 @@ CREATE OR REPLACE FUNCTION public.get_learners_count_by_status(
     filter_gender text DEFAULT NULL,
     filter_is_profile_complete boolean DEFAULT NULL,
     filter_date_from timestamptz DEFAULT NULL,
-    filter_date_to timestamptz DEFAULT NULL
+    filter_date_to timestamptz DEFAULT NULL,
+    filter_admission_year_ids uuid[] DEFAULT NULL
 )
 RETURNS TABLE(status text, count bigint, percentage numeric)
 LANGUAGE plpgsql
@@ -3317,10 +3332,11 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
-      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to);
+      AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids));
 
     RETURN QUERY
     SELECT
@@ -3339,10 +3355,11 @@ BEGIN
       AND (filter_semester_id IS NULL OR lp.semester_id = filter_semester_id)
       AND (filter_section_id IS NULL OR lp.section_id = filter_section_id)
       AND (filter_lifecycle_statuses IS NULL OR lp.lifecycle_status::text = ANY(filter_lifecycle_statuses))
-      AND (filter_gender IS NULL OR lp.gender = filter_gender)
+      AND (filter_gender IS NULL OR lower(lp.gender) = lower(filter_gender))
       AND (filter_is_profile_complete IS NULL OR lp.is_profile_complete = filter_is_profile_complete)
       AND (filter_date_from IS NULL OR lp.created_at >= filter_date_from)
       AND (filter_date_to IS NULL OR lp.created_at <= filter_date_to)
+      AND (filter_admission_year_ids IS NULL OR lp.admission_year_id = ANY(filter_admission_year_ids))
     GROUP BY lp.lifecycle_status
     ORDER BY count DESC;
 END;
@@ -22858,6 +22875,134 @@ GRANT EXECUTE ON FUNCTION clone_event_registration_form(uuid, text, text) TO aut
 
 
 -- ============================================================================
+-- fn_timetable_scheduled_sections
+-- THE single source of truth for "which sections have a markable class on a
+-- given date". Added 2026-08-31 because that question was already answered by a
+-- hand-rolled copy in getTodayPendingAttendance which had drifted three ways
+-- (batch day keys, semester-type section binding, section filter).
+-- Source of truth: supabase/migrations/20260831100950_attendance_dashboard_timetable_driven.sql
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_timetable_scheduled_sections(
+  p_date date,
+  p_institution_id uuid DEFAULT NULL
+)
+RETURNS TABLE(
+  institution_id uuid,
+  section_id uuid,
+  timetable_id uuid,
+  timetable_name text,
+  start_date date,
+  end_date date,
+  scheduled_periods integer
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path TO 'public'
+AS $function$
+  WITH live AS (
+    SELECT tt.id, tt.institution_id, tt.section_id, tt.timetable_name,
+           tt.start_date, tt.end_date, tt.attendance_mode, tt.timetable_data,
+           CASE tt.timetable_format
+             -- A NULL cycle means the date has no classes at all (Sunday or an
+             -- institution holiday); the CASE below yields NULL and the slot
+             -- expansion then reads '{}'. get_cycle_for_date is STABLE, INVOKER and
+             -- does not touch auth.uid(), so it is safe to call from the SECURITY
+             -- DEFINER stats RPC further down.
+             WHEN 'cycle' THEN
+               CASE WHEN public.get_cycle_for_date(tt.id, p_date) IS NULL
+                    THEN NULL
+                    ELSE 'cycle-' || public.get_cycle_for_date(tt.id, p_date)::text
+               END
+             WHEN 'batch' THEN to_char(p_date, 'YYYY-MM-DD')
+             -- NOT to_char(p_date,'DAY'): that is locale-sensitive (lc_time), so a
+             -- server locale change would silently stop matching the 'MONDAY' keys.
+             ELSE CASE EXTRACT(dow FROM p_date)::int
+                    WHEN 0 THEN 'SUNDAY'    WHEN 1 THEN 'MONDAY'
+                    WHEN 2 THEN 'TUESDAY'   WHEN 3 THEN 'WEDNESDAY'
+                    WHEN 4 THEN 'THURSDAY'  WHEN 5 THEN 'FRIDAY'
+                    ELSE 'SATURDAY'
+                  END
+           END AS day_key
+    FROM public.timetables tt
+    WHERE tt.is_active = true
+      AND tt.is_template = false
+      -- The window, applied here rather than trusting is_active alone: the nightly
+      -- fn_deactivate_ended_timetables leaves up to a 15-minute gap after midnight IST,
+      -- and nothing at all deactivates a timetable whose start_date is still ahead.
+      AND (tt.start_date IS NULL OR tt.start_date <= p_date)
+      AND (tt.end_date   IS NULL OR tt.end_date   >= p_date)
+      AND (p_institution_id IS NULL OR tt.institution_id = p_institution_id)
+  ),
+  -- Day-wise classes have no period grid: two whole-day sessions (FN/AN) against the
+  -- timetable's own section. Counted as one scheduled unit.
+  sess AS (
+    SELECT l.institution_id, l.section_id, l.id AS timetable_id, l.timetable_name,
+           l.start_date, l.end_date, 1 AS scheduled_periods
+    FROM live l
+    WHERE l.attendance_mode = 'session_wise'
+      AND l.section_id IS NOT NULL
+  ),
+  slots AS (
+    SELECT l.institution_id, l.id AS timetable_id, l.timetable_name,
+           l.start_date, l.end_date, l.section_id AS tt_section_id,
+           per.slot
+    FROM live l
+    CROSS JOIN LATERAL jsonb_each(
+      CASE WHEN l.day_key IS NOT NULL
+            AND jsonb_typeof(l.timetable_data -> l.day_key) = 'object'
+           THEN l.timetable_data -> l.day_key
+           ELSE '{}'::jsonb END) AS per(period_key, slot)
+    WHERE l.attendance_mode <> 'session_wise'
+      -- A break is on the grid but is not a class; a slot with no course is an empty
+      -- cell the planner left behind. Neither can be marked, so neither schedules a
+      -- section. Mirrors the `!slot.is_break_slot && slot.course_id` guard in
+      -- getTodayPendingAttendance.
+      AND COALESCE((per.slot ->> 'is_break_slot')::boolean, false) = false
+      AND NULLIF(per.slot ->> 'course_id', '') IS NOT NULL
+  ),
+  expanded AS (
+    SELECT s.institution_id,
+           COALESCE(sec.sid, s.tt_section_id) AS section_id,
+           s.timetable_id, s.timetable_name, s.start_date, s.end_date
+    FROM slots s
+    LEFT JOIN LATERAL (
+      -- Guarded cast: a malformed entry in section_ids must not abort the whole
+      -- dashboard. Non-uuid text yields NULL and is dropped by the WHERE below.
+      SELECT CASE
+               WHEN e.val ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+               THEN e.val::uuid
+             END AS sid
+      FROM jsonb_array_elements_text(
+             CASE WHEN jsonb_typeof(s.slot -> 'section_ids') = 'array'
+                  THEN s.slot -> 'section_ids' ELSE '[]'::jsonb END) AS e(val)
+    ) sec ON true
+  )
+  SELECT ex.institution_id, ex.section_id, ex.timetable_id, ex.timetable_name,
+         ex.start_date, ex.end_date, count(*)::integer
+  FROM expanded ex
+  WHERE ex.section_id IS NOT NULL
+  GROUP BY ex.institution_id, ex.section_id, ex.timetable_id, ex.timetable_name,
+           ex.start_date, ex.end_date
+
+  UNION ALL
+
+  SELECT se.institution_id, se.section_id, se.timetable_id, se.timetable_name,
+         se.start_date, se.end_date, se.scheduled_periods
+  FROM sess se;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_timetable_scheduled_sections(date, uuid)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_timetable_scheduled_sections(date, uuid)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_timetable_scheduled_sections(date, uuid)
+  TO service_role;
+
+COMMENT ON FUNCTION public.fn_timetable_scheduled_sections(date, uuid) IS
+'Which sections have at least one markable class on p_date, and from which timetable. THE single source of truth for that question -- fn_attendance_dashboard_section_stats reads it, and the Pending Attendance list should too. Handles all three timetable_data day-key shapes (regular=weekday, batch=ISO date, cycle=cycle-N), both section bindings (timetables.section_id and slot.section_ids[]), skips break slots and course-less cells, and applies the start_date/end_date window rather than trusting is_active alone. SECURITY INVOKER: RLS on timetables gates a direct call, while a call from inside the SECURITY DEFINER stats RPC runs with that function''s rights.';
+
+-- ============================================================================
 -- fn_attendance_dashboard_section_stats
 -- Attendance Dashboard "Today's Statistics" section breakdown.
 -- Added 2026-07-21. Source of truth: supabase/migrations/20260721120000_fn_attendance_dashboard_section_stats.sql
@@ -22866,38 +23011,82 @@ GRANT EXECUTE ON FUNCTION clone_event_registration_form(uuid, text, text) TO aut
 --   not replaced -- an extended parameter list would have registered a second
 --   overload and made every PostgREST named-arg call ambiguous. See
 --   supabase/migrations/20260723120000_attendance_dashboard_section_stats_hierarchy_filters.sql
+-- 2026-08-04: p_first_year_only narrows to learners admitted in their
+--   institution's is_current admission year. See
+--   supabase/migrations/20260804100000_attendance_dashboard_first_year_filter.sql
+-- 2026-08-11 (applied 08-21): the roster stops being gated on fee payment.
+--   Counts active + reserved + admitted (Director decision) and gains marked /
+--   is_unplaced / is_empty_view. See
+--   supabase/migrations/20260821020000_attendance_dashboard_counts_provisional_learners.sql
+-- 2026-08-31: total_students gains its active/reserved/admitted split so the
+--   card can state WHICH learners it counted -- the total read 512 for Dental
+--   while Learner Profiles' Active tab read 498, differing by exactly the 14
+--   reserved, and neither screen stated its definition. See
+--   supabase/migrations/20260831093317_attendance_dashboard_status_breakdown.sql
+-- 2026-08-31: and its scheduled/unscheduled split, via
+--   fn_timetable_scheduled_sections above, so "not yet marked" counts only
+--   learners a class was actually scheduled for. 1,111 of 3,155 estate-wide were
+--   learners nobody could have marked; all 357 of Dental's were. See
+--   supabase/migrations/20260831100950_attendance_dashboard_timetable_driven.sql
 -- ============================================================================
+DROP FUNCTION IF EXISTS public.fn_attendance_dashboard_section_stats(
+  date, uuid, uuid, uuid, uuid, uuid, uuid, uuid, boolean);
+
 CREATE OR REPLACE FUNCTION public.fn_attendance_dashboard_section_stats(
   p_date date,
-  p_institution_id uuid DEFAULT NULL,
-  p_academic_year_id uuid DEFAULT NULL,
-  p_degree_id uuid DEFAULT NULL,
-  p_department_id uuid DEFAULT NULL,
-  p_program_id uuid DEFAULT NULL,
-  p_semester_id uuid DEFAULT NULL,
-  p_section_id uuid DEFAULT NULL
-)
-RETURNS TABLE(
-  institution_id uuid,
-  institution_name text,
-  department_id uuid,
-  department_name text,
-  semester_id uuid,
-  semester_name text,
-  section_id uuid,
-  section_name text,
-  total_students bigint,
-  present bigint,
-  absent bigint
-)
-LANGUAGE plpgsql
-STABLE SECURITY DEFINER
-SET search_path TO 'public'
-SET statement_timeout TO '20s'
+  p_institution_id uuid DEFAULT NULL::uuid,
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_first_year_only boolean DEFAULT false)
+ RETURNS TABLE(
+   institution_id uuid, institution_name text,
+   department_id uuid, department_name text,
+   semester_id uuid, semester_name text,
+   section_id uuid, section_name text,
+   total_students bigint,
+   -- The split of total_students by lifecycle_status. Emitted so the caller can
+   -- render "498 active + 14 reserved" beneath the headcount instead of an
+   -- unexplained 512 that disagrees with every other learner screen. They sum to
+   -- total_students by construction: the three statuses ARE k_counted_statuses.
+   active_students bigint,
+   reserved_students bigint,
+   admitted_students bigint,
+   -- Timetable-driven split of the SAME headcount, added 2026-08-31.
+   -- scheduled_students: learners on this row whose section has a markable class today.
+   -- scheduled_marked:   of those, how many actually have a mark.
+   -- The caller derives "not yet marked" as scheduled_students - scheduled_marked and
+   -- "no class today" as total_students - scheduled_students.
+   --
+   -- scheduled_marked is counted SEPARATELY from `marked` and is not a substitute for
+   -- it: 436 learners estate-wide are marked while their section has no class today
+   -- (a mark recorded off-timetable), so scheduled_students - marked would go negative.
+   scheduled_students bigint,
+   scheduled_marked bigint,
+   -- [{id,name,start_date,end_date,periods}] -- the timetables that scheduled this
+   -- section today, so the UI can name them under the section instead of leaving
+   -- "which timetable are these learners on?" unanswerable. '[]' means no class today.
+   scheduled_timetables jsonb,
+   present bigint, absent bigint, marked bigint,
+   is_unplaced boolean, is_empty_view boolean)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+ SET statement_timeout TO '20s'
 AS $function$
+DECLARE
+  -- Director decision 2026-08-11. One list, used by BOTH the roster and the
+  -- marks CTE: widening only the roster would divide a wider learner set by a
+  -- narrower present count and deflate every percentage.
+  -- Typed as the enum, not text[]: `lifecycle_status = ANY (text[])` has no
+  -- operator, and casting the column to text would forfeit
+  -- idx_learners_profiles_institution_lifecycle.
+  k_counted_statuses constant public.lifecycle_status[] :=
+    ARRAY['active', 'reserved', 'admitted']::public.lifecycle_status[];
 BEGIN
-  -- SECURITY DEFINER + EXECUTE to authenticated => self-authorize, mirroring
-  -- fn_scf_confirmation_rollup. Gate on the permission KEY, never a role name.
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'fn_attendance_dashboard_section_stats: not authenticated';
   END IF;
@@ -22908,93 +23097,130 @@ BEGIN
 
   RETURN QUERY
   WITH accessible AS (
-    -- Resolve the caller's institution scope ONCE (8 rows) rather than
-    -- re-evaluating role_has_institution_access per learner row -- the
-    -- var-free/once-eval shape that keeps this off the 57014 timeout path.
-    -- is_admin() is deliberately NOT reused here: it is a hardcoded role-NAME
-    -- bypass that ignores institution_scope, so a scope='own' admin would
-    -- otherwise read other institutions' rosters.
     SELECT i.id
     FROM public.institutions i
     WHERE is_super_admin() OR role_has_institution_access(i.id)
   ),
+  -- Which sections have a markable class today, and which timetables put it there.
+  -- Grouped to ONE row per section so the join below cannot multiply roster rows.
+  -- p_institution_id is passed through so an institution-filtered view does not
+  -- resolve every college's timetables.
+  sched AS (
+    SELECT ts.section_id,
+           jsonb_agg(
+             jsonb_build_object(
+               'id',         ts.timetable_id,
+               'name',       ts.timetable_name,
+               'start_date', ts.start_date,
+               'end_date',   ts.end_date,
+               'periods',    ts.scheduled_periods)
+             ORDER BY ts.timetable_name) AS timetables
+    FROM public.fn_timetable_scheduled_sections(p_date, p_institution_id) ts
+    GROUP BY ts.section_id
+  ),
   roster AS (
-    -- The denominator, and the base of the output: every active learner group,
-    -- INCLUDING sections with no attendance marked today (they must still
-    -- render, at 0%).
     SELECT lp.institution_id, lp.department_id, lp.semester_id, lp.section_id,
-           count(*) AS total_students
+           count(*) AS total_students,
+           -- Same scan, same GROUP BY: the split costs nothing beyond three
+           -- counters. Filtering on the enum directly (not a text cast) for the
+           -- same index reason as k_counted_statuses above.
+           count(*) FILTER (WHERE lp.lifecycle_status = 'active')   AS active_students,
+           count(*) FILTER (WHERE lp.lifecycle_status = 'reserved') AS reserved_students,
+           count(*) FILTER (WHERE lp.lifecycle_status = 'admitted') AS admitted_students
     FROM public.learners_profiles lp
-    WHERE lp.lifecycle_status = 'active'
+    WHERE lp.lifecycle_status = ANY (k_counted_statuses)
       AND lp.institution_id IN (SELECT a.id FROM accessible a)
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
       -- Hierarchy filters. Plain var-free predicates on the already-scanned
-      -- learners_profiles row: no extra join, no subquery, so the roster plan is
-      -- unchanged apart from being more selective.
+      -- learners_profiles row: no extra join, no subquery, so the roster plan
+      -- is unchanged apart from being more selective.
       AND (p_degree_id IS NULL OR lp.degree_id = p_degree_id)
       AND (p_department_id IS NULL OR lp.department_id = p_department_id)
       AND (p_program_id IS NULL OR lp.program_id = p_program_id)
       AND (p_semester_id IS NULL OR lp.semester_id = p_semester_id)
       AND (p_section_id IS NULL OR lp.section_id = p_section_id)
+      -- First-year-only: admitted in the institution's current intake. Off by
+      -- default, so this short-circuits to TRUE (sub-select never runs). The
+      -- is_current set is ~one row per institution, so this is
+      -- per-institution-correct.
+      AND (NOT p_first_year_only
+           OR lp.admission_year_id IN (
+                SELECT ay.id FROM public.admission_years ay WHERE ay.is_current = true))
     GROUP BY 1, 2, 3, 4
+  ),
+  -- The same scope WITHOUT the first-year narrowing, institution-level only.
+  -- Used solely to tell "this college has no first-year learners yet" (worth
+  -- saying) apart from "this college is outside the filtered scope entirely"
+  -- (not worth saying) -- so applying a department filter does not flood the
+  -- list with a zero row for every other college.
+  scope_institutions AS (
+    SELECT DISTINCT lp.institution_id
+    FROM public.learners_profiles lp
+    WHERE lp.lifecycle_status = ANY (k_counted_statuses)
+      AND lp.institution_id IN (SELECT a.id FROM accessible a)
+      AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+      AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+      AND (p_degree_id IS NULL OR lp.degree_id = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id IS NULL OR lp.program_id = p_program_id)
+      AND (p_semester_id IS NULL OR lp.semester_id = p_semester_id)
+      AND (p_section_id IS NULL OR lp.section_id = p_section_id)
   ),
   marks AS (
     SELECT lp.institution_id, lp.department_id, lp.semester_id, lp.section_id,
+           lp.id AS learner_id,
            sa.id::text || ':' || period.key AS period_instance,
            st ->> 'status' AS status
     FROM public.student_attendance sa
-    -- jsonb_typeof guards on BOTH expansions: a row whose attendance_data is a
-    -- JSON array/scalar/null, or whose 'students' is a JSON null (JSON null is
-    -- not SQL NULL, so COALESCE misses it), would otherwise raise and abort the
-    -- entire rollup.
     CROSS JOIN LATERAL jsonb_each(
       CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
            THEN sa.attendance_data ELSE '{}'::jsonb END) AS period
     CROSS JOIN LATERAL jsonb_array_elements(
       CASE WHEN jsonb_typeof(period.value -> 'students') = 'array'
            THEN period.value -> 'students' ELSE '[]'::jsonb END) AS st
-    -- CASE (not a WHERE-clause regex) guards the ::uuid cast: the planner may
-    -- reorder a WHERE filter after the join condition, so the guard has to sit
-    -- in the cast expression itself for a malformed student_id to be skipped
-    -- rather than fail the whole rollup.
     JOIN public.learners_profiles lp
       ON lp.id = CASE
                    WHEN (st ->> 'student_id') ~
                         '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                    THEN (st ->> 'student_id')::uuid
                  END
-     AND lp.lifecycle_status = 'active'
+     -- MUST mirror the roster's status set exactly (see k_counted_statuses).
+     AND lp.lifecycle_status = ANY (k_counted_statuses)
     WHERE sa.attendance_date = p_date
-      -- DELIBERATELY no `institution_id IN (SELECT ... accessible)` here, and do
-      -- NOT add one "for safety": the planner turns that IN-subquery into a join
-      -- against the accessible set and multiplies this JSONB expansion by the
-      -- number of accessible institutions (3,105 rows -> 43,470 at 14
-      -- institutions) before filtering back down -- 1345ms vs 68ms for the whole
-      -- rollup. It is redundant anyway: output rows come only FROM roster, which
-      -- IS scoped, so a mark belonging to an inaccessible institution lands in a
-      -- tally group that no roster row ever joins to and is dropped.
-      -- These are plain scalar filters, not subqueries, so they cost nothing
-      -- and still narrow the scan early.
+      -- DELIBERATELY no accessible-set IN-subquery here: the planner turns it
+      -- into a join that multiplies this JSONB expansion by the institution
+      -- count (3,105 -> 43,470 rows; 1345ms vs 68ms). Redundant anyway -- output
+      -- rows come only FROM roster, which is scoped.
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
-      -- The SAME hierarchy predicates as roster, and they MUST be repeated here.
-      -- present/absent are period-AVERAGED over the marks in this CTE, so
-      -- filtering only the roster would divide a narrowed roster by an
-      -- unfiltered period_count and silently deflate every percentage.
+      -- The SAME hierarchy predicates must be applied here, not only in roster.
+      -- present/absent are period-AVERAGED over the marks in this CTE; filtering
+      -- only the roster would divide a narrowed roster by an unfiltered
+      -- period_count and silently deflate every percentage. Same var-free shape
+      -- as above, so the note about avoiding subqueries here still holds.
       AND (p_degree_id IS NULL OR lp.degree_id = p_degree_id)
       AND (p_department_id IS NULL OR lp.department_id = p_department_id)
       AND (p_program_id IS NULL OR lp.program_id = p_program_id)
       AND (p_semester_id IS NULL OR lp.semester_id = p_semester_id)
       AND (p_section_id IS NULL OR lp.section_id = p_section_id)
+      -- First-year-only -- MUST mirror the roster predicate so present/absent are
+      -- averaged over the same narrowed learner set (see the note above).
+      AND (NOT p_first_year_only
+           OR lp.admission_year_id IN (
+                SELECT ay.id FROM public.admission_years ay WHERE ay.is_current = true))
   ),
   tally AS (
     SELECT m.institution_id, m.department_id, m.semester_id, m.section_id,
            count(*) FILTER (WHERE m.status = 'Present') AS present_sum,
            count(*) FILTER (WHERE m.status = 'Absent')  AS absent_sum,
-           -- Period INSTANCES (row + period id), so a section spread over
-           -- several attendance rows averages across every period it appeared in.
-           count(DISTINCT m.period_instance)            AS period_count
+           count(DISTINCT m.period_instance)            AS period_count,
+           -- Learners with ANY status recorded today. Deliberately NOT
+           -- period-averaged: this is a headcount of who was reached, and it is
+           -- the denominator the headline rate now divides by. Averaged present
+           -- can never exceed it (present_sum <= marked * period_count), so the
+           -- resulting rate is bounded at 100%.
+           count(DISTINCT m.learner_id)                 AS marked_learners
     FROM marks m
     GROUP BY 1, 2, 3, 4
   )
@@ -23008,38 +23234,85 @@ BEGIN
     r.section_id,
     COALESCE(sc.section_name, 'Unknown Section')::text,
     r.total_students,
-    -- A section taught twice today reports a per-period headcount comparable to
-    -- its roster, not a doubled one.
+    r.active_students,
+    r.reserved_students,
+    r.admitted_students,
+    -- Scheduling is resolved per SECTION and the roster already groups by section,
+    -- so every learner on a scheduled row is scheduled -- no per-learner join needed.
+    -- A row with section_id IS NULL ("Not yet placed") never matches sched, which is
+    -- correct: a learner with no section cannot be on any timetable.
+    CASE WHEN sh.section_id IS NOT NULL THEN r.total_students ELSE 0 END::bigint,
+    CASE WHEN sh.section_id IS NOT NULL
+         THEN LEAST(COALESCE(t.marked_learners, 0), r.total_students)
+         ELSE 0 END::bigint,
+    COALESCE(sh.timetables, '[]'::jsonb),
     CASE WHEN COALESCE(t.period_count, 0) > 1
          THEN round(t.present_sum::numeric / t.period_count)::bigint
          ELSE COALESCE(t.present_sum, 0) END,
-    -- Absent is derived from the rounded TOTAL marked rather than rounded
-    -- independently: two half-values both rounding up would put present + absent
-    -- one over the roster (40.5 + 4.5 -> 41 + 5 = 46 against 45 learners).
     CASE WHEN COALESCE(t.period_count, 0) > 1
          THEN GREATEST(0, round((t.present_sum + t.absent_sum)::numeric / t.period_count)
                           - round(t.present_sum::numeric / t.period_count))::bigint
-         ELSE COALESCE(t.absent_sum, 0) END
+         ELSE COALESCE(t.absent_sum, 0) END,
+    -- A learner cannot be "marked" without being on the roster that produced
+    -- this row, so cap at total_students rather than let a stale mark for a
+    -- since-moved learner push marked above the headcount.
+    LEAST(COALESCE(t.marked_learners, 0), r.total_students)::bigint,
+    (r.section_id IS NULL) AS is_unplaced,
+    false AS is_empty_view
   FROM roster r
-  -- IS NOT DISTINCT FROM: department/semester/section may be NULL, and those
-  -- groups must still match their tally (a plain = drops them).
   LEFT JOIN tally t
     ON t.institution_id IS NOT DISTINCT FROM r.institution_id
    AND t.department_id  IS NOT DISTINCT FROM r.department_id
    AND t.semester_id    IS NOT DISTINCT FROM r.semester_id
    AND t.section_id     IS NOT DISTINCT FROM r.section_id
+  -- Plain equality, NOT `IS NOT DISTINCT FROM`: a NULL section must not match the
+  -- resolver's rows, and sched holds one row per section so this cannot fan out.
+  LEFT JOIN sched sh ON sh.section_id = r.section_id
   LEFT JOIN public.institutions i  ON i.id  = r.institution_id
   LEFT JOIN public.departments  d  ON d.id  = r.department_id
   LEFT JOIN public.semesters    sm ON sm.id = r.semester_id
-  LEFT JOIN public.sections     sc ON sc.id = r.section_id;
+  LEFT JOIN public.sections     sc ON sc.id = r.section_id
+
+  UNION ALL
+
+  -- A college that holds counted learners in this scope but none once the view's
+  -- narrowing is applied. Emitted as an explicit zero so the caller can render
+  -- the reason; never silently dropped.
+  SELECT
+    si.institution_id,
+    COALESCE(i2.name, 'Unknown Institution')::text,
+    NULL::uuid, NULL::text,
+    NULL::uuid, NULL::text,
+    NULL::uuid, NULL::text,
+    -- total_students, the active/reserved/admitted split, then the scheduled split,
+    -- its timetable list, then present/absent/marked. This college contributes no rows.
+    0::bigint, 0::bigint, 0::bigint, 0::bigint,
+    0::bigint, 0::bigint, '[]'::jsonb,
+    0::bigint, 0::bigint, 0::bigint,
+    false AS is_unplaced,
+    true  AS is_empty_view
+  FROM scope_institutions si
+  LEFT JOIN public.institutions i2 ON i2.id = si.institution_id
+  WHERE NOT EXISTS (
+    SELECT 1 FROM roster r2 WHERE r2.institution_id = si.institution_id
+  );
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) TO authenticated;
+-- Supabase's default `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON
+-- FUNCTIONS TO anon` re-grants EXECUTE to anon on every newly created function,
+-- separately from PUBLIC. The DROP above discarded the previous grants, so both
+-- the revoke and the grants must be re-asserted here explicitly.
+REVOKE EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(
+  date, uuid, uuid, uuid, uuid, uuid, uuid, uuid, boolean) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(
+  date, uuid, uuid, uuid, uuid, uuid, uuid, uuid, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(
+  date, uuid, uuid, uuid, uuid, uuid, uuid, uuid, boolean) TO service_role;
 
-COMMENT ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) IS
-  'Attendance Dashboard section-wise stats for one date. Aggregates in Postgres (233 rows) instead of shipping ~4k learner rows to the client. Attributes each mark to the learner''s own section so merged classes cannot exceed 100%. Optional degree/department/programme/semester/section params back the dashboard''s Advanced Filters; they narrow rows only — the returned shape is unchanged.';
+COMMENT ON FUNCTION public.fn_attendance_dashboard_section_stats(
+  date, uuid, uuid, uuid, uuid, uuid, uuid, uuid, boolean) IS
+'Attendance dashboard section statistics. Counts learners whose lifecycle_status is active, reserved or admitted -- deliberately NOT gated on fee payment (Director decision 2026-08-11). Returns that headcount split three ways: by lifecycle status (active_students / reserved_students / admitted_students, so the card can say WHICH learners the total counted), and by whether a class is actually scheduled today (scheduled_students / scheduled_marked / scheduled_timetables, via fn_timetable_scheduled_sections, so "not yet marked" means a real marking backlog rather than learners nobody could have marked -- 1,111 of 3,155 estate-wide on 2026-08-31, and every one of Dental''s 357). Also returns marked (learners with any status recorded that date), is_unplaced for learners with no section yet, and is_empty_view for a college that has no learners once the view narrowing is applied.';
 
 -- ============================================================================
 -- fn_billing_bill_default_academic_year (2026-07-25)
@@ -36881,6 +37154,86 @@ COMMENT ON FUNCTION public.fn_set_referral_pair_freeze(uuid, uuid, boolean, text
 -- match both and fail with 42725 "function is not unique". The old
 -- signature is gone, so the REVOKE/GRANT below is re-issued against the
 -- new one. Mirrors migration 20260813100500_jkkn_identity_external_participant.sql.
+-- Split 2026-08-27 (migration 20260827110000): the random-draw insert loop
+-- moved into fn_jkkn_allocate, a PRIVATE allocator shared by fn_issue_jkkn_id
+-- and the auto-issue triggers below. It carries no permission gate of its own;
+-- EXECUTE is revoked from every client role, so it is only reachable through
+-- its SECURITY DEFINER callers, each of which owns authorisation.
+-- p_issued_by NULL means "issued by the system" (a trigger).
+CREATE OR REPLACE FUNCTION public.fn_jkkn_allocate(
+  p_person_kind        text,
+  p_learner_profile_id uuid,
+  p_team_member_id     uuid,
+  p_profile_id         uuid,
+  p_issued_by          uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_attempt   int;
+  v_six       text;
+  v_candidate text;
+  v_id        uuid;
+  v_existing  text;
+BEGIN
+  -- One person, one number, for life. Refuse a second — the whole design
+  -- rests on a learner who returns as a team member keeping the number they
+  -- already have. (The partial unique indexes enforce this too; this check
+  -- exists to fail with a sentence a human can act on.)
+  SELECT jkkn_id INTO v_existing
+    FROM public.jkkn_identities
+   WHERE (p_learner_profile_id IS NOT NULL AND learner_profile_id = p_learner_profile_id)
+      OR (p_team_member_id     IS NOT NULL AND team_member_id     = p_team_member_id)
+      OR (p_profile_id         IS NOT NULL AND profile_id         = p_profile_id)
+   LIMIT 1;
+
+  IF v_existing IS NOT NULL THEN
+    RAISE EXCEPTION 'This person already holds JKKN ID %. A person is issued one number for life; to record a new capacity, update person_kind on the existing row.', btrim(v_existing)
+      USING ERRCODE = '23505';
+  END IF;
+
+  FOR v_attempt IN 1..20 LOOP
+    -- 100000..999999 inclusive: random() is [0,1), so floor(random()*900000)
+    -- is 0..899999.
+    v_six       := (100000 + floor(random() * 900000))::int::text;
+    v_candidate := v_six || '-' || public.fn_jkkn_id_check_digit(v_six);
+
+    INSERT INTO public.jkkn_identities (
+      jkkn_id, person_kind, learner_profile_id, team_member_id, profile_id, issued_by
+    )
+    VALUES (
+      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, p_issued_by
+    )
+    ON CONFLICT (jkkn_id) DO NOTHING
+    RETURNING id INTO v_id;
+
+    -- ON CONFLICT covers only a number collision. A one-person-one-number
+    -- violation is a different unique index and is left to raise.
+    IF v_id IS NOT NULL THEN
+      RETURN jsonb_build_object(
+        'ok',          true,
+        'identity_id', v_id,
+        'jkkn_id',     v_candidate,
+        'person_kind', p_person_kind,
+        'attempts',    v_attempt
+      );
+    END IF;
+  END LOOP;
+
+  RAISE EXCEPTION 'Could not find an unused JKKN ID in 20 attempts. The 900,000-number pool is close to exhausted or something is wrong.'
+    USING ERRCODE = '53400';
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_allocate(text, uuid, uuid, uuid, uuid) IS
+  'PRIVATE allocator behind fn_issue_jkkn_id and the auto-issue triggers. Draws a random unused JKKN ID and inserts the register row. Carries no permission gate of its own — EXECUTE is revoked from every client role; its callers own authorisation.';
+
+REVOKE ALL ON FUNCTION public.fn_jkkn_allocate(text, uuid, uuid, uuid, uuid) FROM anon, authenticated, PUBLIC;
+
 DROP FUNCTION IF EXISTS public.fn_issue_jkkn_id(text, uuid, uuid);
 
 CREATE OR REPLACE FUNCTION public.fn_issue_jkkn_id(
@@ -36895,12 +37248,6 @@ VOLATILE
 SECURITY DEFINER
 SET search_path = public
 AS $fn$
-DECLARE
-  v_attempt   int;
-  v_six       text;
-  v_candidate text;
-  v_id        uuid;
-  v_existing  text;
 BEGIN
   -- Two gates, not one. The general power to mint a permanent number for
   -- a learner or a team member stays on users.jkkn_id.issue, which is
@@ -36934,8 +37281,8 @@ BEGIN
   END IF;
 
   IF p_person_kind IS NULL
-     OR p_person_kind NOT IN ('learner','team_member','both','external_participant') THEN
-    RAISE EXCEPTION 'person_kind must be learner, team_member, both or external_participant (got %)', p_person_kind
+     OR p_person_kind NOT IN ('learner','team_member','both','external_participant','associate') THEN
+    RAISE EXCEPTION 'person_kind must be learner, team_member, both, external_participant or associate (got %)', p_person_kind
       USING ERRCODE = '22023';
   END IF;
 
@@ -36970,10 +37317,11 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  -- New kind: an external participant is anchored on a profile only.
-  IF p_person_kind = 'external_participant' THEN
+  -- Profile-anchored kinds: external_participant (Course Events, 2026-08-13)
+  -- and associate (2026-08-27).
+  IF p_person_kind IN ('external_participant', 'associate') THEN
     IF p_profile_id IS NULL THEN
-      RAISE EXCEPTION 'An external_participant identity needs a profile'
+      RAISE EXCEPTION 'A % identity needs a profile', p_person_kind
         USING ERRCODE = '22023';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = p_profile_id) THEN
@@ -36981,61 +37329,18 @@ BEGIN
         USING ERRCODE = '23503';
     END IF;
   ELSIF p_profile_id IS NOT NULL THEN
-    RAISE EXCEPTION 'Only an external_participant identity is issued against a profile'
+    RAISE EXCEPTION 'Only an external_participant or associate identity is issued against a profile'
       USING ERRCODE = '22023';
   END IF;
 
-  -- One person, one number, for life. Refuse a second — the whole design
-  -- rests on a learner who returns as a Senior Learner keeping the number
-  -- they already have. (The partial unique indexes enforce this too; this
-  -- check exists to fail with a sentence a human can act on.)
-  SELECT jkkn_id INTO v_existing
-    FROM public.jkkn_identities
-   WHERE (p_learner_profile_id IS NOT NULL AND learner_profile_id = p_learner_profile_id)
-      OR (p_team_member_id     IS NOT NULL AND team_member_id     = p_team_member_id)
-      OR (p_profile_id         IS NOT NULL AND profile_id         = p_profile_id)
-   LIMIT 1;
-
-  IF v_existing IS NOT NULL THEN
-    RAISE EXCEPTION 'This person already holds JKKN ID %. A person is issued one number for life; to record a new capacity, update person_kind on the existing row.', btrim(v_existing)
-      USING ERRCODE = '23505';
-  END IF;
-
-  FOR v_attempt IN 1..20 LOOP
-    -- 100000..999999 inclusive: random() is [0,1), so floor(random()*900000)
-    -- is 0..899999.
-    v_six       := (100000 + floor(random() * 900000))::int::text;
-    v_candidate := v_six || '-' || public.fn_jkkn_id_check_digit(v_six);
-
-    INSERT INTO public.jkkn_identities (
-      jkkn_id, person_kind, learner_profile_id, team_member_id, profile_id, issued_by
-    )
-    VALUES (
-      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, auth.uid()
-    )
-    ON CONFLICT (jkkn_id) DO NOTHING
-    RETURNING id INTO v_id;
-
-    -- ON CONFLICT covers only a number collision. A one-person-one-number
-    -- violation is a different unique index and is left to raise.
-    IF v_id IS NOT NULL THEN
-      RETURN jsonb_build_object(
-        'ok',          true,
-        'identity_id', v_id,
-        'jkkn_id',     v_candidate,
-        'person_kind', p_person_kind,
-        'attempts',    v_attempt
-      );
-    END IF;
-  END LOOP;
-
-  RAISE EXCEPTION 'Could not find an unused JKKN ID in 20 attempts. The 900,000-number pool is close to exhausted or something is wrong.'
-    USING ERRCODE = '53400';
+  RETURN public.fn_jkkn_allocate(
+    p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, auth.uid()
+  );
 END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) IS
-  'Issues ONE permanent JKKN ID to a person who does not already hold one. Kinds: learner, team_member, both, external_participant (Course Events, 2026-08-13). Gated on users.jkkn_id.issue, EXCEPT the external_participant kind, which also accepts courses.applications.decide because it is only ever minted inside fn_course_approve_application by someone already entitled to decide that application. Numbers are drawn at random from 100000..999999 so an ID card never reveals intake volume or joining order.';
+  'Issues ONE permanent JKKN ID to a person who does not already hold one. Kinds: learner, team_member, both, external_participant (Course Events, 2026-08-13), associate (profile-only internal users, 2026-08-27). Gated on users.jkkn_id.issue, EXCEPT the external_participant kind, which also accepts courses.applications.decide. Allocation itself lives in fn_jkkn_allocate; auto-issuance triggers call that allocator directly.';
 
 -- DROP FUNCTION discarded the ACL. Restore it.
 REVOKE EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) FROM anon, PUBLIC;
@@ -37440,6 +37745,41 @@ BEGIN
       )
     LIMIT 25
   ),
+  -- Added 2026-08-27: profile-anchored identities (associates and external
+  -- participants). INNER join to jkkn_identities on purpose — a profile is
+  -- only findable here once it holds a register row, so a name search does
+  -- not flood with every account in the cluster.
+  associate_hits AS (
+    SELECT
+      p.id,
+      CASE
+        WHEN btrim(ji.jkkn_id) = v_q                  THEN 'jkkn_id'
+        WHEN lower(coalesce(p.email, '')) = v_lower   THEN 'email'
+        WHEN EXISTS (
+               SELECT 1 FROM public.jkkn_identity_aliases al
+                WHERE al.jkkn_identity_id = ji.id
+                  AND lower(btrim(al.alias_value)) = v_lower
+             )                                        THEN 'alias'
+        ELSE 'name'
+      END AS matched_on,
+      p.full_name, p.avatar_url, p.institution_id,
+      ji.person_kind, ji.jkkn_id
+    FROM public.profiles p
+    JOIN public.jkkn_identities ji ON ji.profile_id = p.id
+    WHERE ji.person_kind IN ('associate', 'external_participant')
+      AND (v_all OR public.role_has_institution_access(p.institution_id))
+      AND (
+           btrim(ji.jkkn_id) = v_q
+        OR EXISTS (
+             SELECT 1 FROM public.jkkn_identity_aliases al
+              WHERE al.jkkn_identity_id = ji.id
+                AND lower(btrim(al.alias_value)) = v_lower
+           )
+        OR lower(coalesce(p.email, '')) = v_lower
+        OR lower(coalesce(p.full_name, '')) LIKE '%' || v_lower || '%'
+      )
+    LIMIT 25
+  ),
   merged AS (
     SELECT jsonb_build_object(
              'person_kind',      'learner',
@@ -37475,6 +37815,21 @@ BEGIN
            ) AS row_json
       FROM team_hits th
       LEFT JOIN public.institutions i ON i.id = th.institution_id
+    UNION ALL
+    SELECT jsonb_build_object(
+             'person_kind',      ah.person_kind,
+             'person_id',        ah.id,
+             'matched_on',       ah.matched_on,
+             'full_name',        coalesce(btrim(ah.full_name), 'Name unavailable'),
+             'photo_url',        ah.avatar_url,
+             'institution_name', i.name,
+             'programme',        NULL,
+             'admission_year',   NULL,
+             'status',           NULL,
+             'jkkn_id',          btrim(ah.jkkn_id)
+           ) AS row_json
+      FROM associate_hits ah
+      LEFT JOIN public.institutions i ON i.id = ah.institution_id
   )
   SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO v_results FROM merged;
 
@@ -37492,10 +37847,825 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_resolve_person(text) IS
-  'Universal person lookup: JKKN ID, roll number, Team Code, register number, application number, name fragment, phone or email. Validates a JKKN ID check digit before searching so a typo is reported as a typo instead of as an absent person. Institution-scoped to the caller and says so in scope_note. Reads the admission year through learners_profiles.admission_year_id -> admission_years.year.';
+  'Universal person lookup: JKKN ID, roll number, Team Code, register number, application number, name fragment, phone or email. Validates a JKKN ID check digit before searching so a typo is reported as a typo instead of as an absent person. Institution-scoped to the caller and says so in scope_note. Reads the admission year through learners_profiles.admission_year_id -> admission_years.year. Third branch (2026-08-27) surfaces profile-anchored identities: associates and external participants.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_resolve_person(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_resolve_person(text) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- 4. Auto-issue trigger functions (2026-08-27)
+-- ---------------------------------------------------------------------
+-- Mirrors migration 20260827110000_jkkn_id_associate_kind_and_auto_issue.sql.
+-- The register originally shipped for deliberate one-at-a-time issuance; on
+-- 2026-08-27 issuance was switched on and AUTOMATED — a recorded design
+-- shift. The triggers carry NO permission gate on purpose: the write that
+-- fires them (an admission, a hire, a role grant) is itself the authorised
+-- act. All three are SECURITY DEFINER (their guard reads must see the whole
+-- register regardless of the session) and fail-soft (EXCEPTION → WARNING,
+-- never a failed parent write). The matching CREATE TRIGGER statements live
+-- in 04_triggers.sql.
+--
+-- THE ONE UNRECOVERABLE ERROR is one person holding two numbers (rows can
+-- only be retired, never deleted). The learner and staff triggers therefore
+-- run the same overlap rule as scripts/backfill-jkkn-ids.ts before minting:
+-- an exact normalised-email match against the other kind UPGRADES the
+-- existing row to person_kind='both'; an ambiguous match (2+) skips with a
+-- WARNING for a human to resolve.
+
+-- 4a. Learner reaches admitted/active.
+CREATE OR REPLACE FUNCTION public.tg_jkkn_auto_issue_learner()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_emails   text[];
+  v_match_id uuid;
+  v_matches  int;
+BEGIN
+  -- Already holds a number (retired still counts as held — the remedy for a
+  -- retired identity is a human decision, not a fresh mint).
+  IF EXISTS (SELECT 1 FROM public.jkkn_identities WHERE learner_profile_id = NEW.id) THEN
+    RETURN NULL;
+  END IF;
+
+  -- The two-numbers guard: does a TEAM-MEMBER identity already exist for this
+  -- same human? Exact normalised email match, nothing weaker (phone can be a
+  -- parent; name+DOB can be twins).
+  v_emails := ARRAY(
+    SELECT lower(btrim(e)) FROM unnest(ARRAY[NEW.student_email, NEW.college_email]) AS e
+     WHERE e IS NOT NULL AND btrim(e) <> ''
+  );
+
+  IF array_length(v_emails, 1) IS NOT NULL THEN
+    SELECT count(*), min(ji.id::text)::uuid
+      INTO v_matches, v_match_id
+      FROM public.jkkn_identities ji
+      JOIN public.staff st ON st.id = ji.team_member_id
+     WHERE ji.learner_profile_id IS NULL
+       AND (lower(btrim(coalesce(st.institution_email, ''))) = ANY (v_emails)
+         OR lower(btrim(coalesce(st.email, '')))             = ANY (v_emails));
+
+    IF v_matches = 1 THEN
+      UPDATE public.jkkn_identities
+         SET learner_profile_id = NEW.id, person_kind = 'both'
+       WHERE id = v_match_id;
+      RETURN NULL;
+    ELSIF v_matches > 1 THEN
+      RAISE WARNING '[jkkn auto-issue] learner % matches % team-member identities by email — skipped, needs a human', NEW.id, v_matches;
+      RETURN NULL;
+    END IF;
+  END IF;
+
+  PERFORM public.fn_jkkn_allocate('learner', NEW.id, NULL, NULL, NULL);
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[jkkn auto-issue] learner % failed: %', NEW.id, SQLERRM;
+  RETURN NULL;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.tg_jkkn_auto_issue_learner() FROM anon, authenticated, PUBLIC;
+
+-- 4b. Team member created active, or activated.
+CREATE OR REPLACE FUNCTION public.tg_jkkn_auto_issue_team_member()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_emails   text[];
+  v_match_id uuid;
+  v_matches  int;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.jkkn_identities WHERE team_member_id = NEW.id) THEN
+    RETURN NULL;
+  END IF;
+
+  -- Mirror of the learner guard: an existing LEARNER identity for the same
+  -- email is upgraded to 'both', never joined by a second number.
+  v_emails := ARRAY(
+    SELECT lower(btrim(e)) FROM unnest(ARRAY[NEW.institution_email, NEW.email]) AS e
+     WHERE e IS NOT NULL AND btrim(e) <> ''
+  );
+
+  IF array_length(v_emails, 1) IS NOT NULL THEN
+    SELECT count(*), min(ji.id::text)::uuid
+      INTO v_matches, v_match_id
+      FROM public.jkkn_identities ji
+      JOIN public.learners_profiles lp ON lp.id = ji.learner_profile_id
+     WHERE ji.team_member_id IS NULL
+       AND (lower(btrim(coalesce(lp.student_email, ''))) = ANY (v_emails)
+         OR lower(btrim(coalesce(lp.college_email, ''))) = ANY (v_emails));
+
+    IF v_matches = 1 THEN
+      UPDATE public.jkkn_identities
+         SET team_member_id = NEW.id, person_kind = 'both'
+       WHERE id = v_match_id;
+      RETURN NULL;
+    ELSIF v_matches > 1 THEN
+      RAISE WARNING '[jkkn auto-issue] team member % matches % learner identities by email — skipped, needs a human', NEW.id, v_matches;
+      RETURN NULL;
+    END IF;
+  END IF;
+
+  PERFORM public.fn_jkkn_allocate('team_member', NULL, NEW.id, NULL, NULL);
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[jkkn auto-issue] team member % failed: %', NEW.id, SQLERRM;
+  RETURN NULL;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.tg_jkkn_auto_issue_team_member() FROM anon, authenticated, PUBLIC;
+
+-- 4c. Custom role granted to a profile-only user → 'associate'.
+CREATE OR REPLACE FUNCTION public.tg_jkkn_auto_issue_associate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_profile record;
+BEGIN
+  SELECT id, email, learner_id INTO v_profile
+    FROM public.profiles WHERE id = NEW.user_id;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  -- The learner and team-member lanes own issuance for their people: a
+  -- learner-linked profile is issued at admission, and a profile whose email
+  -- belongs to a staff row is issued at hire/activation (even if that staff
+  -- row is inactive today).
+  IF v_profile.learner_id IS NOT NULL THEN
+    RETURN NULL;
+  END IF;
+  IF v_profile.email IS NOT NULL AND btrim(v_profile.email) <> '' AND EXISTS (
+    SELECT 1 FROM public.staff st
+     WHERE lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(v_profile.email))
+        OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(v_profile.email))
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.jkkn_identities WHERE profile_id = v_profile.id) THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM public.fn_jkkn_allocate('associate', NULL, NULL, v_profile.id, NULL);
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[jkkn auto-issue] associate (profile %) failed: %', NEW.user_id, SQLERRM;
+  RETURN NULL;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.tg_jkkn_auto_issue_associate() FROM anon, authenticated, PUBLIC;
+
+-- ---------------------------------------------------------------------
+-- 5. fn_jkkn_directory — paginated, filterable person directory (2026-08-27)
+-- ---------------------------------------------------------------------
+-- Mirrors migration 20260827120000_jkkn_directory_rpc.sql. Backs the
+-- default browsable table on /users/jkkn-id: one kind per call
+-- (learner | team_member | associate), gated on users.jkkn_id.view like
+-- fn_resolve_person, institution-scoped for non-admins. Sort keys are
+-- whitelisted, the limit clamps to 1..100, and the page clamps to the
+-- last page so narrowing a filter mid-list never blanks the table.
+CREATE OR REPLACE FUNCTION public.fn_jkkn_directory(
+  p_kind           text DEFAULT 'learner',
+  p_institution_id uuid DEFAULT NULL,
+  p_status         text DEFAULT NULL,
+  p_issued         text DEFAULT NULL,   -- 'issued' | 'not_issued' | NULL = any
+  p_admission_year int  DEFAULT NULL,   -- learners only
+  p_search         text DEFAULT NULL,
+  p_sort_by        text DEFAULT 'name',
+  p_sort_order     text DEFAULT 'asc',
+  p_page           int  DEFAULT 1,
+  p_limit          int  DEFAULT 25
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_all    boolean;
+  v_q      text := lower(btrim(coalesce(p_search, '')));
+  v_sort   text;
+  v_desc   boolean := lower(coalesce(p_sort_order, 'asc')) = 'desc';
+  v_limit  int := LEAST(GREATEST(coalesce(p_limit, 25), 1), 100);
+  v_total  bigint;
+  v_pages  int;
+  v_page   int;
+  v_rows   jsonb;
+BEGIN
+  -- Gate + scope: identical to fn_resolve_person.
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('users.jkkn_id.view')
+  ) THEN
+    RAISE EXCEPTION 'Not authorised to look people up'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_all := COALESCE(public.is_super_admin(), false) OR public.is_admin();
+
+  IF p_kind IS NULL OR p_kind NOT IN ('learner', 'team_member', 'associate') THEN
+    RAISE EXCEPTION 'kind must be learner, team_member or associate (got %)', p_kind
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- Sort whitelist. Anything unknown falls back to name rather than erroring —
+  -- a stale bookmark should degrade, not 400.
+  v_sort := CASE
+    WHEN p_sort_by IN ('name', 'jkkn_id', 'code', 'status', 'admission_year') THEN p_sort_by
+    ELSE 'name'
+  END;
+
+  IF p_kind = 'learner' THEN
+    SELECT count(*) INTO v_total
+      FROM public.learners_profiles lp
+      LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
+      LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
+     WHERE (v_all OR public.role_has_institution_access(lp.institution_id))
+       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+       AND (p_status IS NULL OR lp.lifecycle_status::text = p_status)
+       AND (p_admission_year IS NULL OR ay.year = p_admission_year)
+       AND (p_issued IS NULL
+            OR (p_issued = 'issued'     AND ji.jkkn_id IS NOT NULL)
+            OR (p_issued = 'not_issued' AND ji.jkkn_id IS NULL))
+       AND (v_q = ''
+            OR lower(btrim(lp.first_name || ' ' || coalesce(lp.last_name, ''))) LIKE '%' || v_q || '%'
+            OR lower(btrim(coalesce(lp.roll_number, '')))     LIKE '%' || v_q || '%'
+            OR lower(btrim(coalesce(lp.register_number, ''))) LIKE '%' || v_q || '%'
+            OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')));
+
+    v_pages := GREATEST(1, CEIL(v_total::numeric / v_limit)::int);
+    v_page  := LEAST(GREATEST(coalesce(p_page, 1), 1), v_pages);
+
+    SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO v_rows FROM (
+      SELECT jsonb_build_object(
+               'id',               lp.id,
+               'kind',             'learner',
+               'name',             btrim(lp.first_name || ' ' || coalesce(lp.last_name, '')),
+               'photo_url',        lp.student_photo_url,
+               'email',            NULL,
+               'jkkn_id',          btrim(ji.jkkn_id),
+               'roll_number',      lp.roll_number,
+               'register_number',  lp.register_number,
+               'team_code',        NULL,
+               'designation',      NULL,
+               'program',          pr.program_name,
+               'institution_name', i.name,
+               'admission_year',   ay.year,
+               'status',           lp.lifecycle_status::text
+             ) AS row_json
+        FROM public.learners_profiles lp
+        LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
+        LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
+        LEFT JOIN public.institutions    i  ON i.id  = lp.institution_id
+        LEFT JOIN public.programs        pr ON pr.id = lp.program_id
+       WHERE (v_all OR public.role_has_institution_access(lp.institution_id))
+         AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+         AND (p_status IS NULL OR lp.lifecycle_status::text = p_status)
+         AND (p_admission_year IS NULL OR ay.year = p_admission_year)
+         AND (p_issued IS NULL
+              OR (p_issued = 'issued'     AND ji.jkkn_id IS NOT NULL)
+              OR (p_issued = 'not_issued' AND ji.jkkn_id IS NULL))
+         AND (v_q = ''
+              OR lower(btrim(lp.first_name || ' ' || coalesce(lp.last_name, ''))) LIKE '%' || v_q || '%'
+              OR lower(btrim(coalesce(lp.roll_number, '')))     LIKE '%' || v_q || '%'
+              OR lower(btrim(coalesce(lp.register_number, ''))) LIKE '%' || v_q || '%'
+              OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')))
+       ORDER BY
+         (CASE WHEN NOT v_desc THEN
+            CASE v_sort
+              WHEN 'name'           THEN lower(btrim(lp.first_name || ' ' || coalesce(lp.last_name, '')))
+              WHEN 'jkkn_id'        THEN btrim(ji.jkkn_id)
+              WHEN 'code'           THEN lower(btrim(coalesce(lp.roll_number, '')))
+              WHEN 'status'         THEN lp.lifecycle_status::text
+              WHEN 'admission_year' THEN lpad(coalesce(ay.year, 0)::text, 6, '0')
+            END
+          END) ASC NULLS LAST,
+         (CASE WHEN v_desc THEN
+            CASE v_sort
+              WHEN 'name'           THEN lower(btrim(lp.first_name || ' ' || coalesce(lp.last_name, '')))
+              WHEN 'jkkn_id'        THEN btrim(ji.jkkn_id)
+              WHEN 'code'           THEN lower(btrim(coalesce(lp.roll_number, '')))
+              WHEN 'status'         THEN lp.lifecycle_status::text
+              WHEN 'admission_year' THEN lpad(coalesce(ay.year, 0)::text, 6, '0')
+            END
+          END) DESC NULLS LAST,
+         lp.id
+       LIMIT v_limit OFFSET (v_page - 1) * v_limit
+    ) page_rows;
+
+  ELSIF p_kind = 'team_member' THEN
+    SELECT count(*) INTO v_total
+      FROM public.staff st
+      LEFT JOIN public.jkkn_identities ji ON ji.team_member_id = st.id
+     WHERE (v_all OR public.role_has_institution_access(st.institution_id))
+       AND (p_institution_id IS NULL OR st.institution_id = p_institution_id)
+       AND (p_status IS NULL
+            OR (p_status = 'active'   AND st.is_active IS TRUE)
+            OR (p_status = 'inactive' AND st.is_active IS NOT TRUE))
+       AND (p_issued IS NULL
+            OR (p_issued = 'issued'     AND ji.jkkn_id IS NOT NULL)
+            OR (p_issued = 'not_issued' AND ji.jkkn_id IS NULL))
+       AND (v_q = ''
+            OR lower(btrim(st.first_name || ' ' || coalesce(st.last_name, ''))) LIKE '%' || v_q || '%'
+            OR lower(btrim(coalesce(st.staff_id, ''))) LIKE '%' || v_q || '%'
+            OR lower(coalesce(st.email, ''))             LIKE '%' || v_q || '%'
+            OR lower(coalesce(st.institution_email, '')) LIKE '%' || v_q || '%'
+            OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')));
+
+    v_pages := GREATEST(1, CEIL(v_total::numeric / v_limit)::int);
+    v_page  := LEAST(GREATEST(coalesce(p_page, 1), 1), v_pages);
+
+    SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO v_rows FROM (
+      SELECT jsonb_build_object(
+               'id',               st.id,
+               'kind',             'team_member',
+               'name',             btrim(st.first_name || ' ' || coalesce(st.last_name, '')),
+               'photo_url',        st.profile_picture,
+               'email',            coalesce(st.institution_email, st.email),
+               'jkkn_id',          btrim(ji.jkkn_id),
+               'roll_number',      NULL,
+               'register_number',  NULL,
+               'team_code',        st.staff_id,
+               'designation',      st.designation,
+               'program',          NULL,
+               'institution_name', i.name,
+               'admission_year',   NULL,
+               'status',           CASE WHEN st.is_active THEN 'active' ELSE 'inactive' END
+             ) AS row_json
+        FROM public.staff st
+        LEFT JOIN public.jkkn_identities ji ON ji.team_member_id = st.id
+        LEFT JOIN public.institutions    i  ON i.id = st.institution_id
+       WHERE (v_all OR public.role_has_institution_access(st.institution_id))
+         AND (p_institution_id IS NULL OR st.institution_id = p_institution_id)
+         AND (p_status IS NULL
+              OR (p_status = 'active'   AND st.is_active IS TRUE)
+              OR (p_status = 'inactive' AND st.is_active IS NOT TRUE))
+         AND (p_issued IS NULL
+              OR (p_issued = 'issued'     AND ji.jkkn_id IS NOT NULL)
+              OR (p_issued = 'not_issued' AND ji.jkkn_id IS NULL))
+         AND (v_q = ''
+              OR lower(btrim(st.first_name || ' ' || coalesce(st.last_name, ''))) LIKE '%' || v_q || '%'
+              OR lower(btrim(coalesce(st.staff_id, ''))) LIKE '%' || v_q || '%'
+              OR lower(coalesce(st.email, ''))             LIKE '%' || v_q || '%'
+              OR lower(coalesce(st.institution_email, '')) LIKE '%' || v_q || '%'
+              OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')))
+       ORDER BY
+         (CASE WHEN NOT v_desc THEN
+            CASE v_sort
+              WHEN 'name'    THEN lower(btrim(st.first_name || ' ' || coalesce(st.last_name, '')))
+              WHEN 'jkkn_id' THEN btrim(ji.jkkn_id)
+              WHEN 'code'    THEN lower(btrim(coalesce(st.staff_id, '')))
+              WHEN 'status'  THEN CASE WHEN st.is_active THEN 'active' ELSE 'inactive' END
+              ELSE lower(btrim(st.first_name || ' ' || coalesce(st.last_name, '')))
+            END
+          END) ASC NULLS LAST,
+         (CASE WHEN v_desc THEN
+            CASE v_sort
+              WHEN 'name'    THEN lower(btrim(st.first_name || ' ' || coalesce(st.last_name, '')))
+              WHEN 'jkkn_id' THEN btrim(ji.jkkn_id)
+              WHEN 'code'    THEN lower(btrim(coalesce(st.staff_id, '')))
+              WHEN 'status'  THEN CASE WHEN st.is_active THEN 'active' ELSE 'inactive' END
+              ELSE lower(btrim(st.first_name || ' ' || coalesce(st.last_name, '')))
+            END
+          END) DESC NULLS LAST,
+         st.id
+       LIMIT v_limit OFFSET (v_page - 1) * v_limit
+    ) page_rows;
+
+  ELSE
+    -- Associates and external participants exist in the directory only through
+    -- the register (INNER join), so the 'not_issued' filter is empty here by
+    -- construction.
+    SELECT count(*) INTO v_total
+      FROM public.profiles p
+      JOIN public.jkkn_identities ji ON ji.profile_id = p.id
+     WHERE ji.person_kind IN ('associate', 'external_participant')
+       AND (v_all OR public.role_has_institution_access(p.institution_id))
+       AND (p_institution_id IS NULL OR p.institution_id = p_institution_id)
+       AND (p_issued IS NULL OR p_issued = 'issued')
+       AND (v_q = ''
+            OR lower(coalesce(p.full_name, '')) LIKE '%' || v_q || '%'
+            OR lower(coalesce(p.email, ''))     LIKE '%' || v_q || '%'
+            OR btrim(ji.jkkn_id) = btrim(coalesce(p_search, '')));
+
+    v_pages := GREATEST(1, CEIL(v_total::numeric / v_limit)::int);
+    v_page  := LEAST(GREATEST(coalesce(p_page, 1), 1), v_pages);
+
+    SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO v_rows FROM (
+      SELECT jsonb_build_object(
+               'id',               p.id,
+               'kind',             ji.person_kind,
+               'name',             coalesce(btrim(p.full_name), 'Name unavailable'),
+               'photo_url',        p.avatar_url,
+               'email',            p.email,
+               'jkkn_id',          btrim(ji.jkkn_id),
+               'roll_number',      NULL,
+               'register_number',  NULL,
+               'team_code',        NULL,
+               'designation',      NULL,
+               'program',          NULL,
+               'institution_name', i.name,
+               'admission_year',   NULL,
+               'status',           NULL
+             ) AS row_json
+        FROM public.profiles p
+        JOIN public.jkkn_identities ji ON ji.profile_id = p.id
+        LEFT JOIN public.institutions i ON i.id = p.institution_id
+       WHERE ji.person_kind IN ('associate', 'external_participant')
+         AND (v_all OR public.role_has_institution_access(p.institution_id))
+         AND (p_institution_id IS NULL OR p.institution_id = p_institution_id)
+         AND (p_issued IS NULL OR p_issued = 'issued')
+         AND (v_q = ''
+              OR lower(coalesce(p.full_name, '')) LIKE '%' || v_q || '%'
+              OR lower(coalesce(p.email, ''))     LIKE '%' || v_q || '%'
+              OR btrim(ji.jkkn_id) = btrim(coalesce(p_search, '')))
+       ORDER BY
+         (CASE WHEN NOT v_desc THEN
+            CASE v_sort
+              WHEN 'jkkn_id' THEN btrim(ji.jkkn_id)
+              ELSE lower(coalesce(p.full_name, ''))
+            END
+          END) ASC NULLS LAST,
+         (CASE WHEN v_desc THEN
+            CASE v_sort
+              WHEN 'jkkn_id' THEN btrim(ji.jkkn_id)
+              ELSE lower(coalesce(p.full_name, ''))
+            END
+          END) DESC NULLS LAST,
+         p.id
+       LIMIT v_limit OFFSET (v_page - 1) * v_limit
+    ) page_rows;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'ok',          true,
+    'rows',        v_rows,
+    'total',       v_total,
+    'page',        v_page,
+    'limit',       v_limit,
+    'total_pages', v_pages
+  );
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_directory(text, uuid, text, text, int, text, text, text, int, int) IS
+  'Paginated, filterable person directory behind /users/jkkn-id. One kind per call (learner | team_member | associate). Gated on users.jkkn_id.view like fn_resolve_person; non-admins are institution-scoped via role_has_institution_access. Sort keys whitelisted, limit clamped to 100, page clamped to the last page.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_directory(text, uuid, text, text, int, text, text, text, int, int) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_directory(text, uuid, text, text, int, text, text, text, int, int) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- 6. fn_jkkn_stats + fn_jkkn_issue_manual (2026-08-27)
+-- ---------------------------------------------------------------------
+-- Mirrors migration 20260827150000_jkkn_stats_and_manual_issue.sql.
+-- Stats: kind-wise issued/pending for the /users/jkkn-id analytics cards
+-- (gated on users.jkkn_id.view; learner/team/associate counts scoped for
+-- non-admins; learners.review = the phone-overlap withheld set).
+-- Manual issue: the "Issue ID" button, gated on users.jkkn_id.issue,
+-- carrying the SAME email guard as the auto-issue triggers — an exact
+-- match to an unlinked other-kind identity LINKS it (person_kind='both')
+-- rather than minting a duplicate; ambiguous matches raise.
+CREATE OR REPLACE FUNCTION public.fn_jkkn_stats()
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_all       boolean;
+  v_learners  jsonb;
+  v_team      jsonb;
+  v_assoc     jsonb;
+  v_register  jsonb;
+BEGIN
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('users.jkkn_id.view')
+  ) THEN
+    RAISE EXCEPTION 'Not authorised to look people up'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_all := COALESCE(public.is_super_admin(), false) OR public.is_admin();
+
+  SELECT jsonb_build_object(
+           'eligible', count(*),
+           'issued',   count(*) FILTER (WHERE ji.id IS NOT NULL),
+           'pending',  count(*) FILTER (WHERE ji.id IS NULL),
+           'review',   count(*) FILTER (WHERE ji.id IS NULL AND EXISTS (
+             SELECT 1
+               FROM public.jkkn_identities j2
+               JOIN public.staff st ON st.id = j2.team_member_id
+              WHERE j2.learner_profile_id IS NULL
+                AND right(regexp_replace(coalesce(st.phone, ''), '[^0-9]', '', 'g'), 10)
+                    = NULLIF(right(regexp_replace(coalesce(lp.student_mobile, ''), '[^0-9]', '', 'g'), 10), '')
+           ))
+         )
+    INTO v_learners
+    FROM public.learners_profiles lp
+    LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
+   WHERE lp.lifecycle_status::text IN ('reserved', 'account', 'admitted', 'active', 'graduated', 'alumni')
+     AND (v_all OR public.role_has_institution_access(lp.institution_id));
+
+  SELECT jsonb_build_object(
+           'eligible', count(*),
+           'issued',   count(*) FILTER (WHERE ji.id IS NOT NULL),
+           'pending',  count(*) FILTER (WHERE ji.id IS NULL)
+         )
+    INTO v_team
+    FROM public.staff st
+    LEFT JOIN public.jkkn_identities ji ON ji.team_member_id = st.id
+   WHERE st.is_active IS TRUE
+     AND (v_all OR public.role_has_institution_access(st.institution_id));
+
+  -- Associates: custom-role holders who are neither learner-linked nor
+  -- matched by email to any staff row (those belong to the other lanes).
+  SELECT jsonb_build_object(
+           'eligible', count(*),
+           'issued',   count(*) FILTER (WHERE ji.id IS NOT NULL),
+           'pending',  count(*) FILTER (WHERE ji.id IS NULL)
+         )
+    INTO v_assoc
+    FROM (SELECT DISTINCT ur.user_id FROM public.user_roles ur) ur
+    JOIN public.profiles p ON p.id = ur.user_id
+    LEFT JOIN public.jkkn_identities ji ON ji.profile_id = p.id
+   WHERE p.learner_id IS NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.staff st
+        WHERE NULLIF(lower(btrim(coalesce(p.email, ''))), '') IS NOT NULL
+          AND (lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(p.email))
+            OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(p.email)))
+     )
+     AND (v_all OR public.role_has_institution_access(p.institution_id));
+
+  SELECT jsonb_build_object(
+           'total',                 count(*),
+           'both',                  count(*) FILTER (WHERE person_kind = 'both'),
+           'external_participants', count(*) FILTER (WHERE person_kind = 'external_participant'),
+           'retired',               count(*) FILTER (WHERE retired_at IS NOT NULL)
+         )
+    INTO v_register
+    FROM public.jkkn_identities;
+
+  RETURN jsonb_build_object(
+    'ok',           true,
+    'learners',     v_learners,
+    'team_members', v_team,
+    'associates',   v_assoc,
+    'register',     v_register
+  );
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_stats() IS
+  'Kind-wise issued/pending counts for the /users/jkkn-id analytics cards. Gated on users.jkkn_id.view; learner/team/associate counts are institution-scoped for non-admins; register totals are global. learners.review = unissued learners phone-matching an unlinked team-member identity (the withheld human-review set).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_stats() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_stats() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_jkkn_issue_manual(
+  p_kind   text,
+  p_ref_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_existing text;
+  v_emails   text[];
+  v_matches  int;
+  v_match_id uuid;
+  v_number   text;
+  v_result   jsonb;
+BEGIN
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('users.jkkn_id.issue')
+  ) THEN
+    RAISE EXCEPTION 'Not authorised to issue a JKKN ID'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_kind IS NULL OR p_kind NOT IN ('learner', 'team_member', 'associate') THEN
+    RAISE EXCEPTION 'kind must be learner, team_member or associate (got %)', p_kind
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_ref_id IS NULL THEN
+    RAISE EXCEPTION 'p_ref_id is required' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_kind = 'learner' THEN
+    IF NOT EXISTS (SELECT 1 FROM public.learners_profiles WHERE id = p_ref_id) THEN
+      RAISE EXCEPTION 'No learner profile %', p_ref_id USING ERRCODE = '23503';
+    END IF;
+
+    SELECT btrim(jkkn_id) INTO v_existing
+      FROM public.jkkn_identities WHERE learner_profile_id = p_ref_id LIMIT 1;
+    IF v_existing IS NOT NULL THEN
+      RETURN jsonb_build_object('ok', true, 'action', 'already_held', 'jkkn_id', v_existing);
+    END IF;
+
+    SELECT ARRAY(
+             SELECT lower(btrim(e))
+               FROM unnest(ARRAY[lp.student_email, lp.college_email]) AS e
+              WHERE e IS NOT NULL AND btrim(e) <> ''
+           )
+      INTO v_emails
+      FROM public.learners_profiles lp WHERE lp.id = p_ref_id;
+
+    v_matches := 0; v_match_id := NULL;
+    IF array_length(v_emails, 1) IS NOT NULL THEN
+      SELECT count(*), min(ji.id::text)::uuid INTO v_matches, v_match_id
+        FROM public.jkkn_identities ji
+        JOIN public.staff st ON st.id = ji.team_member_id
+       WHERE ji.learner_profile_id IS NULL
+         AND (lower(btrim(coalesce(st.institution_email, ''))) = ANY (v_emails)
+           OR lower(btrim(coalesce(st.email, '')))             = ANY (v_emails));
+    END IF;
+
+    IF v_matches = 1 THEN
+      UPDATE public.jkkn_identities
+         SET learner_profile_id = p_ref_id, person_kind = 'both'
+       WHERE id = v_match_id
+       RETURNING btrim(jkkn_id) INTO v_number;
+      RETURN jsonb_build_object('ok', true, 'action', 'linked_existing', 'jkkn_id', v_number);
+    ELSIF v_matches > 1 THEN
+      RAISE EXCEPTION 'This learner''s email matches % existing team-member identities — resolve which one is the same person before issuing.', v_matches
+        USING ERRCODE = '23505';
+    END IF;
+
+    v_result := public.fn_jkkn_allocate('learner', p_ref_id, NULL, NULL, auth.uid());
+
+  ELSIF p_kind = 'team_member' THEN
+    IF NOT EXISTS (SELECT 1 FROM public.staff WHERE id = p_ref_id) THEN
+      RAISE EXCEPTION 'No team member %', p_ref_id USING ERRCODE = '23503';
+    END IF;
+
+    SELECT btrim(jkkn_id) INTO v_existing
+      FROM public.jkkn_identities WHERE team_member_id = p_ref_id LIMIT 1;
+    IF v_existing IS NOT NULL THEN
+      RETURN jsonb_build_object('ok', true, 'action', 'already_held', 'jkkn_id', v_existing);
+    END IF;
+
+    SELECT ARRAY(
+             SELECT lower(btrim(e))
+               FROM unnest(ARRAY[st.institution_email, st.email]) AS e
+              WHERE e IS NOT NULL AND btrim(e) <> ''
+           )
+      INTO v_emails
+      FROM public.staff st WHERE st.id = p_ref_id;
+
+    v_matches := 0; v_match_id := NULL;
+    IF array_length(v_emails, 1) IS NOT NULL THEN
+      SELECT count(*), min(ji.id::text)::uuid INTO v_matches, v_match_id
+        FROM public.jkkn_identities ji
+        JOIN public.learners_profiles lp ON lp.id = ji.learner_profile_id
+       WHERE ji.team_member_id IS NULL
+         AND (lower(btrim(coalesce(lp.student_email, ''))) = ANY (v_emails)
+           OR lower(btrim(coalesce(lp.college_email, ''))) = ANY (v_emails));
+    END IF;
+
+    IF v_matches = 1 THEN
+      UPDATE public.jkkn_identities
+         SET team_member_id = p_ref_id, person_kind = 'both'
+       WHERE id = v_match_id
+       RETURNING btrim(jkkn_id) INTO v_number;
+      RETURN jsonb_build_object('ok', true, 'action', 'linked_existing', 'jkkn_id', v_number);
+    ELSIF v_matches > 1 THEN
+      RAISE EXCEPTION 'This team member''s email matches % existing learner identities — resolve which one is the same person before issuing.', v_matches
+        USING ERRCODE = '23505';
+    END IF;
+
+    v_result := public.fn_jkkn_allocate('team_member', NULL, p_ref_id, NULL, auth.uid());
+
+  ELSE
+    IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = p_ref_id) THEN
+      RAISE EXCEPTION 'No profile %', p_ref_id USING ERRCODE = '23503';
+    END IF;
+
+    SELECT btrim(jkkn_id) INTO v_existing
+      FROM public.jkkn_identities WHERE profile_id = p_ref_id LIMIT 1;
+    IF v_existing IS NOT NULL THEN
+      RETURN jsonb_build_object('ok', true, 'action', 'already_held', 'jkkn_id', v_existing);
+    END IF;
+
+    v_result := public.fn_jkkn_allocate('associate', NULL, NULL, p_ref_id, auth.uid());
+  END IF;
+
+  RETURN jsonb_build_object('ok', true, 'action', 'issued', 'jkkn_id', v_result->>'jkkn_id');
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) IS
+  'Manual "Issue ID" behind /users/jkkn-id, gated on users.jkkn_id.issue. Applies the same email guard as the auto-issue triggers: an exact match to an unlinked identity of the other kind LINKS that row (person_kind=both) and returns its number instead of minting a duplicate; an ambiguous match raises. issued_by = the caller.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- 7. fn_jkkn_id_of — the number (and nothing else) for one person (2026-08-27)
+-- ---------------------------------------------------------------------
+-- Mirrors migration 20260827160000_jkkn_id_of_lookup.sql. Open to ALL
+-- authenticated users on purpose: it returns only the card-printed,
+-- non-secret number for a row id the caller already reached through a
+-- detail page's own authorisation (learner profile / staff / user
+-- management pages, whose viewers usually lack users.jkkn_id.view).
+-- Rich person lookups stay behind that key. Retired identities → NULL.
+CREATE OR REPLACE FUNCTION public.fn_jkkn_id_of(
+  p_kind   text,
+  p_ref_id uuid
+)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_id      text;
+  v_profile record;
+BEGIN
+  IF p_ref_id IS NULL OR p_kind IS NULL OR p_kind NOT IN ('learner', 'team_member', 'profile') THEN
+    RETURN NULL;
+  END IF;
+
+  IF p_kind = 'learner' THEN
+    SELECT btrim(jkkn_id) INTO v_id
+      FROM public.jkkn_identities
+     WHERE learner_profile_id = p_ref_id AND retired_at IS NULL
+     LIMIT 1;
+    RETURN v_id;
+  END IF;
+
+  IF p_kind = 'team_member' THEN
+    SELECT btrim(jkkn_id) INTO v_id
+      FROM public.jkkn_identities
+     WHERE team_member_id = p_ref_id AND retired_at IS NULL
+     LIMIT 1;
+    RETURN v_id;
+  END IF;
+
+  -- 'profile': a user-management row can be a learner, a team member or a
+  -- profile-anchored associate — resolve through the same bridges the ID-card
+  -- renderer uses (profiles.learner_id; profiles.email == staff email).
+  SELECT id, email, learner_id INTO v_profile
+    FROM public.profiles WHERE id = p_ref_id;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT btrim(jkkn_id) INTO v_id
+    FROM public.jkkn_identities
+   WHERE profile_id = v_profile.id AND retired_at IS NULL
+   LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;
+
+  IF v_profile.learner_id IS NOT NULL THEN
+    SELECT btrim(jkkn_id) INTO v_id
+      FROM public.jkkn_identities
+     WHERE learner_profile_id = v_profile.learner_id AND retired_at IS NULL
+     LIMIT 1;
+    IF v_id IS NOT NULL THEN RETURN v_id; END IF;
+  END IF;
+
+  IF v_profile.email IS NOT NULL AND btrim(v_profile.email) <> '' THEN
+    SELECT btrim(ji.jkkn_id) INTO v_id
+      FROM public.jkkn_identities ji
+      JOIN public.staff st ON st.id = ji.team_member_id
+     WHERE ji.retired_at IS NULL
+       AND (lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(v_profile.email))
+         OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(v_profile.email)))
+     LIMIT 1;
+  END IF;
+
+  RETURN v_id;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_id_of(text, uuid) IS
+  'Returns ONLY the active JKKN ID for one person (kinds: learner | team_member | profile), or NULL. Granted to all authenticated users: the number is card-printed and non-secret, and the caller already passed the detail page''s own authorisation to know the row id. Rich person lookups remain behind users.jkkn_id.view. Retired identities return NULL.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_id_of(text, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_id_of(text, uuid) TO authenticated;
 
 
 -- ============================================================================
@@ -44859,7 +46029,7 @@ END $function$;
 
 -- ===========================================================================
 -- HR Biometric import purge (super admin only)
--- Mirrored from supabase/migrations/20260820140000_biometric_import_purge_super_admin.sql
+-- Mirrored from supabase/migrations/20260820150000_biometric_import_purge_super_admin.sql
 -- ===========================================================================
 -- HR Attendance — super-admin-only purge of one imported biometric month.
 --
@@ -47279,23 +48449,35 @@ COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
   'Refuses a day-leave request whose dates overlap another live request for the same employee. Not fired on status changes, so pre-existing overlaps stay decidable.';
 
 -- ===========================================================================
--- fn_hr_set_staff_salary (2026-08-21)
+-- fn_hr_set_staff_salary (2026-08-21, EPF/ESI added 2026-09-01)
 -- Source: 20260821201000_fn_hr_set_staff_salary.sql
+--         20260901120000_hr_salary_epf_esi_values.sql
+--
+-- The 2026-09-01 revision DROPPED the 13-argument signature before recreating
+-- it at 16. `CREATE OR REPLACE` with a changed parameter list creates an
+-- OVERLOAD rather than replacing, and PostgREST then answers PGRST203 on every
+-- call. A rebuild from this file starts clean, so only the final shape is
+-- recorded here — but the drop is why the grants below are restated.
 -- ===========================================================================
 CREATE OR REPLACE FUNCTION public.fn_hr_set_staff_salary(
-  p_staff_id             uuid,
-  p_hr_organization_id   uuid,
-  p_monthly_gross        numeric,
-  p_effective_from       date,
-  p_salary_structure     text    DEFAULT 'Monthly',
-  p_overtime_level       text    DEFAULT 'No overtime',
-  p_overtime_amount      numeric DEFAULT 0,
-  p_eligible_for_pf      boolean DEFAULT false,
-  p_exempt_edli          boolean DEFAULT false,
+  p_staff_id               uuid,
+  p_hr_organization_id     uuid,
+  p_monthly_gross          numeric,
+  p_effective_from         date,
+  p_salary_structure       text    DEFAULT 'Monthly',
+  p_overtime_level         text    DEFAULT 'No overtime',
+  p_overtime_amount        numeric DEFAULT 0,
+  p_eligible_for_pf        boolean DEFAULT false,
+  p_exempt_edli            boolean DEFAULT false,
   p_eligible_for_insurance boolean DEFAULT false,
   p_eligible_for_gratuity  boolean DEFAULT false,
-  p_eligible_for_etf     boolean DEFAULT false,
-  p_notes                text    DEFAULT NULL
+  p_eligible_for_etf       boolean DEFAULT false,
+  p_notes                  text    DEFAULT NULL,
+  p_epf_amount             numeric DEFAULT 0,
+  p_eligible_for_esi       boolean DEFAULT false,
+  p_esi_amount             numeric DEFAULT 0,
+  p_allowance_amount       numeric DEFAULT 0,
+  p_allowance_label        text    DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -47304,6 +48486,10 @@ AS $function$
 DECLARE
   v_new_id  uuid := gen_random_uuid();
   v_current record;
+  v_epf       numeric;
+  v_esi       numeric;
+  v_allowance numeric;
+  v_alw_label text;
 BEGIN
   IF p_staff_id IS NULL OR p_hr_organization_id IS NULL THEN
     RAISE EXCEPTION 'Staff and payroll organisation are both required'
@@ -47315,18 +48501,61 @@ BEGIN
   IF p_effective_from IS NULL THEN
     RAISE EXCEPTION 'Effective date is required' USING ERRCODE = '22023';
   END IF;
+  IF COALESCE(p_epf_amount, 0) < 0 OR COALESCE(p_esi_amount, 0) < 0 THEN
+    RAISE EXCEPTION 'EPF and ESI amounts cannot be negative' USING ERRCODE = '22023';
+  END IF;
+
+  -- An amount against a flag that is OFF is zeroed, not rejected. The bulk
+  -- importer feeds this from a spreadsheet where a leftover figure beside a "No"
+  -- is a formatting slip, and a hard failure there would abort a 754-row import.
+  IF COALESCE(p_allowance_amount, 0) < 0 THEN
+    RAISE EXCEPTION 'Allowance cannot be negative' USING ERRCODE = '22023';
+  END IF;
+
+  v_epf := CASE WHEN p_eligible_for_pf  THEN COALESCE(p_epf_amount, 0) ELSE 0 END;
+  v_esi := CASE WHEN p_eligible_for_esi THEN COALESCE(p_esi_amount, 0) ELSE 0 END;
+
+  v_allowance := COALESCE(p_allowance_amount, 0);
+  -- A label with no money behind it is noise on every screen that renders it.
+  v_alw_label := CASE WHEN v_allowance > 0
+                      THEN NULLIF(TRIM(COALESCE(p_allowance_label, '')), '')
+                      ELSE NULL END;
 
   PERFORM pg_advisory_xact_lock(hashtextextended(p_staff_id::text || ':salary', 0));
 
-  SELECT id, monthly_gross, effective_from INTO v_current
+  SELECT * INTO v_current
     FROM public.hr_staff_salaries
    WHERE staff_id = p_staff_id AND superseded_by IS NULL;
 
-  -- Re-writing the identical figure would bury the real history under
-  -- duplicates, so the incumbent is returned untouched instead.
+  -- Re-writing an IDENTICAL record would bury the real history under duplicates,
+  -- so the incumbent is returned untouched instead.
+  --
+  -- COMPARES THE WHOLE PAYLOAD (widened 2026-09-01). It used to test only
+  -- monthly_gross and effective_from, which meant changing a flag, the overtime
+  -- or the notes saved NOTHING and still reported success. Adding EPF/ESI made
+  -- that the common case: tick ESI, type 165, save, nothing happens.
+  --
+  -- IS DISTINCT FROM throughout, not <>. p_notes is nullable and `x <> NULL` is
+  -- NULL rather than false — a plain <> chain would evaluate to NULL, be read as
+  -- "not different", and silently restore the exact bug this widening fixes.
   IF FOUND
-     AND v_current.monthly_gross = p_monthly_gross
-     AND v_current.effective_from = p_effective_from THEN
+     AND v_current.monthly_gross          IS NOT DISTINCT FROM p_monthly_gross
+     AND v_current.effective_from         IS NOT DISTINCT FROM p_effective_from
+     AND v_current.hr_organization_id     IS NOT DISTINCT FROM p_hr_organization_id
+     AND v_current.salary_structure       IS NOT DISTINCT FROM p_salary_structure
+     AND v_current.overtime_level         IS NOT DISTINCT FROM p_overtime_level
+     AND v_current.overtime_amount        IS NOT DISTINCT FROM COALESCE(p_overtime_amount, 0)
+     AND v_current.eligible_for_pf        IS NOT DISTINCT FROM p_eligible_for_pf
+     AND v_current.exempt_edli            IS NOT DISTINCT FROM p_exempt_edli
+     AND v_current.eligible_for_insurance IS NOT DISTINCT FROM p_eligible_for_insurance
+     AND v_current.eligible_for_gratuity  IS NOT DISTINCT FROM p_eligible_for_gratuity
+     AND v_current.eligible_for_etf       IS NOT DISTINCT FROM p_eligible_for_etf
+     AND v_current.epf_amount             IS NOT DISTINCT FROM v_epf
+     AND v_current.eligible_for_esi       IS NOT DISTINCT FROM p_eligible_for_esi
+     AND v_current.esi_amount             IS NOT DISTINCT FROM v_esi
+     AND v_current.allowance_amount       IS NOT DISTINCT FROM v_allowance
+     AND v_current.allowance_label        IS NOT DISTINCT FROM v_alw_label
+     AND v_current.notes                  IS NOT DISTINCT FROM p_notes THEN
     RETURN v_current.id;
   END IF;
 
@@ -47340,11 +48569,15 @@ BEGIN
     id, staff_id, hr_organization_id, salary_structure, monthly_gross,
     overtime_level, overtime_amount, eligible_for_pf, exempt_edli,
     eligible_for_insurance, eligible_for_gratuity, eligible_for_etf,
+    epf_amount, eligible_for_esi, esi_amount,
+    allowance_amount, allowance_label,
     effective_from, notes, created_by, updated_by
   ) VALUES (
     v_new_id, p_staff_id, p_hr_organization_id, p_salary_structure, p_monthly_gross,
     p_overtime_level, p_overtime_amount, p_eligible_for_pf, p_exempt_edli,
     p_eligible_for_insurance, p_eligible_for_gratuity, p_eligible_for_etf,
+    v_epf, p_eligible_for_esi, v_esi,
+    v_allowance, v_alw_label,
     p_effective_from, p_notes, auth.uid(), auth.uid()
   );
 
@@ -47352,18 +48585,25 @@ BEGIN
 END;
 $function$;
 
--- CREATE OR REPLACE keeps existing grants, but a later DROP FUNCTION would
--- discard them and revert EXECUTE to PUBLIC. Restated so a rebuild from these
--- files lands in the same place.
-REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) TO authenticated, service_role;
+-- CREATE OR REPLACE keeps existing grants, but a DROP FUNCTION discards them and
+-- reverts EXECUTE to PUBLIC — which is exactly what the 2026-09-01 signature
+-- change did, and had to be undone. Restated so a rebuild from these files lands
+-- in the same place. PUBLIC is revoked as well as anon: a grant to PUBLIC is not
+-- removed by revoking from anon.
+REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) TO authenticated, service_role;
 
-COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) IS
-  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage.';
+COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) IS
+  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage. Returns the incumbent unchanged when the whole payload matches.';
 
 -- ===========================================================================
--- hr_staff_salary_directory (2026-08-21)
+-- hr_staff_salary_directory (2026-08-21, EPF/ESI added 2026-09-01)
 -- Source: 20260821220000_hr_staff_salary_directory_rpc.sql
+--         20260901120000_hr_salary_epf_esi_values.sql
+--
+-- The 2026-09-01 revision had to DROP this one too: its RETURNS TABLE gained
+-- three columns, and Postgres refuses CREATE OR REPLACE on a changed return
+-- type outright.
 -- ===========================================================================
 CREATE OR REPLACE FUNCTION public.hr_staff_salary_directory()
 RETURNS TABLE(
@@ -47387,6 +48627,11 @@ RETURNS TABLE(
   eligible_for_insurance boolean,
   eligible_for_gratuity  boolean,
   eligible_for_etf       boolean,
+  epf_amount             numeric,
+  eligible_for_esi       boolean,
+  esi_amount             numeric,
+  allowance_amount       numeric,
+  allowance_label        text,
   effective_from         date,
   notes                  text
 )
@@ -47395,6 +48640,8 @@ STABLE SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 BEGIN
+  -- RAISES rather than returning zero rows, so an empty list from this function
+  -- always means "no staff in scope" and never "you are not allowed".
   IF NOT public.user_has_permission('hr.payroll.salary.view') THEN
     RAISE EXCEPTION 'hr.payroll.salary.view is required to see employee salaries.'
       USING ERRCODE = 'insufficient_privilege';
@@ -47421,19 +48668,21 @@ BEGIN
          sal.eligible_for_insurance,
          sal.eligible_for_gratuity,
          sal.eligible_for_etf,
+         sal.epf_amount,
+         sal.eligible_for_esi,
+         sal.esi_amount,
+         sal.allowance_amount,
+         sal.allowance_label,
          sal.effective_from,
          sal.notes
-    FROM public.staff s
+    -- v_hr_staff, never the base staff table: employment_categories.included_in_hr
+    -- gates the whole HR module and payroll is no exception.
+    FROM public.v_hr_staff s
     JOIN public.institutions i ON i.id = s.institution_id
     LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
     LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
-    -- The salary IN FORCE only. Without superseded_by IS NULL a person who has
-    -- had two raises would appear three times in a roster listing.
     LEFT JOIN public.hr_staff_salaries sal
            ON sal.staff_id = s.id AND sal.superseded_by IS NULL
-   -- Active staff, PLUS anyone inactive who still holds a salary. Filtering on
-   -- is_active alone would hide a relieved employee awaiting final settlement --
-   -- money attached to an invisible row is the one thing this list must not do.
    WHERE (COALESCE(s.is_active, false) OR sal.id IS NOT NULL)
      AND public.role_has_institution_access(s.institution_id)
    -- Unset first: this is a work queue before it is a report.
@@ -47441,8 +48690,9 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.hr_staff_salary_directory() FROM anon;
+REVOKE ALL ON FUNCTION public.hr_staff_salary_directory() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_staff_salary_directory() TO authenticated, service_role;
+
 
 COMMENT ON FUNCTION public.hr_staff_salary_directory() IS
   'Every active staff member with their salary in force, or NULL where none is recorded. Gated on hr.payroll.salary.view; raises rather than returning [] so an empty list never means "denied".';
@@ -47484,7 +48734,9 @@ AS $function$
 DECLARE
   v_new_id  uuid := gen_random_uuid();
   v_current record;
-  v_ifsc    text := upper(trim(coalesce(p_ifsc_code, '')));
+  -- nullif(...,'') is what makes "absent" a single value rather than two.
+  v_ifsc    text := nullif(upper(trim(coalesce(p_ifsc_code, ''))), '');
+  v_bank    text := nullif(trim(coalesce(p_bank_name, '')), '');
   v_acct    text := trim(coalesce(p_account_number, ''));
 BEGIN
   IF p_staff_id IS NULL THEN
@@ -47498,7 +48750,8 @@ BEGIN
   IF v_acct !~ '^[0-9]{6,20}$' THEN
     RAISE EXCEPTION 'Account number must be 6 to 20 digits' USING ERRCODE = '22023';
   END IF;
-  IF v_ifsc !~ '^[A-Z]{4}0[A-Z0-9]{6}$' THEN
+  -- Absent is fine (optional since 2026-09-02). Present and malformed is not.
+  IF v_ifsc IS NOT NULL AND v_ifsc !~ '^[A-Z]{4}0[A-Z0-9]{6}$' THEN
     RAISE EXCEPTION 'IFSC must be 4 letters, then 0, then 6 letters or digits'
       USING ERRCODE = '22023';
   END IF;
@@ -47510,8 +48763,12 @@ BEGIN
    WHERE staff_id = p_staff_id AND superseded_by IS NULL;
 
   -- Re-saving the identical destination would bury the real history under
-  -- duplicates, so the incumbent is returned untouched instead.
-  IF FOUND AND v_current.account_number = v_acct AND v_current.ifsc_code = v_ifsc THEN
+  -- duplicates, so the incumbent is returned untouched instead. IS NOT DISTINCT
+  -- FROM, not =: under NULL = NULL the test yields NULL rather than true, so an
+  -- IFSC-less account would supersede itself on every re-save.
+  IF FOUND
+     AND v_current.account_number IS NOT DISTINCT FROM v_acct
+     AND v_current.ifsc_code      IS NOT DISTINCT FROM v_ifsc THEN
     RETURN v_current.id;
   END IF;
 
@@ -47526,7 +48783,7 @@ BEGIN
     branch_name, account_type, effective_from, notes, created_by, updated_by
   ) VALUES (
     v_new_id, p_staff_id, trim(p_account_holder_name), v_acct, v_ifsc,
-    trim(p_bank_name), nullif(trim(coalesce(p_branch_name, '')), ''),
+    v_bank, nullif(trim(coalesce(p_branch_name, '')), ''),
     coalesce(p_account_type, 'savings'), coalesce(p_effective_from, CURRENT_DATE),
     p_notes, auth.uid(), auth.uid()
   );
@@ -53790,3 +55047,2808 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827100000_hr_leave_approval_queue_decided_rows.sql
+-- =============================================================================
+
+-- Approval queue also returns DECIDED requests, and who decided them.
+--
+-- The queue used to stop at `status IN ('pending','escalated')`, so a request
+-- vanished from /hr/leave/approvals the moment it was approved. An approver
+-- auditing "who approved all of these?" had nowhere to look: final_approver_id
+-- is a profiles id, and profiles is unreadable to most approvers under RLS, so
+-- no client-side lookup could name the decider. Resolved here instead — this
+-- function is already SECURITY DEFINER, same reasoning as applied_by_name.
+--
+-- Decided rows (approved/rejected/withdrawn/cancelled) are bounded to the last
+-- 12 months so this single-shot, unpaginated payload cannot grow without limit
+-- across years; open rows are always returned regardless of age. Withdrawn and
+-- cancelled rows never get a final_decided_at, so they bound on updated_at.
+--
+-- can_decide and waiting_on_me are now false on any decided row: the Approve /
+-- Reject menu, bulk-approve selection and the "Waiting on me" count must not
+-- offer a decision the trigger would refuse on an already-decided application.
+--
+-- RETURNS TABLE gains columns, so DROP first. DROP discards EXECUTE; re-granted.
+--
+-- The body is otherwise identical to 20260821160000 (applied_by columns). See
+-- 20260820170000 for the scope predicate and the can_decide rule.
+
+DROP FUNCTION IF EXISTS public.hr_leave_approval_queue();
+
+CREATE FUNCTION public.hr_leave_approval_queue()
+RETURNS TABLE (
+  id                   uuid,
+  employee_id          uuid,
+  staff_name           text,
+  staff_code           text,
+  institution_id       uuid,
+  institution_name     text,
+  hr_organization_id   uuid,
+  hr_organization_name text,
+  leave_type_id        uuid,
+  leave_type_name      text,
+  leave_type_code      text,
+  request_category     text,
+  start_date           date,
+  end_date             date,
+  start_time           time without time zone,
+  end_time             time without time zone,
+  duration_type        text,
+  duration_minutes     integer,
+  total_days           numeric,
+  reason               text,
+  is_emergency         boolean,
+  status               text,
+  created_at           timestamptz,
+  applied_by           uuid,
+  applied_by_name      text,
+  applied_on_behalf    boolean,
+  final_approver_id    uuid,
+  final_approver_name  text,
+  final_decided_at     timestamptz,
+  rejection_reason     text,
+  is_own               boolean,
+  can_decide           boolean,
+  waiting_on_me        boolean
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $fn$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_sa   boolean;
+  v_orgs uuid[];
+  v_mine uuid[];
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF NOT public.hr_can_approve_leave() THEN
+    RAISE EXCEPTION 'You do not have permission to approve leave'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_sa   := public.is_super_admin();
+  -- COALESCE to an empty array so `= ANY(...)` stays false rather than NULL for
+  -- an approver with no HR organisation mapping.
+  v_orgs := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_mine := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+
+  RETURN QUERY
+  SELECT
+    a.id,
+    a.employee_id,
+    NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')::text,
+    NULLIF(btrim(s.staff_id), '')::text,
+    s.institution_id,
+    i.name::text,
+    a.hr_organization_id,
+    o.name::text,
+    a.leave_type_id,
+    lt.leave_type_name::text,
+    lt.leave_type_code::text,
+    -- A missing type is treated as 'leave' rather than dropped: matching no
+    -- category would make the row vanish from EVERY tab.
+    COALESCE(lt.request_category, 'leave')::text,
+    a.start_date,
+    a.end_date,
+    a.start_time,
+    a.end_time,
+    a.duration_type::text,
+    a.duration_minutes,
+    a.total_days,
+    a.reason,
+    a.is_emergency,
+    a.status::text,
+    a.created_at,
+    a.applied_by,
+    COALESCE(NULLIF(btrim(p.full_name), ''), p.email)::text  AS applied_by_name,
+    (a.applied_by IS DISTINCT FROM s.profile_id)             AS applied_on_behalf,
+    a.final_approver_id,
+    COALESCE(NULLIF(btrim(fp.full_name), ''), fp.email)::text AS final_approver_name,
+    a.final_decided_at,
+    a.rejection_reason,
+    (a.employee_id = ANY (v_mine))               AS is_own,
+    -- Exactly what hr_trig_leave_enforce_approver enforces: super admins are
+    -- exempt from the self-approval bar, everyone else is not. Never true on a
+    -- decided row — there is nothing left to decide.
+    (
+      a.status IN ('pending', 'escalated')
+      AND (v_sa OR a.employee_id <> ALL (v_mine))
+    )                                            AS can_decide,
+    (
+      -- Waiting on ME: the same three tests as the trigger, so the badge cannot
+      -- promise a decision the trigger will refuse.
+      --
+      -- Unlike hr_leave_my_approval_queue this does NOT return true for every
+      -- row just because the caller is a super admin. A super admin CAN decide
+      -- anything, but a filter that selects the entire queue tells them nothing
+      -- — this is a filter, not a permission.
+      a.status IN ('pending', 'escalated')
+      AND (v_sa OR a.employee_id <> ALL (v_mine))
+      AND (
+        st.step IS NULL
+        OR CASE
+             WHEN NULLIF(st.step ->> 'approver_user_id', '') IS NOT NULL
+               THEN (st.step ->> 'approver_user_id')::uuid = v_uid
+             WHEN NULLIF(st.step ->> 'approver_role', '') IS NOT NULL
+               THEN NOT EXISTS (
+                      SELECT 1 FROM public.custom_roles cr
+                       WHERE cr.role_key = st.step ->> 'approver_role' AND cr.is_active
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                        FROM public.user_roles ur
+                        JOIN public.custom_roles cr2 ON cr2.id = ur.role_id
+                       WHERE ur.user_id = v_uid
+                         AND cr2.role_key = st.step ->> 'approver_role'
+                    )
+             ELSE true
+           END
+      )
+    )                                            AS waiting_on_me
+  FROM public.hr_leave_applications a
+  LEFT JOIN public.hr_leave_types   lt ON lt.id = a.leave_type_id
+  LEFT JOIN public.staff            s  ON s.id  = a.employee_id
+  LEFT JOIN public.institutions     i  ON i.id  = s.institution_id
+  LEFT JOIN public.hr_organizations o  ON o.id  = a.hr_organization_id
+  LEFT JOIN public.profiles         p  ON p.id  = a.applied_by
+  LEFT JOIN public.profiles         fp ON fp.id = a.final_approver_id
+  CROSS JOIN LATERAL (SELECT a.approval_chain -> a.current_step AS step) st
+  WHERE (
+      a.status IN ('pending', 'escalated')
+      OR a.final_decided_at >= now() - interval '12 months'
+      OR (
+        a.status IN ('withdrawn', 'cancelled')
+        AND a.updated_at >= now() - interval '12 months'
+      )
+    )
+    -- Scope copied from hla_select. A DEFINER function bypasses RLS, so drifting
+    -- from the policy here would hand out rows the table itself refuses.
+    AND (
+      v_sa
+      OR a.hr_organization_id = ANY (v_orgs)
+      OR public.fn_is_designated_leave_approver(a.id)
+    )
+  ORDER BY a.created_at DESC;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated;
+
+COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
+  'Leave + short-time-off approval queue: open requests plus the last 12 months of decided ones, with who submitted and who decided each. Scope copies hla_select; can_decide/waiting_on_me are false on decided rows.';
+
+-- =====================================================
+-- 20260827100000: Housekeeping booking assignment flow
+-- fn_housekeeping_assign_booking / fn_housekeeping_assignable_staff are NEW;
+-- fn_housekeeping_available_slots / _book_slot / _my_entitlement /
+-- _cancel_booking / _mark_booking / _booking_board were REDEFINED so that
+-- status 'assigned' counts as a live booking everywhere (capacity, weekly
+-- quota, duplicate check, cancel + mark gates) and the board returns learner
+-- details (roll_number, program_name, phone, photo_url) + assignment fields.
+-- Canonical current bodies: supabase/migrations/20260827100000_housekeeping_booking_assignment.sql
+-- EXCEPT fn_housekeeping_booking_board, re-created 20260827110000 with a new
+-- signature (p_institution_id, p_date DEFAULT NULL, p_date_from DEFAULT NULL,
+-- p_date_to DEFAULT NULL — old 2-arg overload DROPPED), hostel_rooms.floor in
+-- each row, and live-statuses-first ordering:
+-- supabase/migrations/20260827110000_housekeeping_board_all_dates_floor.sql
+-- =====================================================
+
+-- Warden assigns / re-assigns / clears a resident cleaning booking.
+-- Gate: '.schedule' + institution access. p_clear=true reverts to 'booked'.
+-- error_codes: not_found | forbidden | not_assignable | missing_assignee
+-- (Body in the migration above.)
+
+-- Assignable-staff picker: active profiles whose active roles grant
+-- 'campus_living.housekeeping.mark_done' (VALUE test, not `? 'key'`),
+-- scoped to the institution. (Body in the migration above.)
+
+-- =====================================================
+-- 20260827130000: Housekeeping entitlement = premium ENROLLED category
+-- AND premium ALLOCATED room AND an active allocation (all three).
+-- fn_housekeeping_entitlement_tier was DROPPED and recreated with a new
+-- signature returning both sides plus the LOWER of the two tiers (rank
+-- standard < premium < premium_plus), so a premium-billed learner housed in
+-- a standard room resolves to 'standard' and cannot book. Its two callers
+-- (fn_housekeeping_my_entitlement, fn_housekeeping_book_slot) were recreated
+-- in the same migration. No other feature reads this resolver.
+-- Canonical body: supabase/migrations/20260827130000_housekeeping_premium_room_and_allocation_required.sql
+-- =====================================================
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827190000_hr_regularization_stamp_trigger.sql
+-- (function half; the trigger is mirrored in 04_triggers.sql)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_stamp_attendance_on_regularization_approval()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_status_id  uuid;
+  v_staff      record;
+  v_org_id     uuid;
+  v_record_id  uuid;
+  v_reason     text;
+  v_event_id   uuid := gen_random_uuid();
+BEGIN
+  IF NOT (TG_OP = 'UPDATE'
+          AND NEW.status = 'approved'
+          AND COALESCE(OLD.status, '') <> 'approved') THEN
+    RETURN NEW;
+  END IF;
+
+  -- What the day should become: the proposed status, else REGULARIZED.
+  v_status_id := NEW.proposed_status_type_id;
+  IF v_status_id IS NULL THEN
+    SELECT id INTO v_status_id
+      FROM public.hr_attendance_status_types
+     WHERE code = 'REGULARIZED'
+     LIMIT 1;
+  END IF;
+  IF v_status_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT s.id, s.institution_id INTO v_staff
+    FROM public.staff s
+   WHERE s.id = NEW.employee_id;
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT COALESCE(rc.label, NEW.reason_text, '') INTO v_reason
+    FROM (SELECT 1) x
+    LEFT JOIN public.hr_regularization_reasons rc ON rc.id = NEW.reason_code_id;
+
+  SELECT id INTO v_record_id
+    FROM public.hr_attendance_records
+   WHERE employee_id = NEW.employee_id
+     AND work_date   = NEW.for_date;
+
+  IF FOUND THEN
+    INSERT INTO public.hr_attendance_audit_log (
+      attendance_record_id, employee_id, institution_id, actor_id, action,
+      before_state, after_state, reason, created_at
+    )
+    SELECT r.id, r.employee_id, r.institution_id, NEW.approver_id, 'recompute',
+           jsonb_build_object('status_type_id', r.status_type_id, 'source', r.source),
+           jsonb_build_object('status_type_id', v_status_id, 'source', 'regularization',
+                              'event_id', v_event_id, 'regularization_id', NEW.id),
+           left('Regularization approved: ' || v_reason, 500),
+           now()
+      FROM public.hr_attendance_records r
+     WHERE r.id = v_record_id;
+
+    UPDATE public.hr_attendance_records
+       SET status_type_id = v_status_id,
+           source         = 'regularization',
+           -- COALESCE, not assignment: a status-only request proposes no times
+           -- and must leave the real punches alone.
+           in_at          = COALESCE(NEW.proposed_in_at,  in_at),
+           out_at         = COALESCE(NEW.proposed_out_at, out_at),
+           reconciled_by  = NEW.approver_id,
+           reconciled_at  = COALESCE(NEW.approved_at, now()),
+           recomputed_from_event_id = v_event_id,
+           notes          = left('Regularized: ' || v_reason, 500),
+           updated_at     = now()
+     WHERE id = v_record_id;
+
+    RETURN NEW;
+  END IF;
+
+  -- No row for that day yet — insert one. hr_organization_id is NOT NULL, and
+  -- ~197 active staff have no hr_staff_details row, so fall back to the
+  -- institution mapping before giving up.
+  SELECT d.hr_organization_id INTO v_org_id
+    FROM public.hr_staff_details d
+   WHERE d.staff_id = NEW.employee_id;
+
+  IF v_org_id IS NULL AND v_staff.institution_id IS NOT NULL THEN
+    SELECT o.id INTO v_org_id
+      FROM public.hr_organizations o
+     WHERE o.institution_id = v_staff.institution_id
+     LIMIT 1;
+  END IF;
+
+  IF v_org_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.hr_attendance_records (
+    employee_id, hr_organization_id, institution_id, work_date, status_type_id,
+    source, in_at, out_at, reconciled_by, reconciled_at,
+    recomputed_from_event_id, notes
+  ) VALUES (
+    NEW.employee_id, v_org_id, v_staff.institution_id, NEW.for_date, v_status_id,
+    'regularization', NEW.proposed_in_at, NEW.proposed_out_at,
+    NEW.approver_id, COALESCE(NEW.approved_at, now()),
+    v_event_id, left('Regularized: ' || v_reason, 500)
+  );
+
+  RETURN NEW;
+END;
+$fn$;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827200000_hr_comp_off_claims_respect_locked_month.sql
+-- (functions half; the trigger is mirrored in 04_triggers.sql)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_row    record;
+  v_inst   uuid;
+  v_locked record;
+BEGIN
+  v_row := COALESCE(NEW, OLD);
+
+  -- Spending a credit is not a change to the closed month. Both directions of
+  -- hr_trig_comp_off_consume's toggle are allowed; worked_date and credit_days
+  -- must be untouched, so this cannot be used to smuggle an edit through.
+  IF TG_OP = 'UPDATE'
+     AND NEW.worked_date = OLD.worked_date
+     AND NEW.credit_days = OLD.credit_days
+     AND (
+       (NEW.status = 'consumed' AND OLD.status = 'approved')
+       OR (NEW.status = 'approved' AND OLD.status = 'consumed')
+     )
+  THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT s.institution_id INTO v_inst
+    FROM public.staff s WHERE s.id = v_row.employee_id;
+
+  IF v_inst IS NULL THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
+  SELECT ap.period_year, ap.period_month, ap.locked_at
+    INTO v_locked
+    FROM public.hr_attendance_periods ap
+   WHERE ap.institution_id = v_inst
+     AND ap.status = 'locked'
+     AND make_date(ap.period_year, ap.period_month, 1) <= v_row.worked_date
+     AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > v_row.worked_date
+   LIMIT 1;
+
+  IF FOUND THEN
+    RAISE EXCEPTION
+      'Attendance for %-% is closed (locked %). Compensatory off cannot be claimed or decided for a day in that month.',
+      v_locked.period_year, lpad(v_locked.period_month::text, 2, '0'),
+      to_char(v_locked.locked_at, 'DD Mon YYYY')
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_lock_attendance_period(
+  p_institution_id uuid,
+  p_year           integer,
+  p_month          integer,
+  p_force          boolean DEFAULT false,
+  p_force_reason   text    DEFAULT NULL
+)
+RETURNS public.hr_attendance_periods
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_period   public.hr_attendance_periods;
+  v_start    date;
+  v_end      date;
+  v_pending  integer;
+  v_records  integer;
+  v_is_sa    boolean := public.is_super_admin();
+BEGIN
+  IF NOT (v_is_sa OR public.user_has_permission('hr.attendance.period.manage')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.manage is required to close an attendance month.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF p_month < 1 OR p_month > 12 THEN
+    RAISE EXCEPTION 'Month must be 1-12, got %', p_month USING ERRCODE = '22023';
+  END IF;
+
+  v_start := make_date(p_year, p_month, 1);
+  v_end   := (v_start + interval '1 month - 1 day')::date;
+
+  SELECT count(*) INTO v_records
+    FROM public.hr_attendance_records
+   WHERE institution_id = p_institution_id
+     AND work_date BETWEEN v_start AND v_end;
+
+  IF v_records = 0 THEN
+    RAISE EXCEPTION 'No attendance records for that institution in %-%. Import the biometric data first.',
+      p_year, lpad(p_month::text, 2, '0')
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  INSERT INTO public.hr_attendance_periods (
+    institution_id, period_year, period_month, status, created_by, updated_by
+  ) VALUES (p_institution_id, p_year, p_month, 'open', auth.uid(), auth.uid())
+  ON CONFLICT (institution_id, period_year, period_month) DO NOTHING;
+
+  SELECT * INTO v_period
+    FROM public.hr_attendance_periods
+   WHERE institution_id = p_institution_id
+     AND period_year = p_year AND period_month = p_month
+   FOR UPDATE;
+
+  IF v_period.status = 'locked' THEN
+    RAISE EXCEPTION 'That month is already closed (locked %).',
+      to_char(v_period.locked_at, 'DD Mon YYYY') USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Undecided requests overlapping the month, for staff of this institution:
+  -- leave / short time off, PLUS comp-off claims for a day inside it. Claims
+  -- were missing, so a month could close over them and the lock trigger would
+  -- then make them permanently undecidable.
+  SELECT (
+    (SELECT count(*)
+       FROM public.hr_leave_applications la
+       JOIN public.staff s ON s.id = la.employee_id
+      WHERE s.institution_id = p_institution_id
+        AND la.status = 'pending'
+        AND la.start_date <= v_end AND la.end_date >= v_start)
+    +
+    (SELECT count(*)
+       FROM public.hr_comp_off_credits cc
+       JOIN public.staff s2 ON s2.id = cc.employee_id
+      WHERE s2.institution_id = p_institution_id
+        AND cc.status = 'pending'
+        AND cc.worked_date BETWEEN v_start AND v_end)
+  ) INTO v_pending;
+
+  IF v_pending > 0 AND NOT p_force THEN
+    RAISE EXCEPTION
+      '% request(s) for this month are still awaiting a decision. Clear them in Leave Approvals, or close with an override.',
+      v_pending
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF v_pending > 0 AND p_force THEN
+    IF NOT v_is_sa THEN
+      RAISE EXCEPTION 'Only a Super Administrator may close a month over % outstanding request(s).', v_pending
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF p_force_reason IS NULL OR length(trim(p_force_reason)) = 0 THEN
+      RAISE EXCEPTION 'A reason is required to close a month over outstanding requests.'
+        USING ERRCODE = '22023';
+    END IF;
+
+    UPDATE public.hr_leave_applications la
+       SET status = 'rejected',
+           final_approver_id = auth.uid(),
+           final_decided_at = now(),
+           updated_at = now()
+      FROM public.staff s
+     WHERE s.id = la.employee_id
+       AND s.institution_id = p_institution_id
+       AND la.status = 'pending'
+       AND la.start_date <= v_end AND la.end_date >= v_start;
+
+    -- Runs while the period is still 'open', so trg_hcoc_block_locked_period
+    -- lets it through. No credit is created for a rejected claim.
+    UPDATE public.hr_comp_off_credits cc
+       SET status = 'rejected',
+           rejection_reason = left('Month closed over outstanding claims: ' || trim(p_force_reason), 500),
+           updated_at = now()
+      FROM public.staff s2
+     WHERE s2.id = cc.employee_id
+       AND s2.institution_id = p_institution_id
+       AND cc.status = 'pending'
+       AND cc.worked_date BETWEEN v_start AND v_end;
+  END IF;
+
+  PERFORM public.fn_hr_compute_attendance_period_summary(v_period.id);
+
+  UPDATE public.hr_attendance_periods
+     SET status = 'locked',
+         locked_at = now(),
+         locked_by = auth.uid(),
+         forced = (v_pending > 0 AND p_force),
+         force_reason = CASE WHEN v_pending > 0 AND p_force THEN trim(p_force_reason) END,
+         updated_by = auth.uid()
+   WHERE id = v_period.id
+  RETURNING * INTO v_period;
+
+  RETURN v_period;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer, boolean, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer, boolean, text) TO authenticated, service_role;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827210000_employment_categories_included_in_hr.sql (function)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_is_hr_staff(p_staff_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path TO 'public'
+AS $fn$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.staff s
+      JOIN public.employment_categories ec ON ec.id = s.category_id
+     WHERE s.id = p_staff_id
+       AND ec.included_in_hr
+  );
+$fn$;
+
+COMMENT ON FUNCTION public.fn_is_hr_staff(uuid) IS
+  'True when this staff member''s employment category is flagged included_in_hr. A staff row with no category is NOT in HR.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827220000_hr_population_respects_included_in_hr.sql (functions)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.hr_staff_payroll_directory()
+ RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, works_at_id uuid, works_at_name text, payer_org_id uuid, payer_org_name text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.institution.view') THEN
+    RAISE EXCEPTION 'hr.payroll.institution.view is required to see payroll organisations.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text
+    FROM public.v_hr_staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+   WHERE COALESCE(s.is_active, false)
+     AND public.role_has_institution_access(s.institution_id)
+   ORDER BY (p.staff_id IS NOT NULL), i.name, s.designation, 3;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.hr_staff_salary_directory()
+ RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, is_active boolean, works_at_id uuid, works_at_name text, payer_org_id uuid, payer_org_name text, salary_id uuid, salary_structure text, monthly_gross numeric, annual_gross numeric, overtime_level text, overtime_amount numeric, eligible_for_pf boolean, exempt_edli boolean, eligible_for_insurance boolean, eligible_for_gratuity boolean, eligible_for_etf boolean, epf_amount numeric, eligible_for_esi boolean, esi_amount numeric, allowance_amount numeric, allowance_label text, effective_from date, notes text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.salary.view') THEN
+    RAISE EXCEPTION 'hr.payroll.salary.view is required to see employee salaries.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         COALESCE(s.is_active, false),
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text,
+         sal.id,
+         sal.salary_structure::text,
+         sal.monthly_gross,
+         sal.annual_gross,
+         sal.overtime_level::text,
+         sal.overtime_amount,
+         sal.eligible_for_pf,
+         sal.exempt_edli,
+         sal.eligible_for_insurance,
+         sal.eligible_for_gratuity,
+         sal.eligible_for_etf,
+         sal.epf_amount,
+         sal.eligible_for_esi,
+         sal.esi_amount,
+         sal.allowance_amount,
+         sal.allowance_label,
+         sal.effective_from,
+         sal.notes
+    FROM public.v_hr_staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+    -- The salary IN FORCE only. Without superseded_by IS NULL a person who has
+    -- had two raises would appear three times in a roster listing.
+    LEFT JOIN public.hr_staff_salaries sal
+           ON sal.staff_id = s.id AND sal.superseded_by IS NULL
+   -- Active staff, PLUS anyone inactive who still holds a salary. Filtering on
+   -- is_active alone would hide a relieved employee awaiting final settlement --
+   -- money attached to an invisible row is the one thing this list must not do.
+   WHERE (COALESCE(s.is_active, false) OR sal.id IS NOT NULL)
+     AND public.role_has_institution_access(s.institution_id)
+   -- Unset first: this is a work queue before it is a report.
+   ORDER BY (sal.id IS NOT NULL), i.name, 3;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.hr_staff_bank_directory()
+ RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, is_active boolean, works_at_id uuid, works_at_name text, payer_org_id uuid, payer_org_name text, account_id uuid, account_holder_name text, account_number text, ifsc_code text, bank_name text, branch_name text, account_type text, verified_at timestamp with time zone, effective_from date, notes text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.bank.view') THEN
+    RAISE EXCEPTION 'hr.payroll.bank.view is required to see employee bank accounts.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         COALESCE(s.is_active, false),
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text,
+         b.id,
+         b.account_holder_name,
+         b.account_number,
+         b.ifsc_code,
+         b.bank_name,
+         b.branch_name,
+         b.account_type,
+         b.verified_at,
+         b.effective_from,
+         b.notes
+    FROM public.v_hr_staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+    LEFT JOIN public.hr_staff_bank_accounts b
+           ON b.staff_id = s.id AND b.superseded_by IS NULL
+   -- Active staff, plus anyone inactive who still has an account on file --
+   -- a final settlement is paid to someone who has already left.
+   WHERE (COALESCE(s.is_active, false) OR b.id IS NOT NULL)
+     AND public.role_has_institution_access(s.institution_id)
+   -- Unrecorded first, then recorded-but-unverified, then done.
+   ORDER BY (b.id IS NOT NULL), (b.verified_at IS NOT NULL), i.name, 3;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.hr_staff_without_payer()
+ RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, works_at_id uuid, works_at_name text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.institution.view') THEN
+    RAISE EXCEPTION 'hr.payroll.institution.view is required to see who has no recorded payer.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         i.id,
+         i.name::text
+    FROM public.v_hr_staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+   WHERE COALESCE(s.is_active, false)
+     AND NOT EXISTS (
+           SELECT 1 FROM public.hr_staff_payroll p WHERE p.staff_id = s.id
+         )
+     AND public.role_has_institution_access(s.institution_id)
+   ORDER BY i.name, s.designation, 3;
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 2. Leave eligibility — the highest-leverage predicate in the module.
+--
+-- Body identical to the current definition apart from the employment_categories
+-- join added to BOTH legs. A join, not fn_is_hr_staff(), because leg 1 is a
+-- CROSS JOIN over staff × leave types × years: a per-row function call there
+-- would be evaluated hundreds of thousands of times, while the join is a hash
+-- join over an existing index (idx_staff_category_id).
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE VIEW public.v_hr_leave_balance_src AS
+ SELECT s.id AS employee_id,
+    t.id AS leave_type_id,
+    y.id AS hr_academic_year_id,
+    t.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    COALESCE(b.used, 0::numeric) AS used,
+    COALESCE(b.carried_forward, 0::numeric) AS carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + COALESCE(b.carried_forward, 0::numeric) - COALESCE(b.used, 0::numeric) AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_academic_years y
+     CROSS JOIN hr_leave_types t
+     JOIN hr_organizations org ON org.id = t.hr_organization_id
+     JOIN staff s ON s.institution_id = org.institution_id AND s.is_active
+     JOIN employment_categories sec ON sec.id = s.category_id AND sec.included_in_hr
+     LEFT JOIN hr_staff_details d ON d.staff_id = s.id
+     LEFT JOIN hr_leave_balances b ON b.employee_id = s.id AND b.leave_type_id = t.id AND b.hr_academic_year_id = y.id
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = s.id AND o.leave_type_id = t.id AND o.hr_academic_year_id = y.id
+  WHERE y.frozen_at IS NULL AND t.is_active AND (t.applicable_gender::text = 'all'::text OR lower(COALESCE(s.gender, ''::text)) = t.applicable_gender::text) AND (t.applicable_cadre_ids IS NULL OR (d.cadre_id = ANY (t.applicable_cadre_ids))) AND (NOT (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active)) OR (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active AND (a.scope_kind::text = 'staff'::text AND a.staff_id = s.id OR a.scope_kind::text = 'department'::text AND a.department_id = s.department_id OR a.scope_kind::text = 'organization'::text))))
+UNION ALL
+ SELECT b.employee_id,
+    b.leave_type_id,
+    b.hr_academic_year_id,
+    b.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    b.used,
+    b.carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + b.carried_forward - b.used AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_leave_balances b
+     JOIN hr_academic_years y ON y.id = b.hr_academic_year_id AND y.frozen_at IS NOT NULL
+     JOIN hr_leave_types t ON t.id = b.leave_type_id
+     -- Frozen years too: an excluded category should disappear from HR
+     -- everywhere, not linger in history screens.
+     JOIN staff fs ON fs.id = b.employee_id
+     JOIN employment_categories fec ON fec.id = fs.category_id AND fec.included_in_hr
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = b.employee_id AND o.leave_type_id = b.leave_type_id AND o.hr_academic_year_id = b.hr_academic_year_id;
+
+-- ---------------------------------------------------------------------------
+-- 3. Self-service identity gains the flag.
+--
+-- Returns the row WITH hr_included rather than returning nothing for an
+-- excluded staff member: filtering them out here would make every HR page say
+-- "No staff record linked", which is both wrong and unhelpful. The UI reads the
+-- flag and says what is actually true.
+--
+-- RETURNS TABLE gains a column, so DROP first; DROP discards EXECUTE, re-granted.
+-- ---------------------------------------------------------------------------
+
+DROP FUNCTION IF EXISTS public.fn_my_hr_context();
+
+CREATE FUNCTION public.fn_my_hr_context()
+ RETURNS TABLE(staff_id uuid, profile_id uuid, hr_organization_id uuid, institution_id uuid, first_name text, last_name text, email text, employee_code text, hr_included boolean)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT
+    s.id,
+    s.profile_id,
+    -- Institution first. hr_staff_details drifts, and the rest of the leave
+    -- module resolves the organisation from the institution.
+    COALESCE(o.id, d.hr_organization_id),
+    s.institution_id,
+    s.first_name::text,
+    s.last_name::text,
+    s.email::text,
+    COALESCE(d.hr_employee_code, s.staff_id)::text,
+    COALESCE(ec.included_in_hr, false)
+  FROM public.staff s
+  LEFT JOIN public.hr_staff_details d ON d.staff_id = s.id
+  LEFT JOIN public.hr_organizations o ON o.institution_id = s.institution_id
+  LEFT JOIN public.employment_categories ec ON ec.id = s.category_id
+  WHERE s.profile_id = auth.uid()
+    AND s.is_active
+  LIMIT 1;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_my_hr_context() FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_my_hr_context() TO authenticated;
+CREATE OR REPLACE FUNCTION public.hr_trig_block_non_hr_staff_request()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+BEGIN
+  IF NOT public.fn_is_hr_staff(NEW.employee_id) THEN
+    RAISE EXCEPTION
+      'This staff member''s employment category is not managed in HR, so % cannot be raised for them.',
+      COALESCE(TG_ARGV[0], 'a request')
+      USING ERRCODE = 'P0001';
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.hr_trig_block_non_hr_staff_request() IS
+  'Refuses new HR requests for staff whose employment category has included_in_hr = false. INSERT only, so existing pending rows stay decidable.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828100000_hr_payroll_directory_shows_real_role.sql
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.hr_staff_payroll_directory()
+ RETURNS TABLE(staff_uuid uuid, staff_code text, person_name text, role_title text, works_at_id uuid, works_at_name text, payer_org_id uuid, payer_org_name text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.institution.view') THEN
+    RAISE EXCEPTION 'hr.payroll.institution.view is required to see payroll organisations.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         r.role_names::text,
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text
+    FROM public.v_hr_staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+    LEFT JOIN LATERAL (
+      SELECT string_agg(cr.role_name, ', ' ORDER BY cr.role_name) AS role_names
+        FROM public.user_roles ur
+        JOIN public.custom_roles cr ON cr.id = ur.role_id
+       WHERE ur.user_id = s.profile_id
+         AND cr.is_active
+    ) r ON true
+   WHERE COALESCE(s.is_active, false)
+     AND public.role_has_institution_access(s.institution_id)
+   -- Unassigned payers first (this is a work queue), then institution, then
+   -- role, then name. Was ordered by designation here for the same reason.
+   ORDER BY (p.staff_id IS NOT NULL), i.name, r.role_names NULLS LAST, 3;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.hr_staff_payroll_directory() IS
+  'Payroll payer directory. role_title is the staff member''s Role Management role(s), comma-separated — NOT their designation.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql (functions)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_next_staff_code(
+  p_institution_id uuid,
+  p_is_teaching    boolean
+) RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_prefix text;
+  v_full   text;
+  v_seq    integer;
+  v_code   text;
+  v_guard  integer := 0;
+BEGIN
+  IF p_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Cannot issue a staff ID: this staff member has no institution.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- NULL means the employment category did not resolve, so teaching cannot be
+  -- told from non-teaching. Refusing beats guessing: a wrong bucket is a wrong
+  -- PERMANENT code.
+  IF p_is_teaching IS NULL THEN
+    RAISE EXCEPTION 'Cannot issue a staff ID: this staff member has no employment category, so teaching / non-teaching is unknown.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT i.staff_code_prefix INTO v_prefix
+  FROM public.institutions i WHERE i.id = p_institution_id;
+
+  IF v_prefix IS NULL THEN
+    RAISE EXCEPTION 'Cannot issue a staff ID: institution % has no staff_code_prefix configured.', p_institution_id
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  v_full := CASE WHEN p_is_teaching THEN v_prefix ELSE 'NOT' || v_prefix END;
+
+  LOOP
+    v_guard := v_guard + 1;
+    IF v_guard > 5000 THEN
+      RAISE EXCEPTION 'Could not find a free staff ID for prefix % after 5000 attempts.', v_full
+        USING ERRCODE = 'P0001';
+    END IF;
+
+    -- Atomic claim. On the INSERT path next_seq lands at 2 so this returns 1;
+    -- on the UPDATE path it returns the freshly incremented value minus one.
+    INSERT INTO public.staff_id_counters AS c (institution_id, is_teaching, next_seq)
+    VALUES (p_institution_id, p_is_teaching, 2)
+    ON CONFLICT (institution_id, is_teaching)
+      DO UPDATE SET next_seq = c.next_seq + 1, updated_at = now()
+    RETURNING c.next_seq - 1 INTO v_seq;
+
+    v_code := v_full || lpad(v_seq::text, 3, '0');
+
+    -- A legacy code may still be squatting on this value.
+    EXIT WHEN NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = v_code);
+  END LOOP;
+
+  RETURN v_code;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_next_staff_code(uuid, boolean) IS
+  'Claims and returns the next staff ID for an institution x teaching bucket. SECURITY DEFINER because staff_id_counters grants no direct writes.';
+
+CREATE OR REPLACE FUNCTION public.fn_staff_autonumber()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_is_teaching boolean;
+BEGIN
+  -- The edit form defaults this field to `staff?.staff_id || ''`, so a staff
+  -- member with no code submits '' against a NULL OLD value. Without this
+  -- normalisation the permanence guard below reads that as a manual edit and
+  -- rejects every edit of an ID-less staff member.
+  NEW.staff_id := nullif(btrim(coalesce(NEW.staff_id, '')), '');
+
+  IF TG_OP = 'INSERT' THEN
+    -- Active staff only. Anything the caller supplied is discarded.
+    IF coalesce(NEW.is_active, false) THEN
+      SELECT ec.is_teaching INTO v_is_teaching
+      FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
+
+      NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_is_teaching);
+    ELSE
+      NEW.staff_id := NULL;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  -- One guard covers every manual path: changing a code, clearing a code, and
+  -- setting a code on a row that has none. No super-admin escape hatch —
+  -- correcting a wrong code requires a migration.
+  IF NEW.staff_id IS DISTINCT FROM OLD.staff_id THEN
+    RAISE EXCEPTION 'Staff ID is system-generated and permanent; it cannot be set or changed manually.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Rejoin path. Only reaches staff who never held a code — deactivation does
+  -- NOT clear one, so a returning staff member keeps the code they had.
+  IF coalesce(NEW.is_active, false)
+     AND NOT coalesce(OLD.is_active, false)
+     AND NEW.staff_id IS NULL THEN
+    SELECT ec.is_teaching INTO v_is_teaching
+    FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
+
+    NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_is_teaching);
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_autonumber() IS
+  'Issues a staff ID on creation (active staff only) and freezes it thereafter. Bulk backfills must DISABLE TRIGGER trg_staff_autonumber - the permanence guard blocks any rewrite, including their own.';
+
+-- Keep both out of the REST API. PostgREST publishes SECURITY DEFINER functions
+-- at /rest/v1/rpc/<name>, and fn_next_staff_code CLAIMS a number on every call —
+-- an anon caller could burn the sequence and tear permanent gaps in it.
+-- REVOKE FROM PUBLIC alone is a no-op: Supabase grants EXECUTE directly to anon
+-- and authenticated. Neither needs a grant back — fn_next_staff_code is only
+-- called from inside fn_staff_autonumber (SECURITY DEFINER, runs as owner), and
+-- Postgres checks EXECUTE on a trigger function at CREATE TRIGGER time, not when
+-- it fires.
+REVOKE ALL ON FUNCTION public.fn_next_staff_code(uuid, boolean) FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_staff_autonumber() FROM anon, authenticated, PUBLIC;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828150100_staff_role_key_guard_trigger.sql
+-- =============================================================================
+
+-- Nothing else validates staff.role_key: the RLS policies gate on staff.create /
+-- staff.edit and institution scope only. Without this, anyone who could edit a
+-- staff row could set role_key = 'super_admin' and escalate. Filtering the
+-- dropdown does not help — the value is posted from the client.
+CREATE OR REPLACE FUNCTION public.fn_staff_guard_role_key()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_privileged boolean;
+BEGIN
+  -- No session: service-role clients, cron jobs and migrations. Safe because
+  -- anon cannot reach this trigger — the INSERT policy demands staff.create.
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_super_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND NEW.role_key IS DISTINCT FROM OLD.role_key THEN
+    RAISE EXCEPTION 'Only a super administrator can change a staff member''s role.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    SELECT r.is_privileged INTO v_privileged
+    FROM public.custom_roles r WHERE r.role_key = NEW.role_key;
+
+    IF coalesce(v_privileged, false) THEN
+      RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+        USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_guard_role_key() IS
+  'Blocks non-super-admins from changing staff.role_key, or creating staff with a privileged role.';
+
+REVOKE ALL ON FUNCTION public.fn_staff_guard_role_key() FROM anon, authenticated, PUBLIC;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828160000_staff_require_institution_email_for_login.sql
+-- =============================================================================
+
+-- sync_staff_to_profiles wraps its ENTIRE body in a non-empty check on
+-- institution_email and creates the profile with `email = NEW.institution_email`.
+-- So a blank one means no profile row at all: the staff record saves, claims
+-- login_enabled = true, and the person can never sign in. Nothing errors.
+CREATE OR REPLACE FUNCTION public.fn_staff_require_institution_email()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+BEGIN
+  IF coalesce(NEW.login_enabled, true)
+     AND nullif(btrim(coalesce(NEW.institution_email, '')), '') IS NULL THEN
+    RAISE EXCEPTION 'Institution email is required for a staff member who can sign in. It becomes their login identity; without it no profile is created and they cannot log in. Either provide an @jkkn.ac.in address, or turn off "Login user" to create a view-only record.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_require_institution_email() IS
+  'Refuses to create a login-enabled staff member with no institution email, which sync_staff_to_profiles would silently leave without a profile (and therefore without a login).';
+
+REVOKE ALL ON FUNCTION public.fn_staff_require_institution_email() FROM anon, authenticated, PUBLIC;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- fn_cl_vacate_allocation — vacate an allocation AND free its bed atomically.
+--
+-- Replaces the bare UPDATE that HostelAllocationService.vacate() used to do,
+-- which left the bed stranded: hostel_beds stayed status='occupied' with
+-- current_occupant_id set, and a NULL check_out_date kept the partial unique
+-- index hostel_allocations_room_bed_active_uidx holding the (room_id, bed_id)
+-- slot. No trigger compensates — none of the triggers on hostel_allocations
+-- fires on a transition INTO 'vacated'.
+--
+-- SECURITY DEFINER is required: freeing the bed needs campus_living.beds.edit,
+-- a different key from the campus_living.allocations.edit that gates the
+-- allocation write, and the two writes must be atomic. Authorization mirrors
+-- the hostel_allocations_update_permission RLS policy exactly.
+--
+-- Mirrored from migration 20260831020000_cl_vacate_allocation_rpc.sql.
+-- ════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.fn_cl_vacate_allocation(
+  p_allocation_id uuid,
+  p_vacate_reason vacate_reason_enum
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_alloc     hostel_allocations%ROWTYPE;
+  v_freed_bed uuid;
+  v_already   boolean := false;
+BEGIN
+  IF NOT (is_super_admin()
+          OR is_admin()
+          OR user_has_permission('campus_living.allocations.edit')) THEN
+    RAISE EXCEPTION 'Not authorized to vacate hostel allocations'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_alloc FROM hostel_allocations WHERE id = p_allocation_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Allocation % not found', p_allocation_id USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (is_super_admin() OR is_admin()) THEN
+    IF NOT role_has_institution_access(v_alloc.institution_id) THEN
+      RAISE EXCEPTION 'No access to this allocation''s institution'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NOT role_has_block_access(v_alloc.block_id) THEN
+      RAISE EXCEPTION 'No access to this allocation''s block'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  IF v_alloc.status = 'vacated' THEN
+    v_already := true;
+  ELSIF v_alloc.status <> 'active' THEN
+    RAISE EXCEPTION 'Only an active allocation can be vacated (current status: %)',
+      v_alloc.status USING ERRCODE = 'P0001';
+  END IF;
+
+  IF v_already THEN
+    UPDATE hostel_allocations
+       SET check_out_date = COALESCE(check_out_date, actual_vacate_date, CURRENT_DATE),
+           updated_at     = now()
+     WHERE id = p_allocation_id;
+  ELSE
+    UPDATE hostel_allocations
+       SET status             = 'vacated',
+           vacate_reason      = p_vacate_reason,
+           actual_vacate_date = CURRENT_DATE,
+           check_out_date     = CURRENT_DATE,
+           updated_at         = now()
+     WHERE id = p_allocation_id;
+  END IF;
+
+  IF v_alloc.bed_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM hostel_allocations a
+     WHERE a.bed_id = v_alloc.bed_id
+       AND a.id <> p_allocation_id
+       AND a.status IN ('active', 'pending_approval')
+       AND a.check_out_date IS NULL
+  ) THEN
+    UPDATE hostel_beds
+       SET status = 'available', current_occupant_id = NULL, updated_at = now()
+     WHERE id = v_alloc.bed_id;
+    v_freed_bed := v_alloc.bed_id;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success',         true,
+    'allocation_id',   p_allocation_id,
+    'already_vacated', v_already,
+    'freed_bed_id',    v_freed_bed
+  );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_cl_vacate_allocation(uuid, vacate_reason_enum) FROM public;
+REVOKE ALL ON FUNCTION public.fn_cl_vacate_allocation(uuid, vacate_reason_enum) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_cl_vacate_allocation(uuid, vacate_reason_enum) TO authenticated;
+
+-- ============================================================================
+-- 2026-08-31 — leave approval flows: parallel/sequential, multi-approver, ladder
+-- Migrations: 20260831120000_hr_leave_approval_flow_parallel_ladder.sql
+--             20260831130000_hr_leave_designated_approver_reaches_queue.sql
+-- These CREATE OR REPLACE definitions appear AFTER the originals above and
+-- therefore supersede them when this file is run top to bottom.
+-- ============================================================================
+-- 2. One reader for both step shapes
+-- ---------------------------------------------------------------------------
+-- Every gate below goes through this, so "who is on this step" has exactly one
+-- answer. When `approvers` is absent it yields the STEP ITSELF as a single
+-- entry — the legacy step carries approver_user_id / approver_role at its top
+-- level, so an old chain and a new one read through the same code path.
+
+CREATE OR REPLACE FUNCTION public.fn_leave_step_approvers(p_step jsonb)
+RETURNS TABLE(approver_user_id uuid, approver_role text)
+LANGUAGE sql
+IMMUTABLE
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT
+    NULLIF(e->>'approver_user_id', '')::uuid,
+    NULLIF(e->>'approver_role', '')
+  FROM jsonb_array_elements(
+    CASE
+      WHEN jsonb_typeof(p_step -> 'approvers') = 'array'
+       AND jsonb_array_length(p_step -> 'approvers') > 0
+      THEN p_step -> 'approvers'
+      ELSE jsonb_build_array(p_step)
+    END
+  ) AS e;
+$function$;
+
+COMMENT ON FUNCTION public.fn_leave_step_approvers(jsonb) IS
+  'Approver entries of one chain step. Falls back to the step itself for legacy single-approver chains.';
+
+-- ---------------------------------------------------------------------------
+-- 3. One eligibility rule
+-- ---------------------------------------------------------------------------
+-- p_uid MUST be auth.uid(): the role branch calls fn_my_hr_organization_ids(),
+-- which is derived from the session, not from p_uid. Passing anyone else's id
+-- would test their role against the CALLER's organisations.
+--
+-- Institution scope is asymmetric on purpose and this preserves it: a PINNED
+-- person is reachable from any organisation, a ROLE is only honoured inside the
+-- application's own organisation.
+
+CREATE OR REPLACE FUNCTION public.fn_leave_step_admits(
+  p_step jsonb,
+  p_uid uuid,
+  p_hr_organization_id uuid
+) RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.fn_leave_step_approvers(p_step) e
+    WHERE p_uid IS NOT NULL
+      AND (
+        e.approver_user_id = p_uid
+        OR (
+          e.approver_role IS NOT NULL
+          AND p_hr_organization_id IN (
+            SELECT unnest(public.fn_my_hr_organization_ids())
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM public.user_roles ur
+            JOIN public.custom_roles cr ON cr.id = ur.role_id
+            WHERE ur.user_id = p_uid
+              AND cr.role_key = e.approver_role
+              AND cr.is_active
+          )
+        )
+      )
+  );
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 4. RLS helper — now multi-approver aware
+-- ---------------------------------------------------------------------------
+-- Same contract as before (hla_select / hla_update both call it); it simply
+-- reads every approver on the current step instead of only the first.
+
+CREATE OR REPLACE FUNCTION public.fn_is_designated_leave_approver(p_application_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.hr_leave_applications a
+    WHERE a.id = p_application_id
+      AND public.fn_leave_step_admits(
+            a.approval_chain -> a.current_step,
+            auth.uid(),
+            a.hr_organization_id
+          )
+  );
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 5. Resolve the ladder for one applicant
+-- ---------------------------------------------------------------------------
+-- MUST live in the database. user_roles and custom_roles are not readable by an
+-- ordinary member of staff, so resolving the ladder in the browser would come
+-- back empty for exactly the people applying — the silent-false-negative this
+-- module has already shipped twice (see LeaveService.assertCanDecide).
+--
+-- Returns the rungs STRICTLY ABOVE the applicant's highest held rung. Holding
+-- none of them returns the whole ladder: 398 of 594 active HR staff hold no
+-- ladder role today, and leaving them with no approver would break leave for
+-- two thirds of the workforce.
+
+CREATE OR REPLACE FUNCTION public.hr_resolve_leave_ladder(
+  p_employee_id uuid,
+  p_ladder jsonb
+) RETURNS text[]
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_may        boolean;
+  v_profile_id uuid;
+  v_rank       int;
+  v_out        text[];
+BEGIN
+  IF p_ladder IS NULL
+     OR jsonb_typeof(p_ladder) <> 'array'
+     OR jsonb_array_length(p_ladder) = 0 THEN
+    RETURN ARRAY[]::text[];
+  END IF;
+
+  -- COALESCE'd to false deliberately. A NULL here would make the IF skip and the
+  -- gate fail OPEN, which is how a plpgsql guard in this codebase has silently
+  -- passed before.
+  v_may :=
+       public.is_super_admin()
+    OR p_employee_id = ANY (COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]))
+    OR public.user_has_permission('hr.leave.approve')
+    OR public.user_has_permission('hr.leave.types.manage');
+
+  IF NOT COALESCE(v_may, false) THEN
+    RAISE EXCEPTION 'Not authorized to resolve an approval ladder for this employee.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT s.profile_id INTO v_profile_id
+  FROM public.staff s WHERE s.id = p_employee_id;
+
+  -- 1-based ordinality, so 0 legitimately means "holds no rung at all".
+  SELECT COALESCE(max(l.ord), 0) INTO v_rank
+  FROM jsonb_array_elements_text(p_ladder) WITH ORDINALITY AS l(role_key, ord)
+  WHERE v_profile_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM public.user_roles ur
+      JOIN public.custom_roles cr ON cr.id = ur.role_id
+      WHERE ur.user_id = v_profile_id
+        AND cr.role_key = l.role_key
+        AND cr.is_active
+    );
+
+  SELECT array_agg(l.role_key ORDER BY l.ord) INTO v_out
+  FROM jsonb_array_elements_text(p_ladder) WITH ORDINALITY AS l(role_key, ord)
+  WHERE l.ord > v_rank;
+
+  RETURN COALESCE(v_out, ARRAY[]::text[]);
+END
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_resolve_leave_ladder(uuid, jsonb) FROM anon;
+
+-- ---------------------------------------------------------------------------
+-- 6. Approver gate — multi-approver, and now also fires on step ADVANCE
+-- ---------------------------------------------------------------------------
+-- ADDED FIRING CONDITION. The old trigger fired only on status -> approved /
+-- rejected. With one-step chains that covered every decision, because the first
+-- approval WAS the final one. A multi-step chain advances current_step while
+-- status stays 'pending', so without this the intermediate steps would be
+-- ungated. Safe for existing rows: today current_step never moves without the
+-- status moving with it.
+--
+-- PERMISSIVE WHEN NOTHING CONSTRAINS. An entry only constrains if it pins a
+-- person or names a role that exists and is active. A step whose entries name
+-- neither is "any permitted approver" — that is what keeps the seeded flows
+-- working and it is preserved exactly.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_leave_enforce_approver()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid          uuid := auth.uid();
+  v_step         jsonb;
+  v_constraining int;
+  v_matched      int;
+  v_labels       text;
+  v_deciding     boolean;
+BEGIN
+  v_deciding :=
+       (NEW.status IN ('approved', 'rejected') AND OLD.status IS DISTINCT FROM NEW.status)
+    OR (COALESCE(NEW.current_step, 0) > COALESCE(OLD.current_step, 0));
+
+  IF NOT v_deciding THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_super_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF v_uid IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF OLD.employee_id IN (SELECT unnest(public.fn_my_staff_ids())) THEN
+    RAISE EXCEPTION 'You cannot decide on your own leave application.';
+  END IF;
+
+  v_step := OLD.approval_chain -> OLD.current_step;
+  IF v_step IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  WITH entries AS (
+    SELECT
+      (cr.role_key IS NOT NULL OR e.approver_user_id IS NOT NULL) AS constraining,
+      (
+        e.approver_user_id = v_uid
+        OR (
+          cr.role_key IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM public.user_roles ur
+            JOIN public.custom_roles cr2 ON cr2.id = ur.role_id
+            WHERE ur.user_id = v_uid
+              AND cr2.role_key = e.approver_role
+              AND cr2.is_active
+          )
+        )
+      ) AS matched,
+      COALESCE(cr.role_name, 'the assigned approver') AS label
+    FROM public.fn_leave_step_approvers(v_step) e
+    LEFT JOIN public.custom_roles cr
+           ON cr.role_key = e.approver_role AND cr.is_active
+  )
+  SELECT
+    count(*) FILTER (WHERE constraining),
+    count(*) FILTER (WHERE matched),
+    string_agg(DISTINCT label, ' or ')
+  INTO v_constraining, v_matched, v_labels
+  FROM entries;
+
+  IF COALESCE(v_constraining, 0) = 0 THEN
+    RETURN NEW;
+  END IF;
+
+  IF COALESCE(v_matched, 0) > 0 THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'This approval step is reserved for %.',
+    COALESCE(v_labels, 'a different approver');
+END
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 7. Guard: a decision may only be recorded by the person making it
+-- ---------------------------------------------------------------------------
+-- WHY THIS IS NEW. hla_update's USING clause admits the APPLICANT
+-- (employee_id IN fn_my_staff_ids()), and its WITH CHECK only bites when status
+-- becomes approved/rejected. Until now every decision flipped status, so that
+-- window was closed by accident. With quorum = 'all' a partial decision leaves
+-- status 'pending', which would let an applicant write a forged decision into
+-- their own chain and have a real approver unknowingly complete the quorum.
+--
+-- Scoped tightly: it only looks at decisions ADDED by this statement, and only
+-- when the chain or the step pointer actually moved. Eligibility itself stays
+-- with hla_update + hr_trig_leave_enforce_approver, so there is still exactly
+-- one place that decides who may approve.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_leave_guard_chain_decisions()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid    uuid := auth.uid();
+  v_forged int;
+BEGIN
+  IF NEW.approval_chain IS NOT DISTINCT FROM OLD.approval_chain
+     AND NEW.current_step IS NOT DISTINCT FROM OLD.current_step THEN
+    RETURN NEW;
+  END IF;
+
+  IF v_uid IS NULL OR public.is_super_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  -- The applicant may still cancel or edit their request; what they may not do
+  -- is put a decision into their own chain.
+  SELECT count(*) INTO v_forged
+  FROM jsonb_array_elements(COALESCE(NEW.approval_chain, '[]'::jsonb))
+       WITH ORDINALITY AS ns(step, ord)
+  CROSS JOIN LATERAL jsonb_array_elements(
+       COALESCE(ns.step -> 'decisions', '[]'::jsonb)) AS d(decision)
+  WHERE NOT (
+          COALESCE(
+            OLD.approval_chain -> (ns.ord::int - 1) -> 'decisions',
+            '[]'::jsonb
+          ) @> jsonb_build_array(d.decision)
+        )
+    AND NULLIF(d.decision ->> 'by', '')::uuid IS DISTINCT FROM v_uid;
+
+  IF COALESCE(v_forged, 0) > 0 THEN
+    RAISE EXCEPTION
+      'An approval decision can only be recorded by the approver making it.';
+  END IF;
+
+  RETURN NEW;
+END
+$function$;
+
+-- The trigger that binds this function lives in 04_triggers.sql.
+
+-- ---------------------------------------------------------------------------
+-- 8. The approver inbox
+-- ---------------------------------------------------------------------------
+-- hr_leave_my_approval_queue(p_hr_organization_id) ALREADY EXISTED and is what
+-- LeaveApprovalFlowService.myQueueIds calls. It is REPLACED here, not joined by
+-- a second overload: two overloads of an authorization-shaped function drift
+-- apart and then disagree about who may act, which this codebase has already
+-- been bitten by on user_has_permission.
+--
+-- What changes is only how it reads a step. It matched on the SINGULAR
+-- approver_user_id / approver_role, so a step routed to several approvers -- or
+-- to a role-ladder rung -- resolved against whichever single field it found
+-- first. An HOD could be the current approver of a request and never see it.
+--
+-- The two permissive branches are preserved verbatim: a NULL step, and a step
+-- that constrains nobody, both stay visible to any leave approver. Only the
+-- constrained case now goes through fn_leave_step_admits, which is the same rule
+-- the RLS helper and the gate trigger use -- so the inbox can neither list a row
+-- the approver is then refused on, nor hide one they could act on.
+
+DROP FUNCTION IF EXISTS public.hr_leave_my_approval_queue();
+
+CREATE OR REPLACE FUNCTION public.hr_leave_my_approval_queue(
+  p_hr_organization_id uuid DEFAULT NULL::uuid
+)
+RETURNS TABLE(application_id uuid)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF v_uid IS NULL THEN RETURN; END IF;
+
+  RETURN QUERY
+  SELECT a.id
+  FROM public.hr_leave_applications a
+  JOIN public.hr_leave_types lt ON lt.id = a.leave_type_id
+  CROSS JOIN LATERAL (SELECT a.approval_chain -> a.current_step AS step) s
+  WHERE a.status IN ('pending', 'escalated')
+    AND (p_hr_organization_id IS NULL OR a.hr_organization_id = p_hr_organization_id)
+    AND a.hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
+    AND a.employee_id NOT IN (SELECT unnest(public.fn_my_staff_ids()))
+    AND (
+      public.is_super_admin()
+      -- The permissive branches stay behind the permission key, or a null /
+      -- unconstrained step would expose pending applications to every
+      -- authenticated user.
+      OR (
+        public.hr_can_approve_leave()
+        AND (
+          s.step IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM public.fn_leave_step_approvers(s.step) e
+            LEFT JOIN public.custom_roles cr
+                   ON cr.role_key = e.approver_role AND cr.is_active
+            WHERE e.approver_user_id IS NOT NULL OR cr.role_key IS NOT NULL
+          )
+          OR public.fn_leave_step_admits(s.step, v_uid, a.hr_organization_id)
+        )
+      )
+      -- A DESIGNATED APPROVER NEEDS NO PERMISSION KEY. hla_select already grants
+      -- them the read and hla_update lets them decide; only this queue disagreed,
+      -- so a role-ladder step routed to hod / principal / cao (all of which have
+      -- hr.leave.approve = false) produced a request they were authorised to
+      -- approve and could never find. Granting them the key instead would let any
+      -- of the 94 HODs approve ANY request in their institution.
+      OR public.fn_leave_step_admits(s.step, v_uid, a.hr_organization_id)
+    );
+END $function$;
+
+REVOKE ALL ON FUNCTION public.hr_leave_my_approval_queue(uuid) FROM anon;
+
+CREATE OR REPLACE FUNCTION public.fn_is_any_leave_approver()
+RETURNS boolean
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.hr_leave_applications a
+    WHERE a.status IN ('pending', 'escalated')
+      AND public.fn_leave_step_admits(
+            a.approval_chain -> a.current_step, auth.uid(), a.hr_organization_id)
+  );
+$function$;
+
+-- 2. The capability gate used by the sidebar, the Approvals page and the queue.
+CREATE OR REPLACE FUNCTION public.hr_can_approve_leave()
+RETURNS boolean
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT public.is_super_admin()
+      OR (
+        public.user_has_permission('hr.leave.approve')
+        AND COALESCE(array_length(public.fn_my_hr_organization_ids(), 1), 0) > 0
+      )
+      OR public.fn_is_any_leave_approver();
+$function$;
+
+-- 3. hr_leave_approval_queue(): two changes, both NARROWING.
+--
+--    (a) The organisation branch now requires hr.leave.approve. A no-op for
+--        every caller who could reach the body before -- the gate already
+--        demanded the key -- but it stops a designated-only approver, who now
+--        passes that gate, from reading every application in their institution.
+--        The function is SECURITY DEFINER, so RLS would not have caught this.
+--
+--    (b) waiting_on_me resolves the step through fn_leave_step_admits instead of
+--        the singular approver_user_id / approver_role, so a multi-approver or
+--        role-ladder step is evaluated properly rather than matching on
+--        whichever single field happened to be present.
+--
+-- Everything else below is the previous definition, reproduced verbatim because
+-- CREATE OR REPLACE has to restate the whole function.
+
+CREATE OR REPLACE FUNCTION public.hr_leave_approval_queue()
+RETURNS TABLE(id uuid, employee_id uuid, staff_name text, staff_code text, institution_id uuid,
+  institution_name text, hr_organization_id uuid, hr_organization_name text, leave_type_id uuid,
+  leave_type_name text, leave_type_code text, request_category text, start_date date, end_date date,
+  start_time time without time zone, end_time time without time zone, duration_type text,
+  duration_minutes integer, total_days numeric, reason text, is_emergency boolean, status text,
+  created_at timestamp with time zone, applied_by uuid, applied_by_name text,
+  applied_on_behalf boolean, final_approver_id uuid, final_approver_name text,
+  final_decided_at timestamp with time zone, rejection_reason text, is_own boolean,
+  can_decide boolean, waiting_on_me boolean, biometric_gap_from date)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_sa   boolean;
+  v_orgs uuid[];
+  v_mine uuid[];
+  v_key  boolean;
+BEGIN
+  IF v_uid IS NULL THEN RETURN; END IF;
+
+  IF NOT public.hr_can_approve_leave() THEN
+    RAISE EXCEPTION 'You do not have permission to approve leave' USING ERRCODE = '42501';
+  END IF;
+
+  v_sa   := public.is_super_admin();
+  v_orgs := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_mine := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+  v_key  := public.user_has_permission('hr.leave.approve');
+
+  RETURN QUERY
+  SELECT
+    a.id, a.employee_id,
+    NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')::text,
+    NULLIF(btrim(s.staff_id), '')::text,
+    s.institution_id, i.name::text,
+    a.hr_organization_id, o.name::text,
+    a.leave_type_id, lt.leave_type_name::text, lt.leave_type_code::text,
+    COALESCE(lt.request_category, 'leave')::text,
+    a.start_date, a.end_date, a.start_time, a.end_time,
+    a.duration_type::text, a.duration_minutes, a.total_days,
+    a.reason, a.is_emergency, a.status::text, a.created_at, a.applied_by,
+    COALESCE(NULLIF(btrim(p.full_name), ''), p.email)::text,
+    (a.applied_by IS DISTINCT FROM s.profile_id),
+    a.final_approver_id,
+    COALESCE(NULLIF(btrim(fp.full_name), ''), fp.email)::text,
+    a.final_decided_at, a.rejection_reason,
+    (a.employee_id = ANY (v_mine)) AS is_own,
+    (a.status IN ('pending','escalated') AND (v_sa OR a.employee_id <> ALL (v_mine))) AS can_decide,
+    (
+      a.status IN ('pending', 'escalated')
+      AND (v_sa OR a.employee_id <> ALL (v_mine))
+      AND (
+        st.step IS NULL
+        OR NOT EXISTS (
+          SELECT 1
+          FROM public.fn_leave_step_approvers(st.step) e
+          LEFT JOIN public.custom_roles cr ON cr.role_key = e.approver_role AND cr.is_active
+          WHERE e.approver_user_id IS NOT NULL OR cr.role_key IS NOT NULL
+        )
+        OR public.fn_leave_step_admits(st.step, v_uid, a.hr_organization_id)
+      )
+    ) AS waiting_on_me,
+    CASE
+      WHEN a.status IN ('pending', 'escalated')
+        THEN public.fn_hr_leave_biometric_gap(a.employee_id, a.leave_type_id, a.start_date, a.end_date)
+      ELSE NULL
+    END AS biometric_gap_from
+  FROM public.hr_leave_applications a
+  LEFT JOIN public.hr_leave_types   lt ON lt.id = a.leave_type_id
+  LEFT JOIN public.staff            s  ON s.id  = a.employee_id
+  LEFT JOIN public.institutions     i  ON i.id  = s.institution_id
+  LEFT JOIN public.hr_organizations o  ON o.id  = a.hr_organization_id
+  LEFT JOIN public.profiles         p  ON p.id  = a.applied_by
+  LEFT JOIN public.profiles         fp ON fp.id = a.final_approver_id
+  CROSS JOIN LATERAL (SELECT a.approval_chain -> a.current_step AS step) st
+  WHERE (
+      a.status IN ('pending', 'escalated')
+      OR a.final_decided_at >= now() - interval '12 months'
+      OR (a.status IN ('withdrawn','cancelled') AND a.updated_at >= now() - interval '12 months')
+    )
+    AND (
+      v_sa
+      OR (v_key AND a.hr_organization_id = ANY (v_orgs))
+      OR public.fn_is_designated_leave_approver(a.id)
+    )
+  ORDER BY a.created_at DESC;
+END;
+$function$;
+
+-- ============================================================================
+-- Bill cancellation (mig 20260901010000_billing_bill_cancellations).
+-- fn_cancel_student_bill is the ONLY authorised route into
+-- billing_student_bills.status='cancelled'; fn_guard_bill_cancellation (wired
+-- as a trigger in 04_triggers.sql) rejects every other one.
+-- ============================================================================
+-- Dropped first because the RETURNS TABLE shape below is authoritative for the
+-- activity log: institution_id and the description come back FROM THE BILL, so
+-- the log entry cannot be shaped by whatever the client chose to send.
+DROP FUNCTION IF EXISTS public.fn_cancel_student_bill(uuid, text, text, jsonb);
+
+CREATE OR REPLACE FUNCTION public.fn_cancel_student_bill(
+  p_bill_id     uuid,
+  p_reason_code text,
+  p_reason      text,
+  p_attachments jsonb
+)
+RETURNS TABLE(cancellation_id uuid, cancelled_bill_id uuid, amount_cancelled numeric,
+              institution_id uuid, student_id uuid, bill_description text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_bill      public.billing_student_bills%ROWTYPE;
+  v_receipted numeric;
+  v_refs      text;
+  v_id        uuid;
+  v_name      text;
+  v_email     text;
+  v_role      text;
+  v_super     boolean;
+  v_category  text;
+BEGIN
+  SELECT * INTO v_bill FROM public.billing_student_bills WHERE id = p_bill_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Bill % not found', p_bill_id;
+  END IF;
+
+  -- Authorization first, so an unauthorised caller learns nothing about the
+  -- bill's state from the error message.
+  IF NOT (
+    is_super_admin()
+    OR (user_has_permission('billing.schedule.cancel')
+        AND role_has_institution_access(v_bill.institution_id))
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to cancel bills for this institution';
+  END IF;
+
+  IF v_bill.status = 'cancelled' THEN
+    RAISE EXCEPTION 'This bill is already cancelled';
+  END IF;
+
+  IF v_bill.status NOT IN ('unpaid', 'partially_paid', 'overdue') THEN
+    RAISE EXCEPTION 'Cannot cancel a bill with status "%". Only unpaid, partially paid or overdue bills can be cancelled.',
+      v_bill.status;
+  END IF;
+
+  -- Money guard. See the header: a receipt pointing at a void bill is silently
+  -- reported as collected revenue.
+  SELECT COALESCE(SUM(ri.amount_paid), 0),
+         string_agg(DISTINCT r.receipt_number, ', ')
+    INTO v_receipted, v_refs
+  FROM public.billing_receipt_items ri
+  JOIN public.billing_receipts r ON r.id = ri.receipt_id
+  WHERE ri.bill_id = p_bill_id;
+
+  IF v_receipted > 0 THEN
+    RAISE EXCEPTION 'Cannot cancel: Rs % is receipted against this bill (%). Cancel that receipt first, then cancel the bill.',
+      to_char(v_receipted, 'FM99,99,99,999.00'), COALESCE(v_refs, 'receipt unknown');
+  END IF;
+
+  IF p_reason IS NULL OR length(trim(p_reason)) < 5 THEN
+    RAISE EXCEPTION 'A reason of at least 5 characters is required';
+  END IF;
+
+  IF p_attachments IS NULL
+     OR jsonb_typeof(p_attachments) <> 'array'
+     OR jsonb_array_length(p_attachments) < 1 THEN
+    RAISE EXCEPTION 'At least one supporting document must be attached before a bill can be cancelled';
+  END IF;
+
+  SELECT p.full_name, p.email, COALESCE(p.is_super_admin, false)
+    INTO v_name, v_email, v_super
+  FROM public.profiles p WHERE p.id = auth.uid();
+
+  SELECT cr.role_name INTO v_role
+  FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
+  WHERE ur.user_id = auth.uid() LIMIT 1;
+
+  SELECT bc.category_name INTO v_category
+  FROM public.billing_categories bc WHERE bc.id = v_bill.item_category_id;
+
+  INSERT INTO public.billing_bill_cancellations (
+    bill_id, institution_id, student_id, reason_code, reason, attachments,
+    bill_snapshot, amount_cancelled,
+    cancelled_by, cancelled_by_name, cancelled_by_email, cancelled_by_role,
+    cancelled_by_is_super_admin
+  ) VALUES (
+    p_bill_id, v_bill.institution_id, v_bill.student_id,
+    p_reason_code, trim(p_reason), p_attachments,
+    jsonb_build_object('bill_description', v_bill.bill_description,
+                       'final_amount',     v_bill.final_amount,
+                       'balance_amount',   v_bill.balance_amount,
+                       'status',           v_bill.status,
+                       'due_date',         v_bill.due_date,
+                       'fee_source',       v_bill.fee_source,
+                       'category_name',    v_category),
+    v_bill.final_amount,
+    auth.uid(), v_name, v_email, v_role, v_super
+  ) RETURNING id INTO v_id;
+
+  -- Transaction-local flag the guard trigger below looks for. Set AFTER every
+  -- check has passed, and only for this one bill id.
+  PERFORM set_config('app.bill_cancel_ctx', p_bill_id::text, true);
+
+  UPDATE public.billing_student_bills
+     SET status         = 'cancelled',
+         balance_amount = 0,
+         updated_at     = now()
+   WHERE id = p_bill_id;
+
+  PERFORM set_config('app.bill_cancel_ctx', '', true);
+
+  RETURN QUERY SELECT v_id, p_bill_id, v_bill.final_amount,
+                      v_bill.institution_id, v_bill.student_id,
+                      COALESCE(v_bill.bill_description, v_category, 'Student bill');
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_cancel_student_bill(uuid, text, text, jsonb) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_cancel_student_bill(uuid, text, text, jsonb) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4. Close every other route into status='cancelled'.
+--    Without this the document requirement is advisory: the UPDATE policy lets
+--    any billing.schedule.update holder set the status directly.
+--    Only transitions INTO 'cancelled' are guarded -- editing a bill that is
+--    already cancelled (the balance repair migration, for instance) is
+--    untouched, and 'superseded' is a different status with its own flow.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_guard_bill_cancellation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.status = 'cancelled' AND OLD.status IS DISTINCT FROM 'cancelled' THEN
+    IF COALESCE(current_setting('app.bill_cancel_ctx', true), '') <> NEW.id::text THEN
+      RAISE EXCEPTION 'Bills must be cancelled through fn_cancel_student_bill, which records the reason and supporting documents. Direct status updates are not permitted.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+-- ============================================================================
+-- 2026-08-31 — role approval steps scoped to the approver's own institution
+-- Migration: 20260831140000_hr_leave_role_step_scoped_to_own_institution.sql
+-- Supersedes the fn_leave_step_admits definition earlier in this file.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_my_designated_hr_org_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  WITH own AS (
+    SELECT s.institution_id AS id
+    FROM public.staff s
+    WHERE s.profile_id = auth.uid() AND s.is_active
+  )
+  SELECT COALESCE(array_agg(DISTINCT o.id), ARRAY[]::uuid[])
+  FROM public.hr_organizations o
+  WHERE o.institution_id IN (SELECT id FROM own)
+     OR o.institution_id IN (
+          SELECT sib.id
+          FROM public.institutions sib
+          JOIN public.institutions mine ON mine.counselling_code = sib.counselling_code
+          WHERE mine.counselling_code IS NOT NULL
+            AND mine.id IN (SELECT id FROM own)
+        )
+     OR o.institution_id IN (
+          SELECT uia.institution_id
+          FROM public.user_institution_access uia
+          WHERE uia.user_id = auth.uid() AND uia.is_active
+        );
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_leave_step_admits(
+  p_step jsonb,
+  p_uid uuid,
+  p_hr_organization_id uuid
+) RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.fn_leave_step_approvers(p_step) e
+    WHERE p_uid IS NOT NULL
+      AND (
+        -- Pinned: an explicit naming, reachable from any institution.
+        e.approver_user_id = p_uid
+        OR (
+          e.approver_role IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM public.user_roles ur
+            JOIN public.custom_roles cr ON cr.id = ur.role_id
+            WHERE ur.user_id = p_uid
+              AND cr.role_key = e.approver_role
+              AND cr.is_active
+          )
+          AND (
+            -- Cheap tests first; the array builds are only reached for a caller
+            -- who is neither a super admin nor an HR-level approver.
+            public.is_super_admin()
+            OR (
+              public.user_has_permission('hr.leave.approve')
+              AND p_hr_organization_id = ANY (
+                    COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]))
+            )
+            OR p_hr_organization_id = ANY (
+                 COALESCE(public.fn_my_designated_hr_org_ids(), ARRAY[]::uuid[]))
+          )
+        )
+      )
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_my_designated_hr_org_ids() FROM anon;
+
+-- ============================================================================
+-- 2026-08-31 — full leave approval = HR Head + Managing Director + super admin
+-- Migration: 20260831150000_hr_leave_full_approval_hr_head_md_super_admin_only.sql
+-- Supersedes the hr_can_approve_leave definition earlier in this file.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_is_configured_leave_approver()
+RETURNS boolean
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  WITH my_roles AS (
+    SELECT cr.role_key
+    FROM public.user_roles ur
+    JOIN public.custom_roles cr ON cr.id = ur.role_id AND cr.is_active
+    WHERE ur.user_id = auth.uid()
+  ),
+  f AS (
+    SELECT af.hr_organization_id, af.steps, af.role_ladder, af.fallback_approver,
+           af.hr_organization_id = ANY (
+             COALESCE(public.fn_my_designated_hr_org_ids(), ARRAY[]::uuid[])) AS mine
+    FROM public.hr_approval_flows af
+    WHERE af.flow_for = 'leave_approval' AND af.is_active AND af.valid_until IS NULL
+  )
+  SELECT auth.uid() IS NOT NULL AND EXISTS (
+    SELECT 1 FROM f
+    WHERE
+      EXISTS (
+        SELECT 1 FROM jsonb_array_elements(COALESCE(f.steps,'[]'::jsonb)) st
+        CROSS JOIN LATERAL public.fn_leave_step_approvers(st) e
+        WHERE e.approver_user_id = auth.uid()
+      )
+      OR NULLIF(f.fallback_approver->>'approver_user_id','')::uuid = auth.uid()
+      OR (
+        f.mine
+        AND (
+          EXISTS (
+            SELECT 1 FROM jsonb_array_elements(COALESCE(f.steps,'[]'::jsonb)) st
+            CROSS JOIN LATERAL public.fn_leave_step_approvers(st) e
+            JOIN my_roles r ON r.role_key = e.approver_role
+          )
+          OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.role_ladder,'[]'::jsonb)) rung
+            JOIN my_roles r ON r.role_key = rung
+          )
+          OR EXISTS (
+            SELECT 1 FROM my_roles r
+            WHERE r.role_key = NULLIF(f.fallback_approver->>'approver_role','')
+          )
+        )
+      )
+  );
+$function$;
+
+CREATE OR REPLACE FUNCTION public.hr_can_approve_leave()
+RETURNS boolean
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT public.is_super_admin()
+      OR (
+        public.user_has_permission('hr.leave.approve')
+        AND COALESCE(array_length(public.fn_my_hr_organization_ids(), 1), 0) > 0
+      )
+      OR public.fn_is_any_leave_approver()
+      OR public.fn_is_configured_leave_approver();
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_is_configured_leave_approver() FROM anon;
+
+-- ===========================================================================
+-- Calendar holidays -> attendance (2026-09-02)
+-- Source: 20260902140000_hr_calendar_holidays_drive_attendance.sql
+--
+-- /calendar/holidays writes calendar_entries; attendance used to watch only
+-- institution_leaves, so a declared holiday left everyone ABSENT -- and ABSENT
+-- carries affects_lop, so the Salary Register deducted a day's pay for a paid
+-- holiday. 232 of 238 declared institution-days had no institution_leaves row.
+--
+-- DATES ARE EXTRACTED IN UTC. An all-day entry is stored 00:00:00+00 to
+-- 23:59:59.999+00; read at Asia/Kolkata the end lands on the NEXT day, which
+-- would stamp the day after every holiday as a holiday too.
+--
+-- These are the single definition of 'is this a holiday here': the trigger, the
+-- backfill, the biometric import and both recompute paths all go through them,
+-- so SQL and TypeScript cannot disagree about which days count.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_calendar_holiday_dates(
+  p_institution_id uuid,
+  p_from           date,
+  p_to             date
+)
+RETURNS TABLE(holiday_date date, title text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT g.d::date, ce.title
+    FROM public.calendar_entries ce
+    CROSS JOIN LATERAL generate_series(
+      (ce.start_at AT TIME ZONE 'UTC')::date,
+      (ce.end_at   AT TIME ZONE 'UTC')::date,
+      interval '1 day'
+    ) g(d)
+   WHERE ce.kind = 'holiday'
+     AND ce.is_active
+     AND ce.blocks_attendance
+     -- NULL or empty scope = every institution.
+     AND (ce.scope_institution_ids IS NULL
+          OR cardinality(ce.scope_institution_ids) = 0
+          OR p_institution_id = ANY (ce.scope_institution_ids))
+     AND g.d::date BETWEEN p_from AND p_to;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_is_calendar_holiday(
+  p_institution_id uuid, p_date date
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.fn_hr_calendar_holiday_dates(p_institution_id, p_date, p_date)
+  );
+$function$;
+
+-- Used only to stop the calendar mechanism un-stamping a day institution_leaves
+-- still declares a holiday.
+CREATE OR REPLACE FUNCTION public.fn_hr_is_institution_leave_day(
+  p_institution_id uuid, p_date date
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.institution_leaves il
+     WHERE il.institution_id = p_institution_id
+       AND p_date BETWEEN il.start_date AND il.end_date
+  );
+$function$;
+
+-- The trigger body itself is long; see the migration for the full text. It
+-- restamps ABSENT -> HOLIDAY where the calendar declares one and back where it
+-- no longer does, never touches PRESENT/HALF_DAY, and never reaches inside a
+-- LOCKED attendance period.
+
+REVOKE ALL ON FUNCTION public.fn_hr_calendar_holiday_dates(uuid, date, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_is_calendar_holiday(uuid, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_is_institution_leave_day(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_calendar_holiday_dates(uuid, date, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_is_calendar_holiday(uuid, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_is_institution_leave_day(uuid, date) TO authenticated, service_role;
+
+-- ===========================================================================
+-- Leave: monthly accrual + pending reservation (2026-09-02)
+-- Source: 20260902160000_hr_leave_accrual_and_pending_reservation.sql
+--
+-- hr_trig_update_leave_balance only increments `used` on APPROVAL, so an
+-- unapproved request reserved nothing: apply for two days, apply again, and the
+-- second request saw the full balance. 354 applications / 371 days were
+-- invisible to the check.
+--
+-- accrual_type ('none'|'annual'|'monthly') and accrual_rate had existed on
+-- hr_leave_types since 20260721120000 and NOTHING read them.
+--
+-- THE ARITHMETIC IS SPLIT IN TWO ON PURPOSE. fn_hr_leave_accrual_days is pure
+-- and IMMUTABLE so the balance VIEW (7,471 rows) can call it inline at
+-- arithmetic cost; fn_hr_leave_accrued_days does the lookups and delegates to
+-- it. Duplicating the CASE into the view would have been the cheap fix and the
+-- one that drifts.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_leave_accrual_days(
+  p_accrual_type text, p_accrual_rate numeric, p_entitled numeric,
+  p_year_start date, p_joined_on date, p_on date
+) RETURNS numeric
+LANGUAGE sql IMMUTABLE
+AS $function$
+  SELECT CASE
+    -- Not an accruing type: the whole entitlement from day one, which is how
+    -- every type behaves today.
+    WHEN p_accrual_type IS DISTINCT FROM 'monthly' OR COALESCE(p_accrual_rate, 0) <= 0
+      THEN COALESCE(p_entitled, 0)
+    WHEN p_year_start IS NULL OR p_on IS NULL THEN COALESCE(p_entitled, 0)
+    WHEN p_on < GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)) THEN 0
+    ELSE LEAST(COALESCE(p_entitled, 0),
+      GREATEST(0,
+        (EXTRACT(YEAR  FROM p_on)::int
+         - EXTRACT(YEAR FROM GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)))::int) * 12
+      + (EXTRACT(MONTH FROM p_on)::int
+         - EXTRACT(MONTH FROM GREATEST(p_year_start, COALESCE(p_joined_on, p_year_start)))::int)
+      + 1) * p_accrual_rate)
+  END;
+$function$;
+
+-- Wrapper: resolves entitlement (override > frozen balance > type default), the
+-- year window and the joining date, then delegates to the kernel above.
+-- Full body in the migration.
+
+-- fn_hr_leave_pending_days(staff, type, year): day-leave days in
+-- status IN ('pending','escalated'), counted with hr_calc_leave_days so a day is
+-- never counted one way here and another way in the cap trigger. Comp off is
+-- credit-backed and STO minute-backed; neither draws on a day entitlement.
+
+-- hr_trig_leave_enforce_balance(): BEFORE INSERT/UPDATE on hr_leave_applications,
+-- refuses a day-leave request exceeding accrued + carried - used - pending. The
+-- database gate behind LeaveService's friendly message -- that check is
+-- TypeScript only and was bypassed once already when `error` went undestructured.
+
+REVOKE ALL ON FUNCTION public.fn_hr_leave_accrual_days(text, numeric, numeric, date, date, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_accrual_days(text, numeric, numeric, date, date, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) TO authenticated, service_role;
+-- ============================================================================
+-- Added: 2026-09-02 — /my-desk "what is waiting on me", computed from the queues
+-- Migration: supabase/migrations/20261018020000_fn_my_desk_waiting.sql (full
+-- header there: row contract + the module page each branch mirrors).
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_my_desk_waiting()
+RETURNS TABLE (
+  source        text,
+  item_id       uuid,
+  title         text,
+  detail        text,
+  amount        numeric,
+  waiting_since timestamptz,
+  age_days      integer,
+  href          text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_uid                uuid := auth.uid();
+  v_is_super           boolean;
+  v_is_admin           boolean;
+  v_has_leave_perm     boolean;
+  v_has_recruit_edit   boolean;
+  v_has_recruit_view   boolean;
+  v_org_ids            uuid[];
+  v_designated_org_ids uuid[];
+  v_staff_ids          uuid[];
+BEGIN
+  -- No identity, no answer. Every branch below is keyed on v_uid, so a NULL
+  -- would match nothing anyway — but returning here keeps the helper calls
+  -- (fn_my_hr_organization_ids and friends) from running for nobody.
+  IF v_uid IS NULL THEN
+    RETURN;
+  END IF;
+
+  v_is_super       := COALESCE(public.is_super_admin(), false);
+  v_is_admin       := COALESCE(public.is_admin(), false);
+  -- Computed ONCE. All are SECURITY DEFINER helpers keyed on auth.uid(); the
+  -- leave rule (fn_leave_step_admits) calls them per row, which is the cost
+  -- this function avoids. These four together are the inputs of that rule.
+  v_has_leave_perm     := COALESCE(public.user_has_permission('hr.leave.approve'), false);
+  -- The recruitment module's own management key — the gate the 'offer' branch
+  -- mirrors (see the header). Computed once, like the rest. .view is required
+  -- alongside .edit because the row is a LINK into a page every one of whose
+  -- screens gates on .view; today the .edit set is a strict subset of the
+  -- .view set, so the conjunct removes no row from anyone's desk.
+  v_has_recruit_edit   := COALESCE(public.user_has_permission('hr.recruitment.edit'), false);
+  v_has_recruit_view   := COALESCE(public.user_has_permission('hr.recruitment.view'), false);
+  v_org_ids            := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_designated_org_ids := COALESCE(public.fn_my_designated_hr_org_ids(), ARRAY[]::uuid[]);
+  v_staff_ids          := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+
+  RETURN QUERY
+  WITH my_roles AS (
+    -- Multi-role, OR-merged. role_key kept in BOTH cases: recruitment matches
+    -- lower() (its RPC does), leave matches exact (fn_leave_step_admits does).
+    SELECT cr.id AS role_id, cr.role_key, lower(cr.role_key) AS role_key_lc,
+           cr.role_name, cr.is_active
+    FROM public.user_roles ur
+    JOIN public.custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = v_uid
+  ),
+
+  -- 1. RECRUITMENT — mirrors fn_list_my_pending_recruitment(p_user_id).
+  recruitment AS (
+    SELECT
+      'recruitment'::text                                  AS source,
+      c.id                                                 AS item_id,
+      c.name || ' — ' || c.role_title                      AS title,
+      CASE
+        WHEN (s.step ->> 'approver_user_id') = v_uid::text THEN 'pinned to you by name'
+        ELSE 'you hold role ' || COALESCE(s.step ->> 'approver_role', '?')
+      END                                                  AS detail,
+      NULL::numeric                                        AS amount,
+      c.submitted_at                                       AS waiting_since,
+      '/hr/recruitment/approvals'::text                    AS href
+    FROM public.hr_recruitment_candidates c
+    CROSS JOIN LATERAL (
+      SELECT CASE
+        WHEN jsonb_typeof(c.approval_chain) = 'array'
+         AND jsonb_array_length(c.approval_chain) > 0
+         AND c.current_step >= 0
+        THEN c.approval_chain -> c.current_step
+      END AS step
+    ) s
+    WHERE c.status IN ('submitted', 'pending_approval')
+      AND s.step IS NOT NULL
+      AND (
+        (s.step ->> 'approver_user_id') = v_uid::text
+        OR (
+          (s.step ->> 'approver_user_id') IS NULL
+          AND lower(s.step ->> 'approver_role') IN (SELECT role_key_lc FROM my_roles)
+        )
+      )
+  ),
+
+  -- 2. REFUND — mirrors the stage predicate (fn_refund_assignee_match) that the
+  --    refund RLS and stage-action panel already use.
+  refund AS (
+    SELECT
+      'refund'::text                                       AS source,
+      r.id                                                 AS item_id,
+      r.request_number || ' — '
+        || COALESCE(NULLIF(trim(COALESCE(lp.first_name, '') || ' ' || COALESCE(lp.last_name, '')), ''),
+                    'learner')                             AS title,
+      CASE
+        WHEN COALESCE(s.stage -> 'assignee_users' ? v_uid::text, false) THEN 'pinned to you by name'
+        ELSE 'you hold role ' || COALESCE((
+          SELECT string_agg(mr.role_name, ', ' ORDER BY mr.role_name)
+          FROM my_roles mr
+          WHERE COALESCE(s.stage -> 'assignee_roles' ? mr.role_id::text, false)
+        ), '?')
+      END                                                  AS detail,
+      r.total_refund_amount                                AS amount,
+      COALESCE(r.initiated_at, r.created_at)               AS waiting_since,
+      '/billing/refunds'::text                             AS href
+    FROM public.billing_refund_requests r
+    LEFT JOIN public.learners_profiles lp ON lp.id = r.student_id
+    CROSS JOIN LATERAL (
+      SELECT CASE
+        WHEN jsonb_typeof(r.flow_snapshot -> 'stages') = 'array'
+         AND r.current_stage_index >= 0
+        THEN r.flow_snapshot -> 'stages' -> r.current_stage_index
+      END AS stage
+    ) s
+    WHERE r.status = 'pending_review'
+      AND s.stage IS NOT NULL
+      AND public.fn_refund_assignee_match(s.stage -> 'assignee_roles', s.stage -> 'assignee_users', v_uid)
+  ),
+
+  -- 3. LEAVE — fn_leave_step_admits (20260831140000) minus its super-admin
+  --    "may act" clause, set-based: the same four inputs (hr.leave.approve,
+  --    fn_my_hr_organization_ids, fn_my_designated_hr_org_ids, fn_my_staff_ids)
+  --    evaluated once above instead of per row. The step is read through
+  --    fn_leave_step_approvers exactly as the rule does, so a legacy single
+  --    approver step and a multi-approver / ladder step resolve identically.
+  leave AS (
+    SELECT
+      'leave'::text                                        AS source,
+      a.id                                                 AS item_id,
+      COALESCE(NULLIF(trim(COALESCE(st.first_name, '') || ' ' || COALESCE(st.last_name, '')), ''),
+               'employee')
+        || ' — ' || to_char(a.start_date::date, 'DD Mon')
+        || ' to ' || to_char(a.end_date::date, 'DD Mon YYYY')    AS title,
+      CASE
+        WHEN m.pinned_to_me THEN 'pinned to you by name'
+        ELSE 'you hold role ' || m.my_step_roles
+      END                                                  AS detail,
+      NULL::numeric                                        AS amount,
+      a.created_at                                         AS waiting_since,
+      '/hr/leave/approvals'::text                          AS href
+    FROM public.hr_leave_applications a
+    LEFT JOIN public.staff st ON st.id = a.employee_id
+    CROSS JOIN LATERAL (
+      SELECT CASE
+        WHEN jsonb_typeof(a.approval_chain) = 'array'
+         AND a.current_step >= 0
+        THEN a.approval_chain -> a.current_step
+      END AS step
+    ) s
+    CROSS JOIN LATERAL (
+      -- One pass over the step's approver entries: am I named, and which of
+      -- the step's roles do I actively hold (fn_leave_step_admits: exact
+      -- role_key, cr.is_active).
+      SELECT
+        COALESCE(bool_or(e.approver_user_id = v_uid), false)           AS pinned_to_me,
+        string_agg(DISTINCT e.approver_role, '/')
+          FILTER (WHERE e.approver_role IS NOT NULL
+                    AND e.approver_role IN (SELECT role_key FROM my_roles WHERE is_active))
+                                                                        AS my_step_roles
+      FROM public.fn_leave_step_approvers(s.step) e
+    ) m
+    WHERE a.status IN ('pending', 'escalated')
+      AND s.step IS NOT NULL
+      AND NOT (a.employee_id = ANY (v_staff_ids))
+      AND (
+        -- PINNED: an explicit naming, reachable from any institution.
+        m.pinned_to_me
+        OR (
+          -- ROLE: only inside institutions I genuinely reach (140000's rule,
+          -- without the is_super_admin() clause — see the header).
+          m.my_step_roles IS NOT NULL
+          AND (
+            (v_has_leave_perm AND a.hr_organization_id = ANY (v_org_ids))
+            OR a.hr_organization_id = ANY (v_designated_org_ids)
+          )
+        )
+      )
+  ),
+
+  -- 4. MEETING TRIGGER — /meetings/triggers gate + the console's DECIDABLE set,
+  --    restricted to rows decidable NOW (deadline passed, already explained, or
+  --    no deadline ever stamped). A broadcast: identical for every admin.
+  meeting_trigger AS (
+    SELECT
+      'meeting_trigger'::text                              AS source,
+      e.id                                                 AS item_id,
+      e.metric_key || COALESCE(' — ' || e.subject_label, '') AS title,
+      'admin/super_admin gate — shown to every admin'::text AS detail,
+      NULL::numeric                                        AS amount,
+      COALESCE(e.explanation_deadline, e.created_at)       AS waiting_since,
+      '/meetings/triggers'::text                           AS href
+    FROM public.meeting_trigger_events e
+    WHERE (v_is_super OR v_is_admin)
+      AND e.director_decision IS NULL
+      AND e.status IN ('notified', 'explained', 'meeting_pending')
+      AND (
+        e.explanation_deadline IS NULL
+        OR e.explanation_deadline < now()
+        OR e.status = 'explained'
+      )
+  ),
+
+  -- 5. GRIEVANCE — unassigned and live, exactly as director-signals.ts reads it;
+  --    super admin only (Director fallback). A broadcast: identical for every
+  --    super admin.
+  grievance AS (
+    SELECT
+      'grievance'::text                                    AS source,
+      g.id                                                 AS item_id,
+      g.ticket_number || ' — ' || g.subject                AS title,
+      'no assignee — Director fallback, shown to every super admin'::text AS detail,
+      NULL::numeric                                        AS amount,
+      g.created_at                                         AS waiting_since,
+      '/learners-council/issues'::text                     AS href
+    FROM public.grievance_tickets g
+    WHERE v_is_super
+      AND g.assigned_to IS NULL
+      AND g.resolved_at IS NULL
+      AND g.withdrawn_at IS NULL
+  ),
+
+  -- 6. OFFER — salary agreed, nobody has started onboarding. Not a chain row:
+  --    at 'package_fixed' the chain is complete and no approver is derivable,
+  --    so this branch asks who may do the NEXT ACT in this college instead.
+  --    Gate mirrored: hr.recruitment.edit + .view (the module's own management
+  --    key, plus the key every page in the module requires to open at all —
+  --    the status route itself enforces nothing beyond authentication; see the
+  --    header for what was read and why that was not mirrored literally).
+  --    Scoped on hr_organization_id (NOT NULL here), never institution_id:
+  --    role_has_institution_access(NULL) is unconditionally TRUE, so scoping on
+  --    a nullable institution_id would show the two NULL rows to every .edit
+  --    holder in every college.
+  offer AS (
+    SELECT
+      'offer'::text                                        AS source,
+      c.id                                                 AS item_id,
+      -- role_title is NOT NULL on this table, so a naked concat is safe here
+      -- exactly as it is in the recruitment branch above.
+      c.name || ' — ' || c.role_title                      AS title,
+      -- The detail must not assert something the row's own data contradicts.
+      -- SARANYA R (26d) already has an onboarding checklist started — telling
+      -- her college "nobody has started onboarding" would be false — and the
+      -- two oldest rows have no job linked, so the page that starts onboarding
+      -- cannot be reached from them at all. Three states, three sentences.
+      CASE
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND (c.role_specific_details->>'onboarding_started_at') IS NOT NULL
+          THEN 'salary agreed — onboarding started, not finished'
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND c.role_specific_details->>'job_id'
+                 ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          THEN 'salary agreed — nobody has started onboarding'
+        ELSE 'salary agreed — onboarding not started, and no job is linked'
+      END                                                  AS detail,
+      -- The agreed figure lives on a package row, not on the candidate.
+      NULL::numeric                                        AS amount,
+      -- submitted_at, not updated_at: a BEFORE UPDATE trigger resets the latter.
+      c.submitted_at                                       AS waiting_since,
+      -- Point at the page that CAN act. The job workspace gates "Start
+      -- Onboarding" on exactly this status; the candidate page renders no
+      -- control for it. The link to the job is a soft JSONB value with no
+      -- foreign key, so the uuid shape is required before a path is built —
+      -- a junk value falls back rather than producing a broken URL, and a
+      -- missing key yields NULL (NULL ~ pattern is NULL, not true).
+      -- ~* not ~: Postgres regex matching is case-sensitive and the class is
+      -- lowercase-only, so an upper- or mixed-case uuid from any client would
+      -- silently take the ELSE branch and route a live candidate to the page
+      -- with no control. Nothing constrains the shape of this JSONB value.
+      -- jsonb_typeof guard for the same reason every other jsonb read in this
+      -- file carries one: the column is NOT NULL but may hold a scalar.
+      CASE
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND c.role_specific_details->>'job_id'
+                 ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          THEN '/hr/recruitment/approvals/' || (c.role_specific_details->>'job_id')
+        ELSE '/hr/recruitment/candidates/' || c.id::text
+      END                                                  AS href
+    FROM public.hr_recruitment_candidates c
+    WHERE v_has_recruit_edit
+      AND v_has_recruit_view
+      AND c.status = 'package_fixed'
+      -- The SECOND half of workspace-candidates-tab's isPostApproval. Today it
+      -- can never fire — onboard-to-staff writes staff_record_id and
+      -- status='joined' in ONE update, so 'package_fixed' + staff_record_id is
+      -- unreachable, and 0 of 34 candidates carry the key at all. Encoded so
+      -- that the branch is the WHOLE gate it claims to mirror rather than half
+      -- of it, and so a future partial write cannot strand an uncleanable row.
+      AND (jsonb_typeof(c.role_specific_details) <> 'object'
+           OR (c.role_specific_details->>'staff_record_id') IS NULL)
+      AND c.hr_organization_id = ANY (v_org_ids)
+  ),
+
+  everything AS (
+    SELECT * FROM recruitment
+    UNION ALL SELECT * FROM refund
+    UNION ALL SELECT * FROM leave
+    UNION ALL SELECT * FROM meeting_trigger
+    UNION ALL SELECT * FROM grievance
+    UNION ALL SELECT * FROM offer
+  )
+  SELECT
+    x.source,
+    x.item_id,
+    x.title,
+    x.detail,
+    x.amount,
+    x.waiting_since,
+    -- Floored at 0: an 'explained' trigger whose deadline is still ahead is
+    -- decidable today, not in negative days.
+    GREATEST(0, floor(extract(epoch FROM (now() - COALESCE(x.waiting_since, now()))) / 86400))::integer AS age_days,
+    x.href
+  FROM everything x
+  ORDER BY x.waiting_since ASC NULLS LAST, x.source, x.item_id
+  LIMIT 500;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_my_desk_waiting() IS
+  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance | offer; each branch mirrors its module page''s own queue rule (see the migration header of 20261018030000, which supersedes 20261018020000; leave follows fn_leave_step_admits as of 20260831140000, minus its super-admin may-act clause). offer = hr_recruitment_candidates at status package_fixed (salary agreed, nobody has started onboarding; the UI heading is "Hires to bring on board" — the source string stays ''offer'' because it is the applied row contract, and status offer_issued has never been used in production) — no approver is derivable at that status, so the gate mirrored is the module''s own management key hr.recruitment.edit AND hr.recruitment.view, plus BOTH halves of workspace-candidates-tab''s isPostApproval (status AND no role_specific_details.staff_record_id), scoped by fn_my_hr_organization_ids() and NOT by institution_id (role_has_institution_access(NULL) is unconditionally true, so institution scoping would WIDEN the two NULL-institution rows to every college rather than drop them); href is the only per-row one in this function and points at /hr/recruitment/approvals/<job_id> when role_specific_details->>''job_id'' is uuid-shaped (the job workspace gates "Start Onboarding" on this status), else /hr/recruitment/candidates/<id>, which currently carries no control for it — a known product gap. user_has_permission() carries a super-admin bypass, so super admins see these as they do every other branch. Zero rows for a missing identity; never raises on a malformed approval_chain.';
+
+-- Lock from anon. Supabase's default privileges grant EXECUTE to anon
+-- directly, separate from PUBLIC, so both must be revoked (CLAUDE.md rule).
+REVOKE EXECUTE ON FUNCTION public.fn_my_desk_waiting() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_my_desk_waiting() TO authenticated;
+
+
+-- ── Event feedback forms (coordinator-editable questions per event) ──
+-- Migration: supabase/migrations/event_feedback_forms.sql
+-- ============================================================================
+-- Helper functions
+-- ============================================================================
+
+-- Resolve the caller's OWN registration on an event, or NULL when they hold
+-- none. Two identity paths because events_registrations records internal
+-- participants either way: profile_id is set when the person registered while
+-- signed in, learner_id when a roster import or bulk upload created the row
+-- against their learner record instead (auth.uid() -> profiles.learner_id).
+-- Cancelled and disqualified registrations are excluded — someone who withdrew
+-- is not a participant and should not be answering the participant survey.
+-- SECURITY DEFINER so it can read events_registrations regardless of the
+-- caller's own SELECT policy on that table; it returns only the caller's row.
+CREATE OR REPLACE FUNCTION public.fn_my_event_registration(p_event_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT r.id
+  FROM public.events_registrations r
+  WHERE r.event_id = p_event_id
+    AND r.status NOT IN ('cancelled', 'disqualified')
+    AND (
+      r.profile_id = (SELECT auth.uid())
+      OR (
+        r.learner_id IS NOT NULL
+        AND r.learner_id = (
+          SELECT p.learner_id FROM public.profiles p
+          WHERE p.id = (SELECT auth.uid())
+        )
+      )
+    )
+  ORDER BY r.created_at DESC
+  LIMIT 1;
+$$;
+
+COMMENT ON FUNCTION public.fn_my_event_registration(uuid) IS
+  'The signed-in user''s own non-cancelled registration id on an event, or NULL. Identity resolves through events_registrations.profile_id or .learner_id (auth.uid() -> profiles.learner_id). Used to gate event feedback to registered participants.';
+
+-- May the caller EDIT this event's feedback forms? One place, so the four
+-- policies below cannot drift. Mirrors the event_registration_form*_manage
+-- OR-chain: super admin, admin, the event coordinator (in-charge), or an
+-- events.view holder with access to the owning institution.
+CREATE OR REPLACE FUNCTION public.fn_can_manage_event_feedback(p_event_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.fn_is_event_incharge(p_event_id)
+    OR (
+      public.user_has_permission('events.view')
+      AND EXISTS (
+        SELECT 1 FROM public.events e
+        WHERE e.id = p_event_id
+          AND (e.scope = 'all_jkkn' OR public.role_has_institution_access(e.institution_id))
+      )
+    );
+$$;
+
+COMMENT ON FUNCTION public.fn_can_manage_event_feedback(uuid) IS
+  'Authority to create/edit/delete an event''s feedback forms and questions, and to read its responses. Super admin, admin, event in-charge (events.config->incharges), or events.view + institution access.';
+
+-- Is this form accepting answers RIGHT NOW? Enabled AND inside its window.
+--
+-- The same rule as feedbackFormState() in types/event-feedback.ts, restated
+-- here because the client's copy is a courtesy and this one is the gate: the
+-- respond page hides a closed form, but nothing stops a direct PostgREST call,
+-- and "the form closed on Friday" is worthless if answers can still be written
+-- on Sunday. Derived from the row rather than stored, so extending ends_at
+-- reopens the form with no further action.
+CREATE OR REPLACE FUNCTION public.fn_event_feedback_form_open(p_form_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_feedback_forms f
+    WHERE f.id = p_form_id
+      AND f.is_enabled
+      AND (f.starts_at IS NULL OR now() >= f.starts_at)
+      AND (f.ends_at   IS NULL OR now() <= f.ends_at)
+  );
+$$;
+
+COMMENT ON FUNCTION public.fn_event_feedback_form_open(uuid) IS
+  'True while an event feedback form is accepting answers: is_enabled AND now() inside [starts_at, ends_at]. The server-side twin of feedbackFormState() — this one is the gate, the client copy is a courtesy.';
+
+
+
+-- ============================================================================
+-- save_event_feedback_form — atomic bulk save of sections + questions
+-- ============================================================================
+-- SECURITY INVOKER on purpose, exactly as save_event_registration_form is: the
+-- _manage policies above already encode the coordinator rule, so running as the
+-- caller reuses that gate verbatim with no service-role and no re-encoded auth.
+-- A non-manager who calls this fails the RLS WITH CHECK inside the function,
+-- which raises and rolls the whole transaction back.
+--
+-- Strategy: delete-all-then-reinsert. Safe because event_feedback_responses
+-- .answers keys answers by question_key, never by a question row id, so
+-- churning ids on every save orphans nothing.
+CREATE OR REPLACE FUNCTION public.save_event_feedback_form(
+  p_form_id uuid,
+  p_is_enabled boolean,
+  p_sections jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_event_id   uuid;
+  v_section    jsonb;
+  v_section_id uuid;
+  v_question   jsonb;
+BEGIN
+  SELECT event_id INTO v_event_id
+    FROM public.event_feedback_forms WHERE id = p_form_id;
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Feedback form % not found', p_form_id;
+  END IF;
+
+  UPDATE public.event_feedback_forms
+     SET is_enabled = COALESCE(p_is_enabled, is_enabled),
+         updated_at = now()
+   WHERE id = p_form_id;
+
+  -- Questions cascade from their section, so deleting sections clears both.
+  DELETE FROM public.event_feedback_sections WHERE form_id = p_form_id;
+
+  FOR v_section IN SELECT * FROM jsonb_array_elements(COALESCE(p_sections, '[]'::jsonb))
+  LOOP
+    INSERT INTO public.event_feedback_sections (form_id, event_id, title, display_order)
+    VALUES (
+      p_form_id,
+      v_event_id,
+      COALESCE(NULLIF(v_section->>'title', ''), 'Section'),
+      COALESCE((v_section->>'display_order')::int, 0)
+    )
+    RETURNING id INTO v_section_id;
+
+    FOR v_question IN SELECT * FROM jsonb_array_elements(COALESCE(v_section->'questions', '[]'::jsonb))
+    LOOP
+      INSERT INTO public.event_feedback_questions (
+        section_id, form_id, event_id,
+        question_key, question_label, question_type,
+        is_required, display_order,
+        placeholder, help_text,
+        min_length, max_length, min_value, max_value, pattern,
+        options, condition, rating_scale
+      )
+      VALUES (
+        v_section_id, p_form_id, v_event_id,
+        v_question->>'question_key',
+        v_question->>'question_label',
+        v_question->>'question_type',
+        COALESCE((v_question->>'is_required')::boolean, false),
+        COALESCE((v_question->>'display_order')::int, 0),
+        NULLIF(v_question->>'placeholder', ''),
+        NULLIF(v_question->>'help_text', ''),
+        (v_question->>'min_length')::int,
+        (v_question->>'max_length')::int,
+        (v_question->>'min_value')::numeric,
+        (v_question->>'max_value')::numeric,
+        NULLIF(v_question->>'pattern', ''),
+        CASE WHEN v_question->'options'   = 'null'::jsonb THEN NULL ELSE v_question->'options'   END,
+        CASE WHEN v_question->'condition' = 'null'::jsonb THEN NULL ELSE v_question->'condition' END,
+        (v_question->>'rating_scale')::int
+      );
+    END LOOP;
+  END LOOP;
+END;
+$$;
+
+COMMENT ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) IS
+  'Atomically replace an event feedback form''s sections and questions with the desired state. SECURITY INVOKER — authorization is the event_feedback_*_manage RLS policies.';
+
+-- EXECUTE is granted explicitly rather than left to PUBLIC. (The registration
+-- builder learned this the hard way: a DROP FUNCTION during its multi-form
+-- migration discarded the ACL and handed EXECUTE back to PUBLIC.)
+REVOKE ALL ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_my_event_registration(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_my_event_registration(uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_can_manage_event_feedback(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_event_feedback_form_open(uuid) TO authenticated;
