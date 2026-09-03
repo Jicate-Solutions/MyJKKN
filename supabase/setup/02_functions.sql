@@ -57272,6 +57272,8 @@ DECLARE
   v_is_super           boolean;
   v_is_admin           boolean;
   v_has_leave_perm     boolean;
+  v_has_recruit_edit   boolean;
+  v_has_recruit_view   boolean;
   v_org_ids            uuid[];
   v_designated_org_ids uuid[];
   v_staff_ids          uuid[];
@@ -57289,6 +57291,13 @@ BEGIN
   -- leave rule (fn_leave_step_admits) calls them per row, which is the cost
   -- this function avoids. These four together are the inputs of that rule.
   v_has_leave_perm     := COALESCE(public.user_has_permission('hr.leave.approve'), false);
+  -- The recruitment module's own management key — the gate the 'offer' branch
+  -- mirrors (see the header). Computed once, like the rest. .view is required
+  -- alongside .edit because the row is a LINK into a page every one of whose
+  -- screens gates on .view; today the .edit set is a strict subset of the
+  -- .view set, so the conjunct removes no row from anyone's desk.
+  v_has_recruit_edit   := COALESCE(public.user_has_permission('hr.recruitment.edit'), false);
+  v_has_recruit_view   := COALESCE(public.user_has_permission('hr.recruitment.view'), false);
   v_org_ids            := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
   v_designated_org_ids := COALESCE(public.fn_my_designated_hr_org_ids(), ARRAY[]::uuid[]);
   v_staff_ids          := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
@@ -57473,12 +57482,84 @@ BEGIN
       AND g.withdrawn_at IS NULL
   ),
 
+  -- 6. OFFER — salary agreed, nobody has started onboarding. Not a chain row:
+  --    at 'package_fixed' the chain is complete and no approver is derivable,
+  --    so this branch asks who may do the NEXT ACT in this college instead.
+  --    Gate mirrored: hr.recruitment.edit + .view (the module's own management
+  --    key, plus the key every page in the module requires to open at all —
+  --    the status route itself enforces nothing beyond authentication; see the
+  --    header for what was read and why that was not mirrored literally).
+  --    Scoped on hr_organization_id (NOT NULL here), never institution_id:
+  --    role_has_institution_access(NULL) is unconditionally TRUE, so scoping on
+  --    a nullable institution_id would show the two NULL rows to every .edit
+  --    holder in every college.
+  offer AS (
+    SELECT
+      'offer'::text                                        AS source,
+      c.id                                                 AS item_id,
+      -- role_title is NOT NULL on this table, so a naked concat is safe here
+      -- exactly as it is in the recruitment branch above.
+      c.name || ' — ' || c.role_title                      AS title,
+      -- The detail must not assert something the row's own data contradicts.
+      -- SARANYA R (26d) already has an onboarding checklist started — telling
+      -- her college "nobody has started onboarding" would be false — and the
+      -- two oldest rows have no job linked, so the page that starts onboarding
+      -- cannot be reached from them at all. Three states, three sentences.
+      CASE
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND (c.role_specific_details->>'onboarding_started_at') IS NOT NULL
+          THEN 'salary agreed — onboarding started, not finished'
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND c.role_specific_details->>'job_id'
+                 ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          THEN 'salary agreed — nobody has started onboarding'
+        ELSE 'salary agreed — onboarding not started, and no job is linked'
+      END                                                  AS detail,
+      -- The agreed figure lives on a package row, not on the candidate.
+      NULL::numeric                                        AS amount,
+      -- submitted_at, not updated_at: a BEFORE UPDATE trigger resets the latter.
+      c.submitted_at                                       AS waiting_since,
+      -- Point at the page that CAN act. The job workspace gates "Start
+      -- Onboarding" on exactly this status; the candidate page renders no
+      -- control for it. The link to the job is a soft JSONB value with no
+      -- foreign key, so the uuid shape is required before a path is built —
+      -- a junk value falls back rather than producing a broken URL, and a
+      -- missing key yields NULL (NULL ~ pattern is NULL, not true).
+      -- ~* not ~: Postgres regex matching is case-sensitive and the class is
+      -- lowercase-only, so an upper- or mixed-case uuid from any client would
+      -- silently take the ELSE branch and route a live candidate to the page
+      -- with no control. Nothing constrains the shape of this JSONB value.
+      -- jsonb_typeof guard for the same reason every other jsonb read in this
+      -- file carries one: the column is NOT NULL but may hold a scalar.
+      CASE
+        WHEN jsonb_typeof(c.role_specific_details) = 'object'
+             AND c.role_specific_details->>'job_id'
+                 ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          THEN '/hr/recruitment/approvals/' || (c.role_specific_details->>'job_id')
+        ELSE '/hr/recruitment/candidates/' || c.id::text
+      END                                                  AS href
+    FROM public.hr_recruitment_candidates c
+    WHERE v_has_recruit_edit
+      AND v_has_recruit_view
+      AND c.status = 'package_fixed'
+      -- The SECOND half of workspace-candidates-tab's isPostApproval. Today it
+      -- can never fire — onboard-to-staff writes staff_record_id and
+      -- status='joined' in ONE update, so 'package_fixed' + staff_record_id is
+      -- unreachable, and 0 of 34 candidates carry the key at all. Encoded so
+      -- that the branch is the WHOLE gate it claims to mirror rather than half
+      -- of it, and so a future partial write cannot strand an uncleanable row.
+      AND (jsonb_typeof(c.role_specific_details) <> 'object'
+           OR (c.role_specific_details->>'staff_record_id') IS NULL)
+      AND c.hr_organization_id = ANY (v_org_ids)
+  ),
+
   everything AS (
     SELECT * FROM recruitment
     UNION ALL SELECT * FROM refund
     UNION ALL SELECT * FROM leave
     UNION ALL SELECT * FROM meeting_trigger
     UNION ALL SELECT * FROM grievance
+    UNION ALL SELECT * FROM offer
   )
   SELECT
     x.source,
@@ -57498,7 +57579,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_my_desk_waiting() IS
-  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance; each branch mirrors its module page''s own queue rule (see the migration header of 20261018020000; leave follows fn_leave_step_admits as of 20260831140000, minus its super-admin may-act clause). Zero rows for a missing identity; never raises on a malformed approval_chain.';
+  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance | offer; each branch mirrors its module page''s own queue rule (see the migration header of 20261018030000, which supersedes 20261018020000; leave follows fn_leave_step_admits as of 20260831140000, minus its super-admin may-act clause). offer = hr_recruitment_candidates at status package_fixed (salary agreed, nobody has started onboarding; the UI heading is "Hires to bring on board" — the source string stays ''offer'' because it is the applied row contract, and status offer_issued has never been used in production) — no approver is derivable at that status, so the gate mirrored is the module''s own management key hr.recruitment.edit AND hr.recruitment.view, plus BOTH halves of workspace-candidates-tab''s isPostApproval (status AND no role_specific_details.staff_record_id), scoped by fn_my_hr_organization_ids() and NOT by institution_id (role_has_institution_access(NULL) is unconditionally true, so institution scoping would WIDEN the two NULL-institution rows to every college rather than drop them); href is the only per-row one in this function and points at /hr/recruitment/approvals/<job_id> when role_specific_details->>''job_id'' is uuid-shaped (the job workspace gates "Start Onboarding" on this status), else /hr/recruitment/candidates/<id>, which currently carries no control for it — a known product gap. user_has_permission() carries a super-admin bypass, so super admins see these as they do every other branch. Zero rows for a missing identity; never raises on a malformed approval_chain.';
 
 -- Lock from anon. Supabase's default privileges grant EXECUTE to anon
 -- directly, separate from PUBLIC, so both must be revoked (CLAUDE.md rule).

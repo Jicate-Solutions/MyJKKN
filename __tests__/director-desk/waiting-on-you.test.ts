@@ -61,13 +61,65 @@ function row(over: Partial<WaitingRow> & { item_id: string }): WaitingRow {
   };
 }
 
-describe('sourceWords — the five queues have plain names', () => {
+describe('sourceWords — the six queues have plain names', () => {
   it('names each known queue with a heading and a verb', () => {
     expect(sourceWords('recruitment')).toMatchObject({ label: 'Hires to sign off', verb: 'Sign off' });
     expect(sourceWords('refund')).toMatchObject({ label: 'Refunds to approve', verb: 'Approve' });
     expect(sourceWords('leave')).toMatchObject({ label: 'Leave to approve', verb: 'Approve' });
     expect(sourceWords('meeting_trigger')).toMatchObject({ label: 'Triggers to decide', verb: 'Decide' });
     expect(sourceWords('grievance')).toMatchObject({ label: 'Grievances to assign', verb: 'Assign' });
+    // Sixth source, added 2026-09-03 (migration 20261018030000): a hire whose
+    // salary is agreed and whom nobody has started onboarding.
+    expect(sourceWords('offer')).toMatchObject({
+      label: 'Hires to bring on board',
+      verb: 'Start onboarding',
+    });
+  });
+
+  it('never names the queue for a status the product has never used', () => {
+    // 'offer_issued' has zero rows in production and no control in app/
+    // performs that transition, so no word a person reads may promise it.
+    // The source STRING stays 'offer' — that is the applied RPC contract.
+    const words = sourceWords('offer');
+    expect(words.label).not.toMatch(/offer/i);
+    expect(words.verb).not.toMatch(/offer/i);
+    expect(words.queue).not.toMatch(/offer/i);
+  });
+
+  it('the offer queue word does not collide with the hires queue word', () => {
+    // Both are recruitment rows. If they shared a word the all-clear sentence
+    // would read "…(hires, refunds, leave, triggers, grievances, hires)".
+    expect(sourceWords('offer').queue).not.toBe(sourceWords('recruitment').queue);
+    const queues = WAITING_SOURCES.map((s) => sourceWords(s).queue);
+    expect(new Set(queues).size).toBe(queues.length);
+  });
+
+  it('an offer row is its own group and never merges into the hires group', () => {
+    // The Director's recruitment count must not move when offers appear on
+    // other people's desks; on a desk that sees both, they must still read as
+    // two separate queues.
+    const rows = [
+      row({ source: 'recruitment', item_id: 'r1', waiting_since: '2026-07-18T00:00:00Z' }),
+      row({ source: 'offer', item_id: 'o1', waiting_since: '2026-04-02T08:24:23Z' }),
+      row({ source: 'offer', item_id: 'o2', waiting_since: '2026-04-13T06:11:42Z' }),
+    ];
+    const groups = groupBySource(rows);
+    expect(groups.map((g) => g.source)).toEqual(['offer', 'recruitment']);
+    expect(groups[0].rows.map((r) => r.item_id)).toEqual(['o1', 'o2']);
+    expect(groups[1].rows).toHaveLength(1);
+  });
+
+  it('both per-row hrefs an offer row can carry are linkable', () => {
+    // 'offer' is the only source with a per-row href. The SQL emits the job
+    // workspace when the candidate carries a uuid-shaped job_id (that page
+    // gates "Start Onboarding" on status package_fixed) and falls back to the
+    // candidate record when it does not. Both must pass the in-app check.
+    expect(safeHref('/hr/recruitment/approvals/3eaf9017-156e-44e7-82fa-29c7193be9c2')).toBe(
+      '/hr/recruitment/approvals/3eaf9017-156e-44e7-82fa-29c7193be9c2',
+    );
+    expect(safeHref('/hr/recruitment/candidates/2f1c8c8e-0000-4000-8000-000000000001')).toBe(
+      '/hr/recruitment/candidates/2f1c8c8e-0000-4000-8000-000000000001',
+    );
   });
 
   it('does not crash on a queue this page has never heard of', () => {
@@ -322,13 +374,13 @@ describe('summaryLine', () => {
 });
 
 describe('emptyVerdict — the page may not claim what it did not check', () => {
-  it('the all-clear names all five queues and the time', () => {
+  it('the all-clear names all six queues and the time', () => {
     const sentence = emptyVerdict({ kind: 'empty', checkedAt: CHECKED_AT });
     expect(sentence).toBe(
-      'Nothing waiting across 5 queues (hires, refunds, leave, triggers, grievances) — checked 07:12',
+      'Nothing waiting across 6 queues (hires, refunds, leave, triggers, grievances, onboarding) — checked 07:12',
     );
-    expect(WAITING_SOURCES).toHaveLength(5);
-    expect(queuesChecked()).toContain('5 queues');
+    expect(WAITING_SOURCES).toHaveLength(6);
+    expect(queuesChecked()).toContain('6 queues');
   });
 
   it('the failure says it could not check, and never reads as nothing waiting', () => {

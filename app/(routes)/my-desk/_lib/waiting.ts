@@ -4,7 +4,8 @@
 //
 // The section on /my-desk lists everything the database has COMPUTED to be
 // waiting on the signed-in person: hires to sign off, refunds to approve,
-// leave to approve, meeting triggers to decide, grievances to assign. The
+// leave to approve, meeting triggers to decide, grievances to assign, hires to
+// bring on board (salary agreed, onboarding not started). The
 // computing happens in one RPC, fn_my_desk_waiting(); nothing here re-derives a
 // queue. This file only decides what a person reads off the result.
 //
@@ -28,19 +29,25 @@ export const WAITING_SOURCES = [
   'leave',
   'meeting_trigger',
   'grievance',
+  // Appended, never inserted: this list also fixes the order the "checked N
+  // queues (…)" sentence reads in, and an addition must not re-word the five
+  // that were already there.
+  'offer',
 ] as const;
 
 export type WaitingSource = (typeof WAITING_SOURCES)[number];
 
 /**
- * One row of fn_my_desk_waiting() (migration 20261018020000), exactly as the
- * contract names it:
+ * One row of fn_my_desk_waiting() (migration 20261018030000, which supersedes
+ * 20261018020000), exactly as the contract names it:
  *   RETURNS TABLE(source text, item_id uuid, title text, detail text,
  *                 amount numeric, waiting_since timestamptz, age_days integer,
  *                 href text)   ORDER BY waiting_since ASC   LIMIT 500
  * `amount` is RUPEES (numeric), never paise. `href` is one of
  * /hr/recruitment/approvals · /billing/refunds · /hr/leave/approvals ·
- * /meetings/triggers · /learners-council/issues.
+ * /meetings/triggers · /learners-council/issues ·
+ * /hr/recruitment/approvals/<job_id> — or /hr/recruitment/candidates/<id> when
+ * the candidate carries no job_id (the only per-row href, used by `offer`).
  */
 export interface WaitingRow {
   source: WaitingSource | string;
@@ -81,6 +88,22 @@ const SOURCE_WORDS: Record<WaitingSource, SourceWords> = {
   leave: { label: 'Leave to approve', verb: 'Approve', queue: 'leave' },
   meeting_trigger: { label: 'Triggers to decide', verb: 'Decide', queue: 'triggers' },
   grievance: { label: 'Grievances to assign', verb: 'Assign', queue: 'grievances' },
+  // A hire whose salary is agreed and whom nobody has started onboarding.
+  //
+  // NOT "Offers to issue", which is how the Director named it and how the
+  // source string still reads. Status 'offer_issued' has never been used once
+  // in production (the table has only ever held pending_approval, approved,
+  // package_fixed and joined) and no control anywhere in app/ performs that
+  // transition, so a heading naming it would send its reader hunting a button
+  // that does not exist. The act the product DOES support at this status is
+  // onboarding: the job workspace gates "Start Onboarding" on exactly it.
+  // His decision — these belong on HR's desk, not his — is unchanged; only
+  // the words moved to the act that can actually be done.
+  //
+  // The verb is read out only in the row's aria-label (the visible control is
+  // always "Open"). `queue` must stay distinct from recruitment's 'hires', or
+  // the all-clear sentence would name the same queue twice.
+  offer: { label: 'Hires to bring on board', verb: 'Start onboarding', queue: 'onboarding' },
 };
 
 const OTHER_WORDS: SourceWords = { label: 'Other', verb: 'Open', queue: 'other' };
