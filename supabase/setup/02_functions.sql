@@ -48734,7 +48734,9 @@ AS $function$
 DECLARE
   v_new_id  uuid := gen_random_uuid();
   v_current record;
-  v_ifsc    text := upper(trim(coalesce(p_ifsc_code, '')));
+  -- nullif(...,'') is what makes "absent" a single value rather than two.
+  v_ifsc    text := nullif(upper(trim(coalesce(p_ifsc_code, ''))), '');
+  v_bank    text := nullif(trim(coalesce(p_bank_name, '')), '');
   v_acct    text := trim(coalesce(p_account_number, ''));
 BEGIN
   IF p_staff_id IS NULL THEN
@@ -48748,7 +48750,8 @@ BEGIN
   IF v_acct !~ '^[0-9]{6,20}$' THEN
     RAISE EXCEPTION 'Account number must be 6 to 20 digits' USING ERRCODE = '22023';
   END IF;
-  IF v_ifsc !~ '^[A-Z]{4}0[A-Z0-9]{6}$' THEN
+  -- Absent is fine (optional since 2026-09-02). Present and malformed is not.
+  IF v_ifsc IS NOT NULL AND v_ifsc !~ '^[A-Z]{4}0[A-Z0-9]{6}$' THEN
     RAISE EXCEPTION 'IFSC must be 4 letters, then 0, then 6 letters or digits'
       USING ERRCODE = '22023';
   END IF;
@@ -48760,8 +48763,12 @@ BEGIN
    WHERE staff_id = p_staff_id AND superseded_by IS NULL;
 
   -- Re-saving the identical destination would bury the real history under
-  -- duplicates, so the incumbent is returned untouched instead.
-  IF FOUND AND v_current.account_number = v_acct AND v_current.ifsc_code = v_ifsc THEN
+  -- duplicates, so the incumbent is returned untouched instead. IS NOT DISTINCT
+  -- FROM, not =: under NULL = NULL the test yields NULL rather than true, so an
+  -- IFSC-less account would supersede itself on every re-save.
+  IF FOUND
+     AND v_current.account_number IS NOT DISTINCT FROM v_acct
+     AND v_current.ifsc_code      IS NOT DISTINCT FROM v_ifsc THEN
     RETURN v_current.id;
   END IF;
 
@@ -48776,7 +48783,7 @@ BEGIN
     branch_name, account_type, effective_from, notes, created_by, updated_by
   ) VALUES (
     v_new_id, p_staff_id, trim(p_account_holder_name), v_acct, v_ifsc,
-    trim(p_bank_name), nullif(trim(coalesce(p_branch_name, '')), ''),
+    v_bank, nullif(trim(coalesce(p_branch_name, '')), ''),
     coalesce(p_account_type, 'savings'), coalesce(p_effective_from, CURRENT_DATE),
     p_notes, auth.uid(), auth.uid()
   );
@@ -57497,3 +57504,209 @@ COMMENT ON FUNCTION public.fn_my_desk_waiting() IS
 -- directly, separate from PUBLIC, so both must be revoked (CLAUDE.md rule).
 REVOKE EXECUTE ON FUNCTION public.fn_my_desk_waiting() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_my_desk_waiting() TO authenticated;
+
+
+-- ── Event feedback forms (coordinator-editable questions per event) ──
+-- Migration: supabase/migrations/event_feedback_forms.sql
+-- ============================================================================
+-- Helper functions
+-- ============================================================================
+
+-- Resolve the caller's OWN registration on an event, or NULL when they hold
+-- none. Two identity paths because events_registrations records internal
+-- participants either way: profile_id is set when the person registered while
+-- signed in, learner_id when a roster import or bulk upload created the row
+-- against their learner record instead (auth.uid() -> profiles.learner_id).
+-- Cancelled and disqualified registrations are excluded — someone who withdrew
+-- is not a participant and should not be answering the participant survey.
+-- SECURITY DEFINER so it can read events_registrations regardless of the
+-- caller's own SELECT policy on that table; it returns only the caller's row.
+CREATE OR REPLACE FUNCTION public.fn_my_event_registration(p_event_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT r.id
+  FROM public.events_registrations r
+  WHERE r.event_id = p_event_id
+    AND r.status NOT IN ('cancelled', 'disqualified')
+    AND (
+      r.profile_id = (SELECT auth.uid())
+      OR (
+        r.learner_id IS NOT NULL
+        AND r.learner_id = (
+          SELECT p.learner_id FROM public.profiles p
+          WHERE p.id = (SELECT auth.uid())
+        )
+      )
+    )
+  ORDER BY r.created_at DESC
+  LIMIT 1;
+$$;
+
+COMMENT ON FUNCTION public.fn_my_event_registration(uuid) IS
+  'The signed-in user''s own non-cancelled registration id on an event, or NULL. Identity resolves through events_registrations.profile_id or .learner_id (auth.uid() -> profiles.learner_id). Used to gate event feedback to registered participants.';
+
+-- May the caller EDIT this event's feedback forms? One place, so the four
+-- policies below cannot drift. Mirrors the event_registration_form*_manage
+-- OR-chain: super admin, admin, the event coordinator (in-charge), or an
+-- events.view holder with access to the owning institution.
+CREATE OR REPLACE FUNCTION public.fn_can_manage_event_feedback(p_event_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.fn_is_event_incharge(p_event_id)
+    OR (
+      public.user_has_permission('events.view')
+      AND EXISTS (
+        SELECT 1 FROM public.events e
+        WHERE e.id = p_event_id
+          AND (e.scope = 'all_jkkn' OR public.role_has_institution_access(e.institution_id))
+      )
+    );
+$$;
+
+COMMENT ON FUNCTION public.fn_can_manage_event_feedback(uuid) IS
+  'Authority to create/edit/delete an event''s feedback forms and questions, and to read its responses. Super admin, admin, event in-charge (events.config->incharges), or events.view + institution access.';
+
+-- Is this form accepting answers RIGHT NOW? Enabled AND inside its window.
+--
+-- The same rule as feedbackFormState() in types/event-feedback.ts, restated
+-- here because the client's copy is a courtesy and this one is the gate: the
+-- respond page hides a closed form, but nothing stops a direct PostgREST call,
+-- and "the form closed on Friday" is worthless if answers can still be written
+-- on Sunday. Derived from the row rather than stored, so extending ends_at
+-- reopens the form with no further action.
+CREATE OR REPLACE FUNCTION public.fn_event_feedback_form_open(p_form_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_feedback_forms f
+    WHERE f.id = p_form_id
+      AND f.is_enabled
+      AND (f.starts_at IS NULL OR now() >= f.starts_at)
+      AND (f.ends_at   IS NULL OR now() <= f.ends_at)
+  );
+$$;
+
+COMMENT ON FUNCTION public.fn_event_feedback_form_open(uuid) IS
+  'True while an event feedback form is accepting answers: is_enabled AND now() inside [starts_at, ends_at]. The server-side twin of feedbackFormState() — this one is the gate, the client copy is a courtesy.';
+
+
+
+-- ============================================================================
+-- save_event_feedback_form — atomic bulk save of sections + questions
+-- ============================================================================
+-- SECURITY INVOKER on purpose, exactly as save_event_registration_form is: the
+-- _manage policies above already encode the coordinator rule, so running as the
+-- caller reuses that gate verbatim with no service-role and no re-encoded auth.
+-- A non-manager who calls this fails the RLS WITH CHECK inside the function,
+-- which raises and rolls the whole transaction back.
+--
+-- Strategy: delete-all-then-reinsert. Safe because event_feedback_responses
+-- .answers keys answers by question_key, never by a question row id, so
+-- churning ids on every save orphans nothing.
+CREATE OR REPLACE FUNCTION public.save_event_feedback_form(
+  p_form_id uuid,
+  p_is_enabled boolean,
+  p_sections jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_event_id   uuid;
+  v_section    jsonb;
+  v_section_id uuid;
+  v_question   jsonb;
+BEGIN
+  SELECT event_id INTO v_event_id
+    FROM public.event_feedback_forms WHERE id = p_form_id;
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Feedback form % not found', p_form_id;
+  END IF;
+
+  UPDATE public.event_feedback_forms
+     SET is_enabled = COALESCE(p_is_enabled, is_enabled),
+         updated_at = now()
+   WHERE id = p_form_id;
+
+  -- Questions cascade from their section, so deleting sections clears both.
+  DELETE FROM public.event_feedback_sections WHERE form_id = p_form_id;
+
+  FOR v_section IN SELECT * FROM jsonb_array_elements(COALESCE(p_sections, '[]'::jsonb))
+  LOOP
+    INSERT INTO public.event_feedback_sections (form_id, event_id, title, display_order)
+    VALUES (
+      p_form_id,
+      v_event_id,
+      COALESCE(NULLIF(v_section->>'title', ''), 'Section'),
+      COALESCE((v_section->>'display_order')::int, 0)
+    )
+    RETURNING id INTO v_section_id;
+
+    FOR v_question IN SELECT * FROM jsonb_array_elements(COALESCE(v_section->'questions', '[]'::jsonb))
+    LOOP
+      INSERT INTO public.event_feedback_questions (
+        section_id, form_id, event_id,
+        question_key, question_label, question_type,
+        is_required, display_order,
+        placeholder, help_text,
+        min_length, max_length, min_value, max_value, pattern,
+        options, condition, rating_scale
+      )
+      VALUES (
+        v_section_id, p_form_id, v_event_id,
+        v_question->>'question_key',
+        v_question->>'question_label',
+        v_question->>'question_type',
+        COALESCE((v_question->>'is_required')::boolean, false),
+        COALESCE((v_question->>'display_order')::int, 0),
+        NULLIF(v_question->>'placeholder', ''),
+        NULLIF(v_question->>'help_text', ''),
+        (v_question->>'min_length')::int,
+        (v_question->>'max_length')::int,
+        (v_question->>'min_value')::numeric,
+        (v_question->>'max_value')::numeric,
+        NULLIF(v_question->>'pattern', ''),
+        CASE WHEN v_question->'options'   = 'null'::jsonb THEN NULL ELSE v_question->'options'   END,
+        CASE WHEN v_question->'condition' = 'null'::jsonb THEN NULL ELSE v_question->'condition' END,
+        (v_question->>'rating_scale')::int
+      );
+    END LOOP;
+  END LOOP;
+END;
+$$;
+
+COMMENT ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) IS
+  'Atomically replace an event feedback form''s sections and questions with the desired state. SECURITY INVOKER — authorization is the event_feedback_*_manage RLS policies.';
+
+-- EXECUTE is granted explicitly rather than left to PUBLIC. (The registration
+-- builder learned this the hard way: a DROP FUNCTION during its multi-form
+-- migration discarded the ACL and handed EXECUTE back to PUBLIC.)
+REVOKE ALL ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_event_feedback_form(uuid, boolean, jsonb) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_my_event_registration(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_my_event_registration(uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_can_manage_event_feedback(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_event_feedback_form_open(uuid) TO authenticated;

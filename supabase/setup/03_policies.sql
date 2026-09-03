@@ -10137,3 +10137,134 @@ CREATE POLICY hr_tds_slabs_service_role ON public.hr_tds_slabs
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_tds_slabs TO authenticated;
 GRANT ALL ON public.hr_tds_slabs TO service_role;
+
+
+-- ── Event feedback forms (coordinator-editable questions per event) ──
+-- Migration: supabase/migrations/event_feedback_forms.sql
+-- ============================================================================
+-- RLS
+-- ============================================================================
+
+ALTER TABLE public.event_feedback_forms     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_sections  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_responses ENABLE ROW LEVEL SECURITY;
+
+-- Table privileges, restated explicitly.
+--
+-- Supabase ships ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon,
+-- authenticated, service_role, so these four tables arrive with ANON already
+-- holding INSERT and DELETE. Every policy below is `TO authenticated`, so RLS
+-- denies anon today regardless — a role with no matching policy is refused.
+-- But that safety is one permissive policy away from evaporating, and a
+-- feedback table is exactly where a `USING (true)` gets added by someone
+-- wiring up a public link later. Revoke the grant rather than rely on the
+-- absence of a policy.
+--
+-- `authenticated` is revoked alongside anon deliberately: it also arrives
+-- holding DELETE from those default privileges, so revoking only anon would
+-- leave that in place and make the GRANT below a no-op restating privileges
+-- already held.
+REVOKE ALL ON public.event_feedback_forms     FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_sections  FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_questions FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_responses FROM anon, authenticated, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_forms     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_sections  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_questions TO authenticated;
+-- Responses: no UPDATE/DELETE restriction at the GRANT level because both are
+-- needed — a respondent corrects their own row, a manager moderates one — and
+-- the policies above are what separate those two cases.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_responses TO authenticated;
+
+-- Read: a manager, or a registered participant of the event (who needs the
+-- questions in order to answer them). Note this is NOT the registration
+-- builder's `visibility IN ('public','all_jkkn')` clause — a feedback form is
+-- never anonymous-readable, because only registrants may answer it.
+DROP POLICY IF EXISTS "event_feedback_forms_select" ON public.event_feedback_forms;
+CREATE POLICY "event_feedback_forms_select" ON public.event_feedback_forms
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_forms_manage" ON public.event_feedback_forms;
+CREATE POLICY "event_feedback_forms_manage" ON public.event_feedback_forms
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+DROP POLICY IF EXISTS "event_feedback_sections_select" ON public.event_feedback_sections;
+CREATE POLICY "event_feedback_sections_select" ON public.event_feedback_sections
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_sections_manage" ON public.event_feedback_sections;
+CREATE POLICY "event_feedback_sections_manage" ON public.event_feedback_sections
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+DROP POLICY IF EXISTS "event_feedback_questions_select" ON public.event_feedback_questions;
+CREATE POLICY "event_feedback_questions_select" ON public.event_feedback_questions
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_questions_manage" ON public.event_feedback_questions;
+CREATE POLICY "event_feedback_questions_manage" ON public.event_feedback_questions
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+-- Responses. A participant may read and write ONLY their own row, and only for
+-- the registration that is actually theirs — checking registration_id against
+-- fn_my_event_registration() rather than trusting the id the client sent is
+-- what stops one registrant from answering as another. Managers read every
+-- response but never write one: feedback is not editable by the people it is
+-- about.
+DROP POLICY IF EXISTS "event_feedback_responses_select" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_select" ON public.event_feedback_responses
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR registration_id = public.fn_my_event_registration(event_id)
+  );
+
+-- The window is enforced HERE, not only in the UI: a closed form must refuse
+-- answers even when the write arrives straight at PostgREST.
+DROP POLICY IF EXISTS "event_feedback_responses_insert" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_insert" ON public.event_feedback_responses
+  FOR INSERT TO authenticated WITH CHECK (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  );
+
+-- Update is the respondent's own correction, and only while the form is still
+-- open — reopening the edit door after a survey closes would let someone revise
+-- an answer the coordinator has already reported on. Deliberately no manager
+-- branch either way: feedback is not editable by the people it is about.
+DROP POLICY IF EXISTS "event_feedback_responses_update" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_update" ON public.event_feedback_responses
+  FOR UPDATE TO authenticated
+  USING (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  )
+  WITH CHECK (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  );
+
+-- Only a manager may delete a response (moderating abuse). A respondent
+-- withdrawing their feedback would silently distort the counts.
+DROP POLICY IF EXISTS "event_feedback_responses_delete" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_delete" ON public.event_feedback_responses
+  FOR DELETE TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+  );
+
+
