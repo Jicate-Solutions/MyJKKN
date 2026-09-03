@@ -567,6 +567,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.staff.planning.create', label: 'Create Employee Planning' },
       { key: 'academic.staff.planning.edit', label: 'Edit Employee Planning' },
       { key: 'academic.staff.planning.delete', label: 'Delete Employee Planning' },
+      {
+        key: 'academic.shared_teaching.label.view',
+        label: 'View Shared Teaching Labels'
+      },
+      {
+        key: 'academic.shared_teaching.label.manage',
+        label: 'Label Shared Teaching Received'
+      },
       { key: 'academic.timetables.view', label: 'View Timetables' },
       { key: 'academic.timetables.create', label: 'Create Timetables' },
       { key: 'academic.timetables.edit', label: 'Edit Timetables' },
