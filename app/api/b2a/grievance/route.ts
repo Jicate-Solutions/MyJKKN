@@ -119,6 +119,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       query = query.eq('institution_id', institutionId);
     }
 
+    // Confidentiality gate: ICC-only tickets (confidential sexual-harassment
+    // cases per spec R4.1) are never exposed over B2A. An external API key
+    // carries no ICC membership, so this filter is unconditional.
+    // Mirrors the read path in lib/mcp/tools/grievance.ts.
+    query = query.eq('is_icc_only', false);
+
     if (status) {
       query = query.eq('status', status);
     }

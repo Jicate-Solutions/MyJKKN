@@ -67,10 +67,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const supabase = createServiceRoleClient();
 
+    // Confidentiality gate: ICC-only tickets (confidential sexual-harassment
+    // cases per spec R4.1) are excluded from every counter below. An external
+    // API key carries no ICC membership, so this filter is unconditional —
+    // otherwise the aggregates would leak how many confidential cases exist.
+    // Mirrors the read path in lib/mcp/tools/grievance.ts.
     const makeCountQueryByStatus = (status: string) => {
       const base = supabase
         .from('grievance_tickets')
         .select('id', { count: 'exact', head: true })
+        .eq('is_icc_only', false)
         .eq('status', status);
       return institutionId ? base.eq('institution_id', institutionId) : base;
     };
@@ -79,6 +85,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const base = supabase
         .from('grievance_tickets')
         .select('id', { count: 'exact', head: true })
+        .eq('is_icc_only', false)
         .eq('is_emergency', true)
         .not('status', 'in', '(resolved,closed)');
       return institutionId ? base.eq('institution_id', institutionId) : base;
@@ -88,6 +95,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const base = supabase
         .from('grievance_tickets')
         .select('id', { count: 'exact', head: true })
+        .eq('is_icc_only', false)
         .eq('sla_status', 'breached')
         .not('status', 'in', '(resolved,closed)');
       return institutionId ? base.eq('institution_id', institutionId) : base;
