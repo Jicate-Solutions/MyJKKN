@@ -281,9 +281,9 @@ export async function resolveUrgentAlertTargets(
 
   const phones = await fetchPhones(db, directorIds);
   const targets: UrgentAlertTarget[] = directorIds
-    .map((profileId) => {
+    .map((profileId): UrgentAlertTarget | null => {
       const phone = phones.get(profileId);
-      return phone ? { profileId, phone, role: 'director_fallback' as const } : null;
+      return phone ? { profileId, phone, role: 'director_fallback' } : null;
     })
     .filter((t): t is UrgentAlertTarget => t !== null);
 
