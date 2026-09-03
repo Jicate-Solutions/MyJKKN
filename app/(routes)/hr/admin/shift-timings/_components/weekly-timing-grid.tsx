@@ -29,6 +29,7 @@ import type { WeekDayInput } from '@/lib/services/hr/shift-timing-service';
 import { todayISO } from '@/lib/services/hr/attendance-recompute-service';
 import {
   DAY_OF_WEEK_OPTIONS,
+  APPLICABLE_GENDER_OPTIONS,
   DEFAULT_WORKING_DAY,
   computeGraceDeadline,
   timeToMinutes,
@@ -36,6 +37,7 @@ import {
   validateTimingRow,
   type HRShiftTiming,
   type IsoDayOfWeek,
+  type ShiftApplicableGender,
   type ShiftStaffScope,
 } from '@/types/hr-shift-timings';
 
@@ -57,6 +59,25 @@ interface WeeklyTimingGridProps {
    */
   effectiveFrom: string;
   onEffectiveFromChange: (value: string) => void;
+  /**
+   * WHICH staff this week is for. Owned by the page, like effectiveFrom and for
+   * the same reason — Radix unmounts the inactive tab, so per-tab state would
+   * silently reset to 'all' and write the wrong row.
+   *
+   * It is part of `params` AND of `scopeKey` below. Missing from either one, the
+   * grid keeps showing the previous gender's week after the selector changes.
+   */
+  applicableGender?: ShiftApplicableGender;
+  /**
+   * Fired after a SUCCESSFUL save. The Override tab uses it to collapse the
+   * builder back to the list, so the override just written appears there and
+   * "Add another override" is reachable again — without it the builder stays
+   * open showing the row it just saved, which reads as "this is the only
+   * override you get".
+   *
+   * Not fired on failure: the operator must keep their unsaved edits.
+   */
+  onSaved?: () => void;
 }
 
 function blankWeek(): WeekDayInput[] {
@@ -105,6 +126,31 @@ function formatHM(mins: number): string {
   const m = mins % 60;
   if (h === 0) return `${m}m`;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/**
+ * How long ONE half runs, on its own terms: end - start.
+ *
+ * Deliberately independent of the other half AND of dailyWorkingMinutes below.
+ * A half's length is a fact about that half alone, so it appears as soon as its
+ * own two boxes are valid rather than waiting for the whole row -- and it is
+ * NOT reconciled against the union total, because on the real 09:00-13:00 /
+ * 12:30-16:30 pattern 4h + 4h legitimately does not equal 7h 30m. The overlap
+ * note under "Working hours" is what explains that gap; do not "fix" it here by
+ * pro-rating the shared 30 minutes across the two halves, which would report a
+ * half as shorter than the window staff are actually required to cover.
+ *
+ * Null when either box is empty or invalid, which renders as nothing at all
+ * rather than a misleading 0m.
+ */
+function halfMinutes(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): number | null {
+  const s = timeToMinutes(start);
+  const e = timeToMinutes(end);
+  if (s === null || e === null || e <= s) return null;
+  return e - s;
 }
 
 /**
@@ -176,10 +222,12 @@ export function WeeklyTimingGrid({
   scopeLabel,
   effectiveFrom,
   onEffectiveFromChange,
+  applicableGender = 'all',
+  onSaved,
 }: WeeklyTimingGridProps) {
   const params = useMemo(
-    () => ({ institutionId, staffScope, employmentCategoryId }),
-    [institutionId, staffScope, employmentCategoryId],
+    () => ({ institutionId, staffScope, employmentCategoryId, applicableGender }),
+    [institutionId, staffScope, employmentCategoryId, applicableGender],
   );
 
   const { data, isLoading } = useShiftTimingWeek(params);
@@ -190,7 +238,7 @@ export function WeeklyTimingGrid({
   // Hydrate once per scope, NOT on every `data` identity change. A background
   // refetch (this app refetches on window focus) would otherwise wipe an
   // in-progress edit the moment the user tabs away and back.
-  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}`;
+  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}|${applicableGender}`;
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!data || hydratedFor.current === scopeKey) return;
@@ -234,18 +282,26 @@ export function WeeklyTimingGrid({
 
   const weekly = useMemo(() => {
     let minutes = 0;
+    let firstHalf = 0;
+    let secondHalf = 0;
     let days = 0;
     let hasSecondSaturdayOff = false;
     for (const row of rows) {
       const worked = dailyWorkingMinutes(row);
+      // The half totals accumulate under the SAME guard as the union total, so
+      // all three figures in the footer describe an identical set of days. Were
+      // the halves summed outside it, a week with one incomplete row would show
+      // a full-week first-half total against a five-day working total.
       if (!worked) continue;
       minutes += worked.minutes;
+      firstHalf += halfMinutes(row.first_half_start, row.first_half_end) ?? 0;
+      secondHalf += halfMinutes(row.second_half_start, row.second_half_end) ?? 0;
       days += 1;
       if (row.day_of_week === 6 && row.second_saturday_holiday) {
         hasSecondSaturdayOff = true;
       }
     }
-    return { minutes, days, hasSecondSaturdayOff };
+    return { minutes, firstHalf, secondHalf, days, hasSecondSaturdayOff };
   }, [rows]);
 
   const isScheduledChange = effectiveFrom > todayISO();
@@ -271,6 +327,17 @@ export function WeeklyTimingGrid({
     currentEffectiveFrom && effectiveFrom <= currentEffectiveFrom,
   );
 
+  // The toast must name the gender too: "Non-teaching timings saved" is the
+  // same sentence whether the Everyone or the Female week was written, and that
+  // is the one thing an operator needs to be sure of here.
+  const saveLabel =
+    applicableGender === 'all'
+      ? scopeLabel
+      : `${scopeLabel} (${
+          APPLICABLE_GENDER_OPTIONS.find((o) => o.value === applicableGender)?.label
+          ?? applicableGender
+        })`;
+
   const handleSave = useCallback(async () => {
     if (errors.length > 0) return;
     try {
@@ -278,6 +345,7 @@ export function WeeklyTimingGrid({
         institutionId,
         staffScope,
         employmentCategoryId,
+        applicableGender,
         effectiveFrom,
         days: rows,
       });
@@ -285,12 +353,12 @@ export function WeeklyTimingGrid({
       hydratedFor.current = null;
 
       if (isScheduledChange) {
-        toast.success(`${scopeLabel} timings scheduled from ${effectiveFrom}`);
+        toast.success(`${saveLabel} timings scheduled from ${effectiveFrom}`);
       } else if (result?.recomputeError) {
         // The timing IS saved; only the re-judging failed. Saying "save failed"
         // would send the operator back to re-enter data that is already stored.
         toast.warning(
-          `${scopeLabel} timings saved, but recomputing past attendance failed: ${result.recomputeError}`,
+          `${saveLabel} timings saved, but recomputing past attendance failed: ${result.recomputeError}`,
         );
       } else if (result?.recompute && result.recompute.changed > 0) {
         const t = result.recompute.transitions;
@@ -300,23 +368,25 @@ export function WeeklyTimingGrid({
           .map(([k, n]) => `${n} ${k}`)
           .join(', ');
         toast.success(
-          `${scopeLabel} timings saved — ${result.recompute.changed} attendance day(s) recomputed${
+          `${saveLabel} timings saved — ${result.recompute.changed} attendance day(s) recomputed${
             detail ? ` (${detail})` : ''
           }`,
         );
       } else if (result?.recompute) {
         toast.success(
-          `${scopeLabel} timings saved — ${result.recompute.examined} attendance day(s) re-checked, none changed`,
+          `${saveLabel} timings saved — ${result.recompute.examined} attendance day(s) re-checked, none changed`,
         );
       } else {
-        toast.success(`${scopeLabel} timings saved`);
+        toast.success(`${saveLabel} timings saved`);
       }
+
+      onSaved?.();
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   }, [
     errors.length, save, institutionId, staffScope, employmentCategoryId,
-    effectiveFrom, rows, isScheduledChange, scopeLabel,
+    applicableGender, effectiveFrom, rows, isScheduledChange, saveLabel, onSaved,
   ]);
 
   if (isLoading) {
@@ -423,6 +493,8 @@ export function WeeklyTimingGrid({
               const day = DAY_OF_WEEK_OPTIONS.find((d) => d.value === row.day_of_week)!;
               const deadline = computeGraceDeadline(row.first_half_start, row.grace_minutes ?? 0);
               const worked = dailyWorkingMinutes(row);
+              const firstHalf = halfMinutes(row.first_half_start, row.first_half_end);
+              const secondHalf = halfMinutes(row.second_half_start, row.second_half_end);
               const rowError = errors.find((e) => e.dow === row.day_of_week);
 
               return (
@@ -452,26 +524,33 @@ export function WeeklyTimingGrid({
 
                   <td className="py-3">
                     {row.is_working_day ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={row.first_half_start ?? ''}
-                          onChange={(e) =>
-                            patchDay(row.day_of_week, { first_half_start: e.target.value })
-                          }
-                          aria-label={`${day.label} first half start`}
-                        />
-                        <span className="text-muted-foreground">–</span>
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={row.first_half_end ?? ''}
-                          onChange={(e) =>
-                            patchDay(row.day_of_week, { first_half_end: e.target.value })
-                          }
-                          aria-label={`${day.label} first half end`}
-                        />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={row.first_half_start ?? ''}
+                            onChange={(e) =>
+                              patchDay(row.day_of_week, { first_half_start: e.target.value })
+                            }
+                            aria-label={`${day.label} first half start`}
+                          />
+                          <span className="text-muted-foreground">–</span>
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={row.first_half_end ?? ''}
+                            onChange={(e) =>
+                              patchDay(row.day_of_week, { first_half_end: e.target.value })
+                            }
+                            aria-label={`${day.label} first half end`}
+                          />
+                        </div>
+                        {firstHalf !== null && (
+                          <p className="text-[11px] leading-snug text-muted-foreground tabular-nums">
+                            {formatHM(firstHalf)}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -480,26 +559,33 @@ export function WeeklyTimingGrid({
 
                   <td className="py-3">
                     {row.is_working_day ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={row.second_half_start ?? ''}
-                          onChange={(e) =>
-                            patchDay(row.day_of_week, { second_half_start: e.target.value })
-                          }
-                          aria-label={`${day.label} second half start`}
-                        />
-                        <span className="text-muted-foreground">–</span>
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={row.second_half_end ?? ''}
-                          onChange={(e) =>
-                            patchDay(row.day_of_week, { second_half_end: e.target.value })
-                          }
-                          aria-label={`${day.label} second half end`}
-                        />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={row.second_half_start ?? ''}
+                            onChange={(e) =>
+                              patchDay(row.day_of_week, { second_half_start: e.target.value })
+                            }
+                            aria-label={`${day.label} second half start`}
+                          />
+                          <span className="text-muted-foreground">–</span>
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={row.second_half_end ?? ''}
+                            onChange={(e) =>
+                              patchDay(row.day_of_week, { second_half_end: e.target.value })
+                            }
+                            aria-label={`${day.label} second half end`}
+                          />
+                        </div>
+                        {secondHalf !== null && (
+                          <p className="text-[11px] leading-snug text-muted-foreground tabular-nums">
+                            {formatHM(secondHalf)}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -604,6 +690,12 @@ export function WeeklyTimingGrid({
               </td>
               <td className="py-3">
                 <p className="font-semibold tabular-nums">{formatHM(weekly.minutes)}</p>
+                {weekly.days > 0 && (
+                  <p className="text-[11px] leading-snug text-muted-foreground tabular-nums">
+                    1st half {formatHM(weekly.firstHalf)} · 2nd half{' '}
+                    {formatHM(weekly.secondHalf)}
+                  </p>
+                )}
                 {weekly.hasSecondSaturdayOff && (
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     before the monthly 2nd-Saturday off

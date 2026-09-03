@@ -755,6 +755,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/orchestration",
+        "label": "Orchestration",
+        "iconName": "LayoutDashboard",
+        "children": []
+      },
+      {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
         "iconName": "FileText",
@@ -880,6 +886,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/payout-readiness",
+            "label": "Payout Readiness",
+            "iconName": "Users",
             "children": []
           },
           {
@@ -2615,6 +2627,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/housekeeping/bookings",
             "label": "Bookings",
+            "iconName": "SprayCan",
+            "children": []
+          },
+          {
+            "path": "/campus-living/housekeeping/my-work",
+            "label": "My Work",
             "iconName": "SprayCan",
             "children": []
           },
@@ -4497,9 +4515,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/payroll/register",
+            "label": "Register",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/salaries",
             "label": "Salaries",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/tds-slabs",
+            "label": "TDS Bands",
+            "iconName": "Percent",
             "children": []
           }
         ]
@@ -4550,6 +4580,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/recruitment/approvals",
             "label": "Approvals",
+            "iconName": "UserSearch",
+            "children": []
+          },
+          {
+            "path": "/hr/recruitment/candidates",
+            "label": "Candidates",
             "iconName": "UserSearch",
             "children": []
           },
@@ -5488,6 +5524,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/meetings/my-bookings",
+        "label": "My Bookings",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/meetings/polls",
         "label": "Polls",
         "iconName": "FileText",
@@ -5504,6 +5546,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Schedule",
         "iconName": "CalendarClock",
         "children": []
+      },
+      {
+        "path": "/meetings/series",
+        "label": "Recurring Series",
+        "iconName": "Repeat",
+        "children": [
+          {
+            "path": "/meetings/series/rules",
+            "label": "Scheduling Rules",
+            "iconName": "SlidersHorizontal",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/meetings/triggers",
@@ -7043,6 +7098,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "path": "/startup-studio/school-of-influence/admin/members",
                 "label": "Members",
                 "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/startup-studio/school-of-influence/admin/merge",
+                "label": "Merge",
+                "iconName": "FileText",
                 "children": []
               },
               {

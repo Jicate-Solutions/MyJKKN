@@ -20,9 +20,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { isPayable } from '@/lib/hr/payroll/bank-account-validation';
 import type { StaffBankDirectoryRow } from '@/lib/services/hr/payroll/staff-bank-account-service';
 
-export type BankStatusFilter = 'all' | 'missing' | 'unverified' | 'verified' | 'relieved';
+export type BankStatusFilter =
+  | 'all' | 'missing' | 'incomplete' | 'unverified' | 'verified' | 'relieved';
 
 export interface BankFilterState {
   status: BankStatusFilter;
@@ -41,6 +43,9 @@ export function matchesBankFilters(
   f: BankFilterState
 ): boolean {
   if (f.status === 'missing' && (r.account_id !== null || !r.is_active)) return false;
+  // The worklist for finishing the job: a number is on file, but no transfer
+  // could route to it.
+  if (f.status === 'incomplete' && (r.account_id === null || isPayable(r))) return false;
   if (f.status === 'unverified' && (r.account_id === null || r.verified_at !== null)) return false;
   if (f.status === 'verified' && r.verified_at === null) return false;
   if (f.status === 'relieved' && r.is_active) return false;
@@ -97,6 +102,7 @@ export function BankAccountFilters({ rows, filters, onChange }: Props) {
     return {
       all: scope.length,
       missing: scope.filter((r) => r.account_id === null && r.is_active).length,
+      incomplete: scope.filter((r) => r.account_id !== null && !isPayable(r)).length,
       unverified: scope.filter((r) => r.account_id !== null && r.verified_at === null).length,
       verified: scope.filter((r) => r.verified_at !== null).length,
       relieved: scope.filter((r) => !r.is_active).length,
@@ -118,6 +124,9 @@ export function BankAccountFilters({ rows, filters, onChange }: Props) {
         <SelectContent>
           <SelectItem value='all'>All employees ({statusCounts.all})</SelectItem>
           <SelectItem value='missing'>No account on file ({statusCounts.missing})</SelectItem>
+          <SelectItem value='incomplete'>
+            Incomplete — no IFSC ({statusCounts.incomplete})
+          </SelectItem>
           <SelectItem value='unverified'>Unverified ({statusCounts.unverified})</SelectItem>
           <SelectItem value='verified'>Verified ({statusCounts.verified})</SelectItem>
           <SelectItem value='relieved'>Relieved ({statusCounts.relieved})</SelectItem>

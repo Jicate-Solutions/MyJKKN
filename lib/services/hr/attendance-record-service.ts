@@ -25,7 +25,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { AttendanceException, AttendanceRecord, MonthKey } from '@/types/hr-attendance';
+import type {
+  AttendanceException,
+  AttendancePeriodState,
+  AttendanceRecord,
+  MonthKey,
+} from '@/types/hr-attendance';
 import { monthRange } from '@/types/hr-attendance';
 
 /**
@@ -118,6 +123,57 @@ export class AttendanceRecordService {
       exception_type: row.exception_type as string,
       reason: ((row.raw_payload as Record<string, unknown> | null)?.reason as string) ?? null,
     }));
+  }
+
+  /**
+   * The month-close state for one institution, or null when HR has never
+   * opened that month.
+   *
+   * Readable by ordinary staff: hr_attendance_periods_select grants
+   * hr.attendance.view_self (76 roles) alongside the period-admin permission,
+   * so a staff member can see that their own month is finalised.
+   */
+  static async getPeriod(
+    supabase: SupabaseClient,
+    { institutionId, month }: { institutionId: string; month: MonthKey },
+  ): Promise<AttendancePeriodState | null> {
+    const [year, mon] = month.split('-');
+
+    const { data, error } = await supabase
+      .from('hr_attendance_periods')
+      .select('id, status, locked_at, reopened_at')
+      .eq('institution_id', institutionId)
+      .eq('period_year', Number(year))
+      .eq('period_month', Number(mon))
+      .maybeSingle();
+
+    if (error) throw error;
+    return (data ?? null) as AttendancePeriodState | null;
+  }
+
+  /**
+   * The months this institution has CLOSED, as `yyyy-MM` keys.
+   *
+   * Drives the apply forms: a request touching one of these is refused by
+   * trg_hla_block_locked_period / trg_hcoc_block_locked_period, and finding
+   * that out at Submit — after a document upload — is a rotten way to learn it.
+   * The forms use this to refuse the date up front, with the same reason.
+   */
+  static async listClosedMonths(
+    supabase: SupabaseClient,
+    institutionId: string,
+  ): Promise<MonthKey[]> {
+    const { data, error } = await supabase
+      .from('hr_attendance_periods')
+      .select('period_year, period_month')
+      .eq('institution_id', institutionId)
+      .eq('status', 'locked');
+
+    if (error) throw error;
+
+    return ((data ?? []) as Array<{ period_year: number; period_month: number }>).map(
+      (r) => `${r.period_year}-${String(r.period_month).padStart(2, '0')}` as MonthKey,
+    );
   }
 
   /**

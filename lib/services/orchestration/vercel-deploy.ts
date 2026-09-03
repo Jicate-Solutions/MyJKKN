@@ -22,8 +22,16 @@ import 'server-only';
 //   ORCH_VERCEL_TOKEN       — a Vercel API token with read access to the project.
 //   ORCH_VERCEL_PROJECT_ID  — the Vercel project ID for MyJKKN.
 //   ORCH_VERCEL_TEAM_ID     — the Vercel team ID, if the project sits under a team.
+//   ORCH_GITHUB_TOKEN       — read access to Jicate-Solutions/MyJKKN, used only
+//     by `productionDeployPreview()` to answer "what would this deploy ship?".
 
 const VERCEL_API = 'https://api.vercel.com';
+const GITHUB_API = 'https://api.github.com';
+const REPO_OWNER = 'Jicate-Solutions';
+const REPO_NAME = 'MyJKKN';
+
+/** Most commit titles the preview will list; the true total is in `aheadBy`. */
+const PREVIEW_COMMIT_LIMIT = 10;
 
 export type BuildState = 'READY' | 'ERROR' | 'BUILDING' | 'QUEUED' | 'CANCELED' | 'UNKNOWN';
 
@@ -33,6 +41,27 @@ export interface LatestProductionBuildStateResult {
   configured: boolean;
   deploymentId?: string;
   url?: string;
+  /**
+   * The git sha this production deployment was built from, when Vercel
+   * reports one. Optional — absent is normal (a deploy made outside the git
+   * integration carries no commit meta) and never treated as an error.
+   */
+  deployedSha?: string;
+  reason?: string;
+}
+
+/** One commit that would ship on the next production deploy. */
+export interface DeployPreviewCommit {
+  sha: string;
+  title: string;
+}
+
+export interface ProductionDeployPreviewResult {
+  /** False whenever the answer could not be determined — see `reason`. */
+  known: boolean;
+  /** True number of commits ahead of the deployed sha, even if the list is capped. */
+  aheadBy: number;
+  commits: DeployPreviewCommit[];
   reason?: string;
 }
 
@@ -97,13 +126,107 @@ export async function latestProductionBuildState(): Promise<LatestProductionBuil
     const raw = String(deployment.readyState ?? '').toUpperCase();
     const state: BuildState = (KNOWN_STATES as string[]).includes(raw) ? (raw as BuildState) : 'UNKNOWN';
 
-    return { state, configured: true, deploymentId: deployment.uid, url: deployment.url };
+    const deployedShaRaw = deployment.meta?.githubCommitSha;
+    const deployedSha =
+      typeof deployedShaRaw === 'string' && deployedShaRaw.trim() ? deployedShaRaw.trim() : undefined;
+
+    return { state, configured: true, deploymentId: deployment.uid, url: deployment.url, deployedSha };
   } catch (err) {
     return {
       state: 'UNKNOWN',
       configured: true,
       reason: `Vercel API request failed: ${err instanceof Error ? err.message : String(err)} — failing closed`,
     };
+  }
+}
+
+/**
+ * Answers the question the Deploy button never answered: "what would this
+ * actually ship?" The deploy hook rebuilds from whatever `main` is at the
+ * moment it fires, so the operator is otherwise firing blind — a commit
+ * deliberately being held back from production looks identical to an empty
+ * deploy.
+ *
+ * Compares the sha the current production build was made from against `main`
+ * and reports how far ahead main is, plus the commit titles.
+ *
+ * ⚠️ THIS FUNCTION FAILS SOFT — DELIBERATELY, AND UNLIKE EVERYTHING ELSE IN
+ * THIS FILE. `latestProductionBuildState` and `fireProductionDeploy` fail
+ * CLOSED because they are guards: "cannot verify" must never read as
+ * "verified green". This one is NOT a guard. It is informational only — it
+ * tells the operator what is about to ship, and nothing calls it to decide
+ * whether shipping is allowed. So a missing sha, an absent token, or a
+ * GitHub outage returns `{ known: false, reason }` and the deploy proceeds
+ * as it always did. Do NOT "fix" this into a fail-closed path for
+ * consistency with its neighbours: that would convert a read-only nicety
+ * into a brand-new way for deploy to become unavailable, which is strictly
+ * worse than the blind-fire status quo this was written to improve.
+ */
+export async function productionDeployPreview(): Promise<ProductionDeployPreviewResult> {
+  const empty = (reason: string): ProductionDeployPreviewResult => ({
+    known: false,
+    aheadBy: 0,
+    commits: [],
+    reason,
+  });
+
+  const token = process.env.ORCH_GITHUB_TOKEN;
+  if (!token) {
+    return empty('ORCH_GITHUB_TOKEN is not configured — cannot list what would ship');
+  }
+
+  try {
+    const build = await latestProductionBuildState();
+    if (!build.deployedSha) {
+      return empty(
+        build.reason ?? 'Vercel did not report a commit for the current production build'
+      );
+    }
+
+    const res = await fetch(
+      `${GITHUB_API}/repos/${REPO_OWNER}/${REPO_NAME}/compare/${encodeURIComponent(build.deployedSha)}...main`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        // Same reasoning as the build-state read: a cached comparison would
+        // describe a deploy other than the one about to fire.
+        cache: 'no-store',
+      }
+    );
+
+    if (!res.ok) {
+      return empty(`GitHub compare returned ${res.status}`);
+    }
+
+    const json = await res.json().catch(() => null);
+    const aheadByRaw = json?.ahead_by;
+    if (typeof aheadByRaw !== 'number') {
+      return empty('GitHub compare response did not include ahead_by');
+    }
+
+    // GitHub returns compare commits oldest-first; keep that order and cap the
+    // list, reporting the true total separately in `aheadBy` so a capped list
+    // never reads as the whole deploy.
+    const rawCommits: unknown[] = Array.isArray(json?.commits) ? json.commits : [];
+    const commits: DeployPreviewCommit[] = rawCommits
+      .slice(0, PREVIEW_COMMIT_LIMIT)
+      .map((entry) => {
+        const c = entry as { sha?: unknown; commit?: { message?: unknown } };
+        const sha = typeof c.sha === 'string' ? c.sha : '';
+        const message = typeof c.commit?.message === 'string' ? c.commit.message : '';
+        return { sha, title: message.split('\n')[0].trim() };
+      })
+      .filter((c) => c.sha !== '');
+
+    return { known: true, aheadBy: aheadByRaw, commits };
+  } catch (err) {
+    // Swallowed on purpose — see the fail-soft note above.
+    return empty(
+      `Could not determine what would ship: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 }
 

@@ -567,6 +567,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.staff.planning.create', label: 'Create Employee Planning' },
       { key: 'academic.staff.planning.edit', label: 'Edit Employee Planning' },
       { key: 'academic.staff.planning.delete', label: 'Delete Employee Planning' },
+      {
+        key: 'academic.shared_teaching.label.view',
+        label: 'View Shared Teaching Labels'
+      },
+      {
+        key: 'academic.shared_teaching.label.manage',
+        label: 'Label Shared Teaching Received'
+      },
       { key: 'academic.timetables.view', label: 'View Timetables' },
       { key: 'academic.timetables.create', label: 'Create Timetables' },
       { key: 'academic.timetables.edit', label: 'Edit Timetables' },
@@ -780,6 +788,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
+      // Cancelling a bill writes off money, so it is deliberately NOT
+      // billing.schedule.update: that key is held by 6 roles and also covers
+      // fixing a typo. fn_cancel_student_bill gates on THIS key, and a trigger
+      // rejects any other route into status='cancelled'.
+      { key: 'billing.schedule.cancel', label: 'Cancel Bills' },
       // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
       // the /billing/schedule/bulk-create flow (pick many learners, or upload
       // an Excel of bills). Separate from billing.schedule.create so the bulk
@@ -985,6 +998,26 @@ export const PERMISSION_CATEGORIES = [
       // only widen the blast radius.
       { key: 'hr.payroll.bank.view', label: 'View Employee Bank Account' },
       { key: 'hr.payroll.bank.manage', label: 'Manage Employee Bank Account' },
+
+      // ── Salary register (2026-08-30) ─────────────────────────────────────
+      // The frozen monthly register: closed attendance month + recorded salary
+      // -> a per-institution pay register and its export workbook.
+      //
+      // A FOURTH pair rather than a reuse of the three above, because a
+      // register is the one artefact that shows amount AND destination AND the
+      // day counts behind them, for everybody at once. Someone entitled to
+      // maintain one staff member's salary is not thereby entitled to the whole
+      // institution's payroll on one screen.
+      //
+      // Granted to HR Head ALONE by 20260830150000_hr_salary_register.sql. That
+      // is the only role already holding all four keys a run must read through
+      // — hr.payroll.institution.view, hr.payroll.salary.view,
+      // hr.payroll.bank.view, hr.attendance.period.view. Granting these to a
+      // role missing any of them yields a run that SILENTLY omits people: RLS
+      // returns zero rows and no error, so a short register looks like a
+      // complete one.
+      { key: 'hr.payroll.register.view', label: 'View Salary Register' },
+      { key: 'hr.payroll.register.manage', label: 'Generate Salary Register' },
 
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
@@ -1971,6 +2004,15 @@ export const PERMISSION_CATEGORIES = [
       // unregistered would make the table permanently super-admin-only.
       { key: 'solutions.first_use.view', label: 'View First Real Use' },
       { key: 'solutions.first_use.record', label: 'Record First Real Use' },
+
+      // Societal capture (2026-08-28). A department records community work that
+      // produced no invoice; the activity clock reads it so that closing
+      // un-invoiced problems no longer marks the department dormant. Both keys
+      // gate `sh_community_engagements` in RLS
+      // (20261013000000_societal_capture_and_activity_clock.sql), so leaving
+      // either unregistered would make the table permanently super-admin-only.
+      { key: 'solutions.societal.view', label: 'View Community Engagements' },
+      { key: 'solutions.societal.record', label: 'Record Community Engagements' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -3001,7 +3043,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'meetings.embed.manage', label: 'Manage Embed & Theming' },
       { key: 'meetings.analytics.view', label: 'View Meeting Analytics' },
       { key: 'meetings.webhooks.view', label: 'View Webhooks' },
-      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' }
+      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' },
+      // Recurring series + scheduling rules (Monthly Slate, pieces 1 and 2).
+      // The RLS policies on meeting_recurring_series and the two rules tables
+      // reference these via user_has_permission(); registering them here makes
+      // them grantable in Role Management. The EAO reaches the Director's own
+      // series through the EXISTING meeting_host_delegates link, so these keys
+      // are for anyone else who needs the surface — not a replacement for it.
+      { key: 'meetings.series.view', label: 'View Recurring Series' },
+      { key: 'meetings.series.manage', label: 'Manage Recurring Series & Scheduling Rules' }
     ]
   },
   // ======================================================================

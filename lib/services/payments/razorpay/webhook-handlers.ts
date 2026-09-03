@@ -179,16 +179,37 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
     ...(cfg.capturedExtraColumns?.(payment, capturedAt) ?? {}),
   };
 
-  const { error: capturedUpdateError } = await (supabase as any)
+  // Atomic claim. Razorpay fires BOTH order.paid and payment.captured for one
+  // capture, and each arrives as its own serverless invocation — the
+  // read-then-act terminal check above cannot arbitrate between them (both
+  // read a pre-terminal status; incident 2026-08-27: pay_TUh0Qpmo3jktV8 was
+  // receipted twice this way, 2.6ms apart). The status predicate makes this
+  // UPDATE the arbiter: exactly one invocation flips the row to a terminal
+  // status and runs the downstream side-effect; the loser matches zero rows
+  // and stops here.
+  const { data: claimed, error: capturedUpdateError } = await (supabase as any)
     .from(table)
     .update(capturedUpdate)
-    .eq('id', existing.id);
+    .eq('id', existing.id)
+    .not('status', 'in', `(${cfg.terminalStatuses.join(',')})`)
+    .select('id');
   if (capturedUpdateError) {
     logger.error('webhook/razorpay', 'payment.captured: failed to update transaction row', {
       table,
       id: existing.id,
       error: capturedUpdateError,
     });
+    // Without a successful claim we must NOT run the downstream side-effect —
+    // a receipt without the status flip recreates the duplicate-receipt race.
+    // Razorpay's retry (or the callback / late-auth cron) will finalize.
+    return;
+  }
+  if (!claimed || claimed.length === 0) {
+    logger.info('webhook/razorpay', 'payment.captured: lost finalize race — row already terminal', {
+      table,
+      id: existing.id,
+    });
+    return;
   }
 
   // Downstream: receipt creation (billing), registration mark (events), … —
@@ -336,11 +357,24 @@ async function handlePaymentAuthorized(supabase: ServiceClient, payload: any) {
 
   // Authorized but not yet captured. We auto-capture via payment_capture=1 so this is
   // usually transient — log it but do not finalize status.
-  await (supabase as any).from(table).update({
+  //
+  // Never regress a terminal row: payment.authorized can arrive AFTER
+  // payment.captured (2026-08-27: it landed 31ms behind and knocked a
+  // 'success' transaction back to 'processing'). The predicate keeps this
+  // write a no-op once the row is finalized.
+  const { error: authorizedUpdateError } = await (supabase as any).from(table).update({
     razorpay_payment_id: payment.id,
     status: cfgA.statuses.authorized,
     gateway_response: payload,
-  }).eq(cfgA.orderIdColumn, orderId);
+  }).eq(cfgA.orderIdColumn, orderId)
+    .not('status', 'in', `(${cfgA.terminalStatuses.join(',')})`);
+  if (authorizedUpdateError) {
+    logger.error('webhook/razorpay', 'payment.authorized: failed to update transaction row', {
+      table,
+      orderId,
+      error: authorizedUpdateError,
+    });
+  }
 }
 
 async function handlePaymentFailed(supabase: ServiceClient, payload: any) {

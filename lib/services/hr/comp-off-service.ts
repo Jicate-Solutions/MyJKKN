@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CompOffBalance, PendingCompOffClaim } from '@/types/hr-comp-off';
+import type { LeaveDocument } from '@/types/hr';
 
 export class CompOffService {
   /**
@@ -45,8 +46,18 @@ export class CompOffService {
       employee_id: string;
       worked_date: string;
       notes?: string | null;
+      documents: LeaveDocument[];
     }
   ): Promise<void> {
+    // THE authority on "a claim needs proof" — the dialog runs the same check
+    // to gate Submit, but this method is reachable directly and a client check
+    // alone would gate nothing. hr_grant/attendance credits are inserted
+    // elsewhere and legitimately carry none.
+    if (input.documents.length === 0) {
+      throw new Error(
+        'A supporting document is required — attach proof of the worked day.'
+      );
+    }
     const { error } = await supabase.from('hr_comp_off_credits').insert({
       hr_organization_id: input.hr_organization_id,
       employee_id: input.employee_id,
@@ -54,6 +65,7 @@ export class CompOffService {
       source: 'claim',
       status: 'pending',
       notes: input.notes ?? null,
+      documents: input.documents,
     });
     if (error) {
       if (error.code === '23505') {
@@ -86,8 +98,9 @@ export class CompOffService {
     const { data, error } = await supabase
       .from('hr_comp_off_credits')
       .select(
-        `id, employee_id, worked_date, expires_on, credit_days, source, notes, created_at,
-         member:employee_id ( first_name, last_name, staff_id )`
+        `id, employee_id, worked_date, expires_on, credit_days, source, notes, documents, created_at,
+         member:employee_id ( first_name, last_name, staff_id, institution_id,
+           institution:institutions ( name ) )`
       )
       .eq('status', 'pending')
       .order('worked_date', { ascending: true });
@@ -95,7 +108,13 @@ export class CompOffService {
 
     return (data ?? []).map((row: Record<string, unknown>) => {
       const m = row.member as
-        | { first_name: string | null; last_name: string | null; staff_id: string | null }
+        | {
+            first_name: string | null;
+            last_name: string | null;
+            staff_id: string | null;
+            institution_id: string | null;
+            institution: { name: string | null } | null;
+          }
         | null;
       return {
         id: row.id as string,
@@ -103,11 +122,14 @@ export class CompOffService {
         employee_name:
           [m?.first_name, m?.last_name].filter(Boolean).join(' ').trim() || 'Unknown',
         employee_code: m?.staff_id ?? null,
+        institution_id: m?.institution_id ?? null,
+        institution_name: m?.institution?.name ?? null,
         worked_date: row.worked_date as string,
         expires_on: row.expires_on as string,
         credit_days: Number(row.credit_days),
         source: row.source as PendingCompOffClaim['source'],
         notes: (row.notes as string | null) ?? null,
+        documents: (row.documents as LeaveDocument[] | null) ?? [],
         created_at: row.created_at as string,
       };
     });

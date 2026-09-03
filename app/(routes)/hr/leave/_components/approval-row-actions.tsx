@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
+import { formatBiometricGap } from './format';
 
 export interface ApprovalRowActionHandlers {
   /** Opens the detail SHEET. No navigation — see approval-detail-sheet.tsx. */
@@ -45,6 +46,10 @@ export function ApprovalRowActions({
   handlers: ApprovalRowActionHandlers;
 }) {
   const who = row.staff_name ?? 'this request';
+  // The queue carries decided history too. can_decide is already false on those
+  // rows, but they must not fall into the "your own request" explanation below
+  // — a decided row is undecidable for everyone, not just its owner.
+  const isDecided = row.status !== 'pending' && row.status !== 'escalated';
 
   return (
     <DropdownMenu>
@@ -79,17 +84,36 @@ export function ApprovalRowActions({
           self-approval bar, so hiding these on is_own would block exactly the
           person the database lets through.
         */}
-        {row.can_decide ? (
+        {isDecided ? null : row.can_decide ? (
           <>
             <DropdownMenuSeparator />
+            {/*
+              Approve is disabled — never hidden — while the biometric for a
+              covered day is missing, and the reason sits directly under it.
+              Hiding it would read as "you may not decide this", which is a
+              different and wrong explanation: the approver has every right,
+              the day just is not importable yet.
+
+              REJECT STAYS ENABLED. The gate exists because approving writes an
+              attendance stamp that would go nowhere; rejecting writes no stamp
+              and the database does not refuse it. Blocking both would strand a
+              request that ought to be refusable on its own merits.
+            */}
             <DropdownMenuItem
-              disabled={handlers.isPending}
+              disabled={handlers.isPending || row.biometric_gap_from !== null}
               onClick={() => handlers.onApprove(row)}
               className="text-emerald-700 focus:text-emerald-700"
             >
               <Check className="mr-2 h-4 w-4" />
               Approve
             </DropdownMenuItem>
+            {row.biometric_gap_from !== null && (
+              <DropdownMenuLabel className="whitespace-normal py-1 text-xs font-normal leading-snug text-amber-700 dark:text-amber-400">
+                Biometric not uploaded for{' '}
+                {formatBiometricGap(row.biometric_gap_from)} — import it first,
+                or the approval will not reach the attendance report.
+              </DropdownMenuLabel>
+            )}
             <DropdownMenuItem
               disabled={handlers.isPending}
               onClick={() => handlers.onReject(row)}

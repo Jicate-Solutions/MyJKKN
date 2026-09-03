@@ -238,4 +238,36 @@ export class HousekeepingService {
       throw error;
     }
   }
+
+  /**
+   * Move a generated cleaning task along its lifecycle. No RPC needed — the
+   * hostel_cleaning_tasks UPDATE policy already gates on
+   * campus_living.housekeeping.mark_done OR .schedule + institution access,
+   * so RLS is the enforcement point and a denial surfaces in `error`.
+   * started_at / completed_at are stamped here so the timeline is filled in
+   * whichever way the status is reached.
+   */
+  static async updateTaskStatus(id: string, status: CleaningTaskStatus) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const patch: Record<string, unknown> = { status };
+      if (status === 'in_progress') patch.started_at = new Date().toISOString();
+      if (status === 'completed') patch.completed_at = new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from('hostel_cleaning_tasks')
+        .update(patch as never)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) {
+        logger.error('campus-living/housekeeping', 'Failed to update task status', error);
+        throw error;
+      }
+      return data as HostelCleaningTask;
+    } catch (error) {
+      logger.error('campus-living/housekeeping', 'Unexpected error in updateTaskStatus', error);
+      throw error;
+    }
+  }
 }

@@ -43,13 +43,27 @@ export const STAFF_SALARY_KEYS = {
  * memory; the summary cards read the same array the table does, which is what
  * stops a card advertising a count the table cannot deliver.
  */
-export function useStaffSalaryDirectory() {
+export function useStaffSalaryDirectory(options?: {
+  /**
+   * `'always'` refetches on every mount, ignoring staleTime.
+   *
+   * FOR SCREENS THAT DERIVE FROM THIS DATA BUT DO NOT OWN IT. TDS Bands is the
+   * case: its whole content is salaries resolved against bands, yet a salary is
+   * edited on a different screen. The default ('true' = refetch only when
+   * stale) leaves it showing figures up to a minute old on arrival, and
+   * refetchOnWindowFocus is off app-wide, so a second tab left open on it never
+   * updates at all. One extra RPC per visit to a rarely-opened config page is a
+   * better trade than a page that quietly disagrees with the salary screen.
+   */
+  refetchOnMount?: boolean | 'always';
+}) {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
   return useQuery<StaffSalaryDirectoryRow[]>({
     queryKey: STAFF_SALARY_KEYS.directory,
     queryFn: () => StaffSalaryService.listDirectory(supabase),
     staleTime: 60 * 1000,
+    refetchOnMount: options?.refetchOnMount,
   });
 }
 

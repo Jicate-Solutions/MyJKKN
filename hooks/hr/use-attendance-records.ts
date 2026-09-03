@@ -11,7 +11,7 @@
  */
 
 import { useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AttendanceRecordService } from '@/lib/services/hr/attendance-record-service';
@@ -20,9 +20,10 @@ import {
   chunkIntoWeeks,
   summariseDays,
   monthRange,
-  type ApprovedRequestRange,
+  type TimeOffRange,
   type AttendanceDay,
   type AttendanceMonthSummary,
+  type AttendancePeriodState,
   type MonthKey,
 } from '@/types/hr-attendance';
 
@@ -30,6 +31,25 @@ const KEY = 'hr-attendance-records';
 const EXCEPTIONS_KEY = 'hr-attendance-exceptions';
 const MONTHS_KEY = 'hr-attendance-months';
 const TIME_OFF_KEY = 'hr-attendance-time-off';
+const PERIOD_KEY = 'hr-attendance-period';
+
+/**
+ * Invalidate everything the My Attendance log and calendar read.
+ *
+ * ANY MUTATION THAT CHANGES A DAY MUST CALL THIS. The QueryClient runs with
+ * staleTime 5 min and refetchOnWindowFocus false (providers/query-client-
+ * provider.tsx), so a cached month is NOT refetched on a tab switch or a
+ * revisit — without an explicit invalidation an approved regularization or
+ * leave sits invisible for five minutes and looks like it did nothing.
+ *
+ * Keyed by prefix only: the mutation knows neither the staff id nor the month
+ * the viewer happens to have open, and React Query matches partial keys.
+ */
+export function invalidateAttendanceViews(qc: QueryClient) {
+  for (const key of [KEY, EXCEPTIONS_KEY, MONTHS_KEY, TIME_OFF_KEY, PERIOD_KEY]) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
 
 /** Raw records for one staff member in one month. */
 export function useAttendanceMonth(staffId: string | null, month: MonthKey) {
@@ -50,17 +70,25 @@ export function useAttendanceMonth(staffId: string | null, month: MonthKey) {
  * directly — RLS gives the caller their own rows and an approver the ones they
  * may see, which is the same scope the rest of this page already uses.
  */
-export function useApprovedTimeOff(staffId: string | null, month: MonthKey) {
+export function useTimeOffCoverage(staffId: string | null, month: MonthKey) {
   const supabase = createClientSupabaseClient();
   return useQuery({
     queryKey: [TIME_OFF_KEY, staffId, month],
-    queryFn: async (): Promise<ApprovedRequestRange[]> => {
+    queryFn: async (): Promise<TimeOffRange[]> => {
       const { from, to } = monthRange(month);
       const { data, error } = await supabase
         .from('hr_leave_applications')
-        .select('id, start_date, end_date, start_time, end_time, hr_leave_types:leave_type_id ( leave_type_name, leave_type_code, request_category )')
+        .select('id, status, start_date, end_date, start_time, end_time, hr_leave_types:leave_type_id ( leave_type_name, leave_type_code, request_category )')
         .eq('employee_id', staffId!)
-        .eq('status', 'approved')
+        // UNDECIDED REQUESTS ARE FETCHED TOO (2026-09-02). This was
+        // .eq('status', 'approved'), which is why a day could read ABSENT with a
+        // leave request already filed against it and show no trace of it --
+        // 695 records across ~200 staff. The STATUS is still only restamped on
+        // approval; this only makes the pending claim visible beside it.
+        //
+        // 'escalated' is included because it is a request part-way up an
+        // approval ladder: undecided, and exactly the state nobody could see.
+        .in('status', ['approved', 'pending', 'escalated'])
         .lte('start_date', to)
         .gte('end_date', from)
         .order('start_date');
@@ -82,7 +110,8 @@ export function useApprovedTimeOff(staffId: string | null, month: MonthKey) {
           leave_type_code: t?.leave_type_code ?? null,
           // A LEFT join, so an unreadable type degrades to 'leave' rather than
           // dropping the row — the day would otherwise show nothing at all.
-          request_category: (t?.request_category ?? 'leave') as ApprovedRequestRange['request_category'],
+          request_category: (t?.request_category ?? 'leave') as TimeOffRange['request_category'],
+          decision: r.status === 'approved' ? 'approved' : 'awaiting',
         };
       });
     },
@@ -99,6 +128,48 @@ export function useAttendanceExceptions(staffId: string | null, month: MonthKey)
       AttendanceRecordService.listOpenExceptions(supabase, { staffId: staffId!, month }),
     enabled: Boolean(staffId),
   });
+}
+
+/**
+ * Whether HR has closed this month for the staff member's institution.
+ *
+ * The institution comes from the month's own records rather than a staff
+ * lookup: hr_attendance_records already carries institution_id, and reading
+ * `staff` client-side returns null under staff_select_scope_aware for anyone
+ * without staff.view — which is most of the people looking at their own
+ * attendance.
+ */
+export function useAttendancePeriod(institutionId: string | null, month: MonthKey) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [PERIOD_KEY, institutionId, month],
+    queryFn: () =>
+      AttendanceRecordService.getPeriod(supabase, { institutionId: institutionId!, month }),
+    enabled: Boolean(institutionId),
+  });
+}
+
+/**
+ * Months this institution has closed, as a Set of `yyyy-MM`.
+ *
+ * Consumed by the apply forms to refuse a date before anything is uploaded or
+ * submitted. Cached for 5 minutes like everything else, and invalidated by
+ * invalidateAttendanceViews() when a month is closed or reopened, so a form
+ * left open across a close picks the change up.
+ *
+ * Returns an EMPTY set when the caller cannot read hr_attendance_periods
+ * (its policy wants hr.attendance.view_self or the period permissions). That
+ * degrades to today's behaviour — the database still refuses the request —
+ * rather than blocking a form on a read the user is not entitled to make.
+ */
+export function useClosedAttendanceMonths(institutionId: string | null | undefined) {
+  const supabase = createClientSupabaseClient();
+  const { data } = useQuery({
+    queryKey: [PERIOD_KEY, 'closed', institutionId],
+    queryFn: () => AttendanceRecordService.listClosedMonths(supabase, institutionId!),
+    enabled: Boolean(institutionId),
+  });
+  return useMemo(() => new Set(data ?? []), [data]);
 }
 
 /** Which months hold data at all, so an empty month can say why. */
@@ -123,6 +194,8 @@ export interface AttendanceMonthView {
   error: Error | null;
   /** True once loading finished and the month genuinely holds no record. */
   isEmptyMonth: boolean;
+  /** Null until the month has a record to resolve an institution from. */
+  period: AttendancePeriodState | null;
   refresh: () => void;
 }
 
@@ -138,7 +211,15 @@ export function useAttendanceMonthView(
   const qc = useQueryClient();
   const records = useAttendanceMonth(staffId, month);
   const exceptions = useAttendanceExceptions(staffId, month);
-  const timeOff = useApprovedTimeOff(staffId, month);
+  const timeOff = useTimeOffCoverage(staffId, month);
+
+  // Any record of the month answers "which institution's close applies here";
+  // they are all the same person's.
+  const institutionId = useMemo(
+    () => records.data?.find((r) => r.institution_id)?.institution_id ?? null,
+    [records.data],
+  );
+  const period = useAttendancePeriod(institutionId, month);
 
   const logDays = useMemo(
     () =>
@@ -175,10 +256,12 @@ export function useAttendanceMonthView(
     isFetching: records.isFetching || exceptions.isFetching,
     error: (records.error ?? exceptions.error) as Error | null,
     isEmptyMonth: !records.isLoading && (records.data?.length ?? 0) === 0,
+    period: period.data ?? null,
     refresh: () => {
       qc.invalidateQueries({ queryKey: [KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [EXCEPTIONS_KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [TIME_OFF_KEY, staffId, month] });
+      qc.invalidateQueries({ queryKey: [PERIOD_KEY, institutionId, month] });
     },
   };
 }
