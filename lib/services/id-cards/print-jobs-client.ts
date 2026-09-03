@@ -85,14 +85,12 @@ const RESOLVE_CHUNK_SIZE = 100;
 export interface LearnerAccountInfo {
   /** profiles.id — the account the print job is enqueued against. */
   profileId: string;
-  /**
-   * profiles.avatar_url — the LAST link in the render engine's photo fallback
-   * chain (learners_profiles photo → avatar_url, see lib/id-cards/render-data).
-   * Exposed so callers can predict whether a card will render with a real
-   * photo or fall back to the initials box.
-   */
-  avatarUrl: string | null;
 }
+
+// profiles.avatar_url used to ride along here as the last link of the render
+// engine's photo fallback chain, so callers could predict an initials box.
+// Removed 2026-09-03: an account avatar no longer qualifies a card at all
+// (Guard 3), so fetching it told callers nothing and invited the old rule back.
 
 /**
  * Batch account resolution: map learners_profiles.id → account info
@@ -111,16 +109,13 @@ export async function resolveAccountsForLearners(
     const chunk = learnerIds.slice(i, i + RESOLVE_CHUNK_SIZE);
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, learner_id, avatar_url')
+      .select('id, learner_id')
       .in('learner_id', chunk);
 
     if (error) throw error;
     for (const row of data ?? []) {
       if (row.learner_id) {
-        map.set(row.learner_id, {
-          profileId: row.id,
-          avatarUrl: row.avatar_url ?? null
-        });
+        map.set(row.learner_id, { profileId: row.id });
       }
     }
   }

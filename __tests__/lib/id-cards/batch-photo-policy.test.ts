@@ -36,57 +36,57 @@ describe('DEFAULT_STATUS_CHOICE', () => {
 
 describe('hasPrintablePhoto', () => {
   it('true when the learner photo column holds a renderable value', () => {
-    expect(hasPrintablePhoto('https://cdn.example/p.jpg', null)).toBe(true);
-    expect(hasPrintablePhoto('data:image/png;base64,abc', null)).toBe(true);
+    expect(hasPrintablePhoto('https://cdn.example/p.jpg')).toBe(true);
+    expect(hasPrintablePhoto('data:image/png;base64,abc')).toBe(true);
   });
 
-  it('FALSE when only the account avatar is set (reversed 2026-09-03)', () => {
+  it('FALSE when there is no institutional photo (reversed 2026-09-03)', () => {
     // This asserted `true` until 2026-09-03, mirroring the render engine's
     // fallback to profiles.avatar_url. The Director withdrew that: only a
     // photograph the institution took qualifies, with no override. This screen
     // must agree with Guard 3 on POST /api/id-cards/jobs, or the office is
     // offered learners the printer will refuse.
-    expect(hasPrintablePhoto(null, 'https://cdn.example/avatar.png')).toBe(
+    expect(hasPrintablePhoto(null)).toBe(
       false
     );
-    expect(hasPrintablePhoto('', 'https://cdn.example/avatar.png')).toBe(false);
+    expect(hasPrintablePhoto('')).toBe(false);
   });
 
   it('false when both links of the chain are empty', () => {
-    expect(hasPrintablePhoto(null, null)).toBe(false);
-    expect(hasPrintablePhoto('', '')).toBe(false);
-    expect(hasPrintablePhoto('   ', null)).toBe(false);
-    expect(hasPrintablePhoto(null, '  ')).toBe(false);
+    expect(hasPrintablePhoto(null)).toBe(false);
+    expect(hasPrintablePhoto('')).toBe(false);
+    expect(hasPrintablePhoto('   ')).toBe(false);
+    expect(hasPrintablePhoto(null)).toBe(false);
   });
 
   it('false for junk values the render engine cannot draw (real prod shapes)', () => {
     // A roll number stored in the photo column
-    expect(hasPrintablePhoto('EM25305', null)).toBe(false);
+    expect(hasPrintablePhoto('EM25305')).toBe(false);
     // A bare filename with no scheme
-    expect(hasPrintablePhoto('GRACIA.JPEG', null)).toBe(false);
+    expect(hasPrintablePhoto('GRACIA.JPEG')).toBe(false);
     // A scanner export name with spaces
-    expect(hasPrintablePhoto('DocScanner 25 Sep 2025 18-11-1', null)).toBe(
+    expect(hasPrintablePhoto('DocScanner 25 Sep 2025 18-11-1')).toBe(
       false
     );
     // A bare numeric identifier
-    expect(hasPrintablePhoto('731325105015', null)).toBe(false);
+    expect(hasPrintablePhoto('731325105015')).toBe(false);
     // Junk in the avatar slot is equally unprintable
-    expect(hasPrintablePhoto(null, 'vigneshwaran')).toBe(false);
+    expect(hasPrintablePhoto(null)).toBe(false);
   });
 
-  it('only the institutional slot decides — the avatar cannot rescue junk', () => {
+  it('only the institutional photo decides — nothing else can rescue junk', () => {
     // Reversed 2026-09-03. A roll number in the photo column is still junk even
     // when a perfectly good account picture sits beside it: the account picture
     // is not evidence the institution photographed anyone.
-    expect(hasPrintablePhoto('EM25305', 'https://cdn.example/a.png')).toBe(
+    expect(hasPrintablePhoto('EM25305')).toBe(
       false
     );
     // And a real institutional photo still wins regardless of what the avatar holds.
-    expect(hasPrintablePhoto('https://cdn.example/p.jpg', 'junk')).toBe(true);
+    expect(hasPrintablePhoto('https://cdn.example/p.jpg')).toBe(true);
   });
 
   it('accepts scheme case-insensitively, matching the engine regex', () => {
-    expect(hasPrintablePhoto('HTTPS://cdn.example/p.jpg', null)).toBe(true);
-    expect(hasPrintablePhoto('http://cdn.example/p.jpg', null)).toBe(true);
+    expect(hasPrintablePhoto('HTTPS://cdn.example/p.jpg')).toBe(true);
+    expect(hasPrintablePhoto('http://cdn.example/p.jpg')).toBe(true);
   });
 });

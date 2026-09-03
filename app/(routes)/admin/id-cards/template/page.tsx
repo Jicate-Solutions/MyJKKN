@@ -8,8 +8,9 @@
 //   2. Field mappings — per-template field_mappings jsonb (card-field →
 //      db-column), served by /api/id-cards/template/[id]/mappings
 //
-// The old "Photo fallback" tab was removed — the fallback chain is fixed in
-// the print engine (lib/id-cards/render-data.ts); a note explains it.
+// The old "Photo fallback" tab was removed, and since 2026-09-03 there is no
+// fallback to configure: no institutional photograph means the card is refused
+// (Guard 3, lib/services/id-cards/reprint-eligibility.ts). The explainer says so.
 // Sides badge at top reads id_card.printer.sides via /api/id-cards/policy.
 // ============================================================================
 
@@ -36,9 +37,12 @@ export default function IdCardTemplatePage() {
             saved per template.
           </p>
           <p className="mt-2">
-            When a learner has no photo, MyJKKN automatically falls back to the
-            account avatar and finally to printed initials — this order is
-            fixed in the print engine.
+            A card is <strong>not printed at all</strong> for anyone without a photograph
+            the institution took. A picture from the person&apos;s own login account does
+            not count, and there is no way to override it — a card showing initials where
+            a face belongs proves nothing at a gate, so the print screen refuses and says
+            whose photograph is missing. Use <strong>Photo Check</strong> to see who is
+            affected before anyone queues.
           </p>
         </>
       }

@@ -95,6 +95,16 @@ export type CardPersonData = {
   departmentName: string | null;
   institutionName: string | null;
   /**
+   * True when this card belongs to a SCHOOL (institutions.entity_type ===
+   * 'school'), not a college. Schools use different vocabulary for the same
+   * columns — lib/utils/school-label-adapter.ts maps Program → Class and
+   * Department → Wing — so a school card must not print "COURSE: Standard 12".
+   * The VALUE is correct either way; only the printed label changes.
+   * Defaults false, so an unreadable institution degrades to college wording
+   * rather than throwing.
+   */
+  isSchool: boolean;
+  /**
    * QR payload: the person's permanent JKKN ID (e.g. '348295-7') when they
    * hold an active one, otherwise the internal UUID the card carried before —
    * learners_profiles.id for learners, profiles.id for employees. Never blank.
@@ -1071,17 +1081,20 @@ export async function assembleCardData(
 
   // 4. Institution display name for the header band (fail-soft).
   let institutionName: string | null = null;
+  let isSchool = false;
   const institutionId = templateInstitutionId ?? p.institution_id;
   if (institutionId) {
     const { data: inst, error: instError } = await supabase
       .from('institutions')
-      .select('name')
+      .select('name, entity_type')
       .eq('id', institutionId)
       .maybeSingle();
     if (instError) {
       console.warn('[id-cards/render] institution read failed, degrading:', instError.message);
     } else {
-      institutionName = (inst as { name: string | null } | null)?.name?.trim() || null;
+      const row = inst as { name: string | null; entity_type: string | null } | null;
+      institutionName = row?.name?.trim() || null;
+      isSchool = (row?.entity_type ?? '').trim() === 'school';
     }
   }
 
@@ -1099,6 +1112,7 @@ export async function assembleCardData(
       courseName,
       departmentName,
       institutionName,
+      isSchool,
       qrValue,
       photoCandidates,
       valueBag,
