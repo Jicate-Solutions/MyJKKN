@@ -54,11 +54,41 @@
 // on-leave reassignment. No new recipient table, no new role lookup, no
 // per-category subscriber list.
 //
-// The named fallback, when that produces nobody reachable, is the Director,
-// resolved by resolveDirectors() + validateTargeting() — the exact pair
-// lib/campus-walk/chase-up.ts uses for its day-5 escalation rung and
-// app/api/campus-walk/fix/route.ts uses for its unsafe-block alert. It covers
-// the three role paths and falls back to super admins on its own.
+// The Director is resolved by resolveDirectors() + validateTargeting() — the
+// exact pair lib/campus-walk/chase-up.ts uses for its day-5 escalation rung
+// and app/api/campus-walk/fix/route.ts uses for its unsafe-block alert. It
+// covers the three role paths and falls back to super admins on its own.
+//
+// ── DIRECTOR RULING, 2026-09-04 ─────────────────────────────────────────────
+// "Always copy me, and re-alert on repeats." It changed WHEN that resolver
+// runs, not who it finds:
+//
+//   1. The Director is copied on EVERY unsafe alert, not only when the
+//      Accountable cannot be reached. The Accountable is still the primary
+//      recipient; the Director is added alongside them.
+//   2. A recurrence re-alerts. lib/campus-walk/repeats.ts calls this module on
+//      every D7 reopen of an unsafe ticket, so "Block C, ninth time, still
+//      unsafe" pages a phone instead of going quiet.
+//
+// The two situations the Director can now be in are NOT collapsed into one
+// flag, because operationally they mean opposite things:
+//
+//   role 'director_copy'     + usedFallback false -> normal. The owner was
+//                                                    paged, the Director was
+//                                                    copied.
+//   role 'director_fallback' + usedFallback true  -> the owner could NOT be
+//                                                    paged and the Director
+//                                                    stood in. The routing
+//                                                    table has a hole worth
+//                                                    fixing.
+//
+// 'director_fallback' therefore keeps exactly the meaning it had before this
+// ruling — records already persisted under the old behaviour still read
+// correctly — and the always-copy case got its own new value rather than
+// quietly redefining that one.
+//
+// Nobody is paged twice: a Director who IS the resolved Accountable is paged
+// once, as 'accountable'.
 //
 // ── FAIL LOUDLY, NEVER SILENTLY ─────────────────────────────────────────────
 // The rest of this lane is fail-soft on purpose: the Director is standing in a
@@ -87,8 +117,16 @@ import {
   validateTargeting,
 } from '@/lib/services/director-desk/handover-chase-service';
 
-/** Who a phone alert was aimed at, and on what authority. */
-export type UrgentAlertRole = 'accountable' | 'director_fallback';
+/**
+ * Who a phone alert was aimed at, and on what authority.
+ *
+ * 'director_fallback' predates the 2026-09-04 always-copy ruling and keeps its
+ * original meaning — the Director paged INSTEAD of an unreachable owner.
+ * 'director_copy' is the new, normal case: the Director paged IN ADDITION to a
+ * reachable owner. Persisted records carry these values, so the old one is
+ * never repurposed.
+ */
+export type UrgentAlertRole = 'accountable' | 'director_fallback' | 'director_copy';
 
 /** One resolved, dialable target. */
 export interface UrgentAlertTarget {
@@ -112,8 +150,29 @@ export interface UrgentAlertOutcome {
   /** How many phones actually accepted the message. */
   delivered: number;
   attempts: UrgentAlertAttempt[];
-  /** True when the Accountable could not be paged and the Director was used instead. */
+  /**
+   * True when the Accountable could not be paged and the Director was used
+   * INSTEAD. Deliberately unchanged by the 2026-09-04 always-copy ruling: this
+   * flag still means "the owner was unreachable", never "a Director is on the
+   * message" — which is now true of every alert and would therefore say
+   * nothing. See `directorCopied`.
+   */
   usedFallback: boolean;
+  /**
+   * True when the Accountable WAS reachable and a Director was added as an
+   * additional recipient — the normal case under the 2026-09-04 ruling. Never
+   * true at the same time as `usedFallback`: when the Director is already the
+   * primary recipient there is nothing to copy them on.
+   */
+  directorCopied: boolean;
+  /**
+   * Why no Director copy went out when one was expected. Null when a copy was
+   * sent, when the Director IS the Accountable (already paged, once), and when
+   * `usedFallback` is true. Non-null means "always copy me" quietly did not
+   * happen for this alert — recorded rather than only logged, so it is
+   * auditable on the task.
+   */
+  directorCopyReason: string | null;
   /**
    * Null when at least one phone was reached. Otherwise a short, plain reason
    * — this is the field that must never be allowed to pass unnoticed.
@@ -168,6 +227,25 @@ export interface UrgentAlertCopyInput {
   category?: string | null;
   /** Human-readable place, when one was captured. */
   locationHint?: string | null;
+  /**
+   * D7 occurrence number. 1, or absent, is the original filing. Anything
+   * higher is a recurrence and says so on the phone — an alert that reads
+   * identically on the 9th report as on the 1st does not escalate, which is
+   * the whole point of re-alerting on repeats.
+   */
+  occurrenceNumber?: number | null;
+}
+
+/** 1 -> "1st", 2 -> "2nd", 9 -> "9th", 11 -> "11th". */
+function ordinal(n: number): string {
+  const v = Math.trunc(Math.abs(n));
+  const lastTwo = v % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${v}th`;
+  const last = v % 10;
+  if (last === 1) return `${v}st`;
+  if (last === 2) return `${v}nd`;
+  if (last === 3) return `${v}rd`;
+  return `${v}th`;
 }
 
 /**
@@ -185,6 +263,13 @@ export interface UrgentAlertCopyInput {
 export function buildUrgentAlertText(input: UrgentAlertCopyInput): string {
   const title = (input.title ?? '').trim().slice(0, 160) || 'Unsafe condition reported';
   const lines: string[] = [`UNSAFE — ${title}`];
+
+  // Second line, so it survives a lock-screen preview: this is not a new
+  // problem, it is one that has come back.
+  const occurrence = Number(input.occurrenceNumber);
+  if (Number.isFinite(occurrence) && occurrence > 1) {
+    lines.push(`Reported again — ${ordinal(occurrence)} time.`);
+  }
 
   const where = (input.locationHint ?? '').trim();
   if (where) lines.push(`Where: ${where.slice(0, 120)}`);
@@ -228,15 +313,16 @@ async function fetchPhones(
 }
 
 /**
- * The Accountable first, the Director only if that produced nobody dialable.
+ * The PRIMARY recipient: the Accountable, or the Director standing IN THEIR
+ * PLACE when the ownership chain — which already carries an EAO fallback and
+ * on-leave reassignment upstream in routeAccountable() — still ends at a
+ * profile with no usable number.
  *
- * Deliberately NOT "the Accountable AND the Director every time". Who receives
- * an alert is a Director decision, not a developer one, and the ruling on
- * record says the alert goes to whoever owns the condition. resolveDirectors()
- * appears here strictly as the named fallback the brief requires — the person
- * of last resort when the ownership chain, which already includes an EAO
- * fallback and on-leave reassignment upstream in routeAccountable(), still
- * ends at a profile with no usable number.
+ * This answers "who owns this condition, and can they be reached", and nothing
+ * else. The 2026-09-04 always-copy ruling is deliberately NOT applied here;
+ * resolveUrgentAlertRecipients() below layers it on top. Keeping the two apart
+ * is precisely what lets `usedFallback` go on meaning "the owner was
+ * unreachable" instead of silently becoming "a Director is on the message".
  */
 export async function resolveUrgentAlertTargets(
   db: SupabaseClient,
@@ -298,6 +384,105 @@ export async function resolveUrgentAlertTargets(
 }
 
 /**
+ * Everyone who should be paged: the primary recipient above, PLUS the Director
+ * as a standing copy (Director ruling, 2026-09-04 — "always copy me").
+ *
+ * Deduplicated by profile id, so a Director who is also the resolved
+ * Accountable is paged once, as 'accountable'. When the primary resolution has
+ * ALREADY fallen back to the Director there is nothing to copy — they are on
+ * the message — so `directorCopied` stays false and `usedFallback` carries the
+ * fact that the owner could not be reached.
+ *
+ * Never throws. A failure to resolve the copy must not cost the Accountable
+ * their alert, so it degrades into `directorCopyReason` and the primary
+ * recipient is still paged.
+ */
+export async function resolveUrgentAlertRecipients(
+  db: SupabaseClient,
+  accountableProfileId: string | null
+): Promise<{
+  targets: UrgentAlertTarget[];
+  usedFallback: boolean;
+  directorCopied: boolean;
+  directorCopyReason: string | null;
+  reason: string | null;
+}> {
+  const primary = await resolveUrgentAlertTargets(db, accountableProfileId);
+
+  // The Director is already the recipient. Copying them onto their own message
+  // would page one person twice for one condition.
+  if (primary.usedFallback) {
+    return {
+      targets: primary.targets,
+      usedFallback: true,
+      directorCopied: false,
+      directorCopyReason: null,
+      reason: primary.reason,
+    };
+  }
+
+  let directorCopyReason: string | null = null;
+  const copies: UrgentAlertTarget[] = [];
+
+  try {
+    const director = await resolveDirectors(db);
+    const check = validateTargeting(director.ids);
+    if (!check.ok) {
+      directorCopyReason = `the Director copy could not be targeted (${check.reason})`;
+    } else {
+      const alreadyPaged = new Set(primary.targets.map((t) => t.profileId));
+      const copyIds = check.userIds.filter((id) => !alreadyPaged.has(id));
+      if (copyIds.length > 0) {
+        const phones = await fetchPhones(db, copyIds);
+        for (const profileId of copyIds) {
+          const phone = phones.get(profileId);
+          if (phone) copies.push({ profileId, phone, role: 'director_copy' });
+        }
+        if (copies.length === 0) {
+          directorCopyReason = 'no Director has a usable phone number on record';
+        }
+      }
+      // copyIds empty => the Director IS the Accountable, already paged once.
+      // That is a correct outcome, not a missing copy, so no reason is set.
+    }
+  } catch (e: unknown) {
+    directorCopyReason = `resolving the Director copy threw (${e instanceof Error ? e.message : String(e)})`;
+  }
+
+  return {
+    targets: [...primary.targets, ...copies],
+    usedFallback: false,
+    directorCopied: copies.length > 0,
+    directorCopyReason,
+    reason: primary.reason,
+  };
+}
+
+/**
+ * Idempotency key for the "nobody was paged" alarm.
+ *
+ * Task-scoped, the same convention the fix route's unsafe-block alert uses: the
+ * DB's partial unique index on notifications.idempotency_key — not a
+ * read-then-write check — is what stops a retried POST from raising the same
+ * alarm twice.
+ *
+ * The occurrence number is appended only from the SECOND occurrence onward
+ * (Director ruling, 2026-09-04 — a recurrence re-alerts). Both halves of that
+ * are deliberate: the original filing keeps the exact key it has always had, so
+ * alarms already persisted still suppress a retry of the POST that created
+ * them; and the 9th reopen is not suppressed by the 1st filing's row, because a
+ * danger ignored nine times must be able to raise its ninth alarm.
+ */
+export function undeliveredAlarmIdempotencyKey(
+  taskId: string,
+  occurrenceNumber?: number | null
+): string {
+  const base = `campus-walk-unsafe-alert-undelivered:${taskId}`;
+  const n = Number(occurrenceNumber);
+  return Number.isFinite(n) && n > 1 ? `${base}:occurrence-${Math.trunc(n)}` : base;
+}
+
+/**
  * The in-app alarm raised ONLY when no phone was reached. This is the "fail
  * loudly to a named fallback" step made visible to a human — a log line nobody
  * reads is not a fallback.
@@ -309,7 +494,7 @@ export async function resolveUrgentAlertTargets(
  */
 async function raiseUndeliveredAlarm(
   db: SupabaseClient,
-  opts: { taskId: string; title: string; reason: string }
+  opts: { taskId: string; title: string; reason: string; occurrenceNumber?: number | null }
 ): Promise<void> {
   try {
     const director = await resolveDirectors(db);
@@ -330,8 +515,13 @@ async function raiseUndeliveredAlarm(
         `check the phone number on record.`,
       url: '/campus-walk/review',
       category: 'campus-walk:unsafe-alert-undelivered',
-      metadata: { task_id: opts.taskId, source: 'campus-walk', reason: opts.reason },
-      idempotencyKey: `campus-walk-unsafe-alert-undelivered:${opts.taskId}`,
+      metadata: {
+        task_id: opts.taskId,
+        source: 'campus-walk',
+        reason: opts.reason,
+        occurrence_number: opts.occurrenceNumber ?? 1,
+      },
+      idempotencyKey: undeliveredAlarmIdempotencyKey(opts.taskId, opts.occurrenceNumber),
     });
   } catch (e: unknown) {
     console.error(
@@ -349,6 +539,14 @@ export interface SendUrgentAlertInput {
   locationHint?: string | null;
   /** Whoever routeAccountable() settled on, already EAO- and leave-adjusted. */
   accountableProfileId: string | null;
+  /**
+   * D7 occurrence number, from metadata.occurrence_count. Absent or 1 for the
+   * original filing; higher on a reopen (Director ruling, 2026-09-04 — a
+   * recurrence re-alerts). It reaches the phone in the message text and scopes
+   * the undelivered alarm's idempotency key, so occurrence #9's failure is not
+   * suppressed by occurrence #1's.
+   */
+  occurrenceNumber?: number | null;
 }
 
 /**
@@ -367,13 +565,17 @@ export async function sendUrgentConditionAlert(
     delivered: 0,
     attempts: [],
     usedFallback: false,
+    directorCopied: false,
+    directorCopyReason: null,
     failureReason: null,
     at,
   };
 
   try {
-    const resolved = await resolveUrgentAlertTargets(db, input.accountableProfileId);
+    const resolved = await resolveUrgentAlertRecipients(db, input.accountableProfileId);
     outcome.usedFallback = resolved.usedFallback;
+    outcome.directorCopied = resolved.directorCopied;
+    outcome.directorCopyReason = resolved.directorCopyReason;
 
     if (resolved.targets.length === 0) {
       outcome.failureReason = resolved.reason ?? 'no reachable recipient';
@@ -384,6 +586,7 @@ export async function sendUrgentConditionAlert(
         taskId: input.taskId,
         title: input.title,
         reason: outcome.failureReason,
+        occurrenceNumber: input.occurrenceNumber,
       });
       return outcome;
     }
@@ -410,7 +613,12 @@ export async function sendUrgentConditionAlert(
       console.error(
         `[campus-walk/urgent] UNSAFE alert not sent for task ${input.taskId}: ${reason}`
       );
-      await raiseUndeliveredAlarm(db, { taskId: input.taskId, title: input.title, reason });
+      await raiseUndeliveredAlarm(db, {
+        taskId: input.taskId,
+        title: input.title,
+        reason,
+        occurrenceNumber: input.occurrenceNumber,
+      });
       return outcome;
     }
 
@@ -419,6 +627,7 @@ export async function sendUrgentConditionAlert(
       dueDate: input.dueDate,
       category: input.category ?? null,
       locationHint: input.locationHint ?? null,
+      occurrenceNumber: input.occurrenceNumber,
     });
 
     for (const target of resolved.targets) {
@@ -443,6 +652,18 @@ export async function sendUrgentConditionAlert(
       }
     }
 
+    // `delivered === 0`, not "the Accountable's send failed": the alarm below
+    // says NOBODY WAS PAGED, and raising it while a phone did ring would make
+    // the one alarm this lane cannot afford to have ignored cry wolf.
+    //
+    // Since the 2026-09-04 always-copy ruling there is a case this no longer
+    // catches: the Accountable's send fails, the Director's copy succeeds, and
+    // the person who must ACT was not reached while `delivered` is 1. That is
+    // NOT silent — the per-target record on metadata.urgent_alert.attempts
+    // carries `{ role: 'accountable', ok: false, error }` and is returned to
+    // the caller — but it does not raise its own alarm. Whether it should is a
+    // recipient decision, and recipient decisions on this lane are the
+    // Director's; it is flagged for him rather than invented here.
     if (outcome.delivered === 0) {
       outcome.failureReason = 'every phone alert attempt failed to send';
       console.error(
@@ -452,6 +673,7 @@ export async function sendUrgentConditionAlert(
         taskId: input.taskId,
         title: input.title,
         reason: outcome.failureReason,
+        occurrenceNumber: input.occurrenceNumber,
       });
     }
 
@@ -471,6 +693,7 @@ export async function sendUrgentConditionAlert(
         taskId: input.taskId,
         title: input.title,
         reason: outcome.failureReason,
+        occurrenceNumber: input.occurrenceNumber,
       });
     } catch {
       /* raiseUndeliveredAlarm already logs its own failures */
