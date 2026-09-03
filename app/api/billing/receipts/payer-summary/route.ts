@@ -5,8 +5,9 @@ export const dynamic = 'force-dynamic';
 // GET /api/billing/receipts/payer-summary?bill_ids=<uuid,uuid,…>
 //
 // Returns the minimal learner identity the New Receipt form needs to show who
-// it is collecting from: roll number and display name. Nothing else about the
-// learner is exposed here.
+// it is collecting from: roll number, display name and a single contact number
+// for the receipt's payer fields. Nothing else about the learner is exposed
+// here.
 //
 // WHY THIS EXISTS
 // ---------------
@@ -125,7 +126,9 @@ export const GET = withAuth(
 
     const { data: learner, error: learnerError } = await admin
       .from('learners_profiles')
-      .select('id, first_name, last_name, roll_number, institution_id')
+      .select(
+        'id, first_name, last_name, roll_number, institution_id, student_mobile, father_mobile, mother_mobile'
+      )
       .eq('id', studentId)
       .maybeSingle();
 
@@ -147,6 +150,16 @@ export const GET = withAuth(
         full_name:
           `${learner.first_name || ''} ${learner.last_name || ''}`.trim() ||
           null,
+        // Single contact number for the receipt's "Payer Contact" field. The
+        // learner's own mobile is the one number that is always present
+        // (4940/4940 active learners); father / mother are the fallbacks for
+        // the handful of legacy rows that predate that requirement. The
+        // individual columns are deliberately NOT exposed — this endpoint
+        // hands back only what the receipt prints.
+        payer_contact:
+          [learner.student_mobile, learner.father_mobile, learner.mother_mobile]
+            .map((v) => (v || '').trim())
+            .find(Boolean) || null,
         institution_id: learner.institution_id
       }
     });
