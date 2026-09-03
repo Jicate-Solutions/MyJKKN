@@ -65,3 +65,19 @@ export function groupByYear<T extends { academicYear: string }>(items: T[]): Yea
     .sort((a, b) => startYear(b[0]) - startYear(a[0]))
     .map(([year, groupItems]) => ({ year, items: groupItems }));
 }
+
+/**
+ * TEMPORARY (2026-09-01, requested): hides the learner-facing "Paid" receipts
+ * tab on /learners/my-bills, together with the receipt COUNTS that advertise
+ * it ("3 receipts" on the balance card and the Analytics stat tile).
+ *
+ * Rupee totals are deliberately NOT gated on this. A learner still sees how
+ * much they have paid and the paid-vs-outstanding charts — what is withheld is
+ * the list of individual receipt documents and their PDFs.
+ *
+ * Flip to true to restore the tab; nothing else needs editing. Typed as
+ * `boolean` rather than inferred as the literal `false` ON PURPOSE, so the
+ * hidden branches stay type-checked and their identifiers stay "used" — a
+ * literal false narrows them away and lets them rot while the flag is off.
+ */
+export const SHOW_PAID_RECEIPTS: boolean = false;

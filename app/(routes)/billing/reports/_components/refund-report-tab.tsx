@@ -25,7 +25,7 @@ import {
   Download,
   CreditCard,
   IndianRupee,
-  Receipt
+  ReceiptIndianRupee
 } from 'lucide-react';
 import {
   useRefundReport,
@@ -346,7 +346,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                 className='flex w-full items-center justify-between text-left'
               >
                 <CardTitle className='flex items-center gap-2 text-base'>
-                  <Receipt className='h-4 w-4' />
+                  <ReceiptIndianRupee className='h-4 w-4' />
                   Legacy Refunds (Receipt-based)
                 </CardTitle>
                 {legacyOpen ? (
@@ -395,7 +395,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                         <CardTitle className='text-sm font-medium'>
                           Processed Refunds (this page)
                         </CardTitle>
-                        <Receipt className='h-4 w-4 text-muted-foreground' />
+                        <ReceiptIndianRupee className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>
                       <CardContent>
                         <div className='text-2xl font-bold text-green-600'>

@@ -136,6 +136,7 @@ import {
 } from './_lib/desk';
 import { HandedOutByMe, useHandedOutByMe } from './_components/handed-out';
 import { Trail } from './_components/trail';
+import { WaitingOnYou } from './_components/waiting-on-you';
 
 const LOG = 'director-desk/my-desk';
 
@@ -998,6 +999,15 @@ export default function MyDeskPage() {
   return (
     <ContentLayout>
       <div className="space-y-6">
+        {/*
+          ── Waiting on you ─────────────────────────────────────────────────
+          Everything the database has computed to be waiting on this person —
+          hires, refunds, leave, meeting triggers, grievances — oldest first,
+          one Open per row. Reads its own RPC; see _components/waiting-on-you.tsx
+          for why a failed read is never shown as an empty list.
+        */}
+        <WaitingOnYou userId={userId} />
+
         <Card className="border-indigo-200 bg-indigo-50/40 dark:border-indigo-900/40 dark:bg-indigo-950/20">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-xl">

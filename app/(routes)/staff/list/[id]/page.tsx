@@ -32,6 +32,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 import { PrintCardButton } from '@/components/id-cards/print-card-button';
+import { JkknIdChip } from '@/components/identity/jkkn-id-chip';
 
 interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -220,6 +221,12 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
               <p className='text-sm sm:text-base text-muted-foreground'>
                 Employee Details
               </p>
+              <JkknIdChip
+                kind='team_member'
+                refId={staff.id}
+                personName={`${staff.first_name} ${staff.last_name ?? ''}`.trim()}
+                className='mt-1'
+              />
             </div>
           </div>
           <div className='flex flex-wrap items-center gap-2 shrink-0'>

@@ -68,6 +68,7 @@ import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
 import { InchargePanel } from './_components/incharge-panel';
 import { RegistrationFormCard } from './_components/registration-form-card';
+import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 // Reuses the list page's dialog — one editor, so the two entry points can't drift.
 import { EditTournamentDialog } from '../_components/edit-tournament-dialog';
 import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
@@ -536,6 +537,14 @@ export default function TournamentManagePage() {
 
       {/* ── Registration form (builder lives on its own page) ─────────────── */}
       <RegistrationFormCard eventId={id} canManage={canManage} />
+
+      {/* ── Post-tournament feedback ──────────────────────────────────────
+          Links to /events/<id>/feedback, the one feedback console shared by
+          every event type — a tournament's feedback is not shaped differently
+          from a seminar's, so it gets no console of its own. */}
+      <div className="mb-4">
+        <EventFeedbackLinkCard eventId={id} />
+      </div>
 
       {/* ── KPI row ─────────────────────────────────────────────────────── */}
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">

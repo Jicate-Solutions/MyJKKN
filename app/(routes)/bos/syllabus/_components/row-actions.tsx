@@ -441,13 +441,18 @@ export async function buildSyllabusPdfData(
     await (resolveCourse ? resolveCourse(syllabus) : resolveCourseForReport(syllabus));
   const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
-  // A&S prefixes course_name with course_type_code ("Major-I-Programming in
-  // Python"); engineering/CET AND pharmacy (COP) show the bare course name —
-  // PCI/Dr.MGR syllabi don't use the arts "Part-" prefix (avoids the
-  // redundant "Core CORE-…" title).
+  // Print bos_course_syllabi.course_name verbatim for CAS (Arts & Science),
+  // engineering/CET and pharmacy (COP); only the remaining models still get the
+  // course_type_code prefix ("Major-I-Programming in Python").
+  //
+  // CAS was originally the reason the prefix existed, but ~210 of its 1,134
+  // course names already open with their own category ("CORE X - PHP
+  // PROGRAMMING", "CORE PRACTICAL-I-ORGANIC CHEMISTRY PRACTICAL"), so prefixing
+  // restated it — "Core-CORE X - PHP PROGRAMMING". The author's stored
+  // course_name is the title of record for CAS; nothing is prepended to it.
   const isPharmacyDoc =
     syllabus.academic_model === 'pci_pharm' || syllabus.academic_model === 'mgr_pharmd';
-  const displayCourseName = variant === 'engineering' || isPharmacyDoc
+  const displayCourseName = variant === 'engineering' || isPharmacyDoc || isCas
     ? storedName
     : coursePartLabel
       ? `${coursePartLabel}-${storedName}`
@@ -697,9 +702,12 @@ export function SyllabusHtmlDownloadButton({ syllabus }: { syllabus: BosCourseSy
 export function SyllabusDocxDownloadButton({
   syllabus,
   institutionName,
+  isCas = false,
 }: {
   syllabus: BosCourseSyllabus;
   institutionName?: string;
+  /** Arts-&-Science (CAS) institution → print course_name with no part prefix. */
+  isCas?: boolean;
 }) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
@@ -743,11 +751,11 @@ export function SyllabusDocxDownloadButton({
         await resolveCourseForReport(syllabus);
       const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
-      // Mirror the PDF: A&S prefixes course_name with course_type_code, but
-      // pharmacy (COP) uses the bare name (no "Core-" prefix).
+      // Mirror the PDF (buildSyllabusPdfData): CAS and pharmacy (COP) print the
+      // stored course_name verbatim; the rest get the course_type_code prefix.
       const isPharmacyDoc =
         syllabus.academic_model === 'pci_pharm' || syllabus.academic_model === 'mgr_pharmd';
-      const displayCourseName = !isPharmacyDoc && coursePartLabel
+      const displayCourseName = !isPharmacyDoc && !isCas && coursePartLabel
         ? `${coursePartLabel}-${storedName}`
         : storedName;
 

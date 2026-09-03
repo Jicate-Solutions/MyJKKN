@@ -22,6 +22,7 @@ import {
   ListChecks,
   ListTodo,
   History,
+  Repeat,
   Video,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -34,6 +35,7 @@ import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
 import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-service';
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
+import { MeetingPersonHistoryService } from '@/lib/services/meetings/meeting-person-history-service';
 import {
   effectiveLocationMode,
   switchBackState,
@@ -49,6 +51,7 @@ import { MarkOutcomeButtons } from './_components/mark-outcome-buttons';
 import { AgendaSection } from './_components/agenda-section';
 import { ActionItemsSection } from './_components/action-items-section';
 import { CarriedOverSection } from './_components/carried-over-section';
+import { PersonHistorySection } from './_components/person-history-section';
 
 const BREADCRUMB_ITEMS = [
   { label: 'Home', href: '/' },
@@ -123,6 +126,28 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     .eq('id', booking.host_profile_id)
     .maybeSingle();
 
+  // WHO closed this meeting — a different question from who hosts it. Until
+  // 20260926010000 the record could only hold an actor KIND ('host'/'system'),
+  // so a super admin closing the Director's meeting was displayed as the
+  // Director. outcome_marked_by_profile_id now carries the real person.
+  // Re-uses the host record when they are the same person rather than issuing
+  // a second identical query.
+  const markedById = booking.outcome_marked_by_profile_id as string | null;
+  let markedBy: { full_name?: string | null; email?: string | null } | null = null;
+  if (markedById) {
+    if (markedById === booking.host_profile_id) {
+      markedBy = host;
+    } else {
+      const { data: markerProfile } = await supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', markedById)
+        .maybeSingle();
+      markedBy = markerProfile;
+    }
+  }
+  const markedByName = markedBy?.full_name || markedBy?.email || null;
+
   // meeting type title (nullable — type may have been soft-deleted).
   // location_mode + min_notice_min are read here rather than in a second query:
   // they are what decide whether this booking can be switched to a Google Meet
@@ -144,6 +169,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const { items: agendaItems } = await MeetingAgendaService.getAgenda(supabase, booking.id);
   const actionItems = await MeetingActionItemService.listForBooking(supabase, booking.id);
   const carriedOver = await MeetingActionItemService.listOpenCarryOver(supabase, booking.id);
+  // Past meetings with this person. Same session client, same RLS, and matched
+  // on attendee_email exactly as listOpenCarryOver above — the two panels sit
+  // next to each other and must agree on who "this person" is. Returns null
+  // when there is no prior history, and the panel is then not rendered at all.
+  const personHistory = await MeetingPersonHistoryService.getForBooking(supabase, booking.id);
   const canEditAgenda = !!user && user.id === booking.host_profile_id;
 
   const duration = durationMinutes(booking.start_time, booking.end_time);
@@ -156,12 +186,23 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   // Whether the meeting HAPPENED is a separate question from whether it is
   // over: a no-show is knowable the moment the slot begins, so this gate uses
   // start_time while isPast (which hides reschedule/cancel) uses end_time.
-  // canMark stays host-only — fn_meeting_mark_outcome re-checks it server-side.
-  const canMark =
+  //
+  // Since 20260926010000 a super admin may also close a meeting on the host's
+  // behalf, and is recorded by name when they do. This only decides whether the
+  // buttons are worth rendering — fn_meeting_mark_outcome re-checks both arms
+  // server-side, so hiding the buttons is never the security boundary.
+  const isOpenAndStarted =
     booking.status === 'confirmed' &&
-    !!user &&
-    user.id === booking.host_profile_id &&
     new Date(booking.start_time).getTime() < Date.now();
+  const isHost = !!user && user.id === booking.host_profile_id;
+  // Only ask the database about super-admin when the answer could change
+  // anything: a host already qualifies, and nobody qualifies on a booking that
+  // is not both open and started.
+  const { data: isSuperAdmin } =
+    isOpenAndStarted && !!user && !isHost
+      ? await supabase.rpc('is_super_admin')
+      : { data: false };
+  const canMark = isOpenAndStarted && (isHost || !!isSuperAdmin);
 
   // Mode switch (2026-08-19, widened 2026-08-21). Three independent questions:
   //   • canSwitchToOnline — may the host turn this booking into a Google Meet?
@@ -264,12 +305,20 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                 <strong>Cancellation reason:</strong> {booking.cancellation_reason}
               </div>
             ) : null}
-            {/* An assumed outcome is not an observed one — say which this is. */}
+            {/* An assumed outcome is not an observed one — say which this is,
+                and name the person whenever the record knows who they were.
+                Rows marked before 20260926010000 carry only the actor kind, so
+                for those the name is unavailable rather than wrong: they fall
+                back to naming the kind, never to guessing a person. */}
             {booking.outcome_marked_by ? (
               <p className="text-xs text-muted-foreground">
-                {booking.outcome_marked_by === 'host'
-                  ? 'Recorded by the host.'
-                  : 'Closed automatically before 21 August 2026 — nobody confirmed it took place.'}
+                {booking.outcome_marked_by === 'system'
+                  ? 'Closed automatically before 21 August 2026 — nobody confirmed it took place.'
+                  : markedByName
+                    ? `Closed by ${markedByName}.`
+                    : booking.outcome_marked_by === 'host'
+                      ? 'Recorded by the host.'
+                      : 'Recorded by an administrator.'}
               </p>
             ) : null}
           </CardContent>
@@ -316,6 +365,24 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             ) : null}
           </CardContent>
         </Card>
+
+        {/* Directly under Attendee, because it answers the next question that
+            card raises: have I dealt with this person before? Rendered only
+            when there IS history — an empty "no past meetings" box would be
+            noise on every first meeting, which is most of them. */}
+        {personHistory ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Repeat className="h-4 w-4 text-muted-foreground" aria-hidden />
+                <CardTitle className="text-base">Past meetings with this person</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <PersonHistorySection history={personHistory} />
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader className="pb-3">

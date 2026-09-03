@@ -31,7 +31,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CalendarRange, ListChecks, UserX } from 'lucide-react';
+import { CalendarRange, CheckCircle2, Clock, ListChecks, UserX } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -50,14 +50,17 @@ import {
 } from '@/hooks/hr/use-attendance-records';
 import {
   currentMonthKey,
-  formatDuration,
+  isPeriodClosed,
   monthLabel,
+  type AttendancePeriodState,
   type MonthKey,
 } from '@/types/hr-attendance';
+import { cn } from '@/lib/utils';
 
 import { AttendanceCalendarTab } from './_components/attendance-calendar-tab';
 import { AttendanceLogTab } from './_components/attendance-log-tab';
 import { AttendanceMonthPicker } from './_components/attendance-month-picker';
+import { AttendanceSummaryCards } from './_components/attendance-summary-cards';
 import {
   AttendanceStaffFilter,
   type SelectedStaff,
@@ -106,7 +109,7 @@ export default function MyAttendancePage() {
   const staffId = selectedStaff?.id ?? employee?.id ?? null;
   const viewingOther = Boolean(selectedStaff && selectedStaff.id !== employee?.id);
 
-  const { logDays, weeks, summary, isLoading, isFetching, isEmptyMonth, refresh } =
+  const { logDays, weeks, summary, isLoading, isFetching, isEmptyMonth, period, refresh } =
     useAttendanceMonthView(staffId, month);
   const { data: monthsWithData } = useAttendanceMonthsWithData(staffId);
 
@@ -146,6 +149,15 @@ export default function MyAttendancePage() {
             title="No staff record linked"
             description="My Attendance reads the record attached to your staff profile. Contact HR if you believe this is an error."
           />
+        ) : employee.hr_included === false ? (
+          // A DIFFERENT state from "no staff record": the person exists, their
+          // employment category simply takes no part in HR. Saying "no record"
+          // here would send them chasing a data fix that is actually a policy.
+          <EmptyState
+            icon={<UserX className="h-10 w-10 text-muted-foreground" />}
+            title="Not managed in HR"
+            description="Your employment category is not included in the HR module, so no attendance is recorded for you here. Contact HR if you believe this is an error."
+          />
         ) : (
           <>
             {canViewAll && (
@@ -170,15 +182,22 @@ export default function MyAttendancePage() {
                   </TabsTrigger>
                 </TabsList>
 
-                <AttendanceMonthPicker
-                  month={month}
-                  onMonthChange={(m) => setParam('month', m)}
-                  onRefresh={refresh}
-                  isFetching={isFetching}
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <PeriodStatusBadge period={period} month={month} />
+                  <AttendanceMonthPicker
+                    month={month}
+                    onMonthChange={(m) => setParam('month', m)}
+                    onRefresh={refresh}
+                    isFetching={isFetching}
+                  />
+                </div>
               </div>
 
-              <MonthSummaryStrip summary={summary} className="mt-4" />
+              <AttendanceSummaryCards
+                summary={summary}
+                closed={isPeriodClosed(period)}
+                className="mt-4"
+              />
 
               {!isLoading && isEmptyMonth && (
                 <EmptyMonthNotice
@@ -197,7 +216,11 @@ export default function MyAttendancePage() {
               </TabsContent>
 
               <TabsContent value="calendar" className="mt-4">
-                <AttendanceCalendarTab weeks={weeks} isLoading={isLoading} />
+                <AttendanceCalendarTab
+                  weeks={weeks}
+                  isLoading={isLoading}
+                  closed={isPeriodClosed(period)}
+                />
               </TabsContent>
             </Tabs>
           </>
@@ -207,35 +230,44 @@ export default function MyAttendancePage() {
   );
 }
 
-function MonthSummaryStrip({
-  summary,
-  className,
+/**
+ * Whether HR has finished with this month.
+ *
+ * The page previously said nothing about it, so a staff member who watched HR
+ * close the month saw an unchanged screen and could not tell a finalised month
+ * from one still being imported — "Not processed: 0" reads the same either way,
+ * because it counts days with no record, not whether the month is signed off.
+ */
+function PeriodStatusBadge({
+  period,
+  month,
 }: {
-  summary: ReturnType<typeof useAttendanceMonthView>['summary'];
-  className?: string;
+  period: AttendancePeriodState | null;
+  month: MonthKey;
 }) {
-  const stats: Array<[string, string | number]> = [
-    ['Present', summary.present],
-    ['Half day', summary.halfDay],
-    ['Absent', summary.absent],
-    ['Leave', summary.leave],
-    ['Week off', summary.weeklyOff],
-    ['Holiday', summary.holiday],
-    ['Not processed', summary.pending],
-    ['Effective', formatDuration(summary.effectiveMinutes)],
-  ];
+  if (!period) return null;
+
+  if (isPeriodClosed(period)) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        title={
+          period.locked_at
+            ? `${monthLabel(month)} was finalised on ${new Date(period.locked_at).toLocaleDateString('en-GB')}. Attendance for this month can no longer change.`
+            : undefined
+        }
+      >
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Closed
+      </span>
+    );
+  }
 
   return (
-    <div className={className}>
-      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4 lg:grid-cols-8">
-        {stats.map(([label, value]) => (
-          <div key={label} className="bg-card px-3 py-2">
-            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-            <dd className="text-base font-semibold tabular-nums">{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
+    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+      <Clock className="h-3.5 w-3.5" />
+      Open
+    </span>
   );
 }
 

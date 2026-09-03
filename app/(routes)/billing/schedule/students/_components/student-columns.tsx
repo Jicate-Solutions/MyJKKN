@@ -1,7 +1,7 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
-import { Eye, Receipt, Phone, Building, GraduationCap } from 'lucide-react';
+import { Eye, ReceiptIndianRupee, Phone, Building, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -258,7 +258,7 @@ export function getStudentColumns({
                 className='h-8'
                 onClick={() => onQuickBill(student, 'new')}
               >
-                <Receipt className='mr-1.5 h-4 w-4' />
+                <ReceiptIndianRupee className='mr-1.5 h-4 w-4' />
                 Bill
               </Button>
             )}

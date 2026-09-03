@@ -11,8 +11,10 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { InductionService, type PreviewEnrollResult } from '@/lib/services/induction/induction-service';
+import { INDUCTION_ACTIVE_STATUS } from '@/types/events';
 import { SessionsSection } from './_components/sessions-section';
 import { EventCoordinatorsSection } from './_components/event-coordinators-section';
+import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
 import { FeedbackByCollegeSection } from './_components/feedback-by-college-section';
 import { SessionFeedbackSection } from './_components/session-feedback-section';
@@ -271,6 +273,14 @@ export default function InductionDetailPage() {
         {/* Per-event coordinators — appoint who runs THIS induction, independent of any institution-wide coordinator */}
         <EventCoordinatorsSection eventId={id} />
 
+        {/* Custom feedback questionnaires.
+            Deliberately ADDITIVE to the existing day/programme feedback below,
+            which is a fixed rating-plus-comment shape (event_day_feedback /
+            event_program_feedback) that a coordinator cannot reword. This card
+            is for questions they write themselves. The two are stored
+            separately and neither replaces the other. */}
+        <EventFeedbackLinkCard eventId={id} />
+
         {/* KPI strip — cohort at a glance */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard icon={Users} label="Enrolled freshers" value={enrolled} />
@@ -347,7 +357,13 @@ export default function InductionDetailPage() {
         </Card>
 
         {/* Day-by-day schedule editor */}
-        <SessionsSection eventId={id} batches={batches.map((b) => ({ id: b.id, label: b.label }))} />
+        <SessionsSection
+          eventId={id}
+          batches={batches.map((b) => ({ id: b.id, label: b.label }))}
+          // Only 'live' opens attendance/feedback — a legacy status is not Live.
+          // Server-enforced by fn_induction_assert_live; this just mirrors it.
+          isLive={event.status === INDUCTION_ACTIVE_STATUS}
+        />
 
         {/* Peer-mentor feedback scale layer — appoint mentors, auto-balance, coverage */}
         <FeedbackVolunteersSection eventId={id} />

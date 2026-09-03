@@ -76,7 +76,15 @@ export async function getOnboardingPaymentProgress(
         amount_to_threshold:
           row.amount_to_threshold == null ? null : Number(row.amount_to_threshold),
         meets_threshold: row.meets_threshold === true,
-        has_basis_due: row.has_basis_due === true
+        has_basis_due: row.has_basis_due === true,
+        // NULL is meaningful here and must survive: it means "no schedule",
+        // not "due today". Number(null) would be 0 and read as a real date /
+        // amount, so each is guarded before coercion.
+        next_due_date: (row.next_due_date as string) ?? null,
+        next_due_amount:
+          row.next_due_amount == null ? null : Number(row.next_due_amount),
+        instalments_total: Number(row.instalments_total ?? 0),
+        instalments_settled: Number(row.instalments_settled ?? 0)
       });
     }
 

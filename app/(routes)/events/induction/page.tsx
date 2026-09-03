@@ -161,6 +161,7 @@ export default function InductionLandingPage() {
   // leads nowhere.
   const bulkDelete = useBulkDeleteInductions();
   const canDelete = canAccess('events', 'delete');
+  const canCreate = canAccess('induction', 'create');
 
   const handleBulkDelete = useCallback(
     async (selected: InductionListRow[]) => {
@@ -215,11 +216,18 @@ export default function InductionLandingPage() {
                 <Library className="h-4 w-4 mr-1" /> Session catalog
               </Link>
             </Button>
-            <Button asChild>
-              <Link href="/events/induction/new">
-                <Plus className="h-4 w-4 mr-1" /> Create induction
-              </Link>
-            </Button>
+            {/* Create is Induction Lead + super admin only (2026-08-21). This
+                button was previously ungated, so all 654 induction.manage holders
+                saw it — including 493 Facilitators. The real refusal is
+                fn_induction_create_program, which now gates on induction.create;
+                this only stops offering a button the RPC would reject. */}
+            {canCreate && (
+              <Button asChild>
+                <Link href="/events/induction/new">
+                  <Plus className="h-4 w-4 mr-1" /> Create induction
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
