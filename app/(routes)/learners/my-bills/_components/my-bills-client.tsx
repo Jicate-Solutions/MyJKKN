@@ -31,7 +31,7 @@ import type { StudentBill } from '@/types/billing-schedule';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { useConnectedFeeHeads } from '@/hooks/billing/use-connected-fee-heads';
 import { useTabParam } from '@/hooks/use-tab-param';
-import { FEE_HEAD_LABELS, fmtDate, groupByYear, inr, isOverdue } from './shared';
+import { FEE_HEAD_LABELS, SHOW_PAID_RECEIPTS, fmtDate, groupByYear, inr, isOverdue } from './shared';
 import { ReceiptDialog, downloadMyReceiptPdf, type ReceiptPdfContext } from './receipt-dialog';
 
 // Recharts only loads when the Analytics tab is opened.
@@ -40,7 +40,17 @@ const MyBillsAnalytics = dynamic(
   { loading: () => <Skeleton className='h-[420px] w-full' /> }
 );
 
-const MY_BILLS_TABS = ['outstanding', 'paid', 'analytics'] as const;
+const ALL_MY_BILLS_TABS = ['outstanding', 'paid', 'analytics'] as const;
+type MyBillsTab = (typeof ALL_MY_BILLS_TABS)[number];
+
+// A hidden tab must also leave the VALID list, not just lose its trigger.
+// useTabParam is typo-safe: it falls an unknown `?tab=` back to the default and
+// rewrites the URL — so a favorite pointing at ?tab=paid (the navbar
+// FavoriteStar bookmarks the specific tab) lands on Outstanding instead of an
+// empty panel with no trigger lit.
+const MY_BILLS_TABS: readonly MyBillsTab[] = SHOW_PAID_RECEIPTS
+  ? ALL_MY_BILLS_TABS
+  : ALL_MY_BILLS_TABS.filter((tab) => tab !== 'paid');
 
 interface MyBillsClientProps {
   data: MyBillsData;
@@ -167,9 +177,11 @@ export function MyBillsClient({
                   Total paid
                 </div>
                 <div className='mt-0.5 text-base font-semibold tabular-nums'>{inr(totalPaid)}</div>
-                <div className='text-xs text-primary-foreground/70'>
-                  {receipts.length} {receipts.length === 1 ? 'receipt' : 'receipts'}
-                </div>
+                {SHOW_PAID_RECEIPTS && (
+                  <div className='text-xs text-primary-foreground/70'>
+                    {receipts.length} {receipts.length === 1 ? 'receipt' : 'receipts'}
+                  </div>
+                )}
               </div>
               <div className='rounded-xl bg-primary-foreground/10 p-3'>
                 <div className='text-xs uppercase tracking-wide text-primary-foreground/75'>
@@ -189,7 +201,7 @@ export function MyBillsClient({
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-        <TabsList className='grid h-11 w-full grid-cols-3 sm:inline-flex sm:h-10 sm:w-auto'>
+        <TabsList className={`grid h-11 w-full ${SHOW_PAID_RECEIPTS ? 'grid-cols-3' : 'grid-cols-2'} sm:inline-flex sm:h-10 sm:w-auto`}>
           <TabsTrigger value='outstanding' className='gap-1.5 text-xs sm:text-sm'>
             <Wallet className='h-4 w-4 shrink-0' aria-hidden='true' />
             <span className='truncate'>Outstanding</span>
@@ -199,15 +211,17 @@ export function MyBillsClient({
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value='paid' className='gap-1.5 text-xs sm:text-sm'>
-            <Receipt className='h-4 w-4 shrink-0' aria-hidden='true' />
-            <span className='truncate'>Paid</span>
-            {receipts.length > 0 && (
-              <Badge variant='secondary' className='ml-0.5 hidden min-[400px]:inline-flex'>
-                {receipts.length}
-              </Badge>
-            )}
-          </TabsTrigger>
+          {SHOW_PAID_RECEIPTS && (
+            <TabsTrigger value='paid' className='gap-1.5 text-xs sm:text-sm'>
+              <Receipt className='h-4 w-4 shrink-0' aria-hidden='true' />
+              <span className='truncate'>Paid</span>
+              {receipts.length > 0 && (
+                <Badge variant='secondary' className='ml-0.5 hidden min-[400px]:inline-flex'>
+                  {receipts.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger value='analytics' className='gap-1.5 text-xs sm:text-sm'>
             <BarChart3 className='h-4 w-4 shrink-0' aria-hidden='true' />
             <span className='truncate'>Analytics</span>
@@ -276,42 +290,44 @@ export function MyBillsClient({
         </TabsContent>
 
         {/* ── Paid receipts, grouped by academic year ─────────────────── */}
-        <TabsContent value='paid' className='mt-4 space-y-4'>
-          {receiptGroups.length === 0 ? (
-            <EmptyState
-              icon={<Receipt className='h-8 w-8 text-muted-foreground' />}
-              title='No payments yet'
-              subtitle='Your receipts will appear here once a payment is recorded.'
-            />
-          ) : (
-            receiptGroups.map((group, index) => {
-              const groupPaid = group.items.reduce(
-                (sum, r) => sum + r.amount - r.refundedAmount,
-                0
-              );
-              return (
-                <YearSection
-                  key={group.year}
-                  year={group.year}
-                  defaultOpen={index === 0}
-                  meta={`${group.items.length} ${group.items.length === 1 ? 'receipt' : 'receipts'}`}
-                  amount={inr(groupPaid)}
-                  amountClassName='text-emerald-600 dark:text-emerald-400'
-                  amountLabel='paid'
-                >
-                  {group.items.map((receipt) => (
-                    <ReceiptRow
-                      key={receipt.id}
-                      receipt={receipt}
-                      onView={() => setViewReceipt(receipt)}
-                      onDownload={() => downloadMyReceiptPdf(receipt, pdfCtx)}
-                    />
-                  ))}
-                </YearSection>
-              );
-            })
-          )}
-        </TabsContent>
+        {SHOW_PAID_RECEIPTS && (
+          <TabsContent value='paid' className='mt-4 space-y-4'>
+            {receiptGroups.length === 0 ? (
+              <EmptyState
+                icon={<Receipt className='h-8 w-8 text-muted-foreground' />}
+                title='No payments yet'
+                subtitle='Your receipts will appear here once a payment is recorded.'
+              />
+            ) : (
+              receiptGroups.map((group, index) => {
+                const groupPaid = group.items.reduce(
+                  (sum, r) => sum + r.amount - r.refundedAmount,
+                  0
+                );
+                return (
+                  <YearSection
+                    key={group.year}
+                    year={group.year}
+                    defaultOpen={index === 0}
+                    meta={`${group.items.length} ${group.items.length === 1 ? 'receipt' : 'receipts'}`}
+                    amount={inr(groupPaid)}
+                    amountClassName='text-emerald-600 dark:text-emerald-400'
+                    amountLabel='paid'
+                  >
+                    {group.items.map((receipt) => (
+                      <ReceiptRow
+                        key={receipt.id}
+                        receipt={receipt}
+                        onView={() => setViewReceipt(receipt)}
+                        onDownload={() => downloadMyReceiptPdf(receipt, pdfCtx)}
+                      />
+                    ))}
+                  </YearSection>
+                );
+              })
+            )}
+          </TabsContent>
+        )}
 
         {/* ── Analytics ───────────────────────────────────────────────── */}
         <TabsContent value='analytics' className='mt-4'>

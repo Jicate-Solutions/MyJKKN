@@ -3,13 +3,14 @@
 import { useState, useMemo } from 'react';
 import {
   FileText,
-  Receipt,
+  ReceiptIndianRupee,
   Percent,
   RefreshCw,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
+  Ban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +23,9 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import type { StudentBillingSummary } from '@/types/billing-schedule';
+import { useStudentBillCancellations } from '@/hooks/billing/use-bill-cancellation';
+import { BILL_CANCEL_REASON_LABELS } from '@/types/billing-bill-cancellation';
+import type { BillCancelReasonCode } from '@/types/billing-bill-cancellation';
 
 interface StudentTransactionHistoryProps {
   summary: StudentBillingSummary;
@@ -32,6 +36,7 @@ interface TransactionEvent {
   id: string;
   type:
     | 'bill_created'
+    | 'bill_cancelled'
     | 'payment_received'
     | 'discount_applied'
     | 'refund_processed';
@@ -50,6 +55,10 @@ export function StudentTransactionHistory({
 }: StudentTransactionHistoryProps) {
   const [timeFilter, setTimeFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+
+  // The timeline is assembled client-side from the summary, which carries no
+  // cancellation record — so the cancellations are fetched alongside it.
+  const { data: cancellations } = useStudentBillCancellations(summary.student?.id);
 
   // Combine all transactions into a timeline
   const allTransactions = useMemo(() => {
@@ -116,11 +125,30 @@ export function StudentTransactionHistory({
       });
     });
 
+    // Add bill cancellations. Dated by cancelled_at, NOT by the bill's
+    // created_at — a bill raised in June and cancelled in August belongs at
+    // August in a timeline, otherwise the void is invisible where it happened.
+    cancellations?.forEach((c) => {
+      transactions.push({
+        id: `bill-cancel-${c.id}`,
+        type: 'bill_cancelled',
+        date: c.cancelled_at,
+        amount: c.amount_cancelled,
+        description: `Bill cancelled — ${
+          BILL_CANCEL_REASON_LABELS[c.reason_code as BillCancelReasonCode] ??
+          c.reason_code
+        }: ${c.reason}`,
+        status: 'cancelled',
+        createdBy: c.cancelled_by_name ?? undefined,
+        details: c
+      });
+    });
+
     // Sort by date (newest first)
     return transactions.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [summary]);
+  }, [summary, cancellations]);
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
@@ -186,8 +214,10 @@ export function StudentTransactionHistory({
     switch (type) {
       case 'bill_created':
         return <FileText className='h-4 w-4' />;
+      case 'bill_cancelled':
+        return <Ban className='h-4 w-4' />;
       case 'payment_received':
-        return <Receipt className='h-4 w-4' />;
+        return <ReceiptIndianRupee className='h-4 w-4' />;
       case 'discount_applied':
         return <Percent className='h-4 w-4' />;
       case 'refund_processed':
@@ -296,6 +326,7 @@ export function StudentTransactionHistory({
           <SelectContent>
             <SelectItem value='all'>All Types</SelectItem>
             <SelectItem value='bill_created'>Bills Created</SelectItem>
+            <SelectItem value='bill_cancelled'>Bills Cancelled</SelectItem>
             <SelectItem value='payment_received'>Payments</SelectItem>
             <SelectItem value='discount_applied'>Discounts</SelectItem>
             <SelectItem value='refund_processed'>Refunds</SelectItem>

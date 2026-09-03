@@ -281,6 +281,9 @@ export interface BiometricImportReport {
   employees_in_file: number;
   matched_employees: number;
   unmatched_codes: Array<{ code: string; name: string }>;
+  /** Codes owned by a RELIEVED team member. Skipped, not imported -- named so
+   *  a skip is visible rather than looking like an unknown code. */
+  relieved_skipped: Array<{ code: string; name: string; staff: string }>;
   total_day_cells: number;
   counts: Record<ImportVerdict, number>;
   preview: ImportPreviewRow[];
@@ -321,7 +324,7 @@ export const VERDICT_CLASS: Record<ImportVerdict, string> = {
 
 // ---------------------------------------------------------------------------
 // Import purge — super admin only. See
-// supabase/migrations/20260820140000_biometric_import_purge_super_admin.sql
+// supabase/migrations/20260820150000_biometric_import_purge_super_admin.sql
 // ---------------------------------------------------------------------------
 
 /**

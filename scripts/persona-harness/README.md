@@ -89,6 +89,20 @@ Accounts need a password — set `PERSONA_PASSWORD` in your shell (or add
 `"password"` to the config). There is no default; it must match whatever the
 `test.*` accounts were actually seeded with (see `scripts/create-test-accounts.ts`).
 
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| `PERSONA_PASSWORD is not set` | Exactly that — export it before running. The harness stops here rather than sending an empty password. |
+| `Cannot read .../.env.local` | You are in a fresh worktree. Copy or symlink the repo's `.env.local` in, or point `envPath` at one. |
+| `signIn <email> on Supabase project <ref> …: Invalid login credentials` | The password you exported does not match what that project's `test.*` accounts hold. Check the `<ref>` in the message is the project you meant. |
+
+`Invalid login credentials` is Supabase's one answer for every password rejection,
+so it says nothing about whether the account exists. Before assuming an account is
+gone, check `auth.users` for it (`email_confirmed_at`, `banned_until`,
+`last_sign_in_at`) — a recent `last_sign_in_at` means the account and its password
+are fine and the problem is on this side.
+
 ## Use on another Supabase + Next.js app
 
 The script is generic — the cookie name and Supabase project are read from the

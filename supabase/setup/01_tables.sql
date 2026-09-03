@@ -8139,6 +8139,17 @@ CREATE TABLE IF NOT EXISTS public.hr_staff_salaries (
   eligible_for_insurance boolean NOT NULL DEFAULT false,
   eligible_for_gratuity  boolean NOT NULL DEFAULT false,
   eligible_for_etf       boolean NOT NULL DEFAULT false,
+  -- Statutory contributions as a FLAT MONTHLY RUPEE FIGURE per person, added
+  -- 2026-09-01. Not a rate and not an employee/employer split: the register
+  -- deducts exactly what is stored, in full, even in a month with unpaid days.
+  -- eligible_for_pf is labelled "EPF" in the UI — same scheme, one flag.
+  epf_amount             numeric(12,2) NOT NULL DEFAULT 0 CHECK (epf_amount >= 0),
+  eligible_for_esi       boolean NOT NULL DEFAULT false,
+  esi_amount             numeric(12,2) NOT NULL DEFAULT 0 CHECK (esi_amount >= 0),
+  -- Paid on top of the gross (2026-09-02). Counts toward earnings and is
+  -- pro-rated with them, but is NEVER part of the TDS base.
+  allowance_amount       numeric(12,2) NOT NULL DEFAULT 0 CHECK (allowance_amount >= 0),
+  allowance_label        text,
   effective_from         date NOT NULL,
   -- DEFERRABLE is load-bearing, not stylistic: fn_hr_set_staff_salary points
   -- the incumbent at a row it inserts one statement later, and that order is
@@ -8162,6 +8173,47 @@ CREATE INDEX IF NOT EXISTS hr_staff_salaries_org_idx
   ON public.hr_staff_salaries (hr_organization_id);
 CREATE INDEX IF NOT EXISTS hr_staff_salaries_effective_idx
   ON public.hr_staff_salaries (staff_id, effective_from DESC);
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+-- Source: 20260902100000_hr_tds_slabs_and_allowance.sql
+--
+-- Monthly-gross bands with a FLAT rate: a salary inside a band is taxed at that
+-- band's percentage of its WHOLE monthly gross, and a salary outside every band
+-- is not taxed at all. Not the statutory progressive calculation -- that lives
+-- (dead) in deduction-engine.ts against platform_policies 'hr.payroll.tds_slabs'.
+--
+-- NO institution_id, on purpose. Income tax is national, and leaving it out
+-- keeps the EXCLUDE below a pure range overlap, which plain GiST handles -- an
+-- equality column would need btree_gist, which is not installed.
+--
+-- BOUNDS ARE [min, max). Bands written the way people say them ("1,06,250 to
+-- 2,00,000", next starting at 2,00,001) leave 2,00,000.50 matching nothing.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_tds_slabs (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  min_monthly_gross numeric(12,2) NOT NULL CHECK (min_monthly_gross >= 0),
+  -- NULL = open-ended top band. Exactly one row must be, whenever any exist.
+  max_monthly_gross numeric(12,2),
+  rate_pct          numeric(5,2)  NOT NULL CHECK (rate_pct >= 0 AND rate_pct <= 100),
+  label             text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  created_by        uuid,
+  updated_by        uuid,
+  CONSTRAINT hr_tds_slabs_max_above_min
+    CHECK (max_monthly_gross IS NULL OR max_monthly_gross > min_monthly_gross),
+  -- Two bands may not both claim the same rupee; without this the band that wins
+  -- a lookup is whichever the planner returns first.
+  CONSTRAINT hr_tds_slabs_no_overlap EXCLUDE USING gist (
+    numrange(min_monthly_gross, max_monthly_gross, '[)') WITH &&
+  )
+);
+
+-- Set-level rules a per-row CHECK cannot express (exactly one open-ended band,
+-- no gaps) live in hr_tds_slabs_validate_set() -- see 02_functions.sql -- fired
+-- by a DEFERRABLE INITIALLY DEFERRED constraint trigger so a multi-row edit is
+-- judged once, at COMMIT.
 
 DROP TRIGGER IF EXISTS trg_hr_staff_salaries_updated_at ON public.hr_staff_salaries;
 CREATE TRIGGER trg_hr_staff_salaries_updated_at
@@ -8576,3 +8628,215 @@ ALTER TABLE public.custom_roles
 
 COMMENT ON COLUMN public.custom_roles.is_privileged IS
   'Role can grant/alter permissions or administer the platform. Only super admins may assign it to a staff member (enforced by trg_staff_guard_role_key). Maintained in Role Management.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830150000_hr_salary_register.sql
+-- and 20260830150001_hr_salary_register_superseded_at.sql
+-- =============================================================================
+
+-- The FROZEN monthly salary register, per PAYER organisation. Computed from a
+-- closed attendance month (hr_attendance_period_summaries) plus the recorded
+-- salary (hr_staff_salaries.monthly_gross), and exported as the register HR
+-- keeps by hand.
+--
+-- NOT hr_payroll_periods / hr_payslips. That pair carries a five-signature
+-- approval chain plus a pay-scale matrix and PF/ESI/TDS policies that this
+-- register does not use; it has never been run (0 rows) because its generator
+-- still stubs LOP at 0 and reads hr_pay_scales, which is empty.
+--
+-- The roster follows hr_staff_payroll (WHO PAYS), not staff.institution_id
+-- (WHERE SOMEONE WORKS) — they differ for 36 active staff — so one register can
+-- depend on several closed months, hence the array of source period ids.
+CREATE TABLE IF NOT EXISTS public.hr_salary_register_runs (
+  id                           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id           uuid NOT NULL REFERENCES public.hr_organizations(id) ON DELETE RESTRICT,
+  institution_id               uuid NOT NULL REFERENCES public.institutions(id) ON DELETE RESTRICT,
+  period_year                  integer NOT NULL,
+  period_month                 integer NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+  working_days_basis           numeric(5,1) NOT NULL CHECK (working_days_basis > 0),
+  source_attendance_period_ids uuid[] NOT NULL DEFAULT '{}',
+  staff_total                  integer NOT NULL DEFAULT 0,
+  included_count               integer NOT NULL DEFAULT 0,
+  excluded_count               integer NOT NULL DEFAULT 0,
+  total_gross                  numeric(14,2) NOT NULL DEFAULT 0,
+  total_deductions             numeric(14,2) NOT NULL DEFAULT 0,
+  total_net                    numeric(14,2) NOT NULL DEFAULT 0,
+  generated_at                 timestamptz NOT NULL DEFAULT now(),
+  generated_by                 uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  -- Liveness is superseded_at, NOT superseded_by. The forward pointer is an FK
+  -- to the successor, which cannot exist yet when the previous run has to give
+  -- up the unique slot; superseded_at needs no FK and so can be set first.
+  superseded_at                timestamptz,
+  superseded_by                uuid REFERENCES public.hr_salary_register_runs(id) ON DELETE SET NULL,
+  notes                        text,
+  created_at                   timestamptz NOT NULL DEFAULT now(),
+  updated_at                   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_salary_register_runs_live
+  ON public.hr_salary_register_runs (hr_organization_id, period_year, period_month)
+  WHERE superseded_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_runs_institution
+  ON public.hr_salary_register_runs (institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_runs_org
+  ON public.hr_salary_register_runs (hr_organization_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_runs_period
+  ON public.hr_salary_register_runs (period_year, period_month);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_runs_superseded_by
+  ON public.hr_salary_register_runs (superseded_by);
+
+-- One row per roster member, INCLUDED OR NOT. Excluded people stay on the
+-- register so "who did we not pay, and why" is answerable; dropping them would
+-- make the gap invisible. Identity and figures are snapshotted so a later
+-- transfer or rename cannot rewrite an issued register.
+CREATE TABLE IF NOT EXISTS public.hr_salary_register_lines (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id                 uuid NOT NULL REFERENCES public.hr_salary_register_runs(id) ON DELETE CASCADE,
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE RESTRICT,
+  serial_no              integer NOT NULL,
+  employee_code          text,
+  staff_name             text NOT NULL,
+  designation            text,
+  department_name        text,
+  date_of_joining        date,
+  bank_account_number    text,
+  -- unpaid_leave_days is the month MINUS paid days, not the summary's lop_days:
+  -- a mid-month joiner has no records before their start date, so lop_days is 0
+  -- and paying on it would hand them a full month's gross for half a month.
+  business_working_days  numeric(5,1) NOT NULL DEFAULT 0,
+  paid_leave_days        numeric(5,1) NOT NULL DEFAULT 0,
+  unpaid_leave_days      numeric(5,1) NOT NULL DEFAULT 0,
+  on_duty_days           numeric(5,1) NOT NULL DEFAULT 0,
+  worked_days            numeric(5,1) NOT NULL DEFAULT 0,
+  paid_days              numeric(5,1) NOT NULL DEFAULT 0,
+  actual_gross           numeric(12,2) NOT NULL DEFAULT 0,
+  basic_pay              numeric(12,2) NOT NULL DEFAULT 0,
+  allowance              numeric(12,2) NOT NULL DEFAULT 0,
+  unpaid_leave_deduction numeric(12,2) NOT NULL DEFAULT 0,
+  -- Broken out of total_deductions (which still carries them) so a PF/ESI
+  -- return can be read straight off the register. Added 2026-09-01.
+  epf_deduction          numeric(12,2) NOT NULL DEFAULT 0,
+  esi_deduction          numeric(12,2) NOT NULL DEFAULT 0,
+  -- Resolved from hr_tds_slabs against the monthly gross ALONE and
+  -- snapshotted, so an issued register stays explicable after a band is
+  -- edited -- which is why the bands need no effective-dating.
+  tds_deduction          numeric(12,2) NOT NULL DEFAULT 0,
+  total_earnings         numeric(12,2) NOT NULL DEFAULT 0,
+  total_deductions       numeric(12,2) NOT NULL DEFAULT 0,
+  -- A prior-month recovery the formula cannot produce. SUBTRACTED from net pay.
+  adjustment_amount      numeric(12,2) NOT NULL DEFAULT 0,
+  net_pay                numeric(12,2) NOT NULL DEFAULT 0,
+  remarks                text,
+  is_included            boolean NOT NULL DEFAULT true,
+  exclusion_reason       text,
+  attendance_period_id   uuid REFERENCES public.hr_attendance_periods(id) ON DELETE SET NULL,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_hr_salary_register_lines_run_staff UNIQUE (run_id, staff_id),
+  CONSTRAINT ck_hr_salary_register_lines_exclusion
+    CHECK ((is_included AND exclusion_reason IS NULL)
+        OR (NOT is_included AND exclusion_reason IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_run
+  ON public.hr_salary_register_lines (run_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_staff
+  ON public.hr_salary_register_lines (staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_period
+  ON public.hr_salary_register_lines (attendance_period_id);
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830160000_hr_salary_register_work_institution_scope.sql
+-- =============================================================================
+
+-- The register is grouped by WORK LOCATION (staff.institution_id), not by payer.
+-- Payer scoping shipped first and failed on contact: Main Office is a real
+-- workplace with 121 staff that pays NOBODY (is_payroll_entity = false, zero
+-- rows in hr_staff_payroll), so it could never have a register, and 105 active
+-- staff have no payer recorded and so landed on no register at all.
+--
+-- WHO PAYS is now an attribute of the row, plus per-payer subtotals in the
+-- export — so one Main Office register answers "what does each institution owe
+-- for the people working here", which could not be asked while the roster
+-- itself was split five ways.
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS paid_by_organization_id uuid REFERENCES public.hr_organizations(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS paid_by_name text;
+
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_paid_by
+  ON public.hr_salary_register_lines (paid_by_organization_id);
+
+-- A run is unique per WORK INSTITUTION and month. hr_organization_id is kept
+-- (NOT NULL, 1:1 with institution) but is no longer the identity.
+DROP INDEX IF EXISTS public.uq_hr_salary_register_runs_live;
+CREATE UNIQUE INDEX uq_hr_salary_register_runs_live
+  ON public.hr_salary_register_runs (institution_id, period_year, period_month)
+  WHERE superseded_at IS NULL;
+
+-- ============================================================================
+-- 2026-08-31 — leave approval flows: parallel/sequential, ladder
+-- Migration: 20260831120000_hr_leave_approval_flow_parallel_ladder.sql
+-- Applied AFTER the hr_approval_flows definition above; defaults reproduce the
+-- pre-existing behaviour for all 63 rows (23 leave + 40 recruitment).
+-- ============================================================================
+ALTER TABLE public.hr_approval_flows
+  ADD COLUMN IF NOT EXISTS step_source text NOT NULL DEFAULT 'explicit',
+  ADD COLUMN IF NOT EXISTS run_mode text NOT NULL DEFAULT 'sequential',
+  ADD COLUMN IF NOT EXISTS role_ladder jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS fallback_approver jsonb;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hr_approval_flows_step_source_check') THEN
+    ALTER TABLE public.hr_approval_flows ADD CONSTRAINT hr_approval_flows_step_source_check
+      CHECK (step_source IN ('explicit', 'role_ladder'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hr_approval_flows_run_mode_check') THEN
+    ALTER TABLE public.hr_approval_flows ADD CONSTRAINT hr_approval_flows_run_mode_check
+      CHECK (run_mode IN ('sequential', 'parallel'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hr_approval_flows_ladder_check') THEN
+    ALTER TABLE public.hr_approval_flows ADD CONSTRAINT hr_approval_flows_ladder_check
+      CHECK (step_source <> 'role_ladder'
+             OR (jsonb_typeof(role_ladder) = 'array' AND jsonb_array_length(role_ladder) > 0));
+  END IF;
+END $$;
+
+-- ============================================================================
+-- Bill cancellation audit (mig 20260901010000_billing_bill_cancellations).
+-- One row per cancelled bill, holding the reason, the reason code, the
+-- supporting documents and a frozen snapshot of the bill. Written ONLY by
+-- fn_cancel_student_bill; RLS below is SELECT-only so the trail cannot be
+-- edited by whoever it incriminates.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancellations (
+  id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  bill_id                     uuid NOT NULL
+                              REFERENCES public.billing_student_bills(id) ON DELETE CASCADE,
+  institution_id              uuid NOT NULL,
+  student_id                  uuid NOT NULL,
+  reason_code                 text NOT NULL
+                              CHECK (reason_code IN ('duplicate_bill','raised_in_error','fee_waived',
+                                                     'learner_withdrawn','structure_corrected','other')),
+  reason                      text NOT NULL,
+  attachments                 jsonb NOT NULL DEFAULT '[]'::jsonb,
+  bill_snapshot               jsonb NOT NULL DEFAULT '{}'::jsonb,
+  amount_cancelled            numeric NOT NULL,
+  cancelled_by                uuid,
+  cancelled_by_name           text,
+  cancelled_by_email          text,
+  cancelled_by_role           text,
+  cancelled_by_is_super_admin boolean,
+  cancelled_at                timestamptz NOT NULL DEFAULT now(),
+  created_at                  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancellation_per_bill
+  ON public.billing_bill_cancellations (bill_id);
+CREATE INDEX IF NOT EXISTS idx_bill_cancellations_student
+  ON public.billing_bill_cancellations (student_id, cancelled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bill_cancellations_institution
+  ON public.billing_bill_cancellations (institution_id, cancelled_at DESC);
+
+REVOKE ALL ON TABLE public.billing_bill_cancellations FROM anon, PUBLIC;
+ALTER TABLE public.billing_bill_cancellations ENABLE ROW LEVEL SECURITY;

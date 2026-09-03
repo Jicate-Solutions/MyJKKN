@@ -2417,3 +2417,77 @@ DROP TRIGGER IF EXISTS trg_staff_require_institution_email ON public.staff;
 CREATE TRIGGER trg_staff_require_institution_email
   BEFORE INSERT ON public.staff
   FOR EACH ROW EXECUTE FUNCTION public.fn_staff_require_institution_email();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830150000_hr_salary_register.sql
+-- =============================================================================
+
+-- Reuses the generic fn_touch_updated_at rather than adding an 87th
+-- table-specific copy of `NEW.updated_at := now()`.
+DROP TRIGGER IF EXISTS trg_hr_salary_register_runs_touch ON public.hr_salary_register_runs;
+CREATE TRIGGER trg_hr_salary_register_runs_touch
+  BEFORE UPDATE ON public.hr_salary_register_runs
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_hr_salary_register_lines_touch ON public.hr_salary_register_lines;
+CREATE TRIGGER trg_hr_salary_register_lines_touch
+  BEFORE UPDATE ON public.hr_salary_register_lines
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+-- ============================================================================
+-- 2026-08-31 — guard: a decision may only be recorded by the approver making it
+-- Migration: 20260831120000_hr_leave_approval_flow_parallel_ladder.sql
+-- hla_update's USING clause admits the APPLICANT and its WITH CHECK only bites
+-- when status becomes approved/rejected. Until quorum='all' existed every
+-- decision flipped status, so that window was closed by accident.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_hla_guard_chain_decisions ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_guard_chain_decisions
+  BEFORE UPDATE ON public.hr_leave_applications
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_trig_leave_guard_chain_decisions();
+
+-- ============================================================================
+-- Bills may only reach status='cancelled' through fn_cancel_student_bill
+-- (mig 20260901010000). Without this the mandatory reason + documents are
+-- advisory: the UPDATE policy on billing_student_bills lets any
+-- billing.schedule.update holder -- and anyone is_admin() accepts, with no
+-- permission key at all -- set the status directly from a browser console.
+-- Only transitions INTO cancelled are guarded, so editing an already-cancelled
+-- bill is untouched and 'superseded' keeps its own flow.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_billing_bills_guard_cancel ON public.billing_student_bills;
+CREATE TRIGGER trg_billing_bills_guard_cancel
+  BEFORE UPDATE ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_bill_cancellation();
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+-- DEFERRABLE INITIALLY DEFERRED: a multi-band edit is judged once at COMMIT,
+-- not at every intermediate state -- reordering bands would be impossible
+-- otherwise. Constraint triggers must be FOR EACH ROW; the function reads the
+-- whole set regardless.
+-- ===========================================================================
+-- The set-level validator that used to live here was dropped on 2026-09-02
+-- (20260902120000): its rules could not be satisfied by any single row, so
+-- adding one band was impossible. Overlap is still refused by the EXCLUDE
+-- constraint on the table; coverage is now a warning on the TDS Bands screen.
+
+
+DROP TRIGGER IF EXISTS trg_hr_tds_slabs_updated_at ON public.hr_tds_slabs;
+CREATE TRIGGER trg_hr_tds_slabs_updated_at
+  BEFORE UPDATE ON public.hr_tds_slabs
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ===========================================================================
+-- calendar_entries -> attendance (2026-09-02)
+-- No WHEN clause: it would reference OLD, which Postgres refuses on a trigger
+-- that also fires for INSERT. The kind='holiday' check is the first thing the
+-- function does instead.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS tr_recompute_attendance_on_calendar_holiday ON public.calendar_entries;
+CREATE TRIGGER tr_recompute_attendance_on_calendar_holiday
+  AFTER INSERT OR UPDATE OR DELETE ON public.calendar_entries
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_recompute_attendance_on_calendar_holiday();

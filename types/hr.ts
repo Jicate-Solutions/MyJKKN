@@ -289,6 +289,16 @@ export type LeaveDurationType = 'full' | 'first_half' | 'second_half' | 'hourly'
  */
 export type LeaveRequestCategory = 'leave' | 'short_time_off' | 'compensatory_off';
 
+/** One approver's decision on a step. Only meaningful on multi-approver steps. */
+export interface LeaveStepDecision {
+  /** profiles.id of the approver. trg_hla_guard_chain_decisions refuses any
+   *  newly-added decision whose `by` is not the caller's own auth.uid(). */
+  by: string;
+  at: string;
+  decision: 'approved' | 'rejected';
+  comment: string | null;
+}
+
 export interface LeaveApprovalStep {
   step_order: number;
   approver_role: string;
@@ -298,6 +308,19 @@ export interface LeaveApprovalStep {
   decided_by?: string | null;
   comment?: string | null;
   escalate_after_hours: number;
+  // ----- Multi-approver / parallel (2026-08-31) ----------------------------
+  // All optional, so the 709 in-flight single-approver chains and every
+  // recruitment chain read exactly as before.
+  /** Every approver on this step. Absent → the step's own singular fields. */
+  approvers?: Array<{
+    approver_role: string | null;
+    approver_user_id: string | null;
+    approver_name: string | null;
+  }>;
+  /** Absent → 'any', which is what a one-approver step has always meant. */
+  quorum?: 'any' | 'all';
+  /** Decisions recorded so far. Absent → none yet (or a legacy single decision). */
+  decisions?: LeaveStepDecision[];
   // ----- Recruitment-only extensions (2026-07-06 dynamic flows) -------------
   // Optional so legacy chains and leave chains are untouched.
   /** 'review' = notes + mark reviewed; 'final' = grants final approval. Legacy chains: absent → last step acts as final. */
@@ -680,4 +703,15 @@ export interface HRLeaveApprovalQueueRow {
   can_decide: boolean;
   /** Current step routes to this caller. A filter, not a permission. */
   waiting_on_me: boolean;
+  /**
+   * First covered day whose biometric file is not uploaded, or null when the
+   * request can be approved. Computed by fn_hr_leave_biometric_gap — the SAME
+   * body trg_hla_block_approval_without_biometric raises on, so this can never
+   * promise a decision the database refuses.
+   *
+   * Null for Short Time Off (exempt: the import consumes approved permissions
+   * and recomputeForShortTimeOff covers the other direction), for future-dated
+   * requests, for institutions that run no biometric, and on decided rows.
+   */
+  biometric_gap_from: string | null;
 }

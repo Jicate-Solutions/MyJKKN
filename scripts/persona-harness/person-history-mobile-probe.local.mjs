@@ -24,7 +24,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const CONFIG = JSON.parse(readFileSync(resolve(SCRIPT_DIR, 'personas.json'), 'utf8'));
 const BASE = process.env.PERSONA_BASE_URL || CONFIG.baseUrl;
 const HOST = new URL(BASE).hostname;
-const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password || 'Test@1234';
+const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password;
 const EMAIL = CONFIG.accounts.superadmin;
 const UID = process.argv[2];
 if (!UID) throw new Error('usage: node person-history-mobile-probe.local.mjs <booking-uid>');

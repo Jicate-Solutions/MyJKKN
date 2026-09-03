@@ -379,6 +379,16 @@ export function SalaryImportDialog({ open, onOpenChange, onImportComplete }: Pro
                 Employee IDs with no staff record. Add them under Employees, then re-upload.
               </p>
             )}
+
+            {report.validation.counts.not_in_hr > 0 && (
+              <p className="text-xs text-muted-foreground">
+                <Badge variant="outline" className="mr-1.5">
+                  {report.validation.counts.not_in_hr} skipped
+                </Badge>
+                Employment categories excluded from HR. Turn on “Included in HR” for the
+                category if they should be paid through payroll.
+              </p>
+            )}
           </div>
         )}
 

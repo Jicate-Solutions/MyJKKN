@@ -1617,9 +1617,22 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
         <TabbedFormShell tabs={tabs} defaultTab='basic' />
 
-        {/* Form Actions — Task 23 (P4.23). Cancel / Save Draft / Save & Publish.
-            Save Draft skips the extended-schema check; Save & Publish runs it.
-            Save & Publish only appears when has_extended_profile is on. */}
+        {/* Form Actions — Cancel / primary save / Save & Publish.
+            Save & Publish only appears when has_extended_profile is on.
+
+            2026-08-30: the primary button used to be labelled "Save Draft" and
+            hard-coded `status: 'draft'`. Two things were wrong with that.
+            `staff.status` is the PUBLIC-DIRECTORY publishing flag, not a
+            form-completeness state, so (a) on a record without an extended
+            profile this was the ONLY save button, meaning the sole way to
+            update an employee was a button that said you were saving a draft;
+            and (b) it silently overrode the "Profile Status" dropdown a few
+            fields above — set that to Published, save, and it reverted to
+            draft, un-publishing anyone already live.
+
+            The primary now saves the status the form actually holds, and
+            validates the extended schema whenever the record will end up
+            publicly visible. */}
         <div className='flex flex-wrap items-center justify-end gap-2 pt-4 border-t'>
           <Button
             type='button'
@@ -1631,14 +1644,18 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           </Button>
           <Button
             type='button'
-            variant='outline'
-            onClick={form.handleSubmit(
-              (values) => onSubmit({ ...values, status: 'draft' }, { strict: false }),
-              onInvalid
-            )}
+            variant={hasExtended ? 'outline' : 'default'}
+            onClick={form.handleSubmit((values) => {
+              const nextStatus = values.status ?? 'draft';
+              return onSubmit(values, {
+                // A published record is on the public site, so its extended
+                // fields must pass validation however it got there.
+                strict: Boolean(values.has_extended_profile) && nextStatus === 'published',
+              });
+            }, onInvalid)}
             disabled={isSubmitting}
           >
-            Save Draft
+            {isEditing ? 'Update Employee' : 'Create Employee'}
           </Button>
           {hasExtended && (
             <Button
@@ -1649,7 +1666,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               )}
               disabled={isSubmitting}
             >
-              Save & Publish
+              Save &amp; Publish
             </Button>
           )}
         </div>

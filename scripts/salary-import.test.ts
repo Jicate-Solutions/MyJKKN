@@ -16,7 +16,7 @@ function check(label: string, ok: boolean, got?: string) {
 
 const staff = (over: Partial<SalaryStaffRow> & { staff_id: string }): SalaryStaffRow => ({
   id: `id-${over.staff_id}`, first_name: 'A', last_name: 'B',
-  is_active: true, hr_organization_id: 'org-1', ...over,
+  is_active: true, included_in_hr: true, hr_organization_id: 'org-1', ...over,
 });
 
 console.log('=== validator ===');
@@ -102,6 +102,36 @@ console.log('=== validator ===');
     staff: [staff({ staff_id: 'NOT100' })],
   });
   check('surrounding whitespace is trimmed, not a new person', v.counts.importable === 1);
+}
+
+// employment_categories.included_in_hr gates the whole HR module. The read
+// screen has always been on v_hr_staff; the import resolves against the base
+// staff table under the service role, so this branch is the only thing standing
+// between an Ayaah's employee code and a salary row.
+{
+  const v = validateSalaryUpload({
+    rows: [{ row_number: 3, employee_code: 'AYA001', employee_name: 'X', monthly_gross: 9000, annual_gross_in_file: 108000 }],
+    staff: [staff({ staff_id: 'AYA001', included_in_hr: false })],
+  });
+  check('an excluded category is skipped, not imported',
+    v.counts.not_in_hr === 1 && v.counts.importable === 0);
+  check('  and is NOT reported as unmatched', v.counts.unmatched === 0);
+  check('  the row names the category, not a missing staff record',
+    (v.rows[0]?.reason ?? '').includes('employment category'));
+  check('  the person still resolves, so the verdict can name them',
+    v.rows[0]?.staff_uuid === 'id-AYA001');
+}
+{
+  const v = validateSalaryUpload({
+    rows: [
+      { row_number: 3, employee_code: 'NOT100', employee_name: 'X', monthly_gross: 100, annual_gross_in_file: 1200 },
+      { row_number: 4, employee_code: 'AYA001', employee_name: 'Y', monthly_gross: 900, annual_gross_in_file: 10800 },
+    ],
+    staff: [staff({ staff_id: 'NOT100' }), staff({ staff_id: 'AYA001', included_in_hr: false })],
+  });
+  check('an excluded row does not block the rest of the file',
+    v.counts.importable === 1 && v.can_import);
+  check('  but it must be acknowledged first', v.requires_acknowledgement);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

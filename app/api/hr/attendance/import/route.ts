@@ -48,6 +48,11 @@ import {
   fetchApprovedPermissions, permissionKey, type PermissionsByStaffDay,
 } from '@/lib/hr/biometric/fetch-permissions';
 import { evaluateDay, type AttendanceVerdict } from '@/lib/hr/biometric/evaluate-day';
+import {
+  applyHolidayToStatusCode,
+  fetchHolidayKeys,
+  holidayKey,
+} from '@/lib/hr/attendance/holiday-dates';
 import type { ResolvedShiftTiming } from '@/types/hr-shift-timings';
 import type {
   BiometricAnomaly,
@@ -192,10 +197,29 @@ export async function POST(request: NextRequest) {
     // base table would silently re-add excluded staff every month, which is the
     // one thing that would make the flag look broken. Same columns (the view is
     // SELECT s.*), and no embed here, so the swap is a table-name change only.
+    //
+    // ACTIVE STAFF ONLY (2026-09-02). Until now the resolution ignored
+    // employment status entirely, so a relieved employee whose enrolment code
+    // was never cleared from the device kept generating attendance for as long
+    // as they kept punching -- 107 relieved staff still hold a code, and 26 of
+    // them already had records. Their days flowed into the period summary and
+    // out the other side as payable days on the Salary Register.
+    //
+    // A SKIP, NEVER A DELETE. The upsert below is keyed on
+    // (employee_id, work_date), so an inactive person simply produces no row;
+    // records already imported while they were active are left exactly as they
+    // are. That matters because `staff` carries no relieving date -- only the
+    // is_active boolean -- so re-importing an old month cannot tell "left after
+    // this date" from "left before it". Not writing is safe; deleting would not
+    // have been.
+    //
+    // Their codes fall through to the unmatched list, which the report shows, so
+    // a skipped person is visible rather than silently missing.
     const { data: enrolled, error: staffErr } = await svc
       .from('v_hr_staff')
       .select('id, staff_id, first_name, last_name, institution_id, biometric_id, category_id')
       .eq('biometric_institution_id', machine.id)
+      .eq('is_active', true)
       .not('biometric_id', 'is', null)
       .limit(5000);
     if (staffErr) {
@@ -214,13 +238,46 @@ export async function POST(request: NextRequest) {
       if (key && !staffByCode.has(key)) staffByCode.set(key, s);
     }
 
+    // The same enrolment set again, but RELIEVED. Only used to tell "this code
+    // belongs to someone who left" apart from "nobody owns this code" -- two very
+    // different things for whoever reads the report, and indistinguishable if
+    // the skipped rows just vanished into unmatched_codes.
+    const { data: relievedEnrolled } = await svc
+      .from('staff')
+      .select('staff_id, first_name, last_name, biometric_id')
+      .eq('biometric_institution_id', machine.id)
+      .eq('is_active', false)
+      .not('biometric_id', 'is', null)
+      .limit(5000);
+
+    const relievedByCode = new Map<string, string>();
+    for (const s of (relievedEnrolled ?? []) as Array<{
+      staff_id: string | null; first_name: string | null;
+      last_name: string | null; biometric_id: string | null;
+    }>) {
+      const key = normBiometricCode(s.biometric_id);
+      if (key && !relievedByCode.has(key)) {
+        relievedByCode.set(
+          key,
+          [[s.first_name, s.last_name].filter(Boolean).join(' ').trim(), s.staff_id]
+            .filter(Boolean).join(' · ') || 'unnamed',
+        );
+      }
+    }
+
     const matched: Array<{ staff: StaffRow; emp: (typeof report.employees)[number] }> = [];
     const unmatched: Array<{ code: string; name: string }> = [];
+    const relievedSkipped: Array<{ code: string; name: string; staff: string }> = [];
     for (const emp of report.employees) {
       const key = normBiometricCode(emp.code);
       const s = key ? staffByCode.get(key) : undefined;
-      if (s) matched.push({ staff: s, emp });
-      else unmatched.push({ code: emp.code, name: emp.name });
+      if (s) {
+        matched.push({ staff: s, emp });
+      } else if (key && relievedByCode.has(key)) {
+        relievedSkipped.push({ code: emp.code, name: emp.name, staff: relievedByCode.get(key)! });
+      } else {
+        unmatched.push({ code: emp.code, name: emp.name });
+      }
     }
 
     // ---- Shift timings for every (staff, date), in one call -----------------
@@ -246,6 +303,11 @@ export async function POST(request: NextRequest) {
           institution_id: '',
           staff_scope: t.matched_by as ResolvedShiftTiming['staff_scope'],
           employment_category_id: null,
+          // Placeholder, like institution_id above and day_of_week below:
+          // fn_resolve_shift_timings_bulk returns the window only, and
+          // evaluateDay reads none of the three. The gender was already applied
+          // inside the resolver.
+          applicable_gender: 'all',
           day_of_week: 1,
           is_working_day: t.is_working_day as boolean,
           first_half_start: t.first_half_start as string | null,
@@ -312,7 +374,33 @@ export async function POST(request: NextRequest) {
       ABSENT: 'ABSENT',
       WEEKLY_OFF: 'WEEKLY_OFF',
     };
-    const missingStatus = Object.values(VERDICT_TO_CODE).filter((c) => !statusIdByCode.has(c));
+    // Not a verdict evaluateDay can produce — it is substituted below for a
+    // declared holiday — but the id has to exist before the loop runs.
+    const HOLIDAY_CODE = 'HOLIDAY';
+    /**
+     * DECLARED HOLIDAYS FOR THIS IMPORT'S RANGE, loaded once.
+     *
+     * Without this the importer writes ABSENT for every staff member on a
+     * festival, and ABSENT carries affects_lop = true — so the Salary Register
+     * deducts a day's pay for a paid holiday. A trigger corrects it afterwards,
+     * but only afterwards: anything reading in between sees absences that were
+     * never real, and until 2026-09-02 no trigger watched the calendar at all.
+     *
+     * Institutions come from the matched staff, so an import that touches one
+     * college does not resolve holidays for the whole group.
+     */
+    const holidayKeys =
+      dateFrom && dateTo
+        ? await fetchHolidayKeys(
+            svc,
+            matched.map((m) => m.staff.institution_id).filter(Boolean) as string[],
+            dateFrom,
+            dateTo,
+          )
+        : new Set<string>();
+
+    const missingStatus = [...Object.values(VERDICT_TO_CODE), HOLIDAY_CODE]
+      .filter((c) => !statusIdByCode.has(c));
     if (missingStatus.length > 0) {
       return NextResponse.json(
         { error: 'Attendance status types missing', message: `No system status row for: ${missingStatus.join(', ')}.` },
@@ -466,7 +554,16 @@ export async function POST(request: NextRequest) {
           hr_organization_id: orgId,
           institution_id: institutionId,
           work_date: day.workDate,
-          status_type_id: statusIdByCode.get(VERDICT_TO_CODE[verdict.verdict as Exclude<AttendanceVerdict, 'EXCEPTION'>]),
+          // A declared holiday turns a no-show into HOLIDAY, which
+          // fn_hr_compute_attendance_period_summary subtracts from working days
+          // so it can never be LOP. PRESENT and HALF_DAY pass through untouched:
+          // a punch is evidence of work.
+          status_type_id: statusIdByCode.get(
+            applyHolidayToStatusCode(
+              VERDICT_TO_CODE[verdict.verdict as Exclude<AttendanceVerdict, 'EXCEPTION'>],
+              holidayKeys.has(holidayKey(institutionId, day.workDate)),
+            ),
+          ),
           in_at: day.inTime ? `${day.workDate}T${day.inTime}:00+05:30` : null,
           out_at: day.outTime ? `${day.workDate}T${day.outTime}:00+05:30` : null,
           source: 'biometric',
@@ -564,6 +661,7 @@ export async function POST(request: NextRequest) {
       employees_in_file: report.employees.length,
       matched_employees: matched.length,
       unmatched_codes: unmatched,
+      relieved_skipped: relievedSkipped,
       total_day_cells: report.employees.reduce((n, e) => n + e.days.length, 0),
       counts,
       preview,
@@ -580,6 +678,7 @@ export async function POST(request: NextRequest) {
       field_totals: fieldTotals,
       written: 0,
       exceptions_written: 0,
+      leave_restamped: 0,
     };
 
     if (dryRun) {
@@ -607,6 +706,44 @@ export async function POST(request: NextRequest) {
       written += up?.length ?? chunk.length;
     }
 
+    // ---- Re-apply approved leave stamps -------------------------------------
+    // The upsert above wrote status_type_id straight from the biometric verdict,
+    // which knows nothing about approved leave. Without this step the import
+    // ERASES every LEAVE / HALF_DAY stamp in its range, and any leave approved
+    // before the upload never lands at all — fn_recompute_attendance_on_leave_-
+    // approval is a bare UPDATE, so with no row for the day it matched nothing
+    // and the approval was lost silently.
+    //
+    // Running it here makes upload order stop mattering: approve-then-import and
+    // import-then-approve both end with the day stamped. Short Time Off needs
+    // nothing here — evaluateDay already consumed approved permissions above,
+    // and recomputeForShortTimeOff covers the other direction.
+    //
+    // PER INSTITUTION, not once for the file's own: one machine carries staff
+    // from several institutions (13 of 36 identified people on the Main Office
+    // machine belong elsewhere), and the function is institution-scoped.
+    let leaveRestamped = 0;
+    const restampInstitutions = [
+      ...new Set(records.map((r) => r.institution_id as string).filter(Boolean)),
+    ];
+    if (dateFrom && dateTo) {
+      for (const instId of restampInstitutions) {
+        const { data: restamped, error: restampErr } = await session.rpc(
+          'fn_restamp_leave_attendance',
+          { p_institution_id: instId, p_from: dateFrom, p_to: dateTo },
+        );
+        // Not fatal: the attendance that just imported is still correct for
+        // everyone without approved leave, and losing it to a re-stamp failure
+        // would be the worse outcome. Surfaced in the response so a silent
+        // partial is visible rather than assumed.
+        if (restampErr) {
+          console.error('[hr/attendance/import] leave re-stamp failed:', restampErr);
+          continue;
+        }
+        leaveRestamped += (restamped as number | null) ?? 0;
+      }
+    }
+
     let exceptionsWritten = 0;
     for (let i = 0; i < exceptions.length; i += 500) {
       const chunk = exceptions.slice(i, i + 500);
@@ -627,7 +764,13 @@ export async function POST(request: NextRequest) {
         ...base,
         written,
         exceptions_written: exceptionsWritten,
-        message: `Imported ${written} day-record(s) for ${matched.length} employee(s); ${exceptionsWritten} exception(s) raised.`,
+        leave_restamped: leaveRestamped,
+        message:
+          `Imported ${written} day-record(s) for ${matched.length} employee(s); ` +
+          `${exceptionsWritten} exception(s) raised` +
+          (leaveRestamped > 0
+            ? `; ${leaveRestamped} day(s) re-stamped from approved leave.`
+            : '.'),
       },
       { status: 200 },
     );

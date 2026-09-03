@@ -4534,9 +4534,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/payroll/register",
+            "label": "Register",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/salaries",
             "label": "Salaries",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/tds-slabs",
+            "label": "TDS Bands",
+            "iconName": "Percent",
             "children": []
           }
         ]
@@ -4587,6 +4599,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/recruitment/approvals",
             "label": "Approvals",
+            "iconName": "UserSearch",
+            "children": []
+          },
+          {
+            "path": "/hr/recruitment/candidates",
+            "label": "Candidates",
             "iconName": "UserSearch",
             "children": []
           },
@@ -5547,6 +5565,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Schedule",
         "iconName": "CalendarClock",
         "children": []
+      },
+      {
+        "path": "/meetings/series",
+        "label": "Recurring Series",
+        "iconName": "Repeat",
+        "children": [
+          {
+            "path": "/meetings/series/rules",
+            "label": "Scheduling Rules",
+            "iconName": "SlidersHorizontal",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/meetings/triggers",
@@ -7086,6 +7117,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "path": "/startup-studio/school-of-influence/admin/members",
                 "label": "Members",
                 "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/startup-studio/school-of-influence/admin/merge",
+                "label": "Merge",
+                "iconName": "FileText",
                 "children": []
               },
               {

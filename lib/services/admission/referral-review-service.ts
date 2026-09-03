@@ -45,6 +45,8 @@ export interface ReferralReviewRow {
   payout_cleared_at: string | null;
   payout_cleared_by_name: string | null;
   payout_cleared_note: string | null;
+  /** Bucket D only — where the learner stands in the admission lifecycle. */
+  lifecycle_status?: string | null;
 }
 
 export interface ReferralReviewWorklist {
@@ -57,6 +59,7 @@ export interface ReferralReviewWorklist {
     walkin_credited: number;
     unlinked: number;
     no_enquiry_trail: number;
+    attendance_held: number;
   };
   /** How much of the checking job is left, counted the same way the generator
    *  counts it — so the progress on screen and the money that would move can
@@ -66,6 +69,10 @@ export interface ReferralReviewWorklist {
     cleared: number;
     total: number;
   };
+  /** Enrolled referrals whose sessions ARE marked and who have never been recorded
+   *  present. Listed only where a register exists — an unmarked session says
+   *  nothing about the learner, so those are never held and never shown. */
+  attendance_held: ReferralReviewRow[];
   /** Read live, not asserted, so the "nothing is payable yet" banner cannot go
    *  stale the moment someone sets a rate. */
   money_position: {
@@ -91,6 +98,25 @@ export class ReferralReviewService {
     });
     if (error) throw new Error(error.message);
     return data as ReferralReviewWorklist;
+  }
+
+  /**
+   * Release ONE referral held because session attendance has never recorded its
+   * learner. Records who and when. Writes no money row and pays nobody.
+   */
+  static async clearAttendanceHold(
+    learnerProfileId: string,
+    academicYear: number,
+    note?: string,
+  ): Promise<ClearWalkinCreditResult> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc('fn_clear_referral_attendance_hold', {
+      p_learner_profile_id: learnerProfileId,
+      p_year: academicYear,
+      p_note: note?.trim() ? note.trim() : null,
+    });
+    if (error) throw new Error(error.message);
+    return data as ClearWalkinCreditResult;
   }
 
   /**

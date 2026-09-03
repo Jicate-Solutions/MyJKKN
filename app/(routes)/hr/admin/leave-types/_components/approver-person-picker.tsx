@@ -9,11 +9,20 @@
 // Search and role filter belong to a step, so they live in the step's component.
 //
 // The role filter is sent to the RPC, not applied to its result. The candidate
-// query is capped at 50 rows and ordered can_approve-first; the largest
-// organization here has 152 people with a login account, and roles like `hod`
+// query is capped at 100 rows and ordered can_approve-first, and roles like `hod`
 // (which does not grant hr.leave.approve) sort to the very end — filtering the
-// returned page client-side would report "nobody holds that role" for nine
-// people who do.
+// returned page client-side would report "nobody holds that role" for people who
+// do.
+//
+// THE LIST SPANS EVERY INSTITUTION THE CALLER CAN ACCESS, not just the leave
+// type's own organisation (widened 2026-08-30). Only 13 of 751 staff with a
+// login hold hr.leave.approve, and an institution can easily have none of its
+// own — Dental has zero — so a single-organisation list could offer nobody who
+// could actually act on the step. A PINNED approver is exempt from the
+// organisation term in fn_is_designated_leave_approver, in both hla_select and
+// hla_update, and in hr_trig_leave_enforce_approver, so this is supported end to
+// end. hrOrgId is now an ordering hint: that organisation's own people sort
+// first within each can_approve band.
 //
 // What is stored is profiles.id, an auth uid — never staff.id. See the header of
 // hr_leave_approver_candidates() for why that distinction is load-bearing.
@@ -128,7 +137,12 @@ export function ApproverPersonPicker({
         </div>
       )}
 
-      <div className="max-h-40 overflow-y-auto rounded-md border">
+      {/* overflow-x-hidden is not cosmetic: with only overflow-y set, CSS
+          computes the other axis to `auto`, so this box grew a horizontal
+          scrollbar the moment a row was too wide instead of making the row
+          fit. Pinned together with the truncation below — the container
+          stops the scrollbar, the truncation stops the clipping. */}
+      <div className="max-h-40 overflow-y-auto overflow-x-hidden rounded-md border">
         {isLoading && !candidates ? (
           <div className="space-y-2 p-2">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -139,7 +153,7 @@ export function ApproverPersonPicker({
           <p className="p-3 text-xs text-muted-foreground">
             {roleKey === ANY_ROLE
               ? 'No matching team members with a login account.'
-              : `Nobody in this organization holds ${roleLabel ?? 'that role'}${
+              : `Nobody you can see holds ${roleLabel ?? 'that role'}${
                   debounced ? ' and matches that search' : ''
                 }.`}
           </p>
@@ -156,9 +170,18 @@ export function ApproverPersonPicker({
                 selectedId === c.profile_id && 'bg-muted'
               )}
             >
-              <span className="min-w-0">
-                <span className="block font-medium">{c.full_name ?? c.email}</span>
+              <span className="min-w-0 flex-1">
+                {/* truncate on BOTH lines. This one had none, and it falls
+                    back to the email when a staff member has no name —
+                    addresses like test.managing_director@jkkn.ac.in are
+                    routinely wider than the picker. */}
+                <span className="block truncate font-medium">
+                  {c.full_name ?? c.email}
+                </span>
                 <span className="block truncate text-muted-foreground">
+                  {/* Institution first: the list spans all of them now, and it is
+                      the field that tells two similar names apart. */}
+                  {c.institution_name ? `${c.institution_name} · ` : ''}
                   {c.role_names ?? 'No role assigned'}
                 </span>
               </span>
@@ -172,9 +195,10 @@ export function ApproverPersonPicker({
         )}
       </div>
 
-      {list.length >= 50 && (
+      {list.length >= 100 && (
         <p className="text-xs text-muted-foreground">
-          Showing the first 50 matches — narrow by name or role to see others.
+          Showing the first 100 matches across every institution you can access —
+          narrow by name or role to see others.
         </p>
       )}
     </div>
