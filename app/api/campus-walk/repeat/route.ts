@@ -91,6 +91,22 @@ export async function POST(request: NextRequest) {
     return fail(result.error, status, { code: result.code });
   }
 
+  // ── D6 urgent lane on a recurrence — did a phone actually ring? ───────────
+  // Present only when the reopened ticket is marked unsafe. Same projection
+  // shape app/api/campus-walk/observations/route.ts returns at capture time,
+  // and part of a `success: true` body for the same reason: the reopen itself
+  // committed. What it carries is the one thing the Director cannot otherwise
+  // know — whether anybody was paged about a danger now on its Nth report.
+  const urgentAlert = result.urgentAlert
+    ? {
+        delivered: result.urgentAlert.delivered,
+        usedFallback: result.urgentAlert.usedFallback,
+        directorCopied: result.urgentAlert.directorCopied,
+        failureReason: result.urgentAlert.failureReason
+      }
+    : null;
+  const urgentAlertMissed = Boolean(result.urgentAlert && result.urgentAlert.delivered === 0);
+
   return NextResponse.json({
     success: true,
     taskId: result.taskId,
@@ -105,8 +121,11 @@ export async function POST(request: NextRequest) {
     // without surfacing it here the caller is told "Reopened" and never learns
     // the ticket is unowned, and an unowned ticket is one that never closes.
     ownerAssignmentFailed: result.ownerAssignmentFailed,
+    urgentAlert,
     message: result.ownerAssignmentFailed
       ? `Reopened — occurrence #${result.occurrenceCount}. Nobody could be assigned to it; please pick an owner.`
-      : `Reopened — occurrence #${result.occurrenceCount}.`
+      : urgentAlertMissed
+        ? `Reopened — occurrence #${result.occurrenceCount}. The phone alert reached nobody; tell whoever must act.`
+        : `Reopened — occurrence #${result.occurrenceCount}.`
   });
 }

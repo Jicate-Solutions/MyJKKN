@@ -209,6 +209,13 @@ const person: CardPersonData = {
   courseName: 'B.Tech AI',
   departmentName: 'CSE',
   institutionName: 'JKKN College of Engineering',
+  // Completed 2026-09-03: isSchool is new; studyPeriod / staffId /
+  // courseEndDate were missing since they were added to CardPersonData —
+  // invisible because tsconfig excludes __tests__ from a local tsc run.
+  isSchool: false,
+  studyPeriod: null,
+  staffId: null,
+  courseEndDate: null,
   qrValue: 'learner-uuid',
   photoCandidates: [],
   valueBag: {},

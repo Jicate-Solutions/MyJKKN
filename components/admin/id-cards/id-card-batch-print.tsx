@@ -188,15 +188,12 @@ function isRenderablePhotoRef(value: string | null): boolean {
  * so a screen that still counted avatars would offer the office 30 learners the
  * endpoint refuses — the office chasing a different list than the printer.
  *
- * `avatarUrl` is retained in the signature (callers still pass it) but is
- * deliberately IGNORED. Junk values (e.g. a roll number stored in the photo
- * column) count as no photo, matching what the engine would actually draw.
- * (Exported for unit tests.)
+ * Junk values (e.g. a roll number stored in the photo column) count as no
+ * photo, matching what the engine would actually draw. The account avatar is
+ * not a parameter at all any more — it is not fetched, not weighed, not
+ * rejected. (Exported for unit tests.)
  */
-export function hasPrintablePhoto(
-  learnerPhotoUrl: string | null,
-  _avatarUrl?: string | null
-): boolean {
+export function hasPrintablePhoto(learnerPhotoUrl: string | null): boolean {
   return isRenderablePhotoRef(learnerPhotoUrl);
 }
 
@@ -445,8 +442,7 @@ export function IdCardBatchPrint() {
 
       // Resolve accounts up front — only learners with an account
       // (profiles.learner_id) can get a card, and the ribbon estimate
-      // must count real printable cards. avatar_url rides along as the
-      // second link of the photo fallback chain.
+      // must count real printable cards.
       const accountMap = await resolveAccountsForLearners(
         matched.map((l) => l.id)
       );
@@ -469,7 +465,7 @@ export function IdCardBatchPrint() {
         }
         if (
           !includeNoPhoto &&
-          !hasPrintablePhoto(l.student_photo_url, account.avatarUrl)
+          !hasPrintablePhoto(l.student_photo_url)
         ) {
           noPhoto.push({ name, rollNumber: l.roll_number });
           continue;

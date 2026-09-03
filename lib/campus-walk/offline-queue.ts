@@ -89,6 +89,23 @@ export interface DuplicateFlag {
   matchedTaskId: string;
 }
 
+/**
+ * D6 — what the server said about the immediate phone alert for an observation
+ * marked UNSAFE. Set on the QueueItem ONLY when nothing reached a phone; a
+ * delivered alert needs no notice, and a successful one shown as a banner
+ * would train him to scroll past the failed ones.
+ *
+ * The capture screen tells him, before the unsafe toggle turns on, that
+ * marking a condition unsafe sends "an immediate phone alert". This is the
+ * field that keeps that sentence honest when it did not happen — he is
+ * standing at the hazard and is the only person in a position to go and tell
+ * somebody by other means.
+ */
+export interface UrgentAlertFailure {
+  /** Short, plain reason the server reported. Safe to show as-is. */
+  reason: string;
+}
+
 export interface QueueItem {
   id: string;
   createdAt: number;
@@ -119,6 +136,12 @@ export interface QueueItem {
    *  uploading and the server flags it as a likely resend. Null when there
    *  is nothing to show. Cleared only by dismissDuplicateFlag() below. */
   duplicate: DuplicateFlag | null;
+  /** D6 — set from the server's response when this item was marked unsafe and
+   *  the immediate phone alert reached NOBODY. Null in every other case,
+   *  including a delivered alert and any observation that was not unsafe.
+   *  Optional on the type because records written before this field existed
+   *  are still in IndexedDB and read back without it. */
+  urgentAlertFailure?: UrgentAlertFailure | null;
 }
 
 export interface NewObservationInput {
@@ -234,7 +257,8 @@ export async function enqueueObservation(input: NewObservationInput): Promise<Qu
     terminal: false,
     nextAttemptAt: now,
     retryAfterCrash: false,
-    duplicate: null
+    duplicate: null,
+    urgentAlertFailure: null
   };
   await putItem(item);
   notify();
@@ -347,6 +371,13 @@ interface UploadOutcome {
   message: string | null;
   /** Ruling 2 — only ever populated on an `ok` outcome; null otherwise. */
   duplicate: DuplicateFlag | null;
+  /**
+   * D6 — only ever populated on an `ok` outcome, and only when the server
+   * reported that an unsafe observation's phone alert reached nobody.
+   * Optional so the many failure returns below, where it is meaningless, stay
+   * untouched.
+   */
+  urgentAlertFailure?: UrgentAlertFailure | null;
 }
 
 /**
@@ -362,6 +393,32 @@ function parseDuplicateFlag(json: any): DuplicateFlag | null {
   const matchedTaskId = json?.possibleDuplicateOf;
   if (typeof matchedTaskId !== 'string' || matchedTaskId.length === 0) return null;
   return { matchedTaskId };
+}
+
+/**
+ * D6 — reads the intake route's `urgentAlert` response field
+ * ({ delivered, usedFallback, failureReason }), which is present only for an
+ * observation marked unsafe and null otherwise.
+ *
+ * Returns a flag ONLY when nothing was delivered. Note the asymmetry with
+ * parseDuplicateFlag above: that one is strict because a wrongly-shown
+ * duplicate notice erodes trust, whereas here a MISSED notice is the dangerous
+ * direction. So a malformed or absent `failureReason` on a `delivered: 0`
+ * response still raises the flag, with a generic reason, rather than being
+ * discarded — the one thing this must never do is stay quiet when no phone
+ * rang. An `urgentAlert` that is absent entirely (an observation that was not
+ * unsafe, or an older server) yields null, which is correct: there was no
+ * alert to miss.
+ */
+function parseUrgentAlertFailure(json: any): UrgentAlertFailure | null {
+  const alert = json?.urgentAlert;
+  if (!alert || typeof alert !== 'object') return null;
+  if (Number(alert.delivered) > 0) return null;
+  const reason =
+    typeof alert.failureReason === 'string' && alert.failureReason.trim().length > 0
+      ? alert.failureReason.trim()
+      : 'the phone alert could not be delivered';
+  return { reason };
 }
 
 async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
@@ -435,7 +492,13 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
   // Contract: { success: true, ... } | { success: false, error }. Tolerant of
   // extra/renamed fields either side adds later — only `success`/`error` are load-bearing.
   if (res.ok && json && json.success !== false) {
-    return { ok: true, terminal: false, message: null, duplicate: parseDuplicateFlag(json) };
+    return {
+      ok: true,
+      terminal: false,
+      message: null,
+      duplicate: parseDuplicateFlag(json),
+      urgentAlertFailure: parseUrgentAlertFailure(json),
+    };
   }
 
   const serverMessage: string | undefined = json?.error;
@@ -568,6 +631,11 @@ async function pumpOnce(): Promise<boolean> {
       // dismissDuplicateFlag(). Null clears any stale flag from an earlier
       // attempt of this same item that the server did NOT flag this time.
       next.duplicate = outcome.duplicate;
+      // D6 — kept on the record rather than shown once and lost, because it is
+      // an instruction to go and do something, not a transient toast. Same
+      // clear-on-reattempt rule as `duplicate` above: a later successful
+      // attempt of this same item overwrites a stale failure with null.
+      next.urgentAlertFailure = outcome.urgentAlertFailure ?? null;
       await putItem(next);
     } else {
       next.attempts += 1;

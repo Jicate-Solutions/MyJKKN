@@ -496,6 +496,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── D6 urgent lane — did a phone actually ring? ───────────────────────────
+  // Present only for an observation marked unsafe. This is deliberately part
+  // of a `success: true` body and NOT a failure: the ticket exists, the photo
+  // is stored, and the ordinary lane worked. What it carries is the one thing
+  // the observer cannot otherwise know while still standing at the hazard —
+  // whether anybody was actually paged about it. The capture screen shows it
+  // in the queue when nothing was delivered, so "nobody was told" can never be
+  // mistaken for "told". Null when the observation was not marked unsafe.
+  const urgentAlert = result.urgentAlert
+    ? {
+        delivered: result.urgentAlert.delivered,
+        usedFallback: result.urgentAlert.usedFallback,
+        failureReason: result.urgentAlert.failureReason,
+      }
+    : null;
+
   return NextResponse.json(
     {
       success: true,
@@ -507,6 +523,7 @@ export async function POST(request: NextRequest) {
       // The client surfaces this as a dismissible "looks like the one you just
       // sent" in the queue. It never discards anything on its own.
       possibleDuplicateOf: duplicateOf,
+      urgentAlert,
     },
     { status: 200 },
   );

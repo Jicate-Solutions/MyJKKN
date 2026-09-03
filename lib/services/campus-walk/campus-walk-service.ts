@@ -31,6 +31,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
+import {
+  sendUrgentConditionAlert,
+  type UrgentAlertOutcome
+} from '@/lib/campus-walk/urgent-alert';
 
 const CAMPUS_OPS_PROJECT_CODE = 'CAMPUS-OPS';
 
@@ -394,6 +398,14 @@ export interface CreateWalkTaskResult {
   attachmentId: string | null;
   /** Every attachment row that was successfully created, primary first. Empty when photos failed or none were supplied that inserted successfully. */
   attachmentIds?: string[];
+  /**
+   * D6 urgent lane. Present ONLY when the observation was marked unsafe;
+   * undefined otherwise, so an ordinary observation's result shape is
+   * unchanged. Carries whether a phone was actually reached — the caller is
+   * expected to surface `failureReason` rather than discard it, because an
+   * unsafe condition that paged nobody must not look like one that did.
+   */
+  urgentAlert?: UrgentAlertOutcome;
 }
 
 /**
@@ -521,6 +533,42 @@ export async function createWalkTask(
       return null;
     }
 
+    // ── D6, the urgent lane (Director ruling 2026-09-03) ───────────────────
+    // An UNSAFE condition pages a phone STRAIGHT AWAY. This sits here, at the
+    // first moment a task id exists and BEFORE the attachment, RACI and
+    // notification steps below, deliberately: those are bookkeeping the fixer
+    // can survive arriving a second late, and if anything after this point
+    // fails the phone has still rung. Everything it needs to decide WHO to
+    // page — the EAO fallback, the on-leave reassignment — was already settled
+    // by routeAccountable() above, so no recipient logic is duplicated here.
+    //
+    // The recorded outcome is written back onto the task in its own guarded
+    // update rather than being folded into the insert above, because the alert
+    // cannot run until the row it refers to exists. A failure to persist it
+    // never affects the alert that already went out, nor the returned result.
+    let urgentAlert: UrgentAlertOutcome | undefined;
+    if (input.isUnsafe) {
+      urgentAlert = await sendUrgentConditionAlert(db, {
+        taskId: task.id as string,
+        title: input.title,
+        dueDate,
+        category: input.category ?? null,
+        locationHint: input.geo ? `${input.geo.lat}, ${input.geo.lng}` : null,
+        accountableProfileId
+      });
+      metadata.urgent_alert = urgentAlert;
+      const { error: alertMetaError } = await db
+        .from('project_tasks')
+        .update({ metadata })
+        .eq('id', task.id);
+      if (alertMetaError) {
+        console.error(
+          '[campus-walk] could not record the urgent-alert outcome on the task:',
+          alertMetaError.message
+        );
+      }
+    }
+
     // The problem photo(s), version 1. The fix photo later supersedes the
     // primary and carries is_final_report = true — that pair is the D4
     // closure gate. Best-effort per photo: one failed insert must never lose
@@ -632,7 +680,8 @@ export async function createWalkTask(
     return {
       taskId: task.id as string,
       attachmentId,
-      attachmentIds
+      attachmentIds,
+      urgentAlert
     };
   } catch (e: any) {
     console.error('[campus-walk] createWalkTask threw:', e?.message ?? e);

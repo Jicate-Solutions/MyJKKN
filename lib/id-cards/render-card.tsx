@@ -949,11 +949,23 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
   const fieldRows: ReactElement[] = [];
   if (person.kind === 'learner') {
     if (person.rollNumber) fieldRows.push(portraitFieldRow('roll', 'ROLL NO', person.rollNumber));
-    if (person.courseName) fieldRows.push(portraitFieldRow('course', 'COURSE', person.courseName));
+    // A school's "programme" IS a class (Standard 12), so a school card that
+    // printed "COURSE: Standard 12" read as nonsense. The value is right either
+    // way; only the label changes. Mirrors lib/utils/school-label-adapter.ts,
+    // which does the same Program → Class swap everywhere else in the app but
+    // was never wired into the card renderer.
+    if (person.courseName)
+      fieldRows.push(
+        portraitFieldRow('course', person.isSchool ? 'CLASS' : 'COURSE', person.courseName)
+      );
     if (person.studyPeriod) fieldRows.push(portraitFieldRow('year', 'YEAR', person.studyPeriod));
   } else {
     if (person.staffId) fieldRows.push(portraitFieldRow('staffid', 'STAFF ID', person.staffId));
-    if (person.departmentName) fieldRows.push(portraitFieldRow('dept', 'DEPT', person.departmentName));
+    // Department → Wing for a school, same adapter, same reasoning as COURSE.
+    if (person.departmentName)
+      fieldRows.push(
+        portraitFieldRow('dept', person.isSchool ? 'WING' : 'DEPT', person.departmentName)
+      );
     if (person.designation) fieldRows.push(portraitFieldRow('desig', 'DESIG', person.designation));
   }
 
