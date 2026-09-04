@@ -659,6 +659,25 @@ export function WalkClient() {
                       </Button>
                     </div>
                   )}
+
+                  {/* D6 — the phone alert reached nobody. Deliberately NOT
+                      dismissible, unlike the duplicate notice above: that one
+                      is information, this one is an instruction. The ticket
+                      was filed and the row reads "Sent", so without this the
+                      only person who knows a hazard was reported is the one
+                      person who now assumes it is handled. He is standing at
+                      it and can go and tell somebody. */}
+                  {item.urgentAlertFailure && (
+                    <div className="mt-2 flex items-start gap-2 rounded-md border-2 border-red-400 bg-red-50 dark:bg-red-950/30 px-2.5 py-2">
+                      <ShieldAlert className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                      <p className="text-xs text-red-900 dark:text-red-200 flex-1">
+                        <span className="font-semibold">Nobody was phoned about this.</span>{' '}
+                        The unsafe alert could not be delivered ({item.urgentAlertFailure.reason}).
+                        Tell someone who can act on it now — the ticket on its own will not reach
+                        them today.
+                      </p>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
