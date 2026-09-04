@@ -127,7 +127,11 @@ body {
 u.target { text-decoration: underline; text-underline-offset: 2pt; font-weight: 600; }
 .blank { display: inline-block; width: 8em; border-bottom: 0.8pt solid #000; height: 0.9em; vertical-align: baseline; }
 .tex-error { font-family: 'Tinos', serif; }
-.katex { font-size: 1.02em; }
+/* katex.min.css sets the \`font\` shorthand, which RESETS the family to
+   KaTeX_Main, Times New Roman, serif — no Tamil face in the chain. notation.ts
+   keeps every non-Latin script out of KaTeX; this chain is the belt to that
+   brace, so a stray \\text{} code point still meets an embedded face. */
+.katex { font-size: 1.02em; font-family: KaTeX_Main, 'Tinos', 'Noto Sans Tamil', serif; }
 .end-mark { text-align: center; margin-top: 16pt; letter-spacing: 0.3em; }
 
 /* ---------- answer key ---------- */

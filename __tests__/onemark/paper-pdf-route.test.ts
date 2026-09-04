@@ -96,11 +96,22 @@ describe('GET /api/foundation/onemark/paper/[id]/pdf', () => {
     expect(loadCalls).toEqual([]);
   });
 
-  it('404 when the paper is not visible to the caller', async () => {
+  it('404 when the paper is not visible to the caller — and the message promises no state check the code does not make', async () => {
     modelResult = null;
     const res = await call();
     expect(res.status).toBe(404);
     expect(renderCalls).toEqual([]);
+    const body = await res.json();
+    expect(body.error).not.toMatch(/finalis/i);
+  });
+
+  it('500 never echoes the loader error (raw PostgREST text names tables and columns)', async () => {
+    modelResult = Promise.reject(new Error('column fp_items.stem_ta does not exist'));
+    const res = await call('?key=1');
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('Could not render the paper');
+    expect(JSON.stringify(body)).not.toContain('fp_items');
   });
 
   it('streams the question paper WITHOUT answers by default', async () => {

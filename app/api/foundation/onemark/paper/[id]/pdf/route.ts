@@ -54,7 +54,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const model = await loadPaperModel(id, { includeAnswers: wantKey });
     if (!model) {
-      return NextResponse.json({ error: 'Paper not found, not yet finalised, or not permitted' }, { status: 404 });
+      // loadPaperModel returns null when RLS hides the row or it has no items.
+      // No finalisation state is checked here: fp_assessments.config carries
+      // no state machine on main today (Lane W owns that); when it lands the
+      // gate belongs in loadPaperModel, and this message must say so.
+      return NextResponse.json({ error: 'Paper not found, has no questions, or not permitted' }, { status: 404 });
     }
 
     const rendered = wantKey ? await renderAnswerKeyPdf(model, series) : await renderQuestionPaperPdf(model, series);
@@ -68,7 +72,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       },
     });
   } catch (err: any) {
+    // The detail (raw PostgREST text can name tables and columns) goes to the
+    // log only; the caller gets a fixed string. This is the answer-key route.
     console.error('[onemark/paper/pdf] GET error:', err);
-    return NextResponse.json({ error: err?.message ?? 'Could not render the paper' }, { status: 500 });
+    return NextResponse.json({ error: 'Could not render the paper' }, { status: 500 });
   }
 }

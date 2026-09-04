@@ -23,10 +23,16 @@
 //   ___            three or more underscores = one fixed 8-em blank rule
 //   plain Unicode  Am⁻¹, 1.0×10⁻⁵, µ₀ε₀, A̅ + B̅ + C̅, ⁷₃Li, N₀/√2 — the forms the
 //                  board papers use and the ingestion lane emits. Each
-//                  whitespace-delimited token that carries a notation trigger
+//                  whitespace-delimited token is first split at script
+//                  boundaries (Tamil glues a case suffix onto a unit: 10⁻⁵இல்);
+//                  a notation-repertoire run that carries a trigger
 //                  (super/subscript, Greek, √, combining overline) is promoted
-//                  to a TeX snippet and rendered by KaTeX. Everything else is
-//                  HTML-escaped text in the body fonts.
+//                  to a TeX snippet and rendered by KaTeX. Everything else —
+//                  the Tamil suffix included — is HTML-escaped text in the
+//                  body fonts.
+//   $…$ guard      a pair whose body starts with a digit, holds whitespace and
+//                  no TeX command character is prose ("costs $5 and the pen
+//                  $10") and its `$` signs print as text.
 
 import katex from 'katex';
 
@@ -294,29 +300,82 @@ const LEAD_PUNCT = /^[(\[“"']+/;
 const TRAIL_PUNCT = /[)\]”"',.;:?!]+$/;
 
 /**
- * Plain text (no $…$, no tags) → HTML. Notation tokens go to KaTeX, the rest
- * is escaped. Whitespace is preserved as single spaces.
+ * The characters KaTeX may be handed: ASCII, Latin-1/Extended, combining
+ * marks, Greek, general punctuation, super/subscripts, letterlike symbols,
+ * arrows, mathematical operators, miscellaneous technical. Everything outside
+ * this repertoire — Tamil above all — is BODY text even when it is glued to a
+ * notation run, because Tamil is agglutinative: `10⁻⁵இல்`, `Am⁻¹ஆக`, `ε₀ஐ`
+ * carry a case suffix on the unit. Inside KaTeX such a suffix would be set one
+ * `\text{}` group per code point (no cluster for HarfBuzz to shape) in a font
+ * chain — `.katex{font:… KaTeX_Main,Times New Roman,serif}` — that holds no
+ * Tamil glyph, so the host lends a system face (TamilSangamMN on a Mac,
+ * nothing on Vercel). Reviewer-B finding, 2026-09-04.
  */
-export function plainTextToHtml(text: string): string {
-  const tokens = text.split(/(\s+)/);
-  return tokens
-    .map((tok) => {
-      if (tok.length === 0) return '';
-      if (/^\s+$/.test(tok)) return ' ';
-      if (!hasNotationTrigger(tok)) return escapeHtml(tok);
-      const lead = tok.match(LEAD_PUNCT)?.[0] ?? '';
-      let trail = tok.match(TRAIL_PUNCT)?.[0] ?? '';
-      let core = tok.slice(lead.length, tok.length - trail.length);
-      // A closer that balances an opener inside the token belongs to the
-      // notation, not the sentence: √(R_B/R_A). keeps its ")" and loses the ".".
-      while (trail.length && /^[)\]]/.test(trail) && openCount(core) > closeCount(core)) {
-        core += trail[0];
-        trail = trail.slice(1);
-      }
-      if (!core) return escapeHtml(tok);
-      return escapeHtml(lead) + renderTex(unicodeNotationToTex(core)) + escapeHtml(trail);
-    })
-    .join('');
+const NOTATION_REPERTOIRE =
+  /[\x20-\x7E\u00A0-\u024F\u0300-\u036F\u0370-\u03FF\u2000-\u206F\u2070-\u209F\u2100-\u214F\u2190-\u21FF\u2200-\u22FF\u2300-\u23FF]/;
+
+/** Split a whitespace-free token at every script boundary. */
+function splitByRepertoire(token: string): Array<{ notation: boolean; value: string }> {
+  const runs: Array<{ notation: boolean; value: string }> = [];
+  for (const ch of Array.from(token)) {
+    const notation = NOTATION_REPERTOIRE.test(ch);
+    const last = runs[runs.length - 1];
+    if (last && last.notation === notation) last.value += ch;
+    else runs.push({ notation, value: ch });
+  }
+  return runs;
+}
+
+/** One piece of an item string after the markup pass. */
+export type ItemSegment =
+  | { kind: 'text'; value: string }
+  | { kind: 'tex'; value: string }
+  | { kind: 'u-open' }
+  | { kind: 'u-close' }
+  | { kind: 'blank' };
+
+/** A notation-capable run that carries a trigger → lead punctuation (text),
+ *  TeX core, trail punctuation (text). Without a trigger it is plain text. */
+function segmentNotationRun(tok: string, out: ItemSegment[]): void {
+  if (!hasNotationTrigger(tok)) {
+    out.push({ kind: 'text', value: tok });
+    return;
+  }
+  const lead = tok.match(LEAD_PUNCT)?.[0] ?? '';
+  let trail = tok.match(TRAIL_PUNCT)?.[0] ?? '';
+  let core = tok.slice(lead.length, tok.length - trail.length);
+  // A closer that balances an opener inside the token belongs to the
+  // notation, not the sentence: √(R_B/R_A). keeps its ")" and loses the ".".
+  while (trail.length && /^[)\]]/.test(trail) && openCount(core) > closeCount(core)) {
+    core += trail[0];
+    trail = trail.slice(1);
+  }
+  if (!core) {
+    out.push({ kind: 'text', value: tok });
+    return;
+  }
+  if (lead) out.push({ kind: 'text', value: lead });
+  out.push({ kind: 'tex', value: unicodeNotationToTex(core) });
+  if (trail) out.push({ kind: 'text', value: trail });
+}
+
+/**
+ * Plain text (no $…$, no tags) → segments. Each whitespace-delimited token is
+ * first split at script boundaries; only its notation-repertoire runs can be
+ * promoted to TeX, the rest stays body text. Whitespace becomes single spaces.
+ */
+function segmentPlainText(text: string, out: ItemSegment[]): void {
+  for (const tok of text.split(/(\s+)/)) {
+    if (tok.length === 0) continue;
+    if (/^\s+$/.test(tok)) {
+      out.push({ kind: 'text', value: ' ' });
+      continue;
+    }
+    for (const run of splitByRepertoire(tok)) {
+      if (run.notation) segmentNotationRun(run.value, out);
+      else out.push({ kind: 'text', value: run.value });
+    }
+  }
 }
 
 function openCount(s: string): number {
@@ -331,50 +390,111 @@ function closeCount(s: string): number {
 const BLANK_RULE = /_{3,}/g;
 
 /**
+ * Is the body of a `$…$` pair a TeX run, or two currency amounts in prose?
+ * "The book costs $5 and the pen $10." pairs up as "$5 and the pen $", which
+ * KaTeX would typeset as math and print as "5andthepen10". A body that starts
+ * with a digit AND contains whitespace AND has no TeX command character is
+ * prose, and its `$` signs are ordinary text. `$x$`, `$a + b$`, `$N_0$` and
+ * `$2\times10^{-5}$` all stay TeX. Reviewer-B finding, 2026-09-04.
+ */
+export function isTexBody(body: string): boolean {
+  if (/[\\^_{}]/.test(body)) return true;
+  if (!/\s/.test(body)) return true;
+  return !/^\d/.test(body.trim());
+}
+
+function segmentWithBlanks(text: string, out: ItemSegment[]): void {
+  text.split(BLANK_RULE).forEach((part, i) => {
+    if (i > 0) out.push({ kind: 'blank' });
+    segmentPlainText(part, out);
+  });
+}
+
+/**
  * Full inline-markup pass for a stem, option or explanation string.
  * Order matters: TeX runs are cut out first so a `$` never sees the escaper,
  * then `<u>` targets, then blanks, then plain text with notation promotion.
  */
-export function itemTextToHtml(text: string | null | undefined): string {
-  if (!text) return '';
-  const pieces: string[] = [];
-  const texRuns = text.split(/(\$[^$]+\$)/);
-  for (const run of texRuns) {
+export function segmentItemText(text: string | null | undefined): ItemSegment[] {
+  const out: ItemSegment[] = [];
+  if (!text) return out;
+  for (const run of text.split(/(\$[^$]+\$)/)) {
     if (run.length === 0) continue;
-    if (run.length > 2 && run.startsWith('$') && run.endsWith('$')) {
-      pieces.push(renderTex(run.slice(1, -1)));
+    if (run.length > 2 && run.startsWith('$') && run.endsWith('$') && isTexBody(run.slice(1, -1))) {
+      out.push({ kind: 'tex', value: run.slice(1, -1) });
       continue;
     }
-    const uRuns = run.split(/(<u>[\s\S]*?<\/u>)/i);
-    for (const seg of uRuns) {
+    for (const seg of run.split(/(<u>[\s\S]*?<\/u>)/i)) {
       if (seg.length === 0) continue;
       const m = seg.match(/^<u>([\s\S]*?)<\/u>$/i);
       if (m) {
-        pieces.push(`<u class="target">${plainWithBlanks(m[1])}</u>`);
+        out.push({ kind: 'u-open' });
+        segmentWithBlanks(m[1], out);
+        out.push({ kind: 'u-close' });
       } else {
-        pieces.push(plainWithBlanks(seg));
+        segmentWithBlanks(seg, out);
       }
     }
   }
-  return pieces.join('');
+  return out;
 }
 
-function plainWithBlanks(text: string): string {
-  return text
-    .split(BLANK_RULE)
-    .map((part) => plainTextToHtml(part))
-    .join('<span class="blank"></span>');
+function renderSegment(seg: ItemSegment): string {
+  switch (seg.kind) {
+    case 'text':
+      return escapeHtml(seg.value);
+    case 'tex':
+      return renderTex(seg.value);
+    case 'u-open':
+      return '<u class="target">';
+    case 'u-close':
+      return '</u>';
+    case 'blank':
+      return '<span class="blank"></span>';
+  }
 }
 
-/** The text a font-coverage audit should check: what will be set in the BODY
- *  fonts after every notation token and TeX run has gone to KaTeX. */
+/** Plain text (no $…$, no tags) → HTML. */
+export function plainTextToHtml(text: string): string {
+  const out: ItemSegment[] = [];
+  segmentPlainText(text, out);
+  return out.map(renderSegment).join('');
+}
+
+export function itemTextToHtml(text: string | null | undefined): string {
+  return segmentItemText(text).map(renderSegment).join('');
+}
+
+/** The text a font-coverage audit should check against the BODY fonts: every
+ *  character that is not handed to KaTeX — including the Tamil suffix of a
+ *  token whose other half IS notation. */
 export function bodyFontText(text: string | null | undefined): string {
-  if (!text) return '';
-  const withoutTex = text.replace(/\$[^$]+\$/g, ' ');
-  return withoutTex
-    .replace(/<\/?u>/gi, '')
-    .replace(BLANK_RULE, ' ')
-    .split(/\s+/)
-    .filter((tok) => tok.length > 0 && !hasNotationTrigger(tok))
+  return segmentItemText(text)
+    .filter((s): s is { kind: 'text'; value: string } => s.kind === 'text')
+    .map((s) => s.value)
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The text a font-coverage audit should check against the KATEX faces: the
+ *  visible characters of every KaTeX-rendered run, as KaTeX's HTML emits them
+ *  (`ε` is audited as the glyph KaTeX_Math sets, a `\text{…}` payload as
+ *  KaTeX_Main text). Anything here the KaTeX faces lack prints as a box. */
+export function katexFontText(text: string | null | undefined): string {
+  return segmentItemText(text)
+    .filter((s): s is { kind: 'tex'; value: string } => s.kind === 'tex')
+    .map((s) => htmlTextContent(renderTex(s.value)))
     .join(' ');
+}
+
+function htmlTextContent(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&');
 }

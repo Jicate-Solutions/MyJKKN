@@ -94,7 +94,9 @@ const PHYSICS_SEEDS: Seed[] = [
   },
   {
     stemEn: 'The dimension of 1/µ₀ε₀ is :',
-    stemTa: '1/µ₀ε₀ இன் பரிமாணம் :',
+    // Case suffix glued to the notation, as Tamil writes it — the font audit
+    // must see "இன்" as body text, not as a KaTeX \text{} run.
+    stemTa: '1/µ₀ε₀இன் பரிமாணம் :',
     en: ['[LT⁻¹]', '[L²T⁻²]', '[L⁻²T²]', '[LT⁻²]'],
     ta: ['[LT⁻¹]', '[L²T⁻²]', '[L⁻²T²]', '[LT⁻²]'],
     answer: 'b',

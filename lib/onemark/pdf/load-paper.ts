@@ -54,6 +54,29 @@ export function normaliseOptions(raw: unknown): PaperOption[] {
   });
 }
 
+/**
+ * fp_items.options_ta is nullable ("NULL = not yet translated", Wave 1) and is
+ * indexed by the ENGLISH option order at print time (layout.ts optionOrder).
+ * A half-translated list — fewer or more entries than `options` — cannot be
+ * lettered against that order: fewer leaves a hole under (இ)/(ஈ), more drops
+ * the extras silently. Either way the item is treated as untranslated: the
+ * Tamil stem still prints, the options print once, in English, and the
+ * mismatch is logged so the Senior Learner can finish the translation.
+ * Reviewer-B finding, 2026-09-04.
+ */
+export function normaliseTamilOptions(raw: unknown, english: PaperOption[], itemId?: string): PaperOption[] | null {
+  if (raw === null || raw === undefined) return null;
+  const ta = normaliseOptions(raw);
+  if (ta.length === 0) return null;
+  if (ta.length !== english.length) {
+    console.warn(
+      `[onemark/paper] item ${itemId ?? '?'}: options_ta has ${ta.length} entries, options has ${english.length} — printing English options only`,
+    );
+    return null;
+  }
+  return ta;
+}
+
 /** fp_items.answer: scalar "b", `{correct: "b"}` or `["b"]` (fp_rpcs.sql contract). */
 export function normaliseAnswer(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
@@ -76,12 +99,17 @@ interface QuestionOverride {
 
 function applyOverride(item: PaperItem, o: QuestionOverride | undefined): PaperItem {
   if (!o) return item;
+  const optionsEn = o.options !== undefined ? normaliseOptions(o.options) : item.optionsEn;
+  const optionsTa =
+    o.options_ta !== undefined || optionsEn.length !== item.optionsEn.length
+      ? normaliseTamilOptions(o.options_ta !== undefined ? o.options_ta : item.optionsTa, optionsEn, item.id)
+      : item.optionsTa;
   return {
     ...item,
     stemEn: typeof o.stem === 'string' ? o.stem : item.stemEn,
     stemTa: typeof o.stem_ta === 'string' ? o.stem_ta : item.stemTa,
-    optionsEn: o.options !== undefined ? normaliseOptions(o.options) : item.optionsEn,
-    optionsTa: o.options_ta !== undefined ? normaliseOptions(o.options_ta) : item.optionsTa,
+    optionsEn,
+    optionsTa,
     explanationEn: typeof o.explanation === 'string' ? o.explanation : item.explanationEn,
     explanationTa: typeof o.explanation_ta === 'string' ? o.explanation_ta : item.explanationTa,
   };
@@ -149,13 +177,14 @@ export async function loadPaperModel(assessmentId: string, opts: LoadPaperOption
     .map((r: any, idx: number) => {
       const it = r.item;
       const tags: string[] = Array.isArray(it.tags) ? it.tags : [];
+      const optionsEn = normaliseOptions(it.options);
       const base: PaperItem = {
         id: it.id,
         position: typeof r.position === 'number' ? r.position : idx + 1,
         stemEn: it.stem ?? '',
         stemTa: it.stem_ta ?? null,
-        optionsEn: normaliseOptions(it.options),
-        optionsTa: it.options_ta ? normaliseOptions(it.options_ta) : null,
+        optionsEn,
+        optionsTa: normaliseTamilOptions(it.options_ta, optionsEn, it.id),
         answerKey: opts.includeAnswers ? normaliseAnswer(it.answer) : null,
         explanationEn: opts.includeAnswers ? it.explanation ?? null : null,
         explanationTa: opts.includeAnswers ? it.explanation_ta ?? null : null,

@@ -25,12 +25,21 @@ import {
 import {
   bodyFontText,
   hasNotationTrigger,
+  isTexBody,
   itemTextToHtml,
+  katexFontText,
   unicodeNotationToTex,
 } from '@/lib/onemark/pdf/notation';
 import { answerKeyHtml, questionPaperHtml, showSeriesBox } from '@/lib/onemark/pdf/document';
 import { SAMPLE_ENGLISH_PAPER, SAMPLE_PHYSICS_PAPER, withoutAnswers } from '@/lib/onemark/pdf/samples';
-import { directiveForTags, normaliseAnswer, normaliseOptions } from '@/lib/onemark/pdf/load-paper';
+import {
+  directiveForTags,
+  normaliseAnswer,
+  normaliseOptions,
+  normaliseTamilOptions,
+} from '@/lib/onemark/pdf/load-paper';
+
+const visibleText = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&');
 
 describe('notation → TeX', () => {
   it('promotes board-paper Unicode forms to TeX', () => {
@@ -98,6 +107,56 @@ describe('notation → TeX', () => {
     const html = itemTextToHtml('....... he was sitting');
     expect(html).toContain('....... he was sitting');
     expect(html).not.toContain('class="blank"');
+  });
+});
+
+describe('notation → script boundaries and the $…$ guard (reviewer-B findings)', () => {
+  it('a Tamil case suffix glued to a unit or exponent stays in the body font', () => {
+    for (const [glued, suffix] of [
+      ['10⁻⁵இல்', 'இல்'],
+      ['Am⁻¹ஆக', 'ஆக'],
+      ['ε₀ஐ', 'ஐ'],
+      ['ms⁻¹ஆகும்.', 'ஆகும்.'],
+    ] as const) {
+      const html = itemTextToHtml(glued);
+      expect(html).toContain('class="katex"');
+      // The suffix is one text node after the KaTeX span, never a \text{} group per code point.
+      expect(html).toMatch(new RegExp(`</span>${suffix}$`));
+      expect(html).not.toContain('brahmic');
+      expect(bodyFontText(glued)).toBe(suffix);
+      expect(katexFontText(glued)).not.toMatch(/[஀-௿]/);
+    }
+  });
+
+  it('a notation token in parentheses with a glued suffix keeps its punctuation as text', () => {
+    const html = itemTextToHtml('(ε₀ஐ)');
+    expect(html.startsWith('(')).toBe(true);
+    expect(html.endsWith('ஐ)')).toBe(true);
+    expect(bodyFontText('(ε₀ஐ)')).toBe('(ஐ)');
+  });
+
+  it('bodyFontText keeps the sentence text of a mixed stem, katexFontText the notation glyphs', () => {
+    const stem = 'ஒளியின் வேகம் 3×10⁸ ms⁻¹ஆகும். மதிப்பு 10⁻⁵இல் எவ்வளவு?';
+    expect(bodyFontText(stem)).toBe('ஒளியின் வேகம் ஆகும். மதிப்பு இல் எவ்வளவு?');
+    expect(katexFontText(stem)).toContain('ms');
+    expect(katexFontText(stem)).not.toMatch(/[஀-௿]/);
+  });
+
+  it('two currency amounts are prose, not a TeX run', () => {
+    const html = itemTextToHtml('The book costs $5 and the pen $10.');
+    expect(html).not.toContain('class="katex"');
+    expect(visibleText(html)).toBe('The book costs $5 and the pen $10.');
+    expect(isTexBody('5 and the pen ')).toBe(false);
+    expect(isTexBody('x')).toBe(true);
+    expect(isTexBody('a + b')).toBe(true);
+    expect(isTexBody('N_0')).toBe(true);
+    expect(isTexBody('2\\times10^{-5}')).toBe(true);
+  });
+
+  it('a lone $ is text', () => {
+    const html = itemTextToHtml('It costs $5.');
+    expect(html).not.toContain('class="katex"');
+    expect(visibleText(html)).toBe('It costs $5.');
   });
 });
 
@@ -236,6 +295,15 @@ describe('load-paper contracts', () => {
     expect(normaliseAnswer({ correct: 'c' })).toBe('c');
     expect(normaliseAnswer(['d'])).toBe('d');
     expect(normaliseAnswer(null)).toBeNull();
+  });
+
+  it('a half-translated options_ta never prints against the English option order', () => {
+    const en = normaliseOptions(['w', 'x', 'y', 'z']);
+    expect(normaliseTamilOptions(null, en)).toBeNull();
+    expect(normaliseTamilOptions([], en)).toBeNull();
+    expect(normaliseTamilOptions(['அ', 'ஆ', 'இ'], en, 'item-1')).toBeNull(); // fewer → hole under (ஈ)
+    expect(normaliseTamilOptions(['அ', 'ஆ', 'இ', 'ஈ', 'உ'], en, 'item-1')).toBeNull(); // more → extras dropped
+    expect(normaliseTamilOptions(['அ', 'ஆ', 'இ', 'ஈ'], en)).toHaveLength(4);
   });
 
   it('derives the grouped directive from the tag for English only', () => {
