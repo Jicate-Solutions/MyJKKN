@@ -210,7 +210,7 @@ export const GUIDES: GuideBook = {
       tagline:
         "You pick a subject, answer a short set of questions one at a time, and read why each answer was what it was.",
       whyItMatters:
-        "Nothing here is a mark against you and nothing is timed. Getting one wrong is the useful part — the explanation afterwards is what you came for, and answering regularly is what tells your resource person where to help you.",
+        "Nothing here is a mark against you. Practice is untimed; only a OneMark Timed sitting runs a clock, and a Live test is one go. Getting one wrong is the useful part — the explanation afterwards is what you came for, and answering regularly is what tells your resource person where to help you.",
       startHere: { label: "Open Practice", href: "/foundation/practice" },
       requires: REQUIRES.learner,
       journey: ["Pick a subject", "Answer the questions", "Read what each answer was"],

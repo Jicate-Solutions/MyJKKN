@@ -2132,7 +2132,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           // children here, not top-level rows, because the Academic group is
           // one row below the sidebar validator's hard cap (15). Each child is
           // gated by its own MENU_PERMISSIONS key.
+          //
+          // 'Overview' is the hub itself, listed as its own first child (same
+          // idiom as '/procurement'). Two things depend on it: (1) a row with
+          // explicit children is filtered by its CHILDREN only —
+          // GetRoleBasedPages never reads MENU_PERMISSIONS['/foundation'] once
+          // submenus is non-empty — so without this child a holder of ONLY
+          // foundation.dashboard.view lost the row that main rendered for them;
+          // (2) an explicit-children row renders as an accordion whose parent
+          // click is a pure toggle (menu.tsx), so this child is the only
+          // sidebar door to /foundation for ANY role.
           submenus: [
+            { href: '/foundation', label: 'Overview', active: pathname === '/foundation' },
             { href: '/foundation/console', label: 'Console', active: pathname.startsWith('/foundation/console') },
             { href: '/foundation/onemark/paper', label: 'OneMark: Build a Paper', active: pathname.startsWith('/foundation/onemark/paper') },
             { href: '/foundation/onemark/review', label: 'OneMark: Review Drafts', active: pathname.startsWith('/foundation/onemark/review') },
