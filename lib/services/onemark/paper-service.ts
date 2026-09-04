@@ -1,0 +1,769 @@
+// lib/services/onemark/paper-service.ts
+//
+// OneMark — the Senior Learner's paper wizard (PRD §3, decisions 6 / 11 / 12 /
+// 14 / 15 / 16 of specs/onemark-decisions-2026-09-02.md).
+//
+// Three things live here, deliberately in one file so the route and the
+// browser agree on every shape:
+//   1. the wizard's parameter object and the fp_assessments.config it is
+//      persisted into (PRD §3.3, with decision 6: a JABT level mix, never a
+//      three-step difficulty scale);
+//   2. the PURE selection engine — generate, swap, lock-warnings — written
+//      over plain arrays so it runs on the server and under vitest with no
+//      database (PRD §8.1 / §8.2, translated from the SQLite draft);
+//   3. `PaperService`, the thin fetch wrapper the hooks call. The browser
+//      never reads fp_items directly: the API route is where the answer key
+//      is stripped for anyone who is not a holder of foundation.items.manage.
+//
+// Nothing here imports supabase. That is what keeps (2) testable.
+
+import type { OneMarkOptionLayout } from '@/types/onemark';
+
+// ---------------------------------------------------------------------------
+// Parameters (PRD §3.3) and persisted config
+// ---------------------------------------------------------------------------
+
+export type SelectionMode = 'single' | 'multi' | 'unit' | 'volume' | 'full_syllabus';
+export type DistributionMode = 'proportional' | 'equal_per_chapter' | 'manual';
+export type PreviewLanguage = 'ta' | 'en' | 'both';
+
+/** JABT knowledge levels (decision 6). `unlevelled` is the honest bucket for an
+ *  approved item whose reviewer has not yet set fp_items.bloom_level — it is
+ *  NOT a difficulty and is shown as such. */
+export type JabtLevel = 'K1' | 'K2' | 'K3' | 'K4' | 'K5' | 'K6';
+export const JABT_LEVELS: JabtLevel[] = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'];
+export const UNLEVELLED = 'unlevelled' as const;
+export type LevelKey = JabtLevel | typeof UNLEVELLED;
+export const LEVEL_KEYS: LevelKey[] = [...JABT_LEVELS, UNLEVELLED];
+
+export const JABT_LEVEL_LABELS: Record<LevelKey, string> = {
+  K1: 'K1 · Remember',
+  K2: 'K2 · Understand',
+  K3: 'K3 · Apply',
+  K4: 'K4 · Analyse',
+  K5: 'K5 · Evaluate',
+  K6: 'K6 · Create',
+  unlevelled: 'Not yet levelled',
+};
+
+export type PaperState = 'DRAFT' | 'PREVIEW' | 'EDITED' | 'FINALIZED';
+export type WizardStep = 1 | 2 | 3 | 4 | 5;
+
+export const QUANTITY_PRESETS = [10, 15, 20, 25, 50] as const;
+export const MAX_POOL = 'max_pool' as const;
+
+/** The whole PRD §3.3 parameter object, with decision 6 applied. */
+export interface PaperParams {
+  selection_mode: SelectionMode;
+  /** cdc_exam_syllabus_topics ids in scope. Empty = every chapter of the exam. */
+  chapter_ids: string[];
+  /** onemark_item_tags keys. Empty = every tag. */
+  tag_keys: string[];
+  /** onemark_item_sources keys. Empty = every source, including items with no source recorded. */
+  source_keys: string[];
+  year_from: number | null;
+  year_to: number | null;
+  /** 0..10 — this Senior Learner's most recent papers on the same exam whose items are suppressed. */
+  exclude_recent_tests: number;
+  question_count: number;
+  distribution_mode: DistributionMode;
+  /** Only read when distribution_mode = 'manual': chapter id → count. */
+  chapter_counts: Record<string, number>;
+  /** JABT level → number of questions. Empty object = proportional to the pool (the default). */
+  level_mix: Partial<Record<LevelKey, number>>;
+  /** Decision 15 — English reserved slots Q1–3 synonyms, Q4–6 antonyms. */
+  enforce_board_blueprint: boolean;
+  /** 1..onemark.paper.max_series (decision 16). */
+  series_count: number;
+  preview_language: PreviewLanguage;
+  pdf_include_key: boolean;
+}
+
+/** Decision 14 — copy-on-write edits scoped to this paper only. */
+export interface QuestionOverride {
+  stem?: string;
+  stem_ta?: string;
+  options?: OptionRow[];
+  options_ta?: OptionRow[];
+  explanation?: string;
+  explanation_ta?: string;
+}
+
+export interface OptionRow {
+  key: string;
+  text: string;
+}
+
+export interface BlueprintShortfall {
+  tag_key: string;
+  needed: number;
+  available: number;
+}
+
+export interface GenerationReport {
+  requested: number;
+  /** Fresh items the filters could supply, plus the locked ones. */
+  available: number;
+  selected: number;
+  missing: number;
+  blueprint_shortfalls: BlueprintShortfall[];
+  generated_at: string;
+}
+
+export interface PaperOutputs {
+  pdf_exported_at?: string;
+  published_at?: string;
+}
+
+/** fp_assessments.config for a OneMark paper. `onemark: true` is the discriminator. */
+export interface PaperConfig {
+  onemark: true;
+  state: PaperState;
+  step: WizardStep;
+  params: PaperParams;
+  locked_ids: string[];
+  question_overrides: Record<string, QuestionOverride>;
+  resolved_item_ids: string[];
+  last_generation?: GenerationReport;
+  open_at?: string;
+  close_at?: string;
+  duration_min?: number;
+  shuffle_options?: boolean;
+  outputs?: PaperOutputs;
+}
+
+/** English's board shape is 20 questions (PRD English §3.3); everything else
+ *  reads onemark.paper.question_count (15 for Physics). */
+export const ENGLISH_BOARD_QUESTION_COUNT = 20;
+
+export function defaultParams(input: {
+  examKey: string;
+  policyQuestionCount: number;
+}): PaperParams {
+  const isEnglish = input.examKey === 'tn_hsc_english';
+  return {
+    selection_mode: 'full_syllabus',
+    chapter_ids: [],
+    tag_keys: [],
+    source_keys: [],
+    year_from: null,
+    year_to: null,
+    exclude_recent_tests: 0,
+    question_count: isEnglish ? ENGLISH_BOARD_QUESTION_COUNT : input.policyQuestionCount,
+    distribution_mode: 'proportional',
+    chapter_counts: {},
+    level_mix: {},
+    enforce_board_blueprint: isEnglish,
+    series_count: 1,
+    preview_language: 'both',
+    pdf_include_key: true,
+  };
+}
+
+export function newPaperConfig(params: PaperParams): PaperConfig {
+  return {
+    onemark: true,
+    state: 'DRAFT',
+    step: 1,
+    params,
+    locked_ids: [],
+    question_overrides: {},
+    resolved_item_ids: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The pure selection engine
+// ---------------------------------------------------------------------------
+
+/** The fp_items projection the engine needs. No stems, no answers. */
+export interface PoolItem {
+  id: string;
+  topic_id: string | null;
+  bloom_level: string | null;
+  tags: string[];
+  source_key: string | null;
+  source_year: number | null;
+  times_served: number;
+}
+
+export interface EngineContext {
+  /** exam_definitions.config_key — 'tn_hsc_english' switches on the
+   *  chapter-agnostic rule (PRD English §4.4) and the blueprint. */
+  examKey: string;
+  params: PaperParams;
+  /** Item ids suppressed by exclude_recent_tests. */
+  recentlyUsedIds: Set<string>;
+  /** topic id → sort_order, so fresh picks read chapter-by-chapter. */
+  chapterOrder: Record<string, number>;
+  /** onemark_category_weights for the exam: tag key → weight. */
+  categoryWeights: Record<string, number>;
+  /** Injectable for deterministic tests. Defaults to Math.random. */
+  rng?: () => number;
+}
+
+export const BLUEPRINT_SLOTS: { tag_key: 'synonyms' | 'antonyms'; positions: number[] }[] = [
+  { tag_key: 'synonyms', positions: [0, 1, 2] },
+  { tag_key: 'antonyms', positions: [3, 4, 5] },
+];
+const BLUEPRINT_TAGS = new Set(['synonyms', 'antonyms']);
+
+export function levelOf(item: Pick<PoolItem, 'bloom_level'>): LevelKey {
+  const l = item.bloom_level;
+  return l && (JABT_LEVELS as string[]).includes(l) ? (l as JabtLevel) : UNLEVELLED;
+}
+
+function isEnglish(ctx: Pick<EngineContext, 'examKey'>): boolean {
+  return ctx.examKey === 'tn_hsc_english';
+}
+
+/** Why an item fails the current filters. Empty = it matches. Used both to
+ *  build the eligible pool and to word the decision-12 lock warning. */
+export function filterMismatches(
+  item: PoolItem,
+  ctx: Pick<EngineContext, 'examKey' | 'params'>,
+): string[] {
+  const p = ctx.params;
+  const reasons: string[] = [];
+
+  if (p.chapter_ids.length > 0) {
+    const inChapter = item.topic_id !== null && p.chapter_ids.includes(item.topic_id);
+    // PRD English §4.4 — a grammar item anchored to no lesson survives any
+    // chapter selection. Physics has no such class, so there the rule is plain.
+    const chapterAgnostic = isEnglish(ctx) && item.topic_id === null;
+    if (!inChapter && !chapterAgnostic) reasons.push('outside the selected chapters');
+  }
+  if (p.tag_keys.length > 0 && !item.tags.some((t) => p.tag_keys.includes(t))) {
+    reasons.push('carries none of the selected tags');
+  }
+  if (p.source_keys.length > 0) {
+    if (item.source_key === null || !p.source_keys.includes(item.source_key)) {
+      reasons.push('not from a selected source');
+    }
+  }
+  // PRD §8.1: an item with no year passes any year range.
+  if (item.source_year !== null) {
+    if (p.year_from !== null && item.source_year < p.year_from) reasons.push('older than the year range');
+    if (p.year_to !== null && item.source_year > p.year_to) reasons.push('newer than the year range');
+  }
+  return reasons;
+}
+
+export function itemMatchesFilters(
+  item: PoolItem,
+  ctx: Pick<EngineContext, 'examKey' | 'params'>,
+): boolean {
+  return filterMismatches(item, ctx).length === 0;
+}
+
+/** Largest-remainder apportionment of `total` across weights. Zero weights get zero. */
+export function apportion(weights: Record<string, number>, total: number): Record<string, number> {
+  const keys = Object.keys(weights);
+  const sum = keys.reduce((s, k) => s + Math.max(0, weights[k] ?? 0), 0);
+  const out: Record<string, number> = {};
+  if (total <= 0 || sum <= 0) {
+    for (const k of keys) out[k] = 0;
+    return out;
+  }
+  const remainders: { k: string; r: number }[] = [];
+  let used = 0;
+  for (const k of keys) {
+    const exact = (Math.max(0, weights[k] ?? 0) / sum) * total;
+    const floor = Math.floor(exact);
+    out[k] = floor;
+    used += floor;
+    remainders.push({ k, r: exact - floor });
+  }
+  remainders.sort((a, b) => b.r - a.r);
+  for (let i = 0; i < remainders.length && used < total; i++) {
+    out[remainders[i].k] += 1;
+    used += 1;
+  }
+  return out;
+}
+
+/** Decision 6 default: the level mix follows the pool's own shape. */
+export function defaultLevelMix(pool: PoolItem[], count: number): Record<LevelKey, number> {
+  const weights: Record<string, number> = {};
+  for (const k of LEVEL_KEYS) weights[k] = 0;
+  for (const it of pool) weights[levelOf(it)] += 1;
+  return apportion(weights, count) as Record<LevelKey, number>;
+}
+
+/** Resolves the level mix actually used: the Senior Learner's own counts when
+ *  they set any, else proportional to the eligible pool. */
+export function effectiveLevelMix(
+  params: PaperParams,
+  eligible: PoolItem[],
+  need: number,
+): Record<LevelKey, number> {
+  const custom = params.level_mix ?? {};
+  const setSum = LEVEL_KEYS.reduce((s, k) => s + (custom[k] ?? 0), 0);
+  if (setSum <= 0) return defaultLevelMix(eligible, need);
+  // Re-scale whatever was set onto the slots that are actually open (locked
+  // slots are already spoken for).
+  const weights: Record<string, number> = {};
+  for (const k of LEVEL_KEYS) weights[k] = custom[k] ?? 0;
+  return apportion(weights, need) as Record<LevelKey, number>;
+}
+
+function chapterTargets(
+  params: PaperParams,
+  eligible: PoolItem[],
+  need: number,
+): Record<string, number> {
+  const weights: Record<string, number> = {};
+  const keyOf = (t: string | null) => t ?? '__none__';
+  for (const it of eligible) weights[keyOf(it.topic_id)] = (weights[keyOf(it.topic_id)] ?? 0) + 0;
+  if (params.distribution_mode === 'manual') {
+    for (const k of Object.keys(weights)) weights[k] = params.chapter_counts[k] ?? 0;
+    // A chapter the Senior Learner did not name gets nothing in manual mode;
+    // grammar-general (no chapter) gets the remainder if they left it unnamed.
+    if ('__none__' in weights && !('__none__' in params.chapter_counts)) {
+      const named = Object.values(params.chapter_counts).reduce((s, n) => s + n, 0);
+      weights.__none__ = Math.max(0, need - named);
+    }
+    return apportion(weights, need);
+  }
+  if (params.distribution_mode === 'equal_per_chapter') {
+    for (const k of Object.keys(weights)) weights[k] = 1;
+    return apportion(weights, need);
+  }
+  for (const it of eligible) weights[keyOf(it.topic_id)] += 1;
+  return apportion(weights, need);
+}
+
+function shuffled<T>(arr: T[], rng: () => number): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/** Least-served first, random among equals (PRD §8.1 ORDER BY). */
+function leastServedOrder(items: PoolItem[], rng: () => number): PoolItem[] {
+  return shuffled(items, rng).sort((a, b) => a.times_served - b.times_served);
+}
+
+export interface GenerationResult {
+  /** Slot → item id; a null slot is a shortfall the Senior Learner must resolve. */
+  slots: (string | null)[];
+  report: GenerationReport;
+}
+
+/**
+ * PRD §8.1 in TypeScript. Locked items keep their slot (decision 12); the
+ * blueprint fills Q1–6 for English (decision 15); the rest is a stratified
+ * draw over chapter × JABT level (decision 6) with a top-up pass; the engine
+ * never pads from outside the filters (decision 11).
+ */
+export function generatePaper(input: {
+  pool: PoolItem[];
+  ctx: EngineContext;
+  lockedIds: string[];
+  /** The previous resolution, so a locked item keeps its slot. */
+  previousIds: string[];
+}): GenerationResult {
+  const { pool, ctx, lockedIds, previousIds } = input;
+  const rng = ctx.rng ?? Math.random;
+  const count = Math.max(0, ctx.params.question_count);
+  const byId = new Map(pool.map((it) => [it.id, it]));
+
+  const slots: (string | null)[] = Array.from({ length: count }, () => null);
+  const taken = new Set<string>();
+
+  // 1. Locked items first, in the slot they held. A lock beyond the new count
+  //    is appended rather than dropped — never silently lost.
+  const locked = lockedIds.filter((id) => byId.has(id));
+  const overflow: string[] = [];
+  for (const id of locked) {
+    const prev = previousIds.indexOf(id);
+    if (prev >= 0 && prev < count && slots[prev] === null) slots[prev] = id;
+    else overflow.push(id);
+    taken.add(id);
+  }
+  for (const id of overflow) {
+    const free = slots.indexOf(null);
+    if (free >= 0) slots[free] = id;
+    else slots.push(id);
+  }
+
+  // 2. Eligible pool — every filter applied, minus locked and recently used.
+  const eligible = pool.filter(
+    (it) => !taken.has(it.id) && !ctx.recentlyUsedIds.has(it.id) && itemMatchesFilters(it, ctx),
+  );
+  const available = eligible.length + locked.length;
+
+  const blueprintShortfalls: BlueprintShortfall[] = [];
+  const remaining = new Map(eligible.map((it) => [it.id, it]));
+
+  const take = (it: PoolItem, slot: number) => {
+    slots[slot] = it.id;
+    taken.add(it.id);
+    remaining.delete(it.id);
+  };
+
+  // 3. English board shape: Q1–3 synonyms, Q4–6 antonyms (decision 15).
+  //    A reserved slot the pool cannot fill stays EMPTY and is named in the
+  //    report — PRD English §3.4 forbids back-filling it with grammar.
+  const blueprintOn = isEnglish(ctx) && ctx.params.enforce_board_blueprint;
+  const reserved = new Set<number>();
+  if (blueprintOn) {
+    for (const group of BLUEPRINT_SLOTS) for (const p of group.positions) if (p < slots.length) reserved.add(p);
+  }
+  if (blueprintOn) {
+    for (const group of BLUEPRINT_SLOTS) {
+      const open = group.positions.filter((p) => p < slots.length && slots[p] === null);
+      const candidates = leastServedOrder(
+        [...remaining.values()].filter((it) => it.tags.includes(group.tag_key)),
+        rng,
+      );
+      open.forEach((p, i) => {
+        if (candidates[i]) take(candidates[i], p);
+      });
+      if (candidates.length < open.length) {
+        blueprintShortfalls.push({
+          tag_key: group.tag_key,
+          needed: open.length,
+          available: candidates.length,
+        });
+      }
+    }
+  }
+
+  // 4. Open slots — stratified draw.
+  const openSlots = () =>
+    slots.map((s, i) => (s === null && !reserved.has(i) ? i : -1)).filter((i) => i >= 0);
+  let open = openSlots();
+  const need = open.length;
+
+  let freshPool = [...remaining.values()];
+  if (blueprintOn) freshPool = freshPool.filter((it) => !it.tags.some((t) => BLUEPRINT_TAGS.has(t)));
+
+  const levelTarget = effectiveLevelMix(ctx.params, freshPool, need);
+  const levelLeft: Record<string, number> = { ...levelTarget };
+
+  const picks: PoolItem[] = [];
+  if (blueprintOn) {
+    // Q7–20 by empirical tag weight (PRD English §4.3), levels as a tiebreak.
+    const weightOf = (it: PoolItem) =>
+      it.tags.reduce((m, t) => Math.max(m, ctx.categoryWeights[t] ?? 0), 0) || 1;
+    const primaryTag = (it: PoolItem) =>
+      [...it.tags].sort((a, b) => (ctx.categoryWeights[b] ?? 0) - (ctx.categoryWeights[a] ?? 0))[0] ??
+      '__untagged__';
+    const tagWeights: Record<string, number> = {};
+    for (const it of freshPool) {
+      const t = primaryTag(it);
+      if (!(t in tagWeights)) tagWeights[t] = t === '__untagged__' ? 1 : weightOf(it);
+    }
+    const tagLeft = apportion(tagWeights, need);
+    const ordered = leastServedOrder(freshPool, rng);
+    for (let round = 0; round < 2 && picks.length < need; round++) {
+      for (const it of ordered) {
+        if (picks.length >= need || taken.has(it.id)) continue;
+        const t = primaryTag(it);
+        const lv = levelOf(it);
+        const tagOk = (tagLeft[t] ?? 0) > 0;
+        const lvOk = (levelLeft[lv] ?? 0) > 0;
+        // Round 0 honours both quotas; round 1 honours the tag quota only.
+        if (round === 0 ? tagOk && lvOk : tagOk) {
+          picks.push(it);
+          taken.add(it.id);
+          tagLeft[t] -= 1;
+          if (lvOk) levelLeft[lv] -= 1;
+        }
+      }
+    }
+  } else {
+    const chapterLeft = chapterTargets(ctx.params, freshPool, need);
+    const chapterKey = (it: PoolItem) => it.topic_id ?? '__none__';
+    const ordered = leastServedOrder(freshPool, rng);
+    for (let round = 0; round < 2 && picks.length < need; round++) {
+      for (const it of ordered) {
+        if (picks.length >= need || taken.has(it.id)) continue;
+        const ch = chapterKey(it);
+        const lv = levelOf(it);
+        const chOk = (chapterLeft[ch] ?? 0) > 0;
+        const lvOk = (levelLeft[lv] ?? 0) > 0;
+        // Round 0 honours chapter AND level; round 1 honours the chapter only.
+        if (round === 0 ? chOk && lvOk : chOk) {
+          picks.push(it);
+          taken.add(it.id);
+          chapterLeft[ch] -= 1;
+          if (lvOk) levelLeft[lv] -= 1;
+        }
+      }
+    }
+  }
+
+  // 5. Top-up pass (PRD §3.4): whatever is still eligible, least-served first.
+  if (picks.length < need) {
+    for (const it of leastServedOrder(freshPool, rng)) {
+      if (picks.length >= need) break;
+      if (taken.has(it.id)) continue;
+      picks.push(it);
+      taken.add(it.id);
+    }
+  }
+
+  // 6. Lay the fresh picks into the open slots chapter-by-chapter.
+  const orderOf = (it: PoolItem) =>
+    it.topic_id === null ? Number.MAX_SAFE_INTEGER : (ctx.chapterOrder[it.topic_id] ?? 1e6);
+  picks.sort((a, b) => orderOf(a) - orderOf(b));
+  open = openSlots();
+  picks.forEach((it, i) => {
+    if (i < open.length) slots[open[i]] = it.id;
+  });
+
+  const selected = slots.filter((s) => s !== null).length;
+  return {
+    slots,
+    report: {
+      requested: count,
+      available,
+      selected,
+      missing: Math.max(0, count - selected),
+      blueprint_shortfalls: blueprintShortfalls,
+      generated_at: new Date().toISOString(),
+    },
+  };
+}
+
+/** PRD §8.2 — chapter, category tag and JABT level held constant. Returns
+ *  null when the stratum is exhausted; the UI then disables the control. */
+export function findSwap(input: {
+  pool: PoolItem[];
+  ctx: EngineContext;
+  outgoing: PoolItem;
+  currentIds: string[];
+}): PoolItem | null {
+  const { pool, ctx, outgoing, currentIds } = input;
+  const rng = ctx.rng ?? Math.random;
+  const current = new Set(currentIds);
+  const primaryTag = outgoing.tags[0] ?? null;
+  const candidates = pool.filter(
+    (it) =>
+      it.id !== outgoing.id &&
+      !current.has(it.id) &&
+      !ctx.recentlyUsedIds.has(it.id) &&
+      it.topic_id === outgoing.topic_id &&
+      levelOf(it) === levelOf(outgoing) &&
+      (primaryTag === null ? true : it.tags.includes(primaryTag)) &&
+      itemMatchesFilters(it, ctx),
+  );
+  if (candidates.length === 0) return null;
+  return leastServedOrder(candidates, rng)[0];
+}
+
+/** Decision 12 — a locked item that no longer matches the filters is kept
+ *  and flagged, never dropped. */
+export function lockWarnings(
+  lockedItems: PoolItem[],
+  ctx: Pick<EngineContext, 'examKey' | 'params'>,
+): { item_id: string; reasons: string[] }[] {
+  return lockedItems
+    .map((it) => ({ item_id: it.id, reasons: filterMismatches(it, ctx) }))
+    .filter((w) => w.reasons.length > 0);
+}
+
+/** PRD §4.5 / Physics §4.3 — `auto` resolves from the longest option. */
+export function resolveOptionLayout(
+  layout: OneMarkOptionLayout,
+  options: OptionRow[] | null | undefined,
+): Exclude<OneMarkOptionLayout, 'auto'> {
+  if (layout !== 'auto') return layout;
+  const longest = (options ?? []).reduce((m, o) => Math.max(m, (o?.text ?? '').length), 0);
+  if (longest > 45) return 'stacked';
+  if (longest > 15) return 'inline_2x2';
+  return 'inline_4';
+}
+
+// ---------------------------------------------------------------------------
+// What the API returns to the wizard
+// ---------------------------------------------------------------------------
+
+export interface ChapterRef {
+  id: string;
+  config_key: string;
+  display_name: string;
+  sort_order: number;
+  pool_count: number;
+}
+
+export interface TagRef {
+  key: string;
+  label: string;
+  pool_count: number;
+}
+
+export interface SourceRef {
+  key: string;
+  label: string;
+}
+
+export interface ExamRef {
+  id: string;
+  config_key: string;
+  display_name: string;
+}
+
+export interface CohortRef {
+  id: string;
+  term: string | null;
+  school_name: string | null;
+}
+
+export interface PaperSummary {
+  id: string;
+  title: string;
+  exam_definition_id: string;
+  exam_key: string;
+  state: PaperState;
+  step: WizardStep;
+  question_count: number;
+  selected: number;
+  updated_at: string;
+}
+
+export interface ExamReference {
+  exam: ExamRef;
+  chapters: ChapterRef[];
+  /** Items with no chapter — English grammar-general (PRD §4.4). */
+  chapter_agnostic_count: number;
+  tags: TagRef[];
+  levels: Record<LevelKey, number>;
+  years: { min: number | null; max: number | null };
+  pool_total: number;
+  cohorts: CohortRef[];
+}
+
+export interface WizardReference {
+  can_see_answers: boolean;
+  exams: ExamRef[];
+  sources: SourceRef[];
+  policies: { question_count: number; max_series: number };
+  papers: PaperSummary[];
+  exam_reference: ExamReference | null;
+}
+
+/** One resolved question as the browser sees it. `answer` / explanations are
+ *  present ONLY for a holder of foundation.items.manage. */
+export interface ResolvedQuestion {
+  position: number;
+  item_id: string;
+  locked: boolean;
+  stem: string;
+  stem_ta: string | null;
+  options: OptionRow[];
+  options_ta: OptionRow[] | null;
+  option_layout: OneMarkOptionLayout;
+  topic_id: string | null;
+  chapter_name: string | null;
+  tags: string[];
+  bloom_level: string | null;
+  source_key: string | null;
+  source_year: number | null;
+  override: QuestionOverride | null;
+  swap_available: boolean;
+  lock_warning: string[] | null;
+  answer?: unknown;
+  explanation?: string | null;
+  explanation_ta?: string | null;
+}
+
+export interface PaperDetail {
+  id: string;
+  title: string;
+  exam: ExamRef;
+  cohort_id: string | null;
+  config: PaperConfig;
+  questions: ResolvedQuestion[];
+  can_see_answers: boolean;
+  updated_at: string;
+}
+
+export type PaperAction =
+  | { action: 'save'; params?: Partial<PaperParams>; step?: WizardStep; title?: string }
+  | { action: 'generate' }
+  | { action: 'use_available' }
+  | { action: 'swap'; item_id: string }
+  | { action: 'lock'; item_id: string; locked: boolean }
+  | { action: 'drop'; item_id: string }
+  | { action: 'override'; item_id: string; fields: QuestionOverride | null }
+  | { action: 'finalize' }
+  | { action: 'reopen' }
+  | { action: 'mark_exported' }
+  | {
+      action: 'publish';
+      cohort_id: string;
+      open_at: string;
+      close_at: string;
+      duration_min: number;
+      shuffle_options: boolean;
+    };
+
+export interface ActionResult {
+  paper: PaperDetail;
+  /** Set on a swap that found nothing (PRD §3.2 swap exhaustion). */
+  swap_exhausted?: { item_id: string; reason: string };
+}
+
+// ---------------------------------------------------------------------------
+// Fetch wrapper
+// ---------------------------------------------------------------------------
+
+const BASE = '/api/foundation/onemark/paper';
+
+async function parse<T>(res: Response): Promise<T> {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(body?.error ?? `Request failed (${res.status})`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return body as T;
+}
+
+export class PaperService {
+  static async reference(examDefinitionId?: string | null): Promise<WizardReference> {
+    const qs = examDefinitionId ? `?exam=${encodeURIComponent(examDefinitionId)}` : '';
+    return parse<WizardReference>(await fetch(`${BASE}${qs}`, { cache: 'no-store' }));
+  }
+
+  static async create(input: {
+    exam_definition_id: string;
+    title: string;
+  }): Promise<PaperDetail> {
+    const res = await fetch(BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    return (await parse<{ paper: PaperDetail }>(res)).paper;
+  }
+
+  static async get(paperId: string): Promise<PaperDetail> {
+    const res = await fetch(`${BASE}/${encodeURIComponent(paperId)}`, { cache: 'no-store' });
+    return (await parse<{ paper: PaperDetail }>(res)).paper;
+  }
+
+  static async act(paperId: string, action: PaperAction): Promise<ActionResult> {
+    const res = await fetch(`${BASE}/${encodeURIComponent(paperId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(action),
+    });
+    return parse<ActionResult>(res);
+  }
+
+  /** Lane P's route. Series letters A–D; `key=1` asks for the answer key. */
+  static pdfHref(paperId: string, series: string, key: boolean): string {
+    return `${BASE}/${encodeURIComponent(paperId)}/pdf?series=${encodeURIComponent(series)}${key ? '&key=1' : ''}`;
+  }
+}
+
+export const SERIES_LETTERS = ['A', 'B', 'C', 'D'] as const;
