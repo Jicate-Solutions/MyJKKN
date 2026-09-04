@@ -70,10 +70,23 @@ jobs:
     name: JKKN terminology
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Drafts cannot enter a merge queue, so there is nothing to skip there and
-    # the draft probe has no object to read. On a pull_request run the left
-    # operand is false and this reduces to the original `!…draft` expression.
-    if: ${{ github.event_name == 'merge_group' || !github.event.pull_request.draft }}
+    # Two clauses, both load-bearing.
+    #
+    # The allowlist is not decoration. Fail-closed is now unconditional, and
+    # BASE_SHA/HEAD_SHA below derive from exactly two event shapes. Add `push:`
+    # or `workflow_dispatch:` to `on:` above — which this file's own comments
+    # invite — and both SHAs resolve to empty, so this REQUIRED gate would
+    # hard-fail every such run with RESOLUTION FAILURE while the advisory jobs
+    # skipped silently. Adding a trigger must therefore mean adding its
+    # SHA-derivation here too; until then the job does not run for it.
+    #
+    # The draft clause is unchanged: drafts cannot enter a merge queue, so there
+    # is nothing to skip there and the draft probe has no object to read. On a
+    # pull_request run the allowlist is true and the second operand's left side
+    # is false, so this reduces to the original `!…draft` expression.
+    if: >-
+      ${{ contains(fromJSON('["pull_request","merge_group"]'), github.event_name)
+          && (github.event_name == 'merge_group' || !github.event.pull_request.draft) }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -98,6 +111,23 @@ jobs:
           # below states that outright rather than implying the lines are yours.
           # Narrowing the range would need max_entries_to_build: 1 in ruleset
           # 14879480: a Director-only change, deliberately not made here.
+          #
+          # A review asked for the alternative — derive the previous group head
+          # and narrow the range in code. DECLINED, on the same grounds as the
+          # `git diff HEAD^ HEAD` fallback declined earlier: any derivation must
+          # assume one of the two readings above, and the repo already asserts
+          # BOTH. typecheck-pr-scoped.yml:83-84 states "groups chain, so base_sha
+          # already contains PRs ahead in the queue" (the narrow reading); the
+          # review's premise is that base_sha is the base-branch tip (the batch
+          # reading). Neither has a live queue run behind it. Narrowing on a
+          # guessed premise yields a WRONG RANGE, which is a false verdict in
+          # whichever direction the guess was wrong — strictly worse than a
+          # correct verdict with a wide blast radius, which is what a merge queue
+          # is for: rejecting bad COMBINATIONS. The cost is that an innocent
+          # entry can be dequeued beside a violating neighbour, so the verdict
+          # message names that explicitly and mirrors it to the step summary.
+          # Resolve it with max_entries_to_build: 1, or with one observed queue
+          # run — not with a guess.
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
@@ -122,14 +152,23 @@ jobs:
           # anything on its own.
           have() { [ -n "${1:-}" ] && git cat-file -e "${1}^{commit}" 2>/dev/null; }
 
-          git fetch origin "$BASE_SHA" --quiet || true
+          # ATTEMPT 1, for BOTH ends. A previous revision fetched only the base
+          # here while the notice and the RESOLUTION FAILURE message below both
+          # promised "3 attempts" — so HEAD_SHA actually got two, and an operator
+          # debugging a flaky head was told a retry had happened that had not.
+          # Conditional so a healthy run pays nothing: when an object is already
+          # present (the normal case under fetch-depth: 0) the fetch would be a
+          # no-op round trip anyway, and no message is printed for that end.
+          for sha in "$BASE_SHA" "$HEAD_SHA"; do
+            if ! have "$sha"; then git fetch origin "$sha" --quiet 2>/dev/null || true; fi
+          done
 
-          # Retry BOTH ends of the range. An earlier revision tested and re-fetched
-          # only the base, so a present base plus a transiently missing HEAD broke
-          # out of this loop on iteration 1 and tripped fail_closed immediately —
+          # Attempts 2 and 3, still covering both ends. An earlier revision tested
+          # and re-fetched only the base, so a present base plus a transiently
+          # missing HEAD broke out on iteration 1 and tripped fail_closed at once —
           # hard-failing the required check, and dequeuing the entry, on precisely
-          # the flake the loop exists to absorb. The fetch above is attempt 1; on a
-          # healthy run this body never executes and costs nothing.
+          # the flake this loop exists to absorb. On a healthy run the body never
+          # executes.
           for attempt in 2 3; do
             if have "$BASE_SHA" && have "$HEAD_SHA"; then break; fi
             base_ok=no; head_ok=no
@@ -168,23 +207,38 @@ jobs:
             fail_closed "RESOLUTION FAILURE on a ${GITHUB_EVENT_NAME:-unknown} event — the delta range is unresolvable after 3 attempts (base='${BASE_SHA}' head='${HEAD_SHA}'). This is NOT a scanner failure: nothing was scanned, so the gate FAILS rather than passing unscanned. On a pull request the usual cause is a force-pushed or rebased base branch; re-run once both commits are reachable."
           fi
 
+          # /tmp/term.md is a SUCCESS SENTINEL, not just a report: it is created
+          # only after the scanner exits 0. The scan writes to /tmp/term.raw and
+          # the file is renamed afterwards.
+          #
+          # This matters because `python … > /tmp/term.md` would have the SHELL
+          # create and truncate that path at redirection time, before the
+          # interpreter runs — so a crashed scanner still left an existing, empty
+          # /tmp/term.md, the verdict step's `[ ! -f ]` guard could never fire,
+          # and it would print "No new terminology issues." for a range that was
+          # never scanned. Latent rather than live (the fail_closed below already
+          # reddens the job), but the guard's comment claimed to catch exactly
+          # that case and did not — and a later `continue-on-error`, a job split,
+          # or moving the verdict step would have turned the false claim into a
+          # real fail-open. Both stale paths are cleared first so a rerun cannot
+          # satisfy the sentinel with a previous run's file.
+          rm -f /tmp/term.md /tmp/term.raw
+
           # The scanner exits 0 BY DESIGN even when it finds violations (the
           # workflow derives the verdict from the report file), so a non-zero exit
           # is unambiguously a crash — a dictionary import error, an unreadable
           # object. Discarding it with `|| true` left an errored scan
-          # indistinguishable from a clean one: empty report, gate green. That
-          # fail-open predates this PR; the merge_group SHA shape now flows through
-          # the same line, so it is hardened here rather than inherited. This one
-          # is deliberately NOT event-scoped, and the message is attributed
-          # separately from the resolution failure above so that the two causes
-          # stay distinguishable in the log.
+          # indistinguishable from a clean one. Deliberately NOT event-scoped, and
+          # attributed separately from the resolution failure above so the two
+          # causes stay distinguishable in the log.
           set +e
-          python scripts/ci/check-terminology-delta.py "$BASE_SHA" "$HEAD_SHA" > /tmp/term.md
+          python scripts/ci/check-terminology-delta.py "$BASE_SHA" "$HEAD_SHA" > /tmp/term.raw
           scan_rc=$?
           set -e
           if [ "$scan_rc" -ne 0 ]; then
             fail_closed "SCANNER FAILURE — check-terminology-delta.py exited ${scan_rc}. The delta range RESOLVED, so this is not a resolution failure; the scanner itself crashed. Nothing was scanned, so the gate FAILS rather than reading an empty report as 'clean'. See the step log for the traceback."
           fi
+          mv /tmp/term.raw /tmp/term.md
           echo "report bytes: $(wc -c < /tmp/term.md)"
       - name: Post comment
         # There is no PR in a merge group, so PR_NUMBER would be empty and every
@@ -226,21 +280,43 @@ jobs:
         # have relied on was false. It is true now.
         if: ${{ !cancelled() }}
         run: |
-          # Reachable via `!cancelled()` after an earlier step failed closed, in
-          # which case the report was never written. Producing "No new
-          # terminology issues." from a scan that never ran is the fail-open this
-          # whole change is about, even with the job already red.
+          # Reachable via `!cancelled()` after an earlier step failed closed.
+          # /tmp/term.md exists ONLY if the scanner exited 0 — the scan step
+          # writes to /tmp/term.raw and renames on success precisely so this test
+          # means "the scan completed", which a plain redirect target could never
+          # mean. Announcing "No new terminology issues." for a range that was
+          # never scanned is the fail-open this whole change is about, even with
+          # the job already red for another reason.
           if [ ! -f /tmp/term.md ]; then
-            echo "::error::No terminology report file — the scan never completed (see the failure above). Failing closed rather than announcing a verdict that was never computed."
+            echo "::error::No terminology report — the scan did not complete successfully (see the failure above). Failing closed rather than announcing a verdict that was never computed."
             exit 1
           fi
           if grep -q '[^[:space:]]' /tmp/term.md; then
             if [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ]; then
-              # No comment was posted (there is no PR), so put the report in the
-              # log — otherwise a queue failure would name no lines to fix.
+              NOTE="NOTE: ruleset 14879480 sets max_entries_to_build: 5, so a merge group may batch several queued PRs. The lines below are the GROUP's added lines and may belong to a neighbouring entry, not necessarily to your PR."
               echo "::error::New user-facing copy uses zero-tolerance terms somewhere in this MERGE GROUP — report below."
-              echo "NOTE: ruleset 14879480 sets max_entries_to_build: 5, so a merge group may batch several queued PRs. The lines below are the GROUP's added lines and may belong to a neighbouring entry, not necessarily to your PR."
+              echo "$NOTE"
+              # The report embeds attacker-authored diff lines verbatim. Echoed to
+              # stdout they are parsed as workflow commands, so a PR whose added
+              # copy starts with ::stop-commands:: or ::add-mask:: would drive the
+              # runner. ::stop-commands:: with an unguessable token disarms that
+              # for the span. This exposure is NEW to the merge_group branch — the
+              # pull_request path never had it, because it posts the same text
+              # into a comment BODY via --body-file rather than to the log.
+              STOP="stop-$(uuidgen 2>/dev/null || echo "$(date +%s%N)-${RANDOM}")"
+              echo "::stop-commands::${STOP}"
               cat /tmp/term.md
+              echo "::${STOP}::"
+              # A merge group has no PR to comment on — the very reason
+              # fail_closed mirrors to the step summary. The violation verdict is
+              # the message a queue author most needs, so it mirrors too.
+              {
+                echo "### JKKN terminology — BLOCKED (merge group)"
+                echo ""
+                echo "$NOTE"
+                echo ""
+                cat /tmp/term.md
+              } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             else
               echo "::error::New user-facing copy uses zero-tolerance terms — see the PR comment for the exact lines and JKKN replacements."
             fi
