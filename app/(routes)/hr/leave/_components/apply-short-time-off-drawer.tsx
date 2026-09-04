@@ -189,8 +189,10 @@ export function ApplyShortTimeOffDrawer({
     date || undefined,
   );
 
-  const shiftOpen = toMinutes(shift?.first_half_start);
-  const shiftClose = toMinutes(shift?.second_half_end);
+  // The envelope of the day. A working day may have ONE half (2026-09-04), so
+  // open/close fall through to whichever half exists.
+  const shiftOpen = toMinutes(shift?.first_half_start ?? shift?.second_half_start);
+  const shiftClose = toMinutes(shift?.second_half_end ?? shift?.first_half_end);
   const graceDeadline =
     shiftOpen === null ? null : shiftOpen + (shift?.grace_minutes ?? 0);
   const nonWorkingDay = !!date && !!shift && shift.is_working_day === false;
@@ -206,22 +208,46 @@ export function ApplyShortTimeOffDrawer({
     const fe = toMinutes(shift.first_half_end);
     const ss = toMinutes(shift.second_half_start);
     const se = toMinutes(shift.second_half_end);
-    if (fs === null || fe === null || ss === null || se === null) return null;
-    // The first half OPENS AT ITS GRACE DEADLINE, not at its raw start. Those
-    // grace minutes are already free — nobody is marked late inside them — so a
-    // permission covering 09:00-09:05 would spend allowance on time that was
-    // never at risk. The card and the bounds both read this one value, so what
-    // is displayed is exactly what is selectable: 09:05 offered, 09:04 refused.
-    // Math.min guards a grace longer than the half itself, which the 0..240
-    // range on grace_minutes permits.
-    const graceOpen = Math.min(fs + (shift.grace_minutes ?? 0), fe);
+    const hasFirst = fs !== null && fe !== null;
+    const hasSecond = ss !== null && se !== null;
+    // A working day may have ONE half (2026-09-04). Neither is a broken row.
+    if (!hasFirst && !hasSecond) return null;
+    const grace = shift.grace_minutes ?? 0;
+
+    // The day's FIRST SESSION OPENS AT ITS GRACE DEADLINE, not at its raw
+    // start. Those grace minutes are already free — nobody is marked late
+    // inside them — so a permission covering 09:00-09:05 would spend allowance
+    // on time that was never at risk. The card and the bounds both read this
+    // one value, so what is displayed is exactly what is selectable: 09:05
+    // offered, 09:04 refused. Math.min guards a grace longer than the half
+    // itself, which the 0..240 range on grace_minutes permits. On a
+    // second-half-only day the afternoon IS the first session — the same rule
+    // evaluateDay applies.
+    type Session = { key: 'first' | 'second'; label: string; start: number; end: number };
+    const list: Session[] = [];
+    if (hasFirst) {
+      list.push({ key: 'first', label: 'First half', start: Math.min(fs + grace, fe), end: fe });
+    }
+    if (hasSecond) {
+      list.push({
+        key: 'second',
+        label: hasFirst ? 'Second half' : 'Shift',
+        start: hasFirst ? ss : Math.min(ss + grace, se),
+        end: se,
+      });
+    }
     return {
-      first: { key: 'first' as const, label: 'First half', start: graceOpen, end: fe },
-      second: { key: 'second' as const, label: 'Second half', start: ss, end: se },
+      list,
+      first: hasFirst ? list[0] : null,
+      second: hasSecond ? list[list.length - 1] : null,
     };
   }, [shift]);
 
-  const activeSession = sessions ? sessions[session] : null;
+  // The picked session, or the day's only one when the picked half does not
+  // exist on this date (the state defaults to 'first').
+  const activeSession = sessions
+    ? (sessions.list.find((s) => s.key === session) ?? sessions.list[0])
+    : null;
 
   // What actually bounds the inputs: the picked half, or the whole shift when
   // the halves could not be resolved.
@@ -642,9 +668,9 @@ export function ApplyShortTimeOffDrawer({
               {sessions && (
                 <div>
                   <Label>Which part of your shift? <span className="text-destructive">*</span></Label>
-                  <div className="mt-1 grid grid-cols-2 gap-2">
-                    {[sessions.first, sessions.second].map((half) => {
-                      const isActive = session === half.key;
+                  <div className={`mt-1 grid gap-2 ${sessions.list.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    {sessions.list.map((half) => {
+                      const isActive = activeSession?.key === half.key;
                       return (
                         <button
                           key={half.key}
@@ -670,7 +696,7 @@ export function ApplyShortTimeOffDrawer({
                   </div>
                   {/* Someone reading two cards that both cover 12:30–13:00 will
                       otherwise take one of them for a typo. */}
-                  {sessions.second.start < sessions.first.end && (
+                  {sessions.first && sessions.second && sessions.second.start < sessions.first.end && (
                     <p className="mt-1.5 text-xs text-muted-foreground">
                       The halves overlap between {to12h(sessions.second.start)} and{' '}
                       {to12h(sessions.first.end)} — a time in that span can be booked under
@@ -684,7 +710,7 @@ export function ApplyShortTimeOffDrawer({
                   carry the timings in every other case. */}
               {shift && shift.is_working_day && !sessions && (
                 <p className="text-xs text-muted-foreground">
-                  Shift {clock(shift.first_half_start)}–{clock(shift.second_half_end)}
+                  Shift {clock(shift.first_half_start ?? shift.second_half_start)}–{clock(shift.second_half_end ?? shift.first_half_end)}
                   {shift.grace_minutes ? ` · ${shift.grace_minutes} min grace, so lateness counts from ${graceDeadline !== null ? to12h(graceDeadline) : '—'}` : ''}
                   . A request must sit inside the shift.
                 </p>

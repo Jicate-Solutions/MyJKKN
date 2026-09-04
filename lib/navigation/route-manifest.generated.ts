@@ -3213,6 +3213,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Review",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/campus-walk/scoreboard",
+        "label": "Scoreboard",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/campus-walk/scoreboard/coverage",
+            "label": "Coverage",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-walk/scoreboard/fixes",
+            "label": "Fixes",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-walk/scoreboard/split",
+            "label": "Split",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       }
     ]
   },
@@ -4345,6 +4370,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/hr/admin/work-patterns",
+            "label": "Work Patterns",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },

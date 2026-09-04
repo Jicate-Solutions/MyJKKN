@@ -27515,34 +27515,18 @@ GRANT  EXECUTE ON FUNCTION public.fn_auto_allocate_classic(text, uuid, boolean, 
 -- to remove here.
 -- =====================================================================
 
-CREATE OR REPLACE FUNCTION public.fn_resolve_shift_timing(
-  p_staff_id uuid,
-  p_date     date
-)
-RETURNS TABLE (
-  timing_id uuid,
-  institution_id uuid,
-  staff_scope text,
-  employment_category_id uuid,
-  day_of_week smallint,
-  is_working_day boolean,
-  first_half_start time,
-  first_half_end time,
-  second_half_start time,
-  second_half_end time,
-  grace_minutes integer,
-  grace_deadline time,
-  matched_by text
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_resolve_shift_timing(p_staff_id uuid, p_date date)
+ RETURNS TABLE(timing_id uuid, institution_id uuid, staff_scope text, employment_category_id uuid, applicable_gender text, day_of_week smallint, is_working_day boolean, first_half_start time without time zone, first_half_end time without time zone, second_half_start time without time zone, second_half_end time without time zone, grace_minutes integer, grace_deadline time without time zone, matched_by text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_institution_id uuid;
   v_category_id    uuid;
   v_is_teaching    boolean;
+  v_gender         text;
+  v_pattern_id     uuid;
   v_dow            smallint;
   v_second_sat     boolean;
 BEGIN
@@ -27560,18 +27544,16 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  SELECT s.institution_id, s.category_id, ec.is_teaching
-    INTO v_institution_id, v_category_id, v_is_teaching
+  SELECT s.institution_id, s.category_id, ec.is_teaching, s.gender
+    INTO v_institution_id, v_category_id, v_is_teaching, v_gender
   FROM public.staff s
   JOIN public.employment_categories ec ON ec.id = s.category_id
   WHERE s.id = p_staff_id;
 
-  IF v_institution_id IS NULL THEN
-    RETURN;
-  END IF;
+  IF v_institution_id IS NULL THEN RETURN; END IF;
 
-  v_dow := EXTRACT(ISODOW FROM p_date)::smallint;
-  -- Nth Saturday of a month = ceil(day_of_month / 7). The 2nd falls on days 8..14.
+  v_pattern_id := public.fn_staff_work_pattern_id(p_staff_id, p_date);
+  v_dow        := EXTRACT(ISODOW FROM p_date)::smallint;
   v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
 
   RETURN QUERY
@@ -27580,6 +27562,7 @@ BEGIN
     t.institution_id,
     t.staff_scope,
     t.employment_category_id,
+    t.applicable_gender,
     t.day_of_week,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN false ELSE t.is_working_day END,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_start  END,
@@ -27587,26 +27570,17 @@ BEGIN
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_start END,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_end   END,
     t.grace_minutes,
+    -- The FIRST SESSION of the day: the morning when there is one, the lone
+    -- afternoon on a second-half-only day. Grace applies to whichever it is.
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) OR NOT t.is_working_day THEN NULL
-         ELSE (t.first_half_start + make_interval(mins => t.grace_minutes))::time END,
+         ELSE (COALESCE(t.first_half_start, t.second_half_start)
+               + make_interval(mins => t.grace_minutes))::time END,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN 'second_saturday_holiday'
          ELSE t.staff_scope END
-  FROM public.hr_shift_timings t
-  WHERE t.institution_id = v_institution_id
-    AND t.day_of_week    = v_dow
-    AND t.is_active
-    AND t.effective_from <= p_date
-    AND (t.effective_until IS NULL OR t.effective_until > p_date)
-    AND (
-         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
-      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
-      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
-    )
-  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,  -- most specific wins
-           t.effective_from DESC
-  LIMIT 1;
+  FROM public.fn_shift_timing_pick(
+         v_institution_id, v_category_id, v_is_teaching, v_gender, v_dow, p_date, v_pattern_id) t;
 END;
-$$;
+$function$;
 
 COMMENT ON FUNCTION public.fn_resolve_shift_timing(uuid, date) IS
   'Resolve the applicable hr_shift_timings row for a staff member on a date. Most-specific-wins (category > teaching/non_teaching), effective-dated, and folds in the second-Saturday rule. Self-authorizing.';
@@ -27624,23 +27598,12 @@ GRANT EXECUTE ON FUNCTION public.fn_resolve_shift_timing(uuid, date) TO authenti
 -- non-teaching, both schools are 100% teaching — so the UI must be able to
 -- tell "correctly empty" from "misconfigured".
 -- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_shift_timing_coverage(
-  p_institution_id uuid,
-  p_date           date
-)
-RETURNS TABLE (
-  employment_category_id uuid,
-  category_name text,
-  is_teaching boolean,
-  staff_count bigint,
-  resolved_timing_id uuid,
-  resolved_via text
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_shift_timing_coverage(p_institution_id uuid, p_date date)
+ RETURNS TABLE(employment_category_id uuid, category_name text, is_teaching boolean, staff_gender text, staff_count bigint, resolved_timing_id uuid, resolved_via text, resolved_gender text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_dow smallint;
 BEGIN
@@ -27662,34 +27625,22 @@ BEGIN
     SELECT ec.id AS cat_id,
            ec.category_name AS cat_name,
            ec.is_teaching AS cat_is_teaching,
+           s.gender AS cat_gender,
            count(s.id) AS cat_staff_count
     FROM public.staff s
     JOIN public.employment_categories ec ON ec.id = s.category_id
     WHERE s.institution_id = p_institution_id
-    GROUP BY ec.id, ec.category_name, ec.is_teaching
+      AND public.fn_staff_work_pattern_id(s.id, p_date) IS NULL
+    GROUP BY ec.id, ec.category_name, ec.is_teaching, s.gender
   )
-  SELECT c.cat_id, c.cat_name, c.cat_is_teaching, c.cat_staff_count, t.id, t.staff_scope
+  SELECT c.cat_id, c.cat_name, c.cat_is_teaching, c.cat_gender, c.cat_staff_count,
+         t.id, t.staff_scope, t.applicable_gender
   FROM cats c
-  LEFT JOIN LATERAL (
-    SELECT tt.id, tt.staff_scope
-    FROM public.hr_shift_timings tt
-    WHERE tt.institution_id = p_institution_id
-      AND tt.day_of_week    = v_dow
-      AND tt.is_active
-      AND tt.effective_from <= p_date
-      AND (tt.effective_until IS NULL OR tt.effective_until > p_date)
-      AND (
-           (tt.staff_scope = 'category'     AND tt.employment_category_id = c.cat_id)
-        OR (tt.staff_scope = 'teaching'     AND c.cat_is_teaching)
-        OR (tt.staff_scope = 'non_teaching' AND NOT c.cat_is_teaching)
-      )
-    ORDER BY CASE tt.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
-             tt.effective_from DESC
-    LIMIT 1
-  ) t ON true
-  ORDER BY c.cat_staff_count DESC, c.cat_name;
+  LEFT JOIN LATERAL public.fn_shift_timing_pick(
+    p_institution_id, c.cat_id, c.cat_is_teaching, c.cat_gender, v_dow, p_date) t ON true
+  ORDER BY c.cat_staff_count DESC, c.cat_name, c.cat_gender;
 END;
-$$;
+$function$;
 
 COMMENT ON FUNCTION public.fn_shift_timing_coverage(uuid, date) IS
   'Per-employment-category shift timing coverage for an institution on a date. NULL resolved_timing_id = staff with no timing. Self-authorizing.';
@@ -27697,24 +27648,28 @@ COMMENT ON FUNCTION public.fn_shift_timing_coverage(uuid, date) IS
 REVOKE ALL ON FUNCTION public.fn_shift_timing_coverage(uuid, date) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_shift_timing_coverage(uuid, date) TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.fn_save_shift_timing_week(
+DROP FUNCTION IF EXISTS public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text);
+
+CREATE FUNCTION public.fn_save_shift_timing_week(
   p_institution_id         uuid,
   p_staff_scope            text,
   p_employment_category_id uuid,
   p_effective_from         date,
-  p_days                   jsonb
+  p_days                   jsonb,
+  p_applicable_gender      text DEFAULT 'all',
+  p_work_pattern_id        uuid DEFAULT NULL
 )
 RETURNS integer
 LANGUAGE plpgsql
-VOLATILE
 SECURITY DEFINER
-SET search_path = public
-AS $fn$
+SET search_path TO 'public'
+AS $function$
 DECLARE
   v_day      record;
   v_current  public.hr_shift_timings%ROWTYPE;
   v_written  integer := 0;
   v_actor    uuid := auth.uid();
+  v_pattern_inst uuid;
 BEGIN
   IF NOT (
        public.is_super_admin()
@@ -27726,13 +27681,36 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  IF p_staff_scope NOT IN ('teaching','non_teaching','category') THEN
+  IF p_staff_scope NOT IN ('teaching','non_teaching','category','work_pattern') THEN
     RAISE EXCEPTION 'Invalid staff_scope: %', p_staff_scope USING ERRCODE = '22023';
+  END IF;
+
+  IF p_applicable_gender NOT IN ('all','male','female','bigender') THEN
+    RAISE EXCEPTION 'Invalid applicable_gender: %', p_applicable_gender USING ERRCODE = '22023';
   END IF;
 
   IF (p_staff_scope = 'category') <> (p_employment_category_id IS NOT NULL) THEN
     RAISE EXCEPTION 'staff_scope=category requires an employment_category_id, and vice versa'
       USING ERRCODE = '22023';
+  END IF;
+
+  IF (p_staff_scope = 'work_pattern') <> (p_work_pattern_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'staff_scope=work_pattern requires a work_pattern_id, and vice versa'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_staff_scope = 'work_pattern' THEN
+    IF p_applicable_gender <> 'all' THEN
+      RAISE EXCEPTION 'A work pattern''s week applies to everyone on it; applicable_gender must be ''all'''
+        USING ERRCODE = '22023';
+    END IF;
+    SELECT institution_id INTO v_pattern_inst FROM public.hr_work_patterns WHERE id = p_work_pattern_id;
+    IF v_pattern_inst IS NULL THEN
+      RAISE EXCEPTION 'Work pattern % not found', p_work_pattern_id USING ERRCODE = 'P0002';
+    END IF;
+    IF v_pattern_inst <> p_institution_id THEN
+      RAISE EXCEPTION 'Work pattern belongs to a different institution' USING ERRCODE = '22023';
+    END IF;
   END IF;
 
   FOR v_day IN
@@ -27752,20 +27730,22 @@ BEGIN
     FROM public.hr_shift_timings t
     WHERE t.institution_id = p_institution_id
       AND t.staff_scope    = p_staff_scope
+      AND t.applicable_gender = p_applicable_gender
       AND t.day_of_week    = v_day.day_of_week
       AND t.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
+      AND t.work_pattern_id        IS NOT DISTINCT FROM p_work_pattern_id
       AND t.effective_until IS NULL
       AND t.is_active;
 
     IF NOT FOUND THEN
       INSERT INTO public.hr_shift_timings (
-        institution_id, staff_scope, employment_category_id, day_of_week,
+        institution_id, staff_scope, employment_category_id, work_pattern_id, applicable_gender, day_of_week,
         is_working_day, first_half_start, first_half_end,
         second_half_start, second_half_end,
         grace_minutes, second_saturday_holiday, effective_from,
         created_by, updated_by
       ) VALUES (
-        p_institution_id, p_staff_scope, p_employment_category_id, v_day.day_of_week,
+        p_institution_id, p_staff_scope, p_employment_category_id, p_work_pattern_id, p_applicable_gender, v_day.day_of_week,
         v_day.is_working_day, v_day.first_half_start, v_day.first_half_end,
         v_day.second_half_start, v_day.second_half_end,
         COALESCE(v_day.grace_minutes, 0), COALESCE(v_day.second_saturday_holiday, false),
@@ -27773,45 +27753,33 @@ BEGIN
       );
 
     ELSIF p_effective_from <= v_current.effective_from THEN
-      -- Correction. Reworked 2026-08-10 (migration 20260810091000): this branch
-      -- used to overwrite the live row and KEEP its effective_from, silently
-      -- discarding the caller's earlier date. Once a save had superseded, the
-      -- closed row was unreachable from the UI and history could never be
-      -- corrected — three attendance incidents in two days each needed a
-      -- hand-written migration to repair.
-
-      -- 1. Retire whatever started inside the span we are about to claim.
-      --    is_active = false, never DELETE: the row records what the rule used
-      --    to say, and the partial unique index ignores inactive rows. Leaving
-      --    them active would put two rows over the same date, with the
-      --    resolver's `ORDER BY effective_from DESC LIMIT 1` picking arbitrarily.
       UPDATE public.hr_shift_timings h
          SET is_active  = false,
              updated_by = v_actor
        WHERE h.institution_id = p_institution_id
          AND h.staff_scope    = p_staff_scope
+         AND h.applicable_gender = p_applicable_gender
          AND h.day_of_week    = v_day.day_of_week
          AND h.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
+         AND h.work_pattern_id        IS NOT DISTINCT FROM p_work_pattern_id
          AND h.id <> v_current.id
          AND h.is_active
          AND h.effective_from >= p_effective_from;
 
-      -- 2. A row that predates the span keeps its earlier life, clipped to end
-      --    where the correction begins. effective_from < p_effective_from, so
-      --    hr_shift_timings_effective_chk (until > from) still holds.
       UPDATE public.hr_shift_timings h
          SET effective_until = p_effective_from,
              updated_by      = v_actor
        WHERE h.institution_id = p_institution_id
          AND h.staff_scope    = p_staff_scope
+         AND h.applicable_gender = p_applicable_gender
          AND h.day_of_week    = v_day.day_of_week
          AND h.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
+         AND h.work_pattern_id        IS NOT DISTINCT FROM p_work_pattern_id
          AND h.id <> v_current.id
          AND h.is_active
          AND h.effective_from < p_effective_from
          AND (h.effective_until IS NULL OR h.effective_until > p_effective_from);
 
-      -- 3. The live row takes the new values and really does start here.
       UPDATE public.hr_shift_timings
          SET is_working_day          = v_day.is_working_day,
              first_half_start        = v_day.first_half_start,
@@ -27825,21 +27793,19 @@ BEGIN
        WHERE id = v_current.id;
 
     ELSE
-      -- Scheduled change: close the live row, then insert its successor.
-      -- Order matters — the partial unique index forbids two live rows.
       UPDATE public.hr_shift_timings
          SET effective_until = p_effective_from,
              updated_by      = v_actor
        WHERE id = v_current.id;
 
       INSERT INTO public.hr_shift_timings (
-        institution_id, staff_scope, employment_category_id, day_of_week,
+        institution_id, staff_scope, employment_category_id, work_pattern_id, applicable_gender, day_of_week,
         is_working_day, first_half_start, first_half_end,
         second_half_start, second_half_end,
         grace_minutes, second_saturday_holiday, effective_from,
         created_by, updated_by
       ) VALUES (
-        p_institution_id, p_staff_scope, p_employment_category_id, v_day.day_of_week,
+        p_institution_id, p_staff_scope, p_employment_category_id, p_work_pattern_id, p_applicable_gender, v_day.day_of_week,
         v_day.is_working_day, v_day.first_half_start, v_day.first_half_end,
         v_day.second_half_start, v_day.second_half_end,
         COALESCE(v_day.grace_minutes, 0), COALESCE(v_day.second_saturday_holiday, false),
@@ -27852,13 +27818,13 @@ BEGIN
 
   RETURN v_written;
 END;
-$fn$;
+$function$;
 
-COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) IS
-  'Atomically write a full week of hr_shift_timings for one (institution, scope, category). An effective_from at or before the live row CORRECTS history: overlapping earlier rows are retired or clipped and the live row moves back to that date, so already-imported attendance can be recomputed against it. A later effective_from SCHEDULES: the live rows close and successors are inserted, leaving history judged by the rule that was in force. Self-authorizing on hr.shift_timings.manage.';
+COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text, uuid) IS
+  'Save one scope''s week (teaching / non_teaching / category / work_pattern × gender) effective from a date. A pattern week is always gender ''all''. Closes the previous rows at that date, or rewrites them when backdating.';
 
-REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text, uuid) TO authenticated;
 
 -- ============================================================================
 -- Updated: 2026-08-15 (migration 20260815020000_reservation_is_move_in.sql)
@@ -46855,58 +46821,44 @@ COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
 -- Returns NULL — not false — when nothing is configured, so the caller can tell
 -- "no rule" apart from "rest day" and pick its own fallback.
 CREATE OR REPLACE FUNCTION public.hr_is_working_day(p_staff_id uuid, p_date date)
-RETURNS boolean
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $fn$
+ RETURNS boolean
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_institution_id uuid;
   v_category_id    uuid;
   v_is_teaching    boolean;
+  v_gender         text;
+  v_pattern_id     uuid;
   v_dow            smallint;
   v_second_sat     boolean;
   v_working        boolean;
 BEGIN
-  IF p_staff_id IS NULL OR p_date IS NULL THEN
-    RETURN NULL;
-  END IF;
+  IF p_staff_id IS NULL OR p_date IS NULL THEN RETURN NULL; END IF;
 
-  SELECT s.institution_id, s.category_id, ec.is_teaching
-    INTO v_institution_id, v_category_id, v_is_teaching
+  SELECT s.institution_id, s.category_id, ec.is_teaching, s.gender
+    INTO v_institution_id, v_category_id, v_is_teaching, v_gender
   FROM public.staff s
   JOIN public.employment_categories ec ON ec.id = s.category_id
   WHERE s.id = p_staff_id;
 
-  IF v_institution_id IS NULL THEN
-    RETURN NULL;
-  END IF;
+  IF v_institution_id IS NULL THEN RETURN NULL; END IF;
 
+  v_pattern_id := public.fn_staff_work_pattern_id(p_staff_id, p_date);
   v_dow        := EXTRACT(ISODOW FROM p_date)::smallint;
   v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
 
   SELECT CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN false
               ELSE t.is_working_day END
     INTO v_working
-  FROM public.hr_shift_timings t
-  WHERE t.institution_id = v_institution_id
-    AND t.day_of_week    = v_dow
-    AND t.is_active
-    AND t.effective_from <= p_date
-    AND (t.effective_until IS NULL OR t.effective_until > p_date)
-    AND (
-         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
-      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
-      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
-    )
-  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
-           t.effective_from DESC
-  LIMIT 1;
+  FROM public.fn_shift_timing_pick(
+         v_institution_id, v_category_id, v_is_teaching, v_gender, v_dow, p_date, v_pattern_id) t;
 
-  RETURN v_working;  -- NULL when no timing row matched
+  RETURN v_working;
 END;
-$fn$;
+$function$;
 
 REVOKE ALL ON FUNCTION public.hr_is_working_day(uuid, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_is_working_day(uuid, date) TO authenticated, service_role;
@@ -47661,42 +47613,31 @@ COMMENT ON COLUMN public.hr_attendance_records.excused_by_application_ids IS
 -- working-hours calendar for one date. No punches, no verdicts, nothing about
 -- the person beyond which shift pattern applies to them.
 CREATE OR REPLACE FUNCTION public.fn_shift_window(p_staff_id uuid, p_date date)
-RETURNS TABLE (
-  timing_id          uuid,
-  is_working_day     boolean,
-  first_half_start   time without time zone,
-  first_half_end     time without time zone,
-  second_half_start  time without time zone,
-  second_half_end    time without time zone,
-  grace_minutes      integer,
-  matched_by         text
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $fn$
+ RETURNS TABLE(timing_id uuid, is_working_day boolean, first_half_start time without time zone, first_half_end time without time zone, second_half_start time without time zone, second_half_end time without time zone, grace_minutes integer, matched_by text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_institution_id uuid;
   v_category_id    uuid;
   v_is_teaching    boolean;
+  v_gender         text;
+  v_pattern_id     uuid;
   v_dow            smallint;
   v_second_sat     boolean;
 BEGIN
-  IF p_staff_id IS NULL OR p_date IS NULL THEN
-    RETURN;
-  END IF;
+  IF p_staff_id IS NULL OR p_date IS NULL THEN RETURN; END IF;
 
-  SELECT s.institution_id, s.category_id, ec.is_teaching
-    INTO v_institution_id, v_category_id, v_is_teaching
+  SELECT s.institution_id, s.category_id, ec.is_teaching, s.gender
+    INTO v_institution_id, v_category_id, v_is_teaching, v_gender
   FROM public.staff s
   JOIN public.employment_categories ec ON ec.id = s.category_id
   WHERE s.id = p_staff_id;
 
-  IF v_institution_id IS NULL THEN
-    RETURN;
-  END IF;
+  IF v_institution_id IS NULL THEN RETURN; END IF;
 
+  v_pattern_id := public.fn_staff_work_pattern_id(p_staff_id, p_date);
   v_dow        := EXTRACT(ISODOW FROM p_date)::smallint;
   v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
 
@@ -47711,22 +47652,10 @@ BEGIN
     t.grace_minutes,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN 'second_saturday_holiday'
          ELSE t.staff_scope END
-  FROM public.hr_shift_timings t
-  WHERE t.institution_id = v_institution_id
-    AND t.day_of_week    = v_dow
-    AND t.is_active
-    AND t.effective_from <= p_date
-    AND (t.effective_until IS NULL OR t.effective_until > p_date)
-    AND (
-         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
-      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
-      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
-    )
-  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
-           t.effective_from DESC
-  LIMIT 1;
+  FROM public.fn_shift_timing_pick(
+         v_institution_id, v_category_id, v_is_teaching, v_gender, v_dow, p_date, v_pattern_id) t;
 END;
-$fn$;
+$function$;
 
 REVOKE ALL ON FUNCTION public.fn_shift_window(uuid, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_shift_window(uuid, date) TO authenticated, service_role;
@@ -48920,13 +48849,11 @@ GRANT EXECUTE ON FUNCTION public.hr_staff_bank_directory() TO authenticated, ser
 -- different way (calendar minus Sundays minus holidays) and is wrong for this
 -- organisation, where Saturday is a working day at all 14 institutions.
 
-CREATE OR REPLACE FUNCTION public.fn_hr_compute_attendance_period_summary(
-  p_period_id uuid
-)
-RETURNS integer
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
+CREATE OR REPLACE FUNCTION public.fn_hr_compute_attendance_period_summary(p_period_id uuid)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_period public.hr_attendance_periods;
@@ -49058,6 +48985,55 @@ BEGIN
   LEFT JOIN req_agg r ON r.employee_id = a.employee_id;
 
   GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+  -- Scheduled days and the pattern held, per person. See the section header.
+  WITH staff_in AS (
+    SELECT ps.staff_id, s.institution_id, s.category_id, ec.is_teaching, s.gender
+      FROM public.hr_attendance_period_summaries ps
+      JOIN public.staff s ON s.id = ps.staff_id
+      JOIN public.employment_categories ec ON ec.id = s.category_id
+     WHERE ps.period_id = p_period_id
+  ),
+  hol AS (
+    SELECT h.holiday_date
+      FROM public.fn_hr_calendar_holiday_dates(v_period.institution_id, v_start, v_end) h
+  ),
+  days AS (
+    SELECT gs::date AS d FROM generate_series(v_start, v_end, interval '1 day') gs
+  ),
+  sched AS (
+    SELECT si.staff_id,
+           count(*) FILTER (
+             WHERE COALESCE(
+                     CASE WHEN (EXTRACT(ISODOW FROM dd.d) = 6
+                                AND EXTRACT(DAY FROM dd.d) BETWEEN 8 AND 14
+                                AND t.second_saturday_holiday) THEN false
+                          ELSE t.is_working_day END,
+                     false)
+               AND NOT EXISTS (SELECT 1 FROM hol h WHERE h.holiday_date = dd.d)
+           ) AS scheduled
+      FROM staff_in si
+      CROSS JOIN days dd
+      LEFT JOIN LATERAL public.fn_shift_timing_pick(
+        si.institution_id, si.category_id, si.is_teaching, si.gender,
+        EXTRACT(ISODOW FROM dd.d)::smallint, dd.d,
+        public.fn_staff_work_pattern_id(si.staff_id, dd.d)) t ON true
+     GROUP BY si.staff_id
+  ),
+  pat AS (
+    SELECT DISTINCT ON (a.staff_id) a.staff_id, a.work_pattern_id
+      FROM public.hr_staff_work_pattern_assignments a
+     WHERE a.effective_from <= v_end
+       AND (a.effective_until IS NULL OR a.effective_until > v_start)
+     ORDER BY a.staff_id, a.effective_from DESC
+  )
+  UPDATE public.hr_attendance_period_summaries ps
+     SET scheduled_days  = sc.scheduled::numeric(5,1),
+         work_pattern_id = pat.work_pattern_id
+    FROM sched sc
+    LEFT JOIN pat ON pat.staff_id = sc.staff_id
+   WHERE ps.period_id = p_period_id
+     AND ps.staff_id  = sc.staff_id;
 
   UPDATE public.hr_attendance_periods
      SET staff_count = v_rows,
@@ -57911,3 +57887,739 @@ AS $function$
       )
   );
 $function$;
+
+-- =====================================================================
+-- Work patterns — functions referenced by hr_shift_timings but never
+-- mirrored into this file before 2026-09-04 (pre-existing gap; the
+-- bodies below are each function's current, complete definition as of
+-- this migration, not a diff against the missing history)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+DROP FUNCTION IF EXISTS public.fn_shift_timing_pick(uuid, uuid, boolean, text, smallint, date);
+
+CREATE FUNCTION public.fn_shift_timing_pick(
+  p_institution_id  uuid,
+  p_category_id     uuid,
+  p_is_teaching     boolean,
+  p_gender          text,
+  p_dow             smallint,
+  p_date            date,
+  p_work_pattern_id uuid DEFAULT NULL
+)
+RETURNS SETOF public.hr_shift_timings
+LANGUAGE sql
+STABLE
+AS $function$
+  SELECT t.*
+  FROM public.hr_shift_timings t
+  WHERE t.institution_id = p_institution_id
+    AND t.day_of_week    = p_dow
+    AND t.is_active
+    AND t.effective_from <= p_date
+    AND (t.effective_until IS NULL OR t.effective_until > p_date)
+    AND (
+      CASE
+        -- A held pattern is EXCLUSIVE: its rows or nothing. See the file header.
+        WHEN p_work_pattern_id IS NOT NULL THEN
+             (t.staff_scope = 'work_pattern' AND t.work_pattern_id = p_work_pattern_id)
+        ELSE
+             t.staff_scope <> 'work_pattern'
+         AND (
+                 (t.staff_scope = 'category'     AND t.employment_category_id = p_category_id)
+              OR (t.staff_scope = 'teaching'     AND p_is_teaching)
+              OR (t.staff_scope = 'non_teaching' AND NOT p_is_teaching)
+             )
+      END
+    )
+    AND (
+         t.applicable_gender = 'all'
+      OR t.applicable_gender = lower(btrim(COALESCE(p_gender, '')))
+    )
+  ORDER BY
+    CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
+    CASE WHEN t.applicable_gender = 'all' THEN 1 ELSE 0 END,
+    t.effective_from DESC
+  LIMIT 1;
+$function$;
+
+COMMENT ON FUNCTION public.fn_shift_timing_pick(uuid, uuid, boolean, text, smallint, date, uuid) IS
+  'The single shift-timing resolution predicate. A held work pattern is exclusive (its rows or nothing); otherwise most specific wins: scope first (category over teaching/non_teaching), then gender (an exact match over ''all''), then the latest effective_from. Every reader must go through this.';
+
+CREATE OR REPLACE FUNCTION public.fn_resolve_shift_timings_bulk(p_staff_ids uuid[], p_from date, p_to date)
+ RETURNS TABLE(staff_id uuid, work_date date, timing_id uuid, is_working_day boolean, first_half_start time without time zone, first_half_end time without time zone, second_half_start time without time zone, second_half_end time without time zone, grace_minutes integer, matched_by text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT (
+       public.is_super_admin()
+    OR public.is_admin()
+    OR public.user_has_permission('hr.shift_timings.view')
+    OR public.user_has_permission('hr.attendance.override')
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to resolve shift timings'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_to < p_from THEN
+    RAISE EXCEPTION 'p_to must not be earlier than p_from' USING ERRCODE = '22023';
+  END IF;
+
+  IF (p_to - p_from) > 400 THEN
+    RAISE EXCEPTION 'Date range too wide (% days); resolve at most 400 days at a time', (p_to - p_from)
+      USING ERRCODE = '22023';
+  END IF;
+
+  RETURN QUERY
+  WITH s AS (
+    SELECT st.id, st.institution_id, st.category_id, ec.is_teaching, st.gender
+    FROM public.staff st
+    JOIN public.employment_categories ec ON ec.id = st.category_id
+    WHERE st.id = ANY(p_staff_ids)
+  ), d AS (
+    SELECT gs::date AS wd FROM generate_series(p_from, p_to, interval '1 day') gs
+  )
+  SELECT
+    s.id,
+    d.wd,
+    t.id,
+    CASE WHEN t.id IS NULL THEN NULL
+         WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN false
+         ELSE t.is_working_day END,
+    CASE WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_start  END,
+    CASE WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_end    END,
+    CASE WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_start END,
+    CASE WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_end   END,
+    t.grace_minutes,
+    CASE WHEN t.id IS NULL THEN NULL
+         WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN 'second_saturday_holiday'
+         ELSE t.staff_scope END
+  FROM s
+  CROSS JOIN d
+  LEFT JOIN LATERAL public.fn_shift_timing_pick(
+    s.institution_id, s.category_id, s.is_teaching, s.gender,
+    EXTRACT(ISODOW FROM d.wd)::smallint, d.wd,
+    public.fn_staff_work_pattern_id(s.id, d.wd)) t ON true;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.generate_hr_leave_balances(p_hr_org_id uuid, p_hr_academic_year_id uuid, p_dry_run boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_created   integer := 0;
+  v_skipped   integer := 0;
+  v_fallback  jsonb   := '[]'::jsonb;
+  v_inst_id   uuid;
+  v_prior_ay  uuid;
+  v_start     date;
+  v_end       date;
+  v_on        date;
+  r           record;
+BEGIN
+  IF NOT public.user_has_permission('hr.leave.balance.manage') THEN
+    RAISE EXCEPTION 'Insufficient permission: hr.leave.balance.manage required';
+  END IF;
+
+  SELECT institution_id INTO v_inst_id FROM public.hr_organizations WHERE id = p_hr_org_id;
+  IF v_inst_id IS NULL THEN
+    RAISE EXCEPTION 'Unknown hr_organization_id %', p_hr_org_id;
+  END IF;
+
+  IF NOT public.role_has_institution_access(v_inst_id) THEN
+    RAISE EXCEPTION 'Access denied: you do not have access to institution %', v_inst_id;
+  END IF;
+
+  SELECT start_date, end_date INTO v_start, v_end FROM public.hr_academic_years WHERE id = p_hr_academic_year_id;
+  IF v_start IS NULL THEN
+    RAISE EXCEPTION 'Unknown hr_academic_year_id %', p_hr_academic_year_id;
+  END IF;
+
+  -- The day the pattern is read on: today, clamped into the year — the same
+  -- convention hr_leave_balance_staff_detail uses for its STO window.
+  v_on := LEAST(GREATEST(CURRENT_DATE, v_start), v_end);
+
+  -- Group-wide years, so the prior year is simply the previous one -- no
+  -- institution term, and no risk of picking another college's row.
+  SELECT id INTO v_prior_ay
+  FROM public.hr_academic_years
+  WHERE end_date < v_start
+  ORDER BY end_date DESC
+  LIMIT 1;
+
+  FOR r IN
+    SELECT
+      s.id  AS staff_id,
+      s.staff_id AS staff_code,
+      s.first_name,
+      s.last_name,
+      d.cadre_id,
+      t.id  AS leave_type_id,
+      t.default_entitled_days,
+      t.allow_carry_forward,
+      t.max_carry_forward_days,
+      e.entitled_days AS cadre_entitled,
+      asg.n           AS assignment_count,
+      m.entitled_days AS assigned_entitled,
+      m.scope_kind    AS assigned_scope,
+      wp.entitled_days AS pattern_entitled
+    FROM public.staff s
+    CROSS JOIN public.hr_leave_types t
+    LEFT JOIN public.hr_staff_details d ON d.staff_id = s.id
+    LEFT JOIN public.hr_leave_type_entitlements e
+           ON e.leave_type_id = t.id AND e.cadre_id = d.cadre_id
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS n
+      FROM public.hr_leave_type_assignments a
+      WHERE a.leave_type_id = t.id AND a.is_active
+    ) asg ON true
+    LEFT JOIN LATERAL (
+      SELECT a.entitled_days, a.scope_kind
+      FROM public.hr_leave_type_assignments a
+      WHERE a.leave_type_id = t.id
+        AND a.is_active
+        AND (
+             (a.scope_kind = 'staff'        AND a.staff_id      = s.id)
+          OR (a.scope_kind = 'department'   AND a.department_id = s.department_id)
+          OR (a.scope_kind = 'organization')
+        )
+      ORDER BY CASE a.scope_kind
+                 WHEN 'staff' THEN 1 WHEN 'department' THEN 2 ELSE 3 END
+      LIMIT 1
+    ) m ON true
+    LEFT JOIN LATERAL (
+      SELECT pe.entitled_days
+      FROM public.hr_staff_work_pattern_assignments a
+      JOIN public.hr_work_pattern_leave_entitlements pe
+        ON pe.work_pattern_id = a.work_pattern_id AND pe.leave_type_id = t.id
+      WHERE a.staff_id = s.id
+        AND a.effective_from <= v_on
+        AND (a.effective_until IS NULL OR a.effective_until > v_on)
+      ORDER BY a.effective_from DESC
+      LIMIT 1
+    ) wp ON true
+    WHERE s.institution_id = v_inst_id
+      AND s.is_active
+      AND t.hr_organization_id = p_hr_org_id
+      AND t.is_active
+      -- The eligibility gate. A type with assignments applies only to the
+      -- people they name; the pattern step must not resurrect anyone else.
+      AND (asg.n = 0 OR m.scope_kind IS NOT NULL)
+      AND (t.applicable_cadre_ids IS NULL OR d.cadre_id = ANY(t.applicable_cadre_ids))
+      AND (
+        t.applicable_gender = 'all'
+        OR lower(coalesce(s.gender, '')) = t.applicable_gender
+      )
+  LOOP
+    DECLARE
+      v_entitled numeric;
+      v_carried  numeric := 0;
+      v_written  boolean := false;
+    BEGIN
+      -- IS NOT NULL, not COALESCE-truthiness: an override of 0 is a real
+      -- decision ("eligible, but no days"), not an absent one.
+      --
+      -- A staff-level assignment is the most specific statement about one
+      -- person and beats the pattern; the pattern beats the department- and
+      -- organization-wide ones, the cadre figure and the type default.
+      v_entitled := CASE
+        WHEN r.assigned_scope = 'staff' AND r.assigned_entitled IS NOT NULL THEN r.assigned_entitled
+        WHEN r.pattern_entitled IS NOT NULL                                  THEN r.pattern_entitled
+        WHEN r.assigned_entitled IS NOT NULL                                 THEN r.assigned_entitled
+        WHEN r.cadre_entitled    IS NOT NULL                                 THEN r.cadre_entitled
+        ELSE r.default_entitled_days
+      END;
+
+      IF r.allow_carry_forward AND v_prior_ay IS NOT NULL THEN
+        SELECT GREATEST(0, (b.entitled + b.carried_forward - b.used))
+          INTO v_carried
+        FROM public.hr_leave_balances b
+        WHERE b.employee_id         = r.staff_id
+          AND b.leave_type_id       = r.leave_type_id
+          AND b.hr_academic_year_id = v_prior_ay;
+
+        v_carried := COALESCE(v_carried, 0);
+        IF r.max_carry_forward_days IS NOT NULL THEN
+          v_carried := LEAST(v_carried, r.max_carry_forward_days);
+        END IF;
+      END IF;
+
+      IF p_dry_run THEN
+        IF EXISTS (
+          SELECT 1 FROM public.hr_leave_balances b
+          WHERE b.employee_id         = r.staff_id
+            AND b.leave_type_id       = r.leave_type_id
+            AND b.hr_academic_year_id = p_hr_academic_year_id
+        ) THEN
+          v_skipped := v_skipped + 1;
+        ELSE
+          v_created := v_created + 1;
+          v_written := true;
+        END IF;
+      ELSE
+        INSERT INTO public.hr_leave_balances (
+          employee_id, leave_type_id, hr_academic_year_id, hr_organization_id,
+          entitled, used, carried_forward
+        ) VALUES (
+          r.staff_id, r.leave_type_id, p_hr_academic_year_id, p_hr_org_id,
+          v_entitled, 0, v_carried
+        )
+        ON CONFLICT (employee_id, leave_type_id, hr_academic_year_id) DO NOTHING;
+
+        IF FOUND THEN
+          v_created := v_created + 1;
+          v_written := true;
+        ELSE
+          v_skipped := v_skipped + 1;
+        END IF;
+      END IF;
+
+      IF v_written
+         AND r.assigned_entitled IS NULL
+         AND r.pattern_entitled IS NULL
+         AND r.cadre_entitled IS NULL THEN
+        v_fallback := v_fallback || jsonb_build_object(
+          'staff_code', r.staff_code,
+          'name', trim(coalesce(r.first_name,'') || ' ' || coalesce(r.last_name,'')),
+          'reason', CASE WHEN r.cadre_id IS NULL
+                         THEN 'no cadre assigned'
+                         ELSE 'no entitlement row for cadre' END
+        );
+      END IF;
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'dry_run',        p_dry_run,
+    'created',        v_created,
+    'skipped',        v_skipped,
+    'prior_year_id',  v_prior_ay,
+    'fallback_count', jsonb_array_length(v_fallback),
+    'fallback',       v_fallback
+  );
+END
+$function$;
+
+
+-- =====================================================================
+-- Work patterns (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_staff_work_pattern_id(p_staff_id uuid, p_date date)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $function$
+  SELECT a.work_pattern_id
+  FROM public.hr_staff_work_pattern_assignments a
+  WHERE a.staff_id = p_staff_id
+    AND a.effective_from <= p_date
+    AND (a.effective_until IS NULL OR a.effective_until > p_date)
+  ORDER BY a.effective_from DESC
+  LIMIT 1;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_work_pattern_id(uuid, date) IS
+  'The work pattern a staff member holds on a date, or NULL. Ignores the pattern''s is_active on purpose: history must keep resolving as it was recorded.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_assign_work_pattern(
+  p_staff_ids       uuid[],
+  p_work_pattern_id uuid,
+  p_effective_from  date,
+  p_notes           text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_actor        uuid := auth.uid();
+  v_removing     boolean := (p_work_pattern_id IS NULL);
+  v_pattern      public.hr_work_patterns%ROWTYPE;
+  v_missing      text;
+  v_sid          uuid;
+  v_staff        record;
+  v_prev_pattern uuid;
+  v_prev_name    text;
+  v_changes      jsonb;
+  v_rows         jsonb := '[]'::jsonb;
+  r              record;
+BEGIN
+  IF p_effective_from IS NULL THEN
+    RAISE EXCEPTION 'An effective date is required' USING ERRCODE = '22023';
+  END IF;
+  IF p_staff_ids IS NULL OR cardinality(p_staff_ids) = 0 THEN
+    RAISE EXCEPTION 'No staff selected' USING ERRCODE = '22023';
+  END IF;
+
+  IF NOT v_removing THEN
+    SELECT * INTO v_pattern FROM public.hr_work_patterns WHERE id = p_work_pattern_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Work pattern % not found', p_work_pattern_id USING ERRCODE = 'P0002';
+    END IF;
+    IF NOT v_pattern.is_active THEN
+      RAISE EXCEPTION 'Work pattern "%" is inactive', v_pattern.name USING ERRCODE = '22023';
+    END IF;
+
+    IF NOT (
+         public.is_super_admin()
+      OR public.is_admin()
+      OR (public.user_has_permission('hr.shift_timings.manage')
+          AND public.role_has_institution_access(v_pattern.institution_id))
+    ) THEN
+      RAISE EXCEPTION 'Not authorized to assign work patterns at this institution'
+        USING ERRCODE = '42501';
+    END IF;
+
+    -- The pattern is exclusive once held, so its week must already cover the
+    -- effective date for every weekday.
+    SELECT string_agg(d::text, ', ' ORDER BY d) INTO v_missing
+      FROM generate_series(1, 7) AS d
+     WHERE NOT EXISTS (
+       SELECT 1 FROM public.hr_shift_timings t
+        WHERE t.staff_scope = 'work_pattern'
+          AND t.work_pattern_id = p_work_pattern_id
+          AND t.day_of_week = d
+          AND t.is_active
+          AND t.effective_from <= p_effective_from
+          AND (t.effective_until IS NULL OR t.effective_until > p_effective_from)
+     );
+    IF v_missing IS NOT NULL THEN
+      RAISE EXCEPTION 'Work pattern "%" has no week in force on % (weekday(s) % missing). Save the pattern''s week first.',
+        v_pattern.name, to_char(p_effective_from, 'DD Mon YYYY'), v_missing
+        USING ERRCODE = '22023';
+    END IF;
+  END IF;
+
+  FOREACH v_sid IN ARRAY p_staff_ids LOOP
+    SELECT s.id,
+           s.staff_id AS staff_code,
+           btrim(coalesce(s.first_name, '') || ' ' || coalesce(s.last_name, '')) AS name,
+           s.institution_id
+      INTO v_staff
+      FROM public.staff s
+     WHERE s.id = v_sid;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Staff member % not found', v_sid USING ERRCODE = 'P0002';
+    END IF;
+
+    -- Per row, not once: a uuid[] would otherwise be a bulk cross-institution write.
+    IF NOT v_removing AND v_staff.institution_id <> v_pattern.institution_id THEN
+      RAISE EXCEPTION '% (%) works at a different institution from the work pattern',
+        v_staff.name, coalesce(v_staff.staff_code, '?') USING ERRCODE = '22023';
+    END IF;
+    IF v_removing AND NOT (
+         public.is_super_admin()
+      OR public.is_admin()
+      OR (public.user_has_permission('hr.shift_timings.manage')
+          AND public.role_has_institution_access(v_staff.institution_id))
+    ) THEN
+      RAISE EXCEPTION 'Not authorized to change work patterns at this institution'
+        USING ERRCODE = '42501';
+    END IF;
+
+    -- What they held going into the effective date (for the report and for
+    -- the set of leave types whose figure is being withdrawn).
+    SELECT a.work_pattern_id, p.name
+      INTO v_prev_pattern, v_prev_name
+      FROM public.hr_staff_work_pattern_assignments a
+      JOIN public.hr_work_patterns p ON p.id = a.work_pattern_id
+     WHERE a.staff_id = v_sid
+       AND a.effective_from <= p_effective_from
+       AND (a.effective_until IS NULL OR a.effective_until > p_effective_from)
+     ORDER BY a.effective_from DESC
+     LIMIT 1;
+    IF NOT FOUND THEN
+      v_prev_pattern := NULL;
+      v_prev_name    := NULL;
+    END IF;
+
+    -- Same two branches as fn_end_shift_timing_override: something that
+    -- started before the date keeps its history and is closed at the date;
+    -- something starting on or after it never applied and is removed.
+    DELETE FROM public.hr_staff_work_pattern_assignments
+     WHERE staff_id = v_sid
+       AND effective_from >= p_effective_from;
+
+    UPDATE public.hr_staff_work_pattern_assignments
+       SET effective_until = p_effective_from,
+           updated_by      = v_actor
+     WHERE staff_id = v_sid
+       AND effective_from < p_effective_from
+       AND (effective_until IS NULL OR effective_until > p_effective_from);
+
+    IF NOT v_removing THEN
+      INSERT INTO public.hr_staff_work_pattern_assignments (
+        staff_id, work_pattern_id, institution_id, effective_from, notes, created_by, updated_by
+      ) VALUES (
+        v_sid, p_work_pattern_id, v_pattern.institution_id, p_effective_from, p_notes, v_actor, v_actor
+      );
+    END IF;
+
+    -- Resync: every leave type the NEW or the PREVIOUS pattern speaks for.
+    -- New figure = the new pattern's, or NULL (= follow policy) when it has
+    -- none / when removing.
+    v_changes := '[]'::jsonb;
+    FOR r IN
+      WITH touched AS (
+        SELECT e.leave_type_id FROM public.hr_work_pattern_leave_entitlements e
+         WHERE e.work_pattern_id = p_work_pattern_id
+        UNION
+        SELECT e.leave_type_id FROM public.hr_work_pattern_leave_entitlements e
+         WHERE e.work_pattern_id = v_prev_pattern
+      )
+      SELECT b.employee_id, b.leave_type_id, b.hr_academic_year_id,
+             t.leave_type_code, y.year_name,
+             COALESCE(o.entitled_days, b.entitled, t.default_entitled_days)   AS before_eff,
+             ne.entitled_days                                                  AS new_raw,
+             COALESCE(o.entitled_days, ne.entitled_days, t.default_entitled_days) AS after_eff,
+             (o.id IS NOT NULL)                                                AS overridden
+        FROM public.hr_leave_balances b
+        JOIN touched tp ON tp.leave_type_id = b.leave_type_id
+        JOIN public.hr_leave_types t ON t.id = b.leave_type_id
+        JOIN public.hr_academic_years y ON y.id = b.hr_academic_year_id
+        LEFT JOIN public.hr_leave_entitlement_overrides o
+               ON o.employee_id = b.employee_id
+              AND o.leave_type_id = b.leave_type_id
+              AND o.hr_academic_year_id = b.hr_academic_year_id
+        LEFT JOIN public.hr_work_pattern_leave_entitlements ne
+               ON ne.work_pattern_id = p_work_pattern_id
+              AND ne.leave_type_id = b.leave_type_id
+       WHERE b.employee_id = v_sid
+         AND t.request_category = 'leave'
+         AND y.frozen_at IS NULL
+         AND y.end_date >= p_effective_from
+       ORDER BY y.start_date, t.display_order
+    LOOP
+      UPDATE public.hr_leave_balances
+         SET entitled   = r.new_raw,
+             updated_at = now()
+       WHERE employee_id         = r.employee_id
+         AND leave_type_id       = r.leave_type_id
+         AND hr_academic_year_id = r.hr_academic_year_id;
+
+      v_changes := v_changes || jsonb_build_object(
+        'leave_type_code', r.leave_type_code,
+        'year_name',       r.year_name,
+        'from',            r.before_eff,
+        'to',              r.after_eff,
+        'overridden',      r.overridden
+      );
+    END LOOP;
+
+    v_rows := v_rows || jsonb_build_object(
+      'staff_id',         v_sid,
+      'staff_code',       v_staff.staff_code,
+      'name',             v_staff.name,
+      'previous_pattern', v_prev_name,
+      'changes',          v_changes
+    );
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'pattern_id',     p_work_pattern_id,
+    'pattern_name',   CASE WHEN v_removing THEN NULL ELSE v_pattern.name END,
+    'effective_from', p_effective_from,
+    'removed',        v_removing,
+    'staff_count',    cardinality(p_staff_ids),
+    'staff',          v_rows
+  );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_hr_assign_work_pattern(uuid[], uuid, date, text) IS
+  'Put staff on a work pattern (NULL pattern = take them off) from a date, and resync their open leave balances to the pattern''s figures (update-only; used days kept). Returns per-staff before/after per leave type.';
+
+CREATE OR REPLACE FUNCTION public.trg_wpa_stamp_institution()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_pattern_inst uuid;
+  v_staff_inst   uuid;
+BEGIN
+  SELECT institution_id INTO v_pattern_inst FROM public.hr_work_patterns WHERE id = NEW.work_pattern_id;
+  SELECT institution_id INTO v_staff_inst   FROM public.staff            WHERE id = NEW.staff_id;
+
+  IF v_pattern_inst IS NULL THEN
+    RAISE EXCEPTION 'Work pattern % not found', NEW.work_pattern_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_staff_inst IS DISTINCT FROM v_pattern_inst THEN
+    RAISE EXCEPTION 'Staff member works at a different institution from the work pattern'
+      USING ERRCODE = '23514';
+  END IF;
+
+  NEW.institution_id := v_pattern_inst;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.trg_wple_same_institution()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_pattern_inst uuid;
+  v_type_inst    uuid;
+  v_category     text;
+BEGIN
+  SELECT p.institution_id INTO v_pattern_inst
+    FROM public.hr_work_patterns p WHERE p.id = NEW.work_pattern_id;
+
+  SELECT o.institution_id, t.request_category INTO v_type_inst, v_category
+    FROM public.hr_leave_types t
+    JOIN public.hr_organizations o ON o.id = t.hr_organization_id
+   WHERE t.id = NEW.leave_type_id;
+
+  IF v_type_inst IS NULL THEN
+    RAISE EXCEPTION 'Leave type % not found', NEW.leave_type_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_type_inst IS DISTINCT FROM v_pattern_inst THEN
+    RAISE EXCEPTION 'Leave type belongs to a different institution from the work pattern'
+      USING ERRCODE = '23514';
+  END IF;
+  IF v_category IS DISTINCT FROM 'leave' THEN
+    RAISE EXCEPTION 'Only day-based leave types can carry a work-pattern entitlement (this one is %)', v_category
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.trg_wp_guard_deactivate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_live integer;
+BEGIN
+  IF OLD.is_active AND NOT NEW.is_active THEN
+    SELECT count(*) INTO v_live
+      FROM public.hr_staff_work_pattern_assignments a
+     WHERE a.work_pattern_id = NEW.id
+       AND (a.effective_until IS NULL OR a.effective_until > CURRENT_DATE);
+    IF v_live > 0 THEN
+      RAISE EXCEPTION '% staff member(s) are still on this work pattern. Remove them before deactivating it.', v_live
+        USING ERRCODE = '23503';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_staff_work_pattern_id(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_staff_work_pattern_id(uuid, date) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_shift_timing_pick(uuid, uuid, boolean, text, smallint, date, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_shift_timing_pick(uuid, uuid, boolean, text, smallint, date, uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text, uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_hr_assign_work_pattern(uuid[], uuid, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_assign_work_pattern(uuid[], uuid, date, text) TO authenticated;
+
+
+-- ============================================================================
+-- Work patterns — delete (2026-09-04, 20260904150000_hr_work_pattern_delete.sql)
+-- ============================================================================
+
+-- Delete a work pattern that nobody has ever held.
+--
+-- WHY AN RPC. hr_shift_timings' DELETE policy is is_admin()-only, so an HR
+-- Admin (who may create patterns and save their weeks) could never remove the
+-- week rows from the client — the delete would half-succeed and leave seven
+-- orphaned timing rows behind a RESTRICT foreign key. One DEFINER function
+-- does the whole thing or none of it.
+--
+-- WHY ONLY NEVER-HELD PATTERNS. The resolvers read a pattern's rows per date:
+-- fn_staff_work_pattern_id finds the (possibly ended) assignment, and
+-- fn_shift_timing_pick then matches ONLY that pattern's rows. Deleting a
+-- pattern someone once held would make every recompute of those months resolve
+-- to nothing — the attendance that was correct when recorded is rewritten as
+-- "no shift window". The foreign keys already refuse that; this function turns
+-- the refusal into a sentence and points at Deactivate, which is the
+-- history-preserving way to retire a pattern.
+
+CREATE OR REPLACE FUNCTION public.fn_hr_delete_work_pattern(p_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_pattern public.hr_work_patterns%ROWTYPE;
+  v_held    integer;
+  v_week    integer;
+BEGIN
+  SELECT * INTO v_pattern FROM public.hr_work_patterns WHERE id = p_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Work pattern % not found', p_id USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (
+       public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('hr.shift_timings.manage')
+        AND public.role_has_institution_access(v_pattern.institution_id))
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to delete work patterns at this institution'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- ANY assignment, live or ended: history is what is being protected.
+  SELECT count(DISTINCT a.staff_id) INTO v_held
+    FROM public.hr_staff_work_pattern_assignments a
+   WHERE a.work_pattern_id = p_id;
+
+  IF v_held > 0 THEN
+    RAISE EXCEPTION '"%" has been held by % staff member(s). Their attendance history resolves through it, so it cannot be deleted. Remove any current members and deactivate it instead.',
+      v_pattern.name, v_held
+      USING ERRCODE = '23503';
+  END IF;
+
+  DELETE FROM public.hr_shift_timings WHERE work_pattern_id = p_id;
+  GET DIAGNOSTICS v_week = ROW_COUNT;
+
+  -- Entitlements cascade from the pattern row.
+  DELETE FROM public.hr_work_patterns WHERE id = p_id;
+
+  RETURN jsonb_build_object(
+    'deleted',           true,
+    'name',              v_pattern.name,
+    'week_rows_removed', v_week
+  );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_hr_delete_work_pattern(uuid) IS
+  'Delete a work pattern (its week rows and leave figures with it) only if no staff member has ever been assigned to it; otherwise refuses and points at deactivation.';
+
+REVOKE ALL ON FUNCTION public.fn_hr_delete_work_pattern(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_delete_work_pattern(uuid) TO authenticated;

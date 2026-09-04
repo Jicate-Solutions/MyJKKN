@@ -6835,8 +6835,16 @@ CREATE TABLE IF NOT EXISTS public.hr_shift_timings (
   --   'category'     -> exact employment_category_id
   --   'teaching'     -> employment_categories.is_teaching = true
   --   'non_teaching' -> employment_categories.is_teaching = false
-  staff_scope text NOT NULL CHECK (staff_scope IN ('teaching','non_teaching','category')),
+  staff_scope text NOT NULL CHECK (staff_scope IN ('teaching','non_teaching','category','work_pattern')),
   employment_category_id uuid NULL REFERENCES public.employment_categories(id) ON DELETE CASCADE,
+  -- Added 2026-09-04 (20260904120000_hr_work_patterns.sql): staff_scope='work_pattern'
+  -- rows carry their own weekly grid, keyed to a hr_work_patterns row instead of an
+  -- employment category.
+  work_pattern_id uuid NULL REFERENCES public.hr_work_patterns(id) ON DELETE RESTRICT,
+  -- Added 2026-08-30 (20260830100000_hr_shift_timings_applicable_gender.sql), mirrored
+  -- here 2026-09-04: 'all' matches everyone; an exact match beats 'all' for that person.
+  applicable_gender text NOT NULL DEFAULT 'all'
+    CONSTRAINT hr_shift_timings_applicable_gender_chk CHECK (applicable_gender IN ('all','male','female','bigender')),
 
   -- ISO-8601: 1=Mon .. 7=Sun. Matches EXTRACT(ISODOW FROM date) exactly.
   day_of_week smallint NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
@@ -6869,28 +6877,36 @@ CREATE TABLE IF NOT EXISTS public.hr_shift_timings (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
 
-  CONSTRAINT hr_shift_timings_scope_category_chk CHECK (
-    (staff_scope =  'category' AND employment_category_id IS NOT NULL) OR
-    (staff_scope <> 'category' AND employment_category_id IS NULL)
+  -- Added 2026-09-04: one scope, one target. Was a two-way category check;
+  -- now three-way with staff_scope='work_pattern'.
+  CONSTRAINT hr_shift_timings_scope_target_chk CHECK (
+       (staff_scope = 'category'     AND employment_category_id IS NOT NULL AND work_pattern_id IS NULL)
+    OR (staff_scope = 'work_pattern' AND work_pattern_id IS NOT NULL AND employment_category_id IS NULL)
+    OR (staff_scope IN ('teaching', 'non_teaching') AND employment_category_id IS NULL AND work_pattern_id IS NULL)
   ),
 
+  -- A working day has ONE half or both, each all-or-nothing (2026-09-04,
+  -- 20260904170000_hr_shift_timings_single_half.sql): a 09:00-14:00 Saturday
+  -- with no afternoon is a real row now. A non-working day has none.
   CONSTRAINT hr_shift_timings_times_present_chk CHECK (
-    (is_working_day = false
-       AND first_half_start IS NULL AND first_half_end IS NULL
-       AND second_half_start IS NULL AND second_half_end IS NULL)
-    OR
-    (is_working_day = true
-       AND first_half_start IS NOT NULL AND first_half_end IS NOT NULL
-       AND second_half_start IS NOT NULL AND second_half_end IS NOT NULL)
+       (is_working_day = false
+        AND first_half_start IS NULL AND first_half_end IS NULL
+        AND second_half_start IS NULL AND second_half_end IS NULL)
+    OR (is_working_day = true
+        AND (first_half_start  IS NULL) = (first_half_end  IS NULL)
+        AND (second_half_start IS NULL) = (second_half_end IS NULL)
+        AND (first_half_start IS NOT NULL OR second_half_start IS NOT NULL))
   ),
 
-  -- Overlap between the halves is ALLOWED; inversion is not.
+  -- Overlap between the halves is ALLOWED; inversion is not. Ordering applies
+  -- within a half, and between the halves only when both exist.
   CONSTRAINT hr_shift_timings_order_chk CHECK (
-    is_working_day = false OR (
-      first_half_end    >  first_half_start  AND
-      second_half_end   >  second_half_start AND
-      second_half_start >= first_half_start  AND
-      second_half_end   >= first_half_end
+       is_working_day = false
+    OR (
+          (first_half_start  IS NULL OR first_half_end  > first_half_start)
+      AND (second_half_start IS NULL OR second_half_end > second_half_start)
+      AND (first_half_start IS NULL OR second_half_start IS NULL
+           OR (second_half_start >= first_half_start AND second_half_end >= first_half_end))
     )
   ),
 
@@ -6900,6 +6916,16 @@ CREATE TABLE IF NOT EXISTS public.hr_shift_timings (
 
   CONSTRAINT hr_shift_timings_effective_chk CHECK (
     effective_until IS NULL OR effective_until > effective_from
+  ),
+
+  -- Added 2026-09-04 (20260904120000_hr_work_patterns.sql): a pattern is
+  -- already per person, so a gender split on top of it has no meaning.
+  -- NOTE: references applicable_gender, which the live table has (added by
+  -- 20260830100000_hr_shift_timings_applicable_gender.sql) but which was
+  -- never mirrored into this CREATE TABLE block -- a pre-existing gap in
+  -- this file, not introduced by this migration.
+  CONSTRAINT hr_shift_timings_pattern_gender_chk CHECK (
+    staff_scope <> 'work_pattern' OR applicable_gender = 'all'
   )
 );
 
@@ -6920,6 +6946,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS hr_shift_timings_current_uq
     institution_id,
     staff_scope,
     COALESCE(employment_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    COALESCE(work_pattern_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    applicable_gender,
     day_of_week
   )
   WHERE effective_until IS NULL AND is_active;
@@ -6931,6 +6959,102 @@ CREATE INDEX IF NOT EXISTS hr_shift_timings_lookup
 CREATE INDEX IF NOT EXISTS hr_shift_timings_category
   ON public.hr_shift_timings (employment_category_id)
   WHERE employment_category_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS hr_shift_timings_work_pattern_idx
+  ON public.hr_shift_timings (work_pattern_id)
+  WHERE work_pattern_id IS NOT NULL;
+
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_work_patterns (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  description     text,
+  is_active       boolean NOT NULL DEFAULT true,
+  sort_order      integer NOT NULL DEFAULT 0,
+  created_by      uuid REFERENCES public.profiles(id),
+  updated_by      uuid REFERENCES public.profiles(id),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_work_patterns_name_chk CHECK (length(btrim(name)) BETWEEN 1 AND 80)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_work_patterns_name_uq
+  ON public.hr_work_patterns (institution_id, lower(btrim(name)))
+  WHERE is_active;
+CREATE INDEX IF NOT EXISTS hr_work_patterns_institution_idx
+  ON public.hr_work_patterns (institution_id);
+
+ALTER TABLE public.hr_work_patterns ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.hr_work_patterns IS
+  'A named working week for one institution (e.g. "3-day Tue/Wed/Thu"). Its hours are the hr_shift_timings rows with staff_scope=work_pattern; its leave figures are hr_work_pattern_leave_entitlements; who is on it is hr_staff_work_pattern_assignments.';
+
+-- Who is on which pattern, from when. effective_until is EXCLUSIVE, like
+-- hr_shift_timings. One pattern per person per day is a constraint, not a
+-- convention, because the resolver has to give one answer.
+CREATE TABLE IF NOT EXISTS public.hr_staff_work_pattern_assignments (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id         uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  work_pattern_id  uuid NOT NULL REFERENCES public.hr_work_patterns(id) ON DELETE RESTRICT,
+  -- Denormalised from the pattern by t10_wpa_stamp_institution so RLS can
+  -- scope on it without a join. The trigger also refuses a pattern from
+  -- another institution than the staff member's.
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  effective_from   date NOT NULL,
+  effective_until  date,
+  notes            text,
+  created_by       uuid REFERENCES public.profiles(id),
+  updated_by       uuid REFERENCES public.profiles(id),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_swpa_effective_chk CHECK (effective_until IS NULL OR effective_until > effective_from),
+  CONSTRAINT hr_swpa_no_overlap EXCLUDE USING gist (
+    staff_id WITH =,
+    daterange(effective_from, effective_until, '[)') WITH &&
+  )
+);
+
+CREATE INDEX IF NOT EXISTS hr_swpa_staff_idx
+  ON public.hr_staff_work_pattern_assignments (staff_id, effective_from DESC);
+CREATE INDEX IF NOT EXISTS hr_swpa_pattern_idx
+  ON public.hr_staff_work_pattern_assignments (work_pattern_id);
+CREATE INDEX IF NOT EXISTS hr_swpa_institution_idx
+  ON public.hr_staff_work_pattern_assignments (institution_id);
+
+ALTER TABLE public.hr_staff_work_pattern_assignments ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.hr_staff_work_pattern_assignments IS
+  'Effective-dated membership of a staff member in a work pattern. Written ONLY by fn_hr_assign_work_pattern, which also resyncs open leave balances. effective_until is exclusive.';
+
+-- Days per leave type for a pattern. Only request_category=leave types belong
+-- here: short time off is minute-backed and comp-off is credit-backed, and a
+-- day figure on either would be a lie nothing reads (see
+-- 20260828190000_hr_sto_entitled_days_uncapped.sql).
+CREATE TABLE IF NOT EXISTS public.hr_work_pattern_leave_entitlements (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  work_pattern_id  uuid NOT NULL REFERENCES public.hr_work_patterns(id) ON DELETE CASCADE,
+  leave_type_id    uuid NOT NULL REFERENCES public.hr_leave_types(id) ON DELETE CASCADE,
+  entitled_days    numeric(6,2) NOT NULL CHECK (entitled_days >= 0),
+  created_by       uuid REFERENCES public.profiles(id),
+  updated_by       uuid REFERENCES public.profiles(id),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_wple_pattern_type_uq UNIQUE (work_pattern_id, leave_type_id)
+);
+
+CREATE INDEX IF NOT EXISTS hr_wple_leave_type_idx
+  ON public.hr_work_pattern_leave_entitlements (leave_type_id);
+
+ALTER TABLE public.hr_work_pattern_leave_entitlements ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.hr_work_pattern_leave_entitlements IS
+  'Entitled days per (work pattern, leave type). Read by generate_hr_leave_balances (between a staff-level assignment and department/organization ones) and by fn_hr_assign_work_pattern when it resyncs open balances.';
 
 -- Campus Living — Settle Then Bill (Director 2026-08-09)
 -- Added: 2026-08-09 (migration 20260815060000_hostel_settle_then_bill.sql —
@@ -8438,8 +8562,17 @@ CREATE TABLE IF NOT EXISTS public.hr_attendance_period_summaries (
 
   computed_at            timestamptz  NOT NULL DEFAULT now(),
 
+  -- Added 2026-09-04 (20260904120000_hr_work_patterns.sql).
+  scheduled_days         numeric(5,1),
+  work_pattern_id        uuid REFERENCES public.hr_work_patterns(id) ON DELETE SET NULL,
+
   CONSTRAINT hr_attendance_period_summaries_unique UNIQUE (period_id, staff_id)
 );
+
+COMMENT ON COLUMN public.hr_attendance_period_summaries.scheduled_days IS
+  'Days the shift-timing resolver expected this person to work in the month (pattern-aware, full month, holidays removed). NULL on periods closed before 2026-09.';
+COMMENT ON COLUMN public.hr_attendance_period_summaries.work_pattern_id IS
+  'The work pattern held on any day of the month (most recent if several). When set, the salary register divides by scheduled_days instead of the period standard.';
 
 CREATE INDEX IF NOT EXISTS hr_attendance_period_summaries_staff_idx
   ON public.hr_attendance_period_summaries (staff_id);

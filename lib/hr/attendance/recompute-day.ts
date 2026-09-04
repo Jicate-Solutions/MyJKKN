@@ -99,7 +99,9 @@ export async function recomputeAttendanceDay(
     ? {
         timing_id: w.timing_id as string,
         institution_id: '',
-        staff_scope: w.matched_by as ResolvedShiftTiming['staff_scope'],
+        // matched_by is the RESOLVED scope ('second_saturday_holiday' included);
+        // evaluateDay never reads staff_scope, so the wider value is harmless.
+        staff_scope: w.matched_by as ResolvedShiftTiming['matched_by'] as ResolvedShiftTiming['staff_scope'],
         employment_category_id: null,
         // Placeholder, like institution_id above and day_of_week below:
         // fn_shift_window returns the window only, and evaluateDay reads none of

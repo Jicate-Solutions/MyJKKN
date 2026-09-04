@@ -10268,3 +10268,94 @@ CREATE POLICY "event_feedback_responses_delete" ON public.event_feedback_respons
   );
 
 
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+DROP POLICY IF EXISTS hr_work_patterns_select ON public.hr_work_patterns;
+CREATE POLICY hr_work_patterns_select ON public.hr_work_patterns
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+         OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_work_patterns_write ON public.hr_work_patterns;
+CREATE POLICY hr_work_patterns_write ON public.hr_work_patterns
+  FOR ALL USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  ) WITH CHECK (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- Assignments: HR reads by institution; a staff member reads their own row.
+-- Writes are the RPC's job (SECURITY DEFINER, so it is not subject to this);
+-- a direct write is left to super admins only.
+DROP POLICY IF EXISTS hr_swpa_select ON public.hr_staff_work_pattern_assignments;
+CREATE POLICY hr_swpa_select ON public.hr_staff_work_pattern_assignments
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+         OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+        AND public.role_has_institution_access(institution_id))
+    OR staff_id = ANY (public.fn_my_staff_ids())
+  );
+
+DROP POLICY IF EXISTS hr_swpa_write ON public.hr_staff_work_pattern_assignments;
+CREATE POLICY hr_swpa_write ON public.hr_staff_work_pattern_assignments
+  FOR ALL USING ((SELECT public.is_super_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()));
+
+DROP POLICY IF EXISTS hr_wple_select ON public.hr_work_pattern_leave_entitlements;
+CREATE POLICY hr_wple_select ON public.hr_work_pattern_leave_entitlements
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+                   OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_wple_write ON public.hr_work_pattern_leave_entitlements;
+CREATE POLICY hr_wple_write ON public.hr_work_pattern_leave_entitlements
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  ) WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_patterns                    TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_staff_work_pattern_assignments   TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_leave_entitlements  TO authenticated;
+GRANT ALL ON public.hr_work_patterns                   TO service_role;
+GRANT ALL ON public.hr_staff_work_pattern_assignments  TO service_role;
+GRANT ALL ON public.hr_work_pattern_leave_entitlements TO service_role;

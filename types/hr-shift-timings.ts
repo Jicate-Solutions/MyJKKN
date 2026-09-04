@@ -19,8 +19,20 @@
  *   'teaching'     — every category with employment_categories.is_teaching = true
  *   'non_teaching' — every category with is_teaching = false
  *   'category'     — one specific employment_category_id (beats the two above)
+ *   'work_pattern' — the seven rows of one hr_work_patterns row (2026-09-04).
+ *                    EXCLUSIVE for anyone assigned to the pattern on that date:
+ *                    the resolver matches the pattern's rows or nothing, it
+ *                    never falls back to the three above. Always gender 'all'.
  */
-export type ShiftStaffScope = 'teaching' | 'non_teaching' | 'category';
+export type ShiftStaffScope = 'teaching' | 'non_teaching' | 'category' | 'work_pattern';
+
+/**
+ * What the resolvers report in `matched_by`. Wider than the writable scope:
+ * a second Saturday resolves through a row but is reported as its own thing,
+ * and the RPCs have always emitted that value — the old cast to
+ * ShiftStaffScope simply hid it.
+ */
+export type ResolvedShiftScope = ShiftStaffScope | 'second_saturday_holiday';
 
 /**
  * Which staff gender a timing row applies to.
@@ -47,11 +59,17 @@ export interface HRShiftTiming {
   staff_scope: ShiftStaffScope;
   /** Non-null iff staff_scope === 'category'. */
   employment_category_id: string | null;
+  /** Non-null iff staff_scope === 'work_pattern'. */
+  work_pattern_id: string | null;
   /** Defaults to 'all'. Composes with staff_scope — see ShiftApplicableGender. */
   applicable_gender: ShiftApplicableGender;
   day_of_week: IsoDayOfWeek;
   is_working_day: boolean;
-  /** time string 'HH:MM:SS'. Null iff is_working_day is false. */
+  /**
+   * time string 'HH:MM:SS'. Null on a non-working day — and, since 2026-09-04,
+   * null for a half the day does not work: a working day has one half or both,
+   * each all-or-nothing. See validateTimingRow.
+   */
   first_half_start: string | null;
   first_half_end: string | null;
   /**
@@ -79,6 +97,7 @@ export interface HRShiftTimingInsert {
   institution_id: string;
   staff_scope: ShiftStaffScope;
   employment_category_id?: string | null;
+  work_pattern_id?: string | null;
   /** Omitted means 'all' — the database default. */
   applicable_gender?: ShiftApplicableGender;
   day_of_week: IsoDayOfWeek;
@@ -113,6 +132,8 @@ export interface ShiftTimingFilters {
   institutionId: string;
   staffScope?: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Required with staffScope 'work_pattern'. Must reach the React Query key too. */
+  workPatternId?: string | null;
   /**
    * Defaults to 'all'. MUST be part of any React Query key built from these
    * filters — without it the Female week is served from the 'all' week's cache.
@@ -144,7 +165,7 @@ export interface ResolvedShiftTiming {
   /** first_half_start + grace_minutes. Null on a non-working day. */
   grace_deadline: string | null;
   /** Which rule matched: a scope, or 'second_saturday_holiday'. */
-  matched_by: ShiftStaffScope | 'second_saturday_holiday';
+  matched_by: ResolvedShiftScope;
 }
 
 /**
@@ -312,18 +333,41 @@ export function validateTimingRow(row: {
     return anyTime ? 'A non-working day must not have any timings.' : null;
   }
 
+  // A WORKING DAY MAY HAVE ONE HALF (2026-09-04) — a 09:00–14:00 Saturday with
+  // no afternoon. Each half is all-or-nothing, and at least one is present.
   const fs = timeToMinutes(row.first_half_start);
   const fe = timeToMinutes(row.first_half_end);
   const ss = timeToMinutes(row.second_half_start);
   const se = timeToMinutes(row.second_half_end);
 
-  if (fs === null || fe === null || ss === null || se === null) {
-    return 'A working day needs all four times: both halves must have a start and an end.';
+  const firstBlank = !row.first_half_start && !row.first_half_end;
+  const secondBlank = !row.second_half_start && !row.second_half_end;
+
+  if (firstBlank && secondBlank) {
+    return 'A working day needs at least one half with a start and an end.';
   }
-  if (fe <= fs) return 'First half must end after it starts.';
-  if (se <= ss) return 'Second half must end after it starts.';
-  if (ss < fs) return 'Second half cannot start before the first half starts.';
-  if (se < fe) return 'Second half cannot end before the first half ends.';
+  if (!firstBlank && (fs === null || fe === null)) {
+    return 'First half needs both a start and an end (or leave both blank for no first half).';
+  }
+  if (!secondBlank && (ss === null || se === null)) {
+    return 'Second half needs both a start and an end (or leave both blank for no second half).';
+  }
+  if (fs !== null && fe !== null && fe <= fs) return 'First half must end after it starts.';
+  if (ss !== null && se !== null && se <= ss) return 'Second half must end after it starts.';
+  if (fs !== null && ss !== null && ss < fs) return 'Second half cannot start before the first half starts.';
+  if (fe !== null && se !== null && se < fe) return 'Second half cannot end before the first half ends.';
 
   return null;
+}
+
+/**
+ * The start of the day's FIRST session — the morning when there is one, the
+ * lone afternoon on a second-half-only day. This is what grace is measured
+ * from, in evaluateDay and in fn_resolve_shift_timing's grace_deadline alike.
+ */
+export function firstSessionStart(row: {
+  first_half_start?: string | null;
+  second_half_start?: string | null;
+}): string | null {
+  return row.first_half_start || row.second_half_start || null;
 }

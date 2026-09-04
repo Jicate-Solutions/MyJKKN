@@ -44,6 +44,8 @@ export interface SaveWeekParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Required with staffScope 'work_pattern'; the RPC refuses any other pairing. */
+  workPatternId?: string | null;
   /** Defaults to 'all'. A Female save never touches the Everyone week. */
   applicableGender?: ShiftApplicableGender;
   /** ISO date. Today (or earlier) corrects in place; a future date supersedes. */
@@ -76,6 +78,8 @@ export interface GetWeekParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Required with staffScope 'work_pattern'. Reaches the key through `params`. */
+  workPatternId?: string | null;
   /** Defaults to 'all'. Must reach the React Query key — see ShiftTimingFilters. */
   applicableGender?: ShiftApplicableGender;
   /** ISO date. Defaults to today. */
@@ -156,6 +160,10 @@ export class ShiftTimingService {
     query = params.employmentCategoryId
       ? query.eq('employment_category_id', params.employmentCategoryId)
       : query.is('employment_category_id', null);
+    // Same reasoning for the pattern: a null is the non-pattern rows, not "any".
+    query = params.workPatternId
+      ? query.eq('work_pattern_id', params.workPatternId)
+      : query.is('work_pattern_id', null);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -224,7 +232,9 @@ export class ShiftTimingService {
     for (const row of (data ?? []) as HRShiftTiming[]) {
       // The GENERAL weeks are not overrides — they are what an override
       // overrides. Excluded here so the list only shows things that can be
-      // added and removed.
+      // added and removed. A work pattern's week is not one either: it is
+      // managed on its own page and is exclusive for its members.
+      if (row.staff_scope === 'work_pattern') continue;
       const isGeneral = row.staff_scope !== 'category' && row.applicable_gender === 'all';
       if (isGeneral) continue;
       const key = `${row.staff_scope}|${row.employment_category_id ?? ''}|${row.applicable_gender}`;
@@ -310,6 +320,7 @@ export class ShiftTimingService {
       p_effective_from: params.effectiveFrom,
       p_days: payload,
       p_applicable_gender: params.applicableGender ?? 'all',
+      p_work_pattern_id: params.workPatternId ?? null,
     });
 
     if (error) throw error;

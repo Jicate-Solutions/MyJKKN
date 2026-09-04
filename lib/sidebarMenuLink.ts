@@ -523,6 +523,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // HR Head that hold every other HR key. hr.shift_timings.manage is declared in
   // the catalog and granted by 20260806090200_hr_shift_timings_permissions.sql.
   '/hr/admin/shift-timings': 'hr.shift_timings.manage',
+  // Work patterns are a per-staff week on top of shift timings and share
+  // their key: defining a 3-day week and deciding who is on it are the same
+  // amount of trust as defining the institution's week.
+  '/hr/admin/work-patterns': 'hr.shift_timings.manage',
   '/hr/admin/terminations': 'hr.dashboard.view',
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
@@ -2831,6 +2835,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
             { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
             { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
+            { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
             { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },

@@ -258,6 +258,17 @@ export default function ShiftTimingsPage() {
               <>
                 <CoverageWarning institutionId={institutionId} />
 
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>
+                    Staff assigned to a <strong>work pattern</strong> follow the pattern&apos;s
+                    week and hours instead of the weeks below.{' '}
+                    <Link href="/hr/admin/work-patterns" className="font-medium underline underline-offset-2">
+                      Manage work patterns
+                    </Link>
+                  </AlertDescription>
+                </Alert>
+
                 <Tabs defaultValue="teaching">
                   <TabsList>
                     <TabsTrigger value="teaching">Teaching</TabsTrigger>
