@@ -21,9 +21,31 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+  # Merge queue (2026-09-04). `JKKN terminology` became a REQUIRED status check
+  # on main on 2026-09-04, and ruleset 14879480 ("Protect main branch", active,
+  # ref_name include refs/heads/main) carries a merge_queue rule with
+  # check_response_timeout_minutes: 60. This workflow declared no merge_group
+  # trigger, so a queued entry would wait an hour for a `JKKN terminology`
+  # report that could never arrive and then be dequeued — unmergeable, with no
+  # obvious cause. The queue is dormant today only because the ruleset grants a
+  # team bypass_mode: always (newest merge_group runs in this repo: 2026-07-13,
+  # and `JKKN Conventions` is absent from them). The three sibling REQUIRED
+  # gates — typecheck-pr-scoped, nav-config-href-audit,
+  # radix-select-empty-value-audit — already declare this trigger; this closes
+  # the fourth and last one. Inert until the queue is actually entered.
+  merge_group:
+    types: [checks_requested]
 
 concurrency:
-  group: jkkn-conventions-${{ github.event.pull_request.number }}
+  # A merge_group event carries no pull_request object, so the old expression
+  # collapsed to the constant "jkkn-conventions-" for EVERY queued entry and,
+  # with cancel-in-progress, entries would cancel each other. A cancelled run is
+  # neither pass nor fail, so the required context still never reports — the
+  # same deadlock by a second route. github.ref on a queue run is
+  # refs/heads/gh-readonly-queue/main/pr-N-<sha>, unique per entry.
+  # On a pull_request run `number` is always truthy, so `||` short-circuits and
+  # the group string is byte-identical to before.
+  group: jkkn-conventions-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -32,10 +54,16 @@ permissions:
 
 jobs:
   terminology:
+    # ⚠️ `name:` below IS the status-check context string that branch protection
+    # on main matches, byte for byte ("JKKN terminology"). Change it and the
+    # required check silently stops reporting and every PR blocks. Do not touch.
     name: JKKN terminology
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: ${{ !github.event.pull_request.draft }}
+    # Drafts cannot enter a merge queue, so there is nothing to skip there and
+    # the draft probe has no object to read. On a pull_request run the left
+    # operand is false and this reduces to the original `!…draft` expression.
+    if: ${{ github.event_name == 'merge_group' || !github.event.pull_request.draft }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -43,14 +71,41 @@ jobs:
         with: { python-version: '3.11' }
       - name: Run delta terminology check
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Exactly one context exists per event: pull_request → PR base/head;
+          # merge_group → the queue group's parent/head. Groups chain, so base_sha
+          # is the queue tree WITHOUT this entry and head_sha the same tree WITH
+          # it — `git diff base...head` is therefore this PR's own added lines,
+          # the same delta the pull_request path scans. Delta-only survives the
+          # queue intact; this is a real re-scan, not a pass-through.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
           set -euo pipefail
           git fetch origin "$BASE_SHA" --quiet || true
+          # A required check must always conclude. On a queue run the group SHAs
+          # are the only source of the delta; if either is absent after the fetch
+          # above there is no delta to scan, so say so loudly and report success
+          # rather than scan a wrong range, fail spuriously, or hang. Gated on
+          # the event name, so the pull_request path never enters this branch
+          # (BASE/HEAD always resolve there).
+          if [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ] && {
+               [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ] ||
+               ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null
+             }; then
+            echo "::warning::merge_group SHAs unresolvable (base='${BASE_SHA}' head='${HEAD_SHA}') — no delta to scan; reporting success."
+            : > /tmp/term.md
+            echo "report bytes: 0"
+            exit 0
+          fi
           python scripts/ci/check-terminology-delta.py "$BASE_SHA" "$HEAD_SHA" > /tmp/term.md || true
           echo "report bytes: $(wc -c < /tmp/term.md)"
       - name: Post comment
+        # There is no PR in a merge group, so PR_NUMBER would be empty and every
+        # gh call would error the job. Skipping this step cannot leave the
+        # required context unreported: the verdict step below runs
+        # unconditionally and is what decides pass/fail.
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -71,7 +126,14 @@ jobs:
       - name: Fail on zero-tolerance findings (blocking since 2026-07-14)
         run: |
           if grep -q '[^[:space:]]' /tmp/term.md; then
-            echo "::error::New user-facing copy uses zero-tolerance terms — see the PR comment for the exact lines and JKKN replacements."
+            if [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ]; then
+              # No comment was posted (there is no PR), so put the report in the
+              # log — otherwise a queue failure would name no lines to fix.
+              echo "::error::New user-facing copy uses zero-tolerance terms — report below."
+              cat /tmp/term.md
+            else
+              echo "::error::New user-facing copy uses zero-tolerance terms — see the PR comment for the exact lines and JKKN replacements."
+            fi
             exit 1
           fi
           echo "No new terminology issues."
@@ -80,7 +142,12 @@ jobs:
     name: Smart-guide coverage (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: ${{ !github.event.pull_request.draft }}
+    # Advisory-only, and comment-only: there is no PR to comment on in a merge
+    # group, so it simply does not run there. It is not a required context and
+    # the required `JKKN terminology` job above has no `needs:` on it, so
+    # skipping it cannot leave that context unreported. On a pull_request run
+    # the left operand is true and this reduces to the original expression.
+    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -116,7 +183,12 @@ jobs:
     name: SchoolDefaultsService invariant (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: ${{ !github.event.pull_request.draft }}
+    # Advisory-only, and comment-only: there is no PR to comment on in a merge
+    # group, so it simply does not run there. It is not a required context and
+    # the required `JKKN terminology` job above has no `needs:` on it, so
+    # skipping it cannot leave that context unreported. On a pull_request run
+    # the left operand is true and this reduces to the original expression.
+    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -152,7 +224,12 @@ jobs:
     name: CARRE coverage (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: ${{ !github.event.pull_request.draft }}
+    # Advisory-only, and comment-only: there is no PR to comment on in a merge
+    # group, so it simply does not run there. It is not a required context and
+    # the required `JKKN terminology` job above has no `needs:` on it, so
+    # skipping it cannot leave that context unreported. On a pull_request run
+    # the left operand is true and this reduces to the original expression.
+    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
