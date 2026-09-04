@@ -28,6 +28,7 @@ import {
 import { loadBulkResolveLookups } from '@/lib/services/admission/fee-structure-bulk-lookups';
 import {
   buildChangeSets,
+  findDuplicateCreates,
   type StructureChange,
 } from '@/lib/services/admission/fee-structure-bulk-diff';
 
@@ -152,11 +153,24 @@ export async function POST(req: NextRequest) {
     // range: the header row's own index, so a title line inserted above the
     // headers shifts the read instead of silently re-keying every column to
     // whatever that title row happened to contain.
+    // blankrows MUST be true: a row's number is `firstRowNumber + index`, and
+    // without it sheet_to_json drops every empty row on the way in, so from
+    // the first blank line onward every reported row number pointed one row
+    // ABOVE the cell it described — an empty row 110 made the app say
+    // "Row 110" for what was physically row 111. Both resolvers already skip
+    // blank rows themselves; here the blanks only hold the numbering in place.
     const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
       defval: '',
       range: pick.headerRowIndex,
+      blankrows: true,
     });
     const firstRowNumber = pick.headerRowIndex + 2;
+    const isBlankRow = (raw: Record<string, unknown>) =>
+      Object.values(raw).every((v) => String(v ?? '').trim() === '');
+    /** The rows that carry anything, each with its real sheet row number. */
+    const dataRows = rawRows
+      .map((raw, i) => ({ raw, row: firstRowNumber + i }))
+      .filter(({ raw }) => !isBlankRow(raw));
 
     const lookups = await loadBulkResolveLookups(supabase);
 
@@ -189,7 +203,7 @@ export async function POST(req: NextRequest) {
 
       for (let i = 0; i < rawRows.length; i++) {
         const raw = rawRows[i];
-        if (Object.values(raw).every((v) => String(v ?? '').trim() === '')) continue; // skip blank rows
+        if (isBlankRow(raw)) continue;
         const res = resolveRow(raw, firstRowNumber + i, lookups);
 
         // Attach this structure's schedules, if the sheet carried any. The key
@@ -249,6 +263,23 @@ export async function POST(req: NextRequest) {
               );
             }
           }
+        }
+
+        // The mirror image: a CREATE row (blank ID) describing a structure that
+        // already exists. The database's overlap trigger refused these at Apply,
+        // one row at a time, with advice to "change a dimension" — which sent an
+        // operator hunting for a quota problem when the real story was that the
+        // previous import of the same file had already created all 18. Say so
+        // here, with the existing structure's name and ID, before anything runs.
+        const duplicates = await findDuplicateCreates(supabase, resolutions);
+        for (const res of resolutions) {
+          const dupe = duplicates.get(res.rowNumber);
+          if (!dupe) continue;
+          res.errors.push(
+            `A fee structure with these exact dimensions and communities already exists: "${dupe.name}"` +
+              (dupe.created_at ? ` (created ${dupe.created_at.slice(0, 10)})` : '') +
+              `. This row would create a duplicate and the database would refuse it. To update that structure, put its ID ${dupe.id} in the Fee Structure ID column — or start again from Export for Edit, which fills the IDs in for you.`,
+          );
         }
       } catch (e: any) {
         // Supabase errors are plain objects, never Error instances — reading
@@ -311,7 +342,7 @@ export async function POST(req: NextRequest) {
           headerRow: pick.headerRowIndex + 1,
           sheetNames: wb.SheetNames,
           headers,
-          totalRows: rawRows.length,
+          totalRows: dataRows.length,
           structures: structureCount,
           existing: existingCount,
           new: structureCount - existingCount,
@@ -319,11 +350,11 @@ export async function POST(req: NextRequest) {
         },
         rawPreview: {
           headers,
-          rows: rawRows.slice(0, RAW_PREVIEW_LIMIT).map((raw, i) => ({
-            row: firstRowNumber + i,
+          rows: dataRows.slice(0, RAW_PREVIEW_LIMIT).map(({ raw, row }) => ({
+            row,
             cells: headers.map((h) => cellText(raw[h])),
           })),
-          truncated: rawRows.length > RAW_PREVIEW_LIMIT,
+          truncated: dataRows.length > RAW_PREVIEW_LIMIT,
         },
         changes,
         changesError,
@@ -368,7 +399,11 @@ export async function POST(req: NextRequest) {
 // community-overlap trigger message.
 function humanize(raw: string): string {
   if (/already covers community/i.test(raw) || /7-dim combination/i.test(raw) || /dimension combination/i.test(raw)) {
-    return 'A fee structure already exists for this exact dimension + community combination. Archive the existing one or change a dimension/community.';
+    // Validation now names the existing structure before Apply; this is the
+    // fallback for one created between the two steps. "Change a dimension" was
+    // the wrong first suggestion — the usual story is a re-import of a file
+    // whose CREATE rows were already created last time.
+    return 'A fee structure with these exact dimensions and communities already exists. If you meant to update it, put its Fee Structure ID on the row (Export for Edit fills these in); only change a dimension or community if you really mean a different structure.';
   }
   if (/dimension_mismatch/i.test(raw)) return 'The 6 dimensions are read-only on edit and no longer match this Fee Structure ID — fix them or clear the ID to create new.';
   if (/permission_denied/i.test(raw)) return 'You do not have permission to manage fee structures for this institution.';
