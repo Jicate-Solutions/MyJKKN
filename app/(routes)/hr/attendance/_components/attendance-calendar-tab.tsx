@@ -147,6 +147,18 @@ function CalendarCell({ day, closed }: { day: AttendanceDay; closed: boolean }) 
               {day.inTime}–{day.outTime}
             </span>
           )}
+
+          {/* Which holiday, in the cell and not only on hover — a holiday day
+              has no split and no punches, so the caption slot is free, and on a
+              phone there is no hover. */}
+          {day.token === 'HOLIDAY' && day.tokenDetail && (
+            <span
+              className="line-clamp-2 text-[10px] leading-tight text-muted-foreground"
+              title={day.tokenDetail}
+            >
+              {day.tokenDetail}
+            </span>
+          )}
         </div>
       )}
     </div>

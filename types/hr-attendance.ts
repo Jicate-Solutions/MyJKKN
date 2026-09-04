@@ -295,7 +295,8 @@ export interface AttendanceDay {
    * Why this token, when the token alone is ambiguous. A Saturday that is a
    * configured working day but still reads WEEKLY_OFF is the 2nd-Saturday rule
    * firing, and nothing on screen used to say so — the only way to find out was
-   * to read fn_resolve_shift_timings_bulk.
+   * to read fn_resolve_shift_timings_bulk. For HOLIDAY it is the holiday's name
+   * from the calendar ("Independence Day") — the row itself never stores it.
    */
   tokenDetail: string | null;
   /** `[firstHalf, secondHalf]` — the `AB : AB` pair in the reference UI. */
@@ -506,6 +507,12 @@ interface BuildDaysArgs {
   exceptions?: AttendanceException[];
   /** Approved time-off overlapping the month. Empty is a valid month. */
   requests?: ApprovedRequestRange[];
+  /**
+   * `yyyy-MM-dd` → holiday title, from AttendanceRecordService.holidayNames.
+   * Absent while it loads; a HOLIDAY day then reads as a bare "Holiday" until
+   * the names arrive, never as anything else.
+   */
+  holidays?: ReadonlyMap<string, string>;
   /** Pad to whole Monday→Sunday weeks for the calendar grid. */
   padWeeks?: boolean;
 }
@@ -519,6 +526,7 @@ export function buildAttendanceDays({
   records,
   exceptions = [],
   requests = [],
+  holidays,
   padWeeks = false,
 }: BuildDaysArgs): AttendanceDay[] {
   const monthStart = startOfMonth(monthKeyToDate(month));
@@ -571,7 +579,10 @@ export function buildAttendanceDays({
       exception: excByDate.get(date) ?? null,
       token,
       tokenLabel: tokenLabelFor(token, reqByDate.get(date) ?? []),
-      tokenDetail: weekOffDetail(token, dateObj),
+      // A holiday names itself; a week off only needs explaining when it is
+      // the 2nd-Saturday rule.
+      tokenDetail:
+        token === 'HOLIDAY' ? (holidays?.get(date) ?? null) : weekOffDetail(token, dateObj),
       halfPair: halfPairFor(record, token),
       inTime: formatPunchTime(record?.in_at ?? null),
       outTime: formatPunchTime(record?.out_at ?? null),

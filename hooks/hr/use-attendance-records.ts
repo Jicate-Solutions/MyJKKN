@@ -32,6 +32,7 @@ const EXCEPTIONS_KEY = 'hr-attendance-exceptions';
 const MONTHS_KEY = 'hr-attendance-months';
 const TIME_OFF_KEY = 'hr-attendance-time-off';
 const PERIOD_KEY = 'hr-attendance-period';
+const HOLIDAYS_KEY = 'hr-attendance-holidays';
 
 /**
  * Invalidate everything the My Attendance log and calendar read.
@@ -46,9 +47,24 @@ const PERIOD_KEY = 'hr-attendance-period';
  * the viewer happens to have open, and React Query matches partial keys.
  */
 export function invalidateAttendanceViews(qc: QueryClient) {
-  for (const key of [KEY, EXCEPTIONS_KEY, MONTHS_KEY, TIME_OFF_KEY, PERIOD_KEY]) {
+  for (const key of [KEY, EXCEPTIONS_KEY, MONTHS_KEY, TIME_OFF_KEY, PERIOD_KEY, HOLIDAYS_KEY]) {
     qc.invalidateQueries({ queryKey: [key] });
   }
+}
+
+/**
+ * Holiday names for the month, keyed by date, so a HOLIDAY day can say WHICH
+ * holiday. Keyed on the institution, not the staff member: the calendar scopes
+ * holidays per institution and every staff member there shares them.
+ */
+export function useHolidayNames(institutionId: string | null, month: MonthKey) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [HOLIDAYS_KEY, institutionId, month],
+    queryFn: () =>
+      AttendanceRecordService.holidayNames(supabase, { institutionId: institutionId!, month }),
+    enabled: Boolean(institutionId),
+  });
 }
 
 /** Raw records for one staff member in one month. */
@@ -220,6 +236,9 @@ export function useAttendanceMonthView(
     [records.data],
   );
   const period = useAttendancePeriod(institutionId, month);
+  // Decorative, so it is NOT part of isLoading: the month renders as soon as the
+  // records land and the holiday names fill in when they arrive.
+  const holidays = useHolidayNames(institutionId, month);
 
   const logDays = useMemo(
     () =>
@@ -228,8 +247,9 @@ export function useAttendanceMonthView(
         records: records.data ?? [],
         exceptions: exceptions.data ?? [],
         requests: timeOff.data ?? [],
+        holidays: holidays.data,
       }).reverse(),
-    [month, records.data, exceptions.data, timeOff.data],
+    [month, records.data, exceptions.data, timeOff.data, holidays.data],
   );
 
   const weeks = useMemo(
@@ -240,10 +260,11 @@ export function useAttendanceMonthView(
           records: records.data ?? [],
           exceptions: exceptions.data ?? [],
           requests: timeOff.data ?? [],
+          holidays: holidays.data,
           padWeeks: true,
         }),
       ),
-    [month, records.data, exceptions.data, timeOff.data],
+    [month, records.data, exceptions.data, timeOff.data, holidays.data],
   );
 
   const summary = useMemo(() => summariseDays(logDays), [logDays]);
@@ -262,6 +283,7 @@ export function useAttendanceMonthView(
       qc.invalidateQueries({ queryKey: [EXCEPTIONS_KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [TIME_OFF_KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [PERIOD_KEY, institutionId, month] });
+      qc.invalidateQueries({ queryKey: [HOLIDAYS_KEY, institutionId, month] });
     },
   };
 }
