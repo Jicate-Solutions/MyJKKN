@@ -113,10 +113,18 @@ WHERE ed.config_key IN ('tn_hsc_physics', 'tn_hsc_english')
 -- =============================================================================
 -- 2. fn_onemark_record_response — one answer, and the Mistake Vault rules.
 -- =============================================================================
--- Caller must be able to see the attempt's learner (fn_fp_can_view_student —
--- the learner themself, their guardian, the Senior Learner running their
--- cohort, or the school owner; 20260706065000). The attempt must still be
--- in_progress: a submitted attempt is closed (decision 19).
+-- Caller must pass the estate's attempt-WRITE gate (fn_fp_record_attempt,
+-- 20260808220000): fn_fp_can_manage_student (super-admin, or a registered
+-- school owner holding foundation.students.manage — every Nattraja
+-- school_faculty holder), OR fn_fp_is_own_or_guardian (the learner, or the
+-- guardian — admitted on main by that same ruling), OR fn_fp_teaches_student
+-- (the Senior Learner running a cohort the learner is enrolled in). NOT the
+-- READ predicate fn_fp_can_view_student, which would also let any bare
+-- school_jkkn_owners row answer and submit on a learner's behalf. The attempt
+-- must still be in_progress: a submitted attempt is closed (decision 19).
+-- The item must be on the attempt's exam and, for a fixed paper, one of its
+-- fp_assessment_items. On a timed or live paper the verdict is withheld
+-- until finalize (is_correct / vault_status / streak return NULL).
 --
 -- Correctness is computed here, server-side, exactly as fn_fp_record_attempt
 -- does (an `answer` that is an object with a `correct` key is normalised to
@@ -137,6 +145,9 @@ WHERE ed.config_key IN ('tn_hsc_physics', 'tn_hsc_english')
 --   · correct, same session → no change (twice in one sitting counts once)
 --   · correct, row mastered → no change
 --   · correct, no row       → nothing (only a wrong answer creates a row)
+--   · re-answer in the same attempt: a WRONG still lands (once per
+--     attempt-item — decision 19 "wrong answers still feed the vault");
+--     a CORRECT re-answer never counts (the first answer is the sitting's).
 --
 -- session_id: fp_attempts.session_id (one uuid per sitting, set by Lane V).
 -- When NULL (rows that predate OneMark, or a caller that did not set it) the
@@ -162,6 +173,8 @@ DECLARE
   v_is_correct   boolean;
   v_skipped      boolean := COALESCE(p_skipped, false);
   v_existed      boolean;
+  v_prev_correct boolean;
+  v_reveal       boolean;
   v_vault        record;
   v_streak_goal  int;
   v_gap_days     int;
@@ -172,15 +185,26 @@ BEGIN
     RAISE EXCEPTION 'fn_onemark_record_response: attempt_id and item_id are required';
   END IF;
 
-  SELECT a.id, a.student_id, a.status, a.session_id
+  SELECT a.id, a.student_id, a.status, a.session_id, a.mode, a.assessment_id,
+         s.exam_definition_id AS assessment_exam_id
     INTO v_attempt
     FROM public.fp_attempts a
+    JOIN public.fp_assessments s ON s.id = a.assessment_id
    WHERE a.id = p_attempt_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'fn_onemark_record_response: attempt % not found', p_attempt_id;
   END IF;
 
-  IF NOT public.fn_fp_can_view_student(v_attempt.student_id) THEN
+  -- WRITE gate = the estate's own attempt-write predicate (fn_fp_record_attempt,
+  -- 20260808220000): the learner / guardian, a registered manager of the
+  -- learner's school, or the Senior Learner running a cohort this learner is
+  -- enrolled in. NOT fn_fp_can_view_student — that is a READ predicate, and it
+  -- also admits every bare school_jkkn_owners row.
+  IF NOT (
+    public.fn_fp_can_manage_student(v_attempt.student_id)
+    OR public.fn_fp_is_own_or_guardian(v_attempt.student_id)
+    OR public.fn_fp_teaches_student(v_attempt.student_id)
+  ) THEN
     RAISE EXCEPTION 'fn_onemark_record_response: not authorized for attempt %', p_attempt_id
       USING ERRCODE = '42501';
   END IF;
@@ -191,7 +215,7 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 
-  SELECT i.id, i.answer
+  SELECT i.id, i.answer, i.exam_definition_id
     INTO v_item
     FROM public.fp_items i
    WHERE i.id = p_item_id;
@@ -199,7 +223,31 @@ BEGIN
     RAISE EXCEPTION 'fn_onemark_record_response: item % not found', p_item_id;
   END IF;
 
+  -- Item membership. The item must be on the attempt's exam, and when the
+  -- assessment is a fixed paper (it has fp_assessment_items rows) the item
+  -- must be one of them. A standing pool (step 1) has no fp_assessment_items,
+  -- so the exam match is the whole test there. Without this an in_progress
+  -- attempt could drive fp_items serve counters and Mistake Vault rows for
+  -- any item in the shared bank.
+  IF v_item.exam_definition_id IS DISTINCT FROM v_attempt.assessment_exam_id THEN
+    RAISE EXCEPTION 'fn_onemark_record_response: item % is not on the exam of attempt %', p_item_id, p_attempt_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.fp_assessment_items ai WHERE ai.assessment_id = v_attempt.assessment_id)
+     AND NOT EXISTS (
+       SELECT 1 FROM public.fp_assessment_items ai
+        WHERE ai.assessment_id = v_attempt.assessment_id AND ai.item_id = p_item_id
+     ) THEN
+    RAISE EXCEPTION 'fn_onemark_record_response: item % is not part of assessment %', p_item_id, v_attempt.assessment_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
   v_session := COALESCE(v_attempt.session_id, v_attempt.id);
+  -- Timed and live papers reveal nothing per question: the row still stores
+  -- is_correct for the score, but the caller learns it only at finalize.
+  -- Otherwise (practice, vault_review, legacy NULL) the caller could try each
+  -- option in turn, read is_correct, and leave the winner as the final answer.
+  v_reveal := (v_attempt.mode IS NULL OR v_attempt.mode NOT IN ('timed', 'live'));
 
   -- Correctness (same normalisation as fn_fp_record_attempt). A skipped item
   -- is neither right nor wrong (decision 18).
@@ -218,11 +266,12 @@ BEGIN
 
   -- Persist the response. Re-answering the same item in the same attempt
   -- overwrites (the last answer stands for the score) and does NOT re-count
-  -- a serve.
-  SELECT EXISTS (
-    SELECT 1 FROM public.fp_responses r
-     WHERE r.attempt_id = p_attempt_id AND r.item_id = p_item_id
-  ) INTO v_existed;
+  -- a serve. The previous verdict (NULL when skipped / first answer) decides
+  -- what the vault does below.
+  SELECT r.is_correct INTO v_prev_correct
+    FROM public.fp_responses r
+   WHERE r.attempt_id = p_attempt_id AND r.item_id = p_item_id;
+  v_existed := FOUND;
 
   INSERT INTO public.fp_responses (attempt_id, item_id, chosen, is_correct, time_ms, skipped)
   VALUES (p_attempt_id, p_item_id,
@@ -241,14 +290,18 @@ BEGIN
      WHERE id = p_item_id;
   END IF;
 
-  -- Mistake Vault. Only the FIRST answer to an item in an attempt reaches the
-  -- vault: a re-answer (timed mode may revisit a question before submitting)
-  -- overwrites the response and the score, but must not let a learner who has
-  -- just seen the explanation turn a wrong into a counted correct in the same
-  -- breath (decision 9's spirit: the next correct is a separate sitting).
-  IF v_existed THEN
-    NULL;
-  ELSIF NOT v_skipped AND v_is_correct IS FALSE THEN
+  -- Mistake Vault.
+  --   · WRONG always reaches the vault (decision 19: "wrong answers still feed
+  --     the vault"; decision 18 exempts only a SKIP) — a skip-then-wrong or a
+  --     correct-then-changed-to-wrong is a real mistake. It is counted once
+  --     per attempt-item: a wrong re-answer over an already-wrong row does
+  --     not add a second total_wrong.
+  --   · CORRECT counts only as the FIRST answer to the item in this attempt:
+  --     a re-answer (timed mode may revisit before submitting) overwrites the
+  --     response and the score, but must not let a learner who has just seen
+  --     the explanation turn a wrong into a counted correct in the same breath
+  --     (decision 9's spirit: the next correct is a separate sitting).
+  IF NOT v_skipped AND v_is_correct IS FALSE AND v_prev_correct IS DISTINCT FROM FALSE THEN
     INSERT INTO public.onemark_mistake_vault AS mv
       (student_id, item_id, consecutive_correct_count, total_wrong, status, mastered_at, next_eligible_at)
     VALUES
@@ -259,7 +312,7 @@ BEGIN
                   status                    = 'active',
                   mastered_at               = NULL,
                   next_eligible_at          = now();
-  ELSIF NOT v_skipped AND v_is_correct IS TRUE THEN
+  ELSIF NOT v_existed AND NOT v_skipped AND v_is_correct IS TRUE THEN
     SELECT v.id, v.status, v.consecutive_correct_count, v.last_correct_session_id, v.next_eligible_at
       INTO v_vault
       FROM public.onemark_mistake_vault v
@@ -295,17 +348,20 @@ BEGIN
     FROM public.onemark_mistake_vault v
    WHERE v.student_id = v_attempt.student_id AND v.item_id = p_item_id;
 
+  -- vault_status / streak would betray the verdict too (a wrong flips the row
+  -- to active / streak 0), so a timed or live paper returns all three as NULL.
   RETURN jsonb_build_object(
-    'is_correct',   v_is_correct,
+    'is_correct',   CASE WHEN v_reveal THEN v_is_correct   END,
     'skipped',      v_skipped,
-    'vault_status', v_vault_status,
-    'streak',       v_streak
+    'vault_status', CASE WHEN v_reveal THEN v_vault_status END,
+    'streak',       CASE WHEN v_reveal THEN v_streak       END,
+    'revealed',     v_reveal
   );
 END;
 $$;
 
 COMMENT ON FUNCTION public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, int) IS
-  'OneMark: record one response on an in-progress attempt (caller must pass fn_fp_can_view_student for the attempt''s learner), bump fp_items serve counters, and apply the Mistake Vault rules (decisions 9/10/18). Returns {is_correct, skipped, vault_status, streak}; never returns the answer key. Added 2026-09-04 (OneMark Wave 2, Lane S).';
+  'OneMark: record one response on an in-progress attempt (caller must pass fn_fp_can_manage_student / fn_fp_is_own_or_guardian / fn_fp_teaches_student for the attempt''s learner — the fn_fp_record_attempt write gate), item must be on the attempt''s exam and, for a fixed paper, in fp_assessment_items; bump fp_items serve counters and apply the Mistake Vault rules (decisions 9/10/18/19). Returns {is_correct, skipped, vault_status, streak, revealed}; is_correct / vault_status / streak are NULL while fp_attempts.mode is timed or live (revealed at finalize); never returns the answer key. Added 2026-09-04 (OneMark Wave 2, Lane S).';
 
 REVOKE EXECUTE ON FUNCTION public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, int) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, int) TO authenticated;
@@ -321,7 +377,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_onemark_record_response(uuid, uuid, jsonb, 
 -- IS "longest since it was last wrong / last reviewed"; created_at breaks ties.
 --
 -- Cap (decision 13): no single fp_items.topic_id may exceed
--- onemark.vault.max_single_chapter_pct (60) percent of p_count, rounded DOWN.
+-- onemark.vault.max_single_chapter_pct (60) percent of p_count, rounded DOWN
+-- with a floor of 1 (p_count = 1 draws one item, not none).
 -- Items with no chapter (English chapter-agnostic tags, PRD §4.4) form one
 -- bucket of their own under the same cap. When the vault cannot fill p_count
 -- under the cap it returns fewer — never padded, never lopsided.
@@ -352,7 +409,9 @@ BEGIN
   END IF;
 
   v_pct := public.fn_get_policy_int('onemark.vault.max_single_chapter_pct', 60);
-  v_cap := floor(p_count * v_pct / 100.0)::int;
+  -- Floor of 1: decision 13 says shorter, not empty — a literal round-down
+  -- would make p_count = 1 (cap 0) return nothing.
+  v_cap := GREATEST(floor(p_count * v_pct / 100.0)::int, 1);
 
   RETURN QUERY
   WITH due AS (
@@ -381,7 +440,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_onemark_vault_draw(uuid, uuid, int) IS
-  'OneMark: item ids for one Mistake Vault review session — active, due, least-recently-wrong first, no chapter above onemark.vault.max_single_chapter_pct of p_count (round down; fewer rather than padded, decision 13). Caller must pass fn_fp_can_view_student. Added 2026-09-04 (OneMark Wave 2, Lane S).';
+  'OneMark: item ids for one Mistake Vault review session — active, due, least-recently-wrong first, no chapter above onemark.vault.max_single_chapter_pct of p_count (round down, floor 1; fewer rather than padded, decision 13). Caller must pass fn_fp_can_view_student (a read). Added 2026-09-04 (OneMark Wave 2, Lane S).';
 
 REVOKE EXECUTE ON FUNCTION public.fn_onemark_vault_draw(uuid, uuid, int) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_onemark_vault_draw(uuid, uuid, int) TO authenticated;
@@ -423,13 +482,22 @@ BEGIN
     RAISE EXCEPTION 'fn_onemark_finalize_attempt: attempt % not found', p_attempt_id;
   END IF;
 
-  IF NOT public.fn_fp_can_view_student(v_attempt.student_id) THEN
+  -- Same WRITE gate as fn_onemark_record_response (the 20260808220000 predicate).
+  IF NOT (
+    public.fn_fp_can_manage_student(v_attempt.student_id)
+    OR public.fn_fp_is_own_or_guardian(v_attempt.student_id)
+    OR public.fn_fp_teaches_student(v_attempt.student_id)
+  ) THEN
     RAISE EXCEPTION 'fn_onemark_finalize_attempt: not authorized for attempt %', p_attempt_id
       USING ERRCODE = '42501';
   END IF;
 
-  IF v_attempt.status = 'submitted' THEN
-    RAISE EXCEPTION 'fn_onemark_finalize_attempt: attempt % is already submitted (single submission, decision 19)', p_attempt_id
+  -- Only an in_progress attempt can be submitted: 'submitted' is decision 19,
+  -- and an 'abandoned' one (fp_attempts status CHECK, 20260706065000) must
+  -- not be revived into a scored submission either.
+  IF v_attempt.status <> 'in_progress' THEN
+    RAISE EXCEPTION 'fn_onemark_finalize_attempt: attempt % is %, not in_progress (single submission, decision 19)',
+      p_attempt_id, v_attempt.status
       USING ERRCODE = 'check_violation';
   END IF;
 
@@ -458,7 +526,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_onemark_finalize_attempt(uuid) IS
-  'OneMark: submit an in-progress attempt once (decision 19). score = count of correct responses; skipped is neither right nor wrong (decision 18). Caller must pass fn_fp_can_view_student. Added 2026-09-04 (OneMark Wave 2, Lane S).';
+  'OneMark: submit an in-progress attempt once (decision 19). score = count of correct responses; skipped is neither right nor wrong (decision 18). Refuses any attempt not in_progress (submitted or abandoned). Caller must pass the fn_fp_record_attempt write gate (fn_fp_can_manage_student / fn_fp_is_own_or_guardian / fn_fp_teaches_student). Added 2026-09-04 (OneMark Wave 2, Lane S).';
 
 REVOKE EXECUTE ON FUNCTION public.fn_onemark_finalize_attempt(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_onemark_finalize_attempt(uuid) TO authenticated;
@@ -527,9 +595,9 @@ If the unit and tags cannot honestly yield `count` items from the textbook, retu
   true,           -- enabled: deliberate (see header) — the apply is the Director's go
   '[{"key":"exam_definition_id","type":"text","label":"Subject exam (exam_definitions.id of tn_hsc_physics / tn_hsc_english)","required":true},
     {"key":"topic_id","type":"text","label":"Unit / chapter (cdc_exam_syllabus_topics.id; null = chapter-agnostic English tag)","required":false},
-    {"key":"tag_keys","type":"array","label":"Category tag keys from onemark_item_tags","required":true},
+    {"key":"tag_keys","type":"text","label":"Category tag keys from onemark_item_tags (comma-separated; the draft route sends a JSON array)","required":true},
     {"key":"count","type":"number","label":"How many items to draft (1–20)","required":true},
-    {"key":"bloom_level","type":"enum","label":"JABT K-level to target (K1–K6)","required":true,"options":["K1","K2","K3","K4","K5","K6"]}]'::jsonb,
+    {"key":"bloom_level","type":"select","label":"JABT K-level to target (K1–K6)","required":true,"options":["K1","K2","K3","K4","K5","K6"]}]'::jsonb,
   120, 'anthropic', 'sonnet',
   false,          -- external_allowed: internal authoring job, never B2A-reachable
   NULL,           -- loop_key: no MetaLoop registration yet
@@ -573,8 +641,18 @@ FROM public.schools s
 JOIN public.profiles p ON p.institution_id = s.institution_id AND p.is_active
   AND p.role IN ('faculty', 'hod', 'principal')
   AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)
-WHERE s.name = 'Nattraja Vidhyalya CBSE'
-  AND s.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+-- ONE rule for the school row, shared with 6b and the step-7 assertion: the
+-- institution's oldest schools row with ownership = 'internal'. (`schools` has
+-- no UNIQUE beyond its PK — Wave 1 header — so keying on the name here and
+-- on ownership in the trigger could diverge the day a second internal school
+-- exists at that institution.)
+WHERE s.id = (
+    SELECT s2.id FROM public.schools s2
+     WHERE s2.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+       AND s2.ownership = 'internal'::public.school_ownership
+     ORDER BY s2.created_at ASC
+     LIMIT 1
+  )
   AND NOT EXISTS (
     SELECT 1 FROM public.school_jkkn_owners o
     WHERE o.school_id = s.id AND o.jkkn_user_id = p.id
@@ -614,6 +692,14 @@ WHERE s.name = 'Nattraja Vidhyalya CBSE'
 -- school_contributions / school_sessions / program_partner_schools / schools),
 -- scoped to that one school row — every future Nattraja faculty / hod /
 -- principal first sign-in self-provisions this, with no human in the loop.
+-- The owner row + school_faculty (foundation.students.manage) together also
+-- make fn_fp_can_manage_student true for every learner of that school, i.e.
+-- the WRITE gate of fn_onemark_record_response / fn_onemark_finalize_attempt
+-- and the Mistake Vault's write policy — the same standing Wave 1 gave the 30
+-- seeded Senior Learners by hand. The school_faculty role is withheld (with a
+-- WARNING) when the profile's email matches no staff row, because that
+-- user_roles insert would mint a permanent 'associate' JKKN ID — the outcome
+-- Wave 1's step-12 assertion refused to apply over.
 INSERT INTO public.platform_policies (
   policy_key, scope_type, scope_id, value, description,
   data_type, is_system, is_active, classification, publication_state
@@ -680,21 +766,58 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  INSERT INTO public.school_jkkn_owners (school_id, jkkn_user_id, role, is_active, assigned_at)
-  SELECT v_school_id, NEW.id, 'outreach_coordinator'::public.school_owner_role, true, now()
-  WHERE NOT EXISTS (
-    SELECT 1 FROM public.school_jkkn_owners o
-     WHERE o.school_id = v_school_id AND o.jkkn_user_id = NEW.id AND o.is_active
-  );
-
-  SELECT cr.id INTO v_role_id FROM public.custom_roles cr WHERE cr.role_key = 'school_faculty';
-  IF v_role_id IS NOT NULL THEN
-    INSERT INTO public.user_roles (user_id, role_id, is_primary, assigned_at)
-    SELECT NEW.id, v_role_id, false, now()
+  -- Two independently guarded sub-blocks: the owner row is what
+  -- fn_fp_manages_school / fn_fp_can_manage_student need, and it must survive
+  -- a failure of the role insert (one function-level handler would roll both
+  -- back together and leave only a WARNING).
+  BEGIN
+    INSERT INTO public.school_jkkn_owners (school_id, jkkn_user_id, role, is_active, assigned_at)
+    SELECT v_school_id, NEW.id, 'outreach_coordinator'::public.school_owner_role, true, now()
     WHERE NOT EXISTS (
-      SELECT 1 FROM public.user_roles ur WHERE ur.user_id = NEW.id AND ur.role_id = v_role_id
+      SELECT 1 FROM public.school_jkkn_owners o
+       WHERE o.school_id = v_school_id AND o.jkkn_user_id = NEW.id AND o.is_active
     );
-  END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[onemark provision] profile % (institution %): owner row not inserted: % (%)', NEW.id, NEW.institution_id, SQLERRM, SQLSTATE;
+  END;
+
+  BEGIN
+    SELECT cr.id INTO v_role_id FROM public.custom_roles cr WHERE cr.role_key = 'school_faculty';
+    IF v_role_id IS NOT NULL THEN
+      -- Wave 1 (20260917111500, step 12) REFUSED to apply when a target profile
+      -- had no staff-email match, because a user_roles INSERT fires
+      -- trg_jkkn_auto_issue_associate (20260827110000), which mints a PERMANENT
+      -- 'associate' JKKN ID for a profile with learner_id NULL, no staff match
+      -- and no jkkn_identities row. A trigger cannot block a sign-in, so it
+      -- mirrors that ruling the only way it can: the role is NOT inserted
+      -- for such a profile, and the WARNING names the repair (fix the staff
+      -- row, then re-run step 6 / re-save the profile). The owner row above
+      -- is unaffected.
+      IF EXISTS (
+           SELECT 1 FROM public.profiles p
+            WHERE p.id = NEW.id
+              AND p.learner_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM public.jkkn_identities ji WHERE ji.profile_id = p.id)
+              AND NOT (
+                p.email IS NOT NULL AND btrim(p.email) <> '' AND EXISTS (
+                  SELECT 1 FROM public.staff st
+                   WHERE lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(p.email))
+                      OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(p.email))
+                )
+              )
+         ) THEN
+        RAISE WARNING '[onemark provision] profile % (institution %): school_faculty NOT assigned — no staff row matches its email, and the user_roles insert would mint a permanent ''associate'' JKKN ID (trg_jkkn_auto_issue_associate); fix the staff row first', NEW.id, NEW.institution_id;
+      ELSE
+        INSERT INTO public.user_roles (user_id, role_id, is_primary, assigned_at)
+        SELECT NEW.id, v_role_id, false, now()
+        WHERE NOT EXISTS (
+          SELECT 1 FROM public.user_roles ur WHERE ur.user_id = NEW.id AND ur.role_id = v_role_id
+        );
+      END IF;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[onemark provision] profile % (institution %): school_faculty role not inserted: % (%)', NEW.id, NEW.institution_id, SQLERRM, SQLSTATE;
+  END;
 
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
@@ -763,13 +886,17 @@ BEGIN
    WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
      AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active
      AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id);
+  -- Same school rule as steps 6 and 6b (oldest internal schools row).
+  SELECT s.id INTO v_sim_school FROM public.schools s
+   WHERE s.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid AND s.ownership = 'internal'
+   ORDER BY s.created_at LIMIT 1;
   SELECT count(*) INTO v_owners
     FROM public.school_jkkn_owners o
-    JOIN public.schools s ON s.id = o.school_id
     JOIN public.profiles p ON p.id = o.jkkn_user_id
-   WHERE s.name = 'Nattraja Vidhyalya CBSE' AND s.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+   WHERE o.school_id = v_sim_school
      AND o.is_active
-     AND p.institution_id = s.institution_id AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active;
+     AND p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
+     AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active;
 
   -- Simulated provisioning inside a rolled-back sub-block: take one signed-in
   -- Nattraja Senior Learner, remove their owner + school_faculty rows, touch
@@ -777,16 +904,24 @@ BEGIN
   -- back. The sentinel exception rolls the sub-block back; the counts survive
   -- because PL/pgSQL variables are not transactional. Skipped (not failed)
   -- when no such person exists — a non-production database.
+  -- The simulated profile must be one the trigger WOULD give the role to: a
+  -- staff-email match (or an existing JKKN identity), so the associate-mint
+  -- guard in 6b does not apply. All 30 matched at Wave 1 (its step-12 assert).
   SELECT p.id INTO v_sim_profile
     FROM public.profiles p
    WHERE p.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid
      AND p.role IN ('faculty', 'hod', 'principal') AND p.is_active
      AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)
+     AND (
+       p.learner_id IS NOT NULL
+       OR EXISTS (SELECT 1 FROM public.jkkn_identities ji WHERE ji.profile_id = p.id)
+       OR (p.email IS NOT NULL AND EXISTS (
+            SELECT 1 FROM public.staff st
+             WHERE lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(p.email))
+                OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(p.email))))
+     )
    ORDER BY p.email
    LIMIT 1;
-  SELECT s.id INTO v_sim_school FROM public.schools s
-   WHERE s.institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'::uuid AND s.ownership = 'internal'
-   ORDER BY s.created_at LIMIT 1;
   SELECT cr.id INTO v_sim_role FROM public.custom_roles cr WHERE cr.role_key = 'school_faculty';
 
   IF v_sim_profile IS NOT NULL AND v_sim_school IS NOT NULL AND v_sim_role IS NOT NULL THEN
