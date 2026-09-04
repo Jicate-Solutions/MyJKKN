@@ -278,6 +278,26 @@ export async function POST(req: NextRequest) {
       preview.canApply = false;
     }
 
+    // What the rows amount to at the grain the operator thinks in. On the
+    // unified tab several rows are ONE structure (one per instalment of each
+    // fee), so "216 rows" on its own says nothing about how many structures
+    // are about to be created or updated. Counted over every structure the
+    // sheet holds, valid or not — this is a description of the file, and the
+    // Validate step is where the valid/error split is shown.
+    const structureCount = resolutions.length;
+    // Existing vs new, from the sheet itself: a row with a Fee Structure ID
+    // updates that structure, a blank one creates. Read off `source` (the
+    // operator's own cells) rather than the payload, which a row with errors
+    // does not have — the split has to add up on a file that is not yet clean,
+    // which is exactly when the operator is looking at this step.
+    const existingCount = resolutions.filter(
+      (r) => Boolean(r.source?.['Fee Structure ID']?.trim() || r.payload?.structure_id),
+    ).length;
+    const feeCount =
+      layout === 'unified'
+        ? (scheduleSummary?.items ?? 0)
+        : resolutions.reduce((n, r) => n + (r.payload?.items.length ?? 0), 0);
+
     // ---- Validate (dry-run): return the preview, write nothing. ----
     if (mode === 'validate') {
       const headers = pick.header.map((h) => String(h ?? '').trim()).filter(Boolean);
@@ -292,6 +312,10 @@ export async function POST(req: NextRequest) {
           sheetNames: wb.SheetNames,
           headers,
           totalRows: rawRows.length,
+          structures: structureCount,
+          existing: existingCount,
+          new: structureCount - existingCount,
+          fees: feeCount,
         },
         rawPreview: {
           headers,

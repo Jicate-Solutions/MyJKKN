@@ -70,6 +70,18 @@ interface SheetInfo {
   sheetNames: string[];
   headers: string[];
   totalRows: number;
+  /** Structures the rows fold into — several rows are one structure on the unified tab. */
+  structures: number;
+  /**
+   * Of those, how many carry a Fee Structure ID (an UPDATE of a structure that
+   * exists) and how many leave it blank (a CREATE). Split by the ID cell alone,
+   * so unlike the Validate step's create/update it still counts rows that have
+   * errors — the operator sees what the file holds before it is clean.
+   */
+  existing: number;
+  new: number;
+  /** Fee items across those structures (one fee may span several instalment rows). */
+  fees: number;
 }
 
 interface RawPreview {
@@ -295,6 +307,20 @@ export function BulkFeeStructureDialog({
                 <Table2 className="h-3.5 w-3.5" /> Tab &ldquo;{sheet.name}&rdquo;
               </Badge>
               <Badge variant="outline">{sheet.totalRows} rows</Badge>
+              {/* Rows are instalments; the operator counts in structures. Both,
+                  side by side, or "216 rows" reads as 216 structures. */}
+              <Badge variant="outline" className="gap-1">
+                <ListChecks className="h-3.5 w-3.5" />
+                {sheet.structures} fee structure{sheet.structures === 1 ? '' : 's'}
+              </Badge>
+              {/* Same colours the Changes and Validate steps use: blue = update, green = create. */}
+              <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 gap-1">
+                <Pencil className="h-3.5 w-3.5" /> {sheet.existing} existing · will update
+              </Badge>
+              <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700 gap-1">
+                <Plus className="h-3.5 w-3.5" /> {sheet.new} new · will create
+              </Badge>
+              <Badge variant="outline">{sheet.fees} fee{sheet.fees === 1 ? '' : 's'}</Badge>
               <Badge variant="outline">{sheet.headers.length} columns</Badge>
               <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
                 {preview.layout === 'legacy' ? 'Legacy two-tab layout' : 'One row = one instalment'}
@@ -359,8 +385,8 @@ export function BulkFeeStructureDialog({
 
             {preview.rawPreview.truncated && (
               <p className="text-xs text-muted-foreground">
-                Showing the first {preview.rawPreview.rows.length} of {sheet.totalRows} rows. All of them
-                are validated and imported.
+                Showing the first {preview.rawPreview.rows.length} of {sheet.totalRows} rows. All of them,
+                across all {sheet.structures} fee structures, are validated and imported.
               </p>
             )}
           </div>
