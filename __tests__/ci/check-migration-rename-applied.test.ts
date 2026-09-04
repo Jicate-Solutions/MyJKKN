@@ -487,7 +487,10 @@ describe('the real files on main, not reductions of them', () => {
     // creates. Stricter than reality: on 2026-09-04 only 5 of its 26 replaced
     // objects were actually present, the rest sitting on tables that do not
     // exist. If it passes with all 26 present it passes with 5.
-    const sql = read('supabase/migrations/20260504_instasolver_substrate.sql');
+    // PR #3263 performs this rename, so from that merge onward the body lives at
+    // the NEW path. The simulated rename below still runs from -> to, which is the
+    // historical fact the guard is being tested against.
+    const sql = read('supabase/migrations/20261103000000_instasolver_substrate.sql');
     const r = run({
       renames: [{
         from: 'supabase/migrations/20260504_instasolver_substrate.sql',
