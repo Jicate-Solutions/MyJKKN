@@ -51656,24 +51656,30 @@ SET search_path TO 'public'
 AS $function$
 DECLARE
     v_legacy            boolean;
+    v_snapshot          jsonb;
     v_structure_id      uuid;
     v_resolved          jsonb;
     v_base_items        jsonb;
     v_global_deltas_sum numeric(15,2) := 0;
     v_year              int := COALESCE(public.fn_learner_year_of_study(p_learner_id), 1);
 BEGIN
-    SELECT legacy_fee_mode INTO v_legacy
+    SELECT legacy_fee_mode, fee_items INTO v_legacy, v_snapshot
       FROM public.learners_profiles WHERE id = p_learner_id;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
     END IF;
 
-    -- Legacy learners keep whatever snapshot they already carry; the matrix is
-    -- not consulted for them.
-    IF v_legacy = true THEN
-        RETURN COALESCE((SELECT fee_items FROM public.learners_profiles WHERE id = p_learner_id),
-                        '[]'::jsonb);
+    -- A legacy learner WITH a snapshot keeps it; the matrix is not consulted.
+    -- A legacy learner with an EMPTY snapshot falls through to the matrix,
+    -- which is exactly what admission_account_transition_with_bills does on
+    -- Confirm (20260523140000): it flips legacy_fee_mode and resolves. Until
+    -- 20260904 this branch returned '[]' for that case, so the preview said
+    -- "no fee structure resolves" for a learner the commit would have billed.
+    IF v_legacy = true
+       AND v_snapshot IS NOT NULL
+       AND jsonb_array_length(v_snapshot) > 0 THEN
+        RETURN v_snapshot;
     END IF;
 
     v_structure_id := public.admission_match_fee_structure_for_learner(p_learner_id);
@@ -51751,7 +51757,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.admission_compute_fee_items_for_learner(uuid) IS
-  'Pure fee-item resolution for a learner — computes, never writes. The persisting wrapper is admission_resolve_fee_items_for_lead. Split out so the account-transition preview can show the real numbers without leaving a fee_items snapshot behind on a dialog the admin then cancels.';
+  'Pure fee-item resolution for a learner — computes, never writes. The persisting wrapper is admission_resolve_fee_items_for_lead. A legacy learner with a non-empty snapshot returns it as is; a legacy learner with an empty snapshot falls through to the matrix, mirroring the auto-resolve in admission_account_transition_with_bills so the preview equals the commit.';
 
 REVOKE ALL ON FUNCTION public.admission_compute_fee_items_for_learner(uuid) FROM PUBLIC, anon;
 
