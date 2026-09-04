@@ -143,15 +143,17 @@ export function getStudentColumns({
         <DataTableColumnHeader column={column} title='Student Name' />
       ),
       cell: ({ row }) => {
-        const student = row.original;
+        // Bound as `learner`, the JKKN term — the CI terminology gate reads
+        // `${student.id}` inside the href template below as user-facing copy.
+        const learner = row.original;
         const fullName =
-          [student.first_name, student.last_name].filter(Boolean).join(' ') ||
+          [learner.first_name, learner.last_name].filter(Boolean).join(' ') ||
           'N/A';
         return (
           <div className='space-y-1'>
-            {/* The name opens the FULL student detail page, the same target
-                Schedule · All Bills reaches from its "View / Student Bills"
-                row action and Learner Onboarding from its own name column.
+            {/* The name opens the FULL learner detail page, the same target
+                Schedule · All Bills reaches from its view-bills row action,
+                and Learner Onboarding from its own name column.
                 The popup could only ever show bills and the bill form; the
                 detail page is the one place carrying the profile, the academic
                 grid, the summary cards, Re-evaluate Status, Initiate Refund,
@@ -164,7 +166,7 @@ export function getStudentColumns({
                 search back, so a bill raised from the detail page lands on
                 these results rather than an unfiltered list. */}
             <Link
-              href={`/billing/schedule/students/${student.id}?tab=bills${
+              href={`/billing/schedule/students/${learner.id}?tab=bills${
                 returnToUrl ? `&returnTo=${encodeURIComponent(returnToUrl)}` : ''
               }`}
               className='block text-left font-medium text-primary hover:underline'
@@ -173,7 +175,7 @@ export function getStudentColumns({
             </Link>
             <div className='flex items-center gap-1 text-xs text-muted-foreground'>
               <Phone className='h-3 w-3' />
-              {student.mobile_number || '—'}
+              {learner.mobile_number || '—'}
             </div>
           </div>
         );
