@@ -83,7 +83,11 @@ const SETUP_STEPS = [
     title: 'Enter Faculty Workload',
     description: 'Record or import faculty workload data for workload balance scoring.',
     icon: Clock,
-    href: '/hr/admin/recruitment-need/workload',
+    // /hr/admin/recruitment-need/workload has never existed — this step's
+    // "Set Up" button led to a 404, so the last step of the wizard could not be
+    // reached at all. The real screen is /hr/workload, which is fully built:
+    // Add Workload, Import from Excel, and a downloadable template.
+    href: '/hr/workload',
     table: 'hr_faculty_workload' as const,
     threshold: 1,
   },
