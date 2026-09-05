@@ -66,7 +66,7 @@ COMMENT ON COLUMN public.ai_pulse_live_attendance.left_at IS
   'stayed_until (that instant as IST "HH:MM"). The 4-AND engagement gate '
   'consumes stayed_until; the trends and participation surfaces test it for '
   'PRESENCE. Cannot be backfilled from stayed_until (a dateless "HH:MM" '
-  'string). See supabase/migrations/20260922010000_ai_pulse_left_at_deprecate_comment.sql.';
+  'string). See supabase/migrations/20261104020000_ai_pulse_left_at_deprecate_comment.sql.';
 
 COMMENT ON COLUMN public.ai_pulse_live_attendance.engagement_signals IS
   'Canonical per-learner engagement signal store for the AI Pulse 4-AND gate. '
