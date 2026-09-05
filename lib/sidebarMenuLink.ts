@@ -263,6 +263,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // ======================================================================
   '/director-desk': 'director.handover.view_all',
   '/my-desk': 'view_profile',
+  // What's New (the product changelog) is open to everyone signed in — the
+  // Director's decision, 2026-09-05. `view_profile` is the documented universal
+  // sentinel (isPageAccessible returns true for it unconditionally); an entry
+  // here is REQUIRED because the sidebar's filter is default-deny, so a route
+  // with no mapping is silently super-admin-only. The page scopes its own
+  // CONTENT by role.
+  '/whats-new': 'view_profile',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -1911,6 +1918,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Guide',
           active: pathname === '/guide' || pathname.startsWith('/guide/'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          // What's New — the product changelog. Deliberately has NO
+          // MENU_PERMISSIONS entry: the Director's decision (2026-09-05) is that
+          // everyone signed in can open it. The page scopes its own CONTENT by
+          // role, so a student sees student-relevant changes rather than a
+          // locked door.
+          href: '/whats-new',
+          label: "What's New",
+          active: pathname === '/whats-new',
+          icon: Megaphone,
           submenus: []
         },
         {

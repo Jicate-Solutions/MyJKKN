@@ -7400,6 +7400,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/whats-new",
+    "label": "Whats New",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/work-pulse",
     "label": "Work Pulse",
     "iconName": "FileText",
