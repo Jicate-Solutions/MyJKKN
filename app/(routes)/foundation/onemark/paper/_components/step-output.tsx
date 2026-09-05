@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { ExternalLink, FileDown, KeyRound, Loader2, Send } from 'lucide-react';
+import { ExternalLink, FileDown, KeyRound, Loader2, Send, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,12 +37,33 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
   const [closeAt, setCloseAt] = useState(cfg.close_at ? localInputValue(new Date(cfg.close_at)) : localInputValue(new Date(Date.now() + 25 * 60 * 60 * 1000)));
   const [duration, setDuration] = useState<number>(cfg.duration_min ?? 20);
   const [shuffle, setShuffle] = useState<boolean>(cfg.shuffle_options ?? true);
+  /** null = not probed yet; false = the renderer answered (2xx); true = 404. */
+  const [pdfMissing, setPdfMissing] = useState<boolean | null>(null);
 
-  async function markExported() {
+  /** The anchor opens the PDF in a new tab as before; in parallel a HEAD probe
+   *  asks the renderer whether it exists. The export stamp is written only on
+   *  a 2xx — never against a 404 while Lane P is unmerged. */
+  async function probeAndStamp(href: string) {
     try {
-      await act.mutateAsync({ action: 'mark_exported' });
+      const res = await fetch(href, { method: 'HEAD', cache: 'no-store' });
+      if (res.ok) {
+        setPdfMissing(false);
+        await act.mutateAsync({ action: 'mark_exported' });
+      } else if (res.status === 404) {
+        setPdfMissing(true);
+        toast.warning('The PDF renderer is not available yet — nothing was exported.');
+      }
     } catch {
-      /* the PDF still opened; the stamp is a convenience */
+      /* network hiccup: no stamp, the tab the anchor opened tells the truth */
+    }
+  }
+
+  async function unpublish() {
+    try {
+      await act.mutateAsync({ action: 'unpublish' });
+      toast.success('Unpublished — the cohort no longer sees it. Fix the window or cohort, then publish again.');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Could not unpublish');
     }
   }
 
@@ -84,7 +105,7 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
                   href={PaperService.pdfHref(paper.id, s, false)}
                   target="_blank"
                   rel="noreferrer"
-                  onClick={markExported}
+                  onClick={() => void probeAndStamp(PaperService.pdfHref(paper.id, s, false))}
                   className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -95,7 +116,7 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
                     href={PaperService.pdfHref(paper.id, s, true)}
                     target="_blank"
                     rel="noreferrer"
-                    onClick={markExported}
+                    onClick={() => void probeAndStamp(PaperService.pdfHref(paper.id, s, true))}
                     className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted"
                   >
                     <KeyRound className="h-3.5 w-3.5" />
@@ -107,9 +128,11 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
           ))}
         </ul>
         <p className="text-xs text-muted-foreground">
-          {cfg.outputs?.pdf_exported_at
-            ? `Last exported ${new Date(cfg.outputs.pdf_exported_at).toLocaleString()}.`
-            : 'The PDF renderer is a separate build (Lane P); if the link answers 404, it has not been merged yet.'}
+          {pdfMissing
+            ? 'The PDF renderer answered 404 — it is a separate build (Lane P) and has not been merged yet. No export was recorded.'
+            : cfg.outputs?.pdf_exported_at
+              ? `Last exported ${new Date(cfg.outputs.pdf_exported_at).toLocaleString()}.`
+              : 'The PDF renderer is a separate build (Lane P); if the link answers 404, it has not been merged yet.'}
         </p>
       </section>
 
@@ -125,12 +148,23 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
         </div>
 
         {published ? (
-          <div className="rounded-md border border-[#0b6d41]/40 bg-[#0b6d41]/5 p-3 text-sm">
-            <p className="font-medium text-foreground">Published {new Date(cfg.outputs!.published_at!).toLocaleString()}</p>
-            <p className="text-xs text-muted-foreground">
-              Open {cfg.open_at ? new Date(cfg.open_at).toLocaleString() : '—'} → close {cfg.close_at ? new Date(cfg.close_at).toLocaleString() : '—'} · {cfg.duration_min} min ·{' '}
-              {cfg.shuffle_options ? 'options shuffled' : 'options in print order'}
-            </p>
+          <div className="space-y-3 rounded-md border border-[#0b6d41]/40 bg-[#0b6d41]/5 p-3 text-sm">
+            <div>
+              <p className="font-medium text-foreground">Published {new Date(cfg.outputs!.published_at!).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">
+                Open {cfg.open_at ? new Date(cfg.open_at).toLocaleString() : '—'} → close {cfg.close_at ? new Date(cfg.close_at).toLocaleString() : '—'} · {cfg.duration_min} min ·{' '}
+                {cfg.shuffle_options ? 'options shuffled' : 'options in print order'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" onClick={unpublish} disabled={disabled}>
+                {act.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Undo2 className="mr-1.5 h-4 w-4" />}
+                Unpublish
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Wrong cohort, window or duration? Unpublish, correct it, publish again. Possible until the first learner starts — after that the paper stays as published.
+              </span>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
@@ -191,7 +225,9 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
               {act.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               Publish to cohort
             </Button>
-            <p className="text-xs text-muted-foreground">Publishing freezes the paper. Print as many times as you like before and after.</p>
+            <p className="text-xs text-muted-foreground">
+              Publishing freezes the questions, the cohort and the window together. Until the first learner starts you can unpublish to correct any of them; after that nothing changes. Printing stays open before and after.
+            </p>
           </div>
         )}
       </section>

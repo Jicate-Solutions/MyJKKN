@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   UUID_RE,
   buildDetail,
@@ -20,8 +20,10 @@ import {
   type FullItem,
 } from '../_shared';
 import {
+  BLUEPRINT_SLOTS,
   LEVEL_KEYS,
   JABT_LEVEL_LABELS,
+  boardOf,
   findSwap,
   generatePaper,
   levelOf,
@@ -30,6 +32,7 @@ import {
   type PaperAction,
   type PaperConfig,
   type PaperParams,
+  type PaperPolicies,
   type QuestionOverride,
   type WizardStep,
 } from '@/lib/services/onemark/paper-service';
@@ -44,7 +47,13 @@ import {
 // config.resolved_item_ids, config.locked_ids and config.question_overrides;
 // `finalize` writes fp_assessment_items with positions; `publish` sets the
 // digital window and cohort. Edits after a publish are refused (409) — a paper
-// learners can already open is no longer a draft.
+// learners can already open is no longer a draft — until `unpublish`, which is
+// allowed only while no learner has started an attempt.
+//
+// OWNERSHIP: a paper is its author's. The picker lists only the caller's own
+// papers, and this route refuses anyone else's with an explicit 403 — holding
+// foundation.assessments.manage lets a Senior Learner build papers, not open
+// or publish a colleague's.
 
 const SELECTION_MODES = new Set(['single', 'multi', 'unit', 'volume', 'full_syllabus']);
 const DISTRIBUTION_MODES = new Set(['proportional', 'equal_per_chapter', 'manual']);
@@ -193,10 +202,12 @@ interface Loaded {
   row: AssessmentRow;
   exam: ExamRef;
   config: PaperConfig;
-  policies: { question_count: number; max_series: number };
+  policies: PaperPolicies;
 }
 
-async function loadPaper(supabase: any, id: string): Promise<Loaded | null> {
+const NOT_OWNER = 'This paper belongs to another Senior Learner. Only its author can open or change it.';
+
+async function loadPaper(supabase: any, id: string): Promise<Loaded | null | 'not_owner'> {
   const { data: row, error } = await supabase
     .from('fp_assessments')
     .select('id, title, exam_definition_id, cohort_id, kind, config, created_by, updated_at')
@@ -209,8 +220,42 @@ async function loadPaper(supabase: any, id: string): Promise<Loaded | null> {
   const exam = await loadExam(supabase, row.exam_definition_id);
   if (!exam) return null;
   const policies = await readPolicies(supabase);
-  const config = normalizeConfig(row.config, paramsFor(exam.config_key, policies.question_count));
+  const config = normalizeConfig(row.config, paramsFor(exam.config_key, policies));
   return { row: row as AssessmentRow, exam, config, policies };
+}
+
+/** Ownership, checked after the load so a wrong id is still a 404 and a
+ *  colleague's id is an explicit 403 — never a silent bounce (CLAUDE.md #27). */
+async function loadOwnPaper(supabase: any, id: string, userId: string): Promise<Loaded | null | 'not_owner'> {
+  const loaded = await loadPaper(supabase, id);
+  if (!loaded || loaded === 'not_owner') return loaded;
+  if (loaded.row.created_by !== userId) return 'not_owner';
+  return loaded;
+}
+
+/** The durable order Lane P prints and Lane V serves — read back so publish
+ *  can refuse a paper whose preview has drifted from its finalised rows. */
+async function loadFinalizedIds(supabase: any, assessmentId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('fp_assessment_items')
+    .select('item_id, position')
+    .eq('assessment_id', assessmentId)
+    .order('position');
+  if (error) throw error;
+  return ((data ?? []) as { item_id: string }[]).map((r) => r.item_id);
+}
+
+/** Has any learner started this paper? Read with the service role on purpose:
+ *  fp_attempts RLS is per-learner visibility, so a Senior Learner's session
+ *  client could see 0 rows while attempts exist. Only a COUNT leaves here. */
+async function attemptCount(assessmentId: string): Promise<number> {
+  const admin = createServiceRoleClient();
+  const { count, error } = await admin
+    .from('fp_attempts')
+    .select('id', { count: 'exact', head: true })
+    .eq('assessment_id', assessmentId);
+  if (error) throw error;
+  return count ?? 0;
 }
 
 async function respond(
@@ -264,8 +309,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const g = await gate(supabase);
     if (!g) return bad('Unauthorized', 401);
     if (!g.canManage) return bad('You do not have access to build OneMark papers.', 403);
-    const loaded = await loadPaper(supabase, id);
+    const loaded = await loadOwnPaper(supabase, id, g.userId);
     if (!loaded) return bad('Paper not found.', 404);
+    if (loaded === 'not_owner') return bad(NOT_OWNER, 403);
     return respond(supabase, loaded, g.userId, g.canSeeAnswers);
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? 'Could not load the paper' }, { status: 500 });
@@ -287,16 +333,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return bad('action is required');
     }
 
-    const loaded = await loadPaper(supabase, id);
+    const loaded = await loadOwnPaper(supabase, id, g.userId);
     if (!loaded) return bad('Paper not found.', 404);
+    if (loaded === 'not_owner') return bad(NOT_OWNER, 403);
     const { exam, policies } = loaded;
     let config: PaperConfig = { ...loaded.config };
 
     const published = !!config.outputs?.published_at;
-    const mutating = body.action !== 'mark_exported';
+    const mutating = body.action !== 'mark_exported' && body.action !== 'unpublish';
     if (published && mutating) {
-      return bad('This paper has been published to learners and can no longer be changed.', 409);
+      return bad('This paper is published to learners. Unpublish it first to change anything.', 409);
     }
+
+    /** A change to the question list un-finalises the paper: fp_assessment_items
+     *  is rewritten on the next finalize, and publish refuses until then. */
+    const unfinalised = (c: PaperConfig): PaperConfig['state'] =>
+      c.state === 'FINALIZED'
+        ? Object.keys(c.question_overrides).length > 0
+          ? 'EDITED'
+          : 'PREVIEW'
+        : c.state;
 
     // Everything past `save` needs the pool and the engine context.
     const withEngine = async () => {
@@ -321,11 +377,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         pool,
         ctx,
         lockedIds: config.locked_ids,
-        previousIds: config.resolved_item_ids,
+        previousIds: boardOf(config),
       });
+      // Decision 15: a reserved slot the pool could not fill is KEPT as a gap
+      // (empty_slots), never collapsed — Q3 stays empty rather than becoming
+      // an antonym. Trailing pool shortfalls are simply not written.
       config = {
         ...config,
         resolved_item_ids: result.slots.filter((s): s is string => s !== null),
+        empty_slots: result.empty_reserved_slots,
         last_generation: result.report,
         state: Object.keys(config.question_overrides).length > 0 ? 'EDITED' : 'PREVIEW',
         step: 4,
@@ -357,13 +417,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         const paramsChanged = JSON.stringify(merged.params) !== JSON.stringify(config.params);
         // Changing the filters after finalising re-opens the paper: the
         // fp_assessment_items rows are rewritten on the next finalize.
-        const state: PaperConfig['state'] =
-          paramsChanged && config.state === 'FINALIZED'
-            ? Object.keys(config.question_overrides).length > 0
-              ? 'EDITED'
-              : 'PREVIEW'
-            : config.state;
-        config = { ...config, params: merged.params, step, state };
+        const state: PaperConfig['state'] = paramsChanged ? unfinalised(config) : config.state;
+        // With the board shape off there are no reserved slots, so no gaps.
+        const empty_slots = merged.params.enforce_board_blueprint ? config.empty_slots : [];
+        config = { ...config, params: merged.params, step, state, empty_slots };
         await persist(supabase, loaded, { config, title });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
       }
@@ -406,7 +463,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         ids[slot] = replacement.id;
         const overrides = { ...config.question_overrides };
         delete overrides[outgoingId];
-        config = { ...config, resolved_item_ids: ids, question_overrides: overrides };
+        // The list changed: a FINALIZED paper drops back so its rows are
+        // rewritten before it can be printed or published.
+        config = { ...config, resolved_item_ids: ids, question_overrides: overrides, state: unfinalised(config) };
         await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
       }
@@ -431,10 +490,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         if (config.locked_ids.includes(itemId)) return bad('Unlock the question before dropping it.');
         const overrides = { ...config.question_overrides };
         delete overrides[itemId];
+        // Decision 15: dropping Q2 (a reserved synonym slot) leaves Q2 EMPTY —
+        // the antonym at Q4 must not slide up into it.
+        const boardSlot = boardOf(config).indexOf(itemId);
+        const reservedSlots = new Set(
+          exam.config_key === 'tn_hsc_english' && config.params.enforce_board_blueprint
+            ? BLUEPRINT_SLOTS.flatMap((gp) => gp.positions)
+            : [],
+        );
+        const empty_slots =
+          boardSlot >= 0 && reservedSlots.has(boardSlot)
+            ? [...new Set([...config.empty_slots, boardSlot])].sort((a, b) => a - b)
+            : config.empty_slots;
         config = {
           ...config,
           resolved_item_ids: config.resolved_item_ids.filter((x) => x !== itemId),
+          empty_slots,
           question_overrides: overrides,
+          state: unfinalised(config),
         };
         await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
@@ -464,14 +537,39 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       case 'finalize': {
         const ids = config.resolved_item_ids;
         if (ids.length === 0) return bad('The paper has no questions yet — generate a preview first.');
+        // Decision 15: the board shape is never quietly abandoned. A reserved
+        // slot that stayed empty blocks finalising until the filters are
+        // widened or the shape is switched off.
+        if (config.params.enforce_board_blueprint && config.empty_slots.length > 0) {
+          const qs = config.empty_slots.map((s) => `Q${s + 1}`).join(', ');
+          return bad(
+            `The board shape still has ${config.empty_slots.length} empty reserved slot${config.empty_slots.length === 1 ? '' : 's'} (${qs}). Widen the chapters or switch board shape off before finalising.`,
+            409,
+          );
+        }
         // fp_assessment_items is the durable order; rewritten whole so a
-        // re-finalize after edits cannot leave a stale row behind.
+        // re-finalize after edits cannot leave a stale row behind. There is
+        // no transaction here, so the previous rows are read first and put
+        // back if the insert fails — the paper is never left with no rows.
+        const previous = await supabase
+          .from('fp_assessment_items')
+          .select('item_id, position')
+          .eq('assessment_id', loaded.row.id);
+        if (previous.error) throw previous.error;
         const { error: delErr } = await supabase.from('fp_assessment_items').delete().eq('assessment_id', loaded.row.id);
         if (delErr) throw delErr;
         const { error: insErr } = await supabase
           .from('fp_assessment_items')
           .insert(ids.map((item_id, idx) => ({ assessment_id: loaded.row.id, item_id, position: idx + 1 })));
-        if (insErr) throw insErr;
+        if (insErr) {
+          const prevRows = (previous.data ?? []) as { item_id: string; position: number }[];
+          if (prevRows.length > 0) {
+            await supabase
+              .from('fp_assessment_items')
+              .insert(prevRows.map((r) => ({ assessment_id: loaded.row.id, item_id: r.item_id, position: r.position })));
+          }
+          throw insErr;
+        }
         config = { ...config, state: 'FINALIZED', step: 5 };
         await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
@@ -497,6 +595,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
       case 'publish': {
         if (config.state !== 'FINALIZED') return bad('Finalise the paper before publishing it.');
+        // The rows Lane P prints and Lane V serves must be the list the
+        // preview shows. Any drift (an API caller who swapped without
+        // re-finalising) is refused rather than published.
+        const durable = await loadFinalizedIds(supabase, loaded.row.id);
+        if (JSON.stringify(durable) !== JSON.stringify(config.resolved_item_ids)) {
+          return bad('The finalised question list is out of date — re-open and finalise the paper again before publishing.', 409);
+        }
         const b = body as Extract<PaperAction, { action: 'publish' }>;
         if (!UUID_RE.test(String(b.cohort_id))) return bad('cohort_id must be a uuid');
         const open = new Date(String(b.open_at));
@@ -527,6 +632,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           outputs: { ...(config.outputs ?? {}), published_at: new Date().toISOString() },
         };
         await persist(supabase, loaded, { config, cohort_id: b.cohort_id });
+        return respond(supabase, loaded, g.userId, g.canSeeAnswers);
+      }
+
+      case 'unpublish': {
+        if (!published) return bad('This paper is not published.');
+        const attempts = await attemptCount(loaded.row.id);
+        if (attempts > 0) {
+          return bad(
+            `${attempts} learner attempt${attempts === 1 ? ' has' : 's have'} already been recorded on this paper, so it can no longer be withdrawn. Build a new paper instead.`,
+            409,
+          );
+        }
+        // Window, duration, shuffle and cohort stay as entered so a wrong
+        // date can be corrected and the paper published again.
+        const outputs = { ...(config.outputs ?? {}) };
+        delete outputs.published_at;
+        config = { ...config, outputs };
+        await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
       }
 

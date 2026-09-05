@@ -143,10 +143,13 @@ export function PaperWizard() {
     );
   }
 
+  // Decision 15: an empty reserved slot blocks "Confirm & finalise" here as
+  // well as on the server — the board shape is never quietly abandoned.
+  const boardGaps = draft.enforce_board_blueprint ? (paper.empty_slots?.length ?? 0) : 0;
   const canNext =
     !busy &&
     !published &&
-    (step !== 4 || paper.questions.length > 0) &&
+    (step !== 4 || (paper.questions.length > 0 && boardGaps === 0)) &&
     (step !== 3 || levelMixBalanced) &&
     step < 5;
 
@@ -209,7 +212,7 @@ export function PaperWizard() {
 
       {published && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground">
-          This paper has been published to a cohort. It can be printed again, but its questions and settings are frozen.
+          This paper is published to a cohort. It can be printed again, but its questions, window and cohort are frozen — unpublish on the Output step to change them (possible until the first learner starts).
         </div>
       )}
 

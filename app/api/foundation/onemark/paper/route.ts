@@ -7,6 +7,7 @@ import {
   buildDetail,
   engineContext,
   gate,
+  generalTopicIds,
   levelCounts,
   loadCategoryWeights,
   loadChapters,
@@ -121,11 +122,16 @@ export async function GET(request: NextRequest) {
 
       const perChapter = new Map<string, number>();
       const perTag = new Map<string, number>();
+      // PRD English §4.4: "anchored to no lesson" has two spellings in the
+      // data — topic_id NULL and the seeded grammar-general topic. Both count
+      // as the chapter-agnostic pool; the general topic is not listed as a
+      // tickable chapter.
+      const general = generalTopicIds(chaptersBase);
       let agnostic = 0;
       let minYear: number | null = null;
       let maxYear: number | null = null;
       for (const it of pool) {
-        if (it.topic_id === null) agnostic += 1;
+        if (it.topic_id === null || general.has(it.topic_id)) agnostic += 1;
         else perChapter.set(it.topic_id, (perChapter.get(it.topic_id) ?? 0) + 1);
         for (const t of it.tags) perTag.set(t, (perTag.get(t) ?? 0) + 1);
         if (it.source_year !== null) {
@@ -133,10 +139,12 @@ export async function GET(request: NextRequest) {
           maxYear = maxYear === null ? it.source_year : Math.max(maxYear, it.source_year);
         }
       }
-      const chapters: ChapterRef[] = chaptersBase.map((c) => ({
-        ...c,
-        pool_count: perChapter.get(c.id) ?? 0,
-      }));
+      const chapters: ChapterRef[] = chaptersBase
+        .filter((c) => !c.is_general)
+        .map(({ is_general: _general, ...c }) => ({
+          ...c,
+          pool_count: perChapter.get(c.id) ?? 0,
+        }));
       const tags: TagRef[] = (tagsRes.data ?? []).map((t: any) => ({
         key: t.key,
         label: t.label,
@@ -204,7 +212,7 @@ export async function POST(request: NextRequest) {
     if (!exam) return NextResponse.json({ error: 'Not a OneMark exam.' }, { status: 404 });
 
     const policies = await readPolicies(supabase);
-    const config = newPaperConfig(paramsFor(exam.config_key, policies.question_count));
+    const config = newPaperConfig(paramsFor(exam.config_key, policies));
 
     // kind='mock' + config.onemark=true is how a wizard paper is told apart
     // from the standing practice pools and the console's hand-built sets.

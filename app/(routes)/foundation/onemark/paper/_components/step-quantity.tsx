@@ -11,15 +11,16 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import {
-  ENGLISH_BOARD_QUESTION_COUNT,
   JABT_LEVEL_LABELS,
   LEVEL_KEYS,
   QUANTITY_PRESETS,
   apportion,
+  questionCountFor,
   type DistributionMode,
   type ExamReference,
   type LevelKey,
   type PaperParams,
+  type PaperPolicies,
   type PreviewLanguage,
 } from '@/lib/services/onemark/paper-service';
 
@@ -27,7 +28,7 @@ interface StepQuantityProps {
   draft: PaperParams;
   patch: (p: Partial<PaperParams>) => void;
   reference: ExamReference;
-  policies: { question_count: number; max_series: number };
+  policies: PaperPolicies;
   disabled: boolean;
 }
 
@@ -39,7 +40,8 @@ const DISTRIBUTIONS: { value: DistributionMode; label: string; hint: string }[] 
 
 export function StepQuantity({ draft, patch, reference, policies, disabled }: StepQuantityProps) {
   const isEnglish = reference.exam.config_key === 'tn_hsc_english';
-  const boardStandard = isEnglish ? ENGLISH_BOARD_QUESTION_COUNT : policies.question_count;
+  // The board standard is a policy row per subject (onemark.paper.question_count[.<exam>]).
+  const boardStandard = questionCountFor(reference.exam.config_key, policies);
   const poolTotal = reference.pool_total;
 
   const scopedChapters = useMemo(

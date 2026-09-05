@@ -31,8 +31,21 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
   const [exhausted, setExhausted] = useState<Record<string, string>>({});
   const report = paper.config.last_generation;
   const questions = paper.questions;
+  const emptySlots = paper.empty_slots ?? [];
   const lockWarnings = questions.filter((q) => q.lock_warning && q.lock_warning.length > 0);
   const overridesCount = Object.keys(paper.config.question_overrides).length;
+  // Two different shortfalls, two different cures (decisions 11 and 15):
+  // the POOL cannot supply the count → a smaller count fixes it;
+  // a RESERVED tag ran short → only wider filters or "board shape off" fixes it.
+  const blueprintMissing = report?.blueprint_missing ?? 0;
+  const poolShortfall = !!report && report.available < report.requested;
+  const boardOn = draft.enforce_board_blueprint && paper.exam.config_key === 'tn_hsc_english';
+
+  // Questions and gaps interleaved by printed position.
+  const rows: ({ kind: 'q'; q: ResolvedQuestion } | { kind: 'gap'; position: number; tag_key: string })[] = [
+    ...questions.map((q) => ({ kind: 'q' as const, q })),
+    ...emptySlots.map((e) => ({ kind: 'gap' as const, position: e.position, tag_key: e.tag_key })),
+  ].sort((a, b) => (a.kind === 'q' ? a.q.position : a.position) - (b.kind === 'q' ? b.q.position : b.position));
 
   async function run(action: Parameters<typeof act.mutateAsync>[0], ok?: string) {
     try {
@@ -77,27 +90,52 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
         </Button>
       </div>
 
-      {report && report.missing > 0 && (
+      {report && poolShortfall && (
         <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
           <p className="flex items-center gap-2 font-medium text-foreground">
             <AlertTriangle className="h-4 w-4 text-amber-600" />
             You asked for {report.requested}; these filters can supply {report.available}.
           </p>
-          {report.blueprint_shortfalls.length > 0 && (
-            <ul className="list-disc pl-6 text-xs text-foreground">
-              {report.blueprint_shortfalls.map((b) => (
-                <li key={b.tag_key}>
-                  Board shape needs {b.needed} {b.tag_key} question{b.needed === 1 ? '' : 's'} in these chapters; {b.available} available.
-                </li>
-              ))}
-            </ul>
-          )}
           <p className="text-xs text-muted-foreground">Nothing is padded from other chapters, other sources, or unapproved drafts. Choose:</p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" disabled={disabled || report.available < 1} onClick={() => run({ action: 'use_available' }, `Paper set to ${report.available} questions`)}>
               Use the {report.available} available
             </Button>
             <span className="self-center text-xs text-muted-foreground">or go back and widen the chapters, tags, sources or years.</span>
+          </div>
+        </div>
+      )}
+
+      {report && blueprintMissing > 0 && (
+        <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm" role="alert">
+          <p className="flex items-center gap-2 font-medium text-foreground">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            The board shape cannot be filled from these chapters — {blueprintMissing} reserved slot{blueprintMissing === 1 ? ' stays' : 's stay'} empty
+            {emptySlots.length > 0 ? ` (${emptySlots.map((e) => `Q${e.position}`).join(', ')})` : ''}.
+          </p>
+          <ul className="list-disc pl-6 text-xs text-foreground">
+            {report.blueprint_shortfalls.map((b) => (
+              <li key={b.tag_key}>
+                Q{b.tag_key === 'synonyms' ? '1–3' : '4–6'} need {b.needed} {b.tag_key} question{b.needed === 1 ? '' : 's'}; {b.available} available.
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            A smaller count does not help — the empty slot is a reserved position, not a missing question. The paper cannot be finalised in board shape until it is filled.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={disabled || !boardOn}
+              onClick={async () => {
+                await run({ action: 'save', params: { enforce_board_blueprint: false } });
+                await run({ action: 'generate' }, 'Board shape off — synonyms and antonyms are ordinary tags now');
+              }}
+            >
+              Switch board shape off
+            </Button>
+            <span className="self-center text-xs text-muted-foreground">or go back and widen the chapters so more synonym and antonym questions qualify.</span>
           </div>
         </div>
       )}
@@ -117,21 +155,31 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
         </p>
       ) : (
         <ol className="space-y-3">
-          {questions.map((q) => (
-            <li key={q.item_id}>
-              <QuestionCard
-                question={q}
-                language={draft.preview_language}
-                canSeeAnswers={paper.can_see_answers}
-                disabled={disabled}
-                exhaustedReason={exhausted[q.item_id] ?? (q.swap_available ? null : 'No unused question left with the same chapter, tag and level.')}
-                onSwap={() => run({ action: 'swap', item_id: q.item_id })}
-                onLock={(locked) => run({ action: 'lock', item_id: q.item_id, locked })}
-                onDrop={() => run({ action: 'drop', item_id: q.item_id }, 'Dropped from this paper')}
-                onOverride={(fields: QuestionOverride | null) => run({ action: 'override', item_id: q.item_id, fields }, fields ? 'Saved for this paper only' : 'Edit removed')}
-              />
-            </li>
-          ))}
+          {rows.map((row) =>
+            row.kind === 'gap' ? (
+              <li key={`gap-${row.position}`}>
+                <div className="rounded-lg border border-dashed border-destructive/50 bg-destructive/5 p-3 text-sm sm:p-4" role="note">
+                  <span className="font-mono font-semibold text-foreground">Q{row.position}</span>
+                  <span className="ml-2 text-foreground">— reserved for a {row.tag_key === 'antonyms' ? 'antonym' : row.tag_key === 'synonyms' ? 'synonym' : row.tag_key} question; none left under these filters.</span>
+                  <p className="mt-1 text-xs text-muted-foreground">Kept empty on purpose — the board shape is not back-filled with grammar.</p>
+                </div>
+              </li>
+            ) : (
+              <li key={row.q.item_id}>
+                <QuestionCard
+                  question={row.q}
+                  language={draft.preview_language}
+                  canSeeAnswers={paper.can_see_answers}
+                  disabled={disabled}
+                  exhaustedReason={exhausted[row.q.item_id] ?? (row.q.swap_available ? null : 'No unused question left with the same chapter, tag and level.')}
+                  onSwap={() => run({ action: 'swap', item_id: row.q.item_id })}
+                  onLock={(locked) => run({ action: 'lock', item_id: row.q.item_id, locked })}
+                  onDrop={() => run({ action: 'drop', item_id: row.q.item_id }, 'Dropped from this paper')}
+                  onOverride={(fields: QuestionOverride | null) => run({ action: 'override', item_id: row.q.item_id, fields }, fields ? 'Saved for this paper only' : 'Edit removed')}
+                />
+              </li>
+            ),
+          )}
         </ol>
       )}
     </div>

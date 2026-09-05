@@ -14,13 +14,20 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  BLUEPRINT_SLOTS,
+  ENGLISH_BOARD_QUESTION_COUNT_FALLBACK,
+  GENERAL_TOPIC_KEYS,
   LEVEL_KEYS,
+  PAPER_QUESTION_COUNT_POLICY_PREFIX,
+  boardOf,
   defaultParams,
   filterMismatches,
   findSwap,
   levelOf,
   newPaperConfig,
+  questionCountFor,
   type ChapterRef,
+  type EmptySlot,
   type EngineContext,
   type ExamRef,
   type LevelKey,
@@ -28,6 +35,7 @@ import {
   type PaperConfig,
   type PaperDetail,
   type PaperParams,
+  type PaperPolicies,
   type PoolItem,
   type ResolvedQuestion,
   type WizardStep,
@@ -94,36 +102,61 @@ export interface Gate {
 }
 
 /** Same key the page checks, checked again here. Single-argument overload:
- *  it resolves against auth.uid() internally, so nothing is forgeable. */
+ *  it resolves against auth.uid() internally, so nothing is forgeable.
+ *
+ *  An RPC FAILURE is thrown, not read as "no": a timed-out permission check
+ *  must surface as a 500 from the route, so the 403 page keeps meaning what
+ *  it says (CLAUDE.md #27). */
 export async function gate(supabase: AnyClient): Promise<Gate | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
-  const [{ data: manage }, { data: items }] = await Promise.all([
+  const [manageRes, itemsRes] = await Promise.all([
     supabase.rpc('user_has_permission', { permission_name: 'foundation.assessments.manage' }),
     supabase.rpc('user_has_permission', { permission_name: 'foundation.items.manage' }),
   ]);
-  return { userId: user.id, canManage: manage === true, canSeeAnswers: items === true };
+  if (manageRes.error) throw new Error(`Permission check failed: ${manageRes.error.message}`);
+  if (itemsRes.error) throw new Error(`Permission check failed: ${itemsRes.error.message}`);
+  return { userId: user.id, canManage: manageRes.data === true, canSeeAnswers: itemsRes.data === true };
 }
 
-export async function readPolicies(supabase: AnyClient) {
-  const [{ data: count }, { data: series }] = await Promise.all([
-    supabase.rpc('fn_get_policy_int', {
-      p_key: OneMarkPolicyKeys.PAPER_QUESTION_COUNT,
-      p_default: OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_QUESTION_COUNT],
-    }),
-    supabase.rpc('fn_get_policy_int', {
-      p_key: OneMarkPolicyKeys.PAPER_MAX_SERIES,
-      p_default: OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_MAX_SERIES],
-    }),
-  ]);
-  return {
-    question_count:
-      typeof count === 'number' ? count : OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_QUESTION_COUNT],
-    max_series:
-      typeof series === 'number' ? series : OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_MAX_SERIES],
+async function policyInt(supabase: AnyClient, key: string, fallback: number): Promise<number> {
+  const { data, error } = await supabase.rpc('fn_get_policy_int', { p_key: key, p_default: fallback });
+  if (error) throw new Error(`Policy read failed (${key}): ${error.message}`);
+  return typeof data === 'number' ? data : fallback;
+}
+
+/** The quantity presets, all from platform_policies. The base row
+ *  `onemark.paper.question_count` (15) is Physics's board standard; each
+ *  subject may carry its own `onemark.paper.question_count.<config_key>` row —
+ *  English's PRD board shape (20) is the code fallback ONLY until that row is
+ *  seeded, exactly as OneMarkPolicyDefaults backs the base keys. */
+export async function readPolicies(supabase: AnyClient): Promise<PaperPolicies> {
+  const base = await policyInt(
+    supabase,
+    OneMarkPolicyKeys.PAPER_QUESTION_COUNT,
+    OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_QUESTION_COUNT],
+  );
+  const perExamFallback: Record<string, number> = {
+    [OneMarkExamKeys.PHYSICS]: base,
+    [OneMarkExamKeys.ENGLISH]: ENGLISH_BOARD_QUESTION_COUNT_FALLBACK,
   };
+  const [series, ...perExam] = await Promise.all([
+    policyInt(
+      supabase,
+      OneMarkPolicyKeys.PAPER_MAX_SERIES,
+      OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_MAX_SERIES],
+    ),
+    ...ONEMARK_EXAM_KEYS.map((key) =>
+      policyInt(supabase, `${PAPER_QUESTION_COUNT_POLICY_PREFIX}${key}`, perExamFallback[key] ?? base),
+    ),
+  ]);
+  const question_count_by_exam: Record<string, number> = {};
+  ONEMARK_EXAM_KEYS.forEach((key, i) => {
+    question_count_by_exam[key] = perExam[i];
+  });
+  return { question_count: base, question_count_by_exam, max_series: series };
 }
 
 export async function loadExams(supabase: AnyClient): Promise<ExamRef[]> {
@@ -152,11 +185,13 @@ export async function loadExam(supabase: AnyClient, examId: string): Promise<Exa
   return data ?? null;
 }
 
+/** A chapter row plus whether it is the seeded "anchored to no lesson" topic
+ *  (English grammar-general). That one is never listed as a tickable chapter —
+ *  it is the canonical home of the chapter-agnostic pool (PRD English §4.4). */
+export type ChapterRow = Omit<ChapterRef, 'pool_count'> & { is_general: boolean };
+
 /** Chapters = exam_topic_map rows for the exam (Wave 1 seeded them). */
-export async function loadChapters(
-  supabase: AnyClient,
-  examId: string,
-): Promise<Omit<ChapterRef, 'pool_count'>[]> {
+export async function loadChapters(supabase: AnyClient, examId: string): Promise<ChapterRow[]> {
   const { data, error } = await supabase
     .from('exam_topic_map')
     .select('topic_id, sort_order, topic:cdc_exam_syllabus_topics(id, config_key, display_name, sort_order, is_active)')
@@ -173,10 +208,15 @@ export async function loadChapters(
         config_key: t.config_key,
         display_name: t.display_name,
         sort_order: t.sort_order ?? row.sort_order ?? 100,
+        is_general: GENERAL_TOPIC_KEYS.has(t.config_key),
       };
     })
-    .filter((c: unknown): c is Omit<ChapterRef, 'pool_count'> => c !== null)
+    .filter((c: unknown): c is ChapterRow => c !== null)
     .sort((a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order);
+}
+
+export function generalTopicIds(chapters: ChapterRow[]): Set<string> {
+  return new Set(chapters.filter((c) => c.is_general).map((c) => c.id));
 }
 
 /** The whole ACTIVE pool for the exam, paged past PostgREST's 1,000-row cap.
@@ -272,18 +312,19 @@ export function normalizeConfig(raw: unknown, fallbackParams: PaperParams): Pape
     locked_ids: Array.isArray(r.locked_ids) ? r.locked_ids : [],
     question_overrides: r.question_overrides && typeof r.question_overrides === 'object' ? r.question_overrides : {},
     resolved_item_ids: Array.isArray(r.resolved_item_ids) ? r.resolved_item_ids : [],
+    empty_slots: Array.isArray(r.empty_slots) ? r.empty_slots.filter((n): n is number => Number.isInteger(n) && n >= 0) : [],
   };
 }
 
-export function paramsFor(examKey: string, policyQuestionCount: number): PaperParams {
-  return defaultParams({ examKey, policyQuestionCount });
+export function paramsFor(examKey: string, policies: PaperPolicies): PaperParams {
+  return defaultParams({ examKey, questionCount: questionCountFor(examKey, policies) });
 }
 
 export function engineContext(input: {
   examKey: string;
   params: PaperParams;
   recentlyUsedIds: Set<string>;
-  chapters: Omit<ChapterRef, 'pool_count'>[];
+  chapters: ChapterRow[];
   categoryWeights: Record<string, number>;
 }): EngineContext {
   const chapterOrder: Record<string, number> = {};
@@ -294,6 +335,7 @@ export function engineContext(input: {
     recentlyUsedIds: input.recentlyUsedIds,
     chapterOrder,
     categoryWeights: input.categoryWeights,
+    generalTopicIds: generalTopicIds(input.chapters),
   };
 }
 
@@ -324,7 +366,7 @@ export function buildDetail(input: {
   config: PaperConfig;
   pool: FullItem[];
   extraItems: FullItem[];
-  chapters: Omit<ChapterRef, 'pool_count'>[];
+  chapters: ChapterRow[];
   ctx: EngineContext;
   canSeeAnswers: boolean;
 }): PaperDetail {
@@ -332,9 +374,22 @@ export function buildDetail(input: {
   const byId = new Map<string, FullItem>();
   for (const it of pool) byId.set(it.id, it);
   for (const it of extraItems) if (!byId.has(it.id)) byId.set(it.id, it);
-  const chapterName = new Map(chapters.map((c) => [c.id, c.display_name]));
+  // The general topic is not a chapter: its items read "no chapter (general)".
+  const chapterName = new Map(chapters.filter((c) => !c.is_general).map((c) => [c.id, c.display_name]));
   const locked = new Set(config.locked_ids);
   const currentIds = config.resolved_item_ids;
+
+  // Positions are BOARD positions: a reserved slot the pool could not fill
+  // keeps its number (decision 15), so Q3 empty leaves the next item as Q4.
+  const board = boardOf(config);
+  const positionOf = new Map<string, number>();
+  board.forEach((id, i) => {
+    if (id !== null) positionOf.set(id, i + 1);
+  });
+  const reservedTag = (slot: number) => BLUEPRINT_SLOTS.find((g) => g.positions.includes(slot))?.tag_key ?? 'reserved';
+  const empty_slots: EmptySlot[] = board
+    .map((id, i) => (id === null ? { position: i + 1, tag_key: reservedTag(i) } : null))
+    .filter((e): e is EmptySlot => e !== null);
 
   const questions: ResolvedQuestion[] = [];
   currentIds.forEach((id, index) => {
@@ -344,7 +399,7 @@ export function buildDetail(input: {
     const mismatch = filterMismatches(it, ctx);
     const swap = findSwap({ pool, ctx, outgoing: it, currentIds });
     const q: ResolvedQuestion = {
-      position: index + 1,
+      position: positionOf.get(id) ?? index + 1,
       item_id: it.id,
       locked: isLocked,
       stem: it.stem,
@@ -377,6 +432,7 @@ export function buildDetail(input: {
     cohort_id: row.cohort_id,
     config,
     questions,
+    empty_slots,
     can_see_answers: canSeeAnswers,
     updated_at: row.updated_at,
   };

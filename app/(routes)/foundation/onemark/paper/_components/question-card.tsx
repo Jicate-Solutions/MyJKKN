@@ -67,7 +67,7 @@ export function QuestionCard({ question: q, language, canSeeAnswers, disabled, e
   const stemTa = ov.stem_ta ?? q.stem_ta;
   const optionsEn = ov.options ?? q.options;
   const optionsTa = ov.options_ta ?? q.options_ta;
-  const layout = resolveOptionLayout(q.option_layout, optionsEn);
+  const layout = resolveOptionLayout(q.option_layout, optionsEn, q.tags);
   const showTa = language !== 'en';
   const showEn = language !== 'ta';
   // fp_items.answer has been written as {correct:'A'} (the console) and as

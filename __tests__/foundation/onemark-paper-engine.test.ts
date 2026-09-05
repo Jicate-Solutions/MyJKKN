@@ -4,15 +4,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   apportion,
+  boardOf,
   defaultLevelMix,
   defaultParams,
   filterMismatches,
   findSwap,
   generatePaper,
   lockWarnings,
+  questionCountFor,
   resolveOptionLayout,
   type EngineContext,
   type PaperParams,
+  type PaperPolicies,
   type PoolItem,
 } from '@/lib/services/onemark/paper-service';
 
@@ -29,6 +32,15 @@ const CH = {
   u1: '11111111-1111-4111-8111-111111111111',
   u2: '22222222-2222-4222-8222-222222222222',
   u3: '33333333-3333-4333-8333-333333333333',
+  /** The seeded English grammar-general "chapter" (onemark_eng_grammar_general). */
+  general: '99999999-9999-4999-8999-999999999999',
+};
+
+/** What readPolicies returns when the base row is 15 and no per-subject row exists yet. */
+const POLICIES: PaperPolicies = {
+  question_count: 15,
+  question_count_by_exam: { tn_hsc_physics: 15, tn_hsc_english: 20 },
+  max_series: 4,
 };
 
 function item(
@@ -50,7 +62,7 @@ function item(
 function ctx(examKey: string, params: Partial<PaperParams> = {}, extra: Partial<EngineContext> = {}): EngineContext {
   return {
     examKey,
-    params: { ...defaultParams({ examKey, policyQuestionCount: 15 }), ...params },
+    params: { ...defaultParams({ examKey, questionCount: questionCountFor(examKey, POLICIES) }), ...params },
     recentlyUsedIds: new Set(),
     chapterOrder: { [CH.u1]: 1, [CH.u2]: 2, [CH.u3]: 3 },
     categoryWeights: {},
@@ -60,15 +72,19 @@ function ctx(examKey: string, params: Partial<PaperParams> = {}, extra: Partial<
 }
 
 describe('defaults — decision 6 (JABT only) and decision 15 (English board shape)', () => {
-  it('Physics defaults to the policy count, English to the 20-question board shape', () => {
-    expect(defaultParams({ examKey: 'tn_hsc_physics', policyQuestionCount: 15 }).question_count).toBe(15);
-    expect(defaultParams({ examKey: 'tn_hsc_english', policyQuestionCount: 15 }).question_count).toBe(20);
-    expect(defaultParams({ examKey: 'tn_hsc_english', policyQuestionCount: 15 }).enforce_board_blueprint).toBe(true);
-    expect(defaultParams({ examKey: 'tn_hsc_physics', policyQuestionCount: 15 }).enforce_board_blueprint).toBe(false);
+  it('each subject reads its own policy row; the base row is the fallback', () => {
+    expect(questionCountFor('tn_hsc_physics', POLICIES)).toBe(15);
+    expect(questionCountFor('tn_hsc_english', POLICIES)).toBe(20);
+    // A per-subject row, once seeded, wins without a deploy.
+    expect(questionCountFor('tn_hsc_english', { ...POLICIES, question_count_by_exam: { tn_hsc_english: 25 } })).toBe(25);
+    // No row for the subject at all → the base policy.
+    expect(questionCountFor('tn_hsc_physics', { ...POLICIES, question_count_by_exam: {} })).toBe(15);
+    expect(defaultParams({ examKey: 'tn_hsc_english', questionCount: 20 }).enforce_board_blueprint).toBe(true);
+    expect(defaultParams({ examKey: 'tn_hsc_physics', questionCount: 15 }).enforce_board_blueprint).toBe(false);
   });
 
   it('the parameter object carries no difficulty field at all', () => {
-    const p = defaultParams({ examKey: 'tn_hsc_physics', policyQuestionCount: 15 });
+    const p = defaultParams({ examKey: 'tn_hsc_physics', questionCount: 15 });
     expect(Object.keys(p).some((k) => /difficulty/i.test(k))).toBe(false);
     expect(JSON.stringify(p)).not.toMatch(/difficult/i);
   });
@@ -211,6 +227,75 @@ describe('English — decision 15 board shape and PRD §4.4 chapter-agnostic ite
     expect(filterMismatches(item('p', { topic_id: null }), p)).toEqual(['outside the selected chapters']);
   });
 
+  it('an item filed under the seeded grammar-general topic is chapter-agnostic too (one rule, two spellings)', () => {
+    const c = ctx(
+      'tn_hsc_english',
+      { question_count: 10, chapter_ids: [CH.u1], selection_mode: 'single' },
+      { generalTopicIds: new Set([CH.general]) },
+    );
+    expect(filterMismatches(item('g2', { topic_id: CH.general, tags: ['question_tags'] }), c)).toEqual([]);
+    // Without the topic registered as general it would be an ordinary (unselected) chapter.
+    const plain = ctx('tn_hsc_english', { question_count: 10, chapter_ids: [CH.u1], selection_mode: 'single' });
+    expect(filterMismatches(item('g2', { topic_id: CH.general }), plain)).toEqual(['outside the selected chapters']);
+  });
+
+  it('decision 15 — a reserved slot the pool cannot fill is reported as a GAP at its position, never collapsed', () => {
+    const pool = [
+      item('syn-0', { tags: ['synonyms'] }),
+      item('syn-1', { tags: ['synonyms'] }),
+      ...Array.from({ length: 3 }, (_, i) => item(`ant-${i}`, { tags: ['antonyms'] })),
+      ...Array.from({ length: 10 }, (_, i) => item(`gram-${i}`, { tags: ['spelling'], topic_id: null })),
+    ];
+    const r = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 12 }), lockedIds: [], previousIds: [] });
+    expect(r.slots[2]).toBeNull();
+    expect(r.empty_reserved_slots).toEqual([2]);
+    // The antonyms stay at Q4–6; nothing moved up into Q3.
+    expect(r.slots.slice(3, 6).every((s) => s?.startsWith('ant-'))).toBe(true);
+    expect(r.report.blueprint_missing).toBe(1);
+    // What the route persists, and how the board is rebuilt from it.
+    const resolved = r.slots.filter((s): s is string => s !== null);
+    const board = boardOf({ resolved_item_ids: resolved, empty_slots: r.empty_reserved_slots });
+    expect(board.length).toBe(12);
+    expect(board[2]).toBeNull();
+    expect(board[3]).toBe(r.slots[3]);
+  });
+
+  it('a locked item keeps its BOARD slot across a gap, not its compacted index', () => {
+    const pool = [
+      item('syn-0', { tags: ['synonyms'] }),
+      item('syn-1', { tags: ['synonyms'] }),
+      ...Array.from({ length: 3 }, (_, i) => item(`ant-${i}`, { tags: ['antonyms'] })),
+      ...Array.from({ length: 10 }, (_, i) => item(`gram-${i}`, { tags: ['spelling'], topic_id: null })),
+    ];
+    const c = ctx('tn_hsc_english', { question_count: 12 });
+    const first = generatePaper({ pool, ctx: c, lockedIds: [], previousIds: [] });
+    const lockedId = first.slots[7] as string; // Q8, a grammar item after the gap at Q3
+    const resolved = first.slots.filter((s): s is string => s !== null);
+    const board = boardOf({ resolved_item_ids: resolved, empty_slots: first.empty_reserved_slots });
+    const second = generatePaper({ pool, ctx: c, lockedIds: [lockedId], previousIds: board });
+    expect(second.slots[7]).toBe(lockedId);
+  });
+
+  it('"available" counts only what the board shape can place — a fourth synonym is not a promise', () => {
+    // 4 synonyms + 4 antonyms + 9 grammar = 17 eligible, but only 3 + 3 + 9 = 15 can sit on a board-shape paper.
+    const pool = [
+      ...Array.from({ length: 4 }, (_, i) => item(`syn-${i}`, { tags: ['synonyms'] })),
+      ...Array.from({ length: 4 }, (_, i) => item(`ant-${i}`, { tags: ['antonyms'] })),
+      ...Array.from({ length: 9 }, (_, i) => item(`gram-${i}`, { tags: ['spelling'], topic_id: null })),
+    ];
+    const r = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 20 }), lockedIds: [], previousIds: [] });
+    expect(r.report.available).toBe(15);
+    expect(r.report.selected).toBe(15);
+    expect(r.report.blueprint_missing).toBe(0);
+    // "Use the 15 available" then delivers exactly 15 — no self-contradicting banner.
+    const again = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 15 }), lockedIds: [], previousIds: [] });
+    expect(again.report.selected).toBe(15);
+    expect(again.report.missing).toBe(0);
+    // With the shape off every eligible item counts.
+    const off = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 20, enforce_board_blueprint: false }), lockedIds: [], previousIds: [] });
+    expect(off.report.available).toBe(17);
+  });
+
   it('names the deficient reserved tag instead of back-filling with grammar', () => {
     const pool = [
       item('syn-0', { tags: ['synonyms'] }),
@@ -258,14 +343,21 @@ describe('swap — PRD §8.2 holds chapter, tag and level constant', () => {
   });
 });
 
-describe('option layout — PRD §4.5', () => {
-  it('auto resolves from the longest option', () => {
+describe('option layout — PRD §4.5, the lane rule shared with the PDF', () => {
+  it('auto is stacked past 40 characters or on an assertion set, else inline 4', () => {
     const short = [{ key: 'A', text: 'likely' }, { key: 'B', text: 'certain' }];
     const mid = [{ key: 'A', text: 'in reference to' }, { key: 'B', text: 'with reference to the' }];
+    const edge = [{ key: 'A', text: 'x'.repeat(40) }];
+    const over = [{ key: 'A', text: 'x'.repeat(41) }];
     const long = [{ key: 'A', text: 'to wait for a situation to become clear before acting on it' }];
     expect(resolveOptionLayout('auto', short)).toBe('inline_4');
-    expect(resolveOptionLayout('auto', mid)).toBe('inline_2x2');
+    expect(resolveOptionLayout('auto', mid)).toBe('inline_4');
+    expect(resolveOptionLayout('auto', edge)).toBe('inline_4');
+    expect(resolveOptionLayout('auto', over)).toBe('stacked');
     expect(resolveOptionLayout('auto', long)).toBe('stacked');
+    expect(resolveOptionLayout('auto', short, ['assertion_set'])).toBe('stacked');
+    // An explicit layout on the item is honoured as written.
     expect(resolveOptionLayout('stacked', short)).toBe('stacked');
+    expect(resolveOptionLayout('inline_2x2', short)).toBe('inline_2x2');
   });
 });

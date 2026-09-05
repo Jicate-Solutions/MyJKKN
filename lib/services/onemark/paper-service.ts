@@ -102,11 +102,18 @@ export interface BlueprintShortfall {
 
 export interface GenerationReport {
   requested: number;
-  /** Fresh items the filters could supply, plus the locked ones. */
+  /** Questions the filters can actually place on THIS paper: the locked ones,
+   *  the reserved slots the pool can fill, and the fresh pool. Under the board
+   *  shape a fourth synonym cannot be placed anywhere, so it is not counted —
+   *  "use the N available" therefore never promises more than it delivers. */
   available: number;
   selected: number;
   missing: number;
   blueprint_shortfalls: BlueprintShortfall[];
+  /** Reserved slots the pool could not fill (sum over blueprint_shortfalls).
+   *  This part of `missing` cannot be cured by a smaller count — only by
+   *  widening the filters or switching the board shape off. */
+  blueprint_missing: number;
   generated_at: string;
 }
 
@@ -124,6 +131,11 @@ export interface PaperConfig {
   locked_ids: string[];
   question_overrides: Record<string, QuestionOverride>;
   resolved_item_ids: string[];
+  /** Decision 15 — 0-based board positions the blueprint reserved but the pool
+   *  could not fill. They are kept as visible gaps (Q3 stays "Q3 — empty"), never
+   *  collapsed onto the next item; `finalize` refuses while any remain. Always
+   *  empty when the board shape is off. */
+  empty_slots: number[];
   last_generation?: GenerationReport;
   open_at?: string;
   close_at?: string;
@@ -132,13 +144,31 @@ export interface PaperConfig {
   outputs?: PaperOutputs;
 }
 
-/** English's board shape is 20 questions (PRD English §3.3); everything else
- *  reads onemark.paper.question_count (15 for Physics). */
-export const ENGLISH_BOARD_QUESTION_COUNT = 20;
+/** Every quantity default is a policy row ("every policy decision = a config
+ *  row"). `onemark.paper.question_count` is the base; a per-subject row
+ *  `onemark.paper.question_count.<exam config_key>` overrides it. The server
+ *  reads both through fn_get_policy_int and hands the resolved number here. */
+export const PAPER_QUESTION_COUNT_POLICY_PREFIX = 'onemark.paper.question_count.';
+/** Fallback ONLY when no per-subject row exists yet: PRD English §3.3 board
+ *  shape is 20. Same role as OneMarkPolicyDefaults — a default, not the policy. */
+export const ENGLISH_BOARD_QUESTION_COUNT_FALLBACK = 20;
+
+/** Policies as the routes resolve them: the base count, the per-subject counts
+ *  (one per OneMark exam config_key), and the series cap. */
+export interface PaperPolicies {
+  question_count: number;
+  question_count_by_exam: Record<string, number>;
+  max_series: number;
+}
+
+export function questionCountFor(examKey: string, policies: PaperPolicies): number {
+  return policies.question_count_by_exam[examKey] ?? policies.question_count;
+}
 
 export function defaultParams(input: {
   examKey: string;
-  policyQuestionCount: number;
+  /** Already resolved for this exam — see questionCountFor. */
+  questionCount: number;
 }): PaperParams {
   const isEnglish = input.examKey === 'tn_hsc_english';
   return {
@@ -149,7 +179,7 @@ export function defaultParams(input: {
     year_from: null,
     year_to: null,
     exclude_recent_tests: 0,
-    question_count: isEnglish ? ENGLISH_BOARD_QUESTION_COUNT : input.policyQuestionCount,
+    question_count: input.questionCount,
     distribution_mode: 'proportional',
     chapter_counts: {},
     level_mix: {},
@@ -169,7 +199,23 @@ export function newPaperConfig(params: PaperParams): PaperConfig {
     locked_ids: [],
     question_overrides: {},
     resolved_item_ids: [],
+    empty_slots: [],
   };
+}
+
+/** The paper as a board: resolved ids laid around the reserved gaps, so index
+ *  === 0-based printed position. Feed this to generatePaper as `previousIds`
+ *  so a locked item keeps its BOARD slot, not its compacted index. */
+export function boardOf(config: Pick<PaperConfig, 'resolved_item_ids' | 'empty_slots'>): (string | null)[] {
+  const gaps = new Set(config.empty_slots ?? []);
+  const board: (string | null)[] = [];
+  for (const id of config.resolved_item_ids) {
+    while (gaps.has(board.length)) board.push(null);
+    board.push(id);
+  }
+  // Trailing gaps (a reserved slot after the last resolved item).
+  while (gaps.has(board.length)) board.push(null);
+  return board;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,8 +244,28 @@ export interface EngineContext {
   chapterOrder: Record<string, number>;
   /** onemark_category_weights for the exam: tag key → weight. */
   categoryWeights: Record<string, number>;
+  /** Topic ids that mean "anchored to no lesson" — Wave 1 seeded
+   *  `onemark_eng_grammar_general` for English. An item filed under one of
+   *  these is chapter-agnostic exactly like a NULL topic_id (PRD English §4.4). */
+  generalTopicIds?: Set<string>;
   /** Injectable for deterministic tests. Defaults to Math.random. */
   rng?: () => number;
+}
+
+/** cdc_exam_syllabus_topics.config_key of the seeded English grammar-general
+ *  "chapter". Canonical home for a lesson-agnostic English item; NULL topic_id
+ *  is tolerated as the legacy spelling of the same fact. */
+export const GENERAL_TOPIC_KEYS = new Set(['onemark_eng_grammar_general']);
+
+/** PRD English §4.4 — true when the item is anchored to no lesson. English only;
+ *  Physics has no such class, so there a NULL topic is simply "outside". */
+export function isChapterAgnostic(
+  item: Pick<PoolItem, 'topic_id'>,
+  ctx: Pick<EngineContext, 'examKey' | 'generalTopicIds'>,
+): boolean {
+  if (ctx.examKey !== 'tn_hsc_english') return false;
+  if (item.topic_id === null) return true;
+  return ctx.generalTopicIds?.has(item.topic_id) ?? false;
 }
 
 export const BLUEPRINT_SLOTS: { tag_key: 'synonyms' | 'antonyms'; positions: number[] }[] = [
@@ -221,17 +287,17 @@ function isEnglish(ctx: Pick<EngineContext, 'examKey'>): boolean {
  *  build the eligible pool and to word the decision-12 lock warning. */
 export function filterMismatches(
   item: PoolItem,
-  ctx: Pick<EngineContext, 'examKey' | 'params'>,
+  ctx: Pick<EngineContext, 'examKey' | 'params' | 'generalTopicIds'>,
 ): string[] {
   const p = ctx.params;
   const reasons: string[] = [];
 
   if (p.chapter_ids.length > 0) {
     const inChapter = item.topic_id !== null && p.chapter_ids.includes(item.topic_id);
-    // PRD English §4.4 — a grammar item anchored to no lesson survives any
-    // chapter selection. Physics has no such class, so there the rule is plain.
-    const chapterAgnostic = isEnglish(ctx) && item.topic_id === null;
-    if (!inChapter && !chapterAgnostic) reasons.push('outside the selected chapters');
+    // PRD English §4.4 — a grammar item anchored to no lesson (NULL topic or
+    // the seeded grammar-general topic) survives any chapter selection.
+    // Physics has no such class, so there the rule is plain.
+    if (!inChapter && !isChapterAgnostic(item, ctx)) reasons.push('outside the selected chapters');
   }
   if (p.tag_keys.length > 0 && !item.tags.some((t) => p.tag_keys.includes(t))) {
     reasons.push('carries none of the selected tags');
@@ -251,7 +317,7 @@ export function filterMismatches(
 
 export function itemMatchesFilters(
   item: PoolItem,
-  ctx: Pick<EngineContext, 'examKey' | 'params'>,
+  ctx: Pick<EngineContext, 'examKey' | 'params' | 'generalTopicIds'>,
 ): boolean {
   return filterMismatches(item, ctx).length === 0;
 }
@@ -311,9 +377,10 @@ function chapterTargets(
   params: PaperParams,
   eligible: PoolItem[],
   need: number,
+  ctx: Pick<EngineContext, 'examKey' | 'generalTopicIds'>,
 ): Record<string, number> {
   const weights: Record<string, number> = {};
-  const keyOf = (t: string | null) => t ?? '__none__';
+  const keyOf = (t: string | null) => (t === null || isChapterAgnostic({ topic_id: t }, ctx) ? '__none__' : t);
   for (const it of eligible) weights[keyOf(it.topic_id)] = (weights[keyOf(it.topic_id)] ?? 0) + 0;
   if (params.distribution_mode === 'manual') {
     for (const k of Object.keys(weights)) weights[k] = params.chapter_counts[k] ?? 0;
@@ -350,6 +417,10 @@ function leastServedOrder(items: PoolItem[], rng: () => number): PoolItem[] {
 export interface GenerationResult {
   /** Slot → item id; a null slot is a shortfall the Senior Learner must resolve. */
   slots: (string | null)[];
+  /** The null slots that are RESERVED by the board shape (decision 15). The
+   *  route keeps these as gaps; every other null is a trailing pool shortfall
+   *  and is simply not written. */
+  empty_reserved_slots: number[];
   report: GenerationReport;
 }
 
@@ -363,8 +434,9 @@ export function generatePaper(input: {
   pool: PoolItem[];
   ctx: EngineContext;
   lockedIds: string[];
-  /** The previous resolution, so a locked item keeps its slot. */
-  previousIds: string[];
+  /** The previous BOARD (see boardOf — gaps included), so a locked item keeps
+   *  its printed slot. */
+  previousIds: (string | null)[];
 }): GenerationResult {
   const { pool, ctx, lockedIds, previousIds } = input;
   const rng = ctx.rng ?? Math.random;
@@ -394,9 +466,9 @@ export function generatePaper(input: {
   const eligible = pool.filter(
     (it) => !taken.has(it.id) && !ctx.recentlyUsedIds.has(it.id) && itemMatchesFilters(it, ctx),
   );
-  const available = eligible.length + locked.length;
 
   const blueprintShortfalls: BlueprintShortfall[] = [];
+  let blueprintFilled = 0;
   const remaining = new Map(eligible.map((it) => [it.id, it]));
 
   const take = (it: PoolItem, slot: number) => {
@@ -421,7 +493,10 @@ export function generatePaper(input: {
         rng,
       );
       open.forEach((p, i) => {
-        if (candidates[i]) take(candidates[i], p);
+        if (candidates[i]) {
+          take(candidates[i], p);
+          blueprintFilled += 1;
+        }
       });
       if (candidates.length < open.length) {
         blueprintShortfalls.push({
@@ -441,6 +516,12 @@ export function generatePaper(input: {
 
   let freshPool = [...remaining.values()];
   if (blueprintOn) freshPool = freshPool.filter((it) => !it.tags.some((t) => BLUEPRINT_TAGS.has(t)));
+
+  // What can actually land on this paper. With the shape off that is the whole
+  // eligible pool; with it on, a synonym beyond the three reserved slots has
+  // nowhere to go and must not be counted (it is what made "use the N
+  // available" regenerate the same shortfall).
+  const available = blueprintOn ? locked.length + blueprintFilled + freshPool.length : eligible.length + locked.length;
 
   const levelTarget = effectiveLevelMix(ctx.params, freshPool, need);
   const levelLeft: Record<string, number> = { ...levelTarget };
@@ -477,8 +558,8 @@ export function generatePaper(input: {
       }
     }
   } else {
-    const chapterLeft = chapterTargets(ctx.params, freshPool, need);
-    const chapterKey = (it: PoolItem) => it.topic_id ?? '__none__';
+    const chapterLeft = chapterTargets(ctx.params, freshPool, need, ctx);
+    const chapterKey = (it: PoolItem) => (isChapterAgnostic(it, ctx) ? '__none__' : (it.topic_id ?? '__none__'));
     const ordered = leastServedOrder(freshPool, rng);
     for (let round = 0; round < 2 && picks.length < need; round++) {
       for (const it of ordered) {
@@ -510,7 +591,9 @@ export function generatePaper(input: {
 
   // 6. Lay the fresh picks into the open slots chapter-by-chapter.
   const orderOf = (it: PoolItem) =>
-    it.topic_id === null ? Number.MAX_SAFE_INTEGER : (ctx.chapterOrder[it.topic_id] ?? 1e6);
+    isChapterAgnostic(it, ctx) || it.topic_id === null
+      ? Number.MAX_SAFE_INTEGER
+      : (ctx.chapterOrder[it.topic_id] ?? 1e6);
   picks.sort((a, b) => orderOf(a) - orderOf(b));
   open = openSlots();
   picks.forEach((it, i) => {
@@ -518,14 +601,17 @@ export function generatePaper(input: {
   });
 
   const selected = slots.filter((s) => s !== null).length;
+  const emptyReserved = [...reserved].filter((p) => slots[p] === null).sort((a, b) => a - b);
   return {
     slots,
+    empty_reserved_slots: emptyReserved,
     report: {
       requested: count,
       available,
       selected,
       missing: Math.max(0, count - selected),
       blueprint_shortfalls: blueprintShortfalls,
+      blueprint_missing: blueprintShortfalls.reduce((s, b) => s + Math.max(0, b.needed - b.available), 0),
       generated_at: new Date().toISOString(),
     },
   };
@@ -561,23 +647,31 @@ export function findSwap(input: {
  *  and flagged, never dropped. */
 export function lockWarnings(
   lockedItems: PoolItem[],
-  ctx: Pick<EngineContext, 'examKey' | 'params'>,
+  ctx: Pick<EngineContext, 'examKey' | 'params' | 'generalTopicIds'>,
 ): { item_id: string; reasons: string[] }[] {
   return lockedItems
     .map((it) => ({ item_id: it.id, reasons: filterMismatches(it, ctx) }))
     .filter((w) => w.reasons.length > 0);
 }
 
-/** PRD §4.5 / Physics §4.3 — `auto` resolves from the longest option. */
+/** The lane ruling shared with Lane P's renderer: `auto` is stacked when the
+ *  longest option runs past this many characters or the item is tagged
+ *  `assertion_set`; otherwise the four options print inline. */
+export const AUTO_LAYOUT_STACK_OVER_CHARS = 40;
+export const AUTO_LAYOUT_STACK_TAG = 'assertion_set';
+
+/** PRD §4.5 / Physics §4.3 — `auto` resolves from the longest option and the
+ *  assertion-set tag. The preview and the PDF must agree, so this is the only
+ *  implementation; an explicit layout on the item is honoured as written. */
 export function resolveOptionLayout(
   layout: OneMarkOptionLayout,
   options: OptionRow[] | null | undefined,
+  tags: readonly string[] | null | undefined = [],
 ): Exclude<OneMarkOptionLayout, 'auto'> {
   if (layout !== 'auto') return layout;
+  if ((tags ?? []).includes(AUTO_LAYOUT_STACK_TAG)) return 'stacked';
   const longest = (options ?? []).reduce((m, o) => Math.max(m, (o?.text ?? '').length), 0);
-  if (longest > 45) return 'stacked';
-  if (longest > 15) return 'inline_2x2';
-  return 'inline_4';
+  return longest > AUTO_LAYOUT_STACK_OVER_CHARS ? 'stacked' : 'inline_4';
 }
 
 // ---------------------------------------------------------------------------
@@ -643,9 +737,16 @@ export interface WizardReference {
   can_see_answers: boolean;
   exams: ExamRef[];
   sources: SourceRef[];
-  policies: { question_count: number; max_series: number };
+  policies: PaperPolicies;
   papers: PaperSummary[];
   exam_reference: ExamReference | null;
+}
+
+/** A reserved board slot the pool could not fill (decision 15). Rendered as a
+ *  gap in the preview at its printed position; blocks finalize. */
+export interface EmptySlot {
+  position: number;
+  tag_key: string;
 }
 
 /** One resolved question as the browser sees it. `answer` / explanations are
@@ -680,6 +781,9 @@ export interface PaperDetail {
   cohort_id: string | null;
   config: PaperConfig;
   questions: ResolvedQuestion[];
+  /** Gaps in the board shape, in printed-position order. Empty unless the
+   *  board shape is on and a reserved tag ran short. */
+  empty_slots: EmptySlot[];
   can_see_answers: boolean;
   updated_at: string;
 }
@@ -702,7 +806,11 @@ export type PaperAction =
       close_at: string;
       duration_min: number;
       shuffle_options: boolean;
-    };
+    }
+  /** Withdraws a publish — allowed until the first learner attempt exists. The
+   *  window and cohort stay on the config so they can be corrected and
+   *  re-published; the state stays FINALIZED. */
+  | { action: 'unpublish' };
 
 export interface ActionResult {
   paper: PaperDetail;
