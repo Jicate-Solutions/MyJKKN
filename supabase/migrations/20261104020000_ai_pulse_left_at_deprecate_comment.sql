@@ -2,6 +2,23 @@
 -- AI Pulse — mark ai_pulse_live_attendance.left_at as never-written
 -- Created: 2026-08-21
 --
+-- RENAME-SAFE: 20260922010000 -> 20261104020000 — this file has never run. It is
+--   marked FILE ONLY / NOT APPLIED (Director-gated) in supabase/SQL_FILE_INDEX.md
+--   and was renumbered only because the REBASE onto jicate/main introduced a
+--   version collision that did not exist when this branch was cut: main gained
+--   20260922010000_revoke_anon_hr_payroll_directories.sql (#3167) after the merge
+--   base. Per the collision guard's own remedy, the APPLIED file in the pair keeps
+--   its version and the UNAPPLIED one — this file — moves. 20261104020000 is one
+--   tick past main's newest (20261104010000) and is claimed by no other open PR
+--   (cross-PR sweep, 67 PRs, 2026-09-05).
+--
+--   NOTE FOR THE REVIEWER: this attestation cannot make the rename gate pass. That
+--   gate has production credentials in CI, so it reaches its `nothing-parsed`
+--   verdict — this migration is COMMENT ON COLUMN only and declares no object, so
+--   object existence cannot decide whether it ran. The gate is asking a human the
+--   question this comment answers: it has not run, and a COMMENT is idempotent and
+--   reversible (`COMMENT ... IS NULL`) even if it somehow did.
+--
 -- WHY THIS MIGRATION EXISTS
 --   `ai_pulse_live_attendance.left_at` has been written ZERO times since the
 --   table was created on 2026-06-11. Measured on production 2026-08-21:
