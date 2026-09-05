@@ -361,6 +361,16 @@ PY
   local deploy="skipped" dpl=""
   say; say "--- 4. deploy ---"
   if [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
+  elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
+    # Mirrors vercel.json's ignoreCommand: when every merged file sits under supabase/, docs/, specs/,
+    # .claude/, .github/ or is *.md, Vercel has nothing to build — its ignoreCommand exits 0 and the
+    # deployment comes back CANCELED with no errorCode. 2026-09-05 22:50: #3296 (one migration + the
+    # index) did exactly that, the wave read the CANCELED as a failed deploy and froze, and two manual
+    # re-fires cancelled the same way. Migrations were already applied in 3b; there is nothing to make live.
+    # Counted with `grep -c`, not `grep -qv`: on this grep, -q with -v keys its exit on whether any line
+    # MATCHED, which inverts the answer for exactly the mixed and empty cases (proven 2026-09-05 22:56).
+    deploy="nothing to deploy (migration/docs-only round — Vercel's ignoreCommand skips the build)"
+    say "  $deploy"
   elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ]; then
     local r; r=$(curl -s -X POST "$HOOK"); dpl=$(python3 -c "import json,sys;print(json.load(sys.stdin)['job']['id'])" <<<"$r" 2>/dev/null)
     printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 ship$merged_list" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"

@@ -81,6 +81,8 @@ ledger_remedy() {
       echo "the GitHub 'Apply Supabase migrations' workflow can NEVER apply here — prod history holds 1,616 versions with no repo files, so db push refuses. Use the Management API per file (replaced 2026-09-05)";;
     *"broken page"*|*"harness"*|*"persona"*)
       echo "a harness that cannot sign in is 'L1 unavailable', NOT a broken page — never freeze on it (fixed 2026-09-05, commit 4c27c077)";;
+    *"deploy deploy canceled"*)
+      echo "CANCELED with no errorCode = Vercel's ignoreCommand skipped a build with nothing deployable (every merged file under supabase/ docs/ specs/ .claude/ .github/ or *.md). NOT a failed deploy — production is still on the right code and the migration was applied in 3b. Check the merged files, then --unfreeze (fixed 2026-09-05: the deploy stage now detects this before firing the hook)";;
     *"base is not main"*|*"stacked"*)
       echo "never merge a PR whose base is not main — it lands someone else's commits. List it, leave it to its author (fixed 2026-09-05)";;
     *) return 1;;
