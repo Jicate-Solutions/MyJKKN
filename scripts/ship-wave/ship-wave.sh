@@ -509,7 +509,11 @@ if [ -n "$GOAL" ]; then
     # Director 2026-09-05 23:40: a round that merges nothing is usually a round whose blockers need a
     # human (stale GitHub verdicts, approvals, CI). Sweeping four more times an hour apart changes
     # nothing — tonight it burned 40 minutes. Two empty rounds in a row end the run.
-    if [ "${LAST_MERGED:-0}" -eq 0 ]; then EMPTY_ROUNDS=$(( ${EMPTY_ROUNDS:-0} + 1 )); else EMPTY_ROUNDS=0; fi
+    # …but a round is not "empty" while approved PRs are only waiting out the 30-minute quiet window
+    # (00:16: the four just-unstuck PRs sat in quiet_wait and this rule would have ended the run before
+    # they became eligible). Count an empty round only when nothing is about to become ready.
+    quiet_now=$(python3 -c "import json,glob;p=sorted(glob.glob('$STATE/run-*/plan.json'))[-1];print(json.load(open(p))['counts']['quiet_wait'])" 2>/dev/null || echo 0)
+    if [ "${LAST_MERGED:-0}" -eq 0 ] && [ "${quiet_now:-0}" -eq 0 ]; then EMPTY_ROUNDS=$(( ${EMPTY_ROUNDS:-0} + 1 )); else EMPTY_ROUNDS=0; fi
     [ "${EMPTY_ROUNDS:-0}" -ge 2 ] && { say "=== two rounds in a row merged nothing — loop ends; what is left needs a human (see the plan above) ==="; break; }
     [ "$round" -lt "$GOAL_ROUNDS" ] && sleep $((GOAL_PAUSE_MIN*60))
   done
