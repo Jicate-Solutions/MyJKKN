@@ -3492,6 +3492,26 @@ export const PERMISSION_CATEGORIES = [
       { key: 'referrals.eligibility.manage', label: 'Manage Referral Category Eligibility' },
       { key: 'referrals.forms.manage', label: 'Manage Referral Forms & Fields' }
     ]
+  },
+  {
+    // Added 2026-09-06 — Campus Wi-Fi captive-portal SSO foundation
+    // (migration 20260906020000, supersedes Draft PR #792). These nine keys
+    // are the ONLY predicates the network_* RLS policies and the two
+    // learner-reachable RPCs use; no role name appears in that SQL. No page
+    // exists yet, so nothing in lib/sidebarMenuLink.ts points at them.
+    name: 'Network (Campus Wi-Fi)',
+    key: 'network',
+    permissions: [
+      { key: 'network.view', label: 'View Campus Wi-Fi (routers, overview)' },
+      { key: 'network.sessions.view', label: 'View Who Is Connected (sessions)' },
+      { key: 'network.sessions.manage', label: 'End Sessions & Register Devices for Others' },
+      { key: 'network.devices.view', label: 'View Registered Devices (learners & Senior Learners)' },
+      { key: 'network.routers.manage', label: 'Register & Edit Routers and RADIUS Servers' },
+      { key: 'network.lockouts.manage', label: 'View & Clear Sign-in Lockouts' },
+      { key: 'network.audit.view', label: 'View the Wi-Fi Audit Trail' },
+      { key: 'network.settings.manage', label: 'Manage Wi-Fi Settings (sign-in methods, speed tiers, block reasons)' },
+      { key: 'network.panic.manage', label: 'Emergency Open Wi-Fi (panic switch)' }
+    ]
   }
 ];
 
