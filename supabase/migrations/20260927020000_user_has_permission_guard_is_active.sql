@@ -48,6 +48,13 @@
 -- 🛑 STAGING-FIRST -- do not apply to prod until tested on a clone.
 --    FILE ONLY / NOT APPLIED -- Director-gated.
 
+-- ci:allow-secdef-authenticated user_has_permission(text) is the substrate of every RLS
+--   policy in this database (4,093 call sites): each authenticated caller must be able to
+--   ask it about THEMSELVES. It is self-scoped — it takes only a permission name and reads
+--   auth.uid(), never an arbitrary user id — so it cannot answer for another account. The
+--   overload that CAN take a user id, user_has_permission(uuid, text), stays service_role
+--   only below. Narrowing this grant is not an option: 20260811100100 asserts at apply time
+--   'The (text) form MUST keep its grant, or every client permission check breaks.'
 CREATE OR REPLACE FUNCTION public.user_has_permission(permission_name text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -92,12 +99,32 @@ BEGIN
     END IF;
 
     -- Legacy fallback: check profiles.role -> custom_roles
-    RETURN EXISTS (
+    -- (was the final RETURN EXISTS; now an IF so the handover check can follow)
+    IF EXISTS (
         SELECT 1 FROM profiles p
         JOIN custom_roles cr ON p.role = cr.role_key
         WHERE p.id = auth.uid()
         AND (cr.permissions->>permission_name)::boolean = true
-    );
+    ) THEN
+        RETURN true;
+    END IF;
+
+    -- ---- Director handover, the last resort ------------------------------
+    -- PRESERVED VERBATIM FROM 20260811100100_user_has_permission_reads_handovers.sql.
+    -- This body was authored from the LIVE production definition, which does not
+    -- carry this clause because 20260811100100 has not been applied there. Main
+    -- does carry it, so replacing the function without this block would silently
+    -- take Director handovers off every RLS policy on the platform at once
+    -- (4,093 call sites). Reached only when every role check above has said no.
+    --
+    -- auth.uid() is NULL for anon; fn_handover_grants_key cannot match a NULL
+    -- grantee, but the guard is explicit so an anonymous caller short-circuits
+    -- without touching the table at all.
+    IF auth.uid() IS NULL THEN
+        RETURN false;
+    END IF;
+
+    RETURN public.fn_handover_grants_key(auth.uid(), permission_name);
 END;
 $function$;
 

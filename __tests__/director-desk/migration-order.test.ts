@@ -93,6 +93,10 @@ const APPROVED_REDEFINITIONS: Record<string, { fns: string[]; why: string }> = {
     fns: ['fn_handover_grants_key', 'fn_my_handover_permissions'],
     why: "Director decision 2 (2026-08-11): the due date stops ending access. Both access predicates carried `AND dh.due_date >= today`, so a deadline passing at midnight locked somebody out of a job they had accepted and were halfway through, and they had to come back and ask for it again. Access now ends only on a real ending — done, declined, revoked, handed back, or the grantee's profile going inactive — while the date colours the desk and drives the chase. Bodies machine-extracted from production via pg_get_functiondef and edited programmatically; the only change is the deleted clause.",
   },
+  '20260927020000': {
+    fns: ['user_has_permission'],
+    why: "Adds an is_active = false OR is_login_disabled = true -> RETURN false guard to BOTH overloads, evaluated after the super-admin short-circuit and before the role checks, so a deactivated or login-disabled account holds no custom-role permissions (defense-in-depth behind the login block in app/auth/callback). NOT a revert of 20260811100100: the (text) form keeps that migration's Director-handover last resort verbatim -- the legacy fallback stays an IF and the body still ends in fn_handover_grants_key(auth.uid(), permission_name) -- and the (uuid, text) form keeps its own fn_handover_grants_key call. Verified by diffing both bodies against 20260811100100: the is_active guard is the only addition. Grants unchanged from the posture 20260811100100 asserts at apply time: (text) to authenticated + service_role, (uuid, text) to service_role only.",
+  },
 };
 
 /** Version of the spine migration that defines them (specs/director-desk/SPEC.md). */
