@@ -15,6 +15,16 @@
 // reads correctly in the shipped light theme and in dark.
 
 import { useMemo, useState, useTransition } from 'react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import {
   CalendarClock,
@@ -118,6 +128,25 @@ function toForm(s: RecurringSeries): FormState {
   };
 }
 
+/**
+ * Say what deleting a series actually destroys, in plain words.
+ *
+ * The counts come off the row itself — a RecurringSeries already carries its
+ * units and attendees — so warning costs no extra round-trip.
+ */
+export function describeWhatIsLost(s: RecurringSeries | null): string {
+  if (!s) return '';
+  const units = s.units?.length ?? 0;
+  const people = s.attendees?.length ?? 0;
+  const parts: string[] = [];
+  if (units > 0) parts.push(`${units} college${units === 1 ? '' : 's'}`);
+  if (people > 0) parts.push(`${people} required ${people === 1 ? 'person' : 'people'}`);
+  if (parts.length === 0) {
+    return 'Nothing else is attached to it yet.';
+  }
+  return `It carries ${parts.join(' and ')}, which go with it.`;
+}
+
 export function SeriesManager({
   initialSeries,
   institutions,
@@ -126,6 +155,16 @@ export function SeriesManager({
   institutions: InstitutionOption[];
 }) {
   const [series, setSeries] = useState<RecurringSeries[]>(initialSeries);
+  /**
+   * The series queued for deletion. Deleting used to happen on the first click
+   * with nothing in between — one tap and the configuration was gone, with no
+   * undo. The rest of this module already warns first (deleting a set of
+   * working hours names how many meeting kinds use it), so this matches it.
+   *
+   * No extra round-trip is needed to say what is lost: a row already carries
+   * its own units and attendees.
+   */
+  const [pendingDelete, setPendingDelete] = useState<RecurringSeries | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<FormState>(BLANK);
@@ -311,7 +350,7 @@ export function SeriesManager({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => remove(s)}
+                        onClick={() => setPendingDelete(s)}
                         disabled={isSaving}
                         aria-label={`Delete ${s.name}`}
                       >
@@ -368,6 +407,36 @@ export function SeriesManager({
           })}
         </div>
       )}
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete “{pendingDelete?.name}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {describeWhatIsLost(pendingDelete)} This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSaving}>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isSaving}
+              onClick={() => {
+                const target = pendingDelete;
+                setPendingDelete(null);
+                if (target) remove(target);
+              }}
+            >
+              Delete series
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }

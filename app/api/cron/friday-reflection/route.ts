@@ -2,7 +2,11 @@
 // Doctrines v1 — Friday 4 PM Reflection Cron (Task 10)
 // =====================================================================
 // Runs every Friday at 16:00 IST (10:30 UTC). Drops an in-app reflection
-// card into the notifications feed for Students and Faculty only.
+// card into the notifications feed for Learners and Faculty only.
+//
+// Delivery = TWO writes (a `notifications` row plus its `user_notifications`
+// link row), done via the shared fanoutNotification helper. A parent row on
+// its own never reaches the bell.
 //
 // Spec-locked decisions:
 //   - Audience: Student + Faculty only (not Principal/HOD/Accounts/Counselor).
@@ -20,6 +24,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { FRIDAY_REFLECTION_ANCHOR, buildIdempotencyKey } from '@/lib/habits/anchor-schedule';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 const REFLECTION_ROLES = ['faculty', 'student'] as const;
 type ReflectionRole = (typeof REFLECTION_ROLES)[number];
@@ -95,30 +100,40 @@ export async function GET(request: NextRequest) {
         ? 'Log one learning from this week. What will you try differently next week? Set your weekend intent.'
         : 'What did you learn this week? What is your intent for the weekend? Capture one thing you would do differently next week.';
 
-    const { error: insertErr } = await serviceClient.from('notifications').insert({
-      title,
-      body,
-      url: '/dashboard?reflection=open',
-      icon: '/icons/icon-192x192.png',
-      created_by: user.id,
-      targeting: { user_ids: [user.id] },
-      priority: 'normal',
-      category: `doctrines:${FRIDAY_REFLECTION_ANCHOR.key}`,
-      // 2026-04-25: doctrines:* are cron-emitted operational reminders, not user-composed
-      // announcements. Tagging as work_item keeps them out of /notifications/admin page
-      // (which filters to kind='announcement'). User dashboard surfaces still pick them up.
-      kind: 'work_item',
-      idempotency_key: idempKey,
-      expires_at: expiresAt,
-      metadata: {
-        role: user.role,
-        week,
-        source: `cron:${FRIDAY_REFLECTION_ANCHOR.key}`
-      }
-    });
-
-    if (insertErr) {
-      results.errors.push(`${user.id}: ${insertErr.message}`);
+    // Delivering an in-app card takes TWO writes, not one. The bell and inbox
+    // read `user_notifications` with an `!inner` join back to `notifications`
+    // (lib/services/notification/notification-service.ts), and there is no DB
+    // trigger that fans out — so a `notifications` row with no matching
+    // `user_notifications` link row is invisible to its recipient forever.
+    // Until 2026-08-25 this route wrote only the parent row: every reflection
+    // card it has ever composed reached nobody. fanoutNotification does both
+    // writes (and is the canonical helper — see its header).
+    try {
+      await fanoutNotification(serviceClient, {
+        title,
+        body,
+        userIds: [user.id],
+        createdBy: user.id,
+        url: '/dashboard?reflection=open',
+        icon: '/icons/icon-192x192.png',
+        priority: 'normal',
+        category: `doctrines:${FRIDAY_REFLECTION_ANCHOR.key}`,
+        // 2026-04-25: doctrines:* are cron-emitted operational reminders, not
+        // user-composed announcements. Tagging as work_item keeps them out of
+        // the /notifications/admin page (which filters to kind='announcement').
+        kind: 'work_item',
+        idempotencyKey: idempKey,
+        // expires_at is a real production column with no first-class option on
+        // the helper; the 7-day TTL above is what stops these piling up unread.
+        extraColumns: { expires_at: expiresAt },
+        source: `cron:${FRIDAY_REFLECTION_ANCHOR.key}`,
+        metadata: {
+          role: user.role,
+          week
+        }
+      });
+    } catch (err) {
+      results.errors.push(`${user.id}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
 

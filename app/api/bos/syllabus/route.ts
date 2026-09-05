@@ -11,6 +11,12 @@ import {
   isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
+import {
+  findCourseCodeConflict,
+  courseCodeConflictMessage,
+  courseCodeConflictMessageFor,
+  UNIQUE_VIOLATION,
+} from '@/lib/utils/bos/course-code-conflict';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
 import { BosCourseSyllabus, BosSyllabusListResponse, CreateBosSyllabusDto } from '@/types/bos';
 
@@ -417,19 +423,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: writeError }, { status: 403 });
     }
 
-    // Step 6: Check for duplicate course code + regulation
+    // Step 6: Check for duplicate course code + regulation.
+    // Every version of the code is checked, not just is_latest — a new row is
+    // always version 1, so an archived or superseded row still blocks it. See
+    // lib/utils/bos/course-code-conflict.ts for why the old is_latest-only
+    // check produced a mute 500 instead of a refusal.
     if (body.regulation_id) {
-      const { data: existing } = await supabase
-        .from('bos_course_syllabi')
-        .select('id')
-        .eq('regulation_id', body.regulation_id)
-        .eq('course_code', body.course_code)
-        .eq('is_latest', true)
-        .maybeSingle();
+      const conflict = await findCourseCodeConflict(body.regulation_id, body.course_code);
 
-      if (existing) {
+      if (conflict) {
         return NextResponse.json(
-          { error: `Course ${body.course_code} already exists in this regulation. Use revise endpoint to create a new version.` },
+          { error: courseCodeConflictMessage(body.course_code, conflict) },
           { status: 409 }
         );
       }
@@ -451,6 +455,15 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('[POST /api/bos/syllabus] Insert error:', insertError);
+      // A unique violation here means a colliding row the pre-check could not
+      // see (a race, or a row hidden from this caller). Report it as the same
+      // actionable 409 rather than a mute 500.
+      if (insertError.code === UNIQUE_VIOLATION) {
+        return NextResponse.json(
+          { error: await courseCodeConflictMessageFor(body.regulation_id, body.course_code) },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         { error: 'Failed to create syllabus' },
         { status: 500 }

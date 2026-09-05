@@ -199,6 +199,32 @@ export function useAttendanceMonthsWithData(staffId: string | null) {
   });
 }
 
+/**
+ * What the page is entitled to SAY about the month close — `period` alone
+ * cannot carry it.
+ *
+ * A bare null conflates three different facts, and the page rendered nothing
+ * for all three, so a month HR has never closed looked identical to a month
+ * still loading:
+ *
+ *   'unresolved'  Nothing is imported for this month, so no institution could
+ *                 be resolved and the period query never ran. Nothing is known
+ *                 about the close — saying "not closed" here would be a claim
+ *                 the page cannot support.
+ *   'unknown'     The read has not completed, or failed. Same silence.
+ *   'not_created' The read SUCCEEDED and found no row. A period row is only
+ *                 ever written by fn_hr_lock_attendance_period, so this means
+ *                 exactly one thing: this month has never been closed.
+ *   'open'        A row exists and is not locked.
+ *   'closed'      Locked. The day counts are frozen.
+ */
+export type AttendancePeriodResolution =
+  | 'unresolved'
+  | 'unknown'
+  | 'not_created'
+  | 'open'
+  | 'closed';
+
 export interface AttendanceMonthView {
   /** Every day of the month, newest first — for the log. */
   logDays: AttendanceDay[];
@@ -212,6 +238,8 @@ export interface AttendanceMonthView {
   isEmptyMonth: boolean;
   /** Null until the month has a record to resolve an institution from. */
   period: AttendancePeriodState | null;
+  /** Which of those nulls this is. Read this, not `period`, to render state. */
+  periodResolution: AttendancePeriodResolution;
   refresh: () => void;
 }
 
@@ -269,6 +297,19 @@ export function useAttendanceMonthView(
 
   const summary = useMemo(() => summariseDays(logDays), [logDays]);
 
+  // ORDER MATTERS. The period query is `enabled: Boolean(institutionId)`, and a
+  // disabled query in React Query reports isPending forever — so the absence of
+  // an institution has to be tested BEFORE anything about the query's state.
+  const periodResolution: AttendancePeriodResolution = !institutionId
+    ? 'unresolved'
+    : !period.isSuccess
+      ? 'unknown'
+      : !period.data
+        ? 'not_created'
+        : period.data.status === 'locked'
+          ? 'closed'
+          : 'open';
+
   return {
     logDays,
     weeks,
@@ -278,6 +319,7 @@ export function useAttendanceMonthView(
     error: (records.error ?? exceptions.error) as Error | null,
     isEmptyMonth: !records.isLoading && (records.data?.length ?? 0) === 0,
     period: period.data ?? null,
+    periodResolution,
     refresh: () => {
       qc.invalidateQueries({ queryKey: [KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [EXCEPTIONS_KEY, staffId, month] });

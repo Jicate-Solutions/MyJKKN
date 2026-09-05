@@ -267,7 +267,7 @@ export function EnquiriesDataTable({
     <div className="flex items-center gap-2">
       {props.selectedRows.length > 0 && (
         <>
-          <PermissionGuard module="learners.enquiries" action="bulk_status_update">
+          <PermissionGuard module="learners.enquiries" action="bulk_status_update" fallback={null}>
             <Button
               onClick={() =>
                 handleBulkStatusUpdate(props.selectedRows as LearnerProfile[], props.resetSelection)
