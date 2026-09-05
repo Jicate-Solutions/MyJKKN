@@ -1,0 +1,149 @@
+name: Lib unit suite
+
+# Runs the unit tests under __tests__/lib/**. Until this workflow existed, none
+# of them had ever executed on a pull request.
+#
+# WHY THIS EXISTS
+#   Measured on jicate/main, 2026-08-11: the repo contains 177 test files. CI
+#   invoked exactly FIVE of them, each by explicit filename, each from its own
+#   workflow — ai-estate-guard, check-migration-rename-applied,
+#   check-anon-exposure-live, and the two notification TTL guards. No job globs
+#   a test directory. The remaining 172 files, including all 68 under
+#   __tests__/lib/**, were never run by anything.
+#
+#   That is not a gap in coverage, it is a gap in EXECUTION. The tests are
+#   written, they pass, and they were silently inert — so a PR body could
+#   truthfully say "covered by a test" while nothing on the pull request would
+#   ever have gone red. notification-ttl-guards.yml documents this exact class
+#   for #2971's guard; __tests__/lib/ai-routines/registry-cron-wiring.test.ts
+#   and the guard PR #2932 adds alongside it were in the same position.
+#
+# WHY IT IS A REAL RED X AND NOT ADVISORY
+#   An advisory check that cannot fail is the same decoration as a test nothing
+#   runs — it would reproduce the problem it was written to fix. So this job
+#   exits non-zero on a genuine failure. Making that safe against the ~86 open
+#   pull requests required measuring the suite against unmodified main FIRST
+#   (see the exclusion list below) and confirming the enforced set is green.
+#
+# WHAT IS ENFORCED
+#   61 files / 864 tests, all passing on jicate/main at 8aa609b. Seven files are
+#   excluded by exact path, each for a stated reason, and NOT because they are
+#   inconvenient. Do not add to that list to make a red build green — a genuine
+#   failure here means a lib/ behaviour changed.
+#
+# SCOPE. No database, no secret, no network. Every enforced test is pure: it
+# either exercises a lib/ function in memory or reads source files off disk, so
+# this also passes on forks.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity
+# that branch protection matches on. Renaming either string silently orphans a
+# rule pointing at the old name.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      # The tests themselves.
+      - '__tests__/lib/**'
+      - '.github/workflows/lib-unit-suite.yml'
+      - 'vitest.config.js'
+      # The code they assert over.
+      - 'lib/**'
+      # __tests__/lib/ai-routines/registry-cron-wiring.test.ts is the one test in
+      # the suite that reads the repo off disk rather than importing it: it
+      # asserts every registry entry has a matching cron route and resolves the
+      # newest migration defining the routine's schedule. So a change to either
+      # can flip its verdict without touching lib/ at all.
+      - 'app/api/cron/**'
+      - 'supabase/migrations/**'
+      # Imported directly by that same test.
+      - 'app/(routes)/admin/ai-routines/**'
+      # __tests__/lib/ci/terminology-quote-boundary.test.ts runs the blocking
+      # terminology gate as a subprocess against a throwaway repo, so a change
+      # to that script — or to the dictionary it imports — flips its verdict
+      # without touching lib/. Without these two paths the test would be
+      # present, passing on paper, and never executed on the pull request that
+      # changes what it guards: the exact failure this workflow exists to end.
+      - 'scripts/ci/check-terminology-delta.py'
+      - '.claude/skills/jkkn-terminologies/scripts/validate_terminology.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lib-unit-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: lib unit tests pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # Positional arguments to `vitest run` are SUBSTRING filters against the
+      # file path, not globs — passing '__tests__/lib/**/*.test.ts' matches
+      # nothing and exits 1 with "No test files found", which reads exactly like
+      # a suite that ran and failed. The bare directory prefix is correct.
+      #
+      # The seven exclusions, measured against unmodified main on 2026-08-11.
+      # FIVE cannot run here at all:
+      #   • the four api-keys/attendance files import 'bun:test' — they are
+      #     written for the Bun runner, so under vitest they fail at import and
+      #     execute zero tests. Enforcing them would gate every PR on a runner
+      #     this repo does not use.
+      #   • institution-type-labels.test.ts imports
+      #     '@/lib/constants/institution-type-labels', which does not exist on
+      #     main (lib/constants/ has institutions.ts). Dead test, dead import.
+      # TWO are genuinely red and are QUARANTINED, not fixed, because fixing
+      # them means changing lib/ behaviour that other work owns:
+      #   • sidebar-filter.test.ts — 6 failures, filterMenuByEntityType school
+      #     entity-type expectations no longer match the filter.
+      #   • pde-bridge-service.test.ts — 2 failures, mapLegacyCapability returns
+      #     'accountability' where the test expects 'embodied', and the
+      #     grandfathered demonstration insert returns one row where three are
+      #     expected.
+      # Those two are real signal about lib/ drift and want their own fix; they
+      # are listed here so the other 61 files can be enforced today instead of
+      # nothing being enforced at all.
+      - name: Run the lib unit suite
+        run: |
+          npx vitest run __tests__/lib/ \
+            --exclude '__tests__/lib/api-keys/audit-logger.test.ts' \
+            --exclude '__tests__/lib/api-keys/authenticate.test.ts' \
+            --exclude '__tests__/lib/api-keys/rate-limiter.test.ts' \
+            --exclude '__tests__/lib/attendance/audit-log.test.ts' \
+            --exclude '__tests__/lib/institution-type-labels.test.ts' \
+            --exclude '__tests__/lib/services/pde-bridge-service.test.ts' \
+            --exclude '__tests__/lib/sidebar-filter.test.ts'
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::A unit test under __tests__/lib/ failed."
+          echo ""
+          echo "This suite was green on main when the gate was added (61 files,"
+          echo "864 tests), so a failure here is a change in this pull request,"
+          echo "not pre-existing noise."
+          echo ""
+          echo "Reproduce locally with the same command this job runs:"
+          echo "  npx vitest run __tests__/lib/<the failing path>"
+          echo ""
+          echo "Do NOT fix a failure by adding the file to the --exclude list."
+          echo "That list is for tests that cannot run under vitest at all, and"
+          echo "for two files quarantined with their reasons written down. Adding"
+          echo "to it to clear a red build recreates the exact problem this gate"
+          echo "exists to remove: a test that is present, passing on paper, and"
+          echo "never actually executed."

@@ -33,6 +33,7 @@ const BILLABLE_LIFECYCLE_STATUSES = ['account', 'reserved', 'admitted', 'active'
 type RawStudentData = {
   id: string;
   roll_number: string;
+  register_number?: string;
   first_name: string;
   last_name: string;
   father_name: string;
@@ -45,6 +46,10 @@ type RawStudentData = {
   program_id: string;
   semester_id: string;
   section_id: string;
+  // Gender / quota / community. Selected by getStudentForBilling only.
+  gender?: string;
+  quota_id?: string;
+  community_category_id?: string;
   // 2026-05-21: surfaced so the billing detail page can show the learner's
   // current lifecycle (account / reserved / admitted / active) next to
   // the bill totals. Selected by getStudentForBilling only.
@@ -60,6 +65,8 @@ type RawStudentData = {
   program?: any;
   semester?: any;
   section?: any;
+  quota?: any;
+  community_category?: any;
   accommodation_type?: any;
   admission_year?: any;
 };
@@ -75,6 +82,7 @@ export class StudentSearchService {
     return {
       id: rawData.id,
       roll_number: rawData.roll_number,
+      register_number: rawData.register_number,
       first_name: rawData.first_name,
       last_name: rawData.last_name,
       father_name: rawData.father_name,
@@ -112,6 +120,14 @@ export class StudentSearchService {
         id: rawData.section_id,
         section_name: ''
       },
+      // Same rule as admission_year below: searchStudentsForBilling does not
+      // select these, so they stay undefined there rather than being defaulted
+      // to an empty shell.
+      gender: rawData.gender,
+      quota_id: rawData.quota_id,
+      quota: rawData.quota || undefined,
+      community_category_id: rawData.community_category_id,
+      community_category: rawData.community_category || undefined,
       accommodation_type_id: rawData.accommodation_type_id,
       accommodation_type: rawData.accommodation_type || undefined,
       // searchStudentsForBilling does not select these, so they stay undefined
@@ -134,6 +150,7 @@ export class StudentSearchService {
           `
           id,
           roll_number,
+          register_number,
           first_name, last_name,
           father_name,
           student_mobile,
@@ -162,6 +179,23 @@ export class StudentSearchService {
       // Apply hierarchy filters in order
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
+      }
+
+      // Entity-type gate. Follows the same .in() shape as the accommodation
+      // filter below: resolve the matching institution ids and filter the FK
+      // column directly, rather than filtering the embedded institutions
+      // resource (which PostgREST only allows behind an !inner join).
+      // Without this, "All institutions" also returned school learners.
+      if (filters.institution_entity_type) {
+        const entityInstitutionIds = await this.resolveInstitutionIdsByEntityType(
+          filters.institution_entity_type
+        );
+        query = query.in(
+          'institution_id',
+          entityInstitutionIds.length > 0
+            ? entityInstitutionIds
+            : ['00000000-0000-0000-0000-000000000000']
+        );
       }
 
       if (filters.academic_year_id) {
@@ -206,20 +240,46 @@ export class StudentSearchService {
         );
       }
 
-      if (filters.first_name) {
-        query = query.ilike('first_name', `%${filters.first_name}%`);
-      }
+      // Unified operator search. One typed/scanned string matched against
+      // every identifier the counter uses, in a single `or(...)` so the
+      // search stays ONE round trip instead of five sequential lookups.
+      // Takes precedence over the discrete name/roll/mobile filters, which
+      // the bulk-create and bulk-edit pages still pass programmatically.
+      const unifiedQuery = filters.query?.trim();
+      if (unifiedQuery) {
+        const term = this.escapeForOrFilter(unifiedQuery);
+        query = query.or(
+          [
+            `first_name.ilike.%${term}%`,
+            `last_name.ilike.%${term}%`,
+            `roll_number.ilike.%${term}%`,
+            `register_number.ilike.%${term}%`,
+            `student_mobile.ilike.%${term}%`
+          ].join(',')
+        );
+      } else {
+        if (filters.first_name) {
+          query = query.ilike('first_name', `%${filters.first_name}%`);
+        }
 
-      if (filters.last_name) {
-        query = query.ilike('last_name', `%${filters.last_name}%`);
-      }
+        if (filters.last_name) {
+          query = query.ilike('last_name', `%${filters.last_name}%`);
+        }
 
-      if (filters.roll_number) {
-        query = query.ilike('roll_number', `%${filters.roll_number}%`);
-      }
+        if (filters.roll_number) {
+          query = query.ilike('roll_number', `%${filters.roll_number}%`);
+        }
 
-      if (filters.mobile_number) {
-        query = query.ilike('student_mobile', `%${filters.mobile_number}%`);
+        if (filters.register_number) {
+          query = query.ilike(
+            'register_number',
+            `%${filters.register_number}%`
+          );
+        }
+
+        if (filters.mobile_number) {
+          query = query.ilike('student_mobile', `%${filters.mobile_number}%`);
+        }
       }
 
       // Apply sorting
@@ -273,11 +333,15 @@ export class StudentSearchService {
           `
           id,
           roll_number,
+          register_number,
           first_name, last_name,
           father_name,
           student_mobile,
           college_email,
+          gender,
           lifecycle_status,
+          quota_id,
+          community_category_id,
           accommodation_type_id,
           admission_year_id,
           institution_id,
@@ -294,6 +358,8 @@ export class StudentSearchService {
           program:programs!program_id(id, program_name),
           semester:semesters!semester_id(id, semester_name),
           section:sections!section_id(id, section_name),
+          quota:quotas!quota_id(id, name),
+          community_category:community_categories!community_category_id(id, code),
           accommodation_type:accommodation_types!accommodation_type_id(id, code, name),
           admission_year:admission_years!admission_year_id(id, admission_year_name, year)
         `
@@ -367,6 +433,7 @@ export class StudentSearchService {
           `
           *,
           creator:profiles!fk_billing_receipts_created_by(id, full_name),
+          accountant:profiles!fk_billing_receipts_accountant(id, full_name),
           receipt_items:billing_receipt_items(
             *,
             bill:billing_student_bills(*)
@@ -558,6 +625,21 @@ export class StudentSearchService {
   }
 
   /**
+   * Sanitize a user/scanner supplied term for use inside a PostgREST
+   * `or=(...)` list.
+   *
+   * That grammar is positional: `,` separates conditions, `(` `)` group them
+   * and `"` quotes a value. A raw comma or bracket in the term does not throw
+   * — it silently reinterprets the rest of the filter as new conditions, which
+   * would widen the result set instead of narrowing it. Roll numbers, register
+   * numbers, mobile numbers and names never legitimately contain these, so
+   * they are dropped rather than escaped.
+   */
+  private static escapeForOrFilter(term: string): string {
+    return term.replace(/[,()"\\*]/g, '').trim();
+  }
+
+  /**
    * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching
    * accommodation_type_id(s). The catalog is global (one row per code).
    * Returns [] on error (caller forces no-match).
@@ -576,6 +658,42 @@ export class StudentSearchService {
       return (data || []).map((row: { id: string }) => row.id);
     } catch (error) {
       console.error('Error resolving accommodation type ids:', error);
+      return [];
+    }
+  }
+
+  // Cache for resolveInstitutionIdsByEntityType below.
+  private static institutionIdsByEntityType = new Map<string, string[]>();
+
+  /**
+   * Resolve every institution id of a given entity_type ('institution' =
+   * college, 'school', 'admin_office', 'company').
+   *
+   * Cached for the page's lifetime — the institutions table is a small,
+   * effectively static catalog and this runs on every student search
+   * (including each pagination step and the export).
+   *
+   * Returns [] on error, which the caller turns into a deliberate no-match
+   * rather than silently widening the result set.
+   */
+  private static async resolveInstitutionIdsByEntityType(
+    entityType: string
+  ): Promise<string[]> {
+    const cached = this.institutionIdsByEntityType.get(entityType);
+    if (cached) return cached;
+
+    try {
+      const { data, error } = await this.supabase
+        .from('institutions')
+        .select('id')
+        .eq('entity_type', entityType);
+
+      if (error) throw error;
+      const ids = (data || []).map((row: { id: string }) => row.id);
+      if (ids.length > 0) this.institutionIdsByEntityType.set(entityType, ids);
+      return ids;
+    } catch (error) {
+      console.error('Error resolving institution ids by entity type:', error);
       return [];
     }
   }
@@ -707,6 +825,7 @@ export class StudentSearchService {
           `
           id,
           roll_number,
+          register_number,
           first_name, last_name,
           father_name,
           student_mobile,
@@ -725,9 +844,12 @@ export class StudentSearchService {
         query = query.eq('institution_id', institutionId);
       }
 
-      // Search across multiple fields
+      // Search across multiple fields. register_number joins the set so a
+      // scanned ID-card barcode resolves here too, and the term is sanitized
+      // for the or(...) grammar (see escapeForOrFilter).
+      const term = this.escapeForOrFilter(searchQuery);
       query = query.or(
-        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,roll_number.ilike.%${searchQuery}%,student_mobile.ilike.%${searchQuery}%,college_email.ilike.%${searchQuery}%`
+        `first_name.ilike.%${term}%,last_name.ilike.%${term}%,roll_number.ilike.%${term}%,register_number.ilike.%${term}%,student_mobile.ilike.%${term}%,college_email.ilike.%${term}%`
       );
 
       query = query.order('first_name', { ascending: true }).limit(limit);

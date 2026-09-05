@@ -24,6 +24,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { useProblems } from '@/hooks/startup-studio';
+import { ApiError } from '@/lib/api/client';
 import { PROBLEM_THEMES, type ProblemTheme } from '@/types/startup-studio';
 
 // Built from the enum itself — see PROBLEM_THEMES. The previous hardcoded
@@ -56,6 +57,57 @@ const STATUS_COLORS: Record<string, string> = {
   archived: 'bg-gray-100 text-gray-800',
 };
 
+// Every failure used to render "Failed to load problems. Please try
+// refreshing the page." — including the failures where refreshing can never
+// work: a signed-out session, a missing permission, or a filter naming a
+// value the problem bank has no such thing as. Telling someone to refresh a
+// request that is structurally impossible costs them minutes and costs
+// support a ticket. So say which of the two it is, and say what went wrong.
+function describeLoadError(error: unknown): {
+  headline: string;
+  detail: string;
+} {
+  const status = error instanceof ApiError ? error.status : undefined;
+  const serverMessage =
+    error instanceof Error && error.message ? ` (${error.message})` : '';
+
+  // No status at all means the request never reached the server.
+  if (status === undefined) {
+    return {
+      headline: 'Could not reach the server.',
+      detail: 'Check your internet connection, then try again.',
+    };
+  }
+  if (status === 401) {
+    return {
+      headline: 'You have been signed out.',
+      detail: 'Sign in again to open the problem bank. Refreshing will not help.',
+    };
+  }
+  if (status === 403) {
+    return {
+      headline: 'Your account cannot open the problem bank.',
+      detail:
+        'This page needs the Startup Studio problem-bank permission. Ask a ' +
+        'Startup Studio coordinator to grant it — refreshing will not help.',
+    };
+  }
+  if (status < 500) {
+    return {
+      headline: 'This search cannot be run.',
+      detail:
+        `The filters being asked for do not exist in the problem bank${serverMessage}. ` +
+        'Clear the filters and search again — refreshing will not help.',
+    };
+  }
+  return {
+    headline: 'The problem bank could not be loaded.',
+    detail:
+      `Something went wrong on our side, not yours${serverMessage}. Trying ` +
+      'again in a minute may work; if it keeps failing, report it.',
+  };
+}
+
 export function ProblemsList() {
   const [search, setSearch] = useState('');
   const [themeFilter, setThemeFilter] = useState('all');
@@ -77,11 +129,12 @@ export function ProblemsList() {
   );
 
   if (error) {
+    const { headline, detail } = describeLoadError(error);
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          Failed to load problems. Please try refreshing the page.
+          <span className="font-medium">{headline}</span> {detail}
         </AlertDescription>
       </Alert>
     );
@@ -215,7 +268,7 @@ export function ProblemsList() {
                     </TableCell>
                     <TableCell>
                       <span className="capitalize">
-                        {problem.severity ?? '-'}
+                        {problem.severity_rating ?? '-'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">

@@ -391,7 +391,7 @@ function WorklistContent() {
             </Button>
             {/* Edit-only: assigning owners needs schools.edit. Hidden (not
                 403-on-click) for schools.view-only viewers. */}
-            <CanEdit module="schools_network.schools">
+            <CanEdit module="schools_network.schools" fallback={null}>
               <Button
                 size="sm"
                 onClick={() => autoAssignMutation.mutate()}

@@ -4,17 +4,19 @@ export const dynamic = 'force-dynamic';
 //
 // GET — Excel template pre-filled with EXISTING bills (current values) matching
 // the bulk-edit download filters. Runs as the user (RLS scopes the rows). The
-// locked Bill ID column is the update key. Editable columns: Academic Year,
-// Billing Category, Bill Description, Due Date, Remarks.
+// locked Bill ID column is the update key. Editable columns: Final Amount,
+// Academic Year, Billing Category, Bill Description, Due Date, Remarks.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import {
+  AMOUNT_LOCKED_STATUSES,
   STUDENT_BILL_BULK_EDIT_HEADERS,
   type BulkEditDownloadFilters
 } from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
+import { filterBillableAcademicYears } from '@/lib/utils/mappings/student-bill-excel-mappings';
 
 export const maxDuration = 60;
 
@@ -42,13 +44,20 @@ export async function GET(request: NextRequest) {
     const bills = await StudentBillService.getBillsForBulkEdit(filters, supabase);
 
     // Dropdown sources.
+    //
+    // No is_active filter on academic_years: the apply route resolves a year by
+    // institution + name against the whole table, so an inactive year is a
+    // legal edit. Filtering here only hid the four Dental "…Additional n"
+    // cohorts from a list that would have accepted them.
+    //
+    // filterBillableAcademicYears applies the same 2020-2021 floor as the
+    // bulk-create template — the two pickers are meant to agree.
     const { data: ayRows } = await supabase
       .from('academic_years')
       .select('academic_year_name')
-      .eq('is_active', true)
       .order('academic_year_name', { ascending: false });
-    const academicYearNames = Array.from(
-      new Set((ayRows ?? []).map((r: any) => r.academic_year_name).filter(Boolean))
+    const academicYearNames = filterBillableAcademicYears(
+      (ayRows ?? []).map((r: any) => r.academic_year_name)
     );
 
     const { data: catRows } = await supabase
@@ -113,18 +122,30 @@ export async function GET(request: NextRequest) {
     categoryNames.forEach((n, i) => { lists.getCell(`B${i + 2}`).value = n as string; });
     lists.state = 'hidden';
 
-    // Lock A–F, unlock G–K, attach dropdowns / date validation.
+    // Lock A–E, unlock F–K, attach dropdowns / number / date validation.
+    // F (Final Amount) is unlocked but tinted amber rather than purple: it is
+    // the one column that moves money, and the server re-validates it against
+    // the bill's status and receipted total regardless of what Excel allows.
     for (let row = 2; row <= lastRow; row++) {
-      ['A', 'B', 'C', 'D', 'E', 'F'].forEach((col) => {
+      ['A', 'B', 'C', 'D', 'E'].forEach((col) => {
         sheet.getCell(`${col}${row}`).protection = { locked: true };
       });
-      ['G', 'H', 'I', 'J', 'K'].forEach((col) => {
+      ['F', 'G', 'H', 'I', 'J', 'K'].forEach((col) => {
         sheet.getCell(`${col}${row}`).protection = { locked: false };
         sheet.getCell(`${col}${row}`).fill = {
-          type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F3FF' }
+          type: 'pattern', pattern: 'solid',
+          fgColor: { argb: col === 'F' ? 'FFFEF3C7' : 'FFF5F3FF' }
         };
       });
       sheet.getCell(`A${row}`).font = { name: 'Consolas', size: 9, color: { argb: 'FF6B7280' } };
+
+      sheet.getCell(`F${row}`).dataValidation = {
+        type: 'decimal', operator: 'greaterThanOrEqual', allowBlank: true,
+        formulae: [0],
+        showErrorMessage: true, errorStyle: 'warning',
+        errorTitle: 'Invalid Amount',
+        error: 'Enter a number of 0 or more, or leave the cell unchanged to keep the current amount.'
+      };
 
       if (academicYearNames.length > 0) {
         sheet.getCell(`G${row}`).dataValidation = {
@@ -165,12 +186,19 @@ export async function GET(request: NextRequest) {
       'BULK BILL EDIT — INSTRUCTIONS',
       '',
       `1. This file contains ${bills.length} existing bill${bills.length !== 1 ? 's' : ''} matching your filters, pre-filled with their CURRENT values.`,
-      '2. EDIT ONLY the light-purple columns: Academic Year, Billing Category, Bill Description, Due Date, Remarks.',
+      '2. EDIT ONLY the tinted columns: Final Amount (amber), Academic Year, Billing Category, Bill Description, Due Date, Remarks (purple).',
       '3. Do NOT edit or delete the Bill ID column — it is the key used to match your edits back to each bill. Reordering rows is fine.',
-      '4. Academic Year / Bill Description / Remarks: leave blank to CLEAR the field. Billing Category: leave blank to keep the current one. Due Date is required.',
+      '4. Academic Year / Bill Description / Remarks: leave blank to CLEAR the field. Final Amount and Billing Category: leave blank to keep the current value. Due Date is required.',
       '5. Academic Year must match an existing year for that bill\'s institution (pick from the dropdown).',
-      '6. Money and status are NOT editable here — Final Amount and Status are shown for context only.',
-      '7. Save as .xlsx and upload. You will see a preview of every change before anything is written.'
+      '',
+      'FINAL AMOUNT — read this before changing any figure:',
+      '  a. Changing the amount automatically recalculates the bill\'s balance and status from the payments already receipted against it.',
+      `  b. The amount CANNOT be changed on a ${AMOUNT_LOCKED_STATUSES.join(' / ')} bill — those rows will be rejected with an error. Every other field on them stays editable.`,
+      '  c. The new amount cannot be lower than the total already receipted against that bill. Refund or cancel the receipt first.',
+      '  d. Raising the amount on a paid bill reopens it as partially paid; that is expected, and the new balance becomes collectable.',
+      '  e. Status is NOT editable here — it is shown for context and is recalculated for you.',
+      '',
+      '6. Save as .xlsx and upload. You will see a preview of every change, amounts included, before anything is written.'
     ];
     lines.forEach((line, i) => {
       const r = instr.addRow([line]);

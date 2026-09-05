@@ -209,6 +209,13 @@ const person: CardPersonData = {
   courseName: 'B.Tech AI',
   departmentName: 'CSE',
   institutionName: 'JKKN College of Engineering',
+  // Completed 2026-09-03: isSchool is new; studyPeriod / staffId /
+  // courseEndDate were missing since they were added to CardPersonData —
+  // invisible because tsconfig excludes __tests__ from a local tsc run.
+  isSchool: false,
+  studyPeriod: null,
+  staffId: null,
+  courseEndDate: null,
   qrValue: 'learner-uuid',
   photoCandidates: [],
   valueBag: {},
@@ -352,5 +359,94 @@ describe('buildBackElement — default design', () => {
       })
     );
     expect(collectImgSrcs(tree)).toContain(BARCODE_URL); // …but overlay places it
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Portrait backs (2026-08-13) — a portrait FRONT needs a portrait BACK, or the
+// two faces print at 90° to each other on the same piece of plastic.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Collect every style object in the tree, for geometry assertions. */
+function collectStyles(node: any, out: Record<string, any>[] = []): Record<string, any>[] {
+  if (node === null || node === undefined || typeof node !== 'object') return out;
+  if (Array.isArray(node)) {
+    node.forEach((child) => collectStyles(child, out));
+    return out;
+  }
+  if (node.props?.style) out.push(node.props.style);
+  if (node.props) collectStyles(node.props.children, out);
+  return out;
+}
+
+describe('parseBackLayout — orientation', () => {
+  it('accepts both portrait values and ignores anything else', () => {
+    expect(parseBackLayout({ orientation: 'portrait' })?.orientation).toBe('portrait');
+    expect(parseBackLayout({ orientation: 'portrait-flipped' })?.orientation).toBe(
+      'portrait-flipped'
+    );
+    expect(parseBackLayout({ orientation: 'landscape' })?.orientation).toBeUndefined();
+    expect(parseBackLayout({ orientation: 42 })?.orientation).toBeUndefined();
+    expect(parseBackLayout({})?.orientation).toBeUndefined();
+  });
+
+  it('clamps portrait element coordinates to the PORTRAIT canvas, not landscape', () => {
+    // y=900 is legal on a 638x1014 portrait canvas; the landscape clamp (638)
+    // would squash it onto the bottom edge and silently lose the layout.
+    const portrait = parseBackLayout({
+      orientation: 'portrait',
+      elements: [{ field: 'address', x: 40, y: 900 }]
+    });
+    expect(portrait?.elements?.[0]).toMatchObject({ x: 40, y: 900 });
+
+    const landscape = parseBackLayout({
+      elements: [{ field: 'address', x: 40, y: 900 }]
+    });
+    expect(landscape?.elements?.[0].y).toBe(638); // clamped, as before
+  });
+
+  it('clamps x to the portrait width (638), not the landscape width', () => {
+    const portrait = parseBackLayout({
+      orientation: 'portrait',
+      elements: [{ field: 'address', x: 900, y: 100 }]
+    });
+    expect(portrait?.elements?.[0].x).toBe(638);
+  });
+});
+
+describe('buildBackElement — portrait rotation', () => {
+  it('composes at 638x1014 and rotates into the unchanged 1014x638 output', () => {
+    const tree = buildBackElement(baseInput({ layout: { orientation: 'portrait' } }));
+    const styles = collectStyles(tree);
+
+    // Outer wrapper is still the printer's landscape canvas.
+    expect(styles[0]).toMatchObject({ width: 1014, height: 638 });
+    // Something in the tree composes in portrait and carries the rotation.
+    expect(
+      styles.some((s) => s.width === 638 && s.height === 1014 && s.transform === 'rotate(90deg)')
+    ).toBe(true);
+  });
+
+  it('portrait-flipped rotates the other way (same artwork, opposite direction)', () => {
+    const tree = buildBackElement(
+      baseInput({ layout: { orientation: 'portrait-flipped' } })
+    );
+    expect(
+      collectStyles(tree).some((s) => s.transform === 'rotate(-90deg)')
+    ).toBe(true);
+  });
+
+  it('landscape backs are untouched — no rotation wrapper', () => {
+    const tree = buildBackElement(baseInput({ layout: {} }));
+    expect(collectStyles(tree).some((s) => typeof s.transform === 'string')).toBe(false);
+  });
+
+  it('still renders the same content when portrait (rotation is geometry only)', () => {
+    const text = collectText(
+      buildBackElement(baseInput({ layout: { orientation: 'portrait' } }))
+    ).join(' | ');
+    expect(text).toContain('BLOOD GROUP');
+    expect(text).toContain('B+');
+    expect(text).toContain('TAMIL NADU, INDIA');
   });
 });

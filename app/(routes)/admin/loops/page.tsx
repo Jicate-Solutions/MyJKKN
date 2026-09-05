@@ -16,6 +16,14 @@
 // ============================================================================
 
 export const dynamic = 'force-dynamic';
+// The builds block streams a GitHub read (measured cold: 26 s) inside this
+// page's render; Vercel's default function limit would cut it off mid-stream
+// and leave the Suspense fallback on screen forever. 120 s: the reader's own
+// 40 s deadline (lib/services/loops/pending-prs.ts) bounds only the GitHub
+// tail, and the rest of the render (the Supabase reads above it, streamed
+// under Suspense) must fit in the remainder — so a slow GitHub renders an
+// explicit line instead (reconcile round, obj. 2; post-verdict note b).
+export const maxDuration = 120;
 export const navMeta = { label: 'Loop Control Tower', icon: 'Repeat' } as const;
 
 import Link from 'next/link';
@@ -28,6 +36,12 @@ import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import { LoopWiring } from './_components/loop-wiring';
 import { ClusterLens } from './_components/cluster-lens';
+import { OwnersPanel, type OwnerPanelRow } from './_components/owners-panel';
+import { ProvenGreenStrip } from './_components/proven-green-strip';
+import {
+  WaitingOnDirectorPanel,
+  loadWaitingOnDirector,
+} from './_components/waiting-on-director';
 import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
@@ -410,6 +424,11 @@ export default async function LoopControlTowerPage({
   // SCF effectiveness — the honest, deduplicated picture + real examples so the
   // card can show WHAT the loop actually produced and WHOSE profile it reflects.
   const scfEff = await loadScfEffectiveness(admin);
+
+  // Waiting on the Director — pending decisions in the loop estate (prompt
+  // graduations + charter drafts). Tower view only; every source swallows to
+  // empty, same contract as the reads above.
+  const waitingItems = view === 'tower' ? await loadWaitingOnDirector(admin) : [];
 
   // ── Live config, read from the SAME tables /admin/ai-routines edits, so the
   // two pages can't drift. Best-effort: any read failure falls back to each
@@ -920,7 +939,23 @@ export default async function LoopControlTowerPage({
   // Feeds the Tower's per-loop chips + the Wiring view. New prod tables — a
   // missing/lagging migration must never break this page, so every leg falls
   // back to an empty array (same swallow-to-empty philosophy as cnt() above).
-  const [registry, edges, audits, conflicts] = await Promise.all([
+  // Raw owners-panel row — the panel's dedicated read below (ALL rows, not just
+  // active: an owner can be assigned before a loop is switched on).
+  type OwnerRegistryRead = {
+    loop_key: string;
+    name: string;
+    domain: string | null;
+    verdict_owner: string | null;
+    owner_email: string | null;
+    is_active: boolean | null;
+    outcome_metric: string | null;
+    counter_metric: string | null;
+    intervention: string | null;
+    baseline_window: string | null;
+    remeasure_window: string | null;
+  };
+
+  const [registry, edges, audits, conflicts, ownerReads] = await Promise.all([
     // Charter-aware read with a pre-charter fallback: the five charter-leg
     // columns (outcome_metric … remeasure_window) land in a SIBLING migration,
     // and enumerating a column that doesn't exist yet errors the WHOLE select —
@@ -972,7 +1007,67 @@ export default async function LoopControlTowerPage({
         (r) => (r.data ?? []) as LoopConflictRow[],
         () => [] as LoopConflictRow[]
       ),
+    // Owners & verdicts panel (2026-08-12) — the registry's delegation surface.
+    // Charter legs are read to compute the completeness badge server-side.
+    // Same swallow-to-empty contract as the reads above: a failed select
+    // renders the panel's explicit empty state, never a 500.
+    admin
+      .from('loop_registry')
+      .select(
+        'loop_key,name,domain,verdict_owner,owner_email,is_active,outcome_metric,counter_metric,intervention,baseline_window,remeasure_window'
+      )
+      .order('stack_tier', { ascending: true })
+      .order('name', { ascending: true })
+      .then(
+        (r) => (r.data ?? []) as OwnerRegistryRead[],
+        () => [] as OwnerRegistryRead[]
+      ),
   ]);
+
+  // Charter completeness: all five legs non-null/non-blank → "chartered".
+  // Blank-string legs count as missing — same honesty as the RPC's NULLIF.
+  const CHARTER_LEGS = [
+    'outcome_metric',
+    'counter_metric',
+    'intervention',
+    'baseline_window',
+    'remeasure_window',
+  ] as const;
+  const ownersPanelRows: OwnerPanelRow[] = ownerReads.map((r) => ({
+    loop_key: r.loop_key,
+    name: r.name,
+    domain: r.domain ?? null,
+    verdict_owner: r.verdict_owner ?? null,
+    owner_email: r.owner_email ?? null,
+    is_active: r.is_active !== false,
+    missing_legs: CHARTER_LEGS.filter(
+      (k) => r[k] == null || String(r[k]).trim() === ''
+    ),
+  }));
+
+  // ── Proven-green thresholds (spec 2026-08-13) ─────────────────────────────
+  // Two Director-adjustable policy rows (seeded by 20260813033300); in-code
+  // fallbacks keep the strip safe before that migration is applied. Same
+  // scope_type='global' read discipline as the mess master-switch above.
+  const provenGreenPolicies = await admin
+    .from('platform_policies')
+    .select('policy_key, value')
+    .in('policy_key', [
+      'loops.proven_green.sim_max_age_days',
+      'loops.proven_green.walk_max_age_days',
+    ])
+    .eq('scope_type', 'global')
+    .then(
+      (r) => (r.data ?? []) as { policy_key: string; value: unknown }[],
+      () => [] as { policy_key: string; value: unknown }[]
+    );
+  const policyNum = (key: string, fallback: number): number => {
+    const v = provenGreenPolicies.find((p) => p.policy_key === key)?.value;
+    const num = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+    return Number.isFinite(num) && num > 0 ? num : fallback;
+  };
+  const simMaxAgeDays = policyNum('loops.proven_green.sim_max_age_days', 30);
+  const walkMaxAgeDays = policyNum('loops.proven_green.walk_max_age_days', 180);
 
   // Latest audit per loop — audits arrive newest-first, so the first row seen
   // per loop_key wins.
@@ -1547,10 +1642,37 @@ export default async function LoopControlTowerPage({
         />
       ) : (
         <>
+          {/* The Director's own pending decisions come FIRST — the Tower shows
+              loop health, but this is what is blocked on HIM (phone-first). */}
+          <div className="mb-6">
+            <WaitingOnDirectorPanel items={waitingItems} />
+          </div>
+          <div className="mb-6">
+            <ProvenGreenStrip
+              rows={ownersPanelRows}
+              audits={audits}
+              openConflicts={conflicts.length}
+              simMaxAgeDays={simMaxAgeDays}
+              walkMaxAgeDays={walkMaxAgeDays}
+            />
+          </div>
           <div className="mb-6">
             <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} latestSimByKey={latestSimByKey} conflicts={conflicts} />
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
+          <div className="mt-6">
+            <OwnersPanel rows={ownersPanelRows} />
+          </div>
+          {/* MetaLoop chartering factory (2026-08-13) — kept separate from the
+              proven-green strip wiring above; this is the drafts review queue. */}
+          <div className="mt-2 text-right">
+            <Link
+              href="/admin/loops/charters"
+              className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+            >
+              Charter proposals — MetaLoop drafts awaiting sign-off →
+            </Link>
+          </div>
         </>
       )}
     </ContentLayout>

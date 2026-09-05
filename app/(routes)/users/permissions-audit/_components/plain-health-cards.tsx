@@ -13,6 +13,11 @@ interface HealthData {
     mismatches: number;
     roles: number;
     superAdmins: number;
+    // People who can sign in but have no profile at all. Distinct from
+    // `orphans`, which is profiles with no ROLE. Optional so an older cached
+    // response cannot crash the page.
+    signedInWithoutProfile?: number;
+    signedInWithoutProfileRecoverable?: number;
   };
 }
 
@@ -78,9 +83,40 @@ function PlainCard({
 export function PlainHealthCards({ data, onAction }: Props) {
   const { totals } = data;
   const { users, orphans, mismatches, roles, superAdmins } = totals;
+  const noProfile = totals.signedInWithoutProfile ?? 0;
+  const noProfileFixable = totals.signedInWithoutProfileRecoverable ?? 0;
 
   return (
     <div className='grid grid-cols-1 lg:grid-cols-2 gap-3'>
+      {/* Card 0 — Signed in, but no profile.
+          Counts only people who have ACTUALLY signed in. There is a much larger
+          set of never-used pre-created accounts; they have not hit anything, and
+          counting them here would drown the real number. */}
+      {noProfile > 0 ? (
+        <PlainCard
+          borderColor='border-red-300'
+          bgColor='bg-red-50'
+          icon={<AlertTriangle className='h-5 w-5 text-red-600' />}
+          title={`${noProfile.toLocaleString()} ${
+            noProfile === 1 ? 'person signs' : 'people sign'
+          } in and get turned away`}
+          body={`Their login works, but there is no profile to open, so they land back on the sign-in page every time.${
+            noProfileFixable > 0
+              ? ` ${noProfileFixable} of them already ${
+                  noProfileFixable === 1 ? 'has' : 'have'
+                } a profile under a different ID and can be reconnected.`
+              : ''
+          }`}
+        />
+      ) : (
+        <PlainCard
+          borderColor='border-emerald-300'
+          bgColor='bg-emerald-50'
+          icon={<CheckCircle2 className='h-5 w-5 text-emerald-600' />}
+          title='Everyone who can sign in has a profile ✓'
+        />
+      )}
+
       {/* Card 1 — Orphan Users */}
       {orphans > 0 ? (
         <PlainCard

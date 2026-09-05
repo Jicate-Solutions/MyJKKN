@@ -26,13 +26,25 @@ export interface DepartmentMetrics {
 }
 
 // --- Societal Value Metrics ---
+//
+// NOT CURRENTLY MEASURABLE. Every source this axis was written against is absent from
+// production: there is no `sh_community_engagements` table (42P01), and `sh_solutions`
+// carries no `is_pro_bono`, `beneficiaries_count` or `sdg_goals` column (42703). No
+// write path exists anywhere in the codebase to populate them either.
+//
+// Until a capture surface is designed and shipped, every societal field is reported as
+// `null` — meaning "not measured" — and never as `0`, which would read as a measurement.
 export interface SocietalMetrics {
-  pro_bono_solutions: number;      // sh_solutions WHERE is_pro_bono = true
-  beneficiaries_reached: number;   // SUM of beneficiaries_count across solutions + community engagements
-  community_engagements: number;   // sh_community_engagements COUNT
-  community_hours: number;         // sh_community_engagements SUM hours_spent
-  sdg_goals_addressed: number;     // COUNT DISTINCT sdg_goals across solutions + engagements
+  pro_bono_solutions: number;
+  beneficiaries_reached: number;
+  community_engagements: number;
+  community_hours: number;
+  sdg_goals_addressed: number;
 }
+
+/** Shown to the reader wherever a societal figure would otherwise appear. */
+export const SOCIETAL_METRICS_UNAVAILABLE_REASON =
+  'Societal value is not captured yet — the Solutions Hub has no community engagement register, and solutions carry no beneficiary, SDG or pro-bono fields.';
 
 export interface DepartmentParadigmShift {
   department_id: string;
@@ -42,12 +54,15 @@ export interface DepartmentParadigmShift {
   institution_name: string;
   cluster: SolutionsCluster;
   metrics: DepartmentMetrics;
-  societal: SocietalMetrics;
+  /** `null` = not measured. See SOCIETAL_METRICS_UNAVAILABLE_REASON. */
+  societal: SocietalMetrics | null;
   active_metrics_count: number;
-  societal_metrics_count: number;
+  /** `null` = not measured. */
+  societal_metrics_count: number | null;
   tier: ReadinessTier;
   composite_score: number;
-  societal_score: number;
+  /** `null` = not measured. */
+  societal_score: number | null;
 }
 
 export interface ClusterSummary {
@@ -65,9 +80,12 @@ export interface ParadigmShiftOverview {
     total_revenue: number;
     total_solutions: number;
     total_publications: number;
-    total_beneficiaries: number;
-    total_community_engagements: number;
-    total_pro_bono: number;
+    /** `null` = not measured. See SOCIETAL_METRICS_UNAVAILABLE_REASON. */
+    total_beneficiaries: number | null;
+    /** `null` = not measured. */
+    total_community_engagements: number | null;
+    /** `null` = not measured. */
+    total_pro_bono: number | null;
   };
 }
 
@@ -167,36 +185,6 @@ function emptyMetrics(): DepartmentMetrics {
   };
 }
 
-function emptySocietalMetrics(): SocietalMetrics {
-  return {
-    pro_bono_solutions: 0,
-    beneficiaries_reached: 0,
-    community_engagements: 0,
-    community_hours: 0,
-    sdg_goals_addressed: 0,
-  };
-}
-
-function countActiveSocietalMetrics(s: SocietalMetrics): number {
-  let count = 0;
-  if (s.pro_bono_solutions > 0) count++;
-  if (s.beneficiaries_reached > 0) count++;
-  if (s.community_engagements > 0) count++;
-  if (s.community_hours > 0) count++;
-  if (s.sdg_goals_addressed > 0) count++;
-  return count;
-}
-
-function computeSocietalScore(s: SocietalMetrics): number {
-  return (
-    s.pro_bono_solutions * 15 +
-    Math.min(s.beneficiaries_reached / 100, 50) * 2 + // cap contribution
-    s.community_engagements * 10 +
-    s.community_hours * 0.5 +
-    s.sdg_goals_addressed * 20
-  );
-}
-
 // ============================================
 // SERVICE CLASS
 // ============================================
@@ -248,9 +236,9 @@ export class ParadigmShiftService extends BaseService {
           total_revenue: 0,
           total_solutions: 0,
           total_publications: 0,
-          total_beneficiaries: 0,
-          total_community_engagements: 0,
-          total_pro_bono: 0,
+          total_beneficiaries: null,
+          total_community_engagements: null,
+          total_pro_bono: null,
         },
       };
     }
@@ -314,28 +302,10 @@ export class ParadigmShiftService extends BaseService {
         .gte('created_at', fy.start + 'T00:00:00')
         .lte('created_at', fy.end + 'T23:59:59'),
 
-      // --- SOCIETAL VALUE QUERIES ---
-
-      // Pro-bono solutions with beneficiary counts
-      this.supabase
-        .from('sh_solutions')
-        .select('lead_department_id, beneficiaries_count, sdg_goals, is_pro_bono')
-        .eq('is_pro_bono', true)
-        .in('status', ['active', 'completed']),
-
-      // Community engagements
-      this.supabase
-        .from('sh_community_engagements')
-        .select('department_id, beneficiaries_count, hours_spent, sdg_goals')
-        .gte('engagement_date', fy.start)
-        .lte('engagement_date', fy.end),
-
-      // All solutions with beneficiaries (not just pro-bono)
-      this.supabase
-        .from('sh_solutions')
-        .select('lead_department_id, beneficiaries_count, sdg_goals')
-        .in('status', ['active', 'completed'])
-        .gt('beneficiaries_count', 0),
+      // NOTE: the three societal-value queries that used to sit here were removed —
+      // they read a table and three columns that do not exist in production, so they
+      // errored on every request and the failures were swallowed into zeros. See
+      // SOCIETAL_METRICS_UNAVAILABLE_REASON above.
     ]);
 
     // Extract data with graceful fallback for failed queries
@@ -352,9 +322,6 @@ export class ParadigmShiftService extends BaseService {
     const productsData = { data: extractData(results[5]) };
     const ipRetainedData = { data: extractData(results[6]) };
     const trainingData = { data: extractData(results[7]) };
-    const proBonoData = { data: extractData(results[8]) };
-    const communityData = { data: extractData(results[9]) };
-    const beneficiaryData = { data: extractData(results[10]) };
 
     // 3. Build per-department metric maps
     const metricsMap: Record<string, DepartmentMetrics> = {};
@@ -440,62 +407,10 @@ export class ParadigmShiftService extends BaseService {
       }
     });
 
-    // 3b. Build per-department societal metrics maps
-    const societalMap: Record<string, SocietalMetrics> = {};
-    const initSocietal = (deptId: string) => {
-      if (!societalMap[deptId]) societalMap[deptId] = emptySocietalMetrics();
-    };
-    const sdgByDept: Record<string, Set<string>> = {};
-
-    // Pro-bono solutions
-    (proBonoData.data || []).forEach((row: { lead_department_id: string | null; beneficiaries_count: number | null; sdg_goals: string[] | null; is_pro_bono: boolean }) => {
-      if (row.lead_department_id) {
-        initSocietal(row.lead_department_id);
-        societalMap[row.lead_department_id].pro_bono_solutions++;
-        societalMap[row.lead_department_id].beneficiaries_reached += (row.beneficiaries_count || 0);
-        if (row.sdg_goals?.length) {
-          if (!sdgByDept[row.lead_department_id]) sdgByDept[row.lead_department_id] = new Set();
-          row.sdg_goals.forEach(g => sdgByDept[row.lead_department_id].add(g));
-        }
-      }
-    });
-
-    // Community engagements
-    (communityData.data || []).forEach((row: { department_id: string | null; beneficiaries_count: number | null; hours_spent: number | null; sdg_goals: string[] | null }) => {
-      if (row.department_id) {
-        initSocietal(row.department_id);
-        societalMap[row.department_id].community_engagements++;
-        societalMap[row.department_id].beneficiaries_reached += (row.beneficiaries_count || 0);
-        societalMap[row.department_id].community_hours += Number(row.hours_spent) || 0;
-        if (row.sdg_goals?.length) {
-          if (!sdgByDept[row.department_id]) sdgByDept[row.department_id] = new Set();
-          row.sdg_goals.forEach(g => sdgByDept[row.department_id].add(g));
-        }
-      }
-    });
-
-    // Beneficiaries from non-pro-bono solutions
-    (beneficiaryData.data || []).forEach((row: { lead_department_id: string | null; beneficiaries_count: number | null; sdg_goals: string[] | null }) => {
-      if (row.lead_department_id) {
-        initSocietal(row.lead_department_id);
-        societalMap[row.lead_department_id].beneficiaries_reached += (row.beneficiaries_count || 0);
-        if (row.sdg_goals?.length) {
-          if (!sdgByDept[row.lead_department_id]) sdgByDept[row.lead_department_id] = new Set();
-          row.sdg_goals.forEach(g => sdgByDept[row.lead_department_id].add(g));
-        }
-      }
-    });
-
-    // Count distinct SDG goals per department
-    Object.entries(sdgByDept).forEach(([deptId, goals]) => {
-      initSocietal(deptId);
-      societalMap[deptId].sdg_goals_addressed = goals.size;
-    });
-
-    // 4. Build department list with tiers, clusters, and societal metrics
+    // 4. Build department list with tiers and clusters.
+    // The societal axis has no source in production, so it is reported as not measured.
     const result: DepartmentParadigmShift[] = filteredDepts.map((dept) => {
       const metrics = metricsMap[dept.id] || emptyMetrics();
-      const societal = societalMap[dept.id] || emptySocietalMetrics();
       const activeCount = countActiveMetrics(metrics);
       const rawInst = dept.institution;
       const inst = Array.isArray(rawInst) ? rawInst[0] : rawInst as { id: string; name: string } | null;
@@ -509,12 +424,12 @@ export class ParadigmShiftService extends BaseService {
         institution_name: institutionName,
         cluster: getClusterForInstitution(institutionName),
         metrics,
-        societal,
+        societal: null,
         active_metrics_count: activeCount,
-        societal_metrics_count: countActiveSocietalMetrics(societal),
+        societal_metrics_count: null,
         tier: calculateTier(activeCount),
         composite_score: computeCompositeScore(metrics),
-        societal_score: computeSocietalScore(societal),
+        societal_score: null,
       };
     });
 
@@ -553,9 +468,9 @@ export class ParadigmShiftService extends BaseService {
       total_revenue: finalResult.reduce((sum, d) => sum + d.metrics.revenue_generated, 0),
       total_solutions: finalResult.reduce((sum, d) => sum + d.metrics.solutions_built, 0),
       total_publications: finalResult.reduce((sum, d) => sum + d.metrics.publications, 0),
-      total_beneficiaries: finalResult.reduce((sum, d) => sum + d.societal.beneficiaries_reached, 0),
-      total_community_engagements: finalResult.reduce((sum, d) => sum + d.societal.community_engagements, 0),
-      total_pro_bono: finalResult.reduce((sum, d) => sum + d.societal.pro_bono_solutions, 0),
+      total_beneficiaries: null,
+      total_community_engagements: null,
+      total_pro_bono: null,
     };
 
     return { departments: finalResult, summary };

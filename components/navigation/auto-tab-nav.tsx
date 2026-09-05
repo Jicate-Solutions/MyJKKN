@@ -33,11 +33,16 @@ import { useEffect, useRef } from 'react';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { resolveTiers, type Chip } from '@/lib/navigation/tier-rendering';
+import { findActiveGroup, getNavConfigForPath } from '@/lib/navigation/nav-config';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { MENU_PERMISSIONS, normalizeRoute } from '@/lib/sidebarMenuLink';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
+import {
+  useIsSoiCoordinator,
+  withSoiCoordinatorNavAccess,
+} from '@/hooks/school-of-influence/use-soi-coordinator-nav-access';
 
 interface AutoTabNavProps {
   maxDepth?: number;
@@ -56,7 +61,26 @@ interface TabBarProps {
 }
 
 function TabBar({ chips, adapt }: TabBarProps) {
-  if (chips.length < 2) return null;
+  // EVERY HOOK RUNS BEFORE THE <2-CHIP GUARD, AND MUST STAY THAT WAY.
+  //
+  // The guard used to sit on the first line, above useRef/useEffect. That is a
+  // rules-of-hooks violation with a delayed fuse: React tags each fiber with
+  // static flags (RefStatic, PassiveStatic) describing which hook KINDS the
+  // component uses, and treats them as immutable. A render that calls the hooks
+  // followed by one that early-returns recomputes those flags as empty, and
+  // renderWithHooks reports:
+  //
+  //   "Internal React error: Expected static flag was missing."
+  //
+  // It fired on real pages (/hr/leave/requests) because chip counts CHANGE
+  // ACROSS RENDERS FOR THE SAME FIBER. canShowChip returns true for everything
+  // while usePermissions is loading -- deliberately, to avoid a
+  // flash-of-disappearance -- so a tier renders with 2+ chips, then drops below
+  // 2 once permissions resolve. The parent keys these by index, so that is an
+  // in-place update of one fiber, not an unmount.
+  //
+  // Returning null after the hooks is free: the effect's own
+  // `!containerRef.current` guard makes it a no-op when nothing is rendered.
   const containerRef = useRef<HTMLDivElement>(null);
   const activeHref = chips.find((c) => c.isActive)?.href ?? null;
 
@@ -75,6 +99,9 @@ function TabBar({ chips, adapt }: TabBarProps) {
       block: 'nearest',
     });
   }, [activeHref]);
+
+  // No 1-chip bars. A single chip is a label, not a choice.
+  if (chips.length < 2) return null;
 
   return (
     <div
@@ -122,7 +149,13 @@ export function AutoTabNav({
   const pathname = usePathname();
   const adaptFn = useAdaptiveLabels();
   const adapt = typeof adaptFn === 'function' ? adaptFn : (label: string) => label;
-  const { permissions, isSuperAdmin, isLoading } = usePermissions();
+  const { permissions: rolePermissions, isSuperAdmin, isLoading } = usePermissions();
+  // An appointed School of Influence coordinator holds no cohort.manage key, so
+  // every chip of their own programme was filtered away and the tab strip they
+  // needed rendered empty (BUG-005799 / BUG-005800). Visibility only — each
+  // screen still authorises the caller in the database when opened.
+  const isSoiCoordinator = useIsSoiCoordinator();
+  const permissions = withSoiCoordinatorNavAccess(rolePermissions, isSoiCoordinator);
 
   const isCampusLiving = !!pathname && pathname.startsWith('/campus-living');
   const { data: isHosteler } = useIsHosteler(isCampusLiving);
@@ -155,10 +188,33 @@ export function AutoTabNav({
   // tiers[0] = tier 2, tiers[1] = tier 3, tiers[2] = tier 4
   const sliceStart = Math.max(0, minDepth - 2);
   const sliceEnd = Math.max(0, maxDepth - 1);
+
+  // A nav-config group that declares its screens as explicit children renders
+  // them at tier 3. When those screens live one folder DEEPER than the group
+  // (School of Influence's five admin pages, 2026-08-13), the manifest walk
+  // reaches the same folder at tier 4 and paints a second, identical strip.
+  // Drop the repeat. Empty for every group without explicit children, so this
+  // is inert everywhere else.
+  const activeNavConfig = getNavConfigForPath(pathname);
+  const activeGroup = activeNavConfig
+    ? findActiveGroup(pathname, activeNavConfig)
+    : null;
+  const explicitChildHrefs = new Set(
+    (activeGroup?.children ?? []).map((c) => normalizeRoute(c.href))
+  );
+
   const visible = allTiers
     .slice(sliceStart, sliceEnd)
     .map((chips, tierIdx) =>
       chips.filter((c) => {
+        // tiers[1] IS the explicit-children strip; anything below it repeating
+        // one of those hrefs is the manifest saying the same thing twice.
+        if (
+          sliceStart + tierIdx > 1 &&
+          explicitChildHrefs.has(normalizeRoute(c.href))
+        ) {
+          return false;
+        }
         // My Marks has its own richer in-page switcher (MarksViewTabs with
         // descriptions), so suppress the auto Internal/Result sub-tabs. The
         // trailing slash keeps the "My Marks" parent chip (/learners/my-marks)

@@ -6,6 +6,12 @@ import {
   oncePerLearnerMessage
 } from '@/lib/utils/billing-duplicate-error';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { BillCancellationService } from './bill-cancellation-service';
+import type {
+  BillCancelReasonCode,
+  BillCancellationAttachment,
+  CancelBillResult
+} from '@/types/billing-bill-cancellation';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -20,8 +26,77 @@ import type {
   BillForBulkEdit
 } from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
 
+/**
+ * One tranche of a bill's payment schedule, with the money already allocated
+ * to it by the waterfall.
+ *
+ * `allocated_amount` / `is_settled` are NOT stored on the tranche — they are
+ * derived per read from the bill's paid position, oldest tranche first. That
+ * is why a stale value can never be shown: there is no value to go stale.
+ */
+export interface BillInstalmentState {
+  instalment_id: string;
+  bill_id: string;
+  sequence_no: number;
+  amount: number;
+  due_date: string;
+  allocated_amount: number;
+  outstanding: number;
+  is_settled: boolean;
+  /** Its date has arrived — this is the part of the bill actually owed now. */
+  is_due: boolean;
+  promotes_to_status_code: string | null;
+}
+
 export class StudentBillService {
   private static supabase = createClientSupabaseClient();
+
+  /**
+   * Payment schedules for a set of bills, keyed by bill id.
+   *
+   * Batched on purpose: a learner's page renders every bill at once, and one
+   * request per bill would be N round trips to render a table. Bills with no
+   * schedule simply have no key — the caller shows them exactly as before.
+   *
+   * Reads vw_bill_instalment_state rather than the raw table so the allocation
+   * comes from the same waterfall the promotion engine and the fee-paid
+   * threshold use. Re-deriving "how much of this tranche is paid" in the client
+   * would be a third implementation of it, free to disagree with both.
+   */
+  static async getInstalmentsForBills(
+    billIds: string[],
+  ): Promise<Map<string, BillInstalmentState[]>> {
+    const byBill = new Map<string, BillInstalmentState[]>();
+    if (billIds.length === 0) return byBill;
+
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('vw_bill_instalment_state')
+      .select(
+        'instalment_id, bill_id, sequence_no, amount, due_date, allocated_amount, outstanding, is_settled, is_due, promotes_to_status_code',
+      )
+      .in('bill_id', billIds)
+      // The waterfall settles the oldest debt first, so the schedule must read
+      // in calendar order — a schedule authored out of sequence would otherwise
+      // display in an order that contradicts how its money was allocated.
+      .order('due_date', { ascending: true })
+      .order('sequence_no', { ascending: true });
+
+    // Supabase errors are plain objects, not Error instances — check, never
+    // try/catch. A failure here must not blank the bills table: the schedule is
+    // additional detail, and the bill rows are still correct without it.
+    if (error) {
+      console.warn('[billing] could not load bill instalments:', getErrorMessage(error));
+      return byBill;
+    }
+
+    for (const row of (data ?? []) as BillInstalmentState[]) {
+      const list = byBill.get(row.bill_id);
+      if (list) list.push(row);
+      else byBill.set(row.bill_id, [row]);
+    }
+    return byBill;
+  }
 
   static async createStudentBill(
     billData: CreateStudentBillDto
@@ -313,74 +388,48 @@ export class StudentBillService {
     return results;
   }
 
-  private static readonly CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
-
+  /**
+   * Cancel a bill.
+   *
+   * This used to be a plain UPDATE that set status and appended the reason to
+   * the free-text `remarks` column. It now delegates to
+   * BillCancellationService, which goes through fn_cancel_student_bill --
+   * a SECURITY DEFINER RPC that records the reason, the reason code and the
+   * supporting documents in billing_bill_cancellations, and refuses a bill
+   * that still has receipted money against it.
+   *
+   * The status allow-list, the receipted-money guard and the zeroing of
+   * balance_amount all live in the RPC now. Duplicating them here is how the
+   * two would drift apart, and a trigger rejects any UPDATE that tries to set
+   * status='cancelled' outside the RPC, so a second implementation could not
+   * work anyway.
+   */
   static async cancelStudentBill(
     id: string,
-    reason?: string
-  ): Promise<StudentBill> {
-    try {
-      const bill = await this.getStudentBill(id);
-
-      if (!this.CANCELLABLE_STATUSES.includes(bill.status)) {
-        throw new Error(
-          `Cannot cancel bill with status "${bill.status}". Only unpaid, partially paid, or overdue bills can be cancelled.`
-        );
-      }
-
-      const updateQuery: any = this.supabase.from('billing_student_bills');
-      const { data, error } = await updateQuery
-        .update({
-          status: 'cancelled',
-          balance_amount: 0,
-          remarks: reason
-            ? `${bill.remarks ? bill.remarks + ' | ' : ''}Cancelled: ${reason}`
-            : bill.remarks
-        })
-        .eq('id', id)
-        .select(
-          `
-          *,
-          student:learners_profiles(
-            id, first_name, last_name, roll_number
-          ),
-          institution:institutions(id, name),
-          item_category:billing_categories(id, category_name)
-        `
-        )
-        .single();
-
-      if (error) throw error;
-
-      const studentName = `${data.student?.first_name || ''} ${data.student?.last_name || ''}`.trim() || 'Unknown';
-      const template = BillingActivityTemplates.billCancelled(
-        bill.bill_description || 'Student bill',
-        studentName,
-        reason
-      );
-      logActivityForCurrentUser({
-        ...template,
-        resourceId: id,
-        institutionId: bill.institution_id,
-        metadata: {
-          sub_type: template.sub_type,
-          student_id: bill.student_id,
-          original_amount: bill.final_amount,
-          balance_at_cancel: bill.balance_amount,
-          reason,
-        },
-      });
-
-      return data;
-    } catch (error) {
-      console.error('Error cancelling student bill:', error);
-      throw error;
-    }
+    reasonCode: BillCancelReasonCode,
+    reason: string,
+    attachments: BillCancellationAttachment[]
+  ): Promise<CancelBillResult> {
+    return BillCancellationService.cancelBill({
+      billId: id,
+      reasonCode,
+      reason,
+      attachments,
+    });
   }
 
+  /**
+   * Cancel several bills under ONE reason and ONE set of documents -- the
+   * "these twelve rows are the same duplicate, here is the approval memo" case.
+   * Each bill still goes through the RPC individually, so a bill that is
+   * ineligible (wrong status, or money receipted against it) fails on its own
+   * and the rest continue.
+   */
   static async bulkCancelStudentBills(
     ids: string[],
-    reason?: string
+    reasonCode: BillCancelReasonCode,
+    reason: string,
+    attachments: BillCancellationAttachment[]
   ): Promise<BulkOperationResult> {
     const results: BulkOperationResult = {
       success: [],
@@ -389,12 +438,17 @@ export class StudentBillService {
 
     for (const id of ids) {
       try {
-        await this.cancelStudentBill(id, reason);
+        await BillCancellationService.cancelBill({
+          billId: id,
+          reasonCode,
+          reason,
+          attachments,
+        });
         results.success.push(id);
       } catch (error) {
         results.failed.push({
           id,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: getErrorMessage(error)
         });
       }
     }
@@ -411,6 +465,7 @@ export class StudentBillService {
           sub_type: template.sub_type,
           cancelled_ids: results.success,
           failed_count: results.failed.length,
+          reason_code: reasonCode,
           reason,
         },
       });
@@ -438,6 +493,42 @@ export class StudentBillService {
       return (data || []).map((row: { id: string }) => row.id);
     } catch (error) {
       console.error('Error resolving accommodation type ids:', error);
+      return [];
+    }
+  }
+
+  // Cache for resolveInstitutionIdsByEntityType below. The institutions table
+  // is a small, effectively static catalog and this runs on every list page,
+  // pagination step and export.
+  private static institutionIdsByEntityType = new Map<string, string[]>();
+
+  /**
+   * Resolve every institution id of a given entity_type ('institution' =
+   * college, 'school', 'admin_office', 'company').
+   *
+   * Mirrors StudentSearchService.resolveInstitutionIdsByEntityType — the
+   * students list and the bills list must agree on what "a college" is.
+   * Returns [] on error, which the caller turns into a deliberate no-match
+   * rather than silently widening the result set.
+   */
+  private static async resolveInstitutionIdsByEntityType(
+    entityType: string
+  ): Promise<string[]> {
+    const cached = this.institutionIdsByEntityType.get(entityType);
+    if (cached) return cached;
+
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('institutions')
+        .select('id')
+        .eq('entity_type', entityType);
+
+      if (error) throw error;
+      const ids = (data || []).map((row: { id: string }) => row.id);
+      if (ids.length > 0) this.institutionIdsByEntityType.set(entityType, ids);
+      return ids;
+    } catch (error) {
+      console.error('Error resolving institution ids by entity type:', error);
       return [];
     }
   }
@@ -496,15 +587,85 @@ export class StudentBillService {
         ? await this.resolveAdmissionYearIds(filters.admission_year)
         : null;
 
+      // ── Search strategy ────────────────────────────────────────────────
+      // PostgREST cannot mix parent and embedded columns inside one top-level
+      // logical tree — `or=(bill_description.ilike.*,student.first_name.ilike.*)`
+      // is rejected with "failed to parse logic tree". So matching EITHER the
+      // bill description OR the learner's name means pre-resolving the learner
+      // ids and OR-ing them in as `student_id.in.(...)`.
+      //
+      // Those ids travel in the request URL. A broad term (e.g. a single "A")
+      // matches thousands of learners, and ~400 uuids (~15KB of query string)
+      // overruns the gateway's max request line: the call comes back as
+      // "Bad Request"/"fetch failed" and the table renders "Failed to load
+      // data". Inline the ids only while the list is small; once the term is
+      // broad enough to overflow, drop to an !inner join and filter the
+      // learner in-database instead — unbounded, one round trip, no URL growth.
+      const MAX_INLINE_STUDENT_IDS = 150;
+
+      const searchTerm = filters.search
+        ? filters.search.replace(/[,()]/g, ' ').trim()
+        : '';
+
+      // Multi-word terms are AND-ed token by token. Matching the WHOLE phrase
+      // against each column individually made "AKASH V" return nothing — no
+      // single column holds it (first_name is 'AKASH', last_name is 'V').
+      // Chained .or() calls are AND-ed by PostgREST, so each token must hit
+      // SOME searchable column while different tokens may land on different
+      // columns. Order is irrelevant ("V AKASH" works), and mixed terms like
+      // "AKASH PB25" (name + roll fragment) now work too. A single token
+      // produces exactly one .or(), i.e. the previous behaviour unchanged.
+      // Capped at 5 tokens so a pasted sentence can't build a huge URL.
+      const searchTokens = searchTerm
+        ? searchTerm.split(/\s+/).filter(Boolean).slice(0, 5)
+        : [];
+
+      // The learner columns a search token may land on. Shared by both modes so
+      // the inline lookup and the !inner fallback stay in step.
+      const learnerSearchOr = (like: string) =>
+        `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like},college_email.ilike.${like}`;
+
+      // Non-null → inline `student_id.in.(...)` mode; searchViaJoin → !inner mode.
+      let searchStudentIds: string[] | null = null;
+      let searchViaJoin = false;
+
+      if (searchTokens.length > 0) {
+        let learnerQuery = (this.supabase as any)
+          .from('learners_profiles')
+          .select('id');
+
+        for (const token of searchTokens) {
+          learnerQuery = learnerQuery.or(learnerSearchOr(`%${token}%`));
+        }
+
+        // One past the cap is all we need to know the list overflows.
+        const { data: matchedStudents, error: studentLookupErr } =
+          await learnerQuery.limit(MAX_INLINE_STUDENT_IDS + 1);
+
+        if (studentLookupErr) throw studentLookupErr;
+
+        const ids = (matchedStudents ?? [])
+          .map((s: { id: string }) => s.id)
+          .filter(Boolean);
+
+        if (ids.length > MAX_INLINE_STUDENT_IDS) {
+          searchViaJoin = true;
+        } else {
+          searchStudentIds = ids;
+        }
+      }
+
       // Any filter that targets a column on the embedded learner requires the
       // INNER-join variant of the select. lifecycle_status lives on
       // learners_profiles, so it joins the same club as the academic +
-      // accommodation filters.
+      // accommodation filters — as does a broad search that fell back to the
+      // in-database learner match above.
       const hasStudentFilters =
         hasAcademicFilters ||
         accommodationTypeIds !== null ||
         admissionYearIds !== null ||
-        !!filters.lifecycle_status;
+        !!filters.lifecycle_status ||
+        searchViaJoin;
 
       let query;
 
@@ -620,59 +781,54 @@ export class StudentBillService {
         );
       }
 
-      // Apply search filter. PostgREST .or() cannot reference embedded-resource
-      // columns (e.g. `student.first_name.ilike.X`) — the parser only allows
-      // <column>.<operator>.<value> on the parent table. To search both the
-      // bill description AND the joined student fields, pre-resolve the
-      // matching student IDs and OR them in as `student_id.in.(...)`.
-      if (filters.search) {
-        const term = filters.search.replace(/[,()]/g, ' ').trim();
-        const like = `%${term}%`;
-
-        const orParts: string[] = [`bill_description.ilike.${like}`];
-
-        // Multi-word terms are AND-ed token by token. Matching the WHOLE phrase
-        // against each column individually made "AKASH V" return nothing — no
-        // single column holds it (first_name is 'AKASH', last_name is 'V').
-        // Chained .or() calls are AND-ed by PostgREST, so each token must hit
-        // SOME searchable column while different tokens may land on different
-        // columns. Order is irrelevant ("V AKASH" works), and mixed terms like
-        // "AKASH PB25" (name + roll fragment) now work too. A single token
-        // produces exactly one .or(), i.e. the previous behaviour unchanged.
-        // Capped at 5 tokens so a pasted sentence can't build a huge URL.
-        const tokens = term.split(/\s+/).filter(Boolean).slice(0, 5);
-
-        if (tokens.length > 0) {
-          let learnerQuery = (this.supabase as any)
-            .from('learners_profiles')
-            .select('id');
-
-          for (const token of tokens) {
-            const tokenLike = `%${token}%`;
-            learnerQuery = learnerQuery.or(
-              `first_name.ilike.${tokenLike},last_name.ilike.${tokenLike},roll_number.ilike.${tokenLike},college_email.ilike.${tokenLike}`
-            );
+      // Apply the search resolved above (see the MAX_INLINE_STUDENT_IDS note).
+      if (searchTokens.length > 0) {
+        if (searchViaJoin) {
+          // Broad term: match the learner in-database via the !inner embed.
+          // Scoped to the referenced table, so it AND's with any other learner
+          // filter (department, lifecycle, …) rather than widening them. One
+          // .or() per token, matching the token AND-ing of the inline path.
+          // bill_description is not OR'd in here — PostgREST can't span the
+          // join — but at >150 matching learners the name match dominates.
+          for (const token of searchTokens) {
+            query = query.or(learnerSearchOr(`%${token}%`), {
+              referencedTable: 'student'
+            });
           }
-
-          const { data: matchedStudents, error: studentLookupErr } =
-            await learnerQuery.limit(1000);
-
-          if (studentLookupErr) throw studentLookupErr;
-
-          const studentIds = (matchedStudents ?? [])
-            .map((s: { id: string }) => s.id)
-            .filter(Boolean);
-
-          if (studentIds.length > 0) {
-            orParts.push(`student_id.in.(${studentIds.join(',')})`);
+        } else {
+          const orParts: string[] = [
+            `bill_description.ilike.%${searchTerm}%`
+          ];
+          if (searchStudentIds && searchStudentIds.length > 0) {
+            orParts.push(`student_id.in.(${searchStudentIds.join(',')})`);
           }
+          query = query.or(orParts.join(','));
         }
-
-        query = query.or(orParts.join(','));
       }
 
       if (filters.student_id) {
         query = query.eq('student_id', filters.student_id);
+      }
+
+      // Entity-type gate. Same shape as StudentSearchService: resolve the
+      // matching institution ids and filter the FK column with .in(), rather
+      // than filtering the embedded institutions resource (which PostgREST
+      // only allows behind an !inner join, and an inner join here would drop
+      // bills whose institution row is not visible).
+      //
+      // This is the query half of the college-only dropdown. Without it the
+      // default "All Institutions" view still returns school-fee bills, i.e.
+      // exactly the rows the dropdown was restricted to hide.
+      if (filters.institution_entity_type) {
+        const entityInstitutionIds = await this.resolveInstitutionIdsByEntityType(
+          filters.institution_entity_type
+        );
+        query = query.in(
+          'institution_id',
+          entityInstitutionIds.length > 0
+            ? entityInstitutionIds
+            : ['00000000-0000-0000-0000-000000000000']
+        );
       }
 
       if (filters.institution_id) {
@@ -930,7 +1086,11 @@ export class StudentBillService {
     } catch (error) {
       // Supabase errors are plain objects — console.error alone prints "{}".
       console.error('Error fetching student bills:', getErrorMessage(error), error);
-      throw error;
+      // …and a plain object fails `error instanceof Error` in the DataTable,
+      // which then shows the useless "Failed to load data: Unknown error".
+      // Re-wrap so the real cause reaches the screen; `cause` keeps the original.
+      if (error instanceof Error) throw error;
+      throw new Error(getErrorMessage(error), { cause: error });
     }
   }
 
@@ -1331,7 +1491,27 @@ export class StudentBillService {
    * Shared by getBillsForBulkEdit + countBillsForBulkEdit so the count never
    * drifts from the exported set.
    */
-  private static applyBulkEditFilters(query: any, filters: BulkEditDownloadFilters) {
+  private static async applyBulkEditFilters(
+    query: any,
+    filters: BulkEditDownloadFilters,
+    client: any
+  ) {
+    // College-only, unconditionally — bulk edit is a college surface and its
+    // institution dropdown lists entity_type='institution'. With "All
+    // institutions" chosen no institution_id is sent, so without this gate the
+    // download (and therefore the APPLY step) would reach school-fee bills.
+    // Resolved through the INJECTED client: this path runs server-side, where
+    // the class-level browser client is not the caller.
+    const { data: collegeRows } = await client
+      .from('institutions')
+      .select('id')
+      .eq('entity_type', 'institution');
+    const collegeIds = (collegeRows || []).map((r: { id: string }) => r.id);
+    query = query.in(
+      'institution_id',
+      collegeIds.length > 0 ? collegeIds : ['00000000-0000-0000-0000-000000000000']
+    );
+
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -1383,7 +1563,7 @@ export class StudentBillService {
       .order('created_at', { ascending: false })
       .limit(StudentBillService.BULK_EDIT_DOWNLOAD_CAP);
 
-    query = StudentBillService.applyBulkEditFilters(query, filters);
+    query = await StudentBillService.applyBulkEditFilters(query, filters, client);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -1426,7 +1606,7 @@ export class StudentBillService {
     let query = client
       .from('billing_student_bills')
       .select('id', { count: 'exact', head: true });
-    query = StudentBillService.applyBulkEditFilters(query, filters);
+    query = await StudentBillService.applyBulkEditFilters(query, filters, client);
     const { count, error } = await query;
     if (error) throw error;
     return count || 0;

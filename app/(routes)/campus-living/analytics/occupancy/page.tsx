@@ -22,12 +22,14 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useOccupancyAnalytics } from '@/hooks/campus-living/use-campus-living-analytics';
 import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function OccupancyAnalyticsPage() {
   const [period, setPeriod] = useState('30d');
   const { profile } = useAuth();
+  const { isLoading: permsLoading } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
   const { data: occupancy, isLoading, error } = useOccupancyAnalytics(institutionId);
 
@@ -53,7 +55,9 @@ export default function OccupancyAnalyticsPage() {
     }));
   }, [occupancy]);
 
-  if (isLoading) {
+  // permsLoading: the query stays disabled until the viewer's scope resolves, and
+  // a disabled query reports isLoading:false (BUG-005831 — see useCampusLivingScope).
+  if (isLoading || permsLoading) {
     return (
       <ContentLayout title="Occupancy Analytics">
         <div className="flex items-center justify-center min-h-[400px]">

@@ -7,6 +7,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { buildLearnerSearchConditions } from '@/lib/utils/learner-search';
+import { resolveAdmissionYearIds } from '@/lib/utils/admission-year-filter';
 
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 
@@ -27,8 +28,16 @@ interface GetLearnerProfilesParams {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  /**
+   * Calendar admission year (e.g. 2026), NOT an admission_years row id — that
+   * table is institution-scoped and holds eleven separate "2026" rows.
+   * Resolved to ids before the query runs; see resolveAdmissionYearIds.
+   */
+  admission_year?: number;
   gender?: string;
   is_profile_complete?: boolean;
+  /** accommodation_types.id — the FK the row is actually stored against. */
+  accommodation_type_id?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   learner_id?: string; // Added: Filter by specific learner ID (for students viewing own profile)
@@ -84,7 +93,16 @@ const LIST_SELECT = `
  * omitted `learner_id`, which made a student's `total_items` count every profile
  * they could see instead of just their own row.
  */
-function applyLearnerFilters<T>(query: T, params: GetLearnerProfilesParams): T {
+function applyLearnerFilters<T>(
+  query: T,
+  params: GetLearnerProfilesParams,
+  // Pre-resolved by the caller because this function is SYNCHRONOUS and is
+  // shared with the count fallback — resolving inside it would either make it
+  // async (rippling into both call sites) or run the lookup twice. `null` means
+  // the filter is not active; an empty array means it is active and matched
+  // nothing visible, which must still narrow the query to zero rows.
+  admissionYearIds: string[] | null = null
+): T {
   const {
     search,
     search_case_sensitive,
@@ -100,6 +118,7 @@ function applyLearnerFilters<T>(query: T, params: GetLearnerProfilesParams): T {
     academic_year_id,
     gender,
     is_profile_complete,
+    accommodation_type_id,
     learner_id,
   } = params;
 
@@ -133,11 +152,28 @@ function applyLearnerFilters<T>(query: T, params: GetLearnerProfilesParams): T {
   if (section_id) q = q.eq('section_id', section_id);
   if (academic_year_id) q = q.eq('academic_year_id', academic_year_id);
 
+  // Admission year (cohort). Distinct from academic_year_id above: that one is
+  // the term the learner is enrolled in NOW, this one is the year they joined.
+  // Matched against the full set of row ids for the chosen calendar year, so it
+  // spans institutions instead of silently picking one.
+  if (admissionYearIds) q = q.in('admission_year_id', admissionYearIds);
+
   // gender is stored upper-case ('MALE' / 'FEMALE') but has been written in
   // mixed case by older forms. Match case-insensitively so the filter can never
   // again silently return zero rows because the dropdown said 'Male'.
   // There is no index on gender and the table is ~4k rows, so ilike costs nothing.
   if (gender) q = q.ilike('gender', gender);
+
+  // Matched on the FK, never on learners_profiles.accommodation_type. That TEXT
+  // column is RETIRED: LearnerProfileService derives it back onto the row for
+  // legacy readers via accommodationLegacyFromCode(), so it is a computed
+  // display value here and not a stored one. Filtering on it would compare
+  // against a column the database does not maintain — the silent-zero-rows
+  // failure this page keeps producing (cf. the gender case-sensitivity note
+  // directly above).
+  if (accommodation_type_id) {
+    q = q.eq('accommodation_type_id', accommodation_type_id);
+  }
 
   if (is_profile_complete !== undefined) {
     if (is_profile_complete === false) {
@@ -186,12 +222,20 @@ export async function getLearnerProfiles(
     // Validate sortBy against whitelist to prevent DB errors from URL tampering
     const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
 
+    // Resolved ONCE, here, rather than inside applyLearnerFilters: that helper
+    // is synchronous and is called again by the PGRST103 count fallback below,
+    // so resolving inside it would run this lookup twice per request.
+    const admissionYearIds = params.admission_year
+      ? await resolveAdmissionYearIds(supabase, params.admission_year)
+      : null;
+
     const pageQuery = (targetPage: number) =>
       applyLearnerFilters(
         supabase
           .from('learners_profiles')
           .select(LIST_SELECT, { count: 'exact' }),
-        params
+        params,
+        admissionYearIds
       )
         .order(sortBy, { ascending: sortOrder === 'asc' })
         .range((targetPage - 1) * limit, targetPage * limit - 1);
@@ -213,7 +257,8 @@ export async function getLearnerProfiles(
             supabase
               .from('learners_profiles')
               .select('id', { count: 'exact', head: true }),
-            params
+            params,
+            admissionYearIds
           );
 
         if (countError) {

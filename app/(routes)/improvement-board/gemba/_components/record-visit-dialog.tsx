@@ -247,6 +247,52 @@ export function RecordVisitDialog({
             </p>
           </div>
 
+          {/* What to look for -------------------------------------------- */}
+          {/*
+            Why this block exists, and why it is visible rather than hidden
+            behind a disclosure: measured on production 2026-08-10, 54 actively
+            posted associates had produced 2 gemba visits between them, both
+            'matches', none 'differs'. Two readings, and this addresses both —
+            an observer who does not know what counts as a difference records
+            nothing, and an observer standing in the department with no prompt
+            in front of them defaults to agreeing with the document.
+
+            These four are the questions that make a difference visible. They
+            are prompts, not fields: nothing here is stored, because the moment
+            it is stored it becomes something to fill in rather than something
+            to look for.
+          */}
+          <div className="bg-muted/40 space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">Before you answer, check these four</p>
+            <ul className="text-muted-foreground space-y-1.5 text-xs">
+              <li>
+                <span className="text-foreground font-medium">Done twice.</span>{' '}
+                Did you watch the same number get written in two places, or a form
+                filled from another form?
+              </li>
+              <li>
+                <span className="text-foreground font-medium">Waiting on one person.</span>{' '}
+                Did anything sit still because a single signature was not there?
+              </li>
+              <li>
+                <span className="text-foreground font-medium">The private workaround.</span>{' '}
+                Is something kept in a notebook, a spreadsheet or WhatsApp because
+                the official way hurts too much?
+              </li>
+              <li>
+                <span className="text-foreground font-medium">Quiet failure.</span>{' '}
+                Is something producing output nobody reads — a printout filed
+                unopened, a report nobody has looked at for weeks?
+              </li>
+            </ul>
+            <p className="text-muted-foreground text-xs">
+              A workaround that everyone uses and the document does not mention is a{' '}
+              <span className="text-foreground font-medium">difference</span>, not a
+              detail. The document describes the official process; you are checking
+              the real one.
+            </p>
+          </div>
+
           {/* Finding ----------------------------------------------------- */}
           <div className="space-y-2">
             <Label>What you found</Label>
@@ -286,6 +332,20 @@ export function RecordVisitDialog({
                 </span>
               </button>
             </div>
+            {/*
+              'Matches' is the consequential answer, not the safe one — it is
+              what stamps official_until and turns a proposal into an official
+              document. Every visit recorded on this project so far has chosen
+              it, so the weight of that choice is stated where it is made rather
+              than left to be discovered on the analytics page afterwards.
+            */}
+            {finding === 'matches' && (
+              <p className="text-muted-foreground text-xs">
+                This is the answer that makes the document official, and it stays
+                official until it expires. Choose it because you checked, not
+                because nothing stood out.
+              </p>
+            )}
           </div>
 
           {/* Notes ------------------------------------------------------- */}

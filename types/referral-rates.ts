@@ -31,7 +31,12 @@ export interface CreateReferralRateInput {
 
 export interface GenerateAgencyLine {
   agency: string;
+  /** Eligible referrals only — held ones are counted separately. */
   referrals: number;
+  /** Credits this agency has that are held — walk-in or attendance. */
+  held: number;
+  /** Referrals for this agency whose learner never took the seat. */
+  not_enrolled: number;
   net: number;
   payable: boolean;
 }
@@ -39,7 +44,23 @@ export interface GenerateAgencyLine {
 export interface GenerateCommissionsResult {
   dry_run: boolean;
   academic_year: number;
+  /** Everything the generator FOUND, held or not. Never shrinks silently. */
   candidates: number;
+  /** Never took the seat — lifecycle_status outside the enrolled allow-list.
+   *  BLOCKED outright, not held: there is nothing to review, they did not join. */
+  blocked_not_enrolled: number;
+  blocked_not_enrolled_gross: number;
+  /** Enrolled, but a MARKED register has never recorded them present. Held, and
+   *  releasable on the Review Worklist. Learners whose section nobody marks are
+   *  never held — absence of a register is not absence of a learner. */
+  held_attendance: number;
+  held_attendance_gross: number;
+  /** Walk-in credits with no payout clearance. Counted, valued, never written. */
+  held_walkin: number;
+  /** What the held population would be worth at the current rate. */
+  held_gross: number;
+  /** candidates − held_walkin. This is what a real run actually writes. */
+  eligible: number;
   payable_now: number;
   blocked_no_bank: number;
   total_gross: number;
