@@ -2,7 +2,7 @@
 
 **Status:** DRAFT — Director ruling 2026-09-06 (00:05 / 00:20): answer-independent work only. No database change, no code, no server ordered by this document.
 **Spec of record:** `specs/network-sso-parts-2-5-2026-09-06.md` on branch `spec/network-sso-parts-2-5` (Part 5 + "What changed since May"). Locked decisions 25–30: vault note `Initiatives/Network-Infrastructure/Spec-Decisions-Locked-2026-05-08.md`. Substrate proof: `Smoke-Test-RADIUS-2026-05-09.md` (5/5 scenarios green on a Mac).
-**Companion:** [MikroTik hotspot handoff](mikrotik-hotspot-handoff.md) — the router side.
+**Companion:** [MikroTik hotspot handoff](2026-09-06-GUIDE-mikrotik-hotspot-handoff.md) — the router side.
 **Audience:** the JKKN sysadmin and whoever at JICATE runs the VPS. Plain English, numbered steps, one "you are done when" line per section.
 
 **Open question that this document does NOT decide — Q3:** who owns and pays for the VPS, and whether RADIUS accounting writes go straight into the database (Option A) or through an HTTPS route in MyJKKN (Option B). Both are written out in section 8 with a pros/cons table. The Director picks.
@@ -17,8 +17,8 @@ Phone on campus Wi-Fi
    ▼
 MikroTik CCR2116 (hotspot)  ── redirects browser ──►  https://wifi.jkkn.ai/api/network/sso?mac=…&ip=…&link-login-only=…&link-orig=…
    ▲                                                       │  learner signs in with Google inside MyJKKN (decision Q1, 2026-09-06)
-   │  browser comes back to $(link-login-only)             │  MyJKKN mints a ONE-TIME username + password
-   │  with that one-time username/password  ◄──────────────┘
+   │  browser comes back to https://login.wifi.jkkn.ai/login   │  MyJKKN mints a ONE-TIME username + password
+   │  (HTTPS form POST, router's own certificate) ◄───────┘
    │
    │  RADIUS Access-Request over RADSEC (TLS, TCP 2083)
    ▼
@@ -45,7 +45,17 @@ Decision 26 named Hetzner CCX13 (dedicated vCPU) at "₹400–500/month". **Pric
 
 1. **Owner and payer (Q3 — open).** Do not order until the Director says whose card and whose account. Whoever owns the account owns the box; write the account e-mail in the vault note `Purchases/IT-Hardware/Campus-Network-Setup.md` when done.
 2. **Order:** Hetzner Cloud → New project `jicate-radius` → Add server → Location **Singapore** if offered (lowest latency to Tamil Nadu), else Falkenstein/Nuremberg → Image **Debian 13** (Debian 12 also fine — see section 2) → Type **CCX13** (2 dedicated vCPU, 8 GB RAM, 80 GB NVMe) → SSH key only (upload the sysadmin's and the Director's public keys; no password login) → Enable backups (Hetzner snapshot, ~20 % extra) → Name `radius-01`.
-3. **Firewall at the provider** (Hetzner Cloud Firewall, attach to the server): allow **TCP 22** from the JKKN campus WAN IPs (Rainbow + Real Network — take the current ones from `MikroTik-Current-Config-2026-05-08.md`, e.g. `103.98.192.37`) and from the Director's home IP; allow **TCP 2083** from the campus WAN IPs only; allow **TCP 80** from anywhere ONLY while issuing the certificate (section 3), then remove; allow **ICMP**. Everything else drop. **Do not open UDP 1812/1813 anywhere** — plain RADIUS over the internet is decision 27's "no".
+3. **Firewall at the provider** (Hetzner Cloud Firewall, attach to the server):
+
+   | Port | From | Why |
+   |---|---|---|
+   | TCP 22 | JKKN campus WAN IPs (Rainbow + Real Network — take the current ones from `MikroTik-Current-Config-2026-05-08.md`, e.g. `103.98.192.37`) + the Director's home IP | SSH |
+   | TCP 2083 | campus WAN IPs only | RADSEC from the router (section 4) |
+   | TCP 8443 | anywhere (bearer-protected; Vercel has no fixed egress range to pin) | the CoA receiver MyJKKN calls (section 7) and the `/healthz` the uptime monitor polls (section 10) |
+   | TCP 80 | anywhere, ONLY while issuing the certificate (section 3), then remove | Let's Encrypt HTTP-01 |
+   | ICMP | anywhere | reachability |
+
+   Everything else drop. **Do not open UDP 1812/1813 anywhere** — plain RADIUS over the internet is decision 27's "no". (8443 is also opened in the on-box nftables ruleset in section 9 — both layers must agree or the kick path and the alerting are dead from the internet.)
 4. **DNS:** in the `jkkn.ai` zone add `A radius.jkkn.ai → <VPS public IPv4>` (and `AAAA` if you enabled IPv6). TTL 300 for the first week.
 5. **First login and basics:**
    ```bash
@@ -55,9 +65,9 @@ Decision 26 named Hetzner CCX13 (dedicated vCPU) at "₹400–500/month". **Pric
    apt update && apt -y full-upgrade && apt -y install unattended-upgrades fail2ban nftables curl jq
    dpkg-reconfigure -plow unattended-upgrades      # answer Yes
    ```
-6. **Record in MyJKKN (later, admin UI from Part 4 — not now):** the `network_radius_servers` row already seeded in PR #792 as "JICATE Shared RADIUS (placeholder)" needs `hostname = radius.jkkn.ai`, `ipv4_address = <VPS IP>`, `auth_port = 2083`, `coa_port = 3799`, `protocol = 'radsec'`, and later `tls_cert_fingerprint` (section 3). No database change is made by this playbook — write the values in the vault note until Part 4 exists.
+6. **Record in MyJKKN (later, admin UI from Part 4 — not now):** the `network_radius_servers` row seeded in PR #792 as "JICATE Shared RADIUS (placeholder)" already carries `hostname = radius.jkkn.ai`, `auth_port = 2083`, `acct_port = 2083`, `coa_port = 3799`, `protocol = 'radsec'`. Only two values are blank and come from this playbook: `ipv4_address = <VPS IP>` (this section) and `tls_cert_fingerprint` (section 3). No database change is made by this playbook — write the two values in the vault note until Part 4 exists.
 
-**You are done when:** `ssh root@radius.jkkn.ai` works with a key, `dig +short radius.jkkn.ai` returns the VPS IP, and `nmap -p 22,2083,1812 radius.jkkn.ai` from your laptop shows 22 open, 2083 filtered (until the router IPs are added), 1812 filtered.
+**You are done when:** `ssh root@radius.jkkn.ai` works with a key, `dig +short radius.jkkn.ai` returns the VPS IP, and `nmap -Pn -p 22,2083,8443,1812 radius.jkkn.ai` from your laptop shows 22 open, 2083 filtered (until the router IPs are added), 8443 filtered (until the receiver in section 7 is running — then open), 1812 filtered.
 
 ---
 
@@ -75,12 +85,11 @@ FreeRADIUS 3.2 is what the May smoke check used (3.2.8 on Homebrew). Debian's ow
    ```bash
    cp -a /etc/freeradius/3.0 /root/freeradius-pristine-$(date +%F)
    ```
-3. Turn off the modules and virtual servers we do not use (smaller attack surface, faster start):
+3. Turn off the virtual server we do not use (smaller attack surface, faster start):
    ```bash
    cd /etc/freeradius/3.0/sites-enabled && rm -f inner-tunnel
-   cd /etc/freeradius/3.0/mods-enabled && rm -f eap chap mschap digest pap unix ntlm_auth
    ```
-   We keep `default` for now (we will strip it in section 6) and add `tls` in section 4. Removing `pap` is deliberate: MyJKKN checks the one-time password, not FreeRADIUS, so no local password module is needed. (If a later change needs `pap`, re-link it; nothing is deleted.)
+   **Do NOT unlink `pap`, `chap`, `mschap`, `eap`, `digest` yet.** The stock `sites-enabled/default` still calls them in its `authorize`/`authenticate` sections, and FreeRADIUS 3 treats a call to an unlinked module as a hard error — reproduced on 3.2.8: unlinking them at this point makes `freeradius -XC` stop with `sites-enabled/default[566]: Failed to find "pap" as a module or policy.` They are unlinked in section 6 step 3, in the same step that rewrites `default` so nothing calls them any more. (Removing `pap` is deliberate: MyJKKN checks the one-time password, not FreeRADIUS. If a later change needs `pap`, re-link it; nothing is deleted.)
 4. Quick sanity start in debug mode, then stop:
    ```bash
    freeradius -XC                       # config check only; must end with "Configuration appears to be OK"
@@ -139,7 +148,7 @@ RADSEC = RADIUS inside TLS (RFC 6614). FreeRADIUS ships the listener as `sites-a
    ```bash
    ln -s ../sites-available/tls /etc/freeradius/3.0/sites-enabled/tls
    ```
-2. Edit `/etc/freeradius/3.0/sites-enabled/tls`. In the first `listen { … }` block set:
+2. Edit `/etc/freeradius/3.0/sites-enabled/tls`. Replace the first `listen { … }` block (the server-side one) with this, keeping every line — in particular `clients = radsec`:
    ```
    listen {
        ipaddr = *
@@ -147,6 +156,9 @@ RADSEC = RADIUS inside TLS (RFC 6614). FreeRADIUS ships the listener as `sites-a
        type = auth+acct          # one socket for Access-Request AND Accounting-Request
        proto = tcp
        virtual_server = default
+       clients = radsec          # REQUIRED: names the "clients radsec { … }" list in this file (section 5).
+                                 # Without it the socket falls back to the global clients.conf and the
+                                 # per-router allow-list in section 5 is silently ignored.
        limit {
            max_connections = 64
            lifetime = 0
@@ -162,12 +174,20 @@ RADSEC = RADIUS inside TLS (RFC 6614). FreeRADIUS ships the listener as `sites-a
        }
    }
    ```
-   Leave the `home_server`/proxy parts of that file untouched — we do not proxy anywhere.
+   Leave the `home_server`/proxy parts of that file untouched — we do not proxy anywhere. (`clients = radsec` — "specifies which clients section is used. If not set, the default clients section applies" — annotated `sites-available/tls`, `https://networkradius.com/doc/current/raddb/sites-available/tls.html`.)
 3. `require_client_cert = no` is a deliberate first-week choice: RouterOS 7's `/radius add … certificate=` is optional and the router does not have a client certificate yet. Mutual TLS (router presents a cert the VPS verifies) is the hardening step for after the parallel week; add it as a follow-up in section 9.
-4. Delete or comment out the plain-UDP `listen` blocks in `sites-enabled/default` (`type = auth` on 1812 and `type = acct` on 1813 bound to `ipaddr = *`). Keep ONE UDP listener bound to `127.0.0.1` on 1812 so `radclient` on the box can run local checks:
+4. Delete or comment out the plain-UDP `listen` blocks in `sites-enabled/default` (`type = auth` on 1812 and `type = acct` on 1813 bound to `ipaddr = *`). Keep ONE UDP listener bound to `127.0.0.1` on 1812 so `radclient` on the box can run local checks — written one directive per line (a one-line `listen { type = auth ipaddr = … }` is a syntax error on 3.2.8: `Expected comma after 'auth'`):
    ```
-   listen { type = auth   ipaddr = 127.0.0.1  port = 1812 }
-   listen { type = acct   ipaddr = 127.0.0.1  port = 1813 }
+   listen {
+       type = auth
+       ipaddr = 127.0.0.1
+       port = 1812
+   }
+   listen {
+       type = acct
+       ipaddr = 127.0.0.1
+       port = 1813
+   }
    ```
    With no public UDP listener, ports 1812/1813 are closed even if a firewall rule is wrong — belt and braces (section 9).
 5. Restart and confirm the listener line in the debug output:
@@ -214,13 +234,13 @@ Multi-tenancy per decision 26: every router that is allowed to talk to this box 
 2. Enforce "IP matches identity" in the `authorize` section of `sites-enabled/default` (before the `rest` call from section 6):
    ```
    authorize {
-       if (!NAS-Identifier || (NAS-Identifier != "%{Client-Shortname}")) {
+       if (!&NAS-Identifier || (&NAS-Identifier != "%{client:shortname}")) {
            reject
        }
        …
    }
    ```
-   A router that connects from an allowed IP but claims another tenant's slug is rejected before MyJKKN is ever asked.
+   A router that connects from an allowed IP but claims another tenant's slug is rejected before MyJKKN is ever asked. Syntax notes: `&NAS-Identifier` is the attribute-reference form the 3.2 docs call "highly recommended" (`https://www.freeradius.org/documentation/freeradius-server/3.2.9/unlang/attr.html`); `%{client:shortname}` is the documented client expansion — "Refers to a variable that was defined in the client section for the current client" (`…/3.2.9/unlang/xlat/builtin.html`). Both were run on FreeRADIUS 3.2.8 with a client whose `shortname = jkkn-main`: `NAS-Identifier=jkkn-main` → Access-Accept, `NAS-Identifier=other` → Access-Reject, no NAS-Identifier → Access-Reject. Keep the `if { … }` block on three lines as shown — a one-line `if (…) { reject }` is a parse error on 3.2.8 (`Parse error after "reject": unexpected token "}"`).
 3. Adding a router later = add one `client` block + one `network_routers` row (Part 4 admin) + `systemctl reload freeradius`. Zero code, which is the point of decision 26.
 
 **You are done when:** `freeradius -XC` is OK, and a connection from an IP NOT in the list is refused at the TLS layer (from your laptop: `openssl s_client -connect radius.jkkn.ai:2083` fails — the provider firewall should already stop it — while from the router the handoff's `/radius monitor 0` shows `accepts` counting up).
@@ -239,7 +259,7 @@ This is the wire the May smoke check proved: FreeRADIUS turns the Access-Request
    ```
    rest {
        connect_uri = "https://www.jkkn.ai"
-       connect_timeout = 1.0
+       connect_timeout = 0.3              # a NEW connection must also fit the 300 ms budget (see "warm pool" below)
 
        tls {
            ca_path = /etc/ssl/certs
@@ -258,15 +278,19 @@ This is the wire the May smoke check proved: FreeRADIUS turns the Access-Request
 
        pool {
            start = 4
-           min = 4
+           min = 4                        # keep 4 TLS connections to www.jkkn.ai open at all times (warm pool)
            max = 32
            spare = 8
            uses = 0
            lifetime = 0
-           idle_timeout = 60
+           idle_timeout = 900             # 15 min — a quiet quarter-hour must not tear the warm pool down
        }
    }
    ```
+   **Why `connect_timeout = 0.3` and a warm pool, not `1.0`:** the request `timeout` is 300 ms, so a connection that is allowed a full second to come up can never finish its request inside the budget — the first login after an idle spell would fail on the connect alone. Instead both budgets are 300 ms and the pool keeps `min = 4` connections open so a login almost never pays for a TCP+TLS handshake to Vercel. `connect_timeout` — "How long before new connection attempts timeout, defaults to 4.0 seconds"; `idle_timeout` — "A connection which is unused for this length of time will be closed" (stock `mods-available/rest`, `https://raw.githubusercontent.com/FreeRADIUS/freeradius-server/v3.2.x/raddb/mods-available/rest`). Measure the cold handshake once from the box before trusting 0.3: `curl -so /dev/null -w 'connect %{time_connect}s tls %{time_appconnect}s\n' https://www.jkkn.ai/` — if `tls` is above 0.25 s from the chosen datacentre, pick a closer region in section 1 rather than loosening the budget.
+
+   **Slow is not down — Director decision (open, safe default applied):** decision 17's auto-open on the router fires only when MyJKKN is *unreachable* (section 12). A MyJKKN that is *up but slow* (cold Vercel start, a bad deploy) answers after 300 ms, `rlm_rest` returns `fail`, and the learner is **rejected** — that is the safe default written into step 4 below and the router shows the "try again" page. The alternative is **let-in-on-timeout** (treat `fail` as Accept with a short `Session-Timeout`, e.g. 10 min, so the learner is re-checked soon) — friendlier during a slow morning, but it lets an unpaid or locked account online for those minutes and it is fail-open by construction. The Director picks; until then reject stands. `[risky]`
+
    **Bearer token:** `rlm_rest` in 3.2 sends custom headers from the `REST-HTTP-Header` attribute in the `control` list. Add this to `authorize` in `sites-enabled/default` immediately before calling `rest` (step 3), reading the token from a root-only file so it never sits in the main config:
    ```
    update control {
@@ -280,32 +304,45 @@ This is the wire the May smoke check proved: FreeRADIUS turns the Access-Request
    ```
    and `$INCLUDE radius-auth-token.conf` inside `authorize`. `[UNVERIFIED — check on the box]` that your packaged `rlm_rest` honours `REST-HTTP-Header` (it is documented for 3.0.16+; run `freeradius -X` and look for `Authorization: Bearer` in the curl debug lines when `rest` runs).
 2. **Where the token comes from.** MyJKKN stores per-RADIUS-server bearer tokens in **Supabase Vault** (Part 2: "authenticated by a per-server bearer from Supabase Vault"). The Director or a super admin generates it in MyJKKN (Part 4 admin, when built) and hands it over out-of-band once; it is written into the file above and nowhere else. Rotation = new token in MyJKKN → new file on the VPS → `systemctl reload freeradius`. Until Part 2/4 exist, `radius-auth` answers nothing — this section can be configured but only proven against the local mock (`scripts/network/radius-smoke/`, Part 2).
-3. Wire it into the `default` virtual server. `/etc/freeradius/3.0/sites-enabled/default`, `authorize { … }` becomes, in this order:
+3. Wire it into the `default` virtual server **and, in the same step, unlink the modules that server no longer calls** (the two halves must land together — see section 2 step 3). `/etc/freeradius/3.0/sites-enabled/default`: the `authorize`, `authenticate` and `post-auth` sections become, in this order (one directive per line — one-line `{ … }` blocks are parse errors on 3.2.8):
    ```
    authorize {
        preprocess
-       if (!NAS-Identifier || (NAS-Identifier != "%{Client-Shortname}")) { reject }
+       if (!&NAS-Identifier || (&NAS-Identifier != "%{client:shortname}")) {
+           reject
+       }
        $INCLUDE radius-auth-token.conf
        rest
        if (ok || updated) {
-           update control { &Auth-Type := Accept }
+           update control {
+               &Auth-Type := Accept
+           }
        }
    }
    authenticate {
-       Auth-Type Accept { ok }
+       Auth-Type Accept {
+           ok
+       }
    }
    post-auth {
-       Post-Auth-Type REJECT { attr_filter.access_reject }
+       Post-Auth-Type REJECT {
+           attr_filter.access_reject
+       }
    }
    ```
-   MyJKKN already checked the one-time password, so FreeRADIUS sets `Auth-Type := Accept` when the HTTP call returned OK. Remove `files`, `sql`, `pap`, `chap`, `mschap`, `eap`, `expiration`, `logintime` from these sections — they would fail-closed on attributes we never send.
+   MyJKKN already checked the one-time password, so FreeRADIUS sets `Auth-Type := Accept` when the HTTP call returned OK. Remove `files`, `sql`, `pap`, `chap`, `mschap`, `eap`, `digest`, `expiration`, `logintime` from these sections — they would fail-closed on attributes we never send. Then, and only then, unlink the modules nothing calls any more:
+   ```bash
+   cd /etc/freeradius/3.0/mods-enabled && rm -f eap chap mschap digest pap unix ntlm_auth
+   freeradius -XC                       # must end with "Configuration appears to be OK"
+   ```
+   Order matters in both directions: unlink first and `-XC` fails with `Failed to find "pap" as a module or policy`; strip `default` first but leave `eap` linked and `-XC` fails with `Failed to find 'Auth-Type EAP' section. Cannot authenticate users.` (both reproduced on 3.2.8). Doing the edit and the unlink in one step is the only order that passes.
 4. **What MyJKKN must answer** (the contract the May mock implemented, kept here so the sysadmin can read a debug log):
    - HTTP **200/201** with a JSON body of reply attributes → Access-Accept. `rlm_rest` maps JSON keys to attributes with `:=`/`+=` operators:
      ```json
      { "reply:Mikrotik-Rate-Limit": "50M/25M", "reply:Mikrotik-Group": "tier_a_learner", "reply:Session-Timeout": 28800, "reply:Idle-Timeout": 600 }
      ```
    - HTTP **401** or **403** → Access-Reject (fee overdue, locked, device cap, bad one-time credential). MyJKKN puts the human reason in its own audit row; the router only sees Reject.
-   - HTTP **5xx** or a timeout past 300 ms → `fail`. **The learner is rejected, not let in** — decision 17's "open Wi-Fi when MyJKKN is down" is implemented on the router (section 12), not by accepting blindly here.
+   - HTTP **5xx** or a timeout past 300 ms → `fail`. **The learner is rejected, not let in** (safe default; the let-in-on-timeout alternative is the Director's call — step 1 above). Decision 17's "open Wi-Fi when MyJKKN is down" is implemented on the router (section 12) and covers *unreachable*, not *slow*.
    - Reference mapping in the module doc: 401/403 → reject, 204 → ok, 5xx → fail, 404 → notfound.
 5. The Mikrotik vendor dictionary (`Mikrotik-Rate-Limit`, `Mikrotik-Group`, …) ships with FreeRADIUS (`/usr/share/freeradius/dictionary.mikrotik`) and is included by default — nothing to add.
 
@@ -377,7 +414,7 @@ plus a hand-written `mods-config/sql/main/postgresql/queries.conf` whose `accoun
 
 **Option B — what the sysadmin would configure (not yet):** a second `rest` block (`accounting { uri = "${..connect_uri}/api/network/radius-acct" method = 'post' body = 'json' data = '{ "acct_status_type": "%{Acct-Status-Type}", "acct_session_id": "%{Acct-Session-Id}", "username": "%{User-Name}", "nas_identifier": "%{NAS-Identifier}", "client_mac": "%{Calling-Station-Id}", "client_ip": "%{Framed-IP-Address}", "bytes_in": "%{Acct-Input-Octets}", "bytes_out": "%{Acct-Output-Octets}", "session_time": "%{Acct-Session-Time}", "terminate_cause": "%{Acct-Terminate-Cause}" }' timeout = 2 }`) and `rest` in `accounting { }`. Also enable the `detail` module so packets are spooled to `/var/log/freeradius/radacct/` and can be replayed with `radsqlrelay`/`radclient` after an outage.
 
-**Either way, until Q3 is decided:** enable only the `detail` module in `accounting { }` so every packet is written to disk on the VPS and nothing is lost; it can be replayed into A or B later.
+**Either way, until Q3 is decided:** enable only the `detail` module in `accounting { }` so every packet is written to disk on the VPS and nothing is lost; it can be replayed into A or B later. **What "detail-only" means for the trial (be honest with the sysadmin):** nothing reaches `network_sessions`, MyJKKN never learns an `Acct-Session-Id`, so the *automatic* kick/CoA from MyJKKN (section 7 step 2) cannot fire — a kick during the detail-only interim is a hand-run `radclient` with the session id read out of `/var/log/freeradius/radacct/<router-ip>/detail-<date>`. The handoff's parallel-week table (§13) has a separate "detail-only" pass column for exactly this.
 
 **You are done when (after the Director's pick):** a phone that joins and leaves the JKKN-RADIUS-Test SSID produces one `network_sessions` row with `started_at`, `last_seen_at` ticking every 5 min, and `ended_at` + `end_reason` set after logout — visible in Supabase and, once Part 4 ships, on `/admin/network?tab=sessions`.
 
@@ -470,27 +507,32 @@ Decision 17: **"Open Wi-Fi auto-restored until MyJKKN heals (safety-first)."** M
 
 ### How it opens automatically (what is already in place after the handoff, §10)
 
-- The router runs a scheduler script every minute that asks `https://www.jkkn.ai/api/network/health?nas=jkkn-main` (a Part-2 route; until it exists the script checks `/radius monitor` timeouts instead — handoff §10 has both variants) and counts consecutive failures.
-- After **3 consecutive failures** (3 minutes) it disables the hotspot server on the test bridge (`/ip hotspot disable hs-test`) and writes `WIFI-FAILOVER OPEN` to the router log. Every phone on that SSID now has open internet.
-- After **5 consecutive successes** it re-enables the hotspot (`/ip hotspot enable hs-test`) and logs `WIFI-FAILOVER CLOSED`. Phones with a valid MAC-cookie get back in without seeing a page; new phones see the login page again.
-- The **panic button** in MyJKKN admin (Part 4) is the manual version of the same switch: it makes the health route answer `open` for that router until an admin clears it. Not built yet; until then the manual steps below are the panic button.
+- The router runs a scheduler script every minute that fetches a MyJKKN URL over HTTPS (`https://www.jkkn.ai/api/network/health?nas=jkkn-main` once Part 2 ships; `https://www.jkkn.ai/auth/login` until then) — that fetch is the **primary** signal. While the hotspot is enabled it also reads `/radius monitor 0` and compares the counters with the previous minute's sample (a **delta**, never the absolute numbers): timeouts rose and no accept/reject arrived → the RADIUS path is dead even if the web page answered. While the hotspot is *disabled* no RADIUS traffic flows, so only the fetch decides — handoff §10.
+- After **3 consecutive failures** (3 minutes) it disables the hotspot server on the test bridge (`/ip hotspot disable hs-test`), remembers that *it* opened the Wi-Fi, and writes `WIFI-FAILOVER OPEN` to the router log. Every phone on that SSID now has open internet.
+- After **5 consecutive successes** — and only if the script itself opened it — it re-enables the hotspot (`/ip hotspot enable hs-test`) and logs `WIFI-FAILOVER CLOSED`. Phones with a valid MAC-cookie get back in without seeing a page; new phones see the login page again. A hotspot the sysadmin disabled by hand is never re-enabled by the script.
+- A **manual-override flag** (`wfManual`) tells the script to do nothing at all; the panic steps below set it. The **panic button** in MyJKKN admin (Part 4) is the remote version of the same switch: it makes the health route answer `open` for that router until an admin clears it. Not built yet; until then the manual steps below are the panic button.
 
 ### The 6 am steps (sysadmin)
 
 1. **Confirm it is a real outage, not one phone.** From any campus device open `https://www.jkkn.ai` — does it load? On the router (WinBox → Terminal): `/radius monitor 0` — is `timeouts` climbing? `/log print where message~"WIFI-FAILOVER"` — did the script already open the Wi-Fi?
 2. **If the log shows `WIFI-FAILOVER OPEN`: nothing to do for learners.** Wi-Fi is open. Send the Director one line: "Wi-Fi in failover-open since HH:MM, cause: MyJKKN/VPS down." Go to step 5.
-3. **If the outage is real but the script did NOT open** (log silent, learners complaining "login page does not load"): open it by hand —
+3. **If the outage is real but the script did NOT open** (log silent, learners complaining "login page does not load"): open it by hand — **all four lines, in this order** (the flag and the scheduler stop the script from ever closing what you opened):
    ```
+   :global wfManual true
+   /system scheduler disable [find name=wifi-failover]
    /ip hotspot disable [find name=hs-test]
    /log warning "WIFI-FAILOVER OPEN (manual)"
    ```
-   Learners are online within a minute. Then find out why the script did not fire: `/system scheduler print` (is `wifi-failover` enabled? `run-count` increasing?) and `/system script print` — fix later, not at 6 am.
-4. **If MyJKKN is up but the VPS is down** (site loads, `timeouts` climbing, `ssh root@radius.jkkn.ai` refused): the script opens the Wi-Fi anyway in the health-route-less variant. Try `ssh` once more; if it answers, `systemctl status freeradius` → `systemctl restart freeradius`; if the box is gone, Hetzner console → Power → Reset; if still gone, section 11 step 4 (restore on a new box). None of this is urgent for learners — they are online.
+   Learners are online within a minute. Then find out why the script did not fire: `/system scheduler print` (was `wifi-failover` enabled? `run-count` increasing?) and `/system script print` — fix later, not at 6 am.
+4. **If MyJKKN is up but the VPS is down** (site loads, `timeouts` climbing, `ssh root@radius.jkkn.ai` refused): the fetch of MyJKKN succeeds, so it is the RADIUS **delta** check that opens the Wi-Fi (timeouts rising with no accept/reject for 3 minutes — it needs at least one phone trying to log in during those minutes; on an empty campus at 6 am open it by hand as in step 3). Try `ssh` once more; if it answers, `systemctl status freeradius` → `systemctl restart freeradius`; if the box is gone, Hetzner console → Power → Reset; if still gone, section 11 step 4 (restore on a new box). None of this is urgent for learners — they are online.
 5. **Tell people:** WhatsApp to the Director + IT group: "Campus Wi-Fi open (no login) since HH:MM — MyJKKN/RADIUS outage. Login returns automatically when the service is back." No learner-facing message is needed; they simply have internet.
-6. **How it closes again — automatically:** once the health check succeeds 5 times in a row, the router re-enables the hotspot. Check `/log print where message~"WIFI-FAILOVER CLOSED"` and `/ip hotspot print` (`hs-test` no longer `X`). If you opened it BY HAND in step 3, the script's success counter will re-enable it too (it calls `enable`), unless you also disabled the scheduler — in that case close it yourself:
+6. **How it closes again — automatically, only if the script opened it:** once the health check succeeds 5 times in a row, the router re-enables the hotspot. Check `/log print where message~"WIFI-FAILOVER CLOSED"` and `/ip hotspot print` (`hs-test` no longer `X`). If you opened it BY HAND in step 3, the script will **not** close it (the override flag is set, the scheduler is off, and the script only closes what it opened) — close it yourself and hand control back:
    ```
    /ip hotspot enable [find name=hs-test]
    /log warning "WIFI-FAILOVER CLOSED (manual)"
+   :global wfManual false
+   :global wfAutoOpened false
+   /system scheduler enable [find name=wifi-failover]
    ```
 7. **After it is closed:** every session that ran during the open window was unmetered and un-audited; Part 4 records the window as an audit row (`is_emergency_open = true` exists on `network_sessions` for exactly this). Until Part 4, write the open/close times in the vault note.
 8. **Write the incident down** (5 lines: when opened, why, when closed, what fixed it, what to change) in `Initiatives/Network-Infrastructure/` — the 1-week parallel run (decision 20) is judged partly on how many of these there were.
@@ -506,4 +548,4 @@ Decision 17: **"Open Wi-Fi auto-restored until MyJKKN heals (safety-first)."** M
 - It does not build `/api/network/radius-auth`, `/api/network/sso`, the health route, or the panic button — Parts 2–4.
 - It does not touch live campus SSIDs — the handoff limits the hotspot to `JKKN-RADIUS-Test` until the 50-user parallel week is green.
 
-*Sources verified on 2026-09-06: MikroTik RADIUS page (`https://help.mikrotik.com/docs/spaces/ROS/pages/328097/RADIUS`), FreeRADIUS RadSec how-to (3.2.9), NetworkRADIUS annotated `sites-available/tls`, `mods-available/rest`, `mods-available/sql`. Anything marked `[UNVERIFIED — …]` was not confirmed against a live box.*
+*Sources verified on 2026-09-06: MikroTik RADIUS page (`https://help.mikrotik.com/docs/spaces/ROS/pages/328097/RADIUS`), FreeRADIUS RadSec how-to (3.2.9), FreeRADIUS 3.2.9 unlang `attr.html` + `xlat/builtin.html`, NetworkRADIUS annotated `sites-available/tls`, `mods-available/rest`, `mods-available/sql`, stock `raddb/mods-available/rest` and `raddb/sites-available/default` from the `v3.2.x` branch. The unlang guard, the module-unlink order and the one-line-block parse errors were reproduced on FreeRADIUS 3.2.8 (`radiusd -XC` / `radiusd -X` + `radclient`). Anything marked `[UNVERIFIED — …]` was not confirmed against a live box.*
