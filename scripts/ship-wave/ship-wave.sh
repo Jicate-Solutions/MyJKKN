@@ -65,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --no-sweep) NO_SWEEP=1;;
     --goal) GOAL=1;;
     --only) ONLY="${2:-}"; shift;;
+    --ledger) LEDGER_REPORT=1;;
     --unfreeze) rm -f "$FREEZE"; echo "freeze cleared"; exit 0;;
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
@@ -82,7 +83,20 @@ fi
 vtok() { python3 -c "import json;print(json.load(open('$HOME/Library/Application Support/com.vercel.cli/auth.json'))['token'])" 2>/dev/null; }
 say() { printf '%s\n' "$*"; }
 unlock() { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; }
-freeze() { printf '%s\t%s\n' "$(date '+%F %T')" "$*" >> "$FREEZE"; say "  ⛔ FROZEN: $* — no further merges until: ship-wave.sh --unfreeze"; }
+freeze() {
+  printf '%s\t%s\n' "$(date '+%F %T')" "$*" >> "$FREEZE"
+  say "  ⛔ FROZEN: $* — no further merges until: ship-wave.sh --unfreeze"
+  # the wave used to stop mute here and a human had to reconstruct why from a
+  # receipt that overwrote itself. Now it says what this cost last time.
+  type -t ledger_on_freeze >/dev/null 2>&1 && ledger_on_freeze "$*"
+}
+
+# The ledger is sourced BEFORE the single-flight lock on purpose: --ledger is a
+# read-only report, and being unable to read what already went wrong *because a
+# wave is currently running* is exactly backwards.
+# shellcheck source=scripts/ship-wave/failure-ledger.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/failure-ledger.sh"
+if [ -n "${LEDGER_REPORT:-}" ]; then ledger_report; exit 0; fi
 
 # ── single-flight: two ship waves merging at once would race main ─────────────
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -406,6 +420,8 @@ PY
   # ── 6. scoreboard + HTML report ────────────────────────────────────────────
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
   say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $((c_ready-merged)) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $merged · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
+  type -t ledger_record >/dev/null 2>&1 && ledger_record round \
+    "merged=$merged open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
   RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" || echo "")" python3 - "$html" <<'PY'
 import json, os, sys, html as H
