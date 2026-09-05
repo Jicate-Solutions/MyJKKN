@@ -437,6 +437,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/accreditation/manage/bodies",
+            "label": "Bodies",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/accreditation/manage/collaborations",
             "label": "Collaborations",
             "iconName": "FileText",
@@ -3006,6 +3012,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/campus-living/settle-preview",
+        "label": "Settle Preview",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-living/vacate-requests",
         "label": "Vacate Requests",
         "iconName": "LogOut",
@@ -4497,6 +4509,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/improvement-board/owners",
         "label": "Owners",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/placements",
+        "label": "Placements",
         "iconName": "FileText",
         "children": []
       },
