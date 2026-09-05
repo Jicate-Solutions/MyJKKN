@@ -27,16 +27,28 @@
 --      creates) has no fp_assessments row to hang on. Read live 2026-09-04:
 --      0 pools exist for these two exams.
 --   2. fn_onemark_record_response(attempt, item, chosen, skipped, time_ms)
---      — writes fp_responses, bumps fp_items.times_served / times_correct,
---      and runs the Mistake Vault rules (decisions 9 / 10 / 18). Returns
---      {is_correct, vault_status, streak}. Never returns fp_items.answer.
+--      — writes fp_responses. In practice / vault_review it grades at once,
+--      bumps fp_items.times_served / times_correct and runs the Mistake Vault
+--      rules (decisions 9 / 10 / 18). In timed / live it stores ONLY the
+--      chosen option (is_correct NULL, no counters, no vault) — grading
+--      happens at finalize, so nothing a learner can read mid-paper (their own
+--      fp_responses rows, their own vault rows) carries the verdict. Returns
+--      {is_correct, vault_status, streak, revealed}. Never returns fp_items.answer.
+--      Refuses an attempt whose mode is NULL (a legacy Foundation attempt).
+--   2b. fn_onemark_grade(chosen, answer) + fn_onemark_apply_vault(...) — the
+--      two internal helpers both RPCs share (one normaliser, one vault rule
+--      set). Executable by nobody but the owner; never RPC-callable.
 --   3. fn_onemark_vault_draw(learner, exam, count) — active vault rows that
---      are due, least-recently-wrong first, no single chapter above
+--      are due, least-recently-wrong-or-reviewed first, no single chapter above
 --      onemark.vault.max_single_chapter_pct of the request (decision 13:
 --      shorter, never lopsided, never padded).
 --   4. fn_onemark_finalize_attempt(attempt) — single server-side submission
---      (decision 19); score = number of correct responses; skipped ≠ wrong
---      (decision 18).
+--      (decision 19); on a fixed paper, every item without a response becomes
+--      a skipped response first (decision 18, so "unanswered" is counted
+--      without the client having to say so); on timed / live it grades every
+--      response now (is_correct backfilled, counters bumped, vault applied);
+--      score = number of correct responses; skipped ≠ wrong (decision 18).
+--      Refuses submitted, abandoned and legacy (mode NULL) attempts.
 --   5. ai_job_types row `onemark.item_draft` (decision 3: AI drafts, one
 --      subject Senior Learner checks every one) + its version-1 champion in
 --      ai_prompt_versions — the 20260825030200 idiom. NO lib/ai-tasks/registry.ts
@@ -49,20 +61,98 @@
 --   6b. fn_onemark_provision_school_owner() + trigger on public.profiles —
 --      the automatic version of step 6 for every future first sign-in.
 --      Institution list is a platform_policies row, never a literal.
---   7. End-state assertion DO block: anon cannot execute any of the four
---      functions; pools = 2; job type + policy + trigger present; and a
+--   7. End-state assertion DO block: anon cannot execute any of the six
+--      functions (nor authenticated the two helpers); pools = 2; job type +
+--      policy + trigger present; every signed-in target holds an ACTIVE
+--      owner row; and a
 --      simulated provisioning (inside a rolled-back sub-block) yields exactly
 --      one owner row + one role row.
 --
--- TIER: additive. Creates 4 functions + 1 trigger, inserts 2 pools, 1 job
+-- TIER: additive. Creates 6 functions + 1 trigger, inserts 2 pools, 1 job
 -- type, 1 prompt version, 1 policy row, N owner rows (N = signed-in Senior
--- Learners still lacking one; 0 today). Alters no table, drops nothing.
--- Every step is idempotent (WHERE NOT EXISTS / CREATE OR REPLACE / DROP
--- TRIGGER IF EXISTS), so re-running is a no-op.
+-- Learners still lacking an ACTIVE one; 0 today). Alters no table, drops
+-- nothing. Every step is idempotent (WHERE NOT EXISTS / CREATE OR REPLACE /
+-- DROP TRIGGER IF EXISTS), so re-running is a no-op.
 --
 -- NOT APPLIED by this PR. Rehearsed on production inside BEGIN … ROLLBACK
 -- (Management API, Python-built body + curl -d @file); the orchestrator applies
 -- at merge.
+--
+-- CLIENT CONTRACT (Lane V — read before calling any RPC here):
+--   · Call the three RPCs through the SESSION client (createClient), never
+--     createServiceRoleClient: every gate below is auth.uid()-based, and under
+--     the service role auth.uid() is NULL, so fn_fp_can_manage_student /
+--     fn_fp_is_own_or_guardian / fn_fp_teaches_student are all false and the
+--     call raises 42501. service_role keeps its default EXECUTE grant; that
+--     grant is not the gate. (The sibling app/api/foundation/practice/route.ts
+--     uses the service-role client for its fp_assessments / fp_items READS —
+--     that is fine for reads, not for these calls.)
+--   · p_chosen must be the SAME JSON encoding as the item's key once
+--     normalised: fp_items.answer is unwrapped when it is an object with a
+--     `correct` key (exactly fn_fp_record_attempt, 20260808220000), otherwise
+--     compared whole. A key stored as {"correct":"A"} or "A" grades a chosen
+--     "A"; any other shape (e.g. {"index":2}) grades every answer wrong
+--     unless p_chosen is that very object. Read live 2026-09-05: all 48 active
+--     items on the two subject exams carry {"index":n} — those are Lane W's
+--     [TEST-W] fixture rows, off the {correct} contract, and the Director is
+--     being re-asked about them; this file keeps the estate normaliser rather
+--     than teaching the RPC a fixture's shape.
+--   · Withheld modes: on a timed / live attempt the respond RPC returns
+--     is_correct / vault_status / streak as NULL and STORES no verdict; the
+--     verdicts exist only after finalize (fp_responses.is_correct is
+--     backfilled then). A result page reads fp_responses AFTER finalize.
+--   · Unanswered = skipped (decision 18): finalize backfills a skipped
+--     response for every fp_assessment_items row of a FIXED paper that has no
+--     response. A POOL attempt (timed practice) has no item list in the
+--     database, so for those the client must still record a skipped response
+--     for each untouched item before finalize (Lane V's finalize route does:
+--     body.skippedItemIds → fn_onemark_record_response(p_skipped := true)).
+--
+-- CROSS-MODULE EXPOSURE (disclosed, not fixed here — the page is not a Lane S
+-- file): app/api/foundation/practice/route.ts lists EVERY fp_assessments row
+-- with kind='practice', cohort_id NULL, is_active=true whose exam has ≥ 1
+-- active fp_items row, for EVERY active fp_students learner — no exam or
+-- enrolment scoping (that is how the 20260808180000 pools already behave: a
+-- NEET learner sees the JEE / CUET pools). So the two pools in step 1 appear
+-- on /foundation/practice as "Practice — TN HSC Physics / English" for every
+-- active Foundation learner the moment this file applies, NOT only once Lane
+-- I's first draft is approved — read live 2026-09-05: 48 items are ALREADY
+-- active on those two exams (the [TEST-W] fixture rows above), and 3 fp_students
+-- rows are active (the [PILOT] fixtures). Real Nattraja learners are not
+-- enrolled until both banks reach 300 (decision 8). Scoping that page by
+-- enrolment or exam is a follow-up outside this lane.
+--
+-- APPLY-TIME DEPENDENCY (step 7, disclosed): the end-state block proves the
+-- trigger by taking ONE real signed-in Nattraja Senior Learner (the first by
+-- email among those with a staff-email match), deleting their owner + role
+-- rows inside a PL/pgSQL sub-block, touching their profile, counting what
+-- came back, and rolling the sub-block back with a sentinel. The apply
+-- therefore depends on that DELETE + re-INSERT succeeding for whoever that
+-- person is on apply day. What fires on the re-INSERT into user_roles (read
+-- live 2026-09-05): sync_primary_role_trigger (is_primary=false → no sync),
+-- trg_cdc_role_sync, trg_guard_escalation_user_roles, trg_jkkn_auto_issue_associate
+-- (returns early on a staff-email match; its own handler swallows anyway),
+-- trg_log_user_role_change, trg_no_self_authority_placement (auth.uid() NULL
+-- in a migration → short-circuits). Wave 1's step 12 INSERTed the same rows
+-- for 30 such profiles through the same trigger set at its apply (ledgered),
+-- so the path is exercised, not assumed. If the simulation does fail, the
+-- RAISE aborts the whole file — nothing lands half-applied — and the fix is
+-- to look at the WARNING the trigger printed, not to edit the assertion.
+-- Side effect that survives the sub-block rollback: sequence increments, if
+-- any trigger consumed one (none does for a staff-matched profile).
+--
+-- SILENT-FAILURE SURFACING for the trigger (it never raises — see 6b): a
+-- missed provisioning shows only as a Postgres WARNING. The check that
+-- surfaces it is the step-7 assertion's own query — signed-in, active
+-- Nattraja faculty/hod/principal profiles WITHOUT an active owner row:
+--   SELECT p.id, p.email FROM profiles p
+--    WHERE p.institution_id = '29c221d1-…' AND p.role IN ('faculty','hod','principal') AND p.is_active
+--      AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)
+--      AND NOT EXISTS (SELECT 1 FROM school_jkkn_owners o JOIN schools s ON s.id = o.school_id
+--            WHERE s.institution_id = p.institution_id AND s.ownership = 'internal'
+--              AND o.jkkn_user_id = p.id AND o.is_active);
+-- Any row = re-run step 6 of this file (idempotent). Wiring that query into a
+-- MetaLoop / dashboard check is a follow-up outside this lane.
 --
 -- Reversible (in this order):
 --   DROP TRIGGER IF EXISTS trg_onemark_provision_school_owner ON public.profiles;
@@ -70,14 +160,33 @@
 --   DROP FUNCTION IF EXISTS public.fn_onemark_finalize_attempt(uuid);
 --   DROP FUNCTION IF EXISTS public.fn_onemark_vault_draw(uuid, uuid, int);
 --   DROP FUNCTION IF EXISTS public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, int);
+--   DROP FUNCTION IF EXISTS public.fn_onemark_apply_vault(uuid, uuid, uuid, boolean);
+--   DROP FUNCTION IF EXISTS public.fn_onemark_grade(jsonb, jsonb);
 --   DELETE FROM ai_prompt_versions WHERE job_type = 'onemark.item_draft';
 --   DELETE FROM ai_job_types WHERE job_type = 'onemark.item_draft';
 --   DELETE FROM platform_policies WHERE policy_key = 'onemark.provision.institution_ids';
 --   DELETE FROM fp_assessments WHERE cohort_id IS NULL AND (config->>'pool')::boolean
 --     AND exam_definition_id IN (SELECT id FROM exam_definitions WHERE config_key IN ('tn_hsc_physics','tn_hsc_english'))
 --     AND created_at >= '<apply timestamp>';
---   Owner rows from step 6: DELETE FROM school_jkkn_owners WHERE ... assigned_at >= '<apply timestamp>'
---     (same predicate as the Wave 1 header).
+--   Owner rows from step 6 of THIS file — and the corrected form of Wave 1's
+--   step-12b reversal (Wave 1's header wrote `school_id = (SELECT id FROM schools
+--   WHERE name = … AND institution_id = …)`; `schools` has no UNIQUE beyond its
+--   PK, so that scalar subquery errors the day a second row matches — use IN):
+--   DELETE FROM school_jkkn_owners
+--    WHERE school_id IN (SELECT id FROM schools
+--                         WHERE institution_id = '29c221d1-b918-4c46-9d67-857273b0b553'
+--                           AND ownership = 'internal')
+--      AND role = 'outreach_coordinator'
+--      AND assigned_at >= '<apply timestamp>';          -- this file's step 6
+--   (for Wave 1's own rows substitute Wave 1's apply timestamp, 2026-09-03,
+--    with the same IN (…) predicate — never the scalar `=` form).
+--   Rows the TRIGGER inserted after apply carry assigned_at >= '<apply
+--   timestamp>' too and are removed by the same statement; the school_faculty
+--   user_roles rows it inserted: DELETE FROM user_roles ur USING profiles p
+--    WHERE ur.user_id = p.id AND ur.is_primary = false
+--      AND ur.role_id = (SELECT id FROM custom_roles WHERE role_key = 'school_faculty')
+--      AND p.institution_id = '29c221d1-…' AND p.role IN ('faculty','hod','principal')
+--      AND ur.assigned_at >= '<apply timestamp>';
 -- ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -111,7 +220,132 @@ WHERE ed.config_key IN ('tn_hsc_physics', 'tn_hsc_english')
 
 
 -- =============================================================================
--- 2. fn_onemark_record_response — one answer, and the Mistake Vault rules.
+-- 2. fn_onemark_grade + fn_onemark_apply_vault — the two shared helpers.
+-- =============================================================================
+-- Both RPCs below grade and move the vault through these, so there is ONE
+-- normaliser and ONE set of vault rules in this file. Neither is a public
+-- surface: EXECUTE is revoked from anon, authenticated and PUBLIC and granted
+-- to nobody — the SECURITY DEFINER RPCs run as the function owner and reach
+-- them that way. Step 7 asserts both locks.
+--
+-- fn_onemark_grade(chosen, answer): the correctness rule of fn_fp_record_attempt
+-- (20260808220000) verbatim — an `answer` that is an object with a `correct`
+-- key is normalised to that key; otherwise compared whole. NULL when the key
+-- or the choice is NULL (unknown, not wrong).
+CREATE OR REPLACE FUNCTION public.fn_onemark_grade(p_chosen jsonb, p_answer jsonb)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE
+           WHEN p_answer IS NULL OR p_chosen IS NULL THEN NULL
+           WHEN jsonb_typeof(p_answer) = 'object' AND (p_answer ? 'correct')
+             THEN (p_chosen IS NOT DISTINCT FROM (p_answer -> 'correct'))
+           ELSE (p_chosen IS NOT DISTINCT FROM p_answer)
+         END;
+$$;
+
+COMMENT ON FUNCTION public.fn_onemark_grade(jsonb, jsonb) IS
+  'OneMark internal: is `chosen` the item''s key? Same normalisation as fn_fp_record_attempt ({"correct":…} unwrapped, else whole-value equality). Not RPC-callable. Added 2026-09-05 (OneMark Wave 2, Lane S).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_onemark_grade(jsonb, jsonb) FROM anon, authenticated, PUBLIC;
+
+-- fn_onemark_apply_vault(learner, item, session, is_correct): the Mistake
+-- Vault rules (decisions 9 / 10 / 18 / 19), applied to ONE graded answer.
+--   · is_correct NULL  → nothing (a skip, or an item without a key)
+--   · FALSE (wrong)    → upsert (student_id, item_id): streak 0, total_wrong+1,
+--                        status active, mastered_at NULL, next_eligible_at now()
+--                        — a mastered row is re-activated (decision 10)
+--   · TRUE, row active, this session is NOT the session of the last counted
+--     correct, and the row is due (next_eligible_at <= now(); decision 9:
+--     "a separate session >= 2 days later")
+--                      → streak+1, last_correct_session_id = session;
+--                        streak >= onemark.vault.mastery_streak (2) → mastered;
+--                        otherwise next_eligible_at = now() + min_gap_days
+--   · TRUE, same session, or not yet due → no change (twice in one sitting
+--                        counts once)
+--   · TRUE, row mastered → no change
+--   · TRUE, no row       → nothing (only a wrong answer creates a row)
+-- The CALLER decides which answers reach this function (first graded answer
+-- of an attempt-item in practice / vault_review; the final answer of every
+-- item at finalize in timed / live) — see the two RPCs.
+CREATE OR REPLACE FUNCTION public.fn_onemark_apply_vault(
+  p_student_id uuid,
+  p_item_id    uuid,
+  p_session    uuid,
+  p_is_correct boolean
+)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_vault       record;
+  v_streak_goal int;
+  v_gap_days    int;
+  v_streak      int;
+BEGIN
+  IF p_is_correct IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_is_correct IS FALSE THEN
+    INSERT INTO public.onemark_mistake_vault AS mv
+      (student_id, item_id, consecutive_correct_count, total_wrong, status, mastered_at, next_eligible_at)
+    VALUES
+      (p_student_id, p_item_id, 0, 1, 'active', NULL, now())
+    ON CONFLICT (student_id, item_id)
+    DO UPDATE SET consecutive_correct_count = 0,
+                  total_wrong               = mv.total_wrong + 1,
+                  status                    = 'active',
+                  mastered_at               = NULL,
+                  next_eligible_at          = now();
+    RETURN;
+  END IF;
+
+  -- Correct.
+  SELECT v.id, v.status, v.consecutive_correct_count, v.last_correct_session_id, v.next_eligible_at
+    INTO v_vault
+    FROM public.onemark_mistake_vault v
+   WHERE v.student_id = p_student_id AND v.item_id = p_item_id
+     FOR UPDATE;
+  IF NOT FOUND
+     OR v_vault.status <> 'active'
+     OR v_vault.last_correct_session_id IS NOT DISTINCT FROM p_session
+     OR (v_vault.next_eligible_at IS NOT NULL AND v_vault.next_eligible_at > now()) THEN
+    RETURN;
+  END IF;
+
+  v_streak_goal := public.fn_get_policy_int('onemark.vault.mastery_streak', 2);
+  v_gap_days    := public.fn_get_policy_int('onemark.vault.min_gap_days', 2);
+  v_streak      := v_vault.consecutive_correct_count + 1;
+  IF v_streak >= v_streak_goal THEN
+    UPDATE public.onemark_mistake_vault
+       SET consecutive_correct_count = v_streak,
+           last_correct_session_id   = p_session,
+           status                    = 'mastered',
+           mastered_at               = now()
+     WHERE id = v_vault.id;
+  ELSE
+    UPDATE public.onemark_mistake_vault
+       SET consecutive_correct_count = v_streak,
+           last_correct_session_id   = p_session,
+           next_eligible_at          = now() + (v_gap_days * interval '1 day')
+     WHERE id = v_vault.id;
+  END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_onemark_apply_vault(uuid, uuid, uuid, boolean) IS
+  'OneMark internal: apply the Mistake Vault rules (decisions 9/10/18/19) for one graded answer — wrong re-activates and counts, a due correct in a new session advances the streak, streak >= onemark.vault.mastery_streak masters. Not RPC-callable. Added 2026-09-05 (OneMark Wave 2, Lane S).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_onemark_apply_vault(uuid, uuid, uuid, boolean) FROM anon, authenticated, PUBLIC;
+
+
+-- =============================================================================
+-- 2c. fn_onemark_record_response — one answer.
 -- =============================================================================
 -- Caller must pass the estate's attempt-WRITE gate (fn_fp_record_attempt,
 -- 20260808220000): fn_fp_can_manage_student (super-admin, or a registered
@@ -121,37 +355,38 @@ WHERE ed.config_key IN ('tn_hsc_physics', 'tn_hsc_english')
 -- (the Senior Learner running a cohort the learner is enrolled in). NOT the
 -- READ predicate fn_fp_can_view_student, which would also let any bare
 -- school_jkkn_owners row answer and submit on a learner's behalf. The attempt
--- must still be in_progress: a submitted attempt is closed (decision 19).
--- The item must be on the attempt's exam and, for a fixed paper, one of its
--- fp_assessment_items. On a timed or live paper the verdict is withheld
--- until finalize (is_correct / vault_status / streak return NULL).
+-- must be in_progress (decision 19) and must be an OneMark attempt (mode set;
+-- a legacy Foundation attempt with mode NULL belongs to fn_fp_record_attempt
+-- and its 0..1 score unit). The item must be on the attempt's exam and, for a
+-- fixed paper, one of its fp_assessment_items.
 --
--- Correctness is computed here, server-side, exactly as fn_fp_record_attempt
--- does (an `answer` that is an object with a `correct` key is normalised to
--- that key; otherwise compared whole) — the answer key never leaves the
--- database.
---
--- Vault rules (decisions 9 / 10 / 18):
---   · skipped            → nothing vault-related (not right, not wrong)
---   · wrong              → upsert (student_id, item_id): streak 0, total_wrong+1,
---                          status active, mastered_at NULL, next_eligible_at now()
---                          — a mastered row is re-activated (decision 10)
---   · correct, row active, and this sitting's session_id is NOT the session of
---     the last counted correct, and the row is due (next_eligible_at <= now(),
---     decision 9: "a separate session >= 2 days later")
---                        → streak+1, last_correct_session_id = session;
---                          streak >= onemark.vault.mastery_streak (2) → mastered;
---                          otherwise next_eligible_at = now() + min_gap_days
---   · correct, same session → no change (twice in one sitting counts once)
---   · correct, row mastered → no change
---   · correct, no row       → nothing (only a wrong answer creates a row)
---   · re-answer in the same attempt: a WRONG still lands (once per
---     attempt-item — decision 19 "wrong answers still feed the vault");
---     a CORRECT re-answer never counts (the first answer is the sitting's).
+-- TWO GRADING REGIMES, by fp_attempts.mode:
+--   · practice / vault_review — REVEALED. The answer is graded now
+--     (fn_onemark_grade), the verdict returned, the bank counters bumped and
+--     the vault moved. The learner sees the verdict immediately, so a later
+--     change of answer to the same item in the same attempt is a reaction to
+--     the verdict, not a fresh attempt: it overwrites the response row (the
+--     last answer is what the score counts) and touches NOTHING else. Rule:
+--       first response of any kind      → times_served + 1 (it was shown)
+--       first GRADED answer (a skip does not grade; the first non-skipped
+--       answer is the first graded one)  → times_correct (+1 if correct) and
+--                                          the vault, exactly once
+--       any later answer                 → response row only
+--     So skip-then-wrong reaches the vault (decision 19), skip-then-correct
+--     counts as correct in the bank, wrong-then-correct-then-wrong counts ONE
+--     wrong — once per attempt-item, as stated.
+--   · timed / live — WITHHELD. Only chosen / skipped / time_ms are stored;
+--     is_correct stays NULL, no counters, no vault, and the return carries
+--     is_correct / vault_status / streak as NULL with revealed = false. A
+--     learner can SELECT their own fp_responses (fn_fp_can_view_attempt) and
+--     their own vault rows (fn_fp_can_view_student) mid-paper, so a verdict
+--     stored anywhere would be an answer-key oracle — try each option, read
+--     the verdict, keep the winner. fn_onemark_finalize_attempt grades the
+--     FINAL answer of every item at submit (correct-then-changed-to-wrong is
+--     a wrong; skip-then-wrong is a wrong; decision 19 holds).
 --
 -- session_id: fp_attempts.session_id (one uuid per sitting, set by Lane V).
--- When NULL (rows that predate OneMark, or a caller that did not set it) the
--- attempt id stands in, so "same sitting" still means something.
+-- When NULL the attempt id stands in, so "same sitting" still means something.
 CREATE OR REPLACE FUNCTION public.fn_onemark_record_response(
   p_attempt_id uuid,
   p_item_id    uuid,
@@ -166,20 +401,17 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_attempt      record;
-  v_item         record;
-  v_session      uuid;
-  v_norm_answer  jsonb;
-  v_is_correct   boolean;
-  v_skipped      boolean := COALESCE(p_skipped, false);
-  v_existed      boolean;
-  v_prev_correct boolean;
-  v_reveal       boolean;
-  v_vault        record;
-  v_streak_goal  int;
-  v_gap_days     int;
-  v_vault_status text;
-  v_streak       int;
+  v_attempt        record;
+  v_item           record;
+  v_session        uuid;
+  v_is_correct     boolean;
+  v_skipped        boolean := COALESCE(p_skipped, false);
+  v_existed        boolean;
+  v_prev_skipped   boolean;
+  v_first_graded   boolean;
+  v_reveal         boolean;
+  v_vault_status   text;
+  v_streak         int;
 BEGIN
   IF p_attempt_id IS NULL OR p_item_id IS NULL THEN
     RAISE EXCEPTION 'fn_onemark_record_response: attempt_id and item_id are required';
@@ -214,6 +446,10 @@ BEGIN
       p_attempt_id, v_attempt.status
       USING ERRCODE = 'check_violation';
   END IF;
+  IF v_attempt.mode IS NULL THEN
+    RAISE EXCEPTION 'fn_onemark_record_response: attempt % has no mode — a legacy Foundation attempt is recorded by fn_fp_record_attempt, not here', p_attempt_id
+      USING ERRCODE = 'check_violation';
+  END IF;
 
   SELECT i.id, i.answer, i.exam_definition_id
     INTO v_item
@@ -243,35 +479,23 @@ BEGIN
   END IF;
 
   v_session := COALESCE(v_attempt.session_id, v_attempt.id);
-  -- Timed and live papers reveal nothing per question: the row still stores
-  -- is_correct for the score, but the caller learns it only at finalize.
-  -- Otherwise (practice, vault_review, legacy NULL) the caller could try each
-  -- option in turn, read is_correct, and leave the winner as the final answer.
-  v_reveal := (v_attempt.mode IS NULL OR v_attempt.mode NOT IN ('timed', 'live'));
+  v_reveal  := v_attempt.mode IN ('practice', 'vault_review');
 
-  -- Correctness (same normalisation as fn_fp_record_attempt). A skipped item
-  -- is neither right nor wrong (decision 18).
-  IF v_skipped THEN
-    v_is_correct := NULL;
-  ELSIF v_item.answer IS NULL THEN
+  -- Verdict: graded now only in a revealed mode; a skip is never graded
+  -- (decision 18). In a withheld mode the column stays NULL until finalize.
+  IF v_skipped OR NOT v_reveal THEN
     v_is_correct := NULL;
   ELSE
-    IF jsonb_typeof(v_item.answer) = 'object' AND (v_item.answer ? 'correct') THEN
-      v_norm_answer := v_item.answer -> 'correct';
-    ELSE
-      v_norm_answer := v_item.answer;
-    END IF;
-    v_is_correct := (p_chosen IS NOT DISTINCT FROM v_norm_answer);
+    v_is_correct := public.fn_onemark_grade(p_chosen, v_item.answer);
   END IF;
 
-  -- Persist the response. Re-answering the same item in the same attempt
-  -- overwrites (the last answer stands for the score) and does NOT re-count
-  -- a serve. The previous verdict (NULL when skipped / first answer) decides
-  -- what the vault does below.
-  SELECT r.is_correct INTO v_prev_correct
+  -- What was there before decides whether this is the first response / the
+  -- first graded answer to this item in this attempt.
+  SELECT r.skipped INTO v_prev_skipped
     FROM public.fp_responses r
    WHERE r.attempt_id = p_attempt_id AND r.item_id = p_item_id;
-  v_existed := FOUND;
+  v_existed      := FOUND;
+  v_first_graded := (NOT v_existed) OR COALESCE(v_prev_skipped, false);
 
   INSERT INTO public.fp_responses (attempt_id, item_id, chosen, is_correct, time_ms, skipped)
   VALUES (p_attempt_id, p_item_id,
@@ -283,85 +507,43 @@ BEGIN
                 time_ms    = EXCLUDED.time_ms,
                 skipped    = EXCLUDED.skipped;
 
-  IF NOT v_existed THEN
-    UPDATE public.fp_items
-       SET times_served  = times_served + 1,
-           times_correct = times_correct + CASE WHEN v_is_correct IS TRUE THEN 1 ELSE 0 END
-     WHERE id = p_item_id;
-  END IF;
-
-  -- Mistake Vault.
-  --   · WRONG always reaches the vault (decision 19: "wrong answers still feed
-  --     the vault"; decision 18 exempts only a SKIP) — a skip-then-wrong or a
-  --     correct-then-changed-to-wrong is a real mistake. It is counted once
-  --     per attempt-item: a wrong re-answer over an already-wrong row does
-  --     not add a second total_wrong.
-  --   · CORRECT counts only as the FIRST answer to the item in this attempt:
-  --     a re-answer (timed mode may revisit before submitting) overwrites the
-  --     response and the score, but must not let a learner who has just seen
-  --     the explanation turn a wrong into a counted correct in the same breath
-  --     (decision 9's spirit: the next correct is a separate sitting).
-  IF NOT v_skipped AND v_is_correct IS FALSE AND v_prev_correct IS DISTINCT FROM FALSE THEN
-    INSERT INTO public.onemark_mistake_vault AS mv
-      (student_id, item_id, consecutive_correct_count, total_wrong, status, mastered_at, next_eligible_at)
-    VALUES
-      (v_attempt.student_id, p_item_id, 0, 1, 'active', NULL, now())
-    ON CONFLICT (student_id, item_id)
-    DO UPDATE SET consecutive_correct_count = 0,
-                  total_wrong               = mv.total_wrong + 1,
-                  status                    = 'active',
-                  mastered_at               = NULL,
-                  next_eligible_at          = now();
-  ELSIF NOT v_existed AND NOT v_skipped AND v_is_correct IS TRUE THEN
-    SELECT v.id, v.status, v.consecutive_correct_count, v.last_correct_session_id, v.next_eligible_at
-      INTO v_vault
-      FROM public.onemark_mistake_vault v
-     WHERE v.student_id = v_attempt.student_id AND v.item_id = p_item_id
-       FOR UPDATE;
-    IF FOUND
-       AND v_vault.status = 'active'
-       AND v_vault.last_correct_session_id IS DISTINCT FROM v_session
-       AND (v_vault.next_eligible_at IS NULL OR v_vault.next_eligible_at <= now())
-    THEN
-      v_streak_goal := public.fn_get_policy_int('onemark.vault.mastery_streak', 2);
-      v_gap_days    := public.fn_get_policy_int('onemark.vault.min_gap_days', 2);
-      v_streak      := v_vault.consecutive_correct_count + 1;
-      IF v_streak >= v_streak_goal THEN
-        UPDATE public.onemark_mistake_vault
-           SET consecutive_correct_count = v_streak,
-               last_correct_session_id   = v_session,
-               status                    = 'mastered',
-               mastered_at               = now()
-         WHERE id = v_vault.id;
-      ELSE
-        UPDATE public.onemark_mistake_vault
-           SET consecutive_correct_count = v_streak,
-               last_correct_session_id   = v_session,
-               next_eligible_at          = now() + (v_gap_days * interval '1 day')
-         WHERE id = v_vault.id;
-      END IF;
+  IF v_reveal THEN
+    -- Bank counters: served once per attempt-item (on the first response of
+    -- any kind), correct once per attempt-item (on the first graded answer).
+    IF NOT v_existed THEN
+      UPDATE public.fp_items
+         SET times_served  = times_served + 1,
+             times_correct = times_correct + CASE WHEN v_is_correct IS TRUE THEN 1 ELSE 0 END
+       WHERE id = p_item_id;
+    ELSIF v_first_graded AND v_is_correct IS TRUE THEN
+      UPDATE public.fp_items
+         SET times_correct = times_correct + 1
+       WHERE id = p_item_id;
     END IF;
+
+    -- Vault: the first graded answer, once.
+    IF v_first_graded AND NOT v_skipped THEN
+      PERFORM public.fn_onemark_apply_vault(v_attempt.student_id, p_item_id, v_session, v_is_correct);
+    END IF;
+
+    SELECT v.status, v.consecutive_correct_count
+      INTO v_vault_status, v_streak
+      FROM public.onemark_mistake_vault v
+     WHERE v.student_id = v_attempt.student_id AND v.item_id = p_item_id;
   END IF;
 
-  SELECT v.status, v.consecutive_correct_count
-    INTO v_vault_status, v_streak
-    FROM public.onemark_mistake_vault v
-   WHERE v.student_id = v_attempt.student_id AND v.item_id = p_item_id;
-
-  -- vault_status / streak would betray the verdict too (a wrong flips the row
-  -- to active / streak 0), so a timed or live paper returns all three as NULL.
   RETURN jsonb_build_object(
-    'is_correct',   CASE WHEN v_reveal THEN v_is_correct   END,
+    'is_correct',   v_is_correct,     -- NULL when skipped or withheld
     'skipped',      v_skipped,
-    'vault_status', CASE WHEN v_reveal THEN v_vault_status END,
-    'streak',       CASE WHEN v_reveal THEN v_streak       END,
+    'vault_status', v_vault_status,   -- NULL when withheld or no row
+    'streak',       v_streak,
     'revealed',     v_reveal
   );
 END;
 $$;
 
 COMMENT ON FUNCTION public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, int) IS
-  'OneMark: record one response on an in-progress attempt (caller must pass fn_fp_can_manage_student / fn_fp_is_own_or_guardian / fn_fp_teaches_student for the attempt''s learner — the fn_fp_record_attempt write gate), item must be on the attempt''s exam and, for a fixed paper, in fp_assessment_items; bump fp_items serve counters and apply the Mistake Vault rules (decisions 9/10/18/19). Returns {is_correct, skipped, vault_status, streak, revealed}; is_correct / vault_status / streak are NULL while fp_attempts.mode is timed or live (revealed at finalize); never returns the answer key. Added 2026-09-04 (OneMark Wave 2, Lane S).';
+  'OneMark: record one response on an in-progress OneMark attempt (mode set; caller must pass fn_fp_can_manage_student / fn_fp_is_own_or_guardian / fn_fp_teaches_student for the attempt''s learner — the fn_fp_record_attempt write gate; item must be on the attempt''s exam and, for a fixed paper, in fp_assessment_items). practice / vault_review: graded now, bank counters + Mistake Vault on the first graded answer per attempt-item (decisions 9/10/18/19). timed / live: stores chosen only — no verdict anywhere until fn_onemark_finalize_attempt grades the final answers. Returns {is_correct, skipped, vault_status, streak, revealed}; never returns the answer key. Added 2026-09-04, withheld grading 2026-09-05 (OneMark Wave 2, Lane S).';
 
 REVOKE EXECUTE ON FUNCTION public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, int) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, int) TO authenticated;
@@ -372,9 +554,15 @@ GRANT  EXECUTE ON FUNCTION public.fn_onemark_record_response(uuid, uuid, jsonb, 
 -- =============================================================================
 -- Active vault rows for this learner whose items belong to the given subject
 -- exam and are still active in the bank, due now (next_eligible_at <= now()),
--- ordered least-recently-wrong first — next_eligible_at is stamped now() by
--- every wrong answer and pushed out by a counted correct, so ascending order
--- IS "longest since it was last wrong / last reviewed"; created_at breaks ties.
+-- ordered by next_eligible_at ascending. Precisely: that is "least recently
+-- TOUCHED" — next_eligible_at is stamped now() by every wrong answer and
+-- pushed forward by a counted correct — so the spec's "least-recently-wrong
+-- first" holds among rows never answered right since, and a row that earned
+-- one counted correct queues behind them. That is decision 13's intent (the
+-- item you have not seen longest comes first); created_at breaks ties.
+-- Caller gate is the READ predicate fn_fp_can_view_student, per the lane
+-- spec — a draw returns item ids only; recording answers goes through the
+-- WRITE-gated RPCs.
 --
 -- Cap (decision 13): no single fp_items.topic_id may exceed
 -- onemark.vault.max_single_chapter_pct (60) percent of p_count, rounded DOWN
@@ -449,12 +637,27 @@ GRANT  EXECUTE ON FUNCTION public.fn_onemark_vault_draw(uuid, uuid, int) TO auth
 -- =============================================================================
 -- 4. fn_onemark_finalize_attempt — one submission, server-side.
 -- =============================================================================
--- score = number of responses with is_correct = true (decision 18: a skipped
--- item is not wrong and simply does not count). NOTE the unit: fn_fp_record_attempt
--- (the older Foundation practice path) stores score as a 0..1 ratio; OneMark
--- attempts store the COUNT, per the lane spec. Readers must key on
--- fp_attempts.mode (NULL = legacy ratio, non-NULL = OneMark count).
--- Refuses an attempt that is already submitted (decision 19).
+-- In order:
+--   1. lock the attempt (FOR UPDATE), gate, refuse anything not in_progress
+--      ('submitted' — decision 19; 'abandoned' — a value of the fp_attempts
+--      status CHECK, 20260706065000, that must not be revived into a score)
+--      and refuse a legacy attempt (mode NULL: fn_fp_record_attempt owns those
+--      and stores score as a 0..1 RATIO; OneMark stores the COUNT — mixing the
+--      two units on one row would poison every report that averages score);
+--   2. on a FIXED paper (the assessment has fp_assessment_items rows) insert a
+--      skipped response for every item that has none — "unanswered = skipped"
+--      (decision 18) without the client having to enumerate the blanks; a pool
+--      attempt has no item list here, so the client records those skips itself
+--      (Lane V's finalize route does);
+--   3. on a timed / live attempt grade the FINAL answer of every response now:
+--      fp_responses.is_correct backfilled, fp_items.times_served + 1 for every
+--      response (served) and times_correct + 1 for every correct one, and the
+--      Mistake Vault moved per answer (fn_onemark_apply_vault) — this is the
+--      only place a withheld-mode verdict is ever written; a practice /
+--      vault_review attempt was graded as it went (backfilled skips still
+--      count as served);
+--   4. score = number of responses with is_correct = true (decision 18: a
+--      skipped item is not wrong and simply does not count), status submitted.
 CREATE OR REPLACE FUNCTION public.fn_onemark_finalize_attempt(p_attempt_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -463,17 +666,22 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_attempt   record;
-  v_correct   int;
-  v_answered  int;
-  v_skipped   int;
-  v_now       timestamptz := now();
+  v_attempt     record;
+  v_session     uuid;
+  v_reveal      boolean;
+  v_backfilled  uuid[] := '{}';
+  v_row         record;
+  v_is_correct  boolean;
+  v_correct     int;
+  v_answered    int;
+  v_skipped     int;
+  v_now         timestamptz := now();
 BEGIN
   IF p_attempt_id IS NULL THEN
     RAISE EXCEPTION 'fn_onemark_finalize_attempt: attempt_id is required';
   END IF;
 
-  SELECT a.id, a.student_id, a.status
+  SELECT a.id, a.student_id, a.status, a.mode, a.session_id, a.assessment_id
     INTO v_attempt
     FROM public.fp_attempts a
    WHERE a.id = p_attempt_id
@@ -492,15 +700,68 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  -- Only an in_progress attempt can be submitted: 'submitted' is decision 19,
-  -- and an 'abandoned' one (fp_attempts status CHECK, 20260706065000) must
-  -- not be revived into a scored submission either.
   IF v_attempt.status <> 'in_progress' THEN
     RAISE EXCEPTION 'fn_onemark_finalize_attempt: attempt % is %, not in_progress (single submission, decision 19)',
       p_attempt_id, v_attempt.status
       USING ERRCODE = 'check_violation';
   END IF;
+  IF v_attempt.mode IS NULL THEN
+    RAISE EXCEPTION 'fn_onemark_finalize_attempt: attempt % has no mode — a legacy Foundation attempt (score is a 0..1 ratio there) is not an OneMark attempt', p_attempt_id
+      USING ERRCODE = 'check_violation';
+  END IF;
 
+  v_session := COALESCE(v_attempt.session_id, v_attempt.id);
+  v_reveal  := v_attempt.mode IN ('practice', 'vault_review');
+
+  -- 2. Unanswered items of a fixed paper become skipped responses.
+  WITH ins AS (
+    INSERT INTO public.fp_responses (attempt_id, item_id, chosen, is_correct, time_ms, skipped)
+    SELECT p_attempt_id, ai.item_id, NULL, NULL, NULL, true
+      FROM public.fp_assessment_items ai
+     WHERE ai.assessment_id = v_attempt.assessment_id
+       AND NOT EXISTS (
+         SELECT 1 FROM public.fp_responses r
+          WHERE r.attempt_id = p_attempt_id AND r.item_id = ai.item_id
+       )
+    RETURNING item_id
+  )
+  SELECT COALESCE(array_agg(item_id), '{}') INTO v_backfilled FROM ins;
+
+  IF v_reveal THEN
+    -- A revealed attempt counted every served item as it went; only the
+    -- backfilled blanks are new to the bank counters.
+    UPDATE public.fp_items
+       SET times_served = times_served + 1
+     WHERE id = ANY (v_backfilled);
+  ELSE
+    -- 3. Withheld mode: grade the final answer of every response now.
+    FOR v_row IN
+      SELECT r.id, r.item_id, r.chosen, r.skipped, i.answer
+        FROM public.fp_responses r
+        JOIN public.fp_items i ON i.id = r.item_id
+       WHERE r.attempt_id = p_attempt_id
+       ORDER BY r.created_at, r.id
+    LOOP
+      IF v_row.skipped THEN
+        v_is_correct := NULL;
+      ELSE
+        v_is_correct := public.fn_onemark_grade(v_row.chosen, v_row.answer);
+      END IF;
+
+      UPDATE public.fp_responses SET is_correct = v_is_correct WHERE id = v_row.id;
+
+      UPDATE public.fp_items
+         SET times_served  = times_served + 1,
+             times_correct = times_correct + CASE WHEN v_is_correct IS TRUE THEN 1 ELSE 0 END
+       WHERE id = v_row.item_id;
+
+      IF NOT v_row.skipped THEN
+        PERFORM public.fn_onemark_apply_vault(v_attempt.student_id, v_row.item_id, v_session, v_is_correct);
+      END IF;
+    END LOOP;
+  END IF;
+
+  -- 4. Score and close.
   SELECT count(*) FILTER (WHERE r.is_correct IS TRUE),
          count(*) FILTER (WHERE NOT r.skipped),
          count(*) FILTER (WHERE r.skipped)
@@ -515,18 +776,20 @@ BEGIN
    WHERE id = p_attempt_id;
 
   RETURN jsonb_build_object(
-    'attempt_id',   p_attempt_id,
-    'score',        v_correct,
-    'correct',      v_correct,
-    'answered',     v_answered,
-    'skipped',      v_skipped,
-    'submitted_at', v_now
+    'attempt_id',            p_attempt_id,
+    'mode',                  v_attempt.mode,
+    'score',                 v_correct,
+    'correct',               v_correct,
+    'answered',              v_answered,
+    'skipped',               v_skipped,
+    'unanswered_backfilled', COALESCE(array_length(v_backfilled, 1), 0),
+    'submitted_at',          v_now
   );
 END;
 $$;
 
 COMMENT ON FUNCTION public.fn_onemark_finalize_attempt(uuid) IS
-  'OneMark: submit an in-progress attempt once (decision 19). score = count of correct responses; skipped is neither right nor wrong (decision 18). Refuses any attempt not in_progress (submitted or abandoned). Caller must pass the fn_fp_record_attempt write gate (fn_fp_can_manage_student / fn_fp_is_own_or_guardian / fn_fp_teaches_student). Added 2026-09-04 (OneMark Wave 2, Lane S).';
+  'OneMark: submit an in-progress OneMark attempt once (decision 19; refuses submitted, abandoned and mode-NULL legacy attempts). Backfills a skipped response for every unanswered item of a fixed paper (decision 18); on timed / live grades the final answer of every response here (is_correct backfilled, bank counters, Mistake Vault). score = count of correct responses. Caller must pass the fn_fp_record_attempt write gate. Added 2026-09-04, withheld grading 2026-09-05 (OneMark Wave 2, Lane S).';
 
 REVOKE EXECUTE ON FUNCTION public.fn_onemark_finalize_attempt(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_onemark_finalize_attempt(uuid) TO authenticated;
@@ -653,9 +916,14 @@ WHERE s.id = (
      ORDER BY s2.created_at ASC
      LIMIT 1
   )
+  -- Guard includes o.is_active (lane spec 6(a)): the table's partial unique
+  -- index is (school_id, jkkn_user_id, role, COALESCE(program_partner_id::text,''))
+  -- WHERE is_active, so an INACTIVE row for the same person must not suppress
+  -- a fresh active one — and the step-7 assertion counts ACTIVE rows only, so
+  -- without this a deactivated owner would abort the apply.
   AND NOT EXISTS (
     SELECT 1 FROM public.school_jkkn_owners o
-    WHERE o.school_id = s.id AND o.jkkn_user_id = p.id
+    WHERE o.school_id = s.id AND o.jkkn_user_id = p.id AND o.is_active
   );
 
 
@@ -696,10 +964,17 @@ WHERE s.id = (
 -- make fn_fp_can_manage_student true for every learner of that school, i.e.
 -- the WRITE gate of fn_onemark_record_response / fn_onemark_finalize_attempt
 -- and the Mistake Vault's write policy — the same standing Wave 1 gave the 30
--- seeded Senior Learners by hand. The school_faculty role is withheld (with a
--- WARNING) when the profile's email matches no staff row, because that
--- user_roles insert would mint a permanent 'associate' JKKN ID — the outcome
--- Wave 1's step-12 assertion refused to apply over.
+-- seeded Senior Learners by hand. And the owner row ALONE — before, or
+-- without, the role — already satisfies fn_fp_can_view_student
+-- (20260706065000: a bare active school_jkkn_owners row, NO permission key
+-- required), the READ predicate on fp_attempts / fp_responses / fp_baselines /
+-- fp_revision_plans / fp_student_weakness / onemark_mistake_vault for EVERY
+-- learner of that school, and the caller gate of fn_onemark_vault_draw. So a
+-- first sign-in self-provisions read standing over every Nattraja learner's
+-- performance data with no human in the loop. The school_faculty role is
+-- withheld (with a WARNING) when the profile's email matches no staff row,
+-- because that user_roles insert would mint a permanent 'associate' JKKN ID —
+-- the outcome Wave 1's step-12 assertion refused to apply over.
 INSERT INTO public.platform_policies (
   policy_key, scope_type, scope_id, value, description,
   data_type, is_system, is_active, classification, publication_state
@@ -873,11 +1148,16 @@ BEGIN
   SELECT count(*) INTO v_trigger   FROM pg_trigger
    WHERE tgrelid = 'public.profiles'::regclass AND tgname = 'trg_onemark_provision_school_owner' AND NOT tgisinternal;
 
-  -- anon must not be able to execute any of the four functions.
+  -- anon must not be able to execute any of the six functions, and the two
+  -- internal helpers must not be callable by authenticated either.
   SELECT has_function_privilege('anon', 'public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, int)', 'EXECUTE')
       OR has_function_privilege('anon', 'public.fn_onemark_vault_draw(uuid, uuid, int)', 'EXECUTE')
       OR has_function_privilege('anon', 'public.fn_onemark_finalize_attempt(uuid)', 'EXECUTE')
       OR has_function_privilege('anon', 'public.fn_onemark_provision_school_owner()', 'EXECUTE')
+      OR has_function_privilege('anon', 'public.fn_onemark_grade(jsonb, jsonb)', 'EXECUTE')
+      OR has_function_privilege('anon', 'public.fn_onemark_apply_vault(uuid, uuid, uuid, boolean)', 'EXECUTE')
+      OR has_function_privilege('authenticated', 'public.fn_onemark_grade(jsonb, jsonb)', 'EXECUTE')
+      OR has_function_privilege('authenticated', 'public.fn_onemark_apply_vault(uuid, uuid, uuid, boolean)', 'EXECUTE')
     INTO v_anon_exec;
 
   -- Owner catch-up: every signed-in target profile now holds an owner row.
@@ -951,7 +1231,7 @@ BEGIN
   IF v_prompt_v1 <> 1    THEN RAISE EXCEPTION 'onemark wave2: ai_prompt_versions v1 champion for onemark.item_draft missing'; END IF;
   IF v_policy <> 1       THEN RAISE EXCEPTION 'onemark wave2: platform_policies onemark.provision.institution_ids missing'; END IF;
   IF v_trigger <> 1      THEN RAISE EXCEPTION 'onemark wave2: trg_onemark_provision_school_owner missing on profiles'; END IF;
-  IF v_anon_exec         THEN RAISE EXCEPTION 'onemark wave2: anon can EXECUTE one of the fn_onemark_* functions'; END IF;
+  IF v_anon_exec         THEN RAISE EXCEPTION 'onemark wave2: anon can EXECUTE one of the fn_onemark_* functions, or authenticated can EXECUTE an internal helper'; END IF;
   IF v_owners < v_owner_eligible THEN
     RAISE EXCEPTION 'onemark wave2: % signed-in Nattraja Senior Learners but only % owner rows', v_owner_eligible, v_owners;
   END IF;
