@@ -3,6 +3,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { LCNotificationService } from './notification-service';
+import { LCStructureService } from './structure-service';
 import type {
   LCElection,
   LCNomination,
@@ -819,14 +820,96 @@ export class LCSelectionService {
   }
 
   /**
+   * Seat one election winner in lc_members, via the same guard the members
+   * screen uses. Never throws -- returns a reason the caller can report.
+   *
+   * Resolves the home institution itself: lc_members.institution_id is NOT
+   * NULL, but lc_elections.institution_id is null for every LC-wide election
+   * (the executive seats), so passing it straight through wrote NULL into a
+   * NOT NULL column and the insert never landed. The learner's own institution
+   * is the right value -- it is what the Assign Member dialog asks for as
+   * "Home Institution".
+   */
+  private static async seatElectionWinner(args: {
+    termId: string;
+    positionId: string;
+    userId: string;
+    electionInstitutionId: string | null;
+    // Not a discriminated union on purpose: this project compiles with
+    // strict/strictNullChecks off, so `{ ok: true } | { ok: false; reason }`
+    // does not narrow under `if (!seating.ok)` and every `.reason` read is a
+    // TS2339. A single optional field needs no narrowing.
+  }): Promise<{ ok: boolean; reason?: string }> {
+    const { termId, positionId, userId, electionInstitutionId } = args;
+
+    // Already sitting in this seat -- an incumbent re-elected. Nothing to do,
+    // and assignMember would rightly refuse a duplicate.
+    const { data: existing, error: existingError } = await this.supabase
+      .from('lc_members')
+      .select('id, status')
+      .eq('term_id', termId)
+      .eq('position_id', positionId)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (existingError) {
+      return { ok: false, reason: `could not check the seat: ${existingError.message}` };
+    }
+    if (existing) {
+      return { ok: true };
+    }
+
+    let institutionId = electionInstitutionId;
+    if (!institutionId) {
+      const { data: profile, error: profileError } = await this.supabase
+        .from('profiles')
+        .select('institution_id')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileError) {
+        return { ok: false, reason: `could not read the winner's institution: ${profileError.message}` };
+      }
+      institutionId = (profile as { institution_id: string | null } | null)?.institution_id ?? null;
+    }
+
+    if (!institutionId) {
+      return {
+        ok: false,
+        reason:
+          'this election is not tied to an institution and the winner has no home institution on their profile, so the seat has no institution to record',
+      };
+    }
+
+    try {
+      await LCStructureService.assignMember({
+        term_id: termId,
+        position_id: positionId,
+        user_id: userId,
+        institution_id: institutionId,
+        appointment_notes: 'Seated automatically from election results',
+      });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
    * Declare election results: update election status to results_declared,
    * mark winning nominations as 'selected', and create position assignments
    * for winners in lc_members or yuva_vertical_members.
+   *
+   * Winners who cannot be seated are reported in `seatingFailures` and are NOT
+   * notified that they won -- see seatElectionWinner().
    */
   static async declareResults(electionId: string): Promise<{
     election: LCElection;
     winners: { nomination_id: string; nominee_name: string; role_sought: string; vote_count: number }[];
+    seatingFailures: { nominee_name: string; role_sought: string; reason: string }[];
   }> {
+    const seatingFailures: { nominee_name: string; role_sought: string; reason: string }[] = [];
     // Get election results
     const { election, results } = await this.getElectionResults(electionId);
 
@@ -861,21 +944,42 @@ export class LCSelectionService {
 
       const nom = nomination as unknown as NominationForResults;
 
-      // Auto-assign position in lc_members
+      // Seat the winner in lc_members.
+      //
+      // This used to be a bare upsert whose result was never destructured,
+      // wrapped in a try/catch that could never fire -- the Supabase client
+      // resolves to { data, error } on a constraint violation rather than
+      // rejecting, so the error was neither thrown nor read. Its onConflict
+      // named the OLD key (term_id, position_id, user_id), which a DIFFERENT
+      // winner for an already-held seat does not collide with, so it inserted
+      // a second active holder. It also wrote election.institution_id straight
+      // into a NOT NULL column, and that column is null for every LC-wide
+      // (executive) election.
+      //
+      // Seating now goes through LCStructureService.assignMember(), which
+      // enforces one active holder per seat, records position history, and
+      // reports refusals in plain English. A winner who cannot be seated is
+      // NOT told they won -- see the notification guard below.
       if (nom && nom.position_id) {
-        try {
-          await this.supabase
-            .from('lc_members')
-            .upsert({
-              term_id: election.term_id,
-              user_id: nom.nominee_id,
-              position_id: nom.position_id,
-              institution_id: election.institution_id,
-              status: 'active',
-              appointed_at: new Date().toISOString(),
-            }, { onConflict: 'term_id,position_id,user_id' });
-        } catch (assignErr) {
-          console.warn('[lc/selection] Failed to auto-assign position:', assignErr);
+        const seating = await this.seatElectionWinner({
+          termId: election.term_id,
+          positionId: nom.position_id,
+          userId: nom.nominee_id,
+          electionInstitutionId: election.institution_id,
+        });
+
+        if (!seating.ok) {
+          console.error(
+            `[lc/selection] Could not seat winner for "${winner.role_sought}": ${seating.reason ?? "unknown reason"}`
+          );
+          seatingFailures.push({
+            nominee_name: winner.nominee_name,
+            role_sought: winner.role_sought,
+            reason: seating.reason ?? "unknown reason",
+          });
+          // Deliberately skips the notification below: telling a learner
+          // "You Won!" for a seat they were never given is worse than silence.
+          continue;
         }
       }
 
@@ -911,6 +1015,7 @@ export class LCSelectionService {
         role_sought: w.role_sought,
         vote_count: w.vote_count,
       })),
+      seatingFailures,
     };
   }
 }

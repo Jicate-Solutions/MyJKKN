@@ -10,6 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useCampusLivingOverview, useResidentDemographics,
   useBlockCategoryOccupancy, useInstitutionResidents,
@@ -38,6 +39,7 @@ const isoDaysAgo = (days: number) => {
 
 export default function CampusLivingManagementDashboardPage() {
   const { profile } = useAuth();
+  const { isLoading: permsLoading } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
 
   const { data, isLoading, error } = useCampusLivingOverview(institutionId);
@@ -66,7 +68,12 @@ export default function CampusLivingManagementDashboardPage() {
   const effectiveFeeYear = feeYearId ?? currentYear?.id ?? null;
   const { data: billStats, isLoading: feeLoading, error: feeError } = useHostelYearBillStats(effectiveFeeYear);
 
-  if (isLoading) {
+  // permsLoading keeps the spinner up while the viewer's scope resolves. Every
+  // query on this page is deliberately disabled until then (useCampusLivingScope),
+  // and a DISABLED React Query reports isLoading:false — so without this gate the
+  // page renders its zero/empty branches ("No hostel blocks configured", 0%)
+  // before the first fetch even starts. That is the visible half of BUG-005831.
+  if (isLoading || permsLoading) {
     return (
       <ContentLayout title="Management Dashboard">
         <div className="flex items-center justify-center min-h-[400px]">

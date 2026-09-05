@@ -69,7 +69,7 @@ export default function CdcBulletinPage() {
               Hackathons, conferences, scholarships, and external opportunities
             </p>
           </div>
-          <PermissionGuard module="cdc.bulletin" action="create">
+          <PermissionGuard module="cdc.bulletin" action="create" fallback={null}>
             <Button asChild>
               <Link href="/cdc/bulletin/new">
                 <Plus className="w-4 h-4 mr-2" />
@@ -141,7 +141,7 @@ export default function CdcBulletinPage() {
             <p className="text-sm text-muted-foreground mt-1">
               Check back soon, or post one if you have access.
             </p>
-            <PermissionGuard module="cdc.bulletin" action="create">
+            <PermissionGuard module="cdc.bulletin" action="create" fallback={null}>
               <Button asChild className="mt-4">
                 <Link href="/cdc/bulletin/new">
                   <Plus className="w-4 h-4 mr-2" /> Post Opportunity

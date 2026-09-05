@@ -72,7 +72,7 @@ export default function ClubsListPage() {
             <Users className="w-6 h-6 text-blue-600" />
             Clubs
           </h1>
-          <PermissionGuard module="cdc.clubs" action="create">
+          <PermissionGuard module="cdc.clubs" action="create" fallback={null}>
             <Button asChild>
               <Link href="/cdc/clubs/new">
                 <Plus className="w-4 h-4 mr-1" />

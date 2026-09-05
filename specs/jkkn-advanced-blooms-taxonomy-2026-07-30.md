@@ -3,6 +3,9 @@
 **Status:** Draft for Director / IQAC ruling
 **Date:** 2026-07-30 · **Revised:** 2026-08-05 — structure changed to *Bloom's six retained + three added* (Director's design); **A4 Performed Skill adopted, A5 reserved** after auditing against all three Bloom domains
 **Revised:** 2026-08-15 — **`A5` is "Accountable AI Use" and is ACTIVE** (Director, 2026-08-15, confirming the 2026-08-06 rulings of record). Element counts corrected to **eleven**; §3, §8.2, §10 and §12 reconciled against the LIVE catalog, which was already ahead of this document.
+**Revised:** 2026-08-15 (later same day) — **§8.4 and §10 row 4 corrected.** They claimed four of the
+five UI surfaces were already three-way; measured on `jicate/main`, **none were**. §12's UI proof is
+recorded as not-yet-satisfiable for the reason given there.
 **Applies to:** Regulation R-2026 onward, all institutions
 **Supersedes:** nothing. Extends the existing `blooms` / `finks` taxonomy configuration.
 
@@ -320,12 +323,30 @@ value silently. Enforcement is inconsistent across the schema; a matching check 
 recommended.
 
 ### 8.4 UI surfaces that branch binary
-These read `isBlooms ? … : …`, so a third value renders as "Fink's" until each is made
-three-way. Grep `taxonomy_type ===` before shipping.
-- `app/(routes)/academic/obe/page.tsx`
-- `app/(routes)/academic/obe/regulation-config/page.tsx`
-- `app/(routes)/bos/taxonomy/_components/taxonomy-badge.tsx`
-- `app/(routes)/bos/taxonomy/_components/board-taxonomy-table.tsx`, `taxonomy-form.tsx`
+These read `isBlooms ? … : …`, so a third value renders as "Fink's" until each is made three-way.
+
+> 🔴 **Corrected 2026-08-15.** An earlier revision of this section — and of §10 row 4 — implied that
+> four of the five surfaces below had already been made three-way. **That was false.** It was
+> inferred from grepping the `taxonomy_type ===` idiom alone, which never matches
+> `useState<'blooms' | 'finks'>` or a ternary on a local variable. Measured on `jicate/main`:
+> `git grep -l jkkn_advanced` returned **three files** — this spec, `supabase/SQL_FILE_INDEX.md`, and
+> `supabase/migrations/20260908034127_fp_items_bloom_level.sql` — **none of them TypeScript**. No UI
+> surface handled the third value at all.
+>
+> **Grep for the VALUE (`jkkn_advanced`), never for one branching idiom.**
+
+| Surface | State |
+|---|---|
+| `app/(routes)/academic/obe/page.tsx` | ✅ **three-way** — PR #3089, the first UI surface anywhere to handle `jkkn_advanced` |
+| `app/(routes)/academic/obe/regulation-config/page.tsx` | 🔴 **binary — the most consequential, because it WRITES the value.** `useState<'blooms' \| 'finks'>` (line 17), two `RadioGroup`s hard-coded to the legacy pair, and `taxonomyType === 'blooms' ? … : …` in the summary. A regulation set to `jkkn_advanced` renders with **neither radio selected** and a summary reading "Fink's". |
+| `app/(routes)/bos/taxonomy/_components/taxonomy-badge.tsx` | 🔴 binary |
+| `app/(routes)/bos/taxonomy/_components/board-taxonomy-table.tsx`, `taxonomy-form.tsx` | 🔴 binary |
+| `types/obe.ts:4` — `export type TaxonomyType = 'blooms' \| 'finks'` | 🔴 **root cause.** Cannot be widened on its own: widening it breaks `regulation-config/page.tsx`'s `useState`, which narrows to the legacy pair. The two must be fixed together. |
+
+**§12's UI proof is not satisfiable yet.** `/academic/obe` reads `useMockRegulationConfig` — a
+hard-coded mock whose `taxonomy_type` is `'finks'` — so no stored regulation value reaches the page.
+"Open `/academic/obe` with a regulation set to `jkkn_advanced`" cannot be performed until that
+surface is wired to real config.
 
 ### 8.5 No data migration
 All 9,262 K-code taggings keep their exact meaning. All 1,880 Fink taggings remain valid.
@@ -350,7 +371,7 @@ All 9,262 K-code taggings keep their exact meaning. All 1,880 Fink taggings rema
 | 1 | Director/IQAC ruling on the name and attribution line | Director | — |
 | 2 | Academic review of the `A1`/`A2`/`A3` verb lists (§3.2) | IQAC + an academic lead for the learning framework | 1 |
 | 3 | ~~Alter the two CHECK constraints; seed `bos_taxonomy` + eleven levels~~ ✅ **DONE** — both constraints admit `jkkn_advanced`, 143 level rows seeded (verified live 2026-08-15) | Dev | 1, 2 |
-| 4 | Make the 5 UI surfaces three-way — **4 of 5 done**; one binary branch remains at `app/(routes)/academic/obe/page.tsx:11` (verified on `jicate/main` 2026-08-15) | Dev | 3 |
+| 4 | Make the 5 UI surfaces three-way — **1 of 5 done** (PR #3089 made `app/(routes)/academic/obe/page.tsx` the first UI surface anywhere to handle `jkkn_advanced`; before it, none did). Four remain binary — `regulation-config/page.tsx` is next and matters most, because it WRITES the value. See §8.4 for the list and for the `types/obe.ts:4` root cause, which cannot be fixed independently of it. | Dev | 3 |
 | 5 | Apply the §7 coverage rule to all 241 courses; re-author where the added half is empty | BoS | 1 |
 | 6 | Correct the 177 mislabelled K6 outcomes | BoS | 1 |
 | 7 | Fill 6 empty + 4 thin first-semester practicals (26 credits) | BoS | 1 |
@@ -394,6 +415,11 @@ BEGIN; UPDATE obe_regulation_config SET taxonomy_type='jkkn_advanced'
 **UI proof (required — green SQL is not done):** open `/academic/obe` as a real role with a
 regulation set to `jkkn_advanced` and confirm the card reads "JKKN Advanced", not "Fink's".
 Per CLAUDE.md #2/#14 and `feedback_verify_behaviour_not_objects_after_migration`.
+
+> ⚠️ **Not satisfiable yet (2026-08-15).** `/academic/obe` reads `useMockRegulationConfig`, a
+> hard-coded mock whose `taxonomy_type` is `'finks'`. No stored regulation value reaches the page, so
+> setting one to `jkkn_advanced` changes nothing on screen. The rendering itself is fixed (PR #3089,
+> §8.4), but this proof stays **open** until the surface is wired to real config.
 
 ---
 

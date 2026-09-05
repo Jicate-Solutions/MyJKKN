@@ -31,6 +31,11 @@ export interface OrchestrationPr {
   ci_checked_at: string | null;
   gate_state: string | null;
   is_draft: boolean;
+  /** Ship-policy tier from 20261105000000_orchestration_prs_risk_tier.sql.
+   *  Optional so rows read before that migration is applied still type. */
+  risk_tier?: 'HELD' | 'LOW' | 'NORMAL';
+  risk_reasons?: string[];
+  changed_files_count?: number | null;
   updated_at: string;
 }
 
