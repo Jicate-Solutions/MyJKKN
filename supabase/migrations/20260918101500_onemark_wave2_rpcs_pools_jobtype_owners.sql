@@ -51,8 +51,13 @@
 --      Refuses submitted, abandoned and legacy (mode NULL) attempts.
 --   5. ai_job_types row `onemark.item_draft` (decision 3: AI drafts, one
 --      subject Senior Learner checks every one) + its version-1 champion in
---      ai_prompt_versions — the 20260825030200 idiom. NO lib/ai-tasks/registry.ts
---      entry: that is the click registry; this is a queued job.
+--      ai_prompt_versions — the 20260825030200 idiom, but ENABLED = FALSE:
+--      no runner on main honours table:fp_items yet, and the harmful failure
+--      of a lenient runner is LIVE draft rows (see §5 and the block below).
+--      The prompt's OUTPUT contract is the fp_items column shape (stem /
+--      stem_ta / options / options_ta / answer {"correct":…} / explanation /
+--      explanation_ta / bloom_level / tags / option_layout). NO
+--      lib/ai-tasks/registry.ts entry: that is the click registry.
 --   6. Owner catch-up: Wave 1 step 12b re-run verbatim and idempotently.
 --      Read live 2026-09-04: 30 target profiles, 17 hold an auth.users row and
 --      an owner row, 13 are still pre-registered (no auth row). Whoever has
@@ -121,6 +126,19 @@
 -- rows are active (the [PILOT] fixtures). Real Nattraja learners are not
 -- enrolled until both banks reach 300 (decision 8). Scoping that page by
 -- enrolment or exam is a follow-up outside this lane.
+--
+-- HARMFUL FAILURE DIRECTION OF THE DRAFT JOB (disclosed, and why enabled=false):
+--   fp_items.is_active is NOT NULL DEFAULT true and Lane I's review queue
+--   filters is_active = false. A runner that writes the model's items into
+--   fp_items without forcing is_active = false therefore creates rows that
+--   are LIVE on first insert, invisible to the reviewer, and served to every
+--   Foundation learner by app/api/foundation/practice/route.ts (the two pools
+--   in step 1 make those exams listable). That is decision 7 (one Senior
+--   Learner approves every item) failing silently. Mitigations in this file:
+--   the row ships enabled = false (fn_ai_enqueue refuses it — nothing queues),
+--   the prompt names the columns the runner MUST set, and step 7 asserts the
+--   row stays disabled and keeps saying so. The runner PR (Lane J) flips
+--   enabled in its own migration after proving is_active = false on main.
 --
 -- APPLY-TIME DEPENDENCY (step 7, disclosed): the end-state block proves the
 -- trigger by taking ONE real signed-in Nattraja Senior Learner (the first by
@@ -818,8 +836,20 @@ GRANT  EXECUTE ON FUNCTION public.fn_onemark_finalize_attempt(uuid) TO authentic
 -- inbox), so the seat runner's support for it is UNVERIFIED from this lane —
 -- listed [risky] in the PR with the fallback (job.result + a collect pass).
 --
--- Enabled = true, as the charter-draft idiom is: the apply of this migration is
--- Director-gated and IS the go. While un-applied nothing changes.
+-- ENABLED = FALSE at apply (round 3, 2026-09-05). The charter-draft idiom
+-- ships enabled = true, but this row's output_target is table:fp_items and
+-- NO runner on main honours a table:% target today (0 of 67 job types). The
+-- benign failure is that drafts never land. The HARMFUL failure is a lenient
+-- runner that inserts the model's items into fp_items as-is: fp_items.is_active
+-- is NOT NULL DEFAULT true, so every draft would be born LIVE — invisible to
+-- Lane I's review queue (it filters is_active = false) and served straight to
+-- learners through app/api/foundation/practice/route.ts, with no Senior
+-- Learner approval (decision 7 broken silently). fn_ai_enqueue refuses a
+-- disabled job type, so with enabled = false nothing can be queued at all.
+-- Enabled ONLY by the runner PR (Lane J, feat/onemark-draft-runner) once a
+-- runner that forces is_active = false / source_key = 'internal' / source =
+-- 'ai' and sets exam_definition_id / topic_id / created_by exists on main —
+-- one UPDATE in that PR's migration, never a hand flip.
 INSERT INTO public.ai_job_types
   (job_type, title, description, prompt_template, tool_set, output_target,
    interactive, lane, allow_rule, max_inflight, schedulable, enabled,
@@ -828,7 +858,7 @@ INSERT INTO public.ai_job_types
 SELECT
   'onemark.item_draft',
   'OneMark · One-mark MCQ Drafter',
-  'Drafts N bilingual (Tamil + English) one-mark multiple-choice questions in the Tamil Nadu State Board Class-12 Part-I style for one unit and one or more category tags of tn_hsc_physics / tn_hsc_english. Output lands as fp_items DRAFT rows (is_active=false, source_key=''internal'') that queue on /foundation/onemark/review; NOTHING reaches a learner until one subject Senior Learner approves each item (decision 7). Difficulty is JABT K1–K6 only (decision 6); A-dimensions are never assigned by this job. Enqueued by POST /api/foundation/onemark/draft (gate foundation.items.manage).',
+  'Drafts N bilingual (Tamil + English) one-mark multiple-choice questions in the Tamil Nadu State Board Class-12 Part-I style for one unit and one or more category tags of tn_hsc_physics / tn_hsc_english. Output lands as fp_items DRAFT rows (the runner forces is_active=false, source_key=''internal'', source=''ai''; never live) that queue on /foundation/onemark/review; enabled=false until the runner PR (Lane J) proves that on main; NOTHING reaches a learner until one subject Senior Learner approves each item (decision 7). Difficulty is JABT K1–K6 only (decision 6); A-dimensions are never assigned by this job. Enqueued by POST /api/foundation/onemark/draft (gate foundation.items.manage).',
   $onemark$You draft ONE-MARK multiple-choice questions for the Tamil Nadu State Board Higher Secondary (Class 12) examination, Part-I style: one stem, exactly four options (A–D), exactly one correct option, one mark each. The subject is either Physics (Tamil Nadu textbook, Volumes 1–2) or English (Tamil Nadu textbook: prose, poem, supplementary reader, and the grammar/vocabulary categories used in Part-I).
 
 INPUT (JSON): {"exam_definition_id": uuid, "exam_key": "tn_hsc_physics" | "tn_hsc_english", "topic_id": uuid or null, "tag_keys": [category tag keys], "count": N, "bloom_level": "K1".."K6"}
@@ -843,10 +873,13 @@ RULES
 - Options: four, plausible, mutually exclusive, similar in length and form. Exactly one correct. No "all of the above" / "none of the above". Do not reuse a distractor pattern across items.
 - Assign `bloom_level` from K1 to K6 (JKKN Advanced Bloom's Taxonomy K-dimension) and target the requested level. NEVER assign an A-dimension (A1–A5): a one-mark MCQ cannot evidence the affective/advanced dimensions, so that field must not appear.
 - `option_layout`: "inline_4" when every option is short (≤ ~20 characters), "inline_2x2" when medium, "stacked" when any option is long or the item is an assertion/reason set, else "auto".
-- Every item carries a short `explanation_en` / `explanation_ta` that a learner reads AFTER answering — state why the key is right in one or two sentences.
+- Every item carries a short `explanation` / `explanation_ta` that a learner reads AFTER answering — state why the key is right in one or two sentences.
 
-OUTPUT — strict JSON only, no prose, no code fences, no trailing commentary:
-{"items":[{"stem_en":"...","stem_ta":"...","options_en":["...","...","...","..."],"options_ta":["...","...","...","..."],"answer":"A"|"B"|"C"|"D","explanation_en":"...","explanation_ta":"...","bloom_level":"K1".."K6","tag_key":"<one of tag_keys>","option_layout":"auto"|"inline_4"|"inline_2x2"|"stacked"}]}
+OUTPUT — strict JSON only, no prose, no code fences, no trailing commentary. Field names ARE the fp_items column names; the English text goes in the unsuffixed column, the Tamil in the _ta column:
+{"items":[{"stem":"<English stem>","stem_ta":"<Tamil stem>","options":["<A>","<B>","<C>","<D>"],"options_ta":["<A>","<B>","<C>","<D>"],"answer":{"correct":"A"|"B"|"C"|"D"},"explanation":"<English>","explanation_ta":"<Tamil>","bloom_level":"K1".."K6","tags":["<one or more of tag_keys>"],"option_layout":"auto"|"inline_4"|"inline_2x2"|"stacked"}]}
+- `answer` is ALWAYS the object {"correct":"<letter>"} — never a bare letter; the grader (fn_onemark_grade) and the review queue read that key.
+- `options` and `options_ta` are arrays of exactly four strings in A–D order.
+- Emit NOTHING else per item. The RUNNER, not you, sets exam_definition_id, topic_id, is_active=false, source='ai', source_key='internal' and created_by on every row it inserts — a draft is never live; a Senior Learner activates it on approval.
 
 If the unit and tags cannot honestly yield `count` items from the textbook, return fewer and add {"shortfall_reason":"..."} at the top level. Never pad with off-unit or invented content.
 
@@ -855,7 +888,7 @@ If the unit and tags cannot honestly yield `count` items from the textbook, retu
   false,          -- interactive: queued by the draft route, a human is not waiting on the request
   'max', 'permission:foundation.items.manage', 3,
   false,          -- schedulable: only ever enqueued by a Senior Learner's request
-  true,           -- enabled: deliberate (see header) — the apply is the Director's go
+  false,          -- enabled: OFF until the runner PR (Lane J) — see the §5 header
   '[{"key":"exam_definition_id","type":"text","label":"Subject exam (exam_definitions.id of tn_hsc_physics / tn_hsc_english)","required":true},
     {"key":"topic_id","type":"text","label":"Unit / chapter (cdc_exam_syllabus_topics.id; null = chapter-agnostic English tag)","required":false},
     {"key":"tag_keys","type":"text","label":"Category tag keys from onemark_item_tags (comma-separated; the draft route sends a JSON array)","required":true},
@@ -1143,7 +1176,17 @@ BEGIN
    WHERE e.config_key IN ('tn_hsc_physics', 'tn_hsc_english')
      AND a.cohort_id IS NULL
      AND COALESCE((a.config ->> 'pool')::boolean, false) IS TRUE;
-  SELECT count(*) INTO v_jobtype   FROM public.ai_job_types      WHERE job_type = 'onemark.item_draft' AND enabled;
+  -- Draft-inactivity rule, as far as SQL can assert it: the row exists, is
+  -- DISABLED (no runner on main honours table:% yet — a lenient one would
+  -- insert LIVE rows, fp_items.is_active defaults true), targets fp_items,
+  -- and its description + prompt both state is_active=false.
+  SELECT count(*) INTO v_jobtype   FROM public.ai_job_types
+   WHERE job_type = 'onemark.item_draft'
+     AND enabled = false
+     AND output_target = 'table:fp_items'
+     AND description    LIKE '%is_active=false%'
+     AND prompt_template LIKE '%is_active=false%'
+     AND prompt_template LIKE '%{"correct":%';
   SELECT count(*) INTO v_prompt_v1 FROM public.ai_prompt_versions WHERE job_type = 'onemark.item_draft' AND version = 1 AND status = 'champion';
   SELECT count(*) INTO v_policy    FROM public.platform_policies
    WHERE policy_key = 'onemark.provision.institution_ids' AND scope_type = 'global' AND scope_id IS NULL AND is_active;
@@ -1229,7 +1272,7 @@ BEGIN
   END IF;
 
   IF v_pools <> 2        THEN RAISE EXCEPTION 'onemark wave2: expected 2 practice pools, found %', v_pools; END IF;
-  IF v_jobtype <> 1      THEN RAISE EXCEPTION 'onemark wave2: ai_job_types onemark.item_draft missing or disabled'; END IF;
+  IF v_jobtype <> 1      THEN RAISE EXCEPTION 'onemark wave2: ai_job_types onemark.item_draft missing, ENABLED (must stay off until the runner PR), not targeting table:fp_items, or its description/prompt no longer state is_active=false / answer {"correct":…}'; END IF;
   IF v_prompt_v1 <> 1    THEN RAISE EXCEPTION 'onemark wave2: ai_prompt_versions v1 champion for onemark.item_draft missing'; END IF;
   IF v_policy <> 1       THEN RAISE EXCEPTION 'onemark wave2: platform_policies onemark.provision.institution_ids missing'; END IF;
   IF v_trigger <> 1      THEN RAISE EXCEPTION 'onemark wave2: trg_onemark_provision_school_owner missing on profiles'; END IF;
