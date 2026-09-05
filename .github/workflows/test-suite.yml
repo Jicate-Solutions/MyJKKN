@@ -1,0 +1,211 @@
+name: Test suite
+
+# Runs vitest. Until this workflow landed, essentially nothing did.
+#
+# WHY THIS EXISTS
+#   package.json had no `test` script at all, and no workflow invoked vitest
+#   except one hard-pinned path inside anon-exposure-live.yml:
+#   `npx vitest run __tests__/ci/check-anon-exposure-live.test.ts`. That is 1
+#   file. The repo contains 128. The other 127 had never executed in CI, so the
+#   assertions inside them constrained nothing — including several regression
+#   guards written this week for defects found in live production. More than one
+#   merged pull request carried the honest disclaimer "this test does not execute
+#   in CI today". It was accurate, and it was true of nearly the whole suite.
+#
+# WHAT IS GATED, AND WHAT IS NOT — read this before trusting the green tick
+#   The suite had never been run as a whole, so it was measured before it was
+#   wired, on 2026-08-01 at jicate/main c410270:
+#
+#     whole suite   128 files   1455 tests   1442 passed   13 failed   ~5s
+#     gated subset  107 files   1408 tests   1408 passed    0 failed   ~4s
+#
+#   The 107 gate this job: one red test there fails the build. The other 21 files
+#   are quarantined as literal `--exclude` paths in the `test:ci` script in
+#   package.json — one path each, no directory-wide wildcards — so narrowing the
+#   gate further cannot happen without showing up in a diff. Every one of the 21
+#   is listed below with its reason.
+#
+#   The WHOLE suite also runs on every invocation, reporting-only, and publishes
+#   its real numbers to the job summary. It cannot fail the build. That step is
+#   what keeps this workflow honest: without it, shrinking the gated subset would
+#   quietly make the tick greener, which is exactly the failure mode this repo
+#   already knows — a check that reports success having checked less than you
+#   think.
+#
+#   Making the gate cover all 128 is a deliberate follow-up for the Director once
+#   the 21 are triaged. Nothing here should be read as a claim that the suite is
+#   green. It is not. 13 tests are failing on main right now.
+#
+# THE 21 QUARANTINED FILES, AND WHY EACH IS OUT
+#
+#   A. Written for a test runner this repo does not install (9 files). These
+#      cannot execute under vitest at all — the import fails before collection.
+#      Neither `bun`, `jest` nor `@jest/globals` is a dependency in package.json.
+#        imports 'bun:test'
+#          __tests__/hr/recruitment-need/signal-hooks.test.ts
+#          __tests__/hr/recruitment-need/signal-service.test.ts
+#          __tests__/hr/recruitment-need/types.test.ts
+#          __tests__/lib/api-keys/audit-logger.test.ts
+#          __tests__/lib/api-keys/authenticate.test.ts
+#          __tests__/lib/api-keys/rate-limiter.test.ts
+#          __tests__/lib/attendance/audit-log.test.ts
+#        jest
+#          __tests__/api/bos-syllabi.test.ts          imports '@jest/globals'
+#          __tests__/hooks/use-bos-permissions.test.ts  bare `jest.` globals
+#      Fix is mechanical: swap the import for 'vitest' and `jest.` for `vi.`.
+#
+#   B. Standalone node:assert scripts, not vitest suites (5 files). They are named
+#      *.test.ts so vitest collects them, then finds no describe/it and errors
+#      "No test suite found". They are meant to be run with `npx tsx <file>` — the
+#      fee-structure one says so in its own header comment.
+#          lib/utils/mappings/__tests__/fee-structure-excel-mappings.test.ts
+#          scripts/form-errors.test.ts
+#          scripts/import/lib/field-mapper.test.ts
+#          scripts/learner-search.test.ts
+#          scripts/staff-search.test.ts
+#      NOTE: scripts/learner-search.test.ts does not merely fail to collect — its
+#      top-level assertion is RED (deep-equal mismatch on the search conditions it
+#      builds). Whoever converts these should expect a real failure there, not a
+#      clean port.
+#
+#   C. Imports a module that is not in the repo (1 file).
+#          __tests__/lib/institution-type-labels.test.ts
+#      imports '@/lib/constants/institution-type-labels'. `git ls-tree` finds no
+#      such file on main — only the test survives.
+#
+#   D. Needs environment/config this job does not provide (2 files).
+#          __tests__/meetings/booking-crm-bridge.test.ts
+#            vi.mock factory closes over a top-level variable, so hoisting throws
+#            "Cannot access 'createActivity' before initialization". Code-level fix.
+#          app/(routes)/admission/counselors/team/allocation/[id]/
+#            _components/distribute/__tests__/distribute-panel.test.tsx
+#            needs NEXT_PUBLIC_SUPABASE_URL + _ANON_KEY at import time, AND the
+#            jsdom environment — it calls render(). vitest.config.js grants jsdom
+#            to three named globs only, and this file is not one of them. Fixing
+#            it means editing vitest.config.js, which this change deliberately
+#            leaves alone.
+#
+#   E. Genuinely failing assertions — 4 files, 13 tests. These are the ones worth
+#      reading. They are real red tests against real code, and they have been red
+#      and invisible.
+#          __tests__/lib/sidebar-filter.test.ts                        6 failing
+#          lib/validations/__tests__/learner-create-schema.test.ts      4 failing
+#          __tests__/lib/services/pde-bridge-service.test.ts            2 failing
+#          lib/services/admission/__tests__/bulk-assign-service.test.ts 1 failing
+#      Each is either a stale test or a live defect. Triaging them is the point of
+#      turning the lights on, and is not attempted here.
+#
+# DELIBERATELY NOT IN THIS JOB
+#   No typecheck. A full `tsc` on this repo OOMs and blows past ten minutes; that
+#   is what typecheck-pr-scoped.yml is for. This job stays a few seconds long so
+#   there is no incentive to skip it.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vitest:
+    name: Vitest (107 gated of 128 — 21 quarantined)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Same cache key as the other npm-heavy gates, seeded on main by
+      # seed-node-modules-cache.yml. A hit skips npm ci entirely.
+      - name: Cache node_modules
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      # THE GATE. Red here fails the pull request.
+      - name: Gated subset must be green
+        run: npm run test:ci -- --reporter=default --reporter=json --outputFile=vitest-gated.json
+
+      # A gate can be defeated without editing the gate: delete or rename enough
+      # test files and `npm run test:ci` still exits 0 over whatever is left. The
+      # floors are the measured 2026-08-01 baseline. They only trip when the gated
+      # suite SHRINKS, so adding tests is free and removing them is a decision
+      # somebody has to make on purpose, in this file, in the diff.
+      - name: Gated subset must not shrink
+        run: |
+          node - <<'NODE'
+          const MIN_FILES = 107;
+          const MIN_TESTS = 1408;
+          const r = require('./vitest-gated.json');
+          const files = r.testResults.length;
+          const tests = r.numTotalTests;
+          console.log(`gated: ${files} files, ${tests} tests (floor ${MIN_FILES}/${MIN_TESTS})`);
+          if (files < MIN_FILES || tests < MIN_TESTS) {
+            console.log(`::error::The gated suite shrank: ${files} files / ${tests} tests, ` +
+              `below the ${MIN_FILES} / ${MIN_TESTS} baseline measured on 2026-08-01. ` +
+              `Tests were deleted, renamed, or newly excluded. If that was intended, ` +
+              `lower the floors in .github/workflows/test-suite.yml in the same commit ` +
+              `and say why — a shrinking gate that still reports green is the exact ` +
+              `problem this workflow was added to end.`);
+            process.exit(1);
+          }
+          NODE
+
+      # THE TRUTH. Never blocks — it is expected to be red until the 21 are triaged.
+      - name: Whole suite (reporting only, never blocks)
+        if: always()
+        continue-on-error: true
+        run: npm test -- --reporter=default --reporter=json --outputFile=vitest-full.json
+
+      - name: Publish the real numbers
+        if: always()
+        run: |
+          node - <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require('fs');
+          const load = (p) => { try { return require(p); } catch { return null; } };
+          const gated = load('./vitest-gated.json');
+          const full  = load('./vitest-full.json');
+          const line = [];
+          line.push('## Vitest');
+          line.push('');
+          line.push('| Scope | Files | Tests | Passed | Failed | Blocks the PR |');
+          line.push('|---|---:|---:|---:|---:|---|');
+          if (gated) line.push(`| Gated subset | ${gated.testResults.length} | ${gated.numTotalTests} | ${gated.numPassedTests} | ${gated.numFailedTests} | yes |`);
+          else       line.push('| Gated subset | — | — | — | — | yes (did not produce a report) |');
+          if (full)  line.push(`| Whole suite | ${full.testResults.length} | ${full.numTotalTests} | ${full.numPassedTests} | ${full.numFailedTests} | no |`);
+          else       line.push('| Whole suite | — | — | — | — | no (did not produce a report) |');
+          line.push('');
+          if (full) {
+            const bad = full.testResults.filter((t) => t.status !== 'passed');
+            if (bad.length) {
+              line.push(`<details><summary>${bad.length} file(s) not passing in the whole suite — quarantined, not gating</summary>`);
+              line.push('');
+              for (const t of bad) {
+                const rel = t.name.replace(process.cwd() + '/', '');
+                const n = (t.assertionResults || []).filter((a) => a.status === 'failed').length;
+                line.push(`- \`${rel}\` — ${n > 0 ? n + ' failing test(s)' : 'did not collect'}`);
+              }
+              line.push('');
+              line.push('</details>');
+            } else {
+              line.push('The whole suite is green. Time to delete the `--exclude` list in `test:ci` and gate on all of it.');
+            }
+          }
+          fs.writeSync(1, line.join('\n') + '\n');
+          NODE
