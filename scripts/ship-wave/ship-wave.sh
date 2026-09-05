@@ -29,7 +29,7 @@
 #         ship-wave.sh go              # one round: dispatch helpers + merge LOW + deploy + sweep
 #         ship-wave.sh go --goal       # goal loop: rounds until open==0 or 6 rounds (what "W12" means)
 #         ship-wave.sh go --approve-normal            # …and merge every ready NORMAL PR
-#         ship-wave.sh go --approve-held "3101,3102"  # …and these specific HELD PRs
+#         ship-wave.sh go --approve-held "3101,3102"  # …and these specific HELD PRs (or one number per line in $STATE/approve-held)
 #         --max-dispatch N   conflict clusters to send fleet tabs for per round (default 3; 0 = none)
 #         --no-deploy        merge but do not fire the hook       --no-sweep   skip the post-deploy sweep
 #         --only N,M         restrict the whole run to these PR numbers
@@ -67,6 +67,15 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
 done
+
+# Director 2026-09-05 13:45: a long --approve-held list wraps when pasted from the phone/Obsidian and the
+# flag silently gets no value. So approvals can also live in a FILE — one PR number per line (or comma /
+# space separated); the flag and the file are merged. Approve from the phone with:
+#   echo 3273 >> ~/.config/obsidian/.ship-wave/approve-held
+# A HELD PR that merges is removed from the file automatically; the file is never a standing permission.
+if [ -s "$STATE/approve-held" ]; then
+  APPROVE_HELD="$APPROVE_HELD $(tr ',\n' '  ' < "$STATE/approve-held")"; APPROVE_HELD="${APPROVE_HELD# }"
+fi
 
 vtok() { python3 -c "import json;print(json.load(open('$HOME/Library/Application Support/com.vercel.cli/auth.json'))['token'])" 2>/dev/null; }
 say() { printf '%s\n' "$*"; }
@@ -255,7 +264,7 @@ run_once() {
     if [ -n "$APPROVE_HELD" ]; then
       for n in $(printf '%s' "$APPROVE_HELD" | tr ', ' '  '); do
         python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)" \
-          && { merge_one "$n" HELD && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; } \
+          && { merge_one "$n" HELD && { merged=$((merged+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && grep -vxE "\s*$n\s*" "$STATE/approve-held" > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
           || say "  HOLD   HELD #$n — not in this run's ready-HELD list, refusing"
       done
     else
