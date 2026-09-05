@@ -60,7 +60,7 @@ export default function CdcTrainingPage() {
               Unnati, MRB, Springboard and other training initiatives
             </p>
           </div>
-          <PermissionGuard module="cdc.training" action="create">
+          <PermissionGuard module="cdc.training" action="create" fallback={null}>
             <Button asChild>
               <Link href="/cdc/training/new">
                 <Plus className="w-4 h-4 mr-2" />
@@ -132,7 +132,7 @@ export default function CdcTrainingPage() {
             <p className="text-sm text-muted-foreground mt-1">
               Check back later or create one if you have access.
             </p>
-            <PermissionGuard module="cdc.training" action="create">
+            <PermissionGuard module="cdc.training" action="create" fallback={null}>
               <Button asChild className="mt-4">
                 <Link href="/cdc/training/new">
                   <Plus className="w-4 h-4 mr-2" /> New Programme
@@ -144,7 +144,7 @@ export default function CdcTrainingPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {(programmes ?? []).map((prog) => (
               <div key={prog.id} className="relative group">
-                <PermissionGuard module="cdc.training" action="update">
+                <PermissionGuard module="cdc.training" action="update" fallback={null}>
                   <Button
                     asChild
                     variant="ghost"
