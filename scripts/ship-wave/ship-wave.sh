@@ -23,6 +23,7 @@
 #   • deploy ERROR → FREEZE: marker file written, later rounds merge NOTHING until `--unfreeze`
 #   • post-deploy sweep finds a broken page → FREEZE, with page + role + the PR that touched it
 #   • trigger is manual ("W12"); `--goal` loops rounds until open PRs == 0 or GOAL_ROUNDS (6) — a goal loop
+#   • a goal run fires ONE production build at its end for everything it merged (Director 2026-09-06 — Vercel minutes)
 #   • HELD approvals arrive as numbers the Director replies with in the fleet tab → `--approve-held`
 #
 # USAGE   ship-wave.sh                 # plan (dry run) — sweep + report, changes nothing
@@ -341,7 +342,8 @@ run_once() {
       [ -n "$held" ] && say "  HELD waiting for your reply (reply with the numbers to ship): $held" || say "  HELD: none ready"
     fi
   }
-  if [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
+  if [ -n "${FINAL_DEPLOY:-}" ]; then say "  (end-of-run deploy pass — merging nothing)"
+  elif [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
     # Director 2026-09-05 23:40: up to three merge passes per round. After a pass that merged something,
     # the remaining approved PRs are brought up to date with main (rebase-remaining.sh — the SQL index is
     # the usual conflict and is kept both-sides), then the pass repeats. The one-index-PR-per-pass gate
@@ -379,9 +381,23 @@ PY
   fi
 
   # ── 4. deploy ──────────────────────────────────────────────────────────────
-  local deploy="skipped" dpl=""
+  local deploy="skipped" dpl="" pending="$STATE/deploy-pending"; DEPLOY_DEFERRED=""
   say; say "--- 4. deploy ---"
-  if [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
+  # Director 2026-09-06 00:52: a goal run fires ONE production build at the end for everything it merged —
+  # tonight the one-migration-PR-per-round cascade had turned "deploy per round" into a ~4-minute build per
+  # PR. Safe because 3b has already applied the (additive-only) migrations: schema ahead of code is the
+  # harmless direction. A plain `go` (no --goal) still deploys immediately, and flushes any leftover batch.
+  if [ -n "${FINAL_DEPLOY:-}" ]; then
+    merged_files="$pending"; merged=$(grep -c . "$pending" 2>/dev/null || echo 0); merged_list=" (batched: $merged file(s) merged this run)"
+  elif [ -n "$GOAL" ] && [ "$merged" -gt 0 ] && [ "$apply_ok" -ne 0 ] && [ -z "$NO_DEPLOY" ]; then
+    cat "$merged_files" >> "$pending"; DEPLOY_DEFERRED=1
+    deploy="deferred — goal runs deploy ONCE at the end ($(grep -c . "$pending") file(s) waiting; migrations already applied)"
+    say "  $deploy"
+  elif [ -z "$GOAL" ] && [ -s "$pending" ]; then
+    cat "$pending" >> "$merged_files"; merged=$((merged+1)); merged_list="$merged_list +earlier-batch"
+  fi
+  if [ -n "$DEPLOY_DEFERRED" ]; then :
+  elif [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
   elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
     # Mirrors vercel.json's ignoreCommand: when every merged file sits under supabase/, docs/, specs/,
     # .claude/, .github/ or is *.md, Vercel has nothing to build — its ignoreCommand exits 0 and the
@@ -408,6 +424,8 @@ PY
       case "$deploy" in ERROR*|CANCELED*) freeze "deploy $uid → $deploy; on main but NOT live:$merged_list";; esac
     else deploy="fired (unverified — no Vercel token)"; fi
   else say "  nothing merged / --no-deploy → no hook fired"; fi
+
+  if [ -z "$DEPLOY_DEFERRED" ] && { [[ "$deploy" == READY* ]] || [[ "$deploy" == nothing* ]]; }; then rm -f "$pending"; fi
 
   # ── 5. three-layer sweep on what shipped ───────────────────────────────────
   say; say "--- 5. sweep (L1 pages as real roles · L2 API routes unauth · L3 tables touched) ---"
@@ -517,6 +535,10 @@ if [ -n "$GOAL" ]; then
     [ "${EMPTY_ROUNDS:-0}" -ge 2 ] && { say "=== two rounds in a row merged nothing — loop ends; what is left needs a human (see the plan above) ==="; break; }
     [ "$round" -lt "$GOAL_ROUNDS" ] && sleep $((GOAL_PAUSE_MIN*60))
   done
+  if [ -s "$STATE/deploy-pending" ] && [ ! -f "$FREEZE" ]; then
+    say; say "=== end of run: ONE production build for everything merged this run (batched to save Vercel build minutes) ==="
+    FINAL_DEPLOY=1; run_once; FINAL_DEPLOY=""
+  fi
 else
   run_once
 fi
