@@ -23,21 +23,27 @@ bash scripts/network/radius-smoke/run.sh
 
 Environment overrides: `AUTH_PORT` (default 18120), `MOCK_PORT` (default 3099),
 `RADIUSD` / `RADCLIENT` (binary paths). The script renders `raddb/` into a temp
-dir, starts the mock and `radiusd -X`, fires the five fixtures, prints the mock
-log, exits 0 only when all five match, and kills both processes on exit.
+dir, starts the mock and `radiusd -X`, fires the six fixtures, prints the mock
+log, exits 0 only when all six match, and kills both processes on exit.
 
 ## Fixtures (identity already resolved — see the Q1 note in radius-decision.ts)
 
 | Username | Role | State | Expected |
 |---|---|---|---|
-| `learner-a@jkkn.ai` | learner | 97 %, fees paid | Accept · `50M/25M` · `tier_a_learner` · 28800 s |
-| `learner-b@jkkn.ai` | learner | 78 %, fees paid | Accept · `10M/5M` · `tier_c_learner` · 28800 s |
-| `learner-c@jkkn.ai` | learner | 92 %, fees **overdue** | Reject (`fee_overdue`) |
-| `senior-learner@jkkn.ai` | senior_learner | 100 %, fees paid | Accept · `50M/25M` · `tier_a_senior_learner` · 86400 s |
-| `locked@jkkn.ai` | learner | locked until +1 h | Reject (`locked_out`) |
+| `learner-a@jkkn.ai` | learner | 97 %, fees paid | Accept · `25M/50M` · `tier_a_learner` · 28800 s |
+| `learner-b@jkkn.ai` | learner | 78 %, fees paid | Accept · `5M/10M` · `tier_c_learner` · 28800 s |
+| `learner-c@jkkn.ai` | learner | 92 %, fees **overdue** | Reject · `Reply-Message = "fee_overdue"` |
+| `senior-learner@jkkn.ai` | senior_learner | 100 %, fees paid | Accept · `25M/50M` · `tier_a_senior_learner` · 86400 s |
+| `locked@jkkn.ai` | learner | locked until +1 h | Reject · `Reply-Message = "locked_out"` |
+| `quote"back\slash@jkkn.ai` | — | not a fixture; has `"` and `\` in User-Name | Reject · `Reply-Message = "unknown_user"` (proves `%{jsonquote:}` keeps the JSON body parseable) |
 
-`EMERGENCY_OPEN=1` on the mock flips the panic switch: every fixture is accepted
-with only `Session-Timeout = 3600`.
+`Mikrotik-Rate-Limit` is `rx/tx` read from the router's side, so the client's
+**upload** comes first: 50 Mbps down / 25 Mbps up is `25M/50M`
+(https://help.mikrotik.com/docs/display/ROS/RADIUS).
+
+`EMERGENCY_OPEN=1` on the mock flips the panic switch: every fixture except
+`locked@jkkn.ai` is accepted with only `Session-Timeout = 3600` — an abuse
+lockout survives a panic-open (safe default, Director to confirm).
 
 ## Files
 

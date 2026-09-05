@@ -24,9 +24,13 @@ const BASE: NetworkDecisionInput = {
 };
 
 describe('formatMikrotikRateLimit', () => {
-  it('renders DOWNM/UPM', () => {
-    expect(formatMikrotikRateLimit({ code: 'tier_a', downloadMbps: 50, uploadMbps: 25 })).toBe('50M/25M');
-    expect(formatMikrotikRateLimit({ code: 'tier_c', downloadMbps: 10, uploadMbps: 5 })).toBe('10M/5M');
+  it('renders rx/tx = UPLOAD first, then DOWNLOAD (MikroTik reads rx from the router side)', () => {
+    expect(formatMikrotikRateLimit({ code: 'tier_a', downloadMbps: 50, uploadMbps: 25 })).toBe('25M/50M');
+    expect(formatMikrotikRateLimit({ code: 'tier_c', downloadMbps: 10, uploadMbps: 5 })).toBe('5M/10M');
+  });
+
+  it('is never the inverted May 2026 string for an asymmetric tier', () => {
+    expect(formatMikrotikRateLimit({ code: 'tier_a', downloadMbps: 50, uploadMbps: 25 })).not.toBe('50M/25M');
   });
 });
 
@@ -35,7 +39,7 @@ describe('toRlmRestReply — the shape FreeRADIUS 3.2 rlm_rest accepted in May 2
     expect(toRlmRestReply(decideNetworkAccess(BASE))).toEqual({
       status: 200,
       body: {
-        'Mikrotik-Rate-Limit': '50M/25M',
+        'Mikrotik-Rate-Limit': '25M/50M',
         'Mikrotik-Group': 'tier_a_learner',
         'Session-Timeout': 28800,
       },
@@ -44,7 +48,7 @@ describe('toRlmRestReply — the shape FreeRADIUS 3.2 rlm_rest accepted in May 2
 
   it('accept tier_c (scenario 2)', () => {
     expect(toRlmRestReply(decideNetworkAccess({ ...BASE, attendancePct: 78 })).body).toEqual({
-      'Mikrotik-Rate-Limit': '10M/5M',
+      'Mikrotik-Rate-Limit': '5M/10M',
       'Mikrotik-Group': 'tier_c_learner',
       'Session-Timeout': 28800,
     });
@@ -66,7 +70,7 @@ describe('toRlmRestReply — the shape FreeRADIUS 3.2 rlm_rest accepted in May 2
       decideNetworkAccess({ ...BASE, identity: { ...BASE.identity, role: 'senior_learner' }, attendancePct: 100 }),
     );
     expect(reply.status).toBe(200);
-    expect(reply.body['Mikrotik-Rate-Limit']).toBe('50M/25M');
+    expect(reply.body['Mikrotik-Rate-Limit']).toBe('25M/50M');
     expect(reply.body['Mikrotik-Group']).toBe('tier_a_senior_learner');
     expect(reply.body['Session-Timeout']).toBe(86400);
   });
@@ -90,6 +94,13 @@ describe('toRlmRestReply — the shape FreeRADIUS 3.2 rlm_rest accepted in May 2
     expect(toRlmRestReply({ accept: false, reason: 'unknown_user' })).toEqual({
       status: 401,
       body: { 'Reply-Message': 'unknown_user' },
+    });
+  });
+
+  it('config_error -> 401 with the fixed enum value (route lane alerts on it)', () => {
+    expect(toRlmRestReply(decideNetworkAccess({ ...BASE, maxDevicesForRole: 0 }))).toEqual({
+      status: 401,
+      body: { 'Reply-Message': 'config_error' },
     });
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decideNetworkAccess, selectTier } from '@/lib/services/network/radius-decision';
+import { decideNetworkAccess, roleKeyToNetworkRole, selectTier } from '@/lib/services/network/radius-decision';
 import type { NetworkBandwidthTier, NetworkDecisionInput, NetworkRole } from '@/types/network';
 
 // Same four tiers the May 2026 smoke test used (vault: Smoke-Test-RADIUS-2026-05-09).
@@ -82,13 +82,28 @@ describe('decideNetworkAccess — the five May 2026 smoke scenarios', () => {
 });
 
 describe('decideNetworkAccess — rule order and edge cases', () => {
-  it('emergency_open wins over everything: accept, no tier, 1h', () => {
+  it('emergency_open bypasses fees, the device cap and config checks: accept, no tier, 1h', () => {
     const d = decideNetworkAccess(
-      input({ emergencyOpen: true, feeOverdue: true, lockedUntil: '2099-01-01T00:00:00Z', activeDeviceCount: 9 }),
+      input({
+        emergencyOpen: true,
+        feeOverdue: true,
+        activeDeviceCount: 9,
+        maxDevicesForRole: 0,
+        sessionHoursByRole: {},
+      }),
     );
     expect(d).toEqual({ accept: true, reason: 'emergency_open', sessionTimeoutSeconds: 3600 });
     expect(d.tier).toBeUndefined();
     expect(d.group).toBeUndefined();
+  });
+
+  it('emergency_open does NOT bypass an active lockout (safe default, Director to confirm)', () => {
+    const d = decideNetworkAccess(input({ emergencyOpen: true, lockedUntil: '2099-01-01T00:00:00Z' }));
+    expect(d).toEqual({ accept: false, reason: 'locked_out' });
+    // an expired lock is not a lockout, so the panic switch applies again
+    expect(decideNetworkAccess(input({ emergencyOpen: true, lockedUntil: '2026-09-05T23:59:59.000Z' })).reason).toBe(
+      'emergency_open',
+    );
   });
 
   it('locked_out is checked before fee_overdue', () => {
@@ -107,6 +122,54 @@ describe('decideNetworkAccess — rule order and edge cases', () => {
       reason: 'device_cap',
     });
     expect(decideNetworkAccess(input({ activeDeviceCount: 2, maxDevicesForRole: 3 })).accept).toBe(true);
+  });
+
+  it('a known (returning) device is exempt from the device cap', () => {
+    expect(decideNetworkAccess(input({ activeDeviceCount: 3, maxDevicesForRole: 3, isKnownDevice: true })).accept).toBe(true);
+    expect(decideNetworkAccess(input({ activeDeviceCount: 3, maxDevicesForRole: 3, isKnownDevice: false })).reason).toBe(
+      'device_cap',
+    );
+    // exemption never bypasses the earlier rules
+    expect(decideNetworkAccess(input({ feeOverdue: true, isKnownDevice: true })).reason).toBe('fee_overdue');
+  });
+
+  it('config_error: a device cap that is missing, 0, negative or non-finite fails CLOSED', () => {
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, undefined as unknown as number]) {
+      expect(decideNetworkAccess(input({ maxDevicesForRole: bad }))).toEqual({ accept: false, reason: 'config_error' });
+    }
+    // a known device does not rescue a broken cap either
+    expect(decideNetworkAccess(input({ maxDevicesForRole: 0, isKnownDevice: true })).reason).toBe('config_error');
+  });
+
+  it('config_error: a non-finite active device count fails CLOSED (was accept)', () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, undefined as unknown as number]) {
+      expect(decideNetworkAccess(input({ activeDeviceCount: bad }))).toEqual({ accept: false, reason: 'config_error' });
+    }
+  });
+
+  it('config_error: missing / negative / non-finite session hours for the role fail CLOSED', () => {
+    expect(decideNetworkAccess(input({ sessionHoursByRole: {} }))).toEqual({ accept: false, reason: 'config_error' });
+    expect(decideNetworkAccess(input({ role: 'admin', sessionHoursByRole: { learner: 8 } }))).toEqual({
+      accept: false,
+      reason: 'config_error',
+    });
+    for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, null as unknown as number, '8' as unknown as number]) {
+      expect(decideNetworkAccess(input({ sessionHoursByRole: { learner: bad } }))).toEqual({
+        accept: false,
+        reason: 'config_error',
+      });
+    }
+  });
+
+  it('exactly 0 hours is persistent, never a config_error', () => {
+    const d = decideNetworkAccess(input({ sessionHoursByRole: { learner: 0 } }));
+    expect(d.accept).toBe(true);
+    expect('sessionTimeoutSeconds' in d).toBe(false);
+  });
+
+  it('config_error is checked after the fee block and device cap (those reasons win)', () => {
+    expect(decideNetworkAccess(input({ feeOverdue: true, sessionHoursByRole: {} })).reason).toBe('fee_overdue');
+    expect(decideNetworkAccess(input({ activeDeviceCount: 3, sessionHoursByRole: {} })).reason).toBe('device_cap');
   });
 
   it('guest role is exempt from the fee block', () => {
@@ -170,6 +233,22 @@ describe('decideNetworkAccess — rule order and edge cases', () => {
     expect(d.group).toBeUndefined();
   });
 
+  it('a gap between configured tiers reads as "no record", never as the worst tier', () => {
+    const gapped: NetworkBandwidthTier[] = [
+      { code: 'tier_a', attendanceMinPct: 95, attendanceMaxPct: 100, downloadMbps: 50, uploadMbps: 25 },
+      { code: 'tier_c', attendanceMinPct: 75, attendanceMaxPct: 85, downloadMbps: 10, uploadMbps: 5 },
+      { code: 'tier_d', attendanceMinPct: 0, attendanceMaxPct: 75, downloadMbps: 5, uploadMbps: 2 },
+    ];
+    // 90% sits in the 85-95 hole
+    expect(decideNetworkAccess(input({ tiers: gapped, attendancePct: 90 })).tier?.code).toBe('tier_d');
+    expect(decideNetworkAccess(input({ tiers: gapped, attendancePct: 90, role: 'senior_learner' })).tier?.code).toBe(
+      'tier_a',
+    );
+    // values that DO fall in a configured range are unaffected
+    expect(decideNetworkAccess(input({ tiers: gapped, attendancePct: 80 })).tier?.code).toBe('tier_c');
+    expect(decideNetworkAccess(input({ tiers: gapped, attendancePct: 96 })).tier?.code).toBe('tier_a');
+  });
+
   it('does not mutate the caller\'s tier list order', () => {
     const tiers = [...TIERS].reverse();
     const before = tiers.map((t) => t.code);
@@ -186,5 +265,32 @@ describe('selectTier', () => {
   it('clamps 0% to the lowest tier and 100% to the top tier', () => {
     expect(selectTier(TIERS, 0, 'learner')?.code).toBe('tier_d');
     expect(selectTier(TIERS, 100, 'learner')?.code).toBe('tier_a');
+  });
+});
+
+describe('roleKeyToNetworkRole — custom_roles.role_key -> policy category', () => {
+  it('maps every real role_key on jicate/main to its category', () => {
+    expect(roleKeyToNetworkRole('student')).toBe('learner');
+    expect(roleKeyToNetworkRole('faculty')).toBe('senior_learner');
+    expect(roleKeyToNetworkRole('staff')).toBe('team_member');
+    expect(roleKeyToNetworkRole('hod')).toBe('team_member');
+    expect(roleKeyToNetworkRole('admin')).toBe('admin');
+    expect(roleKeyToNetworkRole('administrator')).toBe('admin');
+    expect(roleKeyToNetworkRole('system_admin')).toBe('admin');
+    expect(roleKeyToNetworkRole('super_admin')).toBe('admin');
+    expect(roleKeyToNetworkRole('warden')).toBe('warden');
+    expect(roleKeyToNetworkRole('chief_warden')).toBe('warden');
+    expect(roleKeyToNetworkRole('gate_security')).toBe('security');
+    expect(roleKeyToNetworkRole('guest')).toBe('guest');
+  });
+
+  it('unknown, empty, prototype and non-string keys are null (the route answers unknown_user)', () => {
+    for (const bad of ['principal', 'hr_admin', '', 'toString', 'constructor', null, undefined, 42 as unknown as string]) {
+      expect(roleKeyToNetworkRole(bad)).toBeNull();
+    }
+  });
+
+  it('tolerates case and whitespace from a hand-edited row', () => {
+    expect(roleKeyToNetworkRole(' System_Admin ')).toBe('admin');
   });
 });

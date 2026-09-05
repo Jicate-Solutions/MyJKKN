@@ -86,7 +86,13 @@ const server = http.createServer((req, res) => {
     try {
       username = String(JSON.parse(raw || '{}').username || '');
     } catch {
-      username = '';
+      // A body rlm_rest failed to escape is a contract break, not an unknown
+      // person: answer 500 (RADIUS "fail", no Reply-Message) so the harness can
+      // tell it apart from a clean unknown_user reject.
+      console.log(`[${stamp()}] BAD JSON body: ${raw}`);
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end('{"error":"bad_json"}');
+      return;
     }
     const decision = decideFor(username);
     const reply = toRlmRestReply(decision);

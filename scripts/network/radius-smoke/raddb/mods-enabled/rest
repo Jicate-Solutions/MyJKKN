@@ -11,7 +11,14 @@ rest {
 		uri = "${..connect_uri}/api/network/radius-auth"
 		method = 'post'
 		body = 'json'
-		data = '{ "username": "%{User-Name}", "password": "%{User-Password}", "nas_identifier": "%{NAS-Identifier}", "calling_station_id": "%{Calling-Station-Id}" }'
+		# `data` is expanded but NOT escaped by rlm_rest ("Values from expansion
+		# will not be escaped, this should be done using the appropriate xlat
+		# method" — raddb/mods-available/rest, 3.2.x). The hotspot forwards
+		# whatever the person typed as User-Name, so every value goes through
+		# %{jsonquote:...}, the JSON escape xlat rlm_rest registers in 3.2
+		# (src/modules/rlm_rest/rlm_rest.c: xlat_register("jsonquote", ...);
+		# present in the Homebrew 3.2.8 rlm_rest.dylib). run.sh fixture 6 proves it.
+		data = '{ "username": "%{jsonquote:%{User-Name}}", "password": "%{jsonquote:%{User-Password}}", "nas_identifier": "%{jsonquote:%{NAS-Identifier}}", "calling_station_id": "%{jsonquote:%{Calling-Station-Id}}" }'
 		tls = ${..tls}
 	}
 
