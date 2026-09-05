@@ -228,48 +228,13 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
   done < <(python3 -c "import json;[print(k+'\t'+' '.join('#'+str(n) for n in v)) for k,v in json.load(open('$1'))['clusters'].items()]")
 }
 
-# ── migrations: apply as part of the loop (Director 2026-09-05 14:20) ─────────
-# One approval covers merge + APPLY + deploy + verify. Uses the repo's own workflow
-# "Apply Supabase migrations" (dry-run diff → `supabase db push` → post-apply listing),
-# never a raw psql from here. Runs BEFORE deploy so live code never meets a missing
-# column. Any failure → FREEZE (nothing deploys; the previous deploy stays up).
-APPLY_WF="Apply Supabase migrations"
-wf_dispatch_and_wait() {  # $1=dry_run true|false → prints run id; exit = the run's result (0 = success)
-  local dry="$1" t0 rid i
-  t0=$(date -u +%FT%TZ)
-  gh workflow run "$APPLY_WF" --repo "$REPO" -f confirm_apply=apply -f dry_run="$dry" >/dev/null 2>&1 || { say "  apply: could not dispatch the workflow"; return 2; }
-  for i in $(seq 1 12); do sleep 5
-    rid=$(gh run list --repo "$REPO" --workflow "$APPLY_WF" --limit 5 --json databaseId,createdAt,event -q "[.[] | select(.event==\"workflow_dispatch\" and .createdAt >= \"$t0\")] | .[0].databaseId" 2>/dev/null)
-    [ -n "$rid" ] && [ "$rid" != "null" ] && break; done
-  [ -n "$rid" ] && [ "$rid" != "null" ] || { say "  apply: dispatched but no run appeared in 60s"; return 2; }
-  gh run watch "$rid" --repo "$REPO" --exit-status >/dev/null 2>&1; local rc=$?
-  echo "$rid"; return $rc
-}
-apply_migrations() {  # $1=merged-files.txt → sets APPLY_RESULT; returns 0 ok / 1 frozen
-  local expected; expected=$(grep -E '^supabase/migrations/[0-9]+_' "$1" | sed -E 's#^supabase/migrations/([0-9]+)_.*#\1#' | sort -u)
-  # the workflow is idempotent: it applies EVERY pending file on main, so earlier un-applied ones ride along.
-  # $STATE/migrations-pending marks "approved migrations merged but not yet applied" (e.g. merged by an
-  # older run, or a failed apply) — it keeps the loop honest across rounds and is cleared only by a verified apply.
-  if [ -n "$expected" ]; then touch "$STATE/migrations-pending"; fi
-  if [ -z "$expected" ] && [ ! -f "$STATE/migrations-pending" ]; then APPLY_RESULT="no migration pending"; return 0; fi
-  [ -n "$expected" ] && say "  migrations merged this round: $(echo "$expected" | tr '\n' ' ')" || say "  migrations pending from an earlier round — applying now"
-  local rid rc
-  say "  apply step 1/3 — dry-run diff"; rid=$(wf_dispatch_and_wait true); rc=$?
-  if [ $rc -ne 0 ]; then freeze "migration DRY-RUN failed (run $rid) — $(gh run view "$rid" --repo "$REPO" --log-failed 2>/dev/null | grep -iE 'error' | head -2 | sed 's/.*\t//' | tr '\n' ' ' | cut -c1-200)"; APPLY_RESULT="dry-run FAILED run $rid"; return 1; fi
-  say "  apply step 2/3 — supabase db push (dry-run was $rid)"; rid=$(wf_dispatch_and_wait false); rc=$?
-  if [ $rc -ne 0 ]; then freeze "migration APPLY failed (run $rid) — $(gh run view "$rid" --repo "$REPO" --log-failed 2>/dev/null | grep -iE 'error' | head -2 | sed 's/.*\t//' | tr '\n' ' ' | cut -c1-200)"; APPLY_RESULT="apply FAILED run $rid"; return 1; fi
-  say "  apply step 3/3 — verify every merged version is in schema_migrations"
-  local log missing="" v; log=$(gh run view "$rid" --repo "$REPO" --log 2>/dev/null)
-  for v in $expected; do grep -q "$v" <<<"$log" || missing="$missing $v"; done
-  if [ -n "$missing" ]; then
-    # the post-apply listing shows only the latest 5 — a second dry-run is the tie-breaker: anything still pending = not applied
-    local rid2 pend; rid2=$(wf_dispatch_and_wait true) || true
-    pend=$(gh run view "$rid2" --repo "$REPO" --log 2>/dev/null | grep -ciE 'would (push|apply)|pending migration')
-    if [ "${pend:-0}" -gt 0 ]; then freeze "migration verify: not applied:$missing (apply $rid, recheck $rid2)"; APPLY_RESULT="verify FAILED:$missing"; return 1; fi
-  fi
-  rm -f "$STATE/migrations-pending"
-  APPLY_RESULT="applied + verified ($(echo "$expected" | grep -c . ) merged this round + any earlier pending, run $rid)"; say "  ✓ $APPLY_RESULT"; return 0
-}
+# ── migrations: stage 3b lives in its own file (Director 2026-09-05 14:20 / 15:30) ───
+# One approval covers merge + APPLY + deploy + verify. The GitHub workflow "Apply Supabase migrations" can never
+# apply anything (1,616 out-of-band history versions make `supabase db push` refuse — the 14:41 freeze), so the
+# stage applies each pending file through the Supabase Management API: history check → destructive refusal →
+# BEGIN…ROLLBACK dry-run → BEGIN…COMMIT → record → pgrst reload → verify. Runs BEFORE deploy; any failure FREEZES.
+# shellcheck source=scripts/ship-wave/apply-migrations.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/apply-migrations.sh"
 
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
