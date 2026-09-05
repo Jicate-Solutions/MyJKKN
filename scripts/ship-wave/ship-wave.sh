@@ -212,6 +212,45 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
   done < <(python3 -c "import json;[print(k+'\t'+' '.join('#'+str(n) for n in v)) for k,v in json.load(open('$1'))['clusters'].items()]")
 }
 
+# ── migrations: apply as part of the loop (Director 2026-09-05 14:20) ─────────
+# One approval covers merge + APPLY + deploy + verify. Uses the repo's own workflow
+# "Apply Supabase migrations" (dry-run diff → `supabase db push` → post-apply listing),
+# never a raw psql from here. Runs BEFORE deploy so live code never meets a missing
+# column. Any failure → FREEZE (nothing deploys; the previous deploy stays up).
+APPLY_WF="Apply Supabase migrations"
+wf_dispatch_and_wait() {  # $1=dry_run true|false → prints run id; exit = the run's result (0 = success)
+  local dry="$1" t0 rid i
+  t0=$(date -u +%FT%TZ)
+  gh workflow run "$APPLY_WF" --repo "$REPO" -f confirm_apply=apply -f dry_run="$dry" >/dev/null 2>&1 || { say "  apply: could not dispatch the workflow"; return 2; }
+  for i in $(seq 1 12); do sleep 5
+    rid=$(gh run list --repo "$REPO" --workflow "$APPLY_WF" --limit 5 --json databaseId,createdAt,event -q "[.[] | select(.event==\"workflow_dispatch\" and .createdAt >= \"$t0\")] | .[0].databaseId" 2>/dev/null)
+    [ -n "$rid" ] && [ "$rid" != "null" ] && break; done
+  [ -n "$rid" ] && [ "$rid" != "null" ] || { say "  apply: dispatched but no run appeared in 60s"; return 2; }
+  gh run watch "$rid" --repo "$REPO" --exit-status >/dev/null 2>&1; local rc=$?
+  echo "$rid"; return $rc
+}
+apply_migrations() {  # $1=merged-files.txt → sets APPLY_RESULT; returns 0 ok / 1 frozen
+  local expected; expected=$(grep -E '^supabase/migrations/[0-9]+_' "$1" | sed -E 's#^supabase/migrations/([0-9]+)_.*#\1#' | sort -u)
+  # the workflow is idempotent: it applies EVERY pending file on main, so earlier un-applied ones ride along
+  if [ -z "$expected" ]; then APPLY_RESULT="no migration merged"; return 0; fi
+  say "  migrations merged this round: $(echo "$expected" | tr '\n' ' ')"
+  local rid rc
+  say "  apply step 1/3 — dry-run diff"; rid=$(wf_dispatch_and_wait true); rc=$?
+  if [ $rc -ne 0 ]; then freeze "migration DRY-RUN failed (run $rid) — $(gh run view "$rid" --repo "$REPO" --log-failed 2>/dev/null | grep -iE 'error' | head -2 | sed 's/.*\t//' | tr '\n' ' ' | cut -c1-200)"; APPLY_RESULT="dry-run FAILED run $rid"; return 1; fi
+  say "  apply step 2/3 — supabase db push (dry-run was $rid)"; rid=$(wf_dispatch_and_wait false); rc=$?
+  if [ $rc -ne 0 ]; then freeze "migration APPLY failed (run $rid) — $(gh run view "$rid" --repo "$REPO" --log-failed 2>/dev/null | grep -iE 'error' | head -2 | sed 's/.*\t//' | tr '\n' ' ' | cut -c1-200)"; APPLY_RESULT="apply FAILED run $rid"; return 1; fi
+  say "  apply step 3/3 — verify every merged version is in schema_migrations"
+  local log missing="" v; log=$(gh run view "$rid" --repo "$REPO" --log 2>/dev/null)
+  for v in $expected; do grep -q "$v" <<<"$log" || missing="$missing $v"; done
+  if [ -n "$missing" ]; then
+    # the post-apply listing shows only the latest 5 — a second dry-run is the tie-breaker: anything still pending = not applied
+    local rid2 pend; rid2=$(wf_dispatch_and_wait true) || true
+    pend=$(gh run view "$rid2" --repo "$REPO" --log 2>/dev/null | grep -ciE 'would (push|apply)|pending migration')
+    if [ "${pend:-0}" -gt 0 ]; then freeze "migration verify: not applied:$missing (apply $rid, recheck $rid2)"; APPLY_RESULT="verify FAILED:$missing"; return 1; fi
+  fi
+  APPLY_RESULT="applied + verified ($(echo "$expected" | wc -l | tr -d ' ') migration(s), run $rid)"; say "  ✓ $APPLY_RESULT"; return 0
+}
+
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
   local run="$STATE/run-$ts"; mkdir -p "$run"
@@ -289,10 +328,18 @@ PY
   else say "  (plan mode or frozen — nothing merged)"; fi
   say "  merged this round: $merged$merged_list"
 
+  # ── 3b. migrations: apply + verify BEFORE deploy ────────────────────────────
+  local APPLY_RESULT="n/a" apply_ok=1
+  if [ "$merged" -gt 0 ]; then
+    say; say "--- 3b. migrations (one approval = merge + apply + deploy + verify) ---"
+    apply_migrations "$merged_files" || apply_ok=0
+  fi
+
   # ── 4. deploy ──────────────────────────────────────────────────────────────
   local deploy="skipped" dpl=""
   say; say "--- 4. deploy ---"
-  if [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ]; then
+  if [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
+  elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ]; then
     local r; r=$(curl -s -X POST "$HOOK"); dpl=$(python3 -c "import json,sys;print(json.load(sys.stdin)['job']['id'])" <<<"$r" 2>/dev/null)
     printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 ship$merged_list" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"
     say "  hook fired: job $dpl — polling the deployment (verdict read from .errorCode, never the GitHub record)"
@@ -350,9 +397,9 @@ PY
 
   # ── 6. scoreboard + HTML report ────────────────────────────────────────────
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
-  say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $((c_ready-merged)) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $merged · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
+  say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $((c_ready-merged)) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $merged · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
-  RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="$l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" || echo "")" python3 - "$html" <<'PY'
+  RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" || echo "")" python3 - "$html" <<'PY'
 import json, os, sys, html as H
 run=os.environ["RUN"]; plan=json.load(open(f"{run}/plan.json")); c=plan["counts"]; e=H.escape
 def rows(lst, extra=lambda r:""): return "".join(f"<tr><td><a href='https://github.com/Jicate-Solutions/MyJKKN/pull/{r['number']}'>#{r['number']}</a></td><td>{e(r['title'])}</td><td><span class='t {r['tier']}'>{r['tier']}</span></td><td>{e(extra(r))}</td></tr>" for r in lst) or "<tr><td colspan=4 class=m>none</td></tr>"
