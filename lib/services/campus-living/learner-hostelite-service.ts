@@ -11,6 +11,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
+import { CL_DEFAULT_ROSTER_STATUSES } from './roster-statuses';
 import {
   UNASSIGNED_BLOCK,
   type HosteliteBillStatus,
@@ -80,6 +81,10 @@ const VIEW_SELECT = [
   'hostel_category_type',
   'mess_category_id',
   'mess_category_name',
+  // Can this learner be given a bed at all? hostel_allocations.learner_id FKs
+  // profiles(id), which does not exist until activation (migration
+  // 20260905102440). Drives the disabled Allocate action + its tooltip.
+  'has_login_profile',
 ].join(',');
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
@@ -133,6 +138,17 @@ export class LearnerHosteliteService {
       let query = (supabase as any)
         .from('v_learner_hostelites_scoped')
         .select(VIEW_SELECT, { count: 'exact' });
+
+      // Lifecycle scoping. v_learner_hostelites carries active + reserved +
+      // admitted since migration 20260905102440, but an ABSENT filter must
+      // still mean 'active' — not "everything". This single line is what keeps
+      // the Learners tab, the Generate-bills tab and the detail drawer on the
+      // 754 active hostelers unless a caller explicitly widens, and it is the
+      // reason the 2026-06-08 widening could be redone safely.
+      query = query.in(
+        'lifecycle_status',
+        (filters?.lifecycle_statuses ?? CL_DEFAULT_ROSTER_STATUSES) as string[],
+      );
 
       // Institution scoping — non-super-admin always restricted to their inst.
       // Super-admin can pass filters.institution_id to narrow.
@@ -537,7 +553,11 @@ export class LearnerHosteliteService {
     let query = supabase
       .from('v_learner_hostelites')
       .select('year_of_study')
-      .not('year_of_study', 'is', null);
+      .not('year_of_study', 'is', null)
+      // Same default as listHostelites — otherwise the Year chips would offer
+      // cohorts that only exist among reserved learners, filtering the table to
+      // an empty result while the Status filter still says Active.
+      .in('lifecycle_status', CL_DEFAULT_ROSTER_STATUSES as unknown as string[]);
     if (institutionId) query = query.eq('institution_id', institutionId);
     const { data, error } = await query;
     if (error) {

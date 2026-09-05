@@ -214,7 +214,17 @@ export interface LearnerHostelite {
   current_allocation_id?: string | null;
   current_room_number?: string | null;
   current_bed_number?: string | null;
-  /** Learner lifecycle status (surfaced from v_learner_hostelites, which is filtered to active/reserved/admitted). */
+  /** False when the learner has no `profiles` row yet. hostel_allocations
+   *  .learner_id FKs profiles(id) and the login profile is only created at the
+   *  admitted -> active activation step, so these learners CANNOT be given a
+   *  bed — the UI must disable Allocate with that reason rather than let the
+   *  insert fail on a 23503. 48 of the 82 reserved/admitted hostelers as of
+   *  2026-09-05. Projected by v_learner_hostelites. */
+  has_login_profile?: boolean;
+  /** Learner lifecycle status. v_learner_hostelites carries active + reserved +
+   *  admitted (migration 20260905102440); the SERVICE defaults reads to
+   *  `active` only, so a widened list is always something the caller asked for.
+   *  See CL_ROSTER_STATUSES in lib/services/campus-living/roster-statuses.ts. */
   lifecycle_status?: string | null;
   /** Which date source produced year_of_study. NULL when no source available. PR #823. */
   year_source?: 'admission_year' | 'batch' | 'enquiry' | null;
@@ -250,6 +260,13 @@ export interface LearnerHostelitesFilters {
    */
   admission_year?: number;
   gender?: 'Male' | 'Female' | 'Other';
+  /**
+   * Learner lifecycle statuses to include. Omitted means
+   * CL_DEFAULT_ROSTER_STATUSES (['active']) — NOT "no filter". The view carries
+   * reserved and admitted too, so an absent filter must still resolve to the
+   * narrow set or every existing screen would silently gain 82 rows.
+   */
+  lifecycle_statuses?: readonly string[];
   block_id?: BlockFilterValue;
   // Block-scoped wardens: restrict to the warden's assigned blocks (cross-
   // institution). ANDs with block_id when both are present.
@@ -297,6 +314,10 @@ export interface UnallocatedCandidate {
   resolved_mess_category_name: string | null;
   // 'matched'|'different_year'|'untagged'|'none'
   bill_state: 'matched' | 'different_year' | 'untagged' | 'none';
+  /** Learner lifecycle status — 'active' | 'reserved' | 'admitted' (migration
+   *  20260905102440). Present so the Unallocated list can badge a reserved
+   *  learner instead of showing an unexplained new name. */
+  lifecycle_status: string;
   // 'ready' = all blocking conditions pass; 'incomplete' = something missing
   readiness: 'ready' | 'incomplete';
   // Human-readable list of what is blocking placement (empty when ready)

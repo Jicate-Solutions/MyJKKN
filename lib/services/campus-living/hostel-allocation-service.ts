@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { CL_ROSTER_STATUSES } from './roster-statuses';
 import type {
   HostelAllocation,
   CreateHostelAllocationDTO,
@@ -89,18 +90,23 @@ export class HostelAllocationService {
         logger.error('campus-living/allocations', 'Failed to fetch all allocations', error);
         throw error;
       }
-      // Campus Living shows ACTIVE learners only. Mirror v_learner_hostelites
-      // (lifecycle_status = 'active'), so an inactive learner who still holds a
-      // bed no longer appears here — this was the sole cause of the
-      // Residents-vs-Allocations count mismatch. Rows whose learner has no
-      // learners_profiles record (academic null) drop too, as they aren't an
-      // active learner either. Filtered in JS (not a PostgREST !inner embed)
-      // to avoid silently dropping rows on a null intermediate join.
-      const activeOnly = (data ?? []).filter(
-        (a: { learner?: { academic?: { lifecycle_status?: string } | null } | null }) =>
-          a?.learner?.academic?.lifecycle_status === 'active',
+      // Mirror the Campus Living roster (v_learner_hostelites), so a learner
+      // outside it who still holds a bed does not appear here — this was the
+      // sole cause of the Residents-vs-Allocations count mismatch, and it is
+      // why this must track CL_ROSTER_STATUSES rather than a local 'active'
+      // literal: the roster widened to reserved+admitted on 2026-09-05, and a
+      // reserved learner given a bed early has to show on both screens or the
+      // same mismatch comes back. Rows whose learner has no learners_profiles
+      // record (academic null) drop too, as they aren't a learner either.
+      // Filtered in JS (not a PostgREST !inner embed) to avoid silently
+      // dropping rows on a null intermediate join.
+      const rosterOnly = (data ?? []).filter(
+        (a: { learner?: { academic?: { lifecycle_status?: string } | null } | null }) => {
+          const s = a?.learner?.academic?.lifecycle_status;
+          return !!s && (CL_ROSTER_STATUSES as readonly string[]).includes(s);
+        },
       );
-      return activeOnly as (HostelAllocation & Record<string, unknown>)[];
+      return rosterOnly as (HostelAllocation & Record<string, unknown>)[];
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in getAllAllocations', error);
       throw error;

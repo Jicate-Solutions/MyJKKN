@@ -16,6 +16,10 @@ import { Button } from '@/components/ui/button';
 import { UserPlus } from 'lucide-react';
 import { DataTable } from '@/components/data-table/data-table';
 import { LearnerHosteliteService } from '@/lib/services/campus-living/learner-hostelite-service';
+import {
+  CL_ROSTER_STATUSES,
+  isClRosterStatus,
+} from '@/lib/services/campus-living/roster-statuses';
 import type {
   LearnerHostelite,
   LearnerHostelitesFilters,
@@ -179,6 +183,14 @@ export function LearnersTab() {
     if (g('section_id')) f.section_id = g('section_id');
     if (g('academic_year_id')) f.academic_year_id = g('academic_year_id');
     if (g('gender')) f.gender = g('gender') as 'Male' | 'Female' | 'Other';
+    // Lifecycle status. No param => leave the filter unset so the service
+    // applies CL_DEFAULT_ROSTER_STATUSES (['active']). 'all' is the only value
+    // that widens to reserved + admitted; anything else is taken as a single
+    // status, guarded so a hand-edited ?lifecycle_status=junk falls back to the
+    // default rather than returning an empty table.
+    const ls = g('lifecycle_status');
+    if (ls === 'all') f.lifecycle_statuses = [...CL_ROSTER_STATUSES];
+    else if (isClRosterStatus(ls)) f.lifecycle_statuses = [ls];
     if (g('block_id')) f.block_id = g('block_id') as BlockFilterValue;
     if (g('hostel_category_id')) f.hostel_category_id = g('hostel_category_id');
     if (g('mess_category_id')) f.mess_category_id = g('mess_category_id');

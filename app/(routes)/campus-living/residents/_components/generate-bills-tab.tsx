@@ -68,6 +68,7 @@ import type {
 import { getErrorMessage } from '@/lib/utils';
 import { ResidentFeeDetail } from './resident-fee-detail';
 import { GenerateBillsWarningDialog } from './generate-bills-warning-dialog';
+import { CL_ROSTER_STATUSES } from '@/lib/services/campus-living/roster-statuses';
 import { AddAdditionalBillDialog } from './add-additional-bill-dialog';
 import { GenerationStatsPanel } from './generation-stats-panel';
 
@@ -133,6 +134,19 @@ export function GenerateBillsTab() {
     null,
   );
   const [previewedIds, setPreviewedIds] = useState<string[]>([]);
+  // The previewed LEARNERS, not just their ids. Needed because
+  // campus_living_generate_hostel_year_bills gates ONLY on
+  // accommodation_types.code='hostel' — it has no lifecycle check of its own
+  // and bills whatever ids this UI hands it. Since the roster widened to
+  // reserved + admitted, this screen is the only thing standing between a
+  // reserved learner and a real hostel bill, so the confirm dialog has to be
+  // able to count them.
+  const [previewedLearners, setPreviewedLearners] = useState<LearnerHostelite[]>([]);
+  // Lifecycle scope for the table. Defaults to Active — same contract as the
+  // Learners tab: undefined means CL_DEFAULT_ROSTER_STATUSES, not "all".
+  const [statusFilter, setStatusFilter] = useState<'active' | 'reserved' | 'admitted' | 'all'>(
+    'active',
+  );
   const [plans, setPlans] = useState<Map<string, LearnerGenerationPlan>>(
     () => new Map(),
   );
@@ -169,6 +183,8 @@ export function GenerateBillsTab() {
         search: params.search || undefined,
         sortBy: params.sort_by || undefined,
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
+        lifecycle_statuses:
+          statusFilter === 'all' ? [...CL_ROSTER_STATUSES] : [statusFilter],
       };
       const { data, count } = await LearnerHosteliteService.listHostelites(
         effectiveInstitutionId,
@@ -188,7 +204,7 @@ export function GenerateBillsTab() {
         },
       };
     },
-    [effectiveInstitutionId],
+    [effectiveInstitutionId, statusFilter],
   );
 
   const columns = useMemo<ColumnDef<LearnerHostelite>[]>(() => {
@@ -340,9 +356,12 @@ export function GenerateBillsTab() {
 
   // Preview the selected learners' bills. Called from inside the table toolbar
   // where the live selection (`learnerIds`) is available.
+  // Takes the LEARNER ROWS, not just ids, so the confirm dialog can report how
+  // many of them are reserved/admitted (see previewedLearners).
   const runPreview = useCallback(
-    async (learnerIds: string[]) => {
-      if (!effectiveYearId || learnerIds.length === 0) return;
+    async (learners: LearnerHostelite[]) => {
+      if (!effectiveYearId || learners.length === 0) return;
+      const learnerIds = learners.map((l) => l.id);
       setPreviewError(null);
       try {
         const result = await dryRun.mutateAsync({
@@ -353,6 +372,7 @@ export function GenerateBillsTab() {
         for (const p of result) next.set(p.learner_id, p);
         setPlans(next);
         setPreviewedIds(learnerIds);
+        setPreviewedLearners(learners);
       } catch (err) {
         setPreviewError(getErrorMessage(err));
       }
@@ -376,11 +396,11 @@ export function GenerateBillsTab() {
       );
       setWarningOpen(false);
       // Refresh statuses — re-preview the same set (now mostly already-billed).
-      await runPreview(previewedIds);
+      await runPreview(previewedLearners);
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
-  }, [gen, effectiveYearId, previewedIds, runPreview]);
+  }, [gen, effectiveYearId, previewedIds, previewedLearners, runPreview]);
 
   // Plans for the previewed learners — feeds the warning dialog totals.
   const previewedPlans = useMemo(
@@ -390,6 +410,20 @@ export function GenerateBillsTab() {
         .filter((p): p is LearnerGenerationPlan => !!p),
     [previewedIds, plans],
   );
+
+  // How many of the about-to-be-billed learners are NOT active. All 82
+  // reserved/admitted hostelers had zero hostel bills as of 2026-09-05, and
+  // reserved learners average ~13.8% of fees paid — so billing one is a real
+  // financial decision that must be a deliberate click, never a side effect of
+  // having widened the roster.
+  const previewedNonActive = useMemo(() => {
+    const counts = { reserved: 0, admitted: 0 };
+    for (const l of previewedLearners) {
+      if (l.lifecycle_status === 'reserved') counts.reserved += 1;
+      else if (l.lifecycle_status === 'admitted') counts.admitted += 1;
+    }
+    return counts;
+  }, [previewedLearners]);
 
   // ── Render ───────────────────────────────────────────────────────────────
   const yearsBusy = yearsLoading || currentLoading;
@@ -408,6 +442,7 @@ export function GenerateBillsTab() {
 
   return (
     <div className='space-y-4'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
       <div className='space-y-1'>
         <label className='text-xs text-muted-foreground'>Hostel year</label>
         <Select
@@ -417,6 +452,7 @@ export function GenerateBillsTab() {
             // A year change invalidates the previewed plans (different bills).
             setPlans(new Map());
             setPreviewedIds([]);
+            setPreviewedLearners([]);
             setPreviewError(null);
           }}
           disabled={yearsBusy}
@@ -435,6 +471,35 @@ export function GenerateBillsTab() {
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+        {/* Lifecycle scope. Active by default — a reserved learner has to be
+            deliberately brought into view before they can be billed. */}
+        <div className='space-y-1'>
+          <label className='text-xs text-muted-foreground'>Learner status</label>
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => {
+              setStatusFilter(v as typeof statusFilter);
+              // A scope change invalidates the preview: the selection it was
+              // built from may no longer be on screen.
+              setPlans(new Map());
+              setPreviewedIds([]);
+              setPreviewedLearners([]);
+              setPreviewError(null);
+            }}
+          >
+            <SelectTrigger className='w-[240px]'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='active'>Active only</SelectItem>
+              <SelectItem value='reserved'>Reserved only</SelectItem>
+              <SelectItem value='admitted'>Admitted only</SelectItem>
+              <SelectItem value='all'>All (incl. reserved &amp; admitted)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <GenerationStatsPanel hostelYearId={effectiveYearId} />
@@ -482,7 +547,7 @@ export function GenerateBillsTab() {
                   size='sm'
                   variant='outline'
                   className='h-8'
-                  onClick={() => runPreview(ids)}
+                  onClick={() => runPreview(selectedRows as unknown as LearnerHostelite[])}
                   disabled={ids.length === 0 || dryRun.isPending}
                 >
                   {dryRun.isPending ? (
@@ -516,6 +581,7 @@ export function GenerateBillsTab() {
         open={warningOpen}
         onOpenChange={setWarningOpen}
         plans={previewedPlans}
+        nonActive={previewedNonActive}
         onConfirm={handleGenerate}
         pending={gen.isPending}
       />

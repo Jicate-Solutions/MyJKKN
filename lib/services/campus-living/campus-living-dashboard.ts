@@ -88,9 +88,18 @@ export class CampusLivingDashboard {
       // OR not). v_learner_hostelites LEFT JOINs hostel_allocations, so students
       // without a bed (current_allocation_id IS NULL) are still included here.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      //
+      // Pinned to 'active' explicitly. The view was widened to
+      // active+reserved+admitted on 2026-09-05, and this card reads it
+      // directly, so without this line the headcount would jump 754 -> 836
+      // with nobody asking. Reserved/admitted learners hold no bed, so an
+      // occupancy-oriented card is right to exclude them — but a card that
+      // silently changes its own lifecycle_status set reads as corrupted data
+      // the moment someone compares it to another screen.
       let hostelitesCountQ = (supabase as any)
         .from('v_learner_hostelites')
-        .select('*', { count: 'exact', head: true });
+        .select('*', { count: 'exact', head: true })
+        .eq('lifecycle_status', 'active');
       if (institutionId) hostelitesCountQ = hostelitesCountQ.eq('institution_id', institutionId);
 
       const [
@@ -329,9 +338,14 @@ export class CampusLivingDashboard {
     try {
       const supabase = createClientSupabaseClient();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // 'active' only — same reasoning as the hostelite count above: these
+      // distribution charts describe the population currently living in the
+      // hostel, and the view now also carries reserved/admitted learners who
+      // have no bed.
       let q = (supabase as any)
         .from('v_learner_hostelites')
-        .select('id, gender, year_of_study, hostel_category_name, mess_category_name');
+        .select('id, gender, year_of_study, hostel_category_name, mess_category_name')
+        .eq('lifecycle_status', 'active');
       if (institutionId) q = q.eq('institution_id', institutionId);
       const { data, error } = await q;
       if (error) {
