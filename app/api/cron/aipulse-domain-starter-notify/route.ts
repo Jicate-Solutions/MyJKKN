@@ -67,6 +67,7 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { filterPushRecipients } from '@/lib/push/opt-out';
 import webpush from 'web-push';
 import {
   cycleNotificationExpiresAt,
@@ -172,7 +173,15 @@ async function fetchActiveSubs(
 ): Promise<Map<string, PushSubRow[]>> {
   const byUser = new Map<string, PushSubRow[]>();
   if (!userIds.length) return byUser;
-  for (const ids of chunk(userIds, DB_CHUNK)) {
+
+  // Drop anyone who switched push off before looking up any subscription.
+  // is_active alone cannot carry that answer: unsubscribing destroys the browser
+  // endpoint, so the next page load mints a NEW row that is is_active=true and
+  // passes the filter below perfectly.
+  const allowed = await filterPushRecipients(admin, userIds);
+  if (!allowed.length) return byUser;
+
+  for (const ids of chunk(allowed, DB_CHUNK)) {
     const { data, error } = await admin
       .from('push_subscriptions')
       .select('id, user_id, subscription, failure_count')
