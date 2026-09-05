@@ -178,7 +178,8 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
     # a SECOND tab while the previous one is still working on it. The mark file holds that tab's session.
     if [ -f "$mark" ]; then
       local prev; prev=$(cat "$mark" 2>/dev/null)
-      if [ -n "$prev" ] && $T has-session -t "$prev" 2>/dev/null && $T capture-pane -p -t "$prev:0.0" 2>/dev/null | grep -qE 'tok/s|thinking|esc to interrupt|Perambulating|Flambéing|Puttering|Brewing|Crunching'; then
+      # busy = the spinner's elapsed-time stamp "… (9m 56s ·" is on screen (its verb is random — never match words)
+      if [ -n "$prev" ] && $T has-session -t "$prev" 2>/dev/null && $T capture-pane -p -t "$prev:0.0" 2>/dev/null | grep -qE '… \([0-9]+m? ?[0-9]*s ·|esc to interrupt|Running…|Waiting…|tok/s|thinking'; then
         say "  skip $ckey — its tab $prev is still working"; continue
       fi
       [ -n "$prev" ] && say "  re-dispatching $ckey — previous tab $prev has finished, PRs still conflicted"
