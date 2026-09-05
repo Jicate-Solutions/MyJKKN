@@ -10359,3 +10359,31 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_leave_entitlement
 GRANT ALL ON public.hr_work_patterns                   TO service_role;
 GRANT ALL ON public.hr_staff_work_pattern_assignments  TO service_role;
 GRANT ALL ON public.hr_work_pattern_leave_entitlements TO service_role;
+
+-- ============================================================================
+-- hr_work_pattern_weeks (2026-09-04, 20260904190000_hr_work_patterns_days_only.sql)
+-- ============================================================================
+
+DROP POLICY IF EXISTS hr_wpw_select ON public.hr_work_pattern_weeks;
+CREATE POLICY hr_wpw_select ON public.hr_work_pattern_weeks
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+                   OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+-- Writes go through fn_hr_set_work_pattern_days (SECURITY DEFINER); a direct
+-- write is left to super admins only, like the assignments table.
+DROP POLICY IF EXISTS hr_wpw_write ON public.hr_work_pattern_weeks;
+CREATE POLICY hr_wpw_write ON public.hr_work_pattern_weeks
+  FOR ALL USING ((SELECT public.is_super_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_weeks TO authenticated;
+GRANT ALL ON public.hr_work_pattern_weeks TO service_role;

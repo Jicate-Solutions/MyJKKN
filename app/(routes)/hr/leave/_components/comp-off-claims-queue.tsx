@@ -19,7 +19,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { AlertCircle, Check, Clock, X } from 'lucide-react';
+import { AlertCircle, Check, Clock, FileText, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,7 @@ import {
 import { RequestTable, RequestRow } from './request-table';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from './period-filter';
 import { CompOffClaimDetailSheet } from './comp-off-claim-detail-sheet';
+import { LeaveDocumentViewer } from './leave-document-viewer';
 import { formatDays } from './format';
 import type { PendingCompOffClaim } from '@/types/hr-comp-off';
 import { usePendingCompOffClaims, useDecideCompOffClaim } from '@/hooks/hr/use-comp-off';
@@ -55,6 +56,8 @@ export function CompOffClaimsQueue() {
   const [rejectReason, setRejectReason] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [detailClaim, setDetailClaim] = useState<PendingCompOffClaim | null>(null);
+  /** Whose proof the viewer is showing. null = closed. */
+  const [proofClaim, setProofClaim] = useState<PendingCompOffClaim | null>(null);
 
   // Same advanced filters as the Leave / Short Time Off tabs, minus the ones
   // this queue has no data for (every row is pending; claims carry no
@@ -220,6 +223,7 @@ export function CompOffClaimsQueue() {
           { key: 'worked', label: 'Worked Date' },
           { key: 'expiry', label: 'Would Expire' },
           { key: 'days', label: 'Days', align: 'right' },
+          { key: 'proof', label: 'Proof' },
           { key: 'notes', label: 'Notes' },
           { key: 'actions', label: 'Actions', align: 'right' },
         ]}
@@ -278,6 +282,30 @@ export function CompOffClaimsQueue() {
               <TableCell className="text-right tabular-nums">
                 {formatDays(c.credit_days)}
               </TableCell>
+              {/* The proof of the worked day, one click from the queue. A claim
+                  is a request to create a leave credit out of a Sunday; the
+                  evidence for it should not cost a sheet-open. */}
+              <TableCell>
+                {(c.documents?.length ?? 0) > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setProofClaim(c)}
+                    title={
+                      c.documents.length > 1
+                        ? `View ${c.documents.length} proof documents`
+                        : `View ${c.documents[0]?.name || 'the proof document'}`
+                    }
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-primary hover:bg-muted"
+                  >
+                    <FileText className="h-4 w-4" />
+                    <span className="text-xs underline-offset-4 hover:underline">
+                      {c.documents.length > 1 ? `View (${c.documents.length})` : 'View'}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
               <TableCell className="max-w-[220px] truncate text-muted-foreground" title={c.notes ?? ''}>
                 {c.notes || '—'}
               </TableCell>
@@ -313,6 +341,18 @@ export function CompOffClaimsQueue() {
           );
         })}
       </RequestTable>
+
+      {/* One viewer for the table, opened with a claim. View only. */}
+      <LeaveDocumentViewer
+        documents={proofClaim?.documents}
+        open={Boolean(proofClaim)}
+        onOpenChange={(open) => { if (!open) setProofClaim(null); }}
+        title={
+          proofClaim
+            ? `${proofClaim.employee_name} · worked ${fmtDate(proofClaim.worked_date)}`
+            : undefined
+        }
+      />
 
       <CompOffClaimDetailSheet
         claim={detailClaim}

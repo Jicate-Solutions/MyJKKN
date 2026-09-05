@@ -58,13 +58,16 @@ export function CompOffClaimDetailSheet({
 }) {
   return (
     <Sheet open={Boolean(claim)} onOpenChange={onOpenChange}>
+      {/* Scroll on the body, not here — see the long note on the same shell in
+          approval-detail-sheet.tsx. A `flex-1 min-h-0` body with no overflow of
+          its own spills over the footer instead of scrolling. */}
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl"
+        className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
       >
         {claim && (
           <>
-            <SheetHeader className="space-y-2 border-b p-4 text-left sm:p-6">
+            <SheetHeader className="shrink-0 space-y-2 border-b p-4 text-left sm:p-6">
               <SheetTitle className="text-base">{claim.employee_name}</SheetTitle>
               <SheetDescription className="text-xs">
                 <span className="font-mono">{claim.employee_code ?? 'no staff ID'}</span>
@@ -77,7 +80,7 @@ export function CompOffClaimDetailSheet({
               </div>
             </SheetHeader>
 
-            <div className="min-h-0 flex-1 space-y-5 p-4 sm:p-6">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
               <dl className="grid grid-cols-2 gap-3">
                 <Field label="Institution">{claim.institution_name ?? '—'}</Field>
                 <Field label="Source">{SOURCE_LABELS[claim.source] ?? claim.source}</Field>
@@ -102,7 +105,7 @@ export function CompOffClaimDetailSheet({
               </p>
             </div>
 
-            <SheetFooter className="flex-row gap-2 border-t p-4 sm:justify-end sm:p-6">
+            <SheetFooter className="shrink-0 flex-row flex-wrap gap-2 border-t bg-background p-4 sm:justify-end sm:p-6">
               {isOwn ? (
                 <p className="text-xs text-muted-foreground">
                   Your own claim — another approver must decide.

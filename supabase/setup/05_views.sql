@@ -956,7 +956,16 @@ CREATE VIEW public.v_learner_hostelites AS
     -- that star at creation time, so that view had to be re-created in the same
     -- migration or it would have stayed at 42 columns while this one had 45 —
     -- and the Residents list reads the SCOPED view.
-    lp.student_mobile, lp.father_mobile, lp.mother_mobile
+    lp.student_mobile, lp.father_mobile, lp.mother_mobile,
+    -- Appended 2026-09-05 (migration
+    -- 20260905102440_cl_roster_widen_reserved_admitted.sql). hostel_allocations
+    -- .learner_id FKs profiles(id) and the login profile is only created at the
+    -- admitted -> active activation step, so a reserved learner who has not
+    -- activated CANNOT be given a bed. The UI reads this to disable Allocate
+    -- with the real reason instead of surfacing a 23503. Same append-at-the-end
+    -- rule as the contact numbers above: v_learner_hostelites_scoped lists its
+    -- columns explicitly and had to be re-created in the same migration.
+    (palloc.id IS NOT NULL) AS has_login_profile
    FROM learners_profiles lp
      LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
      LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
@@ -975,7 +984,14 @@ CREATE VIEW public.v_learner_hostelites AS
      LEFT JOIN academic_years acy ON acy.id = lp.academic_year_id
      LEFT JOIN hostel_categories hc ON hc.id = lp.hostel_category_id
      LEFT JOIN mess_categories mc ON mc.id = lp.mess_category_id
-  WHERE acc.code = 'hostel'::text AND lp.lifecycle_status::text = 'active'::text;
+  -- Widened 2026-09-05 from active-only to active + reserved + admitted
+  -- (migration 20260905102440). This reverses the 20260608150000 narrowing; the
+  -- safety that was missing in June now lives in the SERVICE layer, which
+  -- defaults every read to ['active'] (CL_DEFAULT_ROSTER_STATUSES). Narrowing
+  -- the roster again is a ONE-LINE change to fn_cl_roster_statuses() -- do not
+  -- reintroduce a literal here.
+  WHERE acc.code = 'hostel'::text
+    AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses());
 
 GRANT ALL ON public.v_learner_hostelites TO anon, authenticated, service_role;
 

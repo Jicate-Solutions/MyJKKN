@@ -46,3 +46,42 @@ export function formatBiometricGap(isoDate: string | null | undefined): string {
     year: 'numeric',
   });
 }
+
+/**
+ * What a decision on this row actually DOES.
+ *
+ * A three-step flow (HOD reviews -> Principal reviews -> CAO approves) means the
+ * first two clicks record a review and pass the request on; only the third
+ * grants the leave. The queue offered "Approve" on all three, which is why a
+ * reviewer's click looked like it had approved the request.
+ *
+ * step_is_final comes from fn_hr_leave_final_step_index — the SAME body
+ * trg_hla_final_step_approves refuses the write on — so the label cannot
+ * promise an outcome the database will not produce.
+ *
+ * A one-step chain (1,124 of the live ones) is its own final step, and a row
+ * with no chain at all falls back to "Approve" rather than claiming to review.
+ */
+export function isReviewStep(row: {
+  step_is_final?: boolean;
+  chain_length?: number;
+}): boolean {
+  if (!row.chain_length || row.chain_length <= 1) return false;
+  return row.step_is_final === false;
+}
+
+/** Menu / button wording for the decision this row is actually offering. */
+export function approveLabel(row: { step_is_final?: boolean; chain_length?: number }): string {
+  return isReviewStep(row) ? 'Review & forward' : 'Approve';
+}
+
+/** "Step 2 of 3" — where the request has reached. Empty for a single-step chain. */
+export function stageLabel(row: {
+  current_step?: number;
+  chain_length?: number;
+}): string | null {
+  const total = row.chain_length ?? 0;
+  if (total <= 1) return null;
+  const at = Math.min((row.current_step ?? 0) + 1, total);
+  return `Step ${at} of ${total}`;
+}

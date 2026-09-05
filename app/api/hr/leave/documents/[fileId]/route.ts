@@ -30,6 +30,49 @@ import { createDriveClient, isDriveConfigured } from '@/lib/google/drive-client'
 /** Drive ids are URL-safe base64-ish. Reject anything else before touching the API. */
 const ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
 
+/**
+ * Read one header off a Drive response.
+ *
+ * WHY THIS IS NOT `file.headers['content-type']`. googleapis 173 ships gaxios 7,
+ * whose `GaxiosResponse extends Response` — `headers` is a fetch `Headers`
+ * INSTANCE, and indexing one returns undefined for every name. So the bracket
+ * read this replaces always fell through to `application/octet-stream`, and
+ * proxy.ts stamps `X-Content-Type-Options: nosniff` on every /api/* response,
+ * which forbids the browser from sniffing its way back to the real type. The
+ * `Content-Disposition: inline` below was therefore ignored and every
+ * certificate landed in Downloads instead of opening — the bug this route's own
+ * comment says it exists to prevent. `Content-Length` was dropped the same way.
+ *
+ * The plain-object branch stays because the bracket form was correct on gaxios
+ * 6 and a future googleapis could move again; both shapes cost one check.
+ */
+function driveHeader(headers: unknown, name: string): string | null {
+  const maybe = headers as Headers | Record<string, unknown> | null | undefined;
+  if (maybe && typeof (maybe as Headers).get === 'function') {
+    return (maybe as Headers).get(name);
+  }
+  const value = (maybe as Record<string, unknown> | null | undefined)?.[name];
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * Types this route will serve as themselves. Anything else is relabelled
+ * `application/octet-stream`.
+ *
+ * These are user-uploaded bytes served from the app's OWN origin, so a file
+ * whose type says text/html or image/svg+xml would execute script against a
+ * logged-in session — stored XSS, reachable by anyone who can attach a leave
+ * document. The upload route (documents/upload) accepts exactly this set, so a
+ * value outside it means the Drive file did not come from there and has no
+ * business rendering.
+ */
+const INLINE_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
 async function getClient() {
   const cookieStore = await cookies();
   return createServerClient(
@@ -111,8 +154,18 @@ export async function GET(
       { responseType: 'stream' }
     );
 
+    // The real type, or nothing. See driveHeader() for why this is not a
+    // bracket read, and INLINE_TYPES for why an unknown one is not served
+    // as itself.
+    const upstreamType = (driveHeader(file.headers, 'content-type') ?? '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+
     const headers: Record<string, string> = {
-      'Content-Type': (file.headers['content-type'] as string) || 'application/octet-stream',
+      'Content-Type': INLINE_TYPES.has(upstreamType)
+        ? upstreamType
+        : 'application/octet-stream',
       // Bytes for a Drive id never change. `private` keeps it out of any shared
       // cache — this response is scoped to one authorised session.
       'Cache-Control': 'private, max-age=3600',
@@ -120,8 +173,8 @@ export async function GET(
       // landing in Downloads; an approver checks it and moves on.
       'Content-Disposition': 'inline',
     };
-    const len = file.headers['content-length'];
-    if (len) headers['Content-Length'] = String(len);
+    const len = driveHeader(file.headers, 'content-length');
+    if (len) headers['Content-Length'] = len;
 
     const webStream = Readable.toWeb(file.data as Readable) as ReadableStream;
     return new NextResponse(webStream, { status: 200, headers });

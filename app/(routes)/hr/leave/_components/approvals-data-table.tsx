@@ -19,6 +19,7 @@
 // page number.
 
 import { useCallback, useMemo, type ReactNode } from 'react';
+import { Clock, FileText } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { PeriodRange } from './period-filter';
@@ -213,6 +214,27 @@ export function ApprovalsDataTable({
             ? `${r.start_date} · ${(r.start_time ?? '').slice(0, 5)}–${(r.end_time ?? '').slice(0, 5)}`
             : `${r.start_date} → ${r.end_date}`}
         </p>
+        {/* The card is the ONLY view under 768px, so the document has to be
+            reachable from it — the table's Document column is not rendered
+            here. Same three states, and above the reason for the same reason
+            the column sits before it. */}
+        {(r.documents?.length ?? 0) > 0 ? (
+          <button
+            type="button"
+            onClick={() => actions.onViewDocuments(r)}
+            className="inline-flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            {r.documents.length > 1
+              ? `View ${r.documents.length} documents`
+              : 'View document'}
+          </button>
+        ) : r.is_emergency ? (
+          <p className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+            <Clock className="h-3.5 w-3.5" />
+            Document awaited
+          </p>
+        ) : null}
         {r.reason && <p className="text-xs text-muted-foreground">{r.reason}</p>}
         <div className="flex justify-end">
           {/* Same menu as the table, so a decision goes through one code path

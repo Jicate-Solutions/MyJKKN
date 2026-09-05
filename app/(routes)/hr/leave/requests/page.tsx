@@ -8,6 +8,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Plus } from 'lucide-react';
 
@@ -23,7 +24,7 @@ import { useWithdrawApplication } from '@/hooks/hr/use-leave';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
-import { formatDays } from '../_components/format';
+import { formatDays, stageLabel } from '../_components/format';
 import { ApplyLeaveDrawer } from '../_components/apply-leave-drawer';
 import { useMyApplications } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -157,6 +158,7 @@ export default function LeaveRequestsPage() {
               { key: 'days', label: 'Total Days', align: 'right' },
               { key: 'duration', label: 'Duration' },
               { key: 'status', label: 'Status' },
+              { key: 'stage', label: 'Stage' },
               { key: 'actions', label: '', align: 'right' },
             ]}
             isLoading={isLoading || ctx.isLoading}
@@ -165,8 +167,19 @@ export default function LeaveRequestsPage() {
           >
             {rows.map((a) => (
               <RequestRow key={a.id} status={a.status}>
+                {/* THE ONLY LINK TO /hr/leave/[id] IN THE APP. That page renders
+                    the full approval timeline — every step, who sits on it, who
+                    has decided and when — and nothing has pointed at it since
+                    the approvals queue moved to a sheet in August, so staff had
+                    no way to see where their request had reached. */}
                 <TableCell className="pl-4 font-medium">
-                  {a.hr_leave_types?.leave_type_name ?? '—'}
+                  <Link
+                    href={`/hr/leave/${a.id}`}
+                    className="underline-offset-4 hover:underline"
+                    title="View approval progress"
+                  >
+                    {a.hr_leave_types?.leave_type_name ?? '—'}
+                  </Link>
                 </TableCell>
                 <TableCell>{fmtDate(a.start_date)}</TableCell>
                 <TableCell>{fmtDate(a.end_date)}</TableCell>
@@ -175,6 +188,17 @@ export default function LeaveRequestsPage() {
                   {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
                 </TableCell>
                 <TableCell><StatusBadge status={a.status} /></TableCell>
+                {/* "Pending" says nothing for six days while a request moves up
+                    a three-step chain. This says which step it is on; the leave
+                    name links to the full timeline. */}
+                <TableCell className="text-muted-foreground">
+                  {a.status === 'pending' || a.status === 'escalated'
+                    ? stageLabel({
+                        current_step: a.current_step,
+                        chain_length: a.approval_chain?.length ?? 0,
+                      }) ?? 'Awaiting approval'
+                    : '—'}
+                </TableCell>
                 <TableCell className="text-right">
                   {isCancellable(a.status) && (
                     <CancelRequestAction

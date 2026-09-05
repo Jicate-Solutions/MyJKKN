@@ -542,6 +542,13 @@ export interface DuplicateOfExisting {
   id: string;
   name: string;
   created_at: string | null;
+  /**
+   * Set when the collision is with another CREATE row of the SAME sheet rather
+   * than a stored structure. There is no ID to point the operator at then, so
+   * the advice has to be "these two rows claim the same community", not "put
+   * its ID in the Fee Structure ID column".
+   */
+  sheetRow?: number;
 }
 
 /** The columns of a stored structure that make up the overlap trigger's key. */

@@ -27,7 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
-import { formatBiometricGap } from './format';
+import { approveLabel, formatBiometricGap, isReviewStep, stageLabel } from './format';
 
 export interface ApprovalRowActionHandlers {
   /** Opens the detail SHEET. No navigation — see approval-detail-sheet.tsx. */
@@ -50,6 +50,11 @@ export function ApprovalRowActions({
   // rows, but they must not fall into the "your own request" explanation below
   // — a decided row is undecidable for everyone, not just its owner.
   const isDecided = row.status !== 'pending' && row.status !== 'escalated';
+  // A decision on a review step forwards the request; only the final step
+  // grants it. Both the wording and the biometric gate depend on which.
+  const isReview = isReviewStep(row);
+  const stage = stageLabel(row);
+  const blockedByBiometric = row.biometric_gap_from !== null;
 
   return (
     <DropdownMenu>
@@ -100,14 +105,25 @@ export function ApprovalRowActions({
               request that ought to be refusable on its own merits.
             */}
             <DropdownMenuItem
-              disabled={handlers.isPending || row.biometric_gap_from !== null}
+              // The biometric gate blocks only the FINAL approval.
+              // hr_trig_block_leave_approval_without_biometric fires on the
+              // transition INTO approved, and a review step does not make that
+              // transition — disabling it here would refuse a review the
+              // database would have accepted.
+              disabled={handlers.isPending || (blockedByBiometric && !isReview)}
               onClick={() => handlers.onApprove(row)}
               className="text-emerald-700 focus:text-emerald-700"
             >
               <Check className="mr-2 h-4 w-4" />
-              Approve
+              {approveLabel(row)}
             </DropdownMenuItem>
-            {row.biometric_gap_from !== null && (
+            {isReview && (
+              <DropdownMenuLabel className="whitespace-normal py-1 text-xs font-normal leading-snug text-muted-foreground">
+                {stage ? `${stage}. ` : ''}This records your review and passes the
+                request to the next approver — it does not grant the leave.
+              </DropdownMenuLabel>
+            )}
+            {blockedByBiometric && !isReview && (
               <DropdownMenuLabel className="whitespace-normal py-1 text-xs font-normal leading-snug text-amber-700 dark:text-amber-400">
                 Biometric not uploaded for{' '}
                 {formatBiometricGap(row.biometric_gap_from)} — import it first,

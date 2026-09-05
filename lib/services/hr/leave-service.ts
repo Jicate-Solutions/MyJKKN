@@ -10,7 +10,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
-import { applyDecision, buildChain, readApprovers } from '@/lib/hr/leave/approval-chain';
+import {
+  applyDecision, buildChain, finalStepIndex, readApprovers,
+} from '@/lib/hr/leave/approval-chain';
 import type {
   HRLeaveApplication,
   HRLeaveApplicationInsert,
@@ -571,7 +573,14 @@ export class LeaveService {
   private static async assertCanDecide(
     supabase: SupabaseClient,
     app: HRLeaveApplication,
-    approverId: string
+    approverId: string,
+    /**
+     * Which step the caller is acting on. Defaults to the current one; the
+     * final approver short-circuiting past pending reviews acts on the FINAL
+     * step, and checking them against the current step would refuse exactly the
+     * person the database is about to admit.
+     */
+    stepIndex: number = app.current_step
   ) {
     // Super admins are exempt from BOTH checks below, exactly as
     // hr_trig_leave_enforce_approver is: that trigger returns NEW on
@@ -604,7 +613,7 @@ export class LeaveService {
     // EVERY slot on it pins a person and none of them is the caller — one
     // unpinned (role) slot means the database is the one that can answer, and it
     // does so in trg_hla_approver_gate where user_roles is readable.
-    const step = app.approval_chain?.[app.current_step];
+    const step = app.approval_chain?.[stepIndex];
     if (step) {
       const entries = readApprovers(step);
       const allPinned = entries.length > 0 && entries.every((e) => e.approver_user_id !== null);
@@ -635,10 +644,39 @@ export class LeaveService {
     if (!['pending', 'escalated'].includes(app.status)) {
       throw new Error(`Cannot approve application in status ${app.status}`);
     }
-    await this.assertCanDecide(supabase, app, approverId);
-
     const chain = [...app.approval_chain];
-    const step = chain[app.current_step];
+
+    /**
+     * THE STEP THAT GRANTS THE APPROVAL — by configuration, not by position.
+     * Every earlier step reviews and forwards.
+     */
+    const finalIdx = finalStepIndex(chain);
+
+    /**
+     * May the final approver act now, while the request still sits with an
+     * earlier reviewer?
+     *
+     * ASKED OF POSTGRES, NEVER ANSWERED HERE. A step routed to a ROLE can only
+     * be matched by reading user_roles / custom_roles, which an ordinary member
+     * of staff cannot select — a browser-side answer comes back empty for
+     * exactly the people it is meant to admit. That silent false negative is
+     * the failure this module has already shipped twice (see the note in
+     * assertCanDecide). fn_hr_leave_can_finalize runs SECURITY DEFINER against
+     * the same fn_leave_step_admits the enforcing trigger uses.
+     */
+    let actingIdx = app.current_step;
+    if (app.current_step < finalIdx) {
+      const { data: canFinalize, error: finalizeError } = await supabase.rpc(
+        'fn_hr_leave_can_finalize',
+        { p_application_id: applicationId }
+      );
+      if (finalizeError) throw finalizeError;
+      if (canFinalize === true) actingIdx = finalIdx;
+    }
+
+    await this.assertCanDecide(supabase, app, approverId, actingIdx);
+
+    const step = chain[actingIdx];
     if (!step) throw new Error('Approval chain exhausted');
 
     const now = new Date().toISOString();
@@ -659,12 +697,44 @@ export class LeaveService {
     // step is a single pinned slot, which is the case that behaviour was for.
     const entries = readApprovers(step);
     const singlePinnedSlot = entries.length === 1 && entries[0].approver_user_id !== null;
-    chain[app.current_step] = singlePinnedSlot
+    chain[actingIdx] = singlePinnedSlot
       ? { ...decided, approver_user_id: approverId }
       : decided;
 
-    const nextStep = satisfied ? app.current_step + 1 : app.current_step;
-    const isFinal = satisfied && nextStep >= chain.length;
+    // The final approver went early: the reviews they jumped are recorded as
+    // SKIPPED, never as approved. Nobody should read this chain later and think
+    // the HOD signed something they never saw. The timeline already renders a
+    // 'skipped' state, so this needs no new UI.
+    if (satisfied && actingIdx > app.current_step) {
+      for (let i = app.current_step; i < actingIdx; i++) {
+        if (chain[i]?.status === 'pending') {
+          chain[i] = {
+            ...chain[i],
+            status: 'skipped',
+            skipped_by: approverId,
+            skipped_at: now,
+            skipped_reason: 'Approved directly by the final approver',
+          };
+        }
+      }
+    }
+
+    const nextStep = satisfied ? actingIdx + 1 : actingIdx;
+
+    /**
+     * ONLY the final step grants the approval. A satisfied REVIEW step advances
+     * current_step and leaves the application pending, which is the whole point
+     * of a review: the HOD's sign-off moves the request to the Principal, it
+     * does not grant the leave.
+     *
+     * This used to read `nextStep >= chain.length` — the array end. It agreed
+     * with the configuration only because the flow editor always marks the last
+     * step final; it would approve on a step whose own step_type says 'review'
+     * the moment a flow was written any other way. trg_hla_final_step_approves
+     * refuses that write outright, so this is now the client half of a rule the
+     * database owns.
+     */
+    const isFinal = satisfied && actingIdx === finalIdx;
 
     const update: Record<string, unknown> = {
       approval_chain: chain,

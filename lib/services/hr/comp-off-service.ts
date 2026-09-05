@@ -68,9 +68,18 @@ export class CompOffService {
       documents: input.documents,
     });
     if (error) {
+      // 23505 now has TWO sources on this table and they say different things:
+      //   * trg_hcoc_day_occupancy, whose message NAMES the request already
+      //     holding that day ("...clashes with Casual Leave on 28/08/2026");
+      //   * hr_comp_off_credits_employee_date_live_unique, the race backstop,
+      //     whose message is raw Postgres and useless to a person.
+      // The unconditional string this replaces swallowed the first one, so the
+      // most informative refusal in the module was being thrown away.
       if (error.code === '23505') {
         throw new Error(
-          'A compensatory off credit already exists for that worked date.'
+          /only one request is allowed per day/i.test(error.message ?? '')
+            ? error.message
+            : 'A compensatory off credit already exists for that worked date.'
         );
       }
       throw error;

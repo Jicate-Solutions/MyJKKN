@@ -2550,3 +2550,40 @@ DROP TRIGGER IF EXISTS t10_wp_guard_deactivate ON public.hr_work_patterns;
 CREATE TRIGGER t10_wp_guard_deactivate
   BEFORE UPDATE OF is_active ON public.hr_work_patterns
   FOR EACH ROW EXECUTE FUNCTION public.trg_wp_guard_deactivate();
+
+-- ============================================================================
+-- hr_work_pattern_weeks (2026-09-04, 20260904190000_hr_work_patterns_days_only.sql)
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS hr_wpw_updated_at ON public.hr_work_pattern_weeks;
+CREATE TRIGGER hr_wpw_updated_at
+  BEFORE UPDATE ON public.hr_work_pattern_weeks
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- Mirrored from supabase/migrations/20260905160000_hr_one_request_per_day.sql
+-- One live request per staff member per calendar day, across leave, short time
+-- off and comp-off claims. Bodies live in 02_functions.sql.
+
+-- duration_type joins the column list: a first_half -> full edit changes which
+-- days the row occupies and used to skip the check entirely.
+DROP TRIGGER IF EXISTS trg_hla_leave_overlap ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_leave_overlap
+  BEFORE INSERT OR UPDATE OF start_date, end_date, leave_type_id, duration_type
+  ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_enforce_no_overlap();
+
+
+DROP TRIGGER IF EXISTS trg_hcoc_day_occupancy ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_day_occupancy
+  BEFORE INSERT OR UPDATE OF worked_date, status
+  ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_comp_off_day_occupancy();
+
+-- Mirrored from supabase/migrations/20260905180000_hr_leave_final_step_approves.sql
+-- Only the FINAL step of a chain may move a request to approved.
+
+DROP TRIGGER IF EXISTS trg_hla_final_step_approves ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_final_step_approves
+  BEFORE UPDATE ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_final_step_approves();
+
