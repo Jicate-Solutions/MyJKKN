@@ -173,7 +173,15 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
     [ "$DISPATCHED" -ge "$MAX_DISPATCH" ] && break
     local slug; slug=$(printf '%s' "$ckey" | sed 's/[^A-Za-z0-9]/-/g;s/--*/-/g;s/^-//;s/-$//')
     local mark="$STATE/dispatched/$slug"
-    if [ -f "$mark" ] && [ $(( $(date +%s) - $(stat -f %m "$mark") )) -lt 86400 ]; then say "  skip $ckey — tab dispatched $(( ( $(date +%s) - $(stat -f %m "$mark") ) / 60 ))m ago"; continue; fi
+    # Director 2026-09-05 13:05: keep sending a tab every round until the cluster is clean — but never
+    # a SECOND tab while the previous one is still working on it. The mark file holds that tab's session.
+    if [ -f "$mark" ]; then
+      local prev; prev=$(cat "$mark" 2>/dev/null)
+      if [ -n "$prev" ] && $T has-session -t "$prev" 2>/dev/null && $T capture-pane -p -t "$prev:0.0" 2>/dev/null | grep -qE 'tok/s|thinking|esc to interrupt|Perambulating|Flambéing|Puttering|Brewing|Crunching'; then
+        say "  skip $ckey — its tab $prev is still working"; continue
+      fi
+      [ -n "$prev" ] && say "  re-dispatching $ckey — previous tab $prev has finished, PRs still conflicted"
+    fi
     local u8 uuid sname nm
     uuid=$(/usr/bin/uuidgen | tr '[:upper:]' '[:lower:]'); u8="${uuid:0:8}"; sname="v5-jkknkb-$u8"; nm="ship: $ckey"
     printf '%s\t%s\t%s\t%s\n' "" "$LOCAL" "$(date -u +%FT%TZ)" "JKKNKB" > "$_CFG/v5-tab-sessions/$u8"   # sid filled by the tab's own hooks
@@ -186,7 +194,7 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
     for i in $(seq 1 25); do sleep 2; $T capture-pane -p -t "$sname:0.0" 2>/dev/null | grep -q "❯" && { booted=1; break; }; done
     local snap; snap=$($T capture-pane -p -t "$sname:0.0" 2>/dev/null)
     if grep -q "Settings Warning" <<<"$snap" && grep -q "❯ 1. Continue" <<<"$snap"; then $T send-keys -t "$sname:0.0" Enter; sleep 3; fi
-    if [ -n "$booted" ]; then touch "$mark"; DISPATCHED=$((DISPATCHED+1)); say "  DISPATCHED  $sname  '$nm'  → $cprs"
+    if [ -n "$booted" ]; then printf '%s' "$sname" > "$mark"; DISPATCHED=$((DISPATCHED+1)); say "  DISPATCHED  $sname  '$nm'  → $cprs"
     else say "  FAILED to boot $sname for $ckey — left for inspection"; fi
   done < <(python3 -c "import json;[print(k+'\t'+' '.join('#'+str(n) for n in v)) for k,v in json.load(open('$1'))['clusters'].items()]")
 }
@@ -216,7 +224,7 @@ run_once() {
   c_conf=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['conflicted'])")
 
   # ── 2. conflict clusters → one fleet tab each ──────────────────────────────
-  say; say "--- 2. conflicts: dispatch ≤$MAX_DISPATCH fleet tabs (one per cluster, 24h dedupe) ---"
+  say; say "--- 2. conflicts: dispatch ≤$MAX_DISPATCH fleet tabs (one per cluster; a new tab only when the previous one has finished) ---"
   DISPATCHED=0
   if [ "$MODE" = "go" ] && [ "$MAX_DISPATCH" -gt 0 ]; then dispatch_clusters "$run/plan.json" "$run"
   else say "  (plan mode / --max-dispatch 0 — nothing dispatched)"; fi
