@@ -266,7 +266,7 @@ run_once() {
     if [ -n "$APPROVE_HELD" ]; then
       for n in $(printf '%s' "$APPROVE_HELD" | tr ', ' '  '); do
         python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)" \
-          && { merge_one "$n" HELD && { merged=$((merged+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && grep -vxE "\s*$n\s*" "$STATE/approve-held" > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
+          && { merge_one "$n" HELD && { merged=$((merged+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
           || say "  HOLD   HELD #$n — not in this run's ready-HELD list, refusing"
       done
     else
