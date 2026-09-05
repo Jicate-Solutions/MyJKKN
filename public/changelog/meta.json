@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-05",
   "ref": "jicate/main",
-  "total": 4839,
+  "total": 4753,
   "first": "2026-03-25",
   "latest": "2026-09-05",
   "months": [
@@ -14,28 +14,28 @@
     "2026-03"
   ],
   "recentFrom": "2026-06-07",
-  "recentCount": 2603,
-  "archiveCount": 2236,
+  "recentCount": 2545,
+  "archiveCount": 2208,
   "contributors": [
     {
       "name": "Ommsharravana",
-      "count": 2010
+      "count": 1954
     },
     {
       "name": "Boobalan",
-      "count": 1728
+      "count": 1717
     },
     {
       "name": "JKKN AI Engineering",
-      "count": 475
+      "count": 465
     },
     {
       "name": "trial2",
-      "count": 201
+      "count": 198
     },
     {
       "name": "Viswanathan Shanmugam",
-      "count": 185
+      "count": 181
     },
     {
       "name": "Roja Sundharam",
@@ -43,7 +43,7 @@
     },
     {
       "name": "Sangeetha V",
-      "count": 79
+      "count": 77
     },
     {
       "name": "t",
@@ -102,6 +102,11 @@
       "label": "AI Routines",
       "perm": "admin",
       "href": "/admin/ai-routines"
+    },
+    "application-hub": {
+      "label": "Application Hub",
+      "perm": "application_hub",
+      "href": "/application-hub"
     },
     "applications": {
       "label": "Applications",
