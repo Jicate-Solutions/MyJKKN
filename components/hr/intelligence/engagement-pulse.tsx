@@ -249,7 +249,7 @@ export function EngagementPulseTab() {
                 {metrics.backlogCount}
               </span>
               <span className="text-sm text-muted-foreground">
-                staff time-off requests started before today and are still awaiting a decision.
+                time-off requests from team members started before today and are still awaiting a decision.
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
