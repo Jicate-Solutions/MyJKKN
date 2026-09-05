@@ -59,6 +59,17 @@ Rebase onto `jicate/main`, renumber the migration to today's prefix, and fix in 
 
 Part 1 revision → Part 2 → (Part 3 ∥ Part 4, different files; both edit the guide registry so serialize that hunk) → Part 5 in parallel from day one because it is people, not code. Roughly 8-12 builder days plus ops lead time. No cutover date is proposed until Q1-Q5 are answered and the hardware question is settled.
 
+## Decisions taken 2026-09-06 00:20 (tap-interview) and what they change
+
+| Q | Answer | Effect on the parts above |
+|---|---|---|
+| Scope | **Answer-independent work only** — the 00:05 ruling stands, nothing else builds | Three lanes started: Part 1 revision (new Draft PR superseding #792), the pure RADIUS decision core + local smoke harness (Part 2 logic without routes), the VPS playbook + router handoff (Part 5 docs) |
+| Q1 credential | **Google sign-in via MyJKKN** | `network_pending_requests` stays. Flow: router hotspot → `/api/network/sso` → Google OAuth (mirrors `samlReqId`) → MyJKKN sends the browser back to the hotspot login URL with a one-time username/password it minted → router forwards it over RADIUS → `/api/network/radius-auth` validates the token and answers with tier and session length. Returning devices use MAC-cookie / MAC auth. No learner ever types a password |
+| Q2 captive box | **MikroTik CCR2116 hotspot** (May decision 29 stands) | Part 3's entry contract is the RouterOS hotspot `$(mac)`, `$(link-login-only)`, `$(link-orig)` variables; Omada is out of scope |
+| Q4 network admin | **Kavinkumar D (kavinkumar_d@jkkn.ac.in)** | He already holds `system_admin`, so: no new role, no database change. Admin surfaces grant to `super_admin` + `system_admin` |
+
+Still open: **Q3** (who owns and pays for the RADIUS VPS; accounting direct-to-DB or via MyJKKN) and **Q5** (pilot one college first or all 14 at once). Parts 3 and 4 do not start until Q3 and Q5 are answered and the Director approves this plan.
+
 ## Questions the Director must answer before building
 
 1. **What does a learner type on the Wi-Fi page?** (a) Google sign-in via MyJKKN (OAuth subflow, needs MAC-based re-auth on the router), (b) a 6-digit Wi-Fi PIN they set once inside MyJKKN, (c) their MyJKKN password (most have never seen it). This decides Part 2's shape.
