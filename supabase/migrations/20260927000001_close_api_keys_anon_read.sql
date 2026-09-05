@@ -1,4 +1,4 @@
--- 20260927000000_close_api_keys_anon_read.sql
+-- 20260927000001_close_api_keys_anon_read.sql
 --
 -- WHAT THIS CHANGES
 --   Removes anonymous (public anon key) SELECT access to public.api_keys by
