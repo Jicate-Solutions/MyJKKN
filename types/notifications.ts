@@ -1,3 +1,5 @@
+import type { NotificationTargeting as StoredTargeting } from '@/lib/notifications/target-audience';
+
 export interface PushSubscription {
   id: string;
   user_id: string;
@@ -30,6 +32,13 @@ export interface Notification {
   expires_at?: string;
   created_at: string;
   updated_at: string;
+  /**
+   * The stored `targeting` JSONB as it comes back from the API — every legacy
+   * key included. `NotificationTargeting` below is the narrower shape the
+   * create form SENDS; this is the wider shape production actually HOLDS, so
+   * the two are deliberately not the same type.
+   */
+  targeting?: StoredTargeting | null;
 }
 
 export interface UserNotification {
