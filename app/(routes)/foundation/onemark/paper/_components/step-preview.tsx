@@ -2,8 +2,9 @@
 
 // Step 4 — interactive preview (PRD §3.2): swap / lock / edit / drop, the
 // decision-11 shortfall banner, decision-12 lock warnings, decision-14
-// copy-on-write edits. Answers are shown only when the API sent them, i.e.
-// only to a holder of foundation.items.manage.
+// copy-on-write edits. Answers are shown only when the API sent them — to a
+// paper builder (foundation.assessments.manage; Director ruling 2026-09-05),
+// never on a learner-facing surface.
 
 import { useState } from 'react';
 import { toast } from 'sonner';

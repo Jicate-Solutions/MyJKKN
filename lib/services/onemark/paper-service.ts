@@ -13,7 +13,8 @@
 //      database (PRD §8.1 / §8.2, translated from the SQLite draft);
 //   3. `PaperService`, the thin fetch wrapper the hooks call. The browser
 //      never reads fp_items directly: the API route is where the answer key
-//      is stripped for anyone who is not a holder of foundation.items.manage.
+//      is projected — to a paper builder (assessments.manage, ruling
+//      2026-09-05), never to a learner.
 //
 // Nothing here imports supabase. That is what keeps (2) testable.
 
@@ -750,7 +751,8 @@ export interface EmptySlot {
 }
 
 /** One resolved question as the browser sees it. `answer` / explanations are
- *  present ONLY for a holder of foundation.items.manage. */
+ *  present for a paper builder (assessments.manage or items.manage — ruling
+ *  2026-09-05); a learner-facing surface never receives them. */
 export interface ResolvedQuestion {
   position: number;
   item_id: string;

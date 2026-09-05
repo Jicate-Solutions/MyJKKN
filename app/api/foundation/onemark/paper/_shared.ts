@@ -3,14 +3,19 @@
 // Server-side helpers shared by the paper wizard's two routes. Not a route
 // (no HTTP verb exported) — Next.js ignores it.
 //
-// ONE CLIENT, ON PURPOSE — and the answer key still never leaks.
+// ONE CLIENT, ON PURPOSE — and the answer key still never reaches a learner.
 // Every read here uses the SESSION client. fp_items is gated under RLS to
 // foundation.items.view / items.manage and fp_assessments to
 // foundation.assessments.*, so the database, not this file, decides what a
 // caller may read. What this file adds is the projection: `answer`,
-// `explanation` and `explanation_ta` are dropped from the response unless
-// the caller holds foundation.items.manage (lane spec: "never send answer to
-// the browser except to a holder of foundation.items.manage").
+// `explanation` and `explanation_ta` travel only to a PAPER BUILDER.
+//
+// Director ruling 2026-09-05 (W↔P conflict): a holder of
+// foundation.assessments.manage may see and print the answer key — the
+// "items.manage only" rule is narrowed to LEARNER-FACING surfaces (decision 7:
+// a learner never receives fp_items.answer before responding). Every caller
+// of these routes already holds assessments.manage (the gate 403s otherwise),
+// so nothing here is learner-facing.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -118,7 +123,10 @@ export async function gate(supabase: AnyClient): Promise<Gate | null> {
   ]);
   if (manageRes.error) throw new Error(`Permission check failed: ${manageRes.error.message}`);
   if (itemsRes.error) throw new Error(`Permission check failed: ${itemsRes.error.message}`);
-  return { userId: user.id, canManage: manageRes.data === true, canSeeAnswers: itemsRes.data === true };
+  const canManage = manageRes.data === true;
+  // Ruling 2026-09-05: a paper builder sees the key; an item author does too.
+  const canSeeAnswers = canManage || itemsRes.data === true;
+  return { userId: user.id, canManage, canSeeAnswers };
 }
 
 async function policyInt(supabase: AnyClient, key: string, fallback: number): Promise<number> {
