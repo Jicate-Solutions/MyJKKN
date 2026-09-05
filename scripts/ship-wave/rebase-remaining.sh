@@ -25,14 +25,18 @@ import json, os, sys
 p = json.load(open(sys.argv[1]))
 merged  = {int(x.lstrip('#')) for x in os.environ["MERGED"].split() if x.lstrip('#').isdigit()}
 held_ok = {int(x) for x in os.environ["APPROVE_HELD"].replace(',', ' ').split() if x.isdigit()}
-rows = list(p["ready"]["LOW"])
-if os.environ["APPROVE_NORMAL"]: rows += p["ready"]["NORMAL"]
-rows += [r for r in p["ready"]["HELD"] if r["number"] in held_ok]
+# ready AND conflicted: a PR an EARLIER round left DIRTY is exactly the one that needs bringing up to date
+pool = p["ready"]["LOW"] + p["ready"]["NORMAL"] + p["ready"]["HELD"] + p.get("conflicted", [])
+rows = [r for r in pool if r.get("tier") == "LOW"]
+if os.environ["APPROVE_NORMAL"]: rows += [r for r in pool if r.get("tier") == "NORMAL"]
+rows += [r for r in pool if r.get("tier") == "HELD" and r["number"] in held_ok]
+seen = set()
 for r in rows:
-    if r["number"] not in merged and r.get("branch"): print(r["number"], r["branch"])
+    if r["number"] in merged or r["number"] in seen or not r.get("branch"): continue
+    seen.add(r["number"]); print(r["number"], r["branch"])
 PY
 )
-  [ -n "$cands" ] || return 1
+  [ -n "$cands" ] || { say "  nothing to bring up to date — no approved PR is waiting behind a merge"; return 1; }
   say "  bringing the remaining approved PRs up to date with main (SQL_FILE_INDEX.md: both sides kept):"
   git -C "$LOCAL" fetch jicate main -q 2>/dev/null
   while read -r n br; do

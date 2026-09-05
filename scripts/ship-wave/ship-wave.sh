@@ -351,8 +351,9 @@ run_once() {
       before_pass=$merged; INDEX_MERGED=0
       [ "$pass" -gt 1 ] && say "  merge pass $pass"
       merge_tiers
-      [ "$merged" -gt "$before_pass" ] || break
-      rebase_remaining "$run" "$merged_list" || break
+      # pass 1 always tries the rebase: approved PRs left DIRTY by an EARLIER round are candidates too;
+      # later passes only repeat after a pass that actually merged something
+      if [ "$merged" -gt "$before_pass" ] || [ "$pass" -eq 1 ]; then rebase_remaining "$run" "$merged_list" || break; else break; fi
     done
     # interview: a merge can turn another PR DIRTY — re-read and send helpers for the NEW conflicts this round
     if [ "$merged" -gt 0 ] && [ "$MAX_DISPATCH" -gt 0 ]; then
