@@ -104,7 +104,7 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
       startMin: parseBlobTimeToMinutes(r.start_time),
       endMin: parseBlobTimeToMinutes(r.end_time),
     }))
-    // Only a class with Present students can be polled. Excluding present-0 sessions
+    // Only a class with Present learners can be polled. Excluding present-0 sessions
     // here means a present-0 active class no longer wins the spotlight and then
     // suppresses it (the render guard drops present-0) — the spotlight falls back to
     // the next pollable class instead. Mirrors the per-row "noPresent" disable below.
@@ -135,7 +135,7 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
         </div>
         <CardDescription>
           Open a live poll for a class you taught today — a quick understanding check plus
-          whatever else you want to ask. Students who are marked Present can answer in one tap;
+          whatever else you want to ask. Learners who are marked Present can answer in one tap;
           you see anonymized totals as they come in, live.
         </CardDescription>
       </CardHeader>
@@ -204,7 +204,7 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
                     <div className="font-medium truncate">{label}</div>
                     <div className="text-xs text-muted-foreground">
                       {row.present_count} present
-                      {noPresent ? ' · mark attendance so students can answer' : ''}
+                      {noPresent ? ' · mark attendance so learners can answer' : ''}
                     </div>
                   </div>
                   {noPresent ? (
