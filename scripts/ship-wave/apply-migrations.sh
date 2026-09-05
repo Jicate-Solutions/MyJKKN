@@ -91,6 +91,11 @@ apply_migrations() {  # $1 = merged-files.txt → sets APPLY_RESULT; returns 0 o
   mv "$STATE/migrations-pending.new" "$STATE/migrations-pending"
   pending=$(cat "$STATE/migrations-pending")
   if [ -z "$pending" ]; then rm -f "$STATE/migrations-pending"; APPLY_RESULT="no migration pending"; return 0; fi
+  # Refresh jicate/main BEFORE resolving any file. apply_one reads the .sql out of the jicate/main ref,
+  # and this stage runs seconds after the merge that added it — so the local ref is always one commit
+  # stale here and the file is invisible. On 2026-09-05 22:32 that froze the wave on the very first
+  # migration it ever tried to apply ("0 files on jicate/main match"), with the file plainly on main.
+  git -C "$WT" fetch jicate main -q 2>/dev/null || say "  warn: could not refresh jicate/main — file resolution may be stale"
   say "  pending versions: $(printf '%s' "$pending" | tr '\n' ' ')  (project $PROD_REF)"
   for v in $pending; do
     apply_one "$v"; rc=$?
