@@ -1003,6 +1003,14 @@ export const foundationGuide: ModuleGuide = {
       // was authored in content.ts (#2703) but never composed here; OneMark's
       // learner steps (practice / timed / live / vault) made that gap visible.
       sections: withRequires(FOUNDATION_GUIDES.lanes.learner.sections, FOUNDATION_REQUIRES.learner),
+      // LATENT: composeLane() hands the start-here slot to the FIRST registry
+      // module that offers one and filterLaneSections() does not gate
+      // startHere — only sections. Today ai-pulse (earlier in REGISTRY) takes
+      // the learner slot, so this href never reaches the open learner floor;
+      // that is registry order, not a guarantee. If foundation ever moves
+      // ahead of every other learner-lane module, gate startHere in
+      // lib/guide/filter.ts before relying on it. composeModuleLane (the
+      // scoped /guide?module=foundation view) still needs it, so it stays.
       startHere: FOUNDATION_GUIDES.lanes.learner.startHere,
       title: FOUNDATION_GUIDES.lanes.learner.title,
       tagline: FOUNDATION_GUIDES.lanes.learner.tagline,

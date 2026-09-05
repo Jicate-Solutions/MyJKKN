@@ -183,8 +183,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   //   a Senior Learner builds a board-shape paper      → assessments.manage
   //   the subject Senior Learner ticks drafted items   → items.manage
   //   a learner sits practice / timed / live / vault   → practice.take
-  // Most-specific match wins, so none of these inherits the operator key on
-  // '/foundation'.
+  // None of these inherits the operator key on '/foundation': the sidebar
+  // looks up the EXACT normalized href (MENU_PERMISSIONS[normalizeRoute(href)]),
+  // and the proxy's longest-prefix trie (lib/auth/route-matcher.ts) now stops
+  // at these three nodes instead of falling through to '/foundation' — which
+  // NARROWS server-side access to /foundation/onemark/* from dashboard.view
+  // to each screen's own key.
   '/foundation/onemark/paper': 'foundation.assessments.manage',
   '/foundation/onemark/review': 'foundation.items.manage',
   '/foundation/onemark/practice': 'foundation.practice.take',

@@ -113,6 +113,16 @@ describe('Foundation Senior Learner lane — OneMark composition', () => {
     expect(paperText.toLowerCase()).toContain('no easy / medium / hard');
     // Decision 7: one Senior Learner's tick is the whole sign-off.
     expect(JSON.stringify(review).toLowerCase()).toContain('no second reviewer');
+    // Decision 17 is about the ABSENT learner (missed the hall sitting), and
+    // decision 19 forbids a second sitting of the same paper — round-1 copy
+    // said the opposite ("a learner who sat it on paper can take it ... later").
+    expect(paperText.toLowerCase()).toContain('missed the hall sitting');
+    expect(paperText.toLowerCase()).not.toContain('who sat it on paper');
+    // The published paper lands under Lane V's real heading, not a made-up one.
+    expect(paperText).toContain('Assigned papers');
+    expect(paperText).not.toContain('Live tests');
+    // The review screen's only count is the UNAPPROVED drafts count.
+    expect(JSON.stringify(review)).toContain('Drafts waiting for a tick');
   });
 
   it('exposes the learner lane, gated on practice.take, with the OneMark sitting steps', () => {
