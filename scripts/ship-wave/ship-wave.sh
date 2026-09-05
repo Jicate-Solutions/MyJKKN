@@ -231,9 +231,12 @@ wf_dispatch_and_wait() {  # $1=dry_run true|false → prints run id; exit = the 
 }
 apply_migrations() {  # $1=merged-files.txt → sets APPLY_RESULT; returns 0 ok / 1 frozen
   local expected; expected=$(grep -E '^supabase/migrations/[0-9]+_' "$1" | sed -E 's#^supabase/migrations/([0-9]+)_.*#\1#' | sort -u)
-  # the workflow is idempotent: it applies EVERY pending file on main, so earlier un-applied ones ride along
-  if [ -z "$expected" ]; then APPLY_RESULT="no migration merged"; return 0; fi
-  say "  migrations merged this round: $(echo "$expected" | tr '\n' ' ')"
+  # the workflow is idempotent: it applies EVERY pending file on main, so earlier un-applied ones ride along.
+  # $STATE/migrations-pending marks "approved migrations merged but not yet applied" (e.g. merged by an
+  # older run, or a failed apply) — it keeps the loop honest across rounds and is cleared only by a verified apply.
+  if [ -n "$expected" ]; then touch "$STATE/migrations-pending"; fi
+  if [ -z "$expected" ] && [ ! -f "$STATE/migrations-pending" ]; then APPLY_RESULT="no migration pending"; return 0; fi
+  [ -n "$expected" ] && say "  migrations merged this round: $(echo "$expected" | tr '\n' ' ')" || say "  migrations pending from an earlier round — applying now"
   local rid rc
   say "  apply step 1/3 — dry-run diff"; rid=$(wf_dispatch_and_wait true); rc=$?
   if [ $rc -ne 0 ]; then freeze "migration DRY-RUN failed (run $rid) — $(gh run view "$rid" --repo "$REPO" --log-failed 2>/dev/null | grep -iE 'error' | head -2 | sed 's/.*\t//' | tr '\n' ' ' | cut -c1-200)"; APPLY_RESULT="dry-run FAILED run $rid"; return 1; fi
@@ -248,7 +251,8 @@ apply_migrations() {  # $1=merged-files.txt → sets APPLY_RESULT; returns 0 ok 
     pend=$(gh run view "$rid2" --repo "$REPO" --log 2>/dev/null | grep -ciE 'would (push|apply)|pending migration')
     if [ "${pend:-0}" -gt 0 ]; then freeze "migration verify: not applied:$missing (apply $rid, recheck $rid2)"; APPLY_RESULT="verify FAILED:$missing"; return 1; fi
   fi
-  APPLY_RESULT="applied + verified ($(echo "$expected" | wc -l | tr -d ' ') migration(s), run $rid)"; say "  ✓ $APPLY_RESULT"; return 0
+  rm -f "$STATE/migrations-pending"
+  APPLY_RESULT="applied + verified ($(echo "$expected" | grep -c . ) merged this round + any earlier pending, run $rid)"; say "  ✓ $APPLY_RESULT"; return 0
 }
 
 run_once() {
