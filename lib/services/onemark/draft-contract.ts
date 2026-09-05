@@ -3,13 +3,22 @@
 // OneMark AI draft contract — PURE. No Supabase, no React, no Node built-ins.
 //
 // What the `onemark.item_draft` job's model output must satisfy before a
-// single fp_items draft row is written. Mirrors, deliberately by hand, the
-// review queue's approve-rules (app/(routes)/foundation/onemark/review/_lib/
-// approve-rules.ts, Lane I): options [{key,text}] with four DISTINCT keys A–D,
-// answer {correct:'A'..'D'}, bloom_level K1–K6 only (decision 6), a Tamil stem
-// for tn_hsc_physics (decision 5). An item that fails here is DROPPED and the
-// reason recorded on the job — never written half-formed for a Senior Learner
-// to discover on the review queue.
+// single fp_items draft row is written. The prompt (Lane S job type, post
+// Opus review) asks the model for items in the fp_items TABLE shape:
+//   stem, stem_ta, options (4 strings), options_ta, answer {"correct":"A"},
+//   explanation, explanation_ta, bloom_level (K1–K6), tags (tag keys),
+//   option_layout
+// and this file is the strict reader of that shape. It mirrors, deliberately
+// by hand, the review queue's approve-rules (app/(routes)/foundation/onemark/
+// review/_lib/approve-rules.ts, Lane I): four DISTINCT options keyed A–D,
+// answer {correct:'A'..'D'} — a bare-string answer is REJECTED — bloom_level
+// K1–K6 only (decision 6), a Tamil block for tn_hsc_physics (decision 5).
+//
+// The model is never trusted for identity or state: exam_definition_id and
+// topic_id come from the job payload, is_active is always false, source_key
+// is always 'internal', created_by is the requesting Senior Learner. An item
+// that fails here is DROPPED and the reason recorded on the job — never
+// written half-formed for a Senior Learner to discover on the review queue.
 //
 // Terminology: the people who approve are Senior Learners; the people who
 // answer are learners. Rulings: specs/onemark-decisions-2026-09-02.md.
@@ -35,17 +44,17 @@ export interface DraftJobPayload {
   bloom_level: BloomLevel;
 }
 
-/** One item exactly as the prompt asks the model to return it. */
+/** One item, validated, in the shape the prompt asks for (fp_items columns). */
 export interface DraftItem {
-  stem_en: string;
+  stem: string;
   stem_ta: string | null;
-  options_en: [string, string, string, string];
+  options: [string, string, string, string];
   options_ta: [string, string, string, string] | null;
-  answer: OptionKey;
-  explanation_en: string | null;
+  answer: { correct: OptionKey };
+  explanation: string | null;
   explanation_ta: string | null;
   bloom_level: BloomLevel;
-  tag_key: string;
+  tags: string[];
   option_layout: OptionLayout;
 }
 
@@ -141,9 +150,17 @@ export function normaliseStem(text: string): string {
 
 const BANNED_OPTION = /^(all|none)\s+of\s+the\s+above\.?$/i;
 
+/** Four non-empty strings. A keyed form [{key,text}] is also accepted (the
+ *  fp_items column shape) — the text is what is read, in array order. */
 function fourStrings(v: unknown): [string, string, string, string] | null {
   if (!Array.isArray(v) || v.length !== 4) return null;
-  const out = v.map((x) => (typeof x === 'string' ? x.trim() : ''));
+  const out = v.map((x) => {
+    if (typeof x === 'string') return x.trim();
+    if (x && typeof x === 'object' && typeof (x as { text?: unknown }).text === 'string') {
+      return ((x as { text: string }).text ?? '').trim();
+    }
+    return '';
+  });
   if (out.some((s) => !s)) return null;
   return out as [string, string, string, string];
 }
@@ -161,49 +178,58 @@ export interface ValidationResult {
 
 /**
  * One raw model item → a DraftItem, or the reason it cannot be one.
- * `examKey` decides whether the Tamil block is mandatory (physics) or optional
- * (English items are English-only by design — approve-rules, decision 5).
+ * `payload.exam_key` decides whether the Tamil block is mandatory (physics)
+ * or optional (English items are English-only by design — decision 5).
  */
 export function validateDraftItem(raw: unknown, payload: DraftJobPayload): ValidationResult {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { ok: false, item: null, why: 'item is not an object' };
-  }
+  const no = (why: string): ValidationResult => ({ ok: false, item: null, why });
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return no('item is not an object');
   const r = raw as Record<string, unknown>;
 
-  const stemEn = str(r.stem_en);
-  if (!stemEn) return { ok: false, item: null, why: 'missing stem_en' };
+  const stem = str(r.stem);
+  if (!stem) return no('missing stem');
 
-  const optionsEn = fourStrings(r.options_en);
-  if (!optionsEn) return { ok: false, item: null, why: 'options_en must be exactly four non-empty strings' };
-  const distinct = new Set(optionsEn.map((o) => o.toLowerCase()));
-  if (distinct.size !== 4) return { ok: false, item: null, why: 'options_en are not four distinct options' };
-  if (optionsEn.some((o) => BANNED_OPTION.test(o))) {
-    return { ok: false, item: null, why: 'uses an "all/none of the above" option' };
+  const options = fourStrings(r.options);
+  if (!options) return no('options must be exactly four non-empty strings');
+  const distinct = new Set(options.map((o) => o.toLowerCase()));
+  if (distinct.size !== 4) return no('options are not four distinct options');
+  if (options.some((o) => BANNED_OPTION.test(o))) return no('uses an "all/none of the above" option');
+
+  // answer MUST be the fp_items shape {"correct":"A"}. A bare string is the
+  // old contract and is refused, not coerced — the row must match what the
+  // review queue and fn_onemark_record_response read.
+  const a = r.answer;
+  if (!a || typeof a !== 'object' || Array.isArray(a)) {
+    return no('answer must be an object {"correct":"A".."D"}');
   }
-
-  const answer = typeof r.answer === 'string' ? r.answer.trim().toUpperCase() : '';
-  if (!(OPTION_KEYS as readonly string[]).includes(answer)) {
-    return { ok: false, item: null, why: 'answer is not one of A, B, C, D' };
+  const correct = typeof (a as { correct?: unknown }).correct === 'string'
+    ? (a as { correct: string }).correct.trim().toUpperCase()
+    : '';
+  if (!(OPTION_KEYS as readonly string[]).includes(correct)) {
+    return no('answer.correct is not one of A, B, C, D');
   }
 
   const bloom = typeof r.bloom_level === 'string' ? r.bloom_level.trim().toUpperCase() : '';
   if (!(BLOOM_LEVELS as readonly string[]).includes(bloom)) {
-    return { ok: false, item: null, why: 'bloom_level is not K1–K6 (decision 6: JABT K-dimension only)' };
+    return no('bloom_level is not K1–K6 (decision 6: JABT K-dimension only)');
   }
 
-  const tagKey = str(r.tag_key);
-  if (!tagKey || !payload.tag_keys.includes(tagKey)) {
-    return { ok: false, item: null, why: `tag_key is not one of the requested tags (${payload.tag_keys.join(', ')})` };
+  const tagsRaw = Array.isArray(r.tags) ? r.tags : typeof r.tags === 'string' ? [r.tags] : null;
+  if (!tagsRaw || tagsRaw.length === 0) return no('tags must be a non-empty array of tag keys');
+  const tags = Array.from(new Set(tagsRaw.map((t) => (typeof t === 'string' ? t.trim() : '')).filter(Boolean)));
+  const unknown = tags.filter((t) => !payload.tag_keys.includes(t));
+  if (tags.length === 0 || unknown.length > 0) {
+    return no(`tags include a key that was not requested (${unknown.join(', ') || 'empty'}); allowed: ${payload.tag_keys.join(', ')}`);
   }
 
   const isPhysics = payload.exam_key === 'tn_hsc_physics';
   const stemTa = str(r.stem_ta);
   const optionsTa = r.options_ta == null ? null : fourStrings(r.options_ta);
   if (isPhysics) {
-    if (!stemTa) return { ok: false, item: null, why: 'physics item has no Tamil stem (decision 5)' };
-    if (!optionsTa) return { ok: false, item: null, why: 'physics item has no four Tamil options (decision 5)' };
+    if (!stemTa) return no('physics item has no Tamil stem (decision 5)');
+    if (!optionsTa) return no('physics item has no four Tamil options (decision 5)');
   } else if (r.options_ta != null && !optionsTa) {
-    return { ok: false, item: null, why: 'options_ta is present but is not four non-empty strings' };
+    return no('options_ta is present but is not four non-empty strings');
   }
 
   const layoutRaw = typeof r.option_layout === 'string' ? r.option_layout.trim() : 'auto';
@@ -215,15 +241,15 @@ export function validateDraftItem(raw: unknown, payload: DraftJobPayload): Valid
     ok: true,
     why: null,
     item: {
-      stem_en: stemEn,
+      stem,
       stem_ta: stemTa,
-      options_en: optionsEn,
+      options,
       options_ta: optionsTa,
-      answer: answer as OptionKey,
-      explanation_en: str(r.explanation_en),
+      answer: { correct: correct as OptionKey },
+      explanation: str(r.explanation),
       explanation_ta: str(r.explanation_ta),
       bloom_level: bloom as BloomLevel,
-      tag_key: tagKey,
+      tags,
       option_layout: layout,
     },
   };
@@ -231,9 +257,11 @@ export function validateDraftItem(raw: unknown, payload: DraftJobPayload): Valid
 
 /** The fp_items row — the SAME shape Lane I's ingest script writes (toRow in
  *  scripts/onemark/ingest-board-paper.ts), so both kinds of draft look
- *  identical on the review queue. is_active=false always (decision 7); the
- *  requesting Senior Learner is created_by; advanced_dimension stays NULL on
- *  every mcq_single row (JABT reachability matrix). */
+ *  identical on the review queue. Identity and state are SET here from the
+ *  payload and the job, never read from the model: exam_definition_id,
+ *  topic_id, is_active=false (decision 7), source_key='internal',
+ *  created_by = the requesting Senior Learner. advanced_dimension stays NULL
+ *  on every mcq_single row (JABT reachability matrix). */
 export function toDraftRow(item: DraftItem, payload: DraftJobPayload, requestedBy: string | null) {
   const withKeys = (opts: [string, string, string, string]) =>
     opts.map((text, i) => ({ key: OPTION_KEYS[i], text }));
@@ -241,17 +269,17 @@ export function toDraftRow(item: DraftItem, payload: DraftJobPayload, requestedB
     exam_definition_id: payload.exam_definition_id,
     topic_id: payload.topic_id,
     q_type: 'mcq_single',
-    stem: item.stem_en,
+    stem: item.stem,
     stem_ta: item.stem_ta,
-    options: withKeys(item.options_en),
+    options: withKeys(item.options),
     options_ta: item.options_ta ? withKeys(item.options_ta) : null,
-    answer: { correct: item.answer },
-    explanation: item.explanation_en,
+    answer: { correct: item.answer.correct },
+    explanation: item.explanation,
     explanation_ta: item.explanation_ta,
     source: 'ai_generated',
     is_active: false,
     option_layout: item.option_layout,
-    tags: [item.tag_key],
+    tags: item.tags,
     source_key: 'internal',
     source_year: null,
     source_sitting: null,
@@ -285,15 +313,15 @@ export function validateBatch(
   const seen = new Set<string>(existingStems);
   rawItems.forEach((raw, index) => {
     const preview =
-      raw && typeof raw === 'object' && typeof (raw as any).stem_en === 'string'
-        ? String((raw as any).stem_en).slice(0, 80)
+      raw && typeof raw === 'object' && typeof (raw as { stem?: unknown }).stem === 'string'
+        ? String((raw as { stem: string }).stem).slice(0, 80)
         : null;
     const v = validateDraftItem(raw, payload);
     if (!v.ok || !v.item) {
       rejected.push({ index, why: v.why ?? 'invalid item', stem_preview: preview });
       return;
     }
-    const key = normaliseStem(v.item.stem_en);
+    const key = normaliseStem(v.item.stem);
     if (seen.has(key)) {
       rejected.push({ index, why: 'duplicate stem (already in the bank or earlier in this batch)', stem_preview: preview });
       return;

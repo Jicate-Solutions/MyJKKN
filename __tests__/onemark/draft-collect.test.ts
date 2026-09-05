@@ -23,17 +23,18 @@ const payload = {
   bloom_level: 'K2',
 };
 
+/** The fp_items table shape the prompt asks for. */
 function item(stem: string, over: Record<string, unknown> = {}) {
   return {
-    stem_en: stem,
+    stem,
     stem_ta: 'தமிழ் ' + stem,
-    options_en: ['one', 'two', 'three', 'four'],
+    options: ['one', 'two', 'three', 'four'],
     options_ta: ['ஒன்று', 'இரண்டு', 'மூன்று', 'நான்கு'],
-    answer: 'C',
-    explanation_en: 'because',
+    answer: { correct: 'C' },
+    explanation: 'because',
     explanation_ta: 'ஏனெனில்',
     bloom_level: 'K2',
-    tag_key: 'concept',
+    tags: ['concept'],
     option_layout: 'inline_4',
     ...over,
   };
@@ -121,7 +122,8 @@ describe('collectItemDrafts', () => {
         item('Good one'),
         item('Already in the bank'),
         item('Bad level', { bloom_level: 'A2' }),
-        item('Good two', { answer: 'D' }),
+        item('Bare answer', { answer: 'B' }),
+        item('Good two', { answer: { correct: 'D' } }),
       ],
     });
     tables.ai_jobs = [{ id: JOB, job_type: 'onemark.item_draft', status: 'done', payload, result: { answer }, requested_by: USER }];
@@ -132,7 +134,7 @@ describe('collectItemDrafts', () => {
 
     const s = await collectItemDrafts(makeAdmin());
 
-    expect(s).toMatchObject({ collected: 1, filed: 1, items_written: 2, items_rejected: 2, errors: 0 });
+    expect(s).toMatchObject({ collected: 1, filed: 1, items_written: 2, items_rejected: 3, errors: 0 });
     const written = tables.fp_items.filter((r) => r.source_key === 'internal');
     expect(written).toHaveLength(2);
     for (const r of written) {
@@ -146,8 +148,9 @@ describe('collectItemDrafts', () => {
     const filed = tables.ai_jobs[0].result.onemark_filed;
     expect(filed.inserted).toBe(2);
     expect(filed.item_ids).toHaveLength(2);
-    expect(filed.rejected.map((r: any) => r.index)).toEqual([1, 2]);
+    expect(filed.rejected.map((r: any) => r.index)).toEqual([1, 2, 3]);
     expect(filed.rejected[1].why).toMatch(/K1–K6/);
+    expect(filed.rejected[2].why).toMatch(/answer must be an object/);
     expect(filed.error).toBeNull();
     // the original answer text is kept alongside the filing record
     expect(tables.ai_jobs[0].result.answer).toBe(answer);

@@ -25,17 +25,18 @@ const physics: DraftJobPayload = {
 };
 const english: DraftJobPayload = { ...physics, exam_key: 'tn_hsc_english', topic_id: null, tag_keys: ['synonym'] };
 
+/** The fp_items table shape the prompt asks for. */
 function good(over: Record<string, unknown> = {}) {
   return {
-    stem_en: 'The SI unit of electric charge is',
+    stem: 'The SI unit of electric charge is',
     stem_ta: 'மின்னூட்டத்தின் SI அலகு',
-    options_en: ['coulomb', 'ampere', 'volt', 'ohm'],
+    options: ['coulomb', 'ampere', 'volt', 'ohm'],
     options_ta: ['கூலும்', 'ஆம்பியர்', 'வோல்ட்', 'ஓம்'],
-    answer: 'A',
-    explanation_en: 'Charge is measured in coulomb.',
+    answer: { correct: 'A' },
+    explanation: 'Charge is measured in coulomb.',
     explanation_ta: 'மின்னூட்டம் கூலும் அலகில் அளக்கப்படுகிறது.',
     bloom_level: 'K1',
-    tag_key: 'concept',
+    tags: ['concept'],
     option_layout: 'inline_4',
     ...over,
   };
@@ -75,40 +76,63 @@ describe('parseDraftOutput', () => {
 });
 
 describe('validateDraftItem', () => {
-  it('accepts a complete physics item', () => {
+  it('accepts a complete physics item in the table shape', () => {
     const v = validateDraftItem(good(), physics);
     expect(v.ok).toBe(true);
-    expect(v.item?.answer).toBe('A');
+    expect(v.item?.answer).toEqual({ correct: 'A' });
+    expect(v.item?.tags).toEqual(['concept']);
+  });
+  it('also reads keyed options [{key,text}] (the fp_items column shape)', () => {
+    const keyed = good({
+      options: [
+        { key: 'A', text: 'coulomb' },
+        { key: 'B', text: 'ampere' },
+        { key: 'C', text: 'volt' },
+        { key: 'D', text: 'ohm' },
+      ],
+    });
+    expect(validateDraftItem(keyed, physics).item?.options).toEqual(['coulomb', 'ampere', 'volt', 'ohm']);
+  });
+  it('REJECTS a bare-string answer and any non-A–D correct key', () => {
+    expect(validateDraftItem(good({ answer: 'A' }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ answer: { correct: 'E' } }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ answer: { correct: null } }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ answer: { correct: 'd' } }), physics).item?.answer).toEqual({ correct: 'D' });
   });
   it('requires the Tamil block for physics but not for English', () => {
     expect(validateDraftItem(good({ stem_ta: '' }), physics)).toMatchObject({ ok: false });
     expect(validateDraftItem(good({ options_ta: null }), physics)).toMatchObject({ ok: false });
     expect(
-      validateDraftItem(good({ stem_ta: null, options_ta: null, tag_key: 'synonym' }), english),
+      validateDraftItem(good({ stem_ta: null, options_ta: null, tags: ['synonym'] }), english),
     ).toMatchObject({ ok: true });
   });
-  it('drops "all/none of the above", repeated options, and a bad answer letter', () => {
-    expect(
-      validateDraftItem(good({ options_en: ['a', 'b', 'c', 'All of the above'] }), physics),
-    ).toMatchObject({ ok: false });
-    expect(validateDraftItem(good({ options_en: ['a', 'a', 'c', 'd'] }), physics)).toMatchObject({ ok: false });
-    expect(validateDraftItem(good({ options_en: ['a', 'b', 'c'] }), physics)).toMatchObject({ ok: false });
-    expect(validateDraftItem(good({ answer: 'E' }), physics)).toMatchObject({ ok: false });
+  it('drops "all/none of the above", repeated options, and fewer than four', () => {
+    expect(validateDraftItem(good({ options: ['a', 'b', 'c', 'All of the above'] }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ options: ['a', 'a', 'c', 'd'] }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ options: ['a', 'b', 'c'] }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ options: ['a', 'b', 'c', 'd', 'e'] }), physics)).toMatchObject({ ok: false });
   });
   it('enforces decision 6 — JABT K-levels only', () => {
     expect(validateDraftItem(good({ bloom_level: 'A3' }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ bloom_level: 'K7' }), physics)).toMatchObject({ ok: false });
     expect(validateDraftItem(good({ bloom_level: 'k4' }), physics)).toMatchObject({ ok: true });
   });
-  it('refuses a tag that was not requested and defaults an unknown layout to auto', () => {
-    expect(validateDraftItem(good({ tag_key: 'diagram' }), physics)).toMatchObject({ ok: false });
+  it('refuses tags that were not requested and defaults an unknown layout to auto', () => {
+    expect(validateDraftItem(good({ tags: ['diagram'] }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ tags: ['concept', 'diagram'] }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ tags: [] }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ tags: 'numerical' }), physics).item?.tags).toEqual(['numerical']);
     const v = validateDraftItem(good({ option_layout: 'grid' }), physics);
     expect(v.item?.option_layout).toBe('auto');
   });
 });
 
 describe('toDraftRow', () => {
-  it('writes the review-queue shape: keyed options, answer.correct, inactive, internal', () => {
-    const v = validateDraftItem(good(), physics);
+  it('sets identity and state from the payload, never the model', () => {
+    const v = validateDraftItem(
+      good({ exam_definition_id: 'model-supplied', topic_id: 'model-supplied', is_active: true, created_by: 'x' }),
+      physics,
+    );
     if (!v.ok || !v.item) throw new Error('fixture invalid');
     const row = toDraftRow(v.item, physics, 'user-1');
     expect(row).toMatchObject({
@@ -139,11 +163,11 @@ describe('validateBatch', () => {
   it('drops invalid items, duplicates, and anything over the requested count — with reasons', () => {
     const items = [
       good(),
-      good({ stem_en: 'the si unit of ELECTRIC charge is!' }), // duplicate by normalised stem
-      good({ stem_en: 'Already in the bank' }), // duplicate against the bank
-      good({ stem_en: 'Second good one', answer: 'B' }),
-      good({ stem_en: 'Third good one' }), // over count (count=2)
-      { stem_en: 'Broken', options_en: ['x'] },
+      good({ stem: 'the si unit of ELECTRIC charge is!' }), // duplicate by normalised stem
+      good({ stem: 'Already in the bank' }), // duplicate against the bank
+      good({ stem: 'Second good one', answer: { correct: 'B' } }),
+      good({ stem: 'Third good one' }), // over count (count=2)
+      { stem: 'Broken', options: ['x'] },
     ];
     const bank = new Set(['already in the bank']);
     const { rows, rejected } = validateBatch(items, physics, 'user-1', bank);
@@ -151,7 +175,7 @@ describe('validateBatch', () => {
     expect(rejected.map((r) => r.index)).toEqual([1, 2, 4, 5]);
     expect(rejected[0].why).toMatch(/duplicate/);
     expect(rejected[2].why).toMatch(/over the requested count/);
-    expect(rejected[3].why).toMatch(/options_en/);
+    expect(rejected[3].why).toMatch(/options/);
     expect(rejected[3].stem_preview).toBe('Broken');
   });
 });
