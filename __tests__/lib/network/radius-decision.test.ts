@@ -139,6 +139,37 @@ describe('decideNetworkAccess — rule order and edge cases', () => {
     expect(decideNetworkAccess(input({ attendancePct: 84.9 })).tier?.code).toBe('tier_c');
   });
 
+  it('fails CLOSED when a lock exists but lockedUntil is unreadable', () => {
+    const d = decideNetworkAccess(input({ lockedUntil: 'not-a-date' }));
+    expect(d).toEqual({ accept: false, reason: 'locked_out' });
+  });
+
+  it('fails CLOSED when a lock exists but now is unreadable', () => {
+    const d = decideNetworkAccess(input({ lockedUntil: '2099-01-01T00:00:00.000Z', now: 'garbage' }));
+    expect(d).toEqual({ accept: false, reason: 'locked_out' });
+  });
+
+  it('no lock + unreadable now still accepts (nothing to compare)', () => {
+    const d = decideNetworkAccess(input({ lockedUntil: null, now: 'garbage' }));
+    expect(d.accept).toBe(true);
+  });
+
+  it('negative, >100, NaN and Infinity attendance read as "no record"', () => {
+    for (const bad of [-5, 140, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(decideNetworkAccess(input({ attendancePct: bad })).tier?.code).toBe('tier_d');
+      expect(
+        decideNetworkAccess(input({ attendancePct: bad, role: 'senior_learner' })).tier?.code,
+      ).toBe('tier_a');
+    }
+  });
+
+  it('empty tiers list: accept with no tier and no group (documented fail-open on bandwidth only)', () => {
+    const d = decideNetworkAccess(input({ tiers: [] }));
+    expect(d.accept).toBe(true);
+    expect(d.tier).toBeUndefined();
+    expect(d.group).toBeUndefined();
+  });
+
   it('does not mutate the caller\'s tier list order', () => {
     const tiers = [...TIERS].reverse();
     const before = tiers.map((t) => t.code);

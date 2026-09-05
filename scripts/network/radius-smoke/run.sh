@@ -25,10 +25,26 @@ mkdir -p "$RADDB" "$LOGS" "$RUNDIR"
 
 MOCK_PID=""
 RADIUSD_PID=""
+# kill_tree PID — kill a process and every descendant (the mock is started as a
+# subshell -> npx -> tsx -> node chain, so killing $! alone leaked the node
+# listener every run; reviewer finding 2026-09-06).
+kill_tree() {
+  local pid="$1" child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$child"; done
+  kill "$pid" 2>/dev/null
+}
 cleanup() {
-  [ -n "$RADIUSD_PID" ] && kill "$RADIUSD_PID" 2>/dev/null
-  [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null
+  [ -n "$RADIUSD_PID" ] && kill_tree "$RADIUSD_PID"
+  [ -n "$MOCK_PID" ] && kill_tree "$MOCK_PID"
+  # belt and braces: whatever still listens on the mock port from THIS run dies too
+  for lp in $(lsof -nP -ti "tcp:$MOCK_PORT" -sTCP:LISTEN 2>/dev/null); do kill "$lp" 2>/dev/null; done
   wait 2>/dev/null
+  sleep 0.3
+  if lsof -nP -iTCP:"$MOCK_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "[smoke] WARNING: something still listens on $MOCK_PORT after cleanup"
+  else
+    echo "[smoke] cleanup ok: nothing listens on $MOCK_PORT"
+  fi
   echo "[smoke] logs kept in $WORK (radiusd.log, mock.log, radclient-*.txt)"
 }
 trap cleanup EXIT INT TERM

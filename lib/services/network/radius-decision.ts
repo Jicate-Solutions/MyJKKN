@@ -15,6 +15,11 @@
  * Rule order (first match wins):
  *   1. emergencyOpen           -> accept, reason emergency_open, no tier, 1 h
  *   2. lockedUntil in future   -> reject locked_out
+ *      (an unreadable lockedUntil/now when a lock exists ALSO rejects — fail closed)
+ *   NOTE: with an EMPTY tiers list the decision is still accept, with no
+ *   Mikrotik-Rate-Limit (router default = unlimited). The route lane that
+ *   loads the policy rows must treat "no tiers configured" as a config error
+ *   and alert; the pure core never blocks 6,000 people for a missing row.
  *   3. feeOverdue              -> reject fee_overdue (guest role exempt)
  *   4. device cap reached      -> reject device_cap
  *   5. tier by attendance      -> accept with tier, group, session timeout
@@ -49,7 +54,14 @@ export function selectTier(
   const top = ordered[0];
   const bottom = ordered[ordered.length - 1];
 
-  if (attendancePct === null || Number.isNaN(attendancePct)) {
+  // "No usable record": null, NaN, infinite, or outside 0..100 (a bad upstream
+  // number must not be read as a real percentage).
+  if (
+    attendancePct === null ||
+    !Number.isFinite(attendancePct) ||
+    attendancePct < 0 ||
+    attendancePct > 100
+  ) {
     return role === 'learner' ? bottom : top;
   }
 
@@ -85,7 +97,12 @@ export function decideNetworkAccess(input: NetworkDecisionInput): NetworkDecisio
   if (input.lockedUntil) {
     const lockedUntilMs = Date.parse(input.lockedUntil);
     const nowMs = Date.parse(input.now);
-    if (!Number.isNaN(lockedUntilMs) && lockedUntilMs > nowMs) {
+    // Fail CLOSED: a lock row exists but one of the timestamps cannot be read.
+    // Accepting here would let a corrupt or malformed lock silently open the door.
+    if (Number.isNaN(lockedUntilMs) || Number.isNaN(nowMs)) {
+      return { accept: false, reason: 'locked_out' };
+    }
+    if (lockedUntilMs > nowMs) {
       return { accept: false, reason: 'locked_out' };
     }
   }
