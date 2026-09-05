@@ -68,6 +68,8 @@ Part 1 revision → Part 2 → (Part 3 ∥ Part 4, different files; both edit th
 | Q2 captive box | **MikroTik CCR2116 hotspot** (May decision 29 stands) | Part 3's entry contract is the RouterOS hotspot `$(mac)`, `$(link-login-only)`, `$(link-orig)` variables; Omada is out of scope |
 | Q4 network admin | **Kavinkumar D (kavinkumar_d@jkkn.ac.in)** | He already holds `system_admin`, so: no new role, no database change. Admin surfaces grant to `super_admin` + `system_admin` |
 
+**Lane PRs (all Draft, nothing applied, 2026-09-06 01:25 IST):** Part 1 revision → [#3303](https://github.com/Jicate-Solutions/MyJKKN/pull/3303) (supersedes #792) · Part 2 decision core + smoke harness → [#3302](https://github.com/Jicate-Solutions/MyJKKN/pull/3302) · Part 5 playbooks → [#3299](https://github.com/Jicate-Solutions/MyJKKN/pull/3299). Two things #3303 found in #792 worth knowing: `fn_network_register_device` let any signed-in person register a device for anyone (now self-or-permission only), and two of the seven functions were not actually SECURITY DEFINER. #3299 found that RouterOS forces the RADSEC shared secret to the literal `radsec`, so May decision 26's per-router unique secret cannot exist; tenancy rests on TLS plus a per-router IP allow-list.
+
 Still open: **Q3** (who owns and pays for the RADIUS VPS; accounting direct-to-DB or via MyJKKN) and **Q5** (pilot one college first or all 14 at once). Parts 3 and 4 do not start until Q3 and Q5 are answered and the Director approves this plan.
 
 ## Questions the Director must answer before building
