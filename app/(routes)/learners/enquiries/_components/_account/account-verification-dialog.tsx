@@ -111,6 +111,70 @@ function dimsFromLearner(learner: LearnerProfile): Partial<FeeStructureMatrixDim
   };
 }
 
+/**
+ * Translate the raw `admission_account_transition_with_bills` RPC error codes
+ * into plain-English, actionable messages.
+ *
+ * The RPC raises exceptions like
+ *   "invalid_status_for_account_transition: current=reserved, allowed=…"
+ *   "fee_structure_not_resolvable: no matching matrix combo"
+ * which Supabase surfaces verbatim on `error.message`. Staff filing
+ * "won't move to account" tickets were seeing these raw codes as a toast and
+ * (understandably) reading them as an unexplained failure. Per the repo rule
+ * that gate failures must be EXPLICIT and human-readable, we map each known
+ * signature to a clear next step.
+ *
+ * Returns `null` when nothing matches, so the caller can fall back to the raw
+ * message at the DEFAULT toast duration — mapped messages are long and get the
+ * extended duration instead.
+ *
+ * Concrete cases this addresses (auto-triage BUG-004352 / BUG-004394):
+ *   • `no_bills_generated` — the RPC refuses to leave a learner in 'account'
+ *     with no bills and rolls the status back with it, so the learner did NOT
+ *     move. Without this the admin reads a raw `no_bills_generated:` and cannot
+ *     tell whether the learner moved.
+ *   • `invalid_status_for_account_transition` — the application is ALREADY at
+ *     a later lifecycle stage (Reserved / Admitted). The transition already
+ *     happened; the RPC correctly refuses to move it backward.
+ *   • `fee_structure_not_resolvable` / `fee_items_empty` — no fee structure is
+ *     configured for the learner's exact programme (defensive: the dialog also
+ *     disables Confirm up-front when no structure matches).
+ */
+function friendlyTransitionError(err: unknown): string | null {
+  const raw = getErrorMessage(err);
+  const m = raw.toLowerCase();
+
+  if (m.includes('no_bills_generated')) {
+    return 'No bills could be generated, so the learner has NOT been moved to Account. Check the fee structure has at least one billable item above zero.';
+  }
+  if (m.includes('invalid_status_for_account_transition')) {
+    return 'This application is already at a later stage (e.g. Reserved or Admitted) — it has already been moved to Account. No further action is needed.';
+  }
+  if (
+    m.includes('fee_structure_not_resolvable') ||
+    m.includes('fee_items_empty') ||
+    m.includes('no matching matrix combo')
+  ) {
+    return 'No fee structure matches this learner’s dimensions — nothing was changed. Configure one under Admission → Settings → Fee Structures.';
+  }
+  if (m.includes('pending_fee_change_event')) {
+    return 'A fee-change event is pending review for this learner. Resolve it in the admission fees reconciliation queue before moving to Account.';
+  }
+  if (m.includes('required_documents_missing')) {
+    const list = raw.split(':').slice(1).join(':').trim();
+    return list
+      ? `Cannot move to Account — required documents are missing: ${list}.`
+      : 'Cannot move to Account — some required documents are missing.';
+  }
+  if (m.includes('permission_denied') || m.includes('admission_documents.manage')) {
+    return 'You don’t have permission to move applications to Account (this needs the “Manage Admission Documents” permission). Please contact your administrator.';
+  }
+  if (m.includes('learner_not_found')) {
+    return 'This learner record could not be found. Refresh the page and try again.';
+  }
+  return null;
+}
+
 export function AccountVerificationDialog({
   learner,
   open,
@@ -302,23 +366,14 @@ export function AccountVerificationDialog({
       setTimeout(() => router.refresh(), 300);
     } catch (err) {
       console.error('[account-verification-dialog] transition failed:', err);
-      const msg = getErrorMessage(err);
-
-      // The RPC refuses to leave a learner in 'account' with no bills and rolls
-      // the status back with it. Say so plainly: without this the admin reads a
-      // raw `no_bills_generated:` and cannot tell whether the learner moved.
-      if (/no_bills_generated/i.test(msg)) {
-        toast.error(
-          'No bills could be generated, so the learner has NOT been moved to Account. Check the fee structure has at least one billable item above zero.',
-          { duration: 9000 },
-        );
-      } else if (/fee_structure_not_resolvable|fee_items_empty/i.test(msg)) {
-        toast.error(
-          'No fee structure matches this learner’s dimensions — nothing was changed. Configure one under Admission → Settings → Fee Structures.',
-          { duration: 9000 },
-        );
+      // Mapped messages are long and explanatory — keep them on screen longer.
+      // An unrecognised error falls through to the raw text at the default
+      // duration, exactly as before.
+      const friendly = friendlyTransitionError(err);
+      if (friendly) {
+        toast.error(friendly, { duration: 9000 });
       } else {
-        toast.error(msg);
+        toast.error(getErrorMessage(err));
       }
       // Stay on step 2 rather than closing: the admin needs to see the preview
       // that explains the failure, and closing would hide it.

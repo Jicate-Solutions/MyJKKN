@@ -318,7 +318,10 @@ export function SyllabusForm({
   // v3.5 sections are not in use. Underlying data/columns are untouched —
   // flip HIDE_FINKS_TABS to false to restore them.
   const HIDE_FINKS_TABS = true;
-  const isFinksBoard = !HIDE_FINKS_TABS && taxonomy?.taxonomy_type === 'finks';
+  // JABT boards get the added-half tabs too: A1-A3 ARE Fink's dimensions, renamed.
+  const isFinksBoard =
+    !HIDE_FINKS_TABS &&
+    (taxonomy?.taxonomy_type === 'finks' || taxonomy?.taxonomy_type === 'jkkn_advanced');
 
   // If the taxonomy resolves to non-Fink's while the user sits on a Fink's-only
   // tab (e.g. regulation/board changed mid-edit), bounce back to PO Mappings —
@@ -1705,7 +1708,7 @@ export function SyllabusForm({
                grid + exam scheme live in bds_content/exam_scheme (course_content
                is NULL) — render the dedicated read-only card. */
             <BdsContentCard
-              content={formData.bds_content as any}
+              content={(formData as any).bds_content}
               examScheme={formData.exam_scheme}
               textbooks={formData.textbooks}
             />

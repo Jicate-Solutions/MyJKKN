@@ -17,6 +17,15 @@ import { performQueueActionForm } from '@/app/(routes)/dashboard/_actions/queue-
 
 type MorningBriefCardProps = {
   brief: MorningBrief;
+  /**
+   * Total open items in the Decision Queue rendered further down the same
+   * page. The brief's own counts come from a different RPC with a stricter
+   * filter, so they can legitimately read 0 while the queue below shows a
+   * three-figure number. Passing the queue total in lets this card describe
+   * what it is counting instead of claiming the inbox is empty. `null` when
+   * the queue could not be read — the card then says nothing about it.
+   */
+  queueTotal?: number | null;
 };
 
 function StatChip({
@@ -47,7 +56,12 @@ function StatChip({
   );
 }
 
-export function MorningBriefCard({ brief }: MorningBriefCardProps) {
+export function MorningBriefCard({
+  brief,
+  queueTotal = null
+}: MorningBriefCardProps) {
+  const queueHasItems = typeof queueTotal === 'number' && queueTotal > 0;
+
   // Compose summary line
   const yesterdayLine =
     brief.yesterday.closed === 0 && brief.yesterday.rescues_claimed === 0
@@ -89,29 +103,55 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
               for admission-adjacent roles (counselor, admission, admin,
               super_admin, administrator, principal). Students, faculty,
               HODs, and accounts see only Urgent / High / Carried over. */}
-          <div className='flex flex-wrap gap-2'>
-            <StatChip
-              label='Urgent'
-              value={brief.today.pending_urgent}
-              accent={brief.today.pending_urgent > 0 ? 'rose' : 'neutral'}
-            />
-            <StatChip
-              label='High'
-              value={brief.today.pending_high}
-              accent={brief.today.pending_high > 0 ? 'amber' : 'neutral'}
-            />
-            {isAdmissionRole(brief.role) && (
+          {/* 2026-08-09 (mobile audit finding 15): a 4-chip flex-wrap row at
+              387px wrapped 3-then-1 and left "Carried over" alone beside dead
+              space. A 2-column grid pairs them 2x2 on a phone and reverts to
+              the original single row from sm up. */}
+          <div>
+            <div className='grid grid-cols-2 gap-2 sm:flex sm:flex-wrap'>
               <StatChip
-                label='Cold leads'
-                value={brief.today.cold_leads}
-                accent={brief.today.cold_leads > 0 ? 'rose' : 'emerald'}
+                label='Urgent'
+                value={brief.today.pending_urgent}
+                accent={brief.today.pending_urgent > 0 ? 'rose' : 'neutral'}
               />
+              <StatChip
+                label='High'
+                value={brief.today.pending_high}
+                accent={brief.today.pending_high > 0 ? 'amber' : 'neutral'}
+              />
+              {isAdmissionRole(brief.role) && (
+                <StatChip
+                  label='Cold leads'
+                  value={brief.today.cold_leads}
+                  accent={brief.today.cold_leads > 0 ? 'rose' : 'emerald'}
+                />
+              )}
+              <StatChip
+                label='Carried over'
+                value={brief.today.carried_over}
+                accent={brief.today.carried_over > 0 ? 'amber' : 'neutral'}
+              />
+            </div>
+            {/* 2026-08-09 (mobile audit finding 04): these counters come from
+                fn_dashboard_morning_brief, which only counts items flagged for
+                formal acknowledgement. The Decision Queue below counts every
+                open item. Until those two filters agree, this row can read low
+                while the queue reads 101 — so say which is which. When there
+                are no priorities at all the empty state below carries the same
+                message, so this line stands down to avoid saying it twice. */}
+            {queueHasItems && brief.top_priorities.length > 0 && (
+              <p className='mt-2 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400'>
+                These counters cover only items that ask you for a formal
+                acknowledgement.{' '}
+                <a
+                  href='#decision-queue'
+                  className='font-medium text-indigo-700 dark:text-indigo-300 underline underline-offset-2'
+                >
+                  Your Decision Queue has {queueTotal} open{' '}
+                  {queueTotal === 1 ? 'item' : 'items'} →
+                </a>
+              </p>
             )}
-            <StatChip
-              label='Carried over'
-              value={brief.today.carried_over}
-              accent={brief.today.carried_over > 0 ? 'amber' : 'neutral'}
-            />
           </div>
 
           {/* Top 3 priorities */}
@@ -192,15 +232,43 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
               </div>
             </div>
           ) : (
+            /* 2026-08-09 (mobile audit finding 04): "Inbox zero" used to
+               render whenever this RPC returned no priorities — including
+               when the Decision Queue directly below held 101 open items,
+               the top one 28 days overdue. Only claim an empty inbox when
+               the queue agrees it is empty. */
             <div className='rounded-lg bg-white/60 dark:bg-neutral-900/50 border border-white/60 dark:border-neutral-800/60 px-4 py-6 text-center'>
-              <div className='text-2xl mb-2'>✨</div>
-              <div className='text-sm font-medium text-neutral-900 dark:text-neutral-100'>
-                Inbox zero — you&apos;re ahead of the queue
-              </div>
-              <div className='mt-1 text-xs text-neutral-500'>
-                Nothing urgent needs your decision right now. New items will
-                surface here as they arrive.
-              </div>
+              {queueHasItems ? (
+                <>
+                  <div className='text-2xl mb-2'>📥</div>
+                  <div className='text-sm font-medium text-neutral-900 dark:text-neutral-100'>
+                    {queueTotal} {queueTotal === 1 ? 'item is' : 'items are'}{' '}
+                    waiting in your Decision Queue
+                  </div>
+                  <div className='mt-1 text-xs text-neutral-500'>
+                    None of them is flagged for formal acknowledgement, so this
+                    card cannot rank them for you. Open the queue to work
+                    through them.
+                  </div>
+                  <a
+                    href='#decision-queue'
+                    className='mt-3 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-md transition-all duration-200'
+                  >
+                    Open the queue →
+                  </a>
+                </>
+              ) : (
+                <>
+                  <div className='text-2xl mb-2'>✨</div>
+                  <div className='text-sm font-medium text-neutral-900 dark:text-neutral-100'>
+                    Inbox zero — you&apos;re ahead of the queue
+                  </div>
+                  <div className='mt-1 text-xs text-neutral-500'>
+                    Nothing urgent needs your decision right now. New items will
+                    surface here as they arrive.
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

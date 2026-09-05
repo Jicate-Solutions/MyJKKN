@@ -791,3 +791,236 @@ export function buildSplitBoard(
     threshold
   };
 }
+
+// ── Ownership hygiene: where nobody is attached ──────────────────────────────
+//
+// The signal this section exists to surface was already being RECORDED and
+// told to nobody.
+//
+// campus-walk-service writes `metadata.accountable_routed_to_eao_no_owner`
+// at intake, and lib/campus-walk/repeats.ts writes it again on every D7
+// reopen. It is set whenever routeAccountable() could not settle on an owner
+// and fell through to the Executive Admin Officer. Until this function it sat
+// in a JSONB column that a person would have had to go looking for: no alert,
+// no report, no screen. Production task 15780b1a (2026-09-03, "Think tank room
+// cleanliness") — the first campus walk observation ever filed — carries it.
+//
+// ── WHY IT LIVES ON THE SPLIT BOARD, AND WHY IT IS QUIET ────────────────────
+// "Nobody is attached to this kind of work" is not an incident. It is a
+// MISSING SYSTEM, which is the exact question D13 asks, and the fix for it is
+// a routing decision somebody makes at a desk — not a phone call. It therefore
+// gets a section on a board a person opens, and NOT a message: the Director
+// already chose (2026-09-04) to be copied on every unsafe alert, and a second
+// per-event notification on top of that choice would defeat it.
+//
+// ── IT IS NOT, AND MUST NOT BECOME, `NOBODY WAS PAGED` ─────────────────────
+// That alarm (lib/campus-walk/urgent-alert.ts) means one factual thing —
+// nothing was delivered to anyone — and nothing here changes when it fires or
+// what it means. This is the quieter, adjacent fact: the person who must ACT
+// has no owner attached, or could not be reached.
+//
+// Since PR #3267 made the Director a standing copy on every unsafe alert, a
+// delivered Director copy counts as `delivered >= 1`, so an Accountable whose
+// own send failed no longer trips that alarm. urgent-alert.ts records the case
+// faithfully on `metadata.urgent_alert.attempts[]` and its test pins the
+// silence deliberately ("raising a new alarm is a recipient decision"). This
+// function READS those attempts. It raises nothing.
+//
+// ── D9: DEPARTMENTS AND KINDS OF WORK, NEVER NAMED PEOPLE ──────────────────
+// The row types below have no profile id, no staff id and no name field, on
+// purpose and by the same logic as loadStaffDepartments' select list: the
+// surest way to guarantee a person's name never reaches a table cell, a sort
+// key or a serialised prop is for the shape to have nowhere to put one.
+// `metadata.urgent_alert.attempts[]` DOES carry `profile_id`; it is read for
+// its `role`/`ok` and the id is deliberately dropped on the floor. Naming the
+// person who failed to be reachable is precisely the "hunters and hunted"
+// outcome D9 rejects.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** One kind of work that keeps arriving with nobody attached to it. */
+export interface UnownedCategoryRow {
+  /**
+   * The kind of problem, as recorded at capture. Null when the observation was
+   * saved without one. Never a person, never a department's performance.
+   */
+  category: string | null;
+  /** Observations of this kind that arrived with no owner. */
+  unownedCount: number;
+  /** How many of those were marked unsafe. */
+  unsafeCount: number;
+  /** Distinct ~110 m spots they came from — where, not who. */
+  distinctSpots: number;
+  /** created_at of the most recent one, ISO. */
+  lastSeenAt: string;
+}
+
+/** Why the person who must act was not reached on the phone. */
+export type UnreachableOwnerReason = 'no_usable_number' | 'send_failed';
+
+/**
+ * One unsafe observation whose Accountable was not reached.
+ *
+ * No profile id and no name — see the D9 note above.
+ */
+export interface UnreachableOwnerRow {
+  taskId: string;
+  title: string;
+  category: string | null;
+  reason: UnreachableOwnerReason;
+  /**
+   * True when the message did reach somebody else (the standing Director copy,
+   * or the Director standing in). The condition is therefore NOT unattended —
+   * which is exactly why this is a hygiene note and not an alarm.
+   */
+  someoneElseWasReached: boolean;
+  /** When the alert was attempted, ISO. Null when the record did not carry one. */
+  at: string | null;
+}
+
+export interface OwnershipBoard {
+  /** Campus walk observations considered. */
+  observations: number;
+  /** Of those, how many arrived with nobody attached. */
+  unowned: number;
+  /** Biggest first. Kinds of work, never people. */
+  unownedByCategory: UnownedCategoryRow[];
+  /** Unsafe alerts whose Accountable was not reached. Most recent first. */
+  unreachableOwners: UnreachableOwnerRow[];
+  /**
+   * True when EVERY observation is unowned.
+   *
+   * This is not a rounding of "most". It is the load-bearing distinction
+   * between two completely different readings of the same list:
+   *
+   *   false -> the routing has HOLES. Some conditions found an owner and these
+   *            ones did not, so each row is a gap worth filling.
+   *   true  -> there is no routing AT ALL. Nothing supplies an owner, so the
+   *            list is simply every observation and filling it in one row at a
+   *            time would be pointless.
+   *
+   * As of 2026-09-04 the second is what is true: the capture screen has no
+   * owner field, and the only client of the intake route
+   * (lib/campus-walk/offline-queue.ts, uploadItem) never sends the
+   * `accountableProfileId` the route accepts — so routeAccountable() always
+   * receives null and always falls through to the EAO. The page renders a
+   * plain-words explanation while this is true and stops the moment it is not,
+   * so the wording can never go stale and claim a hole that has been filled.
+   */
+  everyObservationIsUnowned: boolean;
+}
+
+/**
+ * Reads `metadata.urgent_alert` for the one case PR #3267 made invisible: the
+ * Accountable was not reached, but somebody was, so nothing looks wrong.
+ *
+ * Returns null when this lane did not run (the observation was not unsafe) or
+ * when the Accountable was reached normally.
+ */
+function unreachableOwnerOf(row: WalkTaskRow): UnreachableOwnerRow | null {
+  const alert = (row.metadata ?? {}).urgent_alert;
+  if (!alert || typeof alert !== 'object') return null;
+  if (alert.attempted !== true) return null;
+
+  const attempts: Array<{ role?: unknown; ok?: unknown }> = Array.isArray(alert.attempts)
+    ? alert.attempts
+    : [];
+  const delivered = Number(alert.delivered);
+  const someoneElseWasReached = Number.isFinite(delivered) && delivered > 0;
+  const rawCategory =
+    typeof (row.metadata ?? {}).category === 'string'
+      ? ((row.metadata ?? {}).category as string).trim()
+      : '';
+
+  // `usedFallback` keeps its original meaning (urgent-alert.ts is explicit that
+  // the always-copy ruling did NOT redefine it): the owner could not be paged
+  // and a Director stood in. There is no 'accountable' attempt to inspect in
+  // that case, because no number was ever dialled for them.
+  const reason: UnreachableOwnerReason | null =
+    alert.usedFallback === true
+      ? 'no_usable_number'
+      : attempts.some((a) => a.role === 'accountable' && a.ok === false)
+        ? 'send_failed'
+        : null;
+  if (!reason) return null;
+
+  return {
+    taskId: row.id,
+    title: row.title,
+    category: rawCategory || null,
+    reason,
+    someoneElseWasReached,
+    at: typeof alert.at === 'string' ? alert.at : null
+  };
+}
+
+/**
+ * Which kinds of work have nobody attached to them, and which unsafe alerts
+ * never reached the person who must act.
+ *
+ * Counts what is already stored. Writes nothing, notifies nobody, promotes
+ * nothing — the same refusal buildSplitBoard makes.
+ */
+export function buildOwnershipBoard(rows: WalkTaskRow[]): OwnershipBoard {
+  const walkRows = rows.filter(isCampusWalkTask);
+
+  // Keyed case-insensitively so "Electrical" and "electrical" are one kind of
+  // work, while the label shown is the first spelling actually recorded.
+  const byCategory = new Map<
+    string,
+    { label: string | null; count: number; unsafe: number; spots: Set<string>; lastSeenAt: string }
+  >();
+  let unowned = 0;
+  const unreachableOwners: UnreachableOwnerRow[] = [];
+
+  for (const row of walkRows) {
+    const meta = row.metadata ?? {};
+
+    const unreachable = unreachableOwnerOf(row);
+    if (unreachable) unreachableOwners.push(unreachable);
+
+    if (meta.accountable_routed_to_eao_no_owner !== true) continue;
+    unowned += 1;
+
+    const rawCategory = typeof meta.category === 'string' ? meta.category.trim() : '';
+    const key = rawCategory ? rawCategory.toLowerCase() : '__uncategorised__';
+    const bucket = byCategory.get(key) ?? {
+      label: rawCategory || null,
+      count: 0,
+      unsafe: 0,
+      spots: new Set<string>(),
+      lastSeenAt: row.created_at
+    };
+    bucket.count += 1;
+    if (meta.unsafe === true) bucket.unsafe += 1;
+    const spot = areaCellKey(meta.geo);
+    if (spot) bucket.spots.add(spot);
+    if (row.created_at > bucket.lastSeenAt) bucket.lastSeenAt = row.created_at;
+    byCategory.set(key, bucket);
+  }
+
+  const unownedByCategory: UnownedCategoryRow[] = [...byCategory.values()]
+    .map((b) => ({
+      category: b.label,
+      unownedCount: b.count,
+      unsafeCount: b.unsafe,
+      distinctSpots: b.spots.size,
+      lastSeenAt: b.lastSeenAt
+    }))
+    .sort((a, b) => {
+      if (a.unownedCount !== b.unownedCount) return b.unownedCount - a.unownedCount;
+      // An uncategorised bucket has no name to sort by, so it goes last.
+      if (a.category === null) return b.category === null ? 0 : 1;
+      if (b.category === null) return -1;
+      return a.category.localeCompare(b.category);
+    });
+
+  unreachableOwners.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
+
+  return {
+    observations: walkRows.length,
+    unowned,
+    unownedByCategory,
+    unreachableOwners,
+    everyObservationIsUnowned: walkRows.length > 0 && unowned === walkRows.length
+  };
+}

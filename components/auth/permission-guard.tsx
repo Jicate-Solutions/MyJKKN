@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface PermissionGuardProps {
@@ -26,8 +27,16 @@ interface PermissionGuardProps {
   children: ReactNode;
 
   /**
-   * Optional fallback content for when permission check fails
-   * If not provided, renders nothing when check fails
+   * Optional content to render when the permission check does NOT pass.
+   *
+   * OMIT it and the guard renders a short built-in explanation of what access
+   * is missing (see PermissionNotice below). That is the default because a
+   * silent empty area is indistinguishable from a broken page or a slow load.
+   *
+   * Pass `fallback={null}` to opt into deliberate silence. That is the right
+   * choice when the guard wraps a single inline control — a toolbar button, a
+   * dropdown item, a link in a table row — where the correct behaviour on a
+   * miss is to hide the control, not to print a paragraph in its place.
    */
   fallback?: ReactNode;
 
@@ -38,6 +47,79 @@ interface PermissionGuardProps {
 }
 
 /**
+ * The built-in explanation rendered when a guard denies and the caller did not
+ * pass its own `fallback`.
+ *
+ * Two states, because they are two different facts and only one of them is the
+ * viewer's problem:
+ *
+ *   'denied'  — we checked, and the permission is genuinely not granted.
+ *   'unknown' — the permission lookup itself failed (offline, RPC timeout), so
+ *               we do NOT know. `usePermissions` collapses both outcomes to
+ *               `false`, so without this split a network blip would tell people
+ *               to go request a permission they may already hold.
+ *
+ * Deliberately quiet: this is an inline state that can appear anywhere in a
+ * page, not a full-page error screen.
+ */
+export function PermissionNotice({
+  permissionKey,
+  state
+}: {
+  permissionKey: string;
+  state: 'denied' | 'unknown';
+}) {
+  return (
+    <div
+      role='note'
+      className='my-4 flex max-w-2xl items-start gap-3 rounded-lg border border-border bg-muted/40 p-4 text-sm'
+    >
+      <ShieldAlert
+        aria-hidden='true'
+        className='mt-0.5 h-4 w-4 shrink-0 text-muted-foreground'
+      />
+      <div className='space-y-1.5'>
+        {state === 'unknown' ? (
+          <>
+            <p className='font-medium text-foreground'>
+              We could not check your access just now
+            </p>
+            <p className='text-muted-foreground'>
+              This looks like a connection problem, not a permission problem, so
+              we have hidden this content instead of guessing. Reload the page to
+              try again.
+            </p>
+            <p className='text-muted-foreground'>
+              If it keeps happening, tap the red bug button at the bottom right
+              of this screen and report it.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className='font-medium text-foreground'>
+              This part of the page is not open to you
+            </p>
+            <p className='text-muted-foreground'>
+              Nothing is broken. None of your roles include the permission{' '}
+              <code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
+                {permissionKey}
+              </code>
+              , so this content stays hidden.
+            </p>
+            <p className='text-muted-foreground'>
+              To get it, ask whoever manages roles for your institution to add
+              that permission under Users, then Role Management. If you think you
+              should already have it, tap the red bug button at the bottom right
+              of this screen and report it.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Component that conditionally renders children based on user permissions for a module-action pair
  */
 export function PermissionGuard({
@@ -45,10 +127,10 @@ export function PermissionGuard({
   action,
   anyAction = false,
   children,
-  fallback = null,
+  fallback: callerFallback,
   loading = null
 }: PermissionGuardProps) {
-  const { isLoading, canPerformAll, canPerformAny, isSuperAdmin, isAdmissionGlobalUser, isCounselorUser } =
+  const { isLoading, error, canPerformAll, canPerformAny, isSuperAdmin, isAdmissionGlobalUser, isCounselorUser } =
     usePermissions([], {
       waitForLoad: true
     });
@@ -117,6 +199,21 @@ export function PermissionGuard({
   const hasPermission = anyAction
     ? canPerformAny(module, actions)
     : canPerformAll(module, actions);
+
+  // The denial view is only defaulted when the caller omitted the prop
+  // entirely. An explicit `fallback={null}` still renders nothing, which is how
+  // a call site opts into deliberate silence for a single inline control.
+  const fallback =
+    callerFallback === undefined ? (
+      <PermissionNotice
+        permissionKey={actions
+          .map((a) => `${module}.${a}`)
+          .join(anyAction ? ' or ' : ' and ')}
+        state={error ? 'unknown' : 'denied'}
+      />
+    ) : (
+      callerFallback
+    );
 
   // Render based on permission check
   return <>{hasPermission ? children : fallback}</>;
