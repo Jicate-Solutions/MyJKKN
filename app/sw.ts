@@ -3,6 +3,7 @@ import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import {
   Serwist,
   NetworkOnly,
+  NetworkFirst,
   CacheFirst,
   StaleWhileRevalidate,
   ExpirationPlugin,
@@ -102,6 +103,48 @@ const serwist = new Serwist({
           new ExpirationPlugin({
             maxEntries: 32,
             maxAgeSeconds: 24 * 60 * 60,
+          }),
+        ],
+      }),
+    },
+    {
+      // FRESHNESS (2026-09-05): the three payloads behind /whats-new, now
+      // served by the authenticated route /api/whats-new (they used to be
+      // public/changelog/*.json, which bypassed auth — see that route). Not in
+      // the precache and no longer even under public/;
+      // precache is cache-first against a revision pinned into the installed
+      // SW, so a user who had not taken the update would silently read last
+      // release's changelog. This rule is what keeps them working offline.
+      //
+      // NetworkFirst, not StaleWhileRevalidate: SWR paints the cached copy on
+      // THIS visit and only refreshes for the next one, which is the same
+      // silent-staleness bug one layer down. NetworkFirst always tries the
+      // network first and touches the cache only when the network genuinely
+      // fails, so an online reader is always current and an offline reader
+      // still gets the last list they saw.
+      //
+      // networkTimeoutSeconds guards the middle case — a connection that is
+      // alive but too slow to finish 701 KB (campus wifi). 10s matches the
+      // value serwist's own defaults use for /api. It must be explicit: an
+      // untimed NetworkFirst waits for the fetch to reject, which on a stalled
+      // connection can be tens of seconds.
+      //
+      // This must sit BEFORE ...defaultCache — that set already has a generic
+      // /\.(?:json|xml|csv)$/i NetworkFirst, but it shares one 32-entry
+      // "static-data-assets" cache with every other JSON on the site, so these
+      // three large files could evict (or be evicted by) unrelated data. Own
+      // cache name, own expiry, and it survives a serwist default changing.
+      matcher: /\/api\/whats-new\?part=(?:meta|recent|archive)/i,
+      handler: new NetworkFirst({
+        cacheName: "changelog-data",
+        networkTimeoutSeconds: 10,
+        plugins: [
+          new ExpirationPlugin({
+            // 3 URLs today; 8 leaves room without letting this grow unbounded.
+            maxEntries: 8,
+            // Only ever consulted when the network failed, so a long window is
+            // a better offline story, not a staleness risk.
+            maxAgeSeconds: 30 * 24 * 60 * 60,
           }),
         ],
       }),

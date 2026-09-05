@@ -1,4 +1,4 @@
-// Shape of the generated changelog files in public/changelog/.
+// Shape of the generated changelog files in lib/changelog/data/.
 // Written by scripts/generate-changelog.mjs — keep the two in step.
 
 /** How a change reads to a person. */
