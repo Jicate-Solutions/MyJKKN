@@ -48287,7 +48287,6 @@ export type Database = {
           staff_scope: string
           updated_at: string
           updated_by: string | null
-          work_pattern_id: string | null
         }
         Insert: {
           created_at?: string
@@ -48310,7 +48309,6 @@ export type Database = {
           staff_scope: string
           updated_at?: string
           updated_by?: string | null
-          work_pattern_id?: string | null
         }
         Update: {
           created_at?: string
@@ -48333,7 +48331,6 @@ export type Database = {
           staff_scope?: string
           updated_at?: string
           updated_by?: string | null
-          work_pattern_id?: string | null
         }
         Relationships: [
           {
@@ -48362,13 +48359,6 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_timings_work_pattern_id_fkey"
-            columns: ["work_pattern_id"]
-            isOneToOne: false
-            referencedRelation: "hr_work_patterns"
             referencedColumns: ["id"]
           },
         ]
@@ -48542,6 +48532,53 @@ export type Database = {
             columns: ["leave_type_id"]
             isOneToOne: false
             referencedRelation: "hr_leave_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_work_pattern_weeks: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_from: string
+          effective_until: string | null
+          id: string
+          notes: string | null
+          updated_at: string
+          updated_by: string | null
+          work_pattern_id: string
+          working_days: number[]
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_from: string
+          effective_until?: string | null
+          id?: string
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          work_pattern_id: string
+          working_days: number[]
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_until?: string | null
+          id?: string
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          work_pattern_id?: string
+          working_days?: number[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_work_pattern_weeks_work_pattern_id_fkey"
+            columns: ["work_pattern_id"]
+            isOneToOne: false
+            referencedRelation: "hr_work_patterns"
             referencedColumns: ["id"]
           },
         ]

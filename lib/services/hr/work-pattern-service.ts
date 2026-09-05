@@ -6,16 +6,17 @@
  * destructures `{ error }`: a Supabase failure is a plain object, and a
  * try/catch alone would turn an RLS refusal into an empty list.
  *
- * The pattern's WEEK is not here — it is ordinary hr_shift_timings rows with
- * staff_scope = 'work_pattern', read and written through ShiftTimingService
- * with `workPatternId`. Membership is written ONLY through
- * fn_hr_assign_work_pattern, which also resyncs the open leave balances; the
- * assignments table refuses direct writes from anyone but a super admin.
+ * A pattern's DAYS are effective-dated rows in hr_work_pattern_weeks, written
+ * only through fn_hr_set_work_pattern_days. Hours are never here — a member
+ * keeps their Shift Timings hours and the pattern switches days off.
+ * Membership is written ONLY through fn_hr_assign_work_pattern, which also
+ * resyncs the open leave balances; both tables refuse direct writes from
+ * anyone but a super admin.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { HRShiftTiming, IsoDayOfWeek } from '@/types/hr-shift-timings';
+import type { IsoDayOfWeek } from '@/types/hr-shift-timings';
 import type {
   AssignWorkPatternResult,
   AssignableStaff,
@@ -25,6 +26,8 @@ import type {
   HRWorkPatternInsert,
   HRWorkPatternLeaveEntitlement,
   HRWorkPatternUpdate,
+  HRWorkPatternWeek,
+  SetWorkPatternDaysResult,
   StaffWorkPatternCurrent,
   WorkPatternEntitlementInput,
   WorkPatternLeaveTypeOption,
@@ -95,14 +98,11 @@ export class WorkPatternService {
 
     const [weekRes, memberRes, entRes] = await Promise.all([
       supabase
-        .from('hr_shift_timings')
-        .select('work_pattern_id, day_of_week, is_working_day, first_half_start, second_half_end, effective_from')
-        .eq('staff_scope', 'work_pattern')
+        .from('hr_work_pattern_weeks')
+        .select('work_pattern_id, working_days, effective_from')
         .in('work_pattern_id', ids)
-        .eq('is_active', true)
         .lte('effective_from', on)
-        .or(`effective_until.is.null,effective_until.gt.${on}`)
-        .order('day_of_week', { ascending: true }),
+        .or(`effective_until.is.null,effective_until.gt.${on}`),
       supabase
         .from('hr_staff_work_pattern_assignments')
         .select('work_pattern_id')
@@ -119,13 +119,12 @@ export class WorkPatternService {
     if (memberRes.error) throw memberRes.error;
     if (entRes.error) throw entRes.error;
 
-    type WeekRow = Pick<HRShiftTiming, 'work_pattern_id' | 'day_of_week' | 'is_working_day' | 'first_half_start' | 'second_half_end' | 'effective_from'>;
-    const weekByPattern = new Map<string, WeekRow[]>();
+    // One days row per pattern is in force on any date (the EXCLUDE constraint
+    // guarantees it), so a plain map suffices.
+    type WeekRow = { work_pattern_id: string; working_days: number[]; effective_from: string };
+    const weekByPattern = new Map<string, WeekRow>();
     for (const w of (weekRes.data ?? []) as WeekRow[]) {
-      if (!w.work_pattern_id) continue;
-      const bucket = weekByPattern.get(w.work_pattern_id);
-      if (bucket) bucket.push(w);
-      else weekByPattern.set(w.work_pattern_id, [w]);
+      weekByPattern.set(w.work_pattern_id, w);
     }
 
     const memberCount = new Map<string, number>();
@@ -150,14 +149,11 @@ export class WorkPatternService {
     }
 
     return rows.map((p) => {
-      const week = weekByPattern.get(p.id) ?? [];
-      const working = week.filter((w) => w.is_working_day);
+      const week = weekByPattern.get(p.id);
       return {
         ...p,
-        working_days: working.map((w) => w.day_of_week as IsoDayOfWeek),
-        first_half_start: working[0]?.first_half_start ?? null,
-        second_half_end: working[0]?.second_half_end ?? null,
-        week_effective_from: week[0]?.effective_from ?? null,
+        working_days: (week?.working_days ?? []).map((d) => d as IsoDayOfWeek),
+        days_effective_from: week?.effective_from ?? null,
         member_count: memberCount.get(p.id) ?? 0,
         entitlements: (entByPattern.get(p.id) ?? [])
           .sort((a, b) => a.order - b.order)
@@ -213,14 +209,87 @@ export class WorkPatternService {
   }
 
   /**
-   * Delete a pattern nobody has ever held (its week rows and figures with it).
-   * An RPC because hr_shift_timings' DELETE policy is admin-only; the function
-   * refuses — with the reason — when any assignment, live or ended, exists.
+   * Delete a pattern nobody has ever held (its days and figures with it).
+   * The function refuses — with the reason — when any assignment, live or
+   * ended, exists.
    */
   static async delete(supabase: SupabaseClient, id: string): Promise<DeleteWorkPatternResult> {
     const { data, error } = await supabase.rpc('fn_hr_delete_work_pattern', { p_id: id });
     if (error) throw error;
     return data as DeleteWorkPatternResult;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Working days
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * The weekdays the institution's GENERAL weeks work on `asOf` — the union of
+   * the teaching and non-teaching 'all' rows. The default selection for a new
+   * pattern, and the hint "the institution works Mon–Sat". Category or gender
+   * overrides are not consulted: they are the exception, not the default.
+   */
+  static async getInstitutionWorkingDays(
+    supabase: SupabaseClient,
+    institutionId: string,
+    asOf?: string,
+  ): Promise<IsoDayOfWeek[]> {
+    const on = asOf ?? today();
+    const { data, error } = await supabase
+      .from('hr_shift_timings')
+      .select('day_of_week, is_working_day')
+      .eq('institution_id', institutionId)
+      .in('staff_scope', ['teaching', 'non_teaching'])
+      .eq('applicable_gender', 'all')
+      .eq('is_active', true)
+      .lte('effective_from', on)
+      .or(`effective_until.is.null,effective_until.gt.${on}`);
+    if (error) throw error;
+
+    const days = new Set<number>();
+    for (const r of (data ?? []) as Array<{ day_of_week: number; is_working_day: boolean }>) {
+      if (r.is_working_day) days.add(r.day_of_week);
+    }
+    return Array.from(days).sort((a, b) => a - b) as IsoDayOfWeek[];
+  }
+
+  /** The days row in force for a pattern on `asOf` (default today), or null. */
+  static async getDays(
+    supabase: SupabaseClient,
+    patternId: string,
+    asOf?: string,
+  ): Promise<HRWorkPatternWeek | null> {
+    const on = asOf ?? today();
+    const { data, error } = await supabase
+      .from('hr_work_pattern_weeks')
+      .select('id, work_pattern_id, working_days, effective_from, effective_until, notes')
+      .eq('work_pattern_id', patternId)
+      .lte('effective_from', on)
+      .or(`effective_until.is.null,effective_until.gt.${on}`)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as HRWorkPatternWeek | null) ?? null;
+  }
+
+  /**
+   * Set the pattern's working days from a date. The RPC closes the previous
+   * days row at that date, or rewrites it when backdating — the same rule as
+   * saving a shift-timing week.
+   */
+  static async setDays(
+    supabase: SupabaseClient,
+    params: { patternId: string; workingDays: IsoDayOfWeek[]; effectiveFrom: string; notes?: string | null },
+  ): Promise<SetWorkPatternDaysResult> {
+    const { data, error } = await supabase.rpc('fn_hr_set_work_pattern_days', {
+      p_pattern_id: params.patternId,
+      p_working_days: params.workingDays,
+      p_effective_from: params.effectiveFrom,
+      p_notes: params.notes ?? null,
+    });
+    if (error) throw error;
+    return data as SetWorkPatternDaysResult;
   }
 
   // ─────────────────────────────────────────────────────────────────────────

@@ -3,8 +3,9 @@
 /**
  * Card list of an institution's work patterns.
  *
- * Each card shows the week (or "No week saved yet"), hours, member count and
- * leave-entitlement figures at a glance; clicking one opens its detail view.
+ * Each card shows the working days (or "No working days saved yet"), member
+ * count and leave-entitlement figures at a glance; clicking one opens its
+ * detail view. No hours: those live in Shift Timings.
  */
 
 import { useState } from 'react';
@@ -14,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { DAY_OF_WEEK_OPTIONS, toHHMM } from '@/types/hr-shift-timings';
+import { DAY_OF_WEEK_OPTIONS } from '@/types/hr-shift-timings';
 import type { WorkPatternSummary } from '@/types/hr-work-patterns';
 import { cn } from '@/lib/utils';
 
@@ -70,10 +71,6 @@ export function WorkPatternList({
       ) : (
         <div className="space-y-3">
           {patterns.map((p) => {
-            const hours =
-              p.first_half_start && p.second_half_end
-                ? `${toHHMM(p.first_half_start)}–${toHHMM(p.second_half_end)}`
-                : null;
             return (
               <button
                 key={p.id}
@@ -100,7 +97,7 @@ export function WorkPatternList({
                       {p.working_days.length === 0 ? (
                         <p className="flex items-center gap-1 text-xs font-medium text-amber-600">
                           <AlertTriangle className="h-3.5 w-3.5" />
-                          No week saved yet
+                          No working days saved yet
                         </p>
                       ) : (
                         <div className="flex flex-wrap items-center gap-1">
@@ -117,9 +114,9 @@ export function WorkPatternList({
                               {d.short}
                             </span>
                           ))}
-                          {hours && (
-                            <span className="ml-2 text-xs text-muted-foreground">{hours}</span>
-                          )}
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {p.working_days.length} day{p.working_days.length === 1 ? '' : 's'} a week
+                          </span>
                         </div>
                       )}
 

@@ -401,9 +401,9 @@ export const GUIDES: GuideBook = {
               link: { label: 'Take me there', href: '/hr/admin/shift-timings' },
             },
             {
-              action: 'Define **Work Patterns** — for staff whose week differs from the institution\'s.',
+              action: 'Define **Work Patterns** — for staff who work fewer days than the institution\'s week.',
               detail:
-                'A named week (for example "5-day Mon–Fri" or "3-day Tue/Wed/Thu") with its own hours and its own days per leave type. Assign staff to it from a date: their weekly-offs, leave day counts and the salary day-rate then follow the pattern instead of the institution week, and everyone else is unaffected. Assigning resyncs the open Casual Leave balance at once and shows what changed per person.',
+                'A named set of working days (for example "5-day Mon–Fri" or "3-day Tue/Wed/Thu") with its own days per leave type. Hours stay in Shift Timings — a pattern only switches days off. Assign staff to it from a date: their weekly-offs, leave day counts and the salary day-rate then follow the pattern, and everyone else is unaffected. Assigning resyncs the open Casual Leave balance at once and shows what changed per person.',
               link: { label: 'Take me there', href: '/hr/admin/work-patterns' },
             },
           ],

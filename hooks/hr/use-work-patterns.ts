@@ -26,10 +26,12 @@ import {
   todayISO,
   type RecomputeSummary,
 } from '@/lib/services/hr/attendance-recompute-service';
+import type { IsoDayOfWeek } from '@/types/hr-shift-timings';
 import type {
   AssignWorkPatternResult,
   HRWorkPatternInsert,
   HRWorkPatternUpdate,
+  SetWorkPatternDaysResult,
   WorkPatternEntitlementInput,
 } from '@/types/hr-work-patterns';
 
@@ -105,6 +107,79 @@ export function useAssignableStaff(institutionId: string | null) {
     queryKey: [KEY, 'assignable', institutionId],
     queryFn: () => WorkPatternService.listAssignableStaff(supabase, institutionId!),
     enabled: Boolean(institutionId),
+  });
+}
+
+/** The weekdays the institution's general weeks work — the default for a new pattern. */
+export function useInstitutionWorkingDays(institutionId: string | null, asOf?: string) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [KEY, 'institution-days', institutionId, asOf ?? null],
+    queryFn: () => WorkPatternService.getInstitutionWorkingDays(supabase, institutionId!, asOf),
+    enabled: Boolean(institutionId),
+  });
+}
+
+/** The days row in force for a pattern today. */
+export function useWorkPatternDays(patternId: string | null, asOf?: string) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [KEY, 'days', patternId, asOf ?? null],
+    queryFn: () => WorkPatternService.getDays(supabase, patternId!, asOf),
+    enabled: Boolean(patternId),
+  });
+}
+
+export interface SetWorkPatternDaysOutcome {
+  result: SetWorkPatternDaysResult;
+  recompute: RecomputeSummary | null;
+  recomputeError: string | null;
+}
+
+/**
+ * Set a pattern's working days from a date, then re-judge attendance from
+ * that date to today — a day change is a week change for every member. Same
+ * follow-through, and the same "the save IS done" separation of a failed
+ * recompute, as saving a shift-timing week.
+ */
+export function useSetWorkPatternDays() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: async (params: {
+      patternId: string;
+      institutionId: string;
+      workingDays: IsoDayOfWeek[];
+      effectiveFrom: string;
+      notes?: string | null;
+    }): Promise<SetWorkPatternDaysOutcome> => {
+      const result = await WorkPatternService.setDays(supabase, params);
+
+      const today = todayISO();
+      if (params.effectiveFrom > today) {
+        return { result, recompute: null, recomputeError: null };
+      }
+
+      let recompute: RecomputeSummary | null = null;
+      let recomputeError: string | null = null;
+      try {
+        recompute = await recomputeAttendance({
+          institutionId: params.institutionId,
+          from: params.effectiveFrom,
+          to: today,
+        });
+      } catch (err) {
+        recomputeError = err instanceof Error ? err.message : 'Recompute failed';
+        console.error('[useSetWorkPatternDays] recompute failed:', err);
+      }
+      return { result, recompute, recomputeError };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      for (const key of CROSS_MODULE_KEYS) {
+        qc.invalidateQueries({ queryKey: [key] });
+      }
+    },
   });
 }
 
