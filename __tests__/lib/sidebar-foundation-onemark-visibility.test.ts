@@ -35,14 +35,14 @@ const OPERATOR_LABEL = 'Foundation Programme';
 /** Holds the hub key and nothing else in the module — the round-1 regression shape. */
 const DASH_ONLY: RolePermissionData = {
   role_key: 'foundation_viewer',
-  permissions: { 'staff.view': true, 'foundation.dashboard.view': true },
+  permissions: { 'organizations.departments.view': true, 'foundation.dashboard.view': true },
 };
 
 /** Wave-1 school_faculty: the Senior Learner who builds papers and ticks drafts. */
 const SCHOOL_FACULTY: RolePermissionData = {
   role_key: 'school_faculty',
   permissions: {
-    'staff.view': true,
+    'organizations.departments.view': true,
     'foundation.dashboard.view': true,
     'foundation.cohorts.view': true,
     'foundation.assessments.manage': true,
@@ -59,13 +59,13 @@ const LEARNER: RolePermissionData = {
 
 const APPROVER_ONLY: RolePermissionData = {
   role_key: 'subject_approver',
-  permissions: { 'staff.view': true, 'foundation.items.manage': true },
+  permissions: { 'organizations.departments.view': true, 'foundation.items.manage': true },
 };
 
 /** Negative control: real permissions, none of them a foundation key. */
 const OUTSIDER: RolePermissionData = {
   role_key: 'faculty',
-  permissions: { 'staff.view': true, 'foundation.dashboard.view': false },
+  permissions: { 'organizations.departments.view': true, 'foundation.dashboard.view': false },
 };
 
 function menus(role: RolePermissionData) {

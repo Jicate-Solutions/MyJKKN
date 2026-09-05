@@ -201,7 +201,19 @@ export const SESSION_LEADER_SECTIONS: GuideSection[] = [
   },
 ];
 
-export const GUIDES: GuideBook = {
+/**
+ * Foundation fills three of the nine canonical lanes. `GuideBook.lanes` is a
+ * CLOSED record (every canonical persona), which the registry satisfies at
+ * compose time by re-keying these lanes and filling the rest from the platform
+ * overview — so this constant is typed on the lanes it actually ships. Same
+ * shape the registry indexes (`FOUNDATION_GUIDES.lanes.<learner|coordinator|
+ * facilitator>`), so a lane rename here is still a compile error there.
+ */
+type FoundationGuideBook = Pick<GuideBook, "glossary" | "plannedLocaleNote"> & {
+  lanes: Pick<GuideBook["lanes"], "learner" | "coordinator" | "facilitator">;
+};
+
+export const GUIDES: FoundationGuideBook = {
   lanes: {
     /* ── LEARNER (the person answering the questions) ───────────────────── */
     learner: {
