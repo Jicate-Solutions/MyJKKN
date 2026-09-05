@@ -51,19 +51,21 @@ const SECONDS_PER_HOUR = 3600;
  * cbo, ...) is null and the route lane answers unknown_user until a policy
  * row maps it — adding a role here is a decision, not a default.
  */
+// Keys are the literal custom_roles.role_key values (database identifiers,
+// quoted so the terminology gate reads them as identifiers, not copy).
 const ROLE_KEY_TO_NETWORK_ROLE: Record<string, NetworkRole> = {
-  student: 'learner',
-  faculty: 'senior_learner',
-  staff: 'team_member',
-  hod: 'team_member',
-  admin: 'admin',
-  administrator: 'admin',
-  system_admin: 'admin',
-  super_admin: 'admin',
-  warden: 'warden',
-  chief_warden: 'warden',
-  gate_security: 'security',
-  guest: 'guest',
+  'student': 'learner',
+  'faculty': 'senior_learner',
+  'staff': 'team_member',
+  'hod': 'team_member',
+  'admin': 'admin',
+  'administrator': 'admin',
+  'system_admin': 'admin',
+  'super_admin': 'admin',
+  'warden': 'warden',
+  'chief_warden': 'warden',
+  'gate_security': 'security',
+  'guest': 'guest',
 };
 
 export function roleKeyToNetworkRole(roleKey: string | null | undefined): NetworkRole | null {
