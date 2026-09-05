@@ -348,10 +348,15 @@ export function verifyServedSet(attemptId: string, token: unknown): Set<string> 
   if (dot <= 0) return null;
   const payload = token.slice(0, dot);
   const sig = token.slice(dot + 1);
-  const expected = hmacHex(payload);
-  if (sig.length !== expected.length) return null;
-  if (!timingSafeEqual(Buffer.from(sig, 'utf8'), Buffer.from(expected, 'utf8'))) return null;
+  // The hex signature is ASCII, so a signature with any multi-byte character
+  // can never match; the guard must compare BYTE lengths, because
+  // timingSafeEqual throws (RangeError) on unequal byte lengths and a
+  // 64-char multi-byte string has the same STRING length as a real one.
+  const sigBuf = Buffer.from(sig, 'utf8');
+  const expectedBuf = Buffer.from(hmacHex(payload), 'utf8');
+  if (sigBuf.length !== expectedBuf.length) return null;
   try {
+    if (!timingSafeEqual(sigBuf, expectedBuf)) return null;
     const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (!parsed || parsed.a !== attemptId || !Array.isArray(parsed.i)) return null;
     const ids = parsed.i.filter((v: unknown): v is string => typeof v === 'string');

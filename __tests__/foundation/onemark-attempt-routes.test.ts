@@ -539,6 +539,13 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/respond', () => {
     const tampered = good.slice(0, -1) + (good.endsWith('0') ? '1' : '0');
     const bad = await respond(post({ servedToken: tampered, itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
     expect(bad.status).toBe(400);
+    // A 64-char MULTI-BYTE signature has the same string length as a real hex
+    // one; it must be a plain 400, never a RangeError → 500 from the
+    // constant-time compare.
+    const multiByte = good.slice(0, good.lastIndexOf('.') + 1) + '±'.repeat(64);
+    expect(verifyServedSet(ATTEMPT_ID, multiByte)).toBeNull();
+    const mb = await respond(post({ servedToken: multiByte, itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    expect(mb.status).toBe(400);
     // A token that names OTHER ids, correctly signed, still excludes this one.
     const other = served(['44444444-2222-4333-8444-000000000078']);
     const wrongSet = await respond(post({ servedToken: other, itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
