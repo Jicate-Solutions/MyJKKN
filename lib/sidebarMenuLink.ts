@@ -177,6 +177,30 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // here — the page also requires you to actually run a group, which is
   // fp_cohorts.resource_person_id, not a permission.
   '/foundation/practice/facilitate': 'foundation.practice.take',
+  // OneMark — the TN State Board Class-12 one-mark MCQ product, built as an
+  // extension of this programme (specs/onemark-decisions-2026-09-02.md).
+  // Three surfaces on three EXISTING keys — no new permission keys, by ruling:
+  //   a Senior Learner builds a board-shape paper      → assessments.manage
+  //   the subject Senior Learner ticks drafted items   → items.manage
+  //   a learner sits practice / timed / live / vault   → practice.take
+  // None of these inherits the operator key on '/foundation': the sidebar
+  // looks up the EXACT normalized href (MENU_PERMISSIONS[normalizeRoute(href)]),
+  // and the proxy's longest-prefix trie (lib/auth/route-matcher.ts) now stops
+  // at these three nodes instead of falling through to '/foundation' — which
+  // NARROWS server-side access to /foundation/onemark/* from dashboard.view
+  // to each screen's own key.
+  // The OneMark hub (Lane I's app/(routes)/foundation/onemark/page.tsx) renders
+  // permission-filtered cards for practice / paper / review and its own
+  // access panel when none apply. Keyed on the widest key every OneMark
+  // audience holds (learners and school_faculty both): without this entry
+  // the trie resolved the hub to '/foundation' -> foundation.dashboard.view
+  // and a role holding only practice.take bounced to /unauthorized. Not a
+  // sidebar row: a hub child under 'Foundation Programme' keyed on
+  // practice.take would reveal the operator accordion to every learner.
+  '/foundation/onemark': 'foundation.practice.take',
+  '/foundation/onemark/paper': 'foundation.assessments.manage',
+  '/foundation/onemark/review': 'foundation.items.manage',
+  '/foundation/onemark/practice': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
@@ -2114,7 +2138,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Foundation Programme',
           active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
           icon: Target,
-          submenus: []
+          // Hand-authored children REPLACE the route manifest's depth-2
+          // auto-discovery for this row (components/Navbar/menu.tsx), so the
+          // Console is listed explicitly to keep it. The two OneMark operator
+          // screens sit at depth 3 and would never be auto-discovered. They are
+          // children here, not top-level rows, because the Academic group is
+          // one row below the sidebar validator's hard cap (15). Each child is
+          // gated by its own MENU_PERMISSIONS key.
+          //
+          // 'Overview' is the hub itself, listed as its own first child (same
+          // idiom as '/procurement'). Two things depend on it: (1) a row with
+          // explicit children is filtered by its CHILDREN only —
+          // GetRoleBasedPages never reads MENU_PERMISSIONS['/foundation'] once
+          // submenus is non-empty — so without this child a holder of ONLY
+          // foundation.dashboard.view lost the row that main rendered for them;
+          // (2) an explicit-children row renders as an accordion whose parent
+          // click is a pure toggle (menu.tsx), so this child is the only
+          // sidebar door to /foundation for ANY role.
+          submenus: [
+            { href: '/foundation', label: 'Overview', active: pathname === '/foundation' },
+            { href: '/foundation/console', label: 'Console', active: pathname.startsWith('/foundation/console') },
+            { href: '/foundation/onemark/paper', label: 'OneMark: Build a Paper', active: pathname.startsWith('/foundation/onemark/paper') },
+            { href: '/foundation/onemark/review', label: 'OneMark: Review Drafts', active: pathname.startsWith('/foundation/onemark/review') },
+          ]
         },
         {
           // The learner's own door into the same programme. Separate entry
@@ -2138,6 +2184,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Run a Practice Session',
           active: pathname.startsWith('/foundation/practice/facilitate'),
           icon: Users,
+          submenus: []
+        },
+        {
+          // OneMark — the Class-12 one-mark MCQ sitting: practice, timed, a
+          // Senior Learner's live paper, and vault review. Same audience and
+          // same key as Foundation Practice. A separate flat row, not a child
+          // of '/foundation', for the same reason Foundation Practice is: the
+          // learner never holds the operator keys that render that parent.
+          // This makes the Academic group 14 top-level rows — ONE below the
+          // sidebar validator's hard cap; the next entry must nest.
+          href: '/foundation/onemark/practice',
+          label: 'OneMark Practice',
+          active: pathname.startsWith('/foundation/onemark/practice'),
+          icon: ClipboardCheck,
           submenus: []
         },
         {
