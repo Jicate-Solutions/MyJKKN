@@ -202,8 +202,40 @@ describe('runItemDraftNow', () => {
     expect(prompt).not.toContain('{{');
     expect(tables.ai_jobs[0].status).toBe('done');
     expect(tables.ai_jobs[0].result.via).toBe('inline:onemark-item-drafts');
+    // The claim token is per invocation (runner prefix + a uuid), never the bare constant.
+    expect(tables.ai_jobs[0].claimed_by).toMatch(/^inline:onemark-item-drafts:[0-9a-f-]{36}$/);
     expect(tables.fp_items.filter((x) => x.stem === 'Inline one')).toHaveLength(1);
     expect(r.collect?.items_written).toBe(1);
+  });
+
+  it('stops with claim_lost — and never calls the model — when a concurrent run claimed the job first', async () => {
+    tables.ai_jobs = [{ id: JOB, job_type: 'onemark.item_draft', status: 'pending', payload, result: null, requested_by: USER }];
+    tables.ai_job_types = [{ job_type: 'onemark.item_draft', prompt_template: 'Draft:\n{{payload}}' }];
+    const RACER = 'inline:onemark-item-drafts:racer-token';
+
+    // Both invocations read `pending`; the racer's UPDATE lands between our
+    // read and our UPDATE. Simulated by flipping the row the moment our
+    // second ai_jobs call (the claim UPDATE) is issued, so `status = 'pending'`
+    // matches nothing and the re-read shows the racer's token.
+    const base = makeAdmin();
+    let aiJobsCalls = 0;
+    const admin = {
+      ...base,
+      from: (table: string) => {
+        if (table === 'ai_jobs' && ++aiJobsCalls === 2) {
+          Object.assign(tables.ai_jobs[0], { status: 'claimed', claimed_by: RACER });
+        }
+        return base.from(table);
+      },
+    };
+
+    const r = await runItemDraftNow(admin as any, JOB);
+
+    expect(r).toMatchObject({ ok: false, reason: 'claim_lost' });
+    expect(chat.claudeChatForFeature).not.toHaveBeenCalled();
+    expect(rpcCalls.map((c) => c.fn)).not.toContain('fn_ai_complete');
+    expect(tables.ai_jobs[0].claimed_by).toBe(RACER);
+    expect(tables.ai_jobs[0].status).toBe('claimed');
   });
 
   it('refuses a job that is not pending and fails the job when the model call throws', async () => {

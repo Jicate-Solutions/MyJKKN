@@ -39,6 +39,7 @@
 // subject Senior Learner approves (decision 7).
 // ============================================================================
 
+import { randomUUID } from 'node:crypto';
 import type { createServiceRoleClient } from '@/lib/supabase/server';
 import { extractJobResultText } from '@/lib/services/platform/ai-jobs-lane';
 import { claudeChatForFeature } from '@/lib/services/platform/ai-clients/chat';
@@ -255,10 +256,15 @@ export async function runItemDraftNow(admin: Admin, jobId: string): Promise<RunN
 
   // Claim it. The status filter is also a written column, and PostgREST
   // re-applies request filters to an UPDATE's RETURNING projection — so no
-  // .select() here; re-read afterwards to prove the claim took.
+  // .select() here; re-read afterwards to prove the claim took. The claim
+  // token is PER INVOCATION: two overlapping generate_now calls both saw
+  // `pending`, but only one UPDATE matches `status = 'pending'`; the loser's
+  // re-read shows the winner's token and it stops BEFORE paying the model
+  // (a shared constant token let both proceed and both pay).
+  const claimToken = `${INLINE_RUNNER}:${randomUUID()}`;
   await admin
     .from('ai_jobs')
-    .update({ status: 'claimed', claimed_by: INLINE_RUNNER, claimed_at: new Date().toISOString() })
+    .update({ status: 'claimed', claimed_by: claimToken, claimed_at: new Date().toISOString() })
     .eq('id', jobId)
     .eq('status', 'pending');
   const { data: claimed } = await admin
@@ -267,7 +273,7 @@ export async function runItemDraftNow(admin: Admin, jobId: string): Promise<RunN
     .eq('id', jobId)
     .maybeSingle();
   const c = claimed as { status?: string; claimed_by?: string | null } | null;
-  if (!c || c.status !== 'claimed' || c.claimed_by !== INLINE_RUNNER) {
+  if (!c || c.status !== 'claimed' || c.claimed_by !== claimToken) {
     return { ok: false, jobId, reason: 'claim_lost' };
   }
 
