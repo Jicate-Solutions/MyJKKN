@@ -18,8 +18,15 @@ import {
   type OneMarkVaultSummary,
 } from '@/lib/services/onemark/vault-service';
 
+/** A bare YYYY-MM-DD is a LOCAL day key (from upcomingVaultDays) and is built
+ *  as a local date; `new Date('YYYY-MM-DD')` would read it as UTC midnight and
+ *  shift it a day in any zone west of Greenwich. A full timestamp is shown
+ *  in the viewer's zone as usual. */
 function formatDay(iso: string): string {
-  const d = new Date(iso);
+  const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const d = dayOnly
+    ? new Date(Number(dayOnly[1]), Number(dayOnly[2]) - 1, Number(dayOnly[3]))
+    : new Date(iso);
   if (!Number.isFinite(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
@@ -60,7 +67,7 @@ export function VaultPanel({
       )}
 
       {anything && (
-        <ul className="divide-y divide-white/[0.06]">
+        <ul className="divide-y divide-border">
           {subjects.map((s) => {
             const v = byExam.get(s.examDefinitionId);
             if (!v || v.active + v.mastered === 0) return null;
@@ -99,7 +106,7 @@ export function VaultPanel({
       )}
 
       {upcoming.length > 0 && (
-        <div className="mt-5 border-t border-white/[0.06] pt-4">
+        <div className="mt-5 border-t border-border pt-4">
           <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Coming back
           </p>

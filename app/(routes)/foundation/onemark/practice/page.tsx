@@ -233,7 +233,7 @@ export default function OneMarkPracticePage() {
                               void open({ mode: 'practice', examDefinitionId: s.examDefinitionId }, s.name)
                             }
                           >
-                            Practise
+                            Practice
                           </Button>
                           <Button
                             size="sm"

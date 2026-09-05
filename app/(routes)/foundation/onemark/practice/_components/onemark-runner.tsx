@@ -90,6 +90,15 @@ export function OneMarkRunner({
   const [done, setDone] = useState<Record<string, RespondResult | true>>(() =>
     Object.fromEntries(sitting.alreadyAnswered.map((id) => [id, true as const])),
   );
+  // The latest `done`, readable from a callback that was created earlier —
+  // the clock's auto-submit fires from an effect whose closure may predate
+  // the response that is landing right now.
+  const doneRef = useRef(done);
+  doneRef.current = done;
+  // The response currently on the wire, so a submission can wait for it
+  // rather than send the same item a second time as a skip.
+  const inFlight = useRef<Promise<Record<string, RespondResult | true> | null> | null>(null);
+  const finishing = useRef(false);
   const firstOpen = useMemo(
     () => Math.max(0, questions.findIndex((q) => !sitting.alreadyAnswered.includes(q.id))),
     [questions, sitting.alreadyAnswered],
@@ -136,35 +145,45 @@ export function OneMarkRunner({
     setAskedAt(Date.now());
   }
 
-  async function record(itemId: string, chosen: string | null, skipped: boolean) {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const result = await respond.mutateAsync({
-        attemptId: sitting.attemptId,
-        itemId,
-        chosen: chosen ?? undefined,
-        skipped,
-        timeMs: Date.now() - askedAt,
-      });
-      const nextDone = { ...done, [itemId]: result };
-      setDone(nextDone);
-      return nextDone;
-    } catch (err) {
-      if (err instanceof OneMarkApiError && err.body?.expired) {
-        // Time ran out between the tap and the server: submit what stands.
-        await finish(true);
+  function record(itemId: string, chosen: string | null, skipped: boolean) {
+    // One response on the wire at a time; `finish` awaits this same promise.
+    if (inFlight.current) return inFlight.current;
+    const p = (async () => {
+      setError(null);
+      setSubmitting(true);
+      try {
+        const result = await respond.mutateAsync({
+          attemptId: sitting.attemptId,
+          itemId,
+          chosen: chosen ?? undefined,
+          skipped,
+          timeMs: Date.now() - askedAt,
+        });
+        const nextDone = { ...doneRef.current, [itemId]: result };
+        doneRef.current = nextDone;
+        setDone(nextDone);
+        return nextDone;
+      } catch (err) {
+        if (err instanceof OneMarkApiError && err.body?.expired) {
+          // Time ran out between the tap and the server: submit what stands.
+          inFlight.current = null;
+          await finish(true);
+          return null;
+        }
+        if (err instanceof OneMarkApiError && err.body?.alreadySubmitted) {
+          inFlight.current = null;
+          await finish(false);
+          return null;
+        }
+        setError(friendlyError(err));
         return null;
+      } finally {
+        setSubmitting(false);
+        if (inFlight.current === p) inFlight.current = null;
       }
-      if (err instanceof OneMarkApiError && err.body?.alreadySubmitted) {
-        await finish(false);
-        return null;
-      }
-      setError(friendlyError(err));
-      return null;
-    } finally {
-      setSubmitting(false);
-    }
+    })();
+    inFlight.current = p;
+    return p;
   }
 
   /** Practice / vault review: the tap IS the answer. */
@@ -197,26 +216,42 @@ export function OneMarkRunner({
 
   async function finish(
     fromClock: boolean,
-    doneSnapshot: Record<string, RespondResult | true> = done,
+    doneSnapshot?: Record<string, RespondResult | true>,
   ) {
-    if (finalize.isPending) return;
-    setError(null);
-    // A selection made but not yet committed goes in as the answer when the
-    // clock stops it; everything never touched goes in as a skip.
-    let snapshot = doneSnapshot;
-    if (fromClock && current && selected && !snapshot[current.id]) {
-      const withCurrent = await record(current.id, selected, false);
-      if (withCurrent) snapshot = withCurrent;
-    }
-    const blanks = questions.filter((q) => !snapshot[q.id]).map((q) => q.id);
+    if (finalize.isPending || finishing.current) return;
+    finishing.current = true;
     try {
-      const review = await finalize.mutateAsync({
-        attemptId: sitting.attemptId,
-        skippedItemIds: blanks,
-      });
-      onFinished(review);
-    } catch (err) {
-      setError(friendlyError(err));
+      setError(null);
+      // Let a response that is mid-flight land first, so the item being
+      // answered is never also sent as a skip.
+      if (inFlight.current) {
+        try {
+          await inFlight.current;
+        } catch {
+          /* its own handler reported it */
+        }
+      }
+      let snapshot = doneSnapshot ?? doneRef.current;
+      // A selection made but not yet committed goes in as the answer when the
+      // clock stops it; everything never touched goes in as a skip.
+      if (fromClock && current && selected && !snapshot[current.id]) {
+        const withCurrent = await record(current.id, selected, false);
+        if (withCurrent) snapshot = withCurrent;
+      }
+      // Whatever landed while we waited counts as answered, not blank.
+      const settled = { ...doneRef.current, ...snapshot };
+      const blanks = questions.filter((q) => !settled[q.id]).map((q) => q.id);
+      try {
+        const review = await finalize.mutateAsync({
+          attemptId: sitting.attemptId,
+          skippedItemIds: blanks,
+        });
+        onFinished(review);
+      } catch (err) {
+        setError(friendlyError(err));
+      }
+    } finally {
+      finishing.current = false;
     }
   }
 
@@ -283,6 +318,16 @@ export function OneMarkRunner({
         </p>
       )}
 
+      {sitting.mode === 'vault_review' &&
+        typeof sitting.requested === 'number' &&
+        total < sitting.requested && (
+          <p className="mb-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            {total} question{total === 1 ? '' : 's'} this time — no single chapter takes more
+            than its share of a review, so a shorter sitting is normal. The rest come back when
+            they are due.
+          </p>
+        )}
+
       <Progress value={(answeredCount / total) * 100} className="mb-8 h-1" />
 
       <h2 className="mb-8 text-xl font-medium leading-relaxed text-foreground sm:text-2xl sm:leading-relaxed">
@@ -290,11 +335,15 @@ export function OneMarkRunner({
       </h2>
 
       <div className="space-y-3">
-        {options.map((opt) => {
+        {options.map((opt, idx) => {
           const chosenHere = selected === opt.key;
           const isRight = revealed && verdict?.reveal?.correctAnswer === opt.key;
           const isWrongPick = revealed && chosenHere && verdict?.isCorrect === false;
           const t = optionText(options, current.optionsTa, opt.key);
+          // On a shuffled paper the badge is the POSITION (A, B, C, D down the
+          // column, as the printed series would re-letter it); the bank key
+          // still travels with the answer, unchanged.
+          const badge = sitting.optionsShuffled ? String.fromCharCode(65 + idx) : opt.key;
           return (
             <button
               key={opt.key}
@@ -327,7 +376,7 @@ export function OneMarkRunner({
                       : 'border-border text-muted-foreground',
                 )}
               >
-                {isRight || (chosenHere && !revealed) ? <Check className="h-3.5 w-3.5" /> : opt.key}
+                {isRight || (chosenHere && !revealed) ? <Check className="h-3.5 w-3.5" /> : badge}
               </span>
               <span className="leading-relaxed">
                 <Bilingual lang={lang} en={t.en ?? opt.text} ta={t.ta} />

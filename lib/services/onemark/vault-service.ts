@@ -96,8 +96,15 @@ export interface OneMarkSitting {
   deadlineAt: string | null;
   lockedNavigation: boolean;
   revealAfterAnswer: boolean;
+  /** Options arrive in a per-question random order (live paper with
+   *  shuffle_options). The runner then labels them by position. */
+  optionsShuffled?: boolean;
   resumed: boolean;
   alreadyAnswered: string[];
+  /** Asked for vs served. A vault review may be shorter than requested by
+   *  design (60% single-chapter cap, never padded — decision 13). */
+  requested?: number;
+  drawn?: number;
   questions: OneMarkQuestion[];
 }
 
@@ -147,7 +154,9 @@ export interface SittingReview {
   attemptId: string;
   mode: OneMarkAttemptMode | null;
   submittedAt: string | null;
+  /** Number of correct answers (NOT a ratio — legacy Foundation rows differ). */
   score: number | null;
+  scoreUnit?: 'correct_count';
   correct: number;
   answered: number;
   skipped: number;
@@ -242,8 +251,20 @@ export class OneMarkVaultService {
   }
 }
 
-/** Group upcoming vault reviews by calendar day, for the "what comes back
- *  when" list. Pure, so it is unit-testable and the panel stays dumb. */
+/** A calendar day in the VIEWER's time zone as YYYY-MM-DD. The audience is in
+ *  Tamil Nadu (UTC+5:30): a review due at 02:00 IST is "tomorrow" to the
+ *  learner, but the same instant is still "today" in UTC — so the key must be
+ *  built from local date parts, never from toISOString(). */
+export function localDayKey(at: number | Date): string {
+  const d = at instanceof Date ? at : new Date(at);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Group upcoming vault reviews by the viewer's calendar day, for the "what
+ *  comes back when" list. Pure, so it is unit-testable and the panel stays dumb. */
 export function upcomingVaultDays(
   rows: MistakeVaultRow[],
   now: number = Date.now(),
@@ -253,7 +274,7 @@ export function upcomingVaultDays(
     if (r.status !== 'active' || !r.next_eligible_at) continue;
     const at = new Date(r.next_eligible_at).getTime();
     if (!Number.isFinite(at) || at <= now) continue;
-    const day = new Date(at).toISOString().slice(0, 10);
+    const day = localDayKey(at);
     byDay.set(day, (byDay.get(day) ?? 0) + 1);
   }
   return [...byDay.entries()]

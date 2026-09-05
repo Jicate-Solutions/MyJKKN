@@ -3,18 +3,22 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import {
   ATTEMPT_COLUMNS,
+  DEADLINE_GRACE_MS,
   DEFAULT_FLAG_THRESHOLD,
   LEARNER_ITEM_COLUMNS,
   ONEMARK_EXAM_KEYS,
   ONEMARK_MODES,
   UUID_RE,
   admin as adminClient,
+  closeSitting,
   deadlineFor,
+  liveBlankItemIds,
   parentalConsentBlocks,
   projectItemForLearner,
   readPolicyInt,
   resolveCaller,
   shuffle,
+  shuffleOptionsTogether,
   sittingQuestionCount,
   timedMinutes,
   type LearnerItem,
@@ -318,6 +322,7 @@ export async function POST(request: NextRequest) {
     let questions: LearnerItem[] = [];
     let resumedAttempt: any = null;
     let alreadyAnswered: string[] = [];
+    let optionsShuffled = false;
 
     if (mode === 'live') {
       // ---- Live-assigned paper -------------------------------------------
@@ -344,24 +349,14 @@ export async function POST(request: NextRequest) {
       }
       const cfg = paper.config ?? {};
       const now = Date.now();
-      if (!cfg.open_at) {
-        return NextResponse.json({ error: 'This paper has not been opened yet.' }, { status: 403 });
-      }
-      if (now < new Date(cfg.open_at).getTime()) {
-        return NextResponse.json(
-          { error: 'This paper is not open yet.', opensAt: cfg.open_at },
-          { status: 403 },
-        );
-      }
-      if (cfg.close_at && now > new Date(cfg.close_at).getTime()) {
-        return NextResponse.json(
-          { error: 'This paper has closed.', closedAt: cfg.close_at },
-          { status: 403 },
-        );
-      }
 
-      // Decision 19 — one submission. A finished attempt blocks a new one and
-      // hands back the id so the result can be shown instead.
+      // Decision 19 — one submission. The learner's earlier attempts on this
+      // paper are read BEFORE the window is tested, because what they mean
+      // does not depend on the window: a finished attempt always answers
+      // with its result, and an interrupted one is either resumed (window
+      // still open) or closed on the spot (window shut) — never left
+      // in_progress behind a "This paper has closed" wall with no way to
+      // submit what stands.
       const { data: priorAttempts } = await admin
         .from('fp_attempts')
         .select(ATTEMPT_COLUMNS)
@@ -380,8 +375,64 @@ export async function POST(request: NextRequest) {
           { status: 409 },
         );
       }
+      const interrupted =
+        (priorAttempts ?? []).find((a: any) => a.status === 'in_progress') ?? null;
+
+      const windowClosed = Boolean(cfg.close_at) && now > new Date(cfg.close_at).getTime();
+      if (interrupted) {
+        // Its own clock: the paper's duration from when it was started, or
+        // the close time, whichever comes first — plus the same slack the
+        // respond route gives a late tap.
+        const ownDeadline = deadlineFor(interrupted, {
+          timedMinutes: minutes,
+          assessmentConfig: cfg,
+        });
+        const clockOut = ownDeadline !== null && now > ownDeadline + DEADLINE_GRACE_MS;
+        if (windowClosed || clockOut) {
+          // Close it server-side: every paper question without a response
+          // goes in as a SKIP (decision 18), then the RPC submits. The
+          // caller is told the same way as a repeat sitting, with the
+          // attempt id, so the page shows the result that stands.
+          const blanks = await liveBlankItemIds(admin, interrupted);
+          const outcome = await closeSitting(supabase, interrupted.id, blanks);
+          if (outcome.error) {
+            return NextResponse.json(
+              { error: outcome.error.message },
+              { status: outcome.error.status },
+            );
+          }
+          return NextResponse.json(
+            {
+              error: windowClosed
+                ? 'This paper closed while your sitting was open. What you had answered has been submitted.'
+                : 'Time ran out on this sitting. What you had answered has been submitted.',
+              alreadySubmitted: true,
+              autoClosed: true,
+              attemptId: interrupted.id,
+            },
+            { status: 409 },
+          );
+        }
+      }
+
+      if (!cfg.open_at) {
+        return NextResponse.json({ error: 'This paper has not been opened yet.' }, { status: 403 });
+      }
+      if (now < new Date(cfg.open_at).getTime()) {
+        return NextResponse.json(
+          { error: 'This paper is not open yet.', opensAt: cfg.open_at },
+          { status: 403 },
+        );
+      }
+      if (windowClosed) {
+        return NextResponse.json(
+          { error: 'This paper has closed.', closedAt: cfg.close_at },
+          { status: 403 },
+        );
+      }
+
       // An interrupted sitting resumes rather than starting a second row.
-      resumedAttempt = (priorAttempts ?? []).find((a: any) => a.status === 'in_progress') ?? null;
+      resumedAttempt = interrupted;
 
       const { data: paperItems, error: paperItemsError } = await admin
         .from('fp_assessment_items')
@@ -396,12 +447,10 @@ export async function POST(request: NextRequest) {
         .filter((it: any) => it && it.is_active)
         .map(projectItemForLearner);
       if (cfg.shuffle_options === true) {
-        questions = questions.map((q) => ({
-          ...q,
-          // Keys travel with their text, so the answer key still matches.
-          options: shuffle(q.options),
-          optionsTa: null,
-        }));
+        // One order per question, applied to BOTH languages by key — the
+        // Tamil options survive the shuffle and the answer key still matches.
+        questions = questions.map(shuffleOptionsTogether);
+        optionsShuffled = true;
       }
       assessmentId = paper.id;
       examDefinitionId = paper.exam_definition_id;
@@ -462,6 +511,10 @@ export async function POST(request: NextRequest) {
             { status: 409 },
           );
         }
+        // A short draw is NORMAL, not an error: the RPC caps any single
+        // chapter at onemark.vault.max_single_chapter_pct of the request and
+        // never pads (decision 13), so asking for 15 can rightly return 3.
+        // The real number is shown (decision 11's idiom) — see `requested`.
         const { data: items } = await admin
           .from('fp_items')
           .select(LEARNER_ITEM_COLUMNS)
@@ -582,8 +635,16 @@ export async function POST(request: NextRequest) {
       deadlineAt: deadline ? new Date(deadline).toISOString() : null,
       lockedNavigation: mode === 'live',
       revealAfterAnswer: mode === 'practice' || mode === 'vault_review',
+      // When true the runner labels options by POSITION (A, B, C, D down the
+      // column) while still sending the bank key, so a shuffled paper does
+      // not read C / A / D / B.
+      optionsShuffled,
       resumed: Boolean(resumedAttempt),
       alreadyAnswered,
+      // How many were asked for vs served. A vault review can be shorter
+      // than requested by design (decision 13); a live paper is its own size.
+      requested: mode === 'live' ? questions.length : questionCount,
+      drawn: questions.length,
       questions,
     });
   } catch (err: any) {

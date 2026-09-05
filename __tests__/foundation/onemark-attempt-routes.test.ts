@@ -24,14 +24,18 @@ let attemptRow: Record<string, unknown> | null = null;
 let assessmentRow: Record<string, unknown> | null = null;
 let itemRows: Array<Record<string, unknown>> = [];
 let responseRows: Array<Record<string, unknown>> = [];
+let enrolmentRows: Array<Record<string, unknown>> = [];
+let paperItemRows: Array<Record<string, unknown>> = [];
 let insertedAttempts: Array<Record<string, unknown>> = [];
 let rpcCalls: Array<{ fn: string; args: any }> = [];
 let rpcResult: any = { is_correct: false, vault_status: 'active', streak: 0 };
 let rpcError: any = null;
+let permissionAllowed = true;
 let selects: string[] = [];
 
 const EXAM_ID = '11111111-2222-4333-8444-555555555555';
 const POOL_ID = '22222222-2222-4333-8444-555555555555';
+const PAPER_ID = '55555555-2222-4333-8444-555555555555';
 const ATTEMPT_ID = '99999999-8888-4777-8666-555555555555';
 const ITEM_ID = '33333333-2222-4333-8444-555555555555';
 
@@ -47,6 +51,10 @@ function tableData(table: string): any {
       return itemRows;
     case 'fp_responses':
       return responseRows;
+    case 'fp_enrollments':
+      return enrolmentRows;
+    case 'fp_assessment_items':
+      return paperItemRows;
     case 'exam_definitions':
       return [{ id: EXAM_ID, config_key: 'tn_hsc_physics', display_name: 'Physics', is_active: true }];
     default:
@@ -56,13 +64,13 @@ function tableData(table: string): any {
 
 /** One builder for both clients: every terminal resolves from tableData. */
 function builder(table: string) {
+  let headCount = false;
   const b: any = {
     select: vi.fn((cols: string, opts?: any) => {
       selects.push(`${table}:${cols}`);
-      if (opts?.head) {
-        const rows = tableData(table);
-        return Promise.resolve({ count: Array.isArray(rows) ? rows.length : 0, error: null });
-      }
+      // A head-count select stays chainable (.eq().eq()) and resolves to
+      // { count } when awaited, like the real builder.
+      if (opts?.head) headCount = true;
       return b;
     }),
     eq: vi.fn(() => b),
@@ -90,6 +98,9 @@ function builder(table: string) {
     }),
     then: (resolve: any) => {
       const d = tableData(table);
+      if (headCount) {
+        return resolve({ count: Array.isArray(d) ? d.length : d ? 1 : 0, error: null });
+      }
       return resolve({ data: Array.isArray(d) ? d : d ? [d] : [], error: null });
     },
   };
@@ -98,6 +109,7 @@ function builder(table: string) {
 
 function rpc(fn: string, args: any) {
   rpcCalls.push({ fn, args });
+  if (fn === 'user_has_permission') return Promise.resolve({ data: permissionAllowed, error: null });
   if (fn === 'fn_get_policy_int') return Promise.resolve({ data: args.p_default, error: null });
   if (fn === 'fn_get_policy_bool') return Promise.resolve({ data: false, error: null });
   if (rpcError) return Promise.resolve({ data: null, error: rpcError });
@@ -126,7 +138,9 @@ vi.mock('next/server', async () => {
 import { GET as getHome, POST as startSitting } from '@/app/api/foundation/onemark/attempts/route';
 import { POST as respond } from '@/app/api/foundation/onemark/attempts/[attemptId]/respond/route';
 import { POST as finalize } from '@/app/api/foundation/onemark/attempts/[attemptId]/finalize/route';
-import { upcomingVaultDays } from '@/lib/services/onemark/vault-service';
+import { localDayKey, upcomingVaultDays } from '@/lib/services/onemark/vault-service';
+import { shuffleOptionsTogether } from '@/lib/services/onemark/attempt-server';
+import { OneMarkPolicyDefaults, OneMarkPolicyKeys } from '@/types/onemark';
 
 function post(body: unknown) {
   return new Request('https://jkkn.ai/x', {
@@ -166,12 +180,33 @@ beforeEach(() => {
   attemptRow = null;
   itemRows = [LACED_ITEM];
   responseRows = [];
+  enrolmentRows = [];
+  paperItemRows = [];
   insertedAttempts = [];
   rpcCalls = [];
   rpcResult = { is_correct: false, vault_status: 'active', streak: 0 };
   rpcError = null;
+  permissionAllowed = true;
   selects = [];
 });
+
+/** A live paper whose window and duration are both in the past. */
+function closedPaper() {
+  const h = 60 * 60 * 1000;
+  return {
+    id: PAPER_ID,
+    title: 'Unit 1 hall paper',
+    exam_definition_id: EXAM_ID,
+    cohort_id: 'cohort-1',
+    kind: 'mock',
+    is_active: true,
+    config: {
+      open_at: new Date(Date.now() - 3 * h).toISOString(),
+      close_at: new Date(Date.now() - 1 * h).toISOString(),
+      duration_min: 30,
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 
@@ -189,6 +224,24 @@ describe('GET /api/foundation/onemark/attempts', () => {
     const body = await res.json();
     expect(body.learner).toBeNull();
     expect(body.subjects).toEqual([]);
+  });
+
+  it('gates on foundation.practice.take server-side, not only on the page', async () => {
+    permissionAllowed = false;
+    const res = await getHome();
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/access/i);
+    const gate = rpcCalls.find((c) => c.fn === 'user_has_permission');
+    expect(gate?.args).toEqual({ permission_name: 'foundation.practice.take' });
+  });
+
+  it('picks the ACTIVE fp_students row when a profile has two (no UNIQUE on profile_id)', async () => {
+    learnerRow = [
+      { id: 'learner-old', full_name: 'A Learner', grade: '11', status: 'transferred', parental_consent_at: null },
+      { id: 'learner-new', full_name: 'A Learner', grade: '12', status: 'active', parental_consent_at: null },
+    ] as any;
+    const body = await (await getHome()).json();
+    expect(body.learner?.id).toBe('learner-new');
   });
 });
 
@@ -262,11 +315,101 @@ describe('POST /api/foundation/onemark/attempts', () => {
     expect(draw!.args.p_exam_definition_id).toBe(EXAM_ID);
   });
 
+  it('treats a SHORT vault draw as normal and reports the real number (decision 13)', async () => {
+    rpcResult = [ITEM_ID]; // asked for 15, the cap left 1
+    const res = await startSitting(post({ mode: 'vault_review', examDefinitionId: EXAM_ID }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.drawn).toBe(1);
+    expect(body.requested).toBe(OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_QUESTION_COUNT]);
+    expect(body.questions).toHaveLength(1);
+    expect(insertedAttempts).toHaveLength(1);
+  });
+
   it('says so plainly when the vault has nothing due, and opens no attempt', async () => {
     rpcResult = [];
     const res = await startSitting(post({ mode: 'vault_review', examDefinitionId: EXAM_ID }));
     expect(res.status).toBe(409);
     expect(insertedAttempts).toHaveLength(0);
+  });
+
+  it('refuses a caller without foundation.practice.take with 403 before any read', async () => {
+    permissionAllowed = false;
+    const res = await startSitting(post({ mode: 'practice', examDefinitionId: EXAM_ID }));
+    expect(res.status).toBe(403);
+    expect(selects).toHaveLength(0);
+  });
+
+  it('closes an interrupted live sitting whose window has shut, instead of walling it off', async () => {
+    assessmentRow = closedPaper();
+    enrolmentRows = [{ id: 'enr-1', cohort_id: 'cohort-1', status: 'enrolled' }];
+    attemptRow = {
+      id: ATTEMPT_ID,
+      student_id: 'learner-1',
+      assessment_id: PAPER_ID,
+      mode: 'live',
+      status: 'in_progress',
+      started_at: new Date(Date.now() - 100 * 60 * 1000).toISOString(),
+      submitted_at: null,
+      score: null,
+      session_id: 'sess-live',
+    };
+    paperItemRows = [
+      { item_id: ITEM_ID, position: 1 },
+      { item_id: 'paper-item-2', position: 2 },
+      { item_id: 'paper-item-3', position: 3 },
+    ];
+    responseRows = [{ item_id: ITEM_ID, chosen: 'A', is_correct: true, skipped: false }];
+
+    const res = await startSitting(post({ mode: 'live', assessmentId: PAPER_ID }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.alreadySubmitted).toBe(true);
+    expect(body.autoClosed).toBe(true);
+    expect(body.attemptId).toBe(ATTEMPT_ID);
+
+    // The two paper questions never answered went in as SKIPS (decision 18),
+    // the answered one was not touched, then the RPC submitted it.
+    const skips = rpcCalls.filter((c) => c.fn === 'fn_onemark_record_response');
+    expect(skips.map((c) => c.args.p_item_id).sort()).toEqual(['paper-item-2', 'paper-item-3']);
+    expect(skips.every((c) => c.args.p_skipped === true)).toBe(true);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_finalize_attempt')).toBe(true);
+    expect(insertedAttempts).toHaveLength(0);
+  });
+
+  it('keeps Tamil options on a shuffled live paper, paired by key', () => {
+    const q = {
+      id: ITEM_ID,
+      stem: 's',
+      stemTa: 'த',
+      options: [
+        { key: 'A', text: 'farad' },
+        { key: 'B', text: 'henry' },
+        { key: 'C', text: 'ohm' },
+        { key: 'D', text: 'volt' },
+      ],
+      optionsTa: [
+        { key: 'A', text: 'ஃபாரட்' },
+        { key: 'B', text: 'ஹென்றி' },
+        { key: 'C', text: 'ஓம்' },
+        { key: 'D', text: 'வோல்ட்' },
+      ],
+      optionLayout: 'auto' as const,
+      qType: 'mcq_single',
+      topicId: null,
+    };
+    for (let i = 0; i < 20; i++) {
+      const out = shuffleOptionsTogether(q);
+      expect(out.optionsTa).not.toBeNull();
+      expect(out.options).toHaveLength(4);
+      expect(out.optionsTa).toHaveLength(4);
+      (out.options as any[]).forEach((o, idx) => {
+        expect((out.optionsTa as any[])[idx].key).toBe(o.key);
+      });
+      expect((out.options as any[]).map((o) => o.key).sort()).toEqual(['A', 'B', 'C', 'D']);
+    }
+    // No Tamil in the bank → still none, never a mis-pairing.
+    expect(shuffleOptionsTogether({ ...q, optionsTa: null }).optionsTa).toBeNull();
   });
 });
 
@@ -351,6 +494,24 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/respond', () => {
     expect(res.status).toBe(409);
   });
 
+  it('reports a withheld verdict (timed / live) as null, never as wrong', async () => {
+    attemptRow = { ...(attemptRow as any), mode: 'timed' };
+    rpcResult = { is_correct: null, skipped: false, vault_status: null, streak: null, revealed: false };
+    const body = await (await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID))).json();
+    expect(body.isCorrect).toBeNull();
+    expect(body.vaultStatus).toBeNull();
+    expect(body.reveal).toBeNull();
+  });
+
+  it("reads Lane S's own 'not in_progress' refusal as already submitted (409), not as a retry", async () => {
+    rpcError = {
+      message: `fn_onemark_record_response: attempt ${ATTEMPT_ID} is submitted, not in_progress (single submission, decision 19)`,
+    };
+    const res = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    expect(res.status).toBe(409);
+    expect((await res.json()).alreadySubmitted).toBe(true);
+  });
+
   it('answers 503 in plain words while Lane S’s RPC is not yet applied', async () => {
     rpcError = { message: 'Could not find the function public.fn_onemark_record_response' };
     const res = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
@@ -406,16 +567,61 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/finalize', () => {
     expect(rpcCalls.some((c) => c.fn === 'fn_onemark_finalize_attempt')).toBe(false);
   });
 
-  it('caps the blanks a caller may name so the key cannot be dumped by naming ids', async () => {
+  it('caps the blanks a caller may name at ONE sitting (onemark.paper.question_count)', async () => {
     const ids = Array.from({ length: 80 }, (_, i) => `44444444-2222-4333-8444-${String(i).padStart(12, '0')}`);
-    itemRows = [];
+    // Every named id is a real, active item of the subject — the cap alone
+    // must hold the line.
+    itemRows = ids.map((id) => ({ id, exam_definition_id: EXAM_ID, is_active: true }));
+    responseRows = [];
     await finalize(post({ skippedItemIds: ids }), params(ATTEMPT_ID));
     const skips = rpcCalls.filter((c) => c.fn === 'fn_onemark_record_response');
-    expect(skips.length).toBeLessThanOrEqual(50);
+    expect(skips).toHaveLength(OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_QUESTION_COUNT]);
+  });
+
+  it('derives the blanks of a LIVE paper from the paper itself and ignores caller-named ids', async () => {
+    attemptRow = { ...(attemptRow as any), mode: 'live', assessment_id: PAPER_ID };
+    assessmentRow = closedPaper();
+    paperItemRows = [
+      { item_id: ITEM_ID, position: 1 },
+      { item_id: 'paper-item-2', position: 2 },
+      { item_id: 'paper-item-3', position: 3 },
+    ];
+    responseRows = [{ item_id: ITEM_ID, chosen: 'B', is_correct: false, time_ms: 900, skipped: false, created_at: '2026-09-04T05:00:01Z' }];
+    const foreign = '44444444-2222-4333-8444-000000000099';
+    const res = await finalize(post({ skippedItemIds: [foreign] }), params(ATTEMPT_ID));
+    expect(res.status).toBe(200);
+    const skips = rpcCalls.filter((c) => c.fn === 'fn_onemark_record_response');
+    expect(skips.map((c) => c.args.p_item_id).sort()).toEqual(['paper-item-2', 'paper-item-3']);
+    expect(skips.some((c) => c.args.p_item_id === foreign)).toBe(false);
+  });
+
+  it("treats Lane S's 'not in_progress' refusal at finalize as already submitted and still returns the review", async () => {
+    rpcError = {
+      message: `fn_onemark_finalize_attempt: attempt ${ATTEMPT_ID} is submitted, not in_progress (single submission, decision 19)`,
+    };
+    const res = await finalize(post({ skippedItemIds: [] }), params(ATTEMPT_ID));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.alreadySubmitted).toBe(true);
+    expect(body.questions).toHaveLength(2);
+  });
+
+  it('names the score unit so nobody averages a count with the legacy ratio', async () => {
+    const body = await (await finalize(post({}), params(ATTEMPT_ID))).json();
+    expect(body.scoreUnit).toBe('correct_count');
   });
 });
 
 describe('upcomingVaultDays', () => {
+  it('buckets by the VIEWER’S calendar day, not the UTC day', () => {
+    const at = new Date(2026, 8, 6, 1, 30); // 01:30 local on 6 Sep, whatever the zone
+    expect(localDayKey(at)).toBe('2026-09-06');
+    const rows: any[] = [{ status: 'active', next_eligible_at: at.toISOString() }];
+    expect(upcomingVaultDays(rows, new Date(2026, 8, 5).getTime())).toEqual([
+      { day: '2026-09-06', count: 1 },
+    ]);
+  });
+
   it('groups active future rows by day and ignores mastered and due-now rows', () => {
     const now = Date.parse('2026-09-04T06:00:00Z');
     const rows: any[] = [

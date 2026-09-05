@@ -2,8 +2,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import {
+  ALREADY_SUBMITTED,
   ATTEMPT_COLUMNS,
   DEADLINE_GRACE_MS,
+  RPC_MISSING,
   UUID_RE,
   admin as adminClient,
   deadlineFor,
@@ -173,7 +175,19 @@ export async function POST(
       },
     );
     if (rpcError) {
-      const missing = /could not find the function|does not exist/i.test(rpcError.message ?? '');
+      const msg = rpcError.message ?? '';
+      // The RPC's own refusals, told apart so the runner can act on them:
+      // a closed attempt (decision 19) is "already submitted", not a retry.
+      if (ALREADY_SUBMITTED.test(msg)) {
+        return NextResponse.json(
+          { error: 'This sitting has already been submitted.', alreadySubmitted: true },
+          { status: 409 },
+        );
+      }
+      if (/not authorized/i.test(msg)) {
+        return NextResponse.json({ error: 'That sitting could not be found.' }, { status: 404 });
+      }
+      const missing = RPC_MISSING.test(msg);
       return NextResponse.json(
         {
           error: missing
@@ -184,7 +198,11 @@ export async function POST(
       );
     }
 
-    const isCorrect = skipped ? null : verdict?.is_correct === true;
+    // The RPC withholds is_correct / vault_status / streak (returns NULL) on a
+    // timed or live paper — the verdict is released at finalize. NULL is
+    // reported as null, never coerced to "wrong".
+    const isCorrect =
+      skipped ? null : typeof verdict?.is_correct === 'boolean' ? verdict.is_correct : null;
     const reveal =
       !skipped && (attempt.mode === 'practice' || attempt.mode === 'vault_review')
         ? {

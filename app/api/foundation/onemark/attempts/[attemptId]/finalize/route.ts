@@ -3,11 +3,13 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import {
   ATTEMPT_COLUMNS,
-  MAX_SKIPPED_IDS,
   UUID_RE,
   admin as adminClient,
+  closeSitting,
+  liveBlankItemIds,
   normaliseAnswer,
   resolveCaller,
+  sittingQuestionCount,
   type AttemptRow,
 } from '@/lib/services/onemark/attempt-server';
 
@@ -25,6 +27,16 @@ import {
 // refused second call is answered here with 409 plus the stored result, so a
 // learner who tries again sees their score rather than an error.
 //
+// WHICH BLANKS ARE ACCEPTED
+//   live      the paper is a fixed list (fp_assessment_items), so the blanks
+//             are DERIVED here — every paper question without a response —
+//             and the caller's list is ignored. Nothing off the paper can be
+//             named into the review.
+//   others    the draw is not persisted (fp_attempts has no column for it;
+//             that is a Lane S schema matter), so the caller's list is
+//             filtered to active items of the same subject not yet answered
+//             and CAPPED at one sitting's worth (onemark.paper.question_count).
+//
 // CORRECTNESS IS READ, NEVER RECOMPUTED. fp_responses.is_correct was written
 // by the RPC; this route reports it. The answer key and explanations are the
 // payload here because the sitting is over — the review is the point.
@@ -35,9 +47,6 @@ import {
 interface FinalizeBody {
   skippedItemIds?: unknown;
 }
-
-const RPC_MISSING = /could not find the function|does not exist/i;
-const ALREADY_SUBMITTED = /already (been )?submitted|already finali[sz]ed/i;
 
 export async function POST(
   request: NextRequest,
@@ -56,10 +65,10 @@ export async function POST(
     } catch {
       body = {};
     }
-    const requestedSkips = Array.isArray(body.skippedItemIds)
-      ? (body.skippedItemIds as unknown[])
-          .filter((s): s is string => typeof s === 'string' && UUID_RE.test(s))
-          .slice(0, MAX_SKIPPED_IDS)
+    const namedSkips = Array.isArray(body.skippedItemIds)
+      ? (body.skippedItemIds as unknown[]).filter(
+          (s): s is string => typeof s === 'string' && UUID_RE.test(s),
+        )
       : [];
 
     const caller = await resolveCaller();
@@ -87,9 +96,13 @@ export async function POST(
     let alreadySubmitted = attempt.status === 'submitted';
 
     if (!alreadySubmitted) {
-      // ---- Record the blanks as skips -------------------------------------
-      // Only ids this sitting could have shown, and never one already answered.
-      if (requestedSkips.length > 0) {
+      // ---- Which questions were left blank ----------------------------------
+      let blanks: string[] = [];
+      if (attempt.mode === 'live') {
+        blanks = await liveBlankItemIds(admin, attempt);
+      } else if (namedSkips.length > 0) {
+        const cap = await sittingQuestionCount(admin);
+        const requested = new Set(namedSkips.slice(0, cap));
         const { data: assessment } = await admin
           .from('fp_assessments')
           .select('id, exam_definition_id')
@@ -103,69 +116,29 @@ export async function POST(
         const { data: candidates } = await admin
           .from('fp_items')
           .select('id, exam_definition_id, is_active')
-          .in('id', requestedSkips);
-        let allowed = (candidates ?? [])
+          .in('id', [...requested]);
+        blanks = (candidates ?? [])
           .filter(
             (it: any) =>
+              requested.has(it.id) &&
               it.is_active &&
               assessment &&
               it.exam_definition_id === assessment.exam_definition_id &&
               !done.has(it.id),
           )
-          .map((it: any) => it.id as string);
-        if (attempt.mode === 'live' && allowed.length > 0) {
-          const { data: onPaper } = await admin
-            .from('fp_assessment_items')
-            .select('item_id')
-            .eq('assessment_id', attempt.assessment_id)
-            .in('item_id', allowed);
-          const paperSet = new Set((onPaper ?? []).map((r: any) => r.item_id));
-          allowed = allowed.filter((id) => paperSet.has(id));
-        }
-        for (const itemId of allowed) {
-          const { error: skipError } = await (supabase as any).rpc(
-            'fn_onemark_record_response',
-            {
-              p_attempt_id: attempt.id,
-              p_item_id: itemId,
-              p_chosen: null,
-              p_skipped: true,
-              p_time_ms: null,
-            },
-          );
-          if (skipError) {
-            return NextResponse.json(
-              {
-                error: RPC_MISSING.test(skipError.message ?? '')
-                  ? 'Submitting is not switched on yet. Please tell whoever runs the programme at your school.'
-                  : 'The sitting could not be closed. Please try again.',
-              },
-              { status: RPC_MISSING.test(skipError.message ?? '') ? 503 : 400 },
-            );
-          }
-        }
+          .map((it: any) => it.id as string)
+          .slice(0, cap);
       }
 
-      // ---- Close it, via Lane S's RPC ---------------------------------------
-      const { error: finalError } = await (supabase as any).rpc(
-        'fn_onemark_finalize_attempt',
-        { p_attempt_id: attempt.id },
-      );
-      if (finalError) {
-        const msg = finalError.message ?? '';
-        if (ALREADY_SUBMITTED.test(msg)) {
-          alreadySubmitted = true;
-        } else {
-          return NextResponse.json(
-            {
-              error: RPC_MISSING.test(msg)
-                ? 'Submitting is not switched on yet. Please tell whoever runs the programme at your school.'
-                : 'The sitting could not be closed. Please try again.',
-            },
-            { status: RPC_MISSING.test(msg) ? 503 : 400 },
-          );
-        }
+      // ---- Skips in, then close, via Lane S's RPCs ---------------------------
+      const outcome = await closeSitting(supabase, attempt.id, blanks);
+      if (outcome.error) {
+        return NextResponse.json(
+          { error: outcome.error.message },
+          { status: outcome.error.status },
+        );
       }
+      alreadySubmitted = outcome.alreadySubmitted;
     }
 
     // ---- The review ------------------------------------------------------------
@@ -221,8 +194,12 @@ export async function POST(
       attemptId: attempt.id,
       mode: attempt.mode,
       submittedAt: closed?.submitted_at ?? attempt.submitted_at,
-      // The RPC's score is count(is_correct); reported as stored.
+      // The RPC's score is count(is_correct); reported as stored. NOTE the
+      // unit: fp_attempts.score is a 0..1 RATIO on legacy Foundation rows
+      // (fn_fp_record_attempt) and a COUNT on OneMark rows (mode NOT NULL).
+      // Said out loud here so no reader averages the two.
       score: closed?.score ?? attempt.score ?? correct,
+      scoreUnit: 'correct_count',
       correct,
       answered,
       skipped,

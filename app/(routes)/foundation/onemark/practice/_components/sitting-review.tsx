@@ -35,7 +35,7 @@ export function SittingReviewView({
         </div>
         {review.alreadySubmitted && (
           <p className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            This paper was already submitted. Here is the result that stands — it cannot be sat again.
+            This paper is submitted. Here is the result that stands — it cannot be sat again.
           </p>
         )}
         <p className="mt-3 text-base text-foreground">
