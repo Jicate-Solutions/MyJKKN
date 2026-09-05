@@ -15,6 +15,7 @@ import { FavoriteStar } from '../Favorites/FavoriteStar';
 import { derivePageInfo } from '@/lib/navigation/derive-page-info';
 import { useInstitutionType } from '@/hooks/use-institution-type';
 import { adaptLabel } from '@/lib/utils/school-label-adapter';
+import { cn } from '@/lib/utils';
 
 
 interface NavbarProps {
@@ -77,6 +78,19 @@ export function Navbar({ title }: NavbarProps) {
 
   const resolvedTitle = adaptLabel(title ?? currentPage?.title ?? '', institutionType);
 
+  // A3 (Director, 2026-08-09) — /dashboard ONLY. The shell prints the same word
+  // twice within ~40px: this header <h1> ("Dashboard") and the AutoBreadcrumbs
+  // trail ("Home › Dashboard") rendered directly beneath it. On a 387px phone
+  // that is two lines of the first screenful spent saying nothing. The Director
+  // chose to keep the breadcrumb and drop the heading.
+  //
+  // Hidden VISUALLY, not removed: this <h1> is the only level-1 heading on
+  // /dashboard (the page itself renders no <h1>), so deleting it would leave
+  // the route with zero headings for screen readers and the crumb is not a
+  // substitute. Exact match, not startsWith — /dashboard/* sub-pages and every
+  // other route keep their visible heading unchanged.
+  const hideVisibleTitle = pathname === '/dashboard';
+
   const handleLogout = async () => {
     try {
       await AuthService.signOut();
@@ -90,7 +104,14 @@ export function Navbar({ title }: NavbarProps) {
       <div className='mx-2 sm:mx-8 flex h-14 items-center justify-between gap-2'>
         <div className='flex min-w-0 flex-1 items-center space-x-2 sm:space-x-4 lg:space-x-0'>
           <SheetMenu />
-          <h1 className='font-bold text-foreground text-sm sm:text-base truncate min-w-0 max-w-[180px] sm:max-w-[300px] md:max-w-none'>{resolvedTitle}</h1>
+          <h1
+            className={cn(
+              'font-bold text-foreground text-sm sm:text-base truncate min-w-0 max-w-[180px] sm:max-w-[300px] md:max-w-none',
+              hideVisibleTitle && 'sr-only'
+            )}
+          >
+            {resolvedTitle}
+          </h1>
           {currentPage && (
             <Suspense
               fallback={

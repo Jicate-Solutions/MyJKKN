@@ -1348,7 +1348,7 @@ function LeadDetailPageContent() {
                   />
                 </>
               ) : (
-                <PermissionGuard module="admission" action="leads.convert_to_admitted">
+                <PermissionGuard module="admission" action="leads.convert_to_admitted" fallback={null}>
                   <Button
                     variant="default"
                     size="sm"

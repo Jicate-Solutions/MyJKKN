@@ -8,6 +8,7 @@
 //   D9  — a department is not charged for time it could not end
 //   D12 — a day with no reading is never a zero, and the gap is not a failure
 //   D13 — the symptom/system split, and when a run of symptoms is visible
+//   D9  — an unowned area names the kind of work, never the unreachable person
 //
 // These are pure functions, so none of this needs a database or a browser.
 // ============================================================================
@@ -17,6 +18,7 @@ import {
   areaCellKey,
   buildCoverageBoard,
   buildFixBoard,
+  buildOwnershipBoard,
   buildSplitBoard,
   daysToVerifiedClosure,
   describeStepFeed,
@@ -506,5 +508,223 @@ describe('D13 — one action versus a missing system', () => {
     foreign.metadata = { source: 'meetings', kind: 'symptom' };
     const board = buildSplitBoard([foreign]);
     expect(board.symptomCount).toBe(0);
+  });
+});
+
+// ── Where nobody is attached ────────────────────────────────────────────────
+//
+// The signal that was recorded and told to nobody. Two conditions belong to
+// it and they are deliberately NOT the same as `NOBODY WAS PAGED`, which
+// keeps its own factual meaning (nothing was delivered to anyone) in
+// lib/campus-walk/urgent-alert.ts, untouched by any of this.
+
+describe('an unowned area is surfaced, and it names work rather than people', () => {
+  it('counts the flag intake already writes, and groups it by kind of work', () => {
+    const board = buildOwnershipBoard([
+      task({
+        metadata: {
+          accountable_routed_to_eao_no_owner: true,
+          category: 'Housekeeping / Cleanliness'
+        }
+      }),
+      task({
+        metadata: {
+          accountable_routed_to_eao_no_owner: true,
+          category: 'housekeeping / cleanliness'
+        }
+      }),
+      task({ metadata: { accountable_routed_to_eao_no_owner: true, category: 'Electrical' } }),
+      task({ metadata: { accountable_routed_to_eao_no_owner: false, category: 'Plumbing' } })
+    ]);
+
+    expect(board.observations).toBe(4);
+    expect(board.unowned).toBe(3);
+    // Biggest first, and one spelling of a kind of work, not two.
+    expect(board.unownedByCategory.map((r) => r.category)).toEqual([
+      'Housekeeping / Cleanliness',
+      'Electrical'
+    ]);
+    expect(board.unownedByCategory[0].unownedCount).toBe(2);
+  });
+
+  it('never carries a person — the row shape has nowhere to put one (D9)', () => {
+    const board = buildOwnershipBoard([
+      task({
+        owner_staff_id: 'staff-row-a',
+        metadata: {
+          accountable_routed_to_eao_no_owner: true,
+          category: 'Electrical',
+          unsafe: true,
+          urgent_alert: {
+            attempted: true,
+            delivered: 1,
+            usedFallback: false,
+            attempts: [
+              { profile_id: 'person-who-was-not-reached', role: 'accountable', ok: false },
+              { profile_id: 'director-1', role: 'director_copy', ok: true }
+            ]
+          }
+        }
+      })
+    ]);
+
+    const serialised = JSON.stringify(board);
+    expect(serialised).not.toContain('person-who-was-not-reached');
+    expect(serialised).not.toContain('director-1');
+    expect(serialised).not.toContain('staff-row-a');
+    expect(serialised).not.toContain('profile_id');
+  });
+
+  it('separates "nobody is attached" from "the owner could not be reached"', () => {
+    // An owner WAS resolved and reachable; only the ownership flag is absent.
+    const board = buildOwnershipBoard([
+      task({
+        metadata: {
+          accountable_routed_to_eao_no_owner: false,
+          unsafe: true,
+          urgent_alert: {
+            attempted: true,
+            delivered: 2,
+            usedFallback: false,
+            attempts: [
+              { profile_id: 'a', role: 'accountable', ok: true },
+              { profile_id: 'd', role: 'director_copy', ok: true }
+            ]
+          }
+        }
+      })
+    ]);
+    expect(board.unowned).toBe(0);
+    expect(board.unreachableOwners).toHaveLength(0);
+  });
+
+  it('catches the case a delivered Director copy hides (PR #3267)', () => {
+    // The Accountable's own send failed while the standing Director copy
+    // succeeded, so `delivered` is 1 and NOBODY WAS PAGED correctly stays
+    // down. The person who must ACT was still not reached, and only this
+    // surfaces it.
+    const board = buildOwnershipBoard([
+      task({
+        title: 'Exposed wire, Block C',
+        metadata: {
+          category: 'Electrical',
+          unsafe: true,
+          urgent_alert: {
+            attempted: true,
+            delivered: 1,
+            usedFallback: false,
+            at: '2026-09-04T06:00:00.000Z',
+            attempts: [
+              { profile_id: 'a', role: 'accountable', ok: false, error: 'phone off' },
+              { profile_id: 'd', role: 'director_copy', ok: true }
+            ]
+          }
+        }
+      })
+    ]);
+
+    expect(board.unreachableOwners).toHaveLength(1);
+    expect(board.unreachableOwners[0].title).toBe('Exposed wire, Block C');
+    expect(board.unreachableOwners[0].reason).toBe('send_failed');
+    expect(board.unreachableOwners[0].someoneElseWasReached).toBe(true);
+  });
+
+  it('reads a Director standing in as the owner having no usable number', () => {
+    const board = buildOwnershipBoard([
+      task({
+        metadata: {
+          unsafe: true,
+          urgent_alert: {
+            attempted: true,
+            delivered: 1,
+            usedFallback: true,
+            attempts: [{ profile_id: 'd', role: 'director_fallback', ok: true }]
+          }
+        }
+      })
+    ]);
+    expect(board.unreachableOwners[0].reason).toBe('no_usable_number');
+    expect(board.unreachableOwners[0].someoneElseWasReached).toBe(true);
+  });
+
+  it('says nothing about observations the urgent lane never ran for', () => {
+    const board = buildOwnershipBoard([
+      task({ metadata: { unsafe: false } }),
+      task({ metadata: { unsafe: false, urgent_alert: { attempted: false, delivered: 0 } } })
+    ]);
+    expect(board.unreachableOwners).toHaveLength(0);
+  });
+
+  it('knows the difference between holes in the routing and no routing at all', () => {
+    // TRUE means the list is simply every observation — there is nothing to
+    // compare it against, and the screen says so in plain words instead of
+    // implying a record of who-owns-what exists and has gaps in it.
+    const everything = buildOwnershipBoard([
+      task({ metadata: { accountable_routed_to_eao_no_owner: true, category: 'Electrical' } }),
+      task({ metadata: { accountable_routed_to_eao_no_owner: true, category: 'Plumbing' } })
+    ]);
+    expect(everything.everyObservationIsUnowned).toBe(true);
+
+    const holes = buildOwnershipBoard([
+      task({ metadata: { accountable_routed_to_eao_no_owner: true, category: 'Electrical' } }),
+      task({ metadata: { accountable_routed_to_eao_no_owner: false, category: 'Plumbing' } })
+    ]);
+    expect(holes.everyObservationIsUnowned).toBe(false);
+
+    // No observations at all is not "everything is unowned".
+    expect(buildOwnershipBoard([]).everyObservationIsUnowned).toBe(false);
+  });
+
+  it('counts unsafe reports and separate spots within a kind of work', () => {
+    const board = buildOwnershipBoard([
+      task({
+        metadata: {
+          accountable_routed_to_eao_no_owner: true,
+          category: 'Electrical',
+          unsafe: true,
+          geo: { lat: 11.4445, lng: 77.7302 }
+        }
+      }),
+      task({
+        metadata: {
+          accountable_routed_to_eao_no_owner: true,
+          category: 'Electrical',
+          unsafe: false,
+          geo: { lat: 11.4445, lng: 77.7302 }
+        }
+      }),
+      task({
+        metadata: {
+          accountable_routed_to_eao_no_owner: true,
+          category: 'Electrical',
+          unsafe: false,
+          geo: null
+        }
+      })
+    ]);
+
+    const row = board.unownedByCategory[0];
+    expect(row.unownedCount).toBe(3);
+    expect(row.unsafeCount).toBe(1);
+    // Two reports from one spot is one spot; a report with no location fix
+    // adds none rather than inventing one.
+    expect(row.distinctSpots).toBe(1);
+  });
+
+  it('keeps an uncategorised report rather than dropping it, and sorts it last', () => {
+    const board = buildOwnershipBoard([
+      task({ metadata: { accountable_routed_to_eao_no_owner: true, category: '  ' } }),
+      task({ metadata: { accountable_routed_to_eao_no_owner: true, category: 'Electrical' } })
+    ]);
+    expect(board.unowned).toBe(2);
+    expect(board.unownedByCategory.map((r) => r.category)).toEqual(['Electrical', null]);
+  });
+
+  it('ignores project tasks belonging to other lanes', () => {
+    const foreign = task({});
+    foreign.metadata = { source: 'meetings', accountable_routed_to_eao_no_owner: true };
+    const board = buildOwnershipBoard([foreign]);
+    expect(board.observations).toBe(0);
+    expect(board.unowned).toBe(0);
   });
 });

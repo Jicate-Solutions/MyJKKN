@@ -2,72 +2,76 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { CampusLivingDashboard } from '@/lib/services/campus-living/campus-living-dashboard';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useCampusLivingScope } from '@/hooks/campus-living/use-campus-living-scope';
 
 // Query key factory
 export const campusLivingDashboardKeys = {
   all: ['campus-living-dashboard'] as const,
-  overview: (institutionId: string) => ['campus-living-dashboard', 'overview', institutionId] as const,
-  hostelSummary: (institutionId: string) => ['campus-living-dashboard', 'hostel-summary', institutionId] as const,
-  messSummary: (institutionId: string) => ['campus-living-dashboard', 'mess-summary', institutionId] as const,
-  safetySummary: (institutionId: string) => ['campus-living-dashboard', 'safety-summary', institutionId] as const,
-  alerts: (institutionId: string) => ['campus-living-dashboard', 'alerts', institutionId] as const,
-  recentActivity: (institutionId: string) => ['campus-living-dashboard', 'recent-activity', institutionId] as const,
-  demographics: (institutionId: string) => ['campus-living-dashboard', 'demographics', institutionId] as const,
-  blockCategoryOccupancy: (institutionId: string) =>
-    ['campus-living-dashboard', 'block-category-occupancy', institutionId] as const,
-  institutionResidents: (institutionId: string) =>
-    ['campus-living-dashboard', 'institution-residents', institutionId] as const,
+  overview: (scope: string) => ['campus-living-dashboard', 'overview', scope] as const,
+  hostelSummary: (scope: string) => ['campus-living-dashboard', 'hostel-summary', scope] as const,
+  messSummary: (scope: string) => ['campus-living-dashboard', 'mess-summary', scope] as const,
+  safetySummary: (scope: string) => ['campus-living-dashboard', 'safety-summary', scope] as const,
+  alerts: (scope: string) => ['campus-living-dashboard', 'alerts', scope] as const,
+  recentActivity: (scope: string) => ['campus-living-dashboard', 'recent-activity', scope] as const,
+  demographics: (scope: string) => ['campus-living-dashboard', 'demographics', scope] as const,
+  blockCategoryOccupancy: (scope: string) =>
+    ['campus-living-dashboard', 'block-category-occupancy', scope] as const,
+  institutionResidents: (scope: string) =>
+    ['campus-living-dashboard', 'institution-residents', scope] as const,
 };
 
 // --- Query hooks ---
+//
+// Every hook below resolves the viewer's scope through useCampusLivingScope
+// BEFORE fetching, and keys the cache on the RESOLVED scope. See that hook for
+// why both halves are load-bearing (BUG-005831).
 
 export function useCampusLivingOverview(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingDashboardKeys.overview(institutionId ?? 'all'),
-    queryFn: () => CampusLivingDashboard.getDashboardData(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingDashboardKeys.overview(scopeKey),
+    queryFn: () => CampusLivingDashboard.getDashboardData(serviceArg),
+    enabled: ready,
     staleTime: 2 * 60 * 1000, // 2 minutes — dashboard data refreshes less often
   });
 }
 
 export function useResidentDemographics(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingDashboardKeys.demographics(institutionId ?? 'all'),
-    queryFn: () => CampusLivingDashboard.getResidentDemographics(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingDashboardKeys.demographics(scopeKey),
+    queryFn: () => CampusLivingDashboard.getResidentDemographics(serviceArg),
+    enabled: ready,
     staleTime: 2 * 60 * 1000,
   });
 }
 
 export function useBlockCategoryOccupancy(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingDashboardKeys.blockCategoryOccupancy(institutionId ?? 'all'),
-    queryFn: () => CampusLivingDashboard.getBlockCategoryOccupancy(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingDashboardKeys.blockCategoryOccupancy(scopeKey),
+    queryFn: () => CampusLivingDashboard.getBlockCategoryOccupancy(serviceArg),
+    enabled: ready,
     staleTime: 2 * 60 * 1000,
   });
 }
 
 export function useInstitutionResidents(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingDashboardKeys.institutionResidents(institutionId ?? 'all'),
-    queryFn: () => CampusLivingDashboard.getInstitutionResidents(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingDashboardKeys.institutionResidents(scopeKey),
+    queryFn: () => CampusLivingDashboard.getInstitutionResidents(serviceArg),
+    enabled: ready,
     staleTime: 2 * 60 * 1000,
   });
 }
 
 export function useQuickStats(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingDashboardKeys.hostelSummary(institutionId ?? 'all'),
-    queryFn: () => CampusLivingDashboard.getQuickStats(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingDashboardKeys.hostelSummary(scopeKey),
+    queryFn: () => CampusLivingDashboard.getQuickStats(serviceArg),
+    enabled: ready,
     staleTime: 2 * 60 * 1000,
   });
 }
