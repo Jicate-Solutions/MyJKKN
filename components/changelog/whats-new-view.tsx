@@ -41,26 +41,22 @@ import { KIND_LABEL, type ChangeKind, type ChangelogEntry } from '@/lib/changelo
 
 const PAGE = 60;
 
-const KIND_STYLE: Record<ChangeKind, { icon: typeof Sparkles; chip: string; dot: string }> = {
+const KIND_STYLE: Record<ChangeKind, { icon: typeof Sparkles; chip: string }> = {
   new: {
     icon: Sparkles,
     chip: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-400/20',
-    dot: 'bg-emerald-500',
   },
   fixed: {
     icon: Wrench,
     chip: 'bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-950 dark:text-blue-300 dark:ring-blue-400/20',
-    dot: 'bg-blue-500',
   },
   faster: {
     icon: Gauge,
     chip: 'bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-400/20',
-    dot: 'bg-amber-500',
   },
   security: {
     icon: ShieldCheck,
     chip: 'bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-950 dark:text-rose-300 dark:ring-rose-400/20',
-    dot: 'bg-rose-500',
   },
 };
 
