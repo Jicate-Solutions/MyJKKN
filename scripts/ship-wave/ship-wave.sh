@@ -148,7 +148,9 @@ def minutes_since(iso):
     except Exception: return 1e9
 plan = {"stacked":[], "draft":[], "conflicted":[], "blocked":[], "waiting_ci":[], "quiet_wait":[], "ready":{"LOW":[], "NORMAL":[], "HELD":[]}}
 for p in prs:
-    t, why = tier(p); v, names = ci(p); age = minutes_since(p.get("updatedAt",""))
+    # age = minutes since the last real PUSH (head commit), not since anything touched the PR — a CI re-run
+    # or a comment moves updatedAt and used to restart the 30-min quiet wait (Director 2026-09-05 23:40)
+    t, why = tier(p); v, names = ci(p); age = minutes_since(p.get("headCommittedAt") or p.get("updatedAt",""))
     row = {"number":p["number"], "title":p["title"], "branch":p["headRefName"], "tier":t, "tier_reasons":why,
            "ci":v, "ci_names":names, "state":p["mergeStateStatus"], "files":[f["path"] for f in (p.get("files") or [])], "age_min":int(age),
            "base":p.get("baseRefName") or "?"}
@@ -249,6 +251,8 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
 # BEGIN…ROLLBACK dry-run → BEGIN…COMMIT → record → pgrst reload → verify. Runs BEFORE deploy; any failure FREEZES.
 # shellcheck source=scripts/ship-wave/apply-migrations.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/apply-migrations.sh"
+# shellcheck source=scripts/ship-wave/rebase-remaining.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rebase-remaining.sh"
 
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
@@ -319,13 +323,15 @@ run_once() {
       say "  MERGED $t #$n"; gh pr view "$n" --repo "$REPO" --json files -q '.files[].path' | tee -a "$merged_files" | sed "s/^/$n\t/" >> "$run/merged-map.tsv"; sleep 4; return 0
     else say "  FAILED $t #$n — $(head -c 200 "$run/merge-$n.err")"; return 1; fi
   }
-  if [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
-    for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['LOW']))"); do merge_one "$n" LOW && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; done
+  already_merged() { case " $merged_list " in *" #$1 "*) return 0;; *) return 1;; esac; }
+  merge_tiers() {  # one pass LOW → NORMAL → HELD; bumps merged / merged_list (bash dynamic scope)
+    for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['LOW']))"); do already_merged "$n" || { merge_one "$n" LOW && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; }; done
     if [ -n "$APPROVE_NORMAL" ]; then
-      for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do merge_one "$n" NORMAL && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; done
+      for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do already_merged "$n" || { merge_one "$n" NORMAL && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; }; done
     else say "  NORMAL: $(python3 -c "import json;print(len(json.load(open('$run/plan.json'))['ready']['NORMAL']))") ready — waiting for your tap (run again with --approve-normal)"; fi
     if [ -n "$APPROVE_HELD" ]; then
       for n in $(printf '%s' "$APPROVE_HELD" | tr ', ' '  '); do
+        already_merged "$n" && continue
         python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)" \
           && { merge_one "$n" HELD && { merged=$((merged+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
           || say "  HOLD   HELD #$n — not in this run's ready-HELD list, refusing"
@@ -334,6 +340,20 @@ run_once() {
       local held; held=$(python3 -c "import json;print(' '.join('#'+str(r['number'])+' '+r['title'][:40].replace(' ','_') for r in json.load(open('$run/plan.json'))['ready']['HELD']))")
       [ -n "$held" ] && say "  HELD waiting for your reply (reply with the numbers to ship): $held" || say "  HELD: none ready"
     fi
+  }
+  if [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
+    # Director 2026-09-05 23:40: up to three merge passes per round. After a pass that merged something,
+    # the remaining approved PRs are brought up to date with main (rebase-remaining.sh — the SQL index is
+    # the usual conflict and is kept both-sides), then the pass repeats. The one-index-PR-per-pass gate
+    # still holds inside a pass; it resets between passes because the rebase has absorbed the merge.
+    local pass before_pass
+    for pass in 1 2 3; do
+      before_pass=$merged; INDEX_MERGED=0
+      [ "$pass" -gt 1 ] && say "  merge pass $pass"
+      merge_tiers
+      [ "$merged" -gt "$before_pass" ] || break
+      rebase_remaining "$run" "$merged_list" || break
+    done
     # interview: a merge can turn another PR DIRTY — re-read and send helpers for the NEW conflicts this round
     if [ "$merged" -gt 0 ] && [ "$MAX_DISPATCH" -gt 0 ]; then
       say "  re-checking conflicts after $merged merge(s)…"; sleep 15
@@ -470,6 +490,7 @@ td{{padding:8px 10px;border-top:1px solid var(--ln);vertical-align:top}}tr:first
 <!-- session-provenance v1 --><span>Built by session <b>google chrome setup</b> · <a href="https://claude.ai/code/session_015MShroHA7qe5UvpmCSoXsR">reopen the authoring session</a> · file ship-wave-{os.environ['TS']}.html</span></footer></main></html>"""
 open(sys.argv[1],"w").write(page); print("  report:", sys.argv[1])
 PY
+  LAST_MERGED=$merged   # read by the goal loop: two merge-less rounds in a row end the run
   echo "$after" > "$STATE/last-open-count"
   return 0
 }
@@ -484,6 +505,11 @@ if [ -n "$GOAL" ]; then
     [ "$left" = "0" ] && { say "=== GOAL MET: open PRs = 0 ==="; break; }
     [ -f "$FREEZE" ] && { say "=== FROZEN — goal loop ends; Director must look, then --unfreeze ==="; break; }
     [ "$movable" = "0" ] && { say "=== nothing left this wave can move (rest needs CI, authors, or your approval) — loop ends ==="; break; }
+    # Director 2026-09-05 23:40: a round that merges nothing is usually a round whose blockers need a
+    # human (stale GitHub verdicts, approvals, CI). Sweeping four more times an hour apart changes
+    # nothing — tonight it burned 40 minutes. Two empty rounds in a row end the run.
+    if [ "${LAST_MERGED:-0}" -eq 0 ]; then EMPTY_ROUNDS=$(( ${EMPTY_ROUNDS:-0} + 1 )); else EMPTY_ROUNDS=0; fi
+    [ "${EMPTY_ROUNDS:-0}" -ge 2 ] && { say "=== two rounds in a row merged nothing — loop ends; what is left needs a human (see the plan above) ==="; break; }
     [ "$round" -lt "$GOAL_ROUNDS" ] && sleep $((GOAL_PAUSE_MIN*60))
   done
 else

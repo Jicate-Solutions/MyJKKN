@@ -24,6 +24,9 @@ for p in light:
     x = extra.get(p["number"], {})
     p["files"] = x.get("files", [])
     p["statusCheckRollup"] = x.get("statusCheckRollup", [])
+    # quiet rule (Director 2026-09-05 23:40): only a real push restarts the "author may still be typing"
+    # wait. updatedAt also moves on a CI re-run or a comment — #3164 waited 30 min for a re-run tonight.
+    p["headCommittedAt"] = ((x.get("commits") or [{}])[-1] or {}).get("committedDate", "")
     if x.get("hydrate_failed") or p["number"] not in extra:
         failed += 1
         p["files"] = []
