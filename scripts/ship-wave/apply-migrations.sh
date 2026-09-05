@@ -56,8 +56,9 @@ apply_one() {  # $1 = version → 0 applied · 3 skipped (in history) · 4 DRY_R
     0) say "  $v skipped (already in history)"; return 3;;
     2) freeze "migration $v: the history query failed (401 = stale access token, not a missing table)"; return 1;;
   esac
-  # 3. additive only — comments stripped first: #2806's migration says "truncate" in a remark on line 27
-  if sed -E 's/--.*$//' "$file" | grep -iqE '\b(DROP[[:space:]]+(TABLE|COLUMN|SCHEMA)|TRUNCATE|DELETE[[:space:]]+FROM)\b'; then
+  # 3. additive only — comments AND quoted strings stripped first: #2806 says "truncate" in a remark, and
+  #    20260905010000 checks has_table_privilege(…, 'TRUNCATE') as a security self-test — neither is a statement
+  if sed -E "s/--.*\$//; s/'[^']*'//g" "$file" | grep -iqE '\b(DROP[[:space:]]+(TABLE|COLUMN|SCHEMA)|TRUNCATE|DELETE[[:space:]]+FROM)\b'; then
     freeze "migration $v: destructive statement in $base — a human applies this one after review"; return 1; fi
   # 4. dry-run inside a rolled-back transaction: catches a missing dependency without persisting anything
   { echo "BEGIN;"; cat "$file"; echo "ROLLBACK;"; } > "$file.dry"
