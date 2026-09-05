@@ -298,6 +298,7 @@ run_once() {
   # ── 3. merge by tier ───────────────────────────────────────────────────────
   say; say "--- 3. merge: LOW unattended · NORMAL needs --approve-normal · HELD needs --approve-held ---"
   local merged=0 merged_list="" merged_files="$run/merged-files.txt"; : > "$merged_files"; : > "$run/merged-map.tsv"
+  INDEX_MERGED=0
   merge_one() {  # $1=number $2=tier — re-verify the instant before the irreversible step
     local n="$1" t="$2" st i
     for i in 1 2 3 4 5 6; do
@@ -305,6 +306,12 @@ run_once() {
       [ "$st" = "OPEN UNKNOWN false" ] && { sleep 10; continue; }; break
     done
     if [ "$st" != "OPEN CLEAN false" ]; then say "  HOLD   $t #$n — state now '$st' (changed since sweep), not merging"; return 1; fi
+    # Director 14:45: SQL_FILE_INDEX.md is a hand-edited append-only ledger — every merge that touches it re-conflicts
+    # every other PR touching it. So at most ONE index-touching PR merges per round; the rest wait for the next sweep.
+    if python3 -c "import json,sys;p=json.load(open('$run/plan.json'));rows=[r for b in ('LOW','NORMAL','HELD') for r in p['ready'][b]]+p['quiet_wait'];sys.exit(0 if any(r['number']==$n and 'supabase/SQL_FILE_INDEX.md' in r['files'] for r in rows) else 1)" 2>/dev/null; then
+      if [ "${INDEX_MERGED:-0}" -ge 1 ]; then say "  HOLD   $t #$n — touches SQL_FILE_INDEX.md and one index PR already merged this round (next round)"; return 1; fi
+      INDEX_MERGED=$(( ${INDEX_MERGED:-0} + 1 ))
+    fi
     local runs; runs=$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup -q '[.statusCheckRollup[]? | select((.conclusion // "" | ascii_upcase) as $c | $c=="FAILURE" or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED" or ((.status // "" | ascii_upcase) as $s | $s=="IN_PROGRESS" or $s=="QUEUED" or $s=="PENDING"))] | length')
     [ "${runs:-0}" != "0" ] && { say "  HOLD   $t #$n — $runs check(s) failing/pending at merge time"; return 1; }
     if gh pr merge "$n" --repo "$REPO" --squash --delete-branch >/dev/null 2>"$run/merge-$n.err"; then
