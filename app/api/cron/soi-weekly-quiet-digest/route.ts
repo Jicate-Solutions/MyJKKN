@@ -25,7 +25,7 @@
 //   all, so the honest live answer today is one of the first two.
 //
 // WOKEN BY THE DISPATCHER, DAILY. Registered as ai_routine_schedules row
-// 'soi-weekly-quiet-digest' (seeded by 20260808230000), fired by
+// 'soi-weekly-quiet-digest' (seeded by 20260808230100), fired by
 // /api/cron/ai-routine-dispatcher — NOT a raw vercel.json cron, which holds 100
 // entries and is the wrong place for a schedule a coordinator should be able to
 // change. It is woken every day and SENDS only on soi.digest.weekday, so the day
