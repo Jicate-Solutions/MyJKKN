@@ -57,6 +57,17 @@ export interface NotificationTargeting {
   semester_id?: string;
   section_id?: string;
   target_roles?: string[];
+  /**
+   * Saved-audience ids resolved through the `resolve_audience` RPC.
+   *
+   * Declared here because the send route already reads it in two places
+   * (app/api/notifications/send/route.ts — the fail-closed audience guard and
+   * the resolver). It was missing from this interface, which left two TS2339
+   * errors sitting in that file on main; `typescript.ignoreBuildErrors` masks
+   * them at build time and TypeCheck (PR-scoped) is file-scoped, so they surface
+   * against whichever PR next touches the file. Purely additive and optional.
+   */
+  audience_ids?: string[];
 }
 
 export interface NotificationAttachment {
