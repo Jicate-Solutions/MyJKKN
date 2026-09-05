@@ -127,6 +127,11 @@ describe('Foundation Senior Learner lane — OneMark composition', () => {
 
   it('exposes the learner lane, gated on practice.take, with the OneMark sitting steps', () => {
     const learner = (foundationGuide.lanes as any).learner;
+    // Lane V's primary control and MODE_LABEL read "Practice" (page.tsx, onemark-runner.tsx);
+    // "Practise" on that branch is only prose for the older /foundation/practice module.
+    const learnerText = JSON.stringify(learner);
+    expect(learnerText).toContain('**Practice**');
+    expect(learnerText).not.toContain('Practise');
     expect(learner).toBeDefined();
     const onemark = (learner.sections as Array<any>).find((s) => s.id === 'onemark-practice');
     expect(onemark).toBeDefined();

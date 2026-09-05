@@ -29,6 +29,7 @@ const CONSOLE = '/foundation/console';
 const PAPER = '/foundation/onemark/paper';
 const REVIEW = '/foundation/onemark/review';
 const PRACTICE = '/foundation/onemark/practice';
+const ONEMARK_HUB = '/foundation/onemark';
 const OPERATOR_LABEL = 'Foundation Programme';
 
 /** Holds the hub key and nothing else in the module — the round-1 regression shape. */
@@ -140,5 +141,43 @@ describe('proxy trie — /foundation/onemark/* is NARROWED to each screen’s ow
     expect(routeMatcher.hasAccess(PAPER, 'x', APPROVER_ONLY.permissions)).toBe(false);
     expect(routeMatcher.hasAccess(PRACTICE, 'x', LEARNER.permissions)).toBe(true);
     expect(routeMatcher.hasAccess(PAPER, 'x', LEARNER.permissions)).toBe(false);
+  });
+});
+
+describe('OneMark hub — /foundation/onemark (Lane I page, Lane R key)', () => {
+  // The hub renders permission-filtered cards (practice / paper / review) and
+  // its own access panel when none apply, so it is keyed on the widest key
+  // every OneMark audience holds. Before this entry the trie fell through to
+  // '/foundation' -> foundation.dashboard.view and a practice.take-only role
+  // bounced to /unauthorized before the hub could render its card.
+  it('maps the hub to foundation.practice.take and keeps the three child keys', () => {
+    expect(MENU_PERMISSIONS[ONEMARK_HUB]).toBe('foundation.practice.take');
+    expect(MENU_PERMISSIONS[PAPER]).toBe('foundation.assessments.manage');
+    expect(MENU_PERMISSIONS[REVIEW]).toBe('foundation.items.manage');
+    expect(MENU_PERMISSIONS[PRACTICE]).toBe('foundation.practice.take');
+  });
+
+  it('lets a learner and school_faculty reach the hub, and no longer the hub-only dashboard.view holder', () => {
+    expect(routeMatcher.hasAccess(ONEMARK_HUB, 'x', LEARNER.permissions)).toBe(true);
+    expect(routeMatcher.hasAccess(ONEMARK_HUB, 'x', SCHOOL_FACULTY.permissions)).toBe(true);
+    // Previously TRUE by prefix fall-through to '/foundation'; now the hub has its own node.
+    expect(routeMatcher.hasAccess(ONEMARK_HUB, 'x', DASH_ONLY.permissions)).toBe(false);
+    expect(routeMatcher.hasAccess(ONEMARK_HUB, 'x', OUTSIDER.permissions)).toBe(false);
+  });
+
+  it('DISCLOSED EDGE: a role holding only items.manage cannot open the hub, only its own review screen', () => {
+    // practice.take is the widest key, not a universal one. Such a role still
+    // has a sidebar door straight to /foundation/onemark/review.
+    expect(routeMatcher.hasAccess(ONEMARK_HUB, 'x', APPROVER_ONLY.permissions)).toBe(false);
+    expect(routeMatcher.hasAccess(REVIEW, 'x', APPROVER_ONLY.permissions)).toBe(true);
+    expect(subHrefs(APPROVER_ONLY)).toEqual([REVIEW]);
+  });
+
+  it('has NO sidebar row of its own — a hub child under the operator accordion would leak it to every learner', () => {
+    for (const role of [DASH_ONLY, SCHOOL_FACULTY, LEARNER, APPROVER_ONLY, OUTSIDER]) {
+      expect(flatHrefs(role)).not.toContain(ONEMARK_HUB);
+      expect(subHrefs(role)).not.toContain(ONEMARK_HUB);
+    }
+    expect(operatorRow(LEARNER)).toBeUndefined();
   });
 });

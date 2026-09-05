@@ -264,9 +264,9 @@ export const GUIDES: GuideBook = {
           steps: [
             {
               action:
-                "Open **OneMark Practice** and pick your subject. There are four ways to sit: **Practise**, **Timed**, an **Assigned paper** and the **Mistake Vault**.",
+                "Open **OneMark Practice** and pick your subject. There are four ways to sit: **Practice**, **Timed**, an **Assigned paper** and the **Mistake Vault**.",
               detail:
-                "Practise is untimed and shows the explanation as you go. A Timed paper submits itself when the clock runs out. An Assigned paper (it opens as a Live paper) is one your Senior Learner published — you get one go. The Mistake Vault brings back what you got wrong, when it is due.",
+                "Practice is untimed and shows the explanation as you go. A Timed paper submits itself when the clock runs out. An Assigned paper (it opens as a Live paper) is one your Senior Learner published — you get one go. The Mistake Vault brings back what you got wrong, when it is due.",
               prerequisite:
                 "You have to be on the Foundation programme first. If the page says you are not on it yet, or that no subject is ready yet, nothing is broken — the questions are still being approved.",
               platforms: {

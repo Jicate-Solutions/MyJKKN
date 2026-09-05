@@ -189,6 +189,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // at these three nodes instead of falling through to '/foundation' — which
   // NARROWS server-side access to /foundation/onemark/* from dashboard.view
   // to each screen's own key.
+  // The OneMark hub (Lane I's app/(routes)/foundation/onemark/page.tsx) renders
+  // permission-filtered cards for practice / paper / review and its own
+  // access panel when none apply. Keyed on the widest key every OneMark
+  // audience holds (learners and school_faculty both): without this entry
+  // the trie resolved the hub to '/foundation' -> foundation.dashboard.view
+  // and a role holding only practice.take bounced to /unauthorized. Not a
+  // sidebar row: a hub child under 'Foundation Programme' keyed on
+  // practice.take would reveal the operator accordion to every learner.
+  '/foundation/onemark': 'foundation.practice.take',
   '/foundation/onemark/paper': 'foundation.assessments.manage',
   '/foundation/onemark/review': 'foundation.items.manage',
   '/foundation/onemark/practice': 'foundation.practice.take',
