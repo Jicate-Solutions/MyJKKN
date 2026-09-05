@@ -177,11 +177,10 @@ export async function GET(request: NextRequest) {
       exam_reference,
     };
     return NextResponse.json(body);
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message ?? 'Could not load the paper wizard' },
-      { status: 500 },
-    );
+  } catch (err) {
+    // Database / RPC strings stay on the server; the browser gets a fixed line.
+    console.error('[onemark/paper] GET failed', err);
+    return NextResponse.json({ error: 'Could not load the paper wizard. Please try again.' }, { status: 500 });
   }
 }
 
@@ -253,10 +252,8 @@ export async function POST(request: NextRequest) {
       canSeeAnswers: g.canSeeAnswers,
     });
     return NextResponse.json({ paper }, { status: 201 });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message ?? 'Could not create the paper' },
-      { status: 500 },
-    );
+  } catch (err) {
+    console.error('[onemark/paper] POST failed', err);
+    return NextResponse.json({ error: 'Could not create the paper. Please try again.' }, { status: 500 });
   }
 }

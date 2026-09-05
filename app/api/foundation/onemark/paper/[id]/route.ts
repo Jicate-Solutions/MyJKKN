@@ -315,8 +315,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     if (!loaded) return bad('Paper not found.', 404);
     if (loaded === 'not_owner') return bad(NOT_OWNER, 403);
     return respond(supabase, loaded, g.userId, g.canSeeAnswers);
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? 'Could not load the paper' }, { status: 500 });
+  } catch (err) {
+    // Database / RPC strings stay on the server; the browser gets a fixed line.
+    console.error('[onemark/paper] GET [id] failed', err);
+    return NextResponse.json({ error: 'Could not load the paper. Please try again.' }, { status: 500 });
   }
 }
 
@@ -678,7 +680,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       default:
         return bad(`Unknown action "${(body as any).action}"`);
     }
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? 'Could not update the paper' }, { status: 500 });
+  } catch (err) {
+    console.error('[onemark/paper] PATCH [id] failed', err);
+    return NextResponse.json({ error: 'Could not update the paper. Please try again.' }, { status: 500 });
   }
 }
