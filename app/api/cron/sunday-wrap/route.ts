@@ -11,8 +11,10 @@
 //   2. Enumerate active users by persona.
 //   3. For each user, compute their current composite score via the
 //      auth-bypass helper that matches their role (where available).
-//   4. Insert a notification row targeted at that user (priority='high',
+//   4. Fan out a notification to that user (priority='high',
 //      category='doctrines:sunday-wrap', idempotency_key guards repeats).
+//      Fan-out = a `notifications` row PLUS its `user_notifications` link row;
+//      without the link the card never reaches the bell.
 //   5. Send a web push via the shared push_subscriptions infrastructure.
 //
 // NO WhatsApp — explicit thrash-lock from Doctrines v1 spec.
@@ -29,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import webpush from 'web-push';
 import { SUNDAY_WRAP_ANCHOR, buildIdempotencyKey } from '@/lib/habits/anchor-schedule';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
@@ -153,32 +156,44 @@ export async function GET(request: NextRequest) {
     const scoreLine = score != null ? ` Composite: ${score}/100${bandLabel ? ` (${bandLabel})` : ''}.` : '';
     const body = `Week ${week} is in the books.${scoreLine} Open your dashboard for insights and next-week priorities.`;
 
-    const { data: inserted, error: insertErr } = await serviceClient
-      .from('notifications')
-      .insert({
+    // Delivering an in-app wrap takes TWO writes, not one. The bell and inbox
+    // read `user_notifications` with an `!inner` join back to `notifications`
+    // (lib/services/notification/notification-service.ts), and there is no DB
+    // trigger that fans out — so a `notifications` row with no matching
+    // `user_notifications` link row is invisible to its recipient forever.
+    // Until 2026-08-25 this route wrote only the parent row: the web push below
+    // landed on the phone, and the card it pointed at was never in the bell.
+    // fanoutNotification does both writes (and is the canonical helper).
+    let notificationId: string;
+    try {
+      const fanout = await fanoutNotification(serviceClient, {
         title,
         body,
+        userIds: [user.id],
+        createdBy: user.id,
         url: '/dashboard',
         icon: '/icons/icon-192x192.png',
-        created_by: user.id,
-        targeting: { user_ids: [user.id] },
         priority: 'high',
         category: `doctrines:${SUNDAY_WRAP_ANCHOR.key}`,
-        idempotency_key: idempKey,
-        expires_at: expiresAt,
+        idempotencyKey: idempKey,
+        // expires_at is a real production column with no first-class option on
+        // the helper; the TTL above is what stops these piling up unread.
+        extraColumns: { expires_at: expiresAt },
+        source: `cron:${SUNDAY_WRAP_ANCHOR.key}`,
         metadata: {
           role: user.role,
           score,
           band: bandLabel,
-          week,
-          source: `cron:${SUNDAY_WRAP_ANCHOR.key}`
+          week
         }
-      })
-      .select('id')
-      .single();
-
-    if (insertErr) {
-      results.errors.push(`${user.id}: ${insertErr.message}`);
+      });
+      if (!fanout.notificationId) {
+        results.errors.push(`${user.id}: fanout returned no notification id`);
+        continue;
+      }
+      notificationId = fanout.notificationId;
+    } catch (err) {
+      results.errors.push(`${user.id}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
 
@@ -191,7 +206,7 @@ export async function GET(request: NextRequest) {
         body,
         icon: '/icons/icon-192x192.png',
         url: '/dashboard',
-        data: { notification_id: inserted!.id, type: 'sunday_wrap', week, role: user.role }
+        data: { notification_id: notificationId, type: 'sunday_wrap', week, role: user.role }
       });
       results.pushes_sent += sent;
     } catch (err) {
