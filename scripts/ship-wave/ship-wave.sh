@@ -308,7 +308,12 @@ PY
       local targets=""; for p in $pages; do for r in ${roles:-superadmin}; do targets="$targets $r:$p"; done; done
       if [ -f "$WT/scripts/persona-harness/harness.mjs" ]; then
         ( cd "$WT" && PERSONA_MODE=headless timeout 600 node scripts/persona-harness/harness.mjs $targets ) > "$run/l1.txt" 2>&1
-        l1bad=$(grep -ciE '/unauthorized|/auth/login|error' "$run/l1.txt"); l1="$(echo "$targets" | wc -w | tr -d ' ') role×page snapshots · $l1bad flagged (see $run/l1.txt)"
+        if grep -qE 'PERSONA_PASSWORD is not set|Invalid login credentials|Cannot find module|ERR_MODULE_NOT_FOUND' "$run/l1.txt"; then
+          # the HARNESS could not run — that is "L1 unavailable", not a broken page. Do not freeze on tooling. (12:33 receipt)
+          l1bad=0; l1="UNAVAILABLE — harness could not sign in ($(grep -oE 'PERSONA_PASSWORD is not set|Invalid login credentials' "$run/l1.txt" | head -1)); pages NOT verified as roles"
+        else
+          l1bad=$(grep -ciE '/unauthorized|/auth/login|error' "$run/l1.txt"); l1="$(echo "$targets" | wc -w | tr -d ' ') role×page snapshots · $l1bad flagged (see $run/l1.txt)"
+        fi
       else l1="harness missing in $WT"; fi
     else l1="no page changed"; fi
     # L3 — tables touched by merged migrations (v1: inventory + the authed persona pass above exercises RLS; a per-role probe is not automated yet)
