@@ -20,9 +20,21 @@
  *     - 'neutral' is allowed. Every PR in this repo carries 'Deep review
  *       status' = neutral (that workflow lacks issues:write). Blocking on
  *       neutral would refuse 100% of pull requests.
- *     - 'cancelled' is allowed. jkkn-conventions.yml sets
- *       concurrency.cancel-in-progress, so superseded runs are routine.
  *     - 'skipped' is allowed. Path filters skip most gates on most PRs.
+ *     - 'cancelled' is allowed ONLY when genuinely superseded — i.e. another
+ *       run of the same check name on the same head sha concluded success.
+ *       jkkn-conventions.yml sets concurrency.cancel-in-progress keyed on PR
+ *       NUMBER, so supersession is routine and must not deadlock the button;
+ *       but a cancelled run standing alone (a manual cancel, a cancelled re-run
+ *       on the head sha, or the 45-minute TypeCheck timeout its own workflow
+ *       header documents) verified NOTHING, and is refused.
+ *
+ * ABSENCE IS REPORTED, NOT REFUSED
+ *   A gate that never ran contributes nothing while the PR still reads green.
+ *   The names in EXPECTED_CHECK_NAMES are surfaced in `reason` when they report
+ *   nothing, on refusal and on success alike — deliberately without blocking,
+ *   because a hardcoded required list that drifts from the workflow files would
+ *   deadlock the Merge button permanently with no escape hatch.
  *
  * `server-only` is mocked because Next.js aliases that specifier at build time
  * and it is not an installed package — without the mock the module under test
@@ -141,16 +153,18 @@ describe('mergePullRequest — CI gate', () => {
     }
   });
 
-  it('MERGES when the only non-success checks are neutral, skipped and cancelled', async () => {
+  it('MERGES when the only non-success checks are neutral, skipped and a superseded cancelled', async () => {
     // This is the shape of a real green PR in this repo, read live from
     // GitHub: 'Deep review status' is permanently neutral, path filters skip
-    // gates, and cancel-in-progress cancels superseded runs.
+    // gates, and cancel-in-progress cancels superseded runs — leaving the
+    // cancelled run BESIDE the successful re-run that replaced it.
     const { merges } = stubFetch({
       checkRuns: [
         { name: 'Advisory review status', status: 'completed', conclusion: 'success' },
         { name: 'Deep review status', status: 'completed', conclusion: 'neutral' },
         { name: 'SDK multi-agent review', status: 'completed', conclusion: 'skipped' },
         { name: 'JKKN terminology', status: 'completed', conclusion: 'cancelled' },
+        { name: 'JKKN terminology', status: 'completed', conclusion: 'success' },
       ],
     });
 
@@ -275,5 +289,134 @@ describe('mergePullRequest — CI gate', () => {
     expect(result.merged).toBe(false);
     expect(result.reason).toBe('PR is a draft');
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/check-runs'))).toBe(false);
+  });
+
+  // ─── a cancelled run carries NO verdict ───────────────────────────────────
+
+  it('refuses a cancelled check that has no successful sibling, and names it', async () => {
+    const { merges } = stubFetch({
+      checkRuns: [
+        { name: 'JKKN terminology', status: 'completed', conclusion: 'success' },
+        // Exactly the case typecheck-pr-scoped.yml's own header documents: the
+        // 45-minute limit "reports `cancelled`, which is neither pass nor fail
+        // and reads as neither". Nothing about this commit's types was checked,
+        // yet it used to clear the guard.
+        { name: 'TypeCheck (PR-scoped)', status: 'completed', conclusion: 'cancelled' },
+      ],
+    });
+
+    const result = await mergePullRequest(3203);
+
+    expect(result.merged).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('TypeCheck (PR-scoped)');
+    expect(result.reason).toContain('cancelled');
+    expect(merges).toHaveLength(0);
+  });
+
+  it('clears a cancelled check whose successful sibling appears BEFORE it', async () => {
+    // The verdict must not depend on the order the API returns runs in. The
+    // superseded-cancelled test above has the success LAST; this has it first.
+    const { merges } = stubFetch({
+      checkRuns: [
+        { name: 'TypeCheck (PR-scoped)', status: 'completed', conclusion: 'success' },
+        { name: 'TypeCheck (PR-scoped)', status: 'completed', conclusion: 'cancelled' },
+        { name: 'JKKN terminology', status: 'completed', conclusion: 'success' },
+      ],
+    });
+
+    const result = await mergePullRequest(3203);
+
+    expect(result.merged).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(merges).toHaveLength(1);
+  });
+
+  it('does not let a NON-success sibling clear a cancelled check', async () => {
+    // Two runs share a name and neither is a pass, so the cancelled one is
+    // still unverified. Only a success sibling means genuinely superseded.
+    const { merges } = stubFetch({
+      checkRuns: [
+        { name: 'JKKN terminology', status: 'completed', conclusion: 'success' },
+        { name: 'SDK multi-agent review', status: 'completed', conclusion: 'cancelled' },
+        { name: 'SDK multi-agent review', status: 'completed', conclusion: 'neutral' },
+      ],
+    });
+
+    const result = await mergePullRequest(3203);
+
+    expect(result.merged).toBe(false);
+    expect(result.reason).toContain('SDK multi-agent review');
+    expect(merges).toHaveLength(0);
+  });
+
+  // ─── a gate that never ran is reported, never blocking ────────────────────
+
+  it('reports an expected gate that reported nothing — and still merges', async () => {
+    const { merges } = stubFetch({
+      checkRuns: [
+        { name: 'JKKN terminology', status: 'completed', conclusion: 'success' },
+        { name: 'lib unit tests pass', status: 'completed', conclusion: 'success' },
+      ],
+    });
+
+    const result = await mergePullRequest(3203);
+
+    // Absence must NOT block. A hardcoded required list drifts from the
+    // workflow files the moment a job is renamed, and the console is the only
+    // merge path — refusing on absence risks a permanent, unexplainable
+    // deadlock of the Merge button.
+    expect(result.merged).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(merges).toHaveLength(1);
+    // It still has to be VISIBLE. The merge route records `result` verbatim
+    // into the action log, so this is the audit trail for a vanished gate.
+    expect(result.reason).toContain('TypeCheck (PR-scoped)');
+    expect(result.reason).toContain('reported nothing');
+  });
+
+  it('adds no note when every expected gate reported', async () => {
+    const { merges } = stubFetch({
+      checkRuns: [
+        { name: 'TypeCheck (PR-scoped)', status: 'completed', conclusion: 'success' },
+        { name: 'JKKN terminology', status: 'completed', conclusion: 'success' },
+      ],
+    });
+
+    const result = await mergePullRequest(3203);
+
+    expect(result.merged).toBe(true);
+    expect(result.reason).toBe('Merged');
+    expect(merges).toHaveLength(1);
+  });
+
+  it('names the absent gates on a refusal too', async () => {
+    const { merges } = stubFetch({
+      checkRuns: [{ name: 'lib unit tests pass', status: 'completed', conclusion: 'failure' }],
+    });
+
+    const result = await mergePullRequest(3203);
+
+    expect(result.merged).toBe(false);
+    // The red gate stays the headline of the refusal...
+    expect(result.reason).toContain('lib unit tests pass');
+    // ...with the gates that never reported appended behind it.
+    expect(result.reason).toContain('TypeCheck (PR-scoped)');
+    expect(result.reason).toContain('JKKN terminology');
+    expect(merges).toHaveLength(0);
+  });
+
+  it('states filter=latest explicitly rather than inheriting the API default', async () => {
+    const { fetchMock } = stubFetch({
+      checkRuns: [
+        { name: 'TypeCheck (PR-scoped)', status: 'completed', conclusion: 'success' },
+        { name: 'JKKN terminology', status: 'completed', conclusion: 'success' },
+      ],
+    });
+
+    await mergePullRequest(3203);
+
+    const checksCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/check-runs'));
+    expect(String(checksCall?.[0])).toContain('filter=latest');
   });
 });
