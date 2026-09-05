@@ -1,0 +1,28 @@
+# rlm_rest -> the mock MyJKKN endpoint (mock-server.mjs).
+# In production the same block points at https://www.jkkn.ai/api/network/radius-auth
+# with a bearer header from Supabase Vault (see the Part 5 VPS playbook).
+rest {
+	tls {
+	}
+
+	connect_uri = "@@MOCK_URL@@"
+
+	authorize {
+		uri = "${..connect_uri}/api/network/radius-auth"
+		method = 'post'
+		body = 'json'
+		data = '{ "username": "%{User-Name}", "password": "%{User-Password}", "nas_identifier": "%{NAS-Identifier}", "calling_station_id": "%{Calling-Station-Id}" }'
+		tls = ${..tls}
+	}
+
+	pool {
+		start = 0
+		min = 0
+		max = 4
+		spare = 1
+		uses = 0
+		retry_delay = 1
+		lifetime = 0
+		idle_timeout = 60
+	}
+}
