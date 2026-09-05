@@ -1,0 +1,157 @@
+/**
+ * lib/services/onemark/draft-contract — what an AI draft must carry before it
+ * becomes an fp_items row. Pure functions; no Supabase.
+ */
+import { describe, it, expect } from 'vitest';
+import {
+  parseDraftOutput,
+  parsePayload,
+  toDraftRow,
+  validateBatch,
+  validateDraftItem,
+  type DraftJobPayload,
+} from '@/lib/services/onemark/draft-contract';
+
+const EXAM = '11111111-1111-4111-8111-111111111111';
+const TOPIC = '22222222-2222-4222-8222-222222222222';
+
+const physics: DraftJobPayload = {
+  exam_definition_id: EXAM,
+  exam_key: 'tn_hsc_physics',
+  topic_id: TOPIC,
+  tag_keys: ['numerical', 'concept'],
+  count: 2,
+  bloom_level: 'K2',
+};
+const english: DraftJobPayload = { ...physics, exam_key: 'tn_hsc_english', topic_id: null, tag_keys: ['synonym'] };
+
+function good(over: Record<string, unknown> = {}) {
+  return {
+    stem_en: 'The SI unit of electric charge is',
+    stem_ta: 'மின்னூட்டத்தின் SI அலகு',
+    options_en: ['coulomb', 'ampere', 'volt', 'ohm'],
+    options_ta: ['கூலும்', 'ஆம்பியர்', 'வோல்ட்', 'ஓம்'],
+    answer: 'A',
+    explanation_en: 'Charge is measured in coulomb.',
+    explanation_ta: 'மின்னூட்டம் கூலும் அலகில் அளக்கப்படுகிறது.',
+    bloom_level: 'K1',
+    tag_key: 'concept',
+    option_layout: 'inline_4',
+    ...over,
+  };
+}
+
+describe('parsePayload', () => {
+  it('accepts the shape Lane I enqueues and dedupes tag keys', () => {
+    const p = parsePayload({ ...physics, tag_keys: ['a', 'a', 'b'] });
+    expect(p?.tag_keys).toEqual(['a', 'b']);
+    expect(p?.topic_id).toBe(TOPIC);
+  });
+  it('allows a null topic (chapter-agnostic English tags)', () => {
+    expect(parsePayload(english)?.topic_id).toBeNull();
+  });
+  it('refuses a bad uuid, an empty tag list, a non-K level', () => {
+    expect(parsePayload({ ...physics, exam_definition_id: 'nope' })).toBeNull();
+    expect(parsePayload({ ...physics, tag_keys: [] })).toBeNull();
+    expect(parsePayload({ ...physics, bloom_level: 'A1' })).toBeNull();
+  });
+});
+
+describe('parseDraftOutput', () => {
+  it('reads strict JSON, a fenced block, and prose-wrapped JSON', () => {
+    const body = JSON.stringify({ items: [good()] });
+    expect(parseDraftOutput(body)).toMatchObject({ ok: true });
+    expect(parseDraftOutput('```json\n' + body + '\n```')).toMatchObject({ ok: true });
+    expect(parseDraftOutput('Here you go:\n' + body + '\nDone.')).toMatchObject({ ok: true });
+  });
+  it('surfaces the shortfall reason', () => {
+    const r = parseDraftOutput(JSON.stringify({ items: [], shortfall_reason: 'unit has 3 facts only' }));
+    expect(r).toMatchObject({ ok: true, shortfall_reason: 'unit has 3 facts only' });
+  });
+  it('rejects output with no items array', () => {
+    expect(parseDraftOutput('{"answer":"A"}')).toMatchObject({ ok: false });
+    expect(parseDraftOutput('not json at all')).toMatchObject({ ok: false });
+  });
+});
+
+describe('validateDraftItem', () => {
+  it('accepts a complete physics item', () => {
+    const v = validateDraftItem(good(), physics);
+    expect(v.ok).toBe(true);
+    expect(v.item?.answer).toBe('A');
+  });
+  it('requires the Tamil block for physics but not for English', () => {
+    expect(validateDraftItem(good({ stem_ta: '' }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ options_ta: null }), physics)).toMatchObject({ ok: false });
+    expect(
+      validateDraftItem(good({ stem_ta: null, options_ta: null, tag_key: 'synonym' }), english),
+    ).toMatchObject({ ok: true });
+  });
+  it('drops "all/none of the above", repeated options, and a bad answer letter', () => {
+    expect(
+      validateDraftItem(good({ options_en: ['a', 'b', 'c', 'All of the above'] }), physics),
+    ).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ options_en: ['a', 'a', 'c', 'd'] }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ options_en: ['a', 'b', 'c'] }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ answer: 'E' }), physics)).toMatchObject({ ok: false });
+  });
+  it('enforces decision 6 — JABT K-levels only', () => {
+    expect(validateDraftItem(good({ bloom_level: 'A3' }), physics)).toMatchObject({ ok: false });
+    expect(validateDraftItem(good({ bloom_level: 'k4' }), physics)).toMatchObject({ ok: true });
+  });
+  it('refuses a tag that was not requested and defaults an unknown layout to auto', () => {
+    expect(validateDraftItem(good({ tag_key: 'diagram' }), physics)).toMatchObject({ ok: false });
+    const v = validateDraftItem(good({ option_layout: 'grid' }), physics);
+    expect(v.item?.option_layout).toBe('auto');
+  });
+});
+
+describe('toDraftRow', () => {
+  it('writes the review-queue shape: keyed options, answer.correct, inactive, internal', () => {
+    const v = validateDraftItem(good(), physics);
+    if (!v.ok || !v.item) throw new Error('fixture invalid');
+    const row = toDraftRow(v.item, physics, 'user-1');
+    expect(row).toMatchObject({
+      exam_definition_id: EXAM,
+      topic_id: TOPIC,
+      q_type: 'mcq_single',
+      is_active: false,
+      source_key: 'internal',
+      source: 'ai_generated',
+      tags: ['concept'],
+      bloom_level: 'K1',
+      advanced_dimension: null,
+      created_by: 'user-1',
+      updated_by: 'user-1',
+      answer: { correct: 'A' },
+    });
+    expect(row.options).toEqual([
+      { key: 'A', text: 'coulomb' },
+      { key: 'B', text: 'ampere' },
+      { key: 'C', text: 'volt' },
+      { key: 'D', text: 'ohm' },
+    ]);
+    expect(row.options_ta?.[0]).toEqual({ key: 'A', text: 'கூலும்' });
+  });
+});
+
+describe('validateBatch', () => {
+  it('drops invalid items, duplicates, and anything over the requested count — with reasons', () => {
+    const items = [
+      good(),
+      good({ stem_en: 'the si unit of ELECTRIC charge is!' }), // duplicate by normalised stem
+      good({ stem_en: 'Already in the bank' }), // duplicate against the bank
+      good({ stem_en: 'Second good one', answer: 'B' }),
+      good({ stem_en: 'Third good one' }), // over count (count=2)
+      { stem_en: 'Broken', options_en: ['x'] },
+    ];
+    const bank = new Set(['already in the bank']);
+    const { rows, rejected } = validateBatch(items, physics, 'user-1', bank);
+    expect(rows.map((r) => r.stem)).toEqual(['The SI unit of electric charge is', 'Second good one']);
+    expect(rejected.map((r) => r.index)).toEqual([1, 2, 4, 5]);
+    expect(rejected[0].why).toMatch(/duplicate/);
+    expect(rejected[2].why).toMatch(/over the requested count/);
+    expect(rejected[3].why).toMatch(/options_en/);
+    expect(rejected[3].stem_preview).toBe('Broken');
+  });
+});
