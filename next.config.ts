@@ -89,6 +89,15 @@ const nextConfig: NextConfig = {
       './node_modules/@sparticuz/chromium/**/*',
       './public/fonts/pdf/**/*',
     ],
+    // OneMark board-format paper + answer key (lib/onemark/pdf). Same Chromium
+    // and body fonts as the BoS sheets, plus KaTeX's own faces for notation —
+    // without this entry the deployed function prints Tamil and every
+    // superscript as boxes while looking correct locally.
+    '/api/foundation/onemark/paper/*/pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
+      './node_modules/katex/dist/**/*',
+    ],
   },
 
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
