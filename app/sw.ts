@@ -1,3 +1,12 @@
+/// <reference lib="webworker" />
+// Required: this file runs in a ServiceWorkerGlobalScope, not a window. The app's
+// tsconfig ships the DOM lib only, so without this reference ServiceWorkerGlobalScope,
+// PushEvent, NotificationEvent and WindowClient are all unresolved. Those five
+// errors are pre-existing (identical on a clean checkout of main) and were masked
+// because tsconfig.json excludes this file — but the PR-scoped typecheck gate
+// deliberately drops that exclude, so the first PR to touch app/sw.ts has to fix
+// them. Adding the lib is the correct fix, not a suppression.
+
 import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import {
@@ -175,7 +184,15 @@ self.addEventListener("push", (event: PushEvent) => {
   }
 
   const title = payload.title || "MyJKKN";
-  const options: NotificationOptions = {
+  // `vibrate` and `actions` both ship in Chrome/Android and are both absent from
+  // TypeScript's NotificationOptions (the DOM lib models the non-persistent
+  // Notification constructor, which supports neither; a service worker's
+  // showNotification does). Widening here keeps behaviour users rely on rather
+  // than deleting it to satisfy the checker.
+  const options: NotificationOptions & {
+    vibrate?: number[];
+    actions?: { action: string; title: string; icon?: string }[];
+  } = {
     body: payload.body || "New notification from MyJKKN",
     icon: payload.icon || "/icons/icon-192x192.png",
     badge: "/icons/icon-96x96.png",

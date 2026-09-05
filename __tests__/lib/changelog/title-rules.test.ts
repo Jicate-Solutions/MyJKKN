@@ -84,7 +84,7 @@ describe('isInternalEngineering — build-toolchain noise', () => {
 });
 
 describe('isContentFree — titles that name a place and nothing else', () => {
-  it.each(['Bos issue', 'Syllabus issue', 'Deploy issue', 'Email issue', 'Meeting issue'])(
+  it.each(['Bos issue', 'Import issue', 'Deploy issue', 'Email issue', 'Meeting issue'])(
     'drops %s',
     (title) => {
       expect(isContentFree(title)).toBe(true);
