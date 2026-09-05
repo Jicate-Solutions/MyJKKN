@@ -137,7 +137,7 @@ function dimsFromLearner(learner: LearnerProfile): Partial<FeeStructureMatrixDim
  *     a later lifecycle stage (Reserved / Admitted). The transition already
  *     happened; the RPC correctly refuses to move it backward.
  *   • `fee_structure_not_resolvable` / `fee_items_empty` — no fee structure is
- *     configured for the student's exact programme (defensive: the dialog also
+ *     configured for the learner's exact programme (defensive: the dialog also
  *     disables Confirm up-front when no structure matches).
  */
 function friendlyTransitionError(err: unknown): string | null {
@@ -158,7 +158,7 @@ function friendlyTransitionError(err: unknown): string | null {
     return 'No fee structure matches this learner’s dimensions — nothing was changed. Configure one under Admission → Settings → Fee Structures.';
   }
   if (m.includes('pending_fee_change_event')) {
-    return 'A fee-change event is pending review for this student. Resolve it in the admission fees reconciliation queue before moving to Account.';
+    return 'A fee-change event is pending review for this learner. Resolve it in the admission fees reconciliation queue before moving to Account.';
   }
   if (m.includes('required_documents_missing')) {
     const list = raw.split(':').slice(1).join(':').trim();
@@ -170,7 +170,7 @@ function friendlyTransitionError(err: unknown): string | null {
     return 'You don’t have permission to move applications to Account (this needs the “Manage Admission Documents” permission). Please contact your administrator.';
   }
   if (m.includes('learner_not_found')) {
-    return 'This student record could not be found. Refresh the page and try again.';
+    return 'This learner record could not be found. Refresh the page and try again.';
   }
   return null;
 }
