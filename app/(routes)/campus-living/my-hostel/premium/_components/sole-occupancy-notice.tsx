@@ -98,7 +98,7 @@ export function SoleOccupancyNotice({
           <div className='grid gap-3 sm:grid-cols-2'>
             <div className='rounded-md border border-amber-300 bg-white/70 p-3 dark:border-amber-800 dark:bg-black/20'>
               <p className='text-xs text-amber-800 dark:text-amber-300'>
-                If you live here alone
+                The room costs, if you live here alone
               </p>
               <p className='text-xl font-bold text-amber-900 dark:text-amber-200'>
                 {formatInr(cost.aloneTotal!)}
@@ -109,7 +109,7 @@ export function SoleOccupancyNotice({
             </div>
             <div className='rounded-md border border-emerald-300 bg-white/70 p-3 dark:border-emerald-800 dark:bg-black/20'>
               <p className='text-xs text-emerald-800 dark:text-emerald-300'>
-                If all {capacity} beds fill up
+                Your share if all {capacity} beds fill up
               </p>
               <p className='text-xl font-bold text-emerald-900 dark:text-emerald-200'>
                 {formatInr(cost.fullTotal!)}
@@ -155,7 +155,7 @@ export function SoleOccupancyNotice({
             className='text-sm font-normal leading-snug text-amber-900 dark:text-amber-200'
           >
             {cost.ready
-              ? `I understand I will pay ${formatInr(cost.aloneTotal!)} for the year while I am the only one in this ${capacity}-bed room.`
+              ? `I understand the room will cost me ${formatInr(cost.aloneTotal!)} for the year while I am the only one in this ${capacity}-bed room, and that my mess fee is charged separately on top.`
               : `I understand I am taking a room built for ${capacity} people on my own, and that what I pay may be higher until someone joins me.`}
           </Label>
         </div>
