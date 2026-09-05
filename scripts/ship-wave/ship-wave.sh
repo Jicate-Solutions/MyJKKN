@@ -132,12 +132,17 @@ def ci(p):
 def minutes_since(iso):
     try: return (now - datetime.datetime.fromisoformat(iso.replace("Z","+00:00"))).total_seconds()/60
     except Exception: return 1e9
-plan = {"draft":[], "conflicted":[], "blocked":[], "waiting_ci":[], "quiet_wait":[], "ready":{"LOW":[], "NORMAL":[], "HELD":[]}}
+plan = {"stacked":[], "draft":[], "conflicted":[], "blocked":[], "waiting_ci":[], "quiet_wait":[], "ready":{"LOW":[], "NORMAL":[], "HELD":[]}}
 for p in prs:
     t, why = tier(p); v, names = ci(p); age = minutes_since(p.get("updatedAt",""))
     row = {"number":p["number"], "title":p["title"], "branch":p["headRefName"], "tier":t, "tier_reasons":why,
-           "ci":v, "ci_names":names, "state":p["mergeStateStatus"], "files":[f["path"] for f in (p.get("files") or [])], "age_min":int(age)}
-    if p["isDraft"]: plan["draft"].append(row)
+           "ci":v, "ci_names":names, "state":p["mergeStateStatus"], "files":[f["path"] for f in (p.get("files") or [])], "age_min":int(age),
+           "base":p.get("baseRefName") or "?"}
+    # 2026-09-05 15:30: three PRs (#2806 #3009 #3200) targeted a FEATURE branch, not main — "merging" them shipped
+    # nothing (one is stranded on a closed branch with a migration the apply step could never find on main). A PR
+    # whose base is not main is its author's stack, never the wave's: listed, never merged, never counted.
+    if row["base"] != "main": plan["stacked"].append(row)
+    elif p["isDraft"]: plan["draft"].append(row)
     elif p["mergeStateStatus"]=="DIRTY": plan["conflicted"].append(row)
     elif p["mergeStateStatus"]!="CLEAN": plan["blocked"].append(row)
     elif v!="OK": plan["waiting_ci"].append(row)
@@ -152,11 +157,12 @@ plan["clusters"] = dict(sorted(clusters.items(), key=lambda kv: -len(kv[1])))
 plan["counts"] = {"open":len(prs), "ready":sum(len(v) for v in plan["ready"].values()), "ready_low":len(plan["ready"]["LOW"]),
                   "ready_normal":len(plan["ready"]["NORMAL"]), "ready_held":len(plan["ready"]["HELD"]), "conflicted":len(plan["conflicted"]),
                   "blocked":len(plan["blocked"]), "waiting_ci":len(plan["waiting_ci"]), "quiet_wait":len(plan["quiet_wait"]),
-                  "draft":len(plan["draft"]), "clusters":len(clusters)}
+                  "draft":len(plan["draft"]), "stacked":len(plan["stacked"]), "clusters":len(clusters)}
 json.dump(plan, open(sys.argv[2],"w"), indent=1)
 c = plan["counts"]
 print(f"  open={c['open']}  ready={c['ready']} (LOW {c['ready_low']} · NORMAL {c['ready_normal']} · HELD {c['ready_held']})  "
-      f"conflicted={c['conflicted']} in {c['clusters']} clusters  waiting-ci={c['waiting_ci']}  quiet<{quiet}m={c['quiet_wait']}  blocked={c['blocked']}  drafts={c['draft']}")
+      f"conflicted={c['conflicted']} in {c['clusters']} clusters  waiting-ci={c['waiting_ci']}  quiet<{quiet}m={c['quiet_wait']}  blocked={c['blocked']}  drafts={c['draft']}  stacked(base≠main)={c['stacked']}")
+for r in plan["stacked"]: print(f"  STACKED base={r['base']:<32} #{r['number']:<5} {r['title'][:50]}  (author's stack — the wave never merges it)")
 for t in ("LOW","NORMAL","HELD"):
     for r in plan["ready"][t]: print(f"  READY {t:<6} #{r['number']:<5} {r['title'][:64]}" + (f"   [{'; '.join(r['tier_reasons'])}]" if t=="HELD" else ""))
 for k,v in plan["clusters"].items(): print(f"  CONFLICT cluster {k:<40} {' '.join('#'+str(n) for n in v)}")
@@ -170,7 +176,7 @@ sweep() {  # $1=run dir → writes prs.json + plan.json
   # first (retried), then files + checks hydrated per PR in parallel with retries (hydrate.py merges).
   local i ok="" here; here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   for i in 1 2 3; do
-    gh pr list --repo "$REPO" --state open --limit 200 --json number,title,mergeStateStatus,isDraft,headRefName,updatedAt > "$1/light.json" 2>"$1/prs.err" && ok=1 && break
+    gh pr list --repo "$REPO" --state open --limit 200 --json number,title,mergeStateStatus,isDraft,headRefName,baseRefName,updatedAt > "$1/light.json" 2>"$1/prs.err" && ok=1 && break
     sleep $((i*5))
   done
   [ -n "$ok" ] || { say "SWEEP FAIL: $(head -c 300 "$1/prs.err")"; return 1; }
@@ -302,10 +308,10 @@ run_once() {
   merge_one() {  # $1=number $2=tier — re-verify the instant before the irreversible step
     local n="$1" t="$2" st i
     for i in 1 2 3 4 5 6; do
-      st=$(gh pr view "$n" --repo "$REPO" --json state,mergeStateStatus,isDraft -q '"\(.state) \(.mergeStateStatus) \(.isDraft)"')
-      [ "$st" = "OPEN UNKNOWN false" ] && { sleep 10; continue; }; break
+      st=$(gh pr view "$n" --repo "$REPO" --json state,mergeStateStatus,isDraft,baseRefName -q '"\(.state) \(.mergeStateStatus) \(.isDraft) \(.baseRefName)"')
+      [ "$st" = "OPEN UNKNOWN false main" ] && { sleep 10; continue; }; break
     done
-    if [ "$st" != "OPEN CLEAN false" ]; then say "  HOLD   $t #$n — state now '$st' (changed since sweep), not merging"; return 1; fi
+    if [ "$st" != "OPEN CLEAN false main" ]; then say "  HOLD   $t #$n — state now '$st' (changed since sweep), not merging"; return 1; fi
     # Director 14:45: SQL_FILE_INDEX.md is a hand-edited append-only ledger — every merge that touches it re-conflicts
     # every other PR touching it. So at most ONE index-touching PR merges per round; the rest wait for the next sweep.
     if python3 -c "import json,sys;p=json.load(open('$run/plan.json'));rows=[r for b in ('LOW','NORMAL','HELD') for r in p['ready'][b]]+p['quiet_wait'];sys.exit(0 if any(r['number']==$n and 'supabase/SQL_FILE_INDEX.md' in r['files'] for r in rows) else 1)" 2>/dev/null; then
