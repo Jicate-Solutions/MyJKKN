@@ -805,9 +805,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_onemark_finalize_attempt(uuid) TO authentic
 -- {exam_definition_id, exam_key, topic_id, tag_keys, count, bloom_level} as
 -- the payload; the drain substitutes the payload into the template.
 --
--- monthly_spend_cap_inr = 2000 — a NUMBER THE DIRECTOR HAS NOT RULED ON
--- (decisions file §4: "set one before 44 Senior Learners can trigger
--- drafts"). Listed [risky] in the PR. daily_cap_per_user = 5 per lane spec.
+-- monthly_spend_cap_inr = 5000 — DIRECTOR-RULED 2026-09-05 (₹5,000 / month;
+-- decisions file §4 asked for one to be set before 44 Senior Learners can
+-- trigger drafts). daily_cap_per_user = 5 per lane spec.
 --
 -- allow_rule = permission:foundation.items.manage — the same key that approves
 -- a draft (decision 7), and the gate Lane I's route enforces.
@@ -865,7 +865,7 @@ If the unit and tags cannot honestly yield `count` items from the textbook, retu
   false,          -- external_allowed: internal authoring job, never B2A-reachable
   NULL,           -- loop_key: no MetaLoop registration yet
   5,              -- daily_cap_per_user: lane spec
-  2000            -- monthly_spend_cap_inr: [risky] — Director has not set a number
+  5000            -- monthly_spend_cap_inr: Director ruling 2026-09-05 (₹5,000 / month)
 WHERE NOT EXISTS (
   SELECT 1 FROM public.ai_job_types WHERE job_type = 'onemark.item_draft'
 );
@@ -955,7 +955,9 @@ WHERE s.id = (
 -- school next year is one row UPDATE, not a migration. The school row is the
 -- institution's `schools` row with ownership = 'internal' (oldest if several).
 --
--- BLAST RADIUS (disclosed [risky]): an owner row makes user_owns_school(<that
+-- BLAST RADIUS (Director APPROVED the automatic-on-first-sign-in design
+-- 2026-09-05; disclosed so the standing it confers stays on record): an
+-- owner row makes user_owns_school(<that
 -- school>) true, the predicate on 15 Schools-Network policies (school_contacts /
 -- school_contributions / school_sessions / program_partner_schools / schools),
 -- scoped to that one school row — every future Nattraja faculty / hod /
