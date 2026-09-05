@@ -680,38 +680,48 @@ export class LifecycleDashboardService {
     dateFrom: string,
     dateTo: string
   ): Promise<LoginTrendDay[]> {
-    let query = supabase
-      .from('user_sessions')
-      .select('login_at, user_id')
-      .gte('login_at', dateFrom)
-      .lte('login_at', dateTo + 'T23:59:59');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    if (departmentId) query = query.eq('department_id', departmentId);
-    const { data } = await query.limit(50000);
+    // ONE set-based SQL aggregate — the previous user_sessions row-fetch
+    // (.limit(50000)) was silently capped at 10,000 rows by PostgREST, so every
+    // day of the login-activity chart under-counted once the window held more
+    // than 10k sessions. The RPC zero-fills the whole date range itself, so the
+    // rows arrive in LoginTrendDay shape, ascending by date.
+    const { data, error } = await supabase.rpc('get_lifecycle_login_trends', {
+      p_institution_id: institutionId,
+      p_department_id: departmentId ?? null,
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
+    });
 
-    const byDate = new Map<string, { total: number; users: Set<string> }>();
-    for (const row of (data || [])) {
-      const date = row.login_at.split('T')[0];
-      if (!byDate.has(date)) byDate.set(date, { total: 0, users: new Set() });
-      const entry = byDate.get(date)!;
-      entry.total += 1;
-      entry.users.add(row.user_id);
+    if (error) {
+      console.error('[lifecycle-dashboard] get_lifecycle_login_trends failed:', error);
     }
 
+    if (!Array.isArray(data)) {
+      // The old row-fetch version never surfaced query errors: null data left
+      // the map empty but the range-fill loop still ran, so the caller got a
+      // flat zero series rather than an empty one. Keep that contract.
+      return this.zeroFilledLoginTrend(dateFrom, dateTo);
+    }
+
+    return data as LoginTrendDay[];
+  }
+
+  /** Zero-filled LoginTrendDay per calendar day in [dateFrom, dateTo] — the
+   *  degraded shape getLoginTrends returned when its query failed. */
+  private static zeroFilledLoginTrend(
+    dateFrom: string,
+    dateTo: string
+  ): LoginTrendDay[] {
     const result: LoginTrendDay[] = [];
-    // Fill in all dates in range
     const start = new Date(dateFrom);
     const end = new Date(dateTo);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0];
-      const entry = byDate.get(dateStr);
       result.push({
-        date: dateStr,
-        total_logins: entry?.total || 0,
-        unique_users: entry?.users.size || 0,
+        date: d.toISOString().split('T')[0],
+        total_logins: 0,
+        unique_users: 0,
       });
     }
-
     return result;
   }
 
@@ -723,42 +733,33 @@ export class LifecycleDashboardService {
     dateFrom: string,
     dateTo: string
   ): Promise<LoginFrequencyBucket[]> {
-    let query = supabase
-      .from('user_sessions')
-      .select('user_id')
-      .gte('login_at', dateFrom)
-      .lte('login_at', dateTo + 'T23:59:59');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    if (departmentId) query = query.eq('department_id', departmentId);
-    const { data } = await query.limit(50000);
+    // ONE set-based SQL aggregate — the previous user_sessions row-fetch
+    // (.limit(50000)) was silently capped at 10,000 rows by PostgREST, which
+    // does not merely shrink this chart: a user whose sessions fell past row
+    // 10,000 is counted with FEWER logins and lands in a lower bucket, so the
+    // shape of the distribution was wrong too. The RPC always returns all five
+    // buckets, in the order the chart's x-axis expects.
+    const { data, error } = await supabase.rpc('get_lifecycle_login_frequency', {
+      p_institution_id: institutionId,
+      p_department_id: departmentId ?? null,
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
+    });
 
-    // Count logins per user
-    const userLogins = new Map<string, number>();
-    for (const row of (data || [])) {
-      userLogins.set(row.user_id, (userLogins.get(row.user_id) || 0) + 1);
+    if (error) {
+      console.error('[lifecycle-dashboard] get_lifecycle_login_frequency failed:', error);
     }
 
-    // Bucket users
-    const buckets: Record<string, number> = {
-      '1': 0,
-      '2-5': 0,
-      '6-10': 0,
-      '11-20': 0,
-      '21+': 0,
-    };
-
-    for (const count of userLogins.values()) {
-      if (count === 1) buckets['1']++;
-      else if (count <= 5) buckets['2-5']++;
-      else if (count <= 10) buckets['6-10']++;
-      else if (count <= 20) buckets['11-20']++;
-      else buckets['21+']++;
+    if (!Array.isArray(data)) {
+      // The old row-fetch version returned all five buckets at zero when its
+      // query failed (null data left the counter map empty) — keep that shape.
+      return ['1', '2-5', '6-10', '11-20', '21+'].map((bucket) => ({
+        bucket,
+        user_count: 0,
+      }));
     }
 
-    return Object.entries(buckets).map(([bucket, user_count]) => ({
-      bucket,
-      user_count,
-    }));
+    return data as LoginFrequencyBucket[];
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -769,71 +770,27 @@ export class LifecycleDashboardService {
     dateFrom: string,
     dateTo: string
   ): Promise<TopUser[]> {
-    let query = supabase
-      .from('user_sessions')
-      .select('user_id, role, login_at, duration_seconds')
-      .gte('login_at', dateFrom)
-      .lte('login_at', dateTo + 'T23:59:59');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    if (departmentId) query = query.eq('department_id', departmentId);
-    const { data } = await query.limit(50000);
-
-    // Aggregate per user
-    const userMap = new Map<string, {
-      role: string;
-      login_count: number;
-      last_login: string;
-      total_duration: number;
-    }>();
-
-    for (const s of (data || [])) {
-      const existing = userMap.get(s.user_id) || {
-        role: s.role || 'unknown',
-        login_count: 0,
-        last_login: '',
-        total_duration: 0,
-      };
-      existing.login_count += 1;
-      if (s.login_at > existing.last_login) existing.last_login = s.login_at;
-      existing.total_duration += s.duration_seconds || 0;
-      userMap.set(s.user_id, existing);
-    }
-
-    // Sort by login count, take top 20
-    const sorted = Array.from(userMap.entries())
-      .sort((a, b) => b[1].login_count - a[1].login_count)
-      .slice(0, 20);
-
-    if (sorted.length === 0) return [];
-
-    // Batch-fetch profiles
-    const userIds = sorted.map(([id]) => id);
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('id, full_name, email, institutions(name), departments(department_name)')
-      .in('id', userIds);
-
-    const profileMap = new Map<string, any>();
-    for (const p of (profileData || [])) {
-      profileMap.set(p.id, p);
-    }
-
-    return sorted.map(([userId, stats]) => {
-      const profile = profileMap.get(userId);
-      return {
-        user_id: userId,
-        full_name: profile?.full_name || 'Unknown',
-        email: profile?.email || '',
-        role: stats.role,
-        login_count: stats.login_count,
-        last_login: stats.last_login,
-        avg_session_minutes: stats.login_count > 0
-          ? Math.round((stats.total_duration / stats.login_count / 60) * 10) / 10
-          : 0,
-        institution_name: profile?.institutions?.name,
-        department_name: profile?.departments?.department_name,
-      };
+    // ONE set-based SQL aggregate — the previous user_sessions row-fetch
+    // (.limit(50000)) was silently capped at 10,000 rows by PostgREST, so the
+    // "top 20" was the top 20 of an arbitrary slice: genuinely-busiest users
+    // could be missing from the table entirely and quieter ones promoted in
+    // their place. The RPC also joins the profile decoration (name / email /
+    // institution / department) that used to be a second round-trip, and
+    // returns rows already in TopUser shape, ranked by login_count desc.
+    const { data, error } = await supabase.rpc('get_lifecycle_top_users', {
+      p_institution_id: institutionId,
+      p_department_id: departmentId ?? null,
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
     });
+
+    if (error) {
+      // The old row-fetch version returned [] on query errors — keep that
+      // contract for consumers, but log loudly instead of failing silently.
+      console.error('[lifecycle-dashboard] get_lifecycle_top_users failed:', error);
+    }
+
+    return Array.isArray(data) ? (data as TopUser[]) : [];
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -844,65 +801,26 @@ export class LifecycleDashboardService {
     dateFrom: string,
     dateTo: string
   ): Promise<DepartmentLoginStats[]> {
-    // Get departments
-    let deptQuery = supabase.from('departments').select('id, department_name');
-    if (institutionId) deptQuery = deptQuery.eq('institution_id', institutionId);
-    if (departmentId) deptQuery = deptQuery.eq('id', departmentId);
-    const { data: departments } = await deptQuery;
-    if (!departments?.length) return [];
+    // ONE set-based SQL aggregate replacing three reads — TWO of which were
+    // row-fetches (.limit(50000)) silently capped at 10,000 rows by PostgREST,
+    // so `total_users` (from profiles) and `active_users` / `total_logins`
+    // (from user_sessions) each truncated independently and the department
+    // chart compared two differently-wrong columns. The RPC returns rows
+    // already in DepartmentLoginStats shape, sorted by total_logins desc.
+    const { data, error } = await supabase.rpc('get_lifecycle_department_breakdown', {
+      p_institution_id: institutionId,
+      p_department_id: departmentId ?? null,
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
+    });
 
-    // Count users per department
-    let profilesQuery = supabase.from('profiles').select('id, department_id');
-    if (institutionId) profilesQuery = profilesQuery.eq('institution_id', institutionId);
-    if (departmentId) profilesQuery = profilesQuery.eq('department_id', departmentId);
-    const { data: profiles } = await profilesQuery.limit(50000);
-
-    const deptUsers = new Map<string, number>();
-    for (const p of (profiles || [])) {
-      if (p.department_id) {
-        deptUsers.set(p.department_id, (deptUsers.get(p.department_id) || 0) + 1);
-      }
+    if (error) {
+      // The old version returned [] whenever the departments read came back
+      // empty or failed — keep that contract, but log loudly.
+      console.error('[lifecycle-dashboard] get_lifecycle_department_breakdown failed:', error);
     }
 
-    // Count logins per department
-    let sessionsQuery = supabase
-      .from('user_sessions')
-      .select('user_id, department_id')
-      .gte('login_at', dateFrom)
-      .lte('login_at', dateTo + 'T23:59:59');
-    if (institutionId) sessionsQuery = sessionsQuery.eq('institution_id', institutionId);
-    if (departmentId) sessionsQuery = sessionsQuery.eq('department_id', departmentId);
-    const { data: sessions } = await sessionsQuery.limit(50000);
-
-    const deptLogins = new Map<string, { total: number; users: Set<string> }>();
-    for (const s of (sessions || [])) {
-      if (s.department_id) {
-        if (!deptLogins.has(s.department_id)) {
-          deptLogins.set(s.department_id, { total: 0, users: new Set() });
-        }
-        const entry = deptLogins.get(s.department_id)!;
-        entry.total += 1;
-        entry.users.add(s.user_id);
-      }
-    }
-
-    return departments.map((dept: any) => {
-      const totalUsers = deptUsers.get(dept.id) || 0;
-      const loginData = deptLogins.get(dept.id);
-      const activeUsers = loginData?.users.size || 0;
-      const totalLogins = loginData?.total || 0;
-
-      return {
-        department_id: dept.id,
-        department_name: dept.department_name,
-        total_users: totalUsers,
-        active_users: activeUsers,
-        total_logins: totalLogins,
-        avg_logins_per_user: activeUsers > 0
-          ? Math.round((totalLogins / activeUsers) * 10) / 10
-          : 0,
-      };
-    }).sort((a: DepartmentLoginStats, b: DepartmentLoginStats) => b.total_logins - a.total_logins);
+    return Array.isArray(data) ? (data as DepartmentLoginStats[]) : [];
   }
 
   private static getDateRange(startDate: string, endDate: string): string[] {
