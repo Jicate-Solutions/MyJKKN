@@ -173,26 +173,49 @@ describe('tagFor', () => {
   });
 });
 
-describe('dedup — two hashes, skip on either', () => {
+describe('dedup — two hashes: content/options collisions skip, a stem-only collision is FLAGGED (PRD English B.3)', () => {
   const qs = parsePaper(ENGLISH, 'tn_hsc_english');
 
-  it('skips a repeated normalised stem even when the tag/options differ (Q3 vs Q2)', () => {
-    const { keep, skipped } = dedup(qs, new Set(), new Set());
-    expect(skipped.map((s) => [s.q.qno, s.reason])).toEqual([[3, 'stem']]);
-    expect(keep.map((q) => q.qno)).toEqual([1, 2, 4, 5, 6]);
+  it('keeps the antonym twin of a synonym stem (Q3 vs Q2) and flags it for the reviewer', () => {
+    const { keep, skipped, flagged } = dedup(qs, new Set(), new Set());
+    expect(skipped).toEqual([]);
+    expect(flagged.map((f) => [f.q.qno, f.reason])).toEqual([[3, 'stem']]);
+    expect(keep.map((q) => q.qno)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(qs[2].notes.some((n) => /possible duplicate/.test(n))).toBe(true);
   });
 
-  it('skips a new stem that reuses an existing options set', () => {
+  it('skips a true duplicate — same stem AND same options set', () => {
+    const twin = { ...qs[1], qno: 99, notes: [] };
+    const { keep, skipped, flagged } = dedup([qs[1], twin], new Set(), new Set());
+    expect(keep.map((q) => q.qno)).toEqual([2]);
+    expect(skipped.map((s) => [s.q.qno, s.reason])).toEqual([[99, 'content']]);
+    expect(flagged).toEqual([]);
+  });
+
+  it('skips a new stem that reuses an existing options set (lane spec, [risky])', () => {
     const existingOpts = new Set([optionsHash(qs[3].optionsEn)]);
-    const { skipped } = dedup([qs[3]], new Set(), existingOpts);
+    const { skipped, flagged } = dedup([qs[3]], new Set(), existingOpts);
     expect(skipped).toHaveLength(1);
     expect(skipped[0].reason).toBe('options');
+    expect(flagged).toEqual([]);
   });
 
-  it('skips against a bank hash seeded from an existing row', () => {
+  it('flags against a bank stem hash seeded from an existing row, and still inserts', () => {
     const existingStems = new Set([stemHash('They were childish enough, and in many ways quite artless.')]);
-    const { skipped } = dedup([qs[0]], existingStems, new Set());
-    expect(skipped.map((s) => s.reason)).toEqual(['stem']);
+    const { keep, skipped, flagged } = dedup([qs[0]], existingStems, new Set());
+    expect(skipped).toEqual([]);
+    expect(flagged.map((f) => f.reason)).toEqual(['stem']);
+    expect(keep).toHaveLength(1);
+  });
+
+  it('hashes the stem column as written: a Tamil-only question is hashed on its Tamil stem', () => {
+    const tamilOnly = parsePaper(
+      '1. மின் இருமுனை மின்னூட்டம் என்பது\n   (a) 2 mC   (b) 4 mC   (c) 8 mC   (d) 6 mC\n',
+      'tn_hsc_physics',
+    );
+    expect(tamilOnly[0].stemEn).toBe(tamilOnly[0].stemTa);
+    const { flagged } = dedup(tamilOnly, new Set([stemHash('மின் இருமுனை மின்னூட்டம் என்பது')]), new Set());
+    expect(flagged).toHaveLength(1);
   });
 });
 

@@ -9,10 +9,13 @@ import { ListChecks } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import {
+  normaliseStem,
   useDraftTags,
   useDraftTopics,
   useDrafts,
   useOneMarkExams,
+  useStemIndex,
+  type StemTwin,
 } from '../_lib/drafts';
 import { DraftCard } from './draft-card';
 
@@ -31,6 +34,17 @@ export function DraftQueue({ userId }: DraftQueueProps) {
   const { data: drafts, isLoading: draftsLoading, isError: draftsError } = useDrafts(examId);
   const { data: topics } = useDraftTopics(examId);
   const { data: tags } = useDraftTags(examId);
+  // Every item of the subject keyed by normalised stem — a draft whose stem
+  // matches another row (live or draft) shows "Possible duplicate" with the
+  // twin in view. Derived, not stored: editing the stem clears or raises it.
+  const { data: stemIndex } = useStemIndex(examId);
+  const twinsFor = useMemo(() => {
+    return (id: string, stem: string): StemTwin[] => {
+      if (!stemIndex) return [];
+      const list = stemIndex.get(normaliseStem(stem)) ?? [];
+      return list.filter((t) => t.id !== id);
+    };
+  }, [stemIndex]);
 
   if (examsLoading) return <Skeleton className="h-40 w-full rounded-xl" />;
 
@@ -107,6 +121,7 @@ export function DraftQueue({ userId }: DraftQueueProps) {
               topics={topics ?? []}
               tags={tags ?? []}
               userId={userId}
+              twins={twinsFor(d.id, d.stem)}
             />
           ))}
         </ul>

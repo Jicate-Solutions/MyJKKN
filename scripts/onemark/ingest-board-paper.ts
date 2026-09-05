@@ -57,12 +57,34 @@
  *     1. b
  *     2. (d)
  *
- * TWO-HASH DEDUP (PRD B.3; lane spec: skip on EITHER match, report both):
- *   stem_hash    = sha256(normalise(English stem, underline markers removed))
- *   options_hash = sha256(sorted normalised English options, joined by '|')
+ * TWO-HASH DEDUP (PRD B.3):
+ *   stem_hash    = sha256(normalise(stem, underline markers removed))
+ *   options_hash = sha256(sorted normalised options, joined by '|')
  *   normalise    = NFC, lowercase, strip punctuation, collapse whitespace.
  *   Both sets are seeded from every fp_items row of the exam (active or not)
  *   and grow as the batch is processed, so an in-file repeat is caught too.
+ *
+ *   What a collision does:
+ *     stem AND options match  → SKIP  (a true duplicate — PRD content_hash)
+ *     options only match      → SKIP  (lane spec; [risky] — a different stem
+ *                                      over the same four options is rare
+ *                                      enough to treat as a re-print)
+ *     stem only matches       → FLAG, still inserted (PRD English B.3: "same
+ *                                      sentence reused with different tag,
+ *                                      options or answer — usually legitimate";
+ *                                      the PRD A.3 'slackened' synonym /
+ *                                      antonym pair is exactly this case).
+ *   A flagged draft is not marked in the row — the review queue re-derives
+ *   the twin from the stem itself (normaliseStem in the queue's
+ *   _lib/approve-rules.ts mirrors `normalise` here) and shows it beside the
+ *   draft as "Possible duplicate", so the reviewer decides. Editing the stem
+ *   clears the flag; nothing to un-mark.
+ *
+ *   WHAT IS HASHED: the `stem` and `options` columns as they will be written —
+ *   normally the English block. When a question has NO English stem the
+ *   parser copies the Tamil stem into `stem` (note "no English stem — Tamil
+ *   stem copied…"), and that copy IS hashed. `stem_ta` / `options_ta` are
+ *   never hashed.
  *
  * WHAT IS NEVER LOGGED: a full item with its answer. Per-question lines show
  * the question number, a 60-char stem prefix, the tags and whether an answer
@@ -115,8 +137,12 @@ export interface ParsedQuestion {
 export interface DedupReport {
   parsed: number;
   inserted: number;
-  skippedStemHash: number;
+  /** stem AND options matched an existing item — a true duplicate, skipped. */
+  skippedContentHash: number;
+  /** options matched, stem did not — skipped (lane spec, [risky]). */
   skippedOptionsHash: number;
+  /** stem matched, options did not — INSERTED and flagged for the reviewer. */
+  flaggedStemHash: number;
   untagged: number;
   missingAnswer: number;
   missingTamil: number;
@@ -516,31 +542,47 @@ export function toRow(
 // Dedup driver (pure — the caller supplies the existing hash sets)
 // ---------------------------------------------------------------------------
 
-export type SkipReason = 'stem' | 'options';
+/** 'content' = stem AND options matched; 'options' = options only. A
+ *  stem-only match is not a skip reason — it is a flag (see below). */
+export type SkipReason = 'content' | 'options';
+export type FlagReason = 'stem';
 
 export function dedup(
   questions: ParsedQuestion[],
   existingStemHashes: Set<string>,
   existingOptionHashes: Set<string>,
-): { keep: ParsedQuestion[]; skipped: Array<{ q: ParsedQuestion; reason: SkipReason }> } {
+): {
+  keep: ParsedQuestion[];
+  skipped: Array<{ q: ParsedQuestion; reason: SkipReason }>;
+  /** Kept questions whose stem already exists — inserted, and the reviewer
+   *  sees the twin on the queue (PRD English B.3: flag, do not block). */
+  flagged: Array<{ q: ParsedQuestion; reason: FlagReason }>;
+} {
   const keep: ParsedQuestion[] = [];
   const skipped: Array<{ q: ParsedQuestion; reason: SkipReason }> = [];
+  const flagged: Array<{ q: ParsedQuestion; reason: FlagReason }> = [];
   for (const q of questions) {
     const sh = stemHash(q.stemEn);
     const oh = q.optionsEn.length ? optionsHash(q.optionsEn) : null;
-    if (existingStemHashes.has(sh)) {
-      skipped.push({ q, reason: 'stem' });
+    const stemSeen = existingStemHashes.has(sh);
+    const optionsSeen = !!oh && existingOptionHashes.has(oh);
+    if (stemSeen && optionsSeen) {
+      skipped.push({ q, reason: 'content' });
       continue;
     }
-    if (oh && existingOptionHashes.has(oh)) {
+    if (optionsSeen) {
       skipped.push({ q, reason: 'options' });
       continue;
+    }
+    if (stemSeen) {
+      q.notes.push('possible duplicate — same stem already in the bank; compare on the queue');
+      flagged.push({ q, reason: 'stem' });
     }
     existingStemHashes.add(sh);
     if (oh) existingOptionHashes.add(oh);
     keep.push(q);
   }
-  return { keep, skipped };
+  return { keep, skipped, flagged };
 }
 
 // ---------------------------------------------------------------------------
@@ -678,12 +720,13 @@ async function main() {
     process.exit(1);
   }
 
-  const { keep, skipped } = dedup(questions, existing.stems, existing.opts);
+  const { keep, skipped, flagged } = dedup(questions, existing.stems, existing.opts);
   const report: DedupReport = {
     parsed: questions.length,
     inserted: 0,
-    skippedStemHash: skipped.filter((s) => s.reason === 'stem').length,
+    skippedContentHash: skipped.filter((s) => s.reason === 'content').length,
     skippedOptionsHash: skipped.filter((s) => s.reason === 'options').length,
+    flaggedStemHash: flagged.length,
     untagged: keep.filter((q) => q.tags.length === 0).length,
     missingAnswer: keep.filter((q) => !q.answer).length,
     missingTamil: examKey === 'tn_hsc_physics' ? keep.filter((q) => !q.stemTa).length : 0,
@@ -691,8 +734,11 @@ async function main() {
 
   for (const s of skipped) {
     log(
-      `  skip Q${s.q.qno}: duplicate by ${s.reason === 'stem' ? 'normalised-stem hash' : 'options-set hash'}`,
+      `  skip Q${s.q.qno}: duplicate by ${s.reason === 'content' ? 'stem + options hashes (true duplicate)' : 'options-set hash'}`,
     );
+  }
+  for (const f of flagged) {
+    log(`  FLAG Q${f.q.qno}: same normalised stem already in the bank — kept as a draft, reviewer compares on the queue`);
   }
 
   for (const q of keep) {
@@ -715,7 +761,7 @@ async function main() {
   }
 
   log(
-    `report: parsed=${report.parsed} inserted=${report.inserted}${dry ? ' (would insert ' + keep.length + ')' : ''} skipped_stem_hash=${report.skippedStemHash} skipped_options_hash=${report.skippedOptionsHash} untagged=${report.untagged} missing_answer=${report.missingAnswer} missing_tamil=${report.missingTamil}`,
+    `report: parsed=${report.parsed} inserted=${report.inserted}${dry ? ' (would insert ' + keep.length + ')' : ''} skipped_content_hash=${report.skippedContentHash} skipped_options_hash=${report.skippedOptionsHash} flagged_stem_hash=${report.flaggedStemHash} untagged=${report.untagged} missing_answer=${report.missingAnswer} missing_tamil=${report.missingTamil}`,
   );
   if (report.missingAnswer > 0) {
     log('drafts without an answer are saved with answer.correct = null — the reviewer must set it before approving');

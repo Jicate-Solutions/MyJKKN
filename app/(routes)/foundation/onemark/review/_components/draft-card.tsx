@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, Loader2, Save } from 'lucide-react';
+import { Check, Copy, Loader2, Save } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,7 @@ import {
   BLOOM_LABELS,
   BLOOM_LEVELS,
   OPTION_KEYS,
+  approvalBlockers,
   useApproveDraft,
   useSaveDraft,
   type BloomLevel,
@@ -37,6 +38,7 @@ import {
   type DraftTopic,
   type ItemOption,
   type OptionKey,
+  type StemTwin,
 } from '../_lib/drafts';
 
 const NO_TOPIC = '__none__';
@@ -63,6 +65,30 @@ interface DraftCardProps {
   topics: DraftTopic[];
   tags: DraftTag[];
   userId: string;
+  /** Other items of this subject whose normalised stem equals this draft's
+   *  (PRD English B.3: a stem-only collision is flagged, not skipped). */
+  twins?: StemTwin[];
+}
+
+function twinStamp(t: StemTwin): string {
+  return [
+    t.source_year,
+    t.source_sitting ? t.source_sitting.toUpperCase() : null,
+    t.source_series ? `Series ${t.source_series}` : null,
+    t.source_qno != null ? `Q${t.source_qno}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** Show a stem's <u>word</u> span as an underline without trusting any other
+ *  markup — no innerHTML. */
+function renderUnderline(stem: string) {
+  const parts = stem.split(/(<u>.*?<\/u>)/g);
+  return parts.map((part, i) => {
+    const m = /^<u>(.*?)<\/u>$/.exec(part);
+    return m ? <u key={i}>{m[1]}</u> : <span key={i}>{part}</span>;
+  });
 }
 
 function optionText(list: ItemOption[] | null | undefined, key: OptionKey): string {
@@ -76,8 +102,9 @@ function toOptions(map: Record<OptionKey, string>): ItemOption[] {
   }));
 }
 
-export function DraftCard({ draft, examId, examKey, topics, tags, userId }: DraftCardProps) {
+export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins = [] }: DraftCardProps) {
   const isPhysics = examKey === 'tn_hsc_physics';
+  const [showTwins, setShowTwins] = useState(false);
 
   const [stem, setStem] = useState(draft.stem ?? '');
   const [stemTa, setStemTa] = useState(draft.stem_ta ?? '');
@@ -108,15 +135,23 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId }: Draf
   const filledEn = useMemo(() => toOptions(optsEn), [optsEn]);
   const filledTa = useMemo(() => toOptions(optsTa), [optsTa]);
 
-  const blockers = useMemo(() => {
-    const out: string[] = [];
-    if (!stem.trim()) out.push('an English stem');
-    if (filledEn.length < 4) out.push('all four English options');
-    if (!correct || !optsEn[correct]?.trim()) out.push('the correct option');
-    if (!bloom) out.push('a JABT level');
-    if (isPhysics && !stemTa.trim()) out.push('a Tamil stem');
-    return out;
-  }, [stem, filledEn.length, correct, optsEn, bloom, isPhysics, stemTa]);
+  // Same rules the server action enforces (_lib/approve-rules.ts). This copy
+  // only decides whether the button is enabled and what the hint says; the
+  // server run is the gate.
+  const blockers = useMemo(
+    () =>
+      approvalBlockers(
+        {
+          stem,
+          stem_ta: stemTa,
+          options: filledEn,
+          answer: correct ? { correct } : { correct: null, pending: true },
+          bloom_level: bloom,
+        },
+        examKey,
+      ),
+    [stem, stemTa, filledEn, correct, bloom, examKey],
+  );
 
   function buildPatch(): DraftPatch {
     return {
@@ -146,7 +181,7 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId }: Draf
   async function onApprove() {
     if (blockers.length) return;
     try {
-      await approve.mutateAsync({ id: draft.id, patch: buildPatch(), userId });
+      await approve.mutateAsync({ id: draft.id, patch: buildPatch() });
       toast.success('Approved — it is now in the live bank');
     } catch (err: any) {
       toast.error(err?.message ?? 'Could not approve the draft');
@@ -183,6 +218,18 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId }: Draf
           )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          {twins.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowTwins((v) => !v)}
+              aria-expanded={showTwins}
+              className="inline-flex items-center gap-1 rounded-full border border-amber-400 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
+              title="Another item of this subject has the same stem. Open it to compare before approving."
+            >
+              <Copy className="h-3 w-3" />
+              Possible duplicate · {twins.length}
+            </button>
+          )}
           {draft.answer?.correct ? null : (
             <Badge variant="outline" className="border-amber-400 text-[10px] text-amber-700 dark:text-amber-400">
               No answer yet
@@ -198,6 +245,39 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId }: Draf
           )}
         </div>
       </div>
+
+      {twins.length > 0 && showTwins && (
+        <div className="border-b border-amber-300/60 bg-amber-50/60 px-4 py-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20">
+          <p className="mb-2 text-[11px] uppercase tracking-[0.12em] text-amber-800 dark:text-amber-300">
+            Same stem already in the bank — the ingester flags this, it does not skip it (PRD B.3).
+            Approve only if the options or the underlined word make it a different question.
+          </p>
+          <ul className="space-y-2">
+            {twins.map((t) => (
+              <li key={t.id} className="rounded-md border border-amber-200/70 bg-card p-2 dark:border-amber-900/50">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                  <Badge variant={t.is_active ? 'secondary' : 'outline'} className="text-[10px]">
+                    {t.is_active ? 'Live' : 'Draft'}
+                  </Badge>
+                  <span className="font-mono uppercase tracking-[0.12em]">
+                    {SOURCE_LABELS[t.source_key ?? ''] ?? (t.source_key || 'Unknown source')}
+                  </span>
+                  {twinStamp(t) && <span className="font-mono tabular-nums">{twinStamp(t)}</span>}
+                  {t.tags.length > 0 && <span>tags: {t.tags.join(', ')}</span>}
+                </div>
+                <p className="mt-1 text-[13px]">{renderUnderline(t.stem)}</p>
+                <div className="mt-1 grid gap-x-4 gap-y-0.5 text-[12px] sm:grid-cols-2">
+                  {t.options.map((o) => (
+                    <span key={o.key}>
+                      <span className="font-mono text-muted-foreground">({String(o.key).toLowerCase()})</span> {o.text}
+                    </span>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         {/* The paper block */}

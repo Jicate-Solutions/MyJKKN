@@ -10,15 +10,19 @@
 //
 // Approve (decision 7): ONE subject Senior Learner's tick. Flips is_active to
 // true and stamps updated_by with the approver. No second reviewer, no batch.
+// The flip itself is NOT done here: it goes through the server action in
+// ../_actions/approve-draft.ts, which re-checks foundation.items.manage and
+// the approval rules (_lib/approve-rules.ts) before writing. Save stays a
+// plain RLS-gated UPDATE — it never changes is_active.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { OneMarkExamKeys, type FpItemOneMarkColumns } from '@/types/onemark';
+import { approveDraft as approveDraftAction } from '../_actions/approve-draft';
+import { normaliseStem, type BloomLevel, type OptionKey } from './approve-rules';
 
-export const OPTION_KEYS = ['A', 'B', 'C', 'D'] as const;
-export type OptionKey = (typeof OPTION_KEYS)[number];
-export const BLOOM_LEVELS = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'] as const;
-export type BloomLevel = (typeof BLOOM_LEVELS)[number];
+export { BLOOM_LEVELS, OPTION_KEYS, approvalBlockers, normaliseStem } from './approve-rules';
+export type { BloomLevel, OptionKey } from './approve-rules';
 
 export const BLOOM_LABELS: Record<BloomLevel, string> = {
   K1: 'K1 · Remembering',
@@ -96,6 +100,7 @@ export const oneMarkKeys = {
   topics: (examId: string) => [...oneMarkKeys.all, 'topics', examId] as const,
   tags: (examId: string) => [...oneMarkKeys.all, 'tags', examId] as const,
   drafts: (examId: string) => [...oneMarkKeys.all, 'drafts', examId] as const,
+  stemIndex: (examId: string) => [...oneMarkKeys.all, 'stem-index', examId] as const,
 };
 
 export async function listOneMarkExams(): Promise<OneMarkExam[]> {
@@ -164,18 +169,59 @@ export async function saveDraft(id: string, patch: DraftPatch, userId: string): 
   if (error) throw error;
 }
 
-/** Decision 7 — one Senior Learner's tick. The row must still be a draft. */
-export async function approveDraft(id: string, patch: DraftPatch, userId: string): Promise<void> {
-  const { data, error } = await sb()
-    .from('fp_items')
-    .update({ ...patch, is_active: true, updated_by: userId })
-    .eq('id', id)
-    .eq('is_active', false)
-    .select('id');
-  if (error) throw error;
-  if (!data || data.length === 0) {
-    throw new Error('This draft was already approved or removed by someone else.');
+/** Decision 7 — one Senior Learner's tick. Runs server-side: the action
+ *  re-checks foundation.items.manage and refuses a draft with no JABT level,
+ *  no correct option or fewer than four options, then flips is_active by id
+ *  (never filtering on the column it writes — PostgREST would drop the row
+ *  from its own RETURNING and report a failure for a write that landed). */
+export async function approveDraft(id: string, patch: DraftPatch): Promise<void> {
+  const result = await approveDraftAction({ id, patch });
+  if (result.ok === false) throw new Error(result.error);
+}
+
+/** Every item of the exam (live and draft) keyed by normalised stem, so the
+ *  queue can show a reviewer the twin of a flagged draft — a stem-only
+ *  collision is FLAGGED for review, not skipped (PRD English B.3). Read under
+ *  RLS with the reviewer's own session; the answer is NOT selected. */
+export interface StemTwin {
+  id: string;
+  stem: string;
+  options: ItemOption[];
+  is_active: boolean;
+  tags: string[];
+  source_key: string | null;
+  source_year: number | null;
+  source_sitting: string | null;
+  source_series: string | null;
+  source_qno: number | null;
+}
+
+export async function listStemIndex(examId: string): Promise<Map<string, StemTwin[]>> {
+  const index = new Map<string, StemTwin[]>();
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await sb()
+      .from('fp_items')
+      .select('id, stem, options, is_active, tags, source_key, source_year, source_sitting, source_series, source_qno')
+      .eq('exam_definition_id', examId)
+      .order('created_at', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    for (const row of (data ?? []) as any[]) {
+      const key = normaliseStem(String(row.stem ?? ''));
+      if (!key) continue;
+      const twin: StemTwin = {
+        ...row,
+        options: Array.isArray(row.options) ? row.options : [],
+        tags: Array.isArray(row.tags) ? row.tags : [],
+      };
+      const list = index.get(key);
+      if (list) list.push(twin);
+      else index.set(key, [twin]);
+    }
+    if (!data || data.length < pageSize) break;
   }
+  return index;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,18 +264,31 @@ export function useSaveDraft(examId: string | null) {
     mutationFn: (v: { id: string; patch: DraftPatch; userId: string }) =>
       saveDraft(v.id, v.patch, v.userId),
     onSuccess: () => {
-      if (examId) qc.invalidateQueries({ queryKey: oneMarkKeys.drafts(examId) });
+      if (examId) {
+        qc.invalidateQueries({ queryKey: oneMarkKeys.drafts(examId) });
+        qc.invalidateQueries({ queryKey: oneMarkKeys.stemIndex(examId) });
+      }
     },
+  });
+}
+
+export function useStemIndex(examId: string | null) {
+  return useQuery({
+    queryKey: oneMarkKeys.stemIndex(examId ?? ''),
+    queryFn: () => listStemIndex(examId as string),
+    enabled: !!examId,
   });
 }
 
 export function useApproveDraft(examId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: string; patch: DraftPatch; userId: string }) =>
-      approveDraft(v.id, v.patch, v.userId),
+    mutationFn: (v: { id: string; patch: DraftPatch }) => approveDraft(v.id, v.patch),
     onSuccess: () => {
-      if (examId) qc.invalidateQueries({ queryKey: oneMarkKeys.drafts(examId) });
+      if (examId) {
+        qc.invalidateQueries({ queryKey: oneMarkKeys.drafts(examId) });
+        qc.invalidateQueries({ queryKey: oneMarkKeys.stemIndex(examId) });
+      }
     },
   });
 }
