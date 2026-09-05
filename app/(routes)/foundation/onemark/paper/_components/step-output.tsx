@@ -61,7 +61,7 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
   async function unpublish() {
     try {
       await act.mutateAsync({ action: 'unpublish' });
-      toast.success('Unpublished — the cohort no longer sees it. Fix the window or cohort, then publish again.');
+      toast.success('Unpublished — it is no longer live for learners. The cohort and window are kept; correct them, then publish again.');
     } catch (err: any) {
       toast.error(err?.message ?? 'Could not unpublish');
     }
@@ -162,7 +162,7 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
                 Unpublish
               </Button>
               <span className="text-xs text-muted-foreground">
-                Wrong cohort, window or duration? Unpublish, correct it, publish again. Possible until the first learner starts — after that the paper stays as published.
+                Wrong cohort, window or duration? Unpublish (the paper stops being live; cohort and window are kept for you to correct), then publish again. Possible until the first learner starts — after that the paper stays as published.
               </span>
             </div>
           </div>

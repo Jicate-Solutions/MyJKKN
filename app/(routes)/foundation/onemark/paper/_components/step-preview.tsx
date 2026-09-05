@@ -39,6 +39,8 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
   // the POOL cannot supply the count → a smaller count fixes it;
   // a RESERVED tag ran short → only wider filters or "board shape off" fixes it.
   const blueprintMissing = report?.blueprint_missing ?? 0;
+  const lockMoves = report?.lock_moves ?? [];
+  const boardConflicts = paper.board_conflicts ?? [];
   const poolShortfall = !!report && report.available < report.requested;
   const boardOn = draft.enforce_board_blueprint && paper.exam.config_key === 'tn_hsc_english';
 
@@ -138,6 +140,31 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
             </Button>
             <span className="self-center text-xs text-muted-foreground">or go back and widen the chapters so more synonym and antonym questions qualify.</span>
           </div>
+        </div>
+      )}
+
+      {lockMoves.length > 0 && (
+        <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm" role="status">
+          <p className="font-medium text-foreground">
+            {lockMoves.length} locked question{lockMoves.length === 1 ? '' : 's'} moved to keep the board shape.
+          </p>
+          <ul className="mt-1 list-disc pl-6 text-xs text-muted-foreground">
+            {lockMoves.map((m) => (
+              <li key={m.item_id}>
+                Q{m.from + 1} → Q{m.to + 1} — {m.reason}. Still locked.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {boardConflicts.length > 0 && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm" role="alert">
+          <p className="flex items-center gap-2 font-medium text-foreground">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            The board shape is broken: {boardConflicts.map((c) => `Q${c.position} needs a ${c.tag_key} question`).join(', ')}.
+          </p>
+          <p className="text-xs text-muted-foreground">Regenerate the unlocked questions (unlock the one in that slot first) or switch board shape off. It cannot be finalised like this.</p>
         </div>
       )}
 

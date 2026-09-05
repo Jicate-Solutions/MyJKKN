@@ -145,7 +145,7 @@ export function PaperWizard() {
 
   // Decision 15: an empty reserved slot blocks "Confirm & finalise" here as
   // well as on the server — the board shape is never quietly abandoned.
-  const boardGaps = draft.enforce_board_blueprint ? (paper.empty_slots?.length ?? 0) : 0;
+  const boardGaps = draft.enforce_board_blueprint ? (paper.empty_slots?.length ?? 0) + (paper.board_conflicts?.length ?? 0) : 0;
   const canNext =
     !busy &&
     !published &&

@@ -115,7 +115,18 @@ export interface GenerationReport {
    *  This part of `missing` cannot be cured by a smaller count — only by
    *  widening the filters or switching the board shape off. */
   blueprint_missing: number;
+  /** Locks that could not keep their slot (decision 12 + 15): moved, never
+   *  dropped, never left in a reserved slot they do not qualify for. */
+  lock_moves: LockMove[];
   generated_at: string;
+}
+
+export interface LockMove {
+  item_id: string;
+  /** 0-based board positions. */
+  from: number;
+  to: number;
+  reason: string;
 }
 
 export interface PaperOutputs {
@@ -217,6 +228,45 @@ export function boardOf(config: Pick<PaperConfig, 'resolved_item_ids' | 'empty_s
   // Trailing gaps (a reserved slot after the last resolved item).
   while (gaps.has(board.length)) board.push(null);
   return board;
+}
+
+export interface BoardConflict {
+  /** 1-based printed position. */
+  position: number;
+  item_id: string;
+  tag_key: string;
+}
+
+/** Decision 15 read back from the persisted paper: every reserved position
+ *  must hold an item carrying that slot's tag. The generator guarantees this;
+ *  finalize and the preview check it again so a config written by an older
+ *  build (or a hand-edited row) can never print with the shape broken. */
+export function boardShapeConflicts(
+  config: Pick<PaperConfig, 'resolved_item_ids' | 'empty_slots' | 'params'>,
+  examKey: string,
+  tagsOf: (itemId: string) => readonly string[] | undefined,
+): BoardConflict[] {
+  if (examKey !== 'tn_hsc_english' || !config.params.enforce_board_blueprint) return [];
+  const board = boardOf(config);
+  const out: BoardConflict[] = [];
+  for (const group of BLUEPRINT_SLOTS) {
+    for (const p of group.positions) {
+      const id = board[p];
+      if (id === null || id === undefined) continue;
+      const tags = tagsOf(id);
+      if (tags && !tags.includes(group.tag_key)) out.push({ position: p + 1, item_id: id, tag_key: group.tag_key });
+    }
+  }
+  return out;
+}
+
+/** THE single authority on whether learners may open a paper (Lane V reads
+ *  this, nothing else): `config.outputs.published_at` set. A paper that still
+ *  carries a cohort_id, a window and a duration but no published_at is NOT
+ *  live — that is exactly the state `unpublish` leaves behind so the window
+ *  can be corrected and published again. */
+export function isPaperLive(config: Pick<PaperConfig, 'outputs'> | null | undefined): boolean {
+  return !!config?.outputs?.published_at;
 }
 
 // ---------------------------------------------------------------------------
@@ -447,20 +497,47 @@ export function generatePaper(input: {
   const slots: (string | null)[] = Array.from({ length: count }, () => null);
   const taken = new Set<string>();
 
-  // 1. Locked items first, in the slot they held. A lock beyond the new count
-  //    is appended rather than dropped — never silently lost.
+  // 0. The board shape's reserved positions are known BEFORE any lock is
+  //    placed (decision 15): a locked grammar item must never sit in Q1–6.
+  const blueprintOn = isEnglish(ctx) && ctx.params.enforce_board_blueprint;
+  const reserved = new Set<number>();
+  if (blueprintOn) {
+    for (const group of BLUEPRINT_SLOTS) for (const p of group.positions) if (p < slots.length) reserved.add(p);
+  }
+  const reservedTagAt = (slot: number) => BLUEPRINT_SLOTS.find((g) => g.positions.includes(slot))?.tag_key ?? null;
+  const fitsReserved = (it: PoolItem, slot: number) => {
+    const tag = reservedTagAt(slot);
+    return tag === null || it.tags.includes(tag);
+  };
+
+  // 1. Locked items first, in the slot they held. A lock beyond the new count,
+  //    or one whose slot is now reserved for a tag it does not carry, moves to
+  //    the first open NON-reserved slot (appended if none) — never silently
+  //    lost, never left breaking the shape. Each move is reported.
   const locked = lockedIds.filter((id) => byId.has(id));
-  const overflow: string[] = [];
+  const overflow: { id: string; from: number }[] = [];
+  const lockMoves: LockMove[] = [];
   for (const id of locked) {
     const prev = previousIds.indexOf(id);
-    if (prev >= 0 && prev < count && slots[prev] === null) slots[prev] = id;
-    else overflow.push(id);
+    const keepable =
+      prev >= 0 && prev < count && slots[prev] === null && (!reserved.has(prev) || fitsReserved(byId.get(id)!, prev));
+    if (keepable) slots[prev] = id;
+    else overflow.push({ id, from: prev });
     taken.add(id);
   }
-  for (const id of overflow) {
-    const free = slots.indexOf(null);
+  for (const { id, from } of overflow) {
+    const free = slots.findIndex((s, i) => s === null && !reserved.has(i));
+    const to = free >= 0 ? free : slots.length;
     if (free >= 0) slots[free] = id;
     else slots.push(id);
+    if (from >= 0 && from !== to) {
+      lockMoves.push({
+        item_id: id,
+        from,
+        to,
+        reason: reserved.has(from) ? `Q${from + 1} is reserved for ${reservedTagAt(from)}` : 'beyond the new question count',
+      });
+    }
   }
 
   // 2. Eligible pool — every filter applied, minus locked and recently used.
@@ -481,11 +558,6 @@ export function generatePaper(input: {
   // 3. English board shape: Q1–3 synonyms, Q4–6 antonyms (decision 15).
   //    A reserved slot the pool cannot fill stays EMPTY and is named in the
   //    report — PRD English §3.4 forbids back-filling it with grammar.
-  const blueprintOn = isEnglish(ctx) && ctx.params.enforce_board_blueprint;
-  const reserved = new Set<number>();
-  if (blueprintOn) {
-    for (const group of BLUEPRINT_SLOTS) for (const p of group.positions) if (p < slots.length) reserved.add(p);
-  }
   if (blueprintOn) {
     for (const group of BLUEPRINT_SLOTS) {
       const open = group.positions.filter((p) => p < slots.length && slots[p] === null);
@@ -613,6 +685,7 @@ export function generatePaper(input: {
       missing: Math.max(0, count - selected),
       blueprint_shortfalls: blueprintShortfalls,
       blueprint_missing: blueprintShortfalls.reduce((s, b) => s + Math.max(0, b.needed - b.available), 0),
+      lock_moves: lockMoves,
       generated_at: new Date().toISOString(),
     },
   };
@@ -786,6 +859,10 @@ export interface PaperDetail {
   /** Gaps in the board shape, in printed-position order. Empty unless the
    *  board shape is on and a reserved tag ran short. */
   empty_slots: EmptySlot[];
+  /** Reserved positions holding an item without that slot's tag. Always empty
+   *  after a regenerate; non-empty only for a config an older build wrote.
+   *  Blocks finalize like a gap does. */
+  board_conflicts: BoardConflict[];
   can_see_answers: boolean;
   updated_at: string;
 }

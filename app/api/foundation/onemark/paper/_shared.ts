@@ -25,6 +25,7 @@ import {
   LEVEL_KEYS,
   PAPER_QUESTION_COUNT_POLICY_PREFIX,
   boardOf,
+  boardShapeConflicts,
   defaultParams,
   filterMismatches,
   findSwap,
@@ -42,6 +43,7 @@ import {
   type PaperParams,
   type PaperPolicies,
   type PoolItem,
+  type BoardConflict,
   type ResolvedQuestion,
   type WizardStep,
 } from '@/lib/services/onemark/paper-service';
@@ -398,6 +400,8 @@ export function buildDetail(input: {
   const empty_slots: EmptySlot[] = board
     .map((id, i) => (id === null ? { position: i + 1, tag_key: reservedTag(i) } : null))
     .filter((e): e is EmptySlot => e !== null);
+  const board_conflicts: BoardConflict[] = boardShapeConflicts(config, exam.config_key, (id) => byId.get(id)?.tags);
+  const conflictAt = new Map(board_conflicts.map((c) => [c.item_id, c]));
 
   const questions: ResolvedQuestion[] = [];
   currentIds.forEach((id, index) => {
@@ -423,7 +427,12 @@ export function buildDetail(input: {
       source_year: it.source_year,
       override: config.question_overrides[it.id] ?? null,
       swap_available: swap !== null,
-      lock_warning: isLocked && mismatch.length > 0 ? mismatch : null,
+      lock_warning: (() => {
+        const reasons = [...mismatch];
+        const conflict = conflictAt.get(it.id);
+        if (conflict) reasons.push(`sits in Q${conflict.position}, a slot reserved for ${conflict.tag_key}`);
+        return isLocked && reasons.length > 0 ? reasons : null;
+      })(),
     };
     if (canSeeAnswers) {
       q.answer = it.answer;
@@ -441,6 +450,7 @@ export function buildDetail(input: {
     config,
     questions,
     empty_slots,
+    board_conflicts,
     can_see_answers: canSeeAnswers,
     updated_at: row.updated_at,
   };

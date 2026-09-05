@@ -24,7 +24,9 @@ import {
   LEVEL_KEYS,
   JABT_LEVEL_LABELS,
   boardOf,
+  boardShapeConflicts,
   findSwap,
+  isPaperLive,
   generatePaper,
   levelOf,
   type EngineContext,
@@ -339,7 +341,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { exam, policies } = loaded;
     let config: PaperConfig = { ...loaded.config };
 
-    const published = !!config.outputs?.published_at;
+    // isPaperLive is the ONE authority on "learners may open this" — Lane V
+    // must read it (or config.outputs.published_at) and nothing else.
+    const published = isPaperLive(config);
     const mutating = body.action !== 'mark_exported' && body.action !== 'unpublish';
     if (published && mutating) {
       return bad('This paper is published to learners. Unpublish it first to change anything.', 409);
@@ -547,6 +551,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             409,
           );
         }
+        // Decision 15 again, read back from the persisted list: a reserved
+        // position holding an item without that slot's tag (a config an older
+        // build wrote, or a lock that pre-dates the guard) is refused too.
+        if (exam.config_key === 'tn_hsc_english' && config.params.enforce_board_blueprint) {
+          const board = boardOf(config);
+          const reservedIds = BLUEPRINT_SLOTS.flatMap((gp) => gp.positions).map((p) => board[p]).filter((x): x is string => !!x);
+          const items = await loadItemsById(supabase, reservedIds);
+          const tagsOf = new Map(items.map((it) => [it.id, it.tags]));
+          const conflicts = boardShapeConflicts(config, exam.config_key, (id) => tagsOf.get(id));
+          if (conflicts.length > 0) {
+            const qs = conflicts.map((c) => `Q${c.position} (needs ${c.tag_key})`).join(', ');
+            return bad(`The board shape is broken at ${qs}. Regenerate the unlocked questions or switch board shape off before finalising.`, 409);
+          }
+        }
         // fp_assessment_items is the durable order; rewritten whole so a
         // re-finalize after edits cannot leave a stale row behind. There is
         // no transaction here, so the previous rows are read first and put
@@ -645,7 +663,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           );
         }
         // Window, duration, shuffle and cohort stay as entered so a wrong
-        // date can be corrected and the paper published again.
+        // date can be corrected and the paper published again. That is safe
+        // ONLY because `config.outputs.published_at` (isPaperLive) is the
+        // single authority on "live": a paper carrying cohort_id + open_at +
+        // close_at + duration_min but no published_at is NOT live, and Lane V
+        // must never serve it. Contract stated in the PR body's Lane V section.
         const outputs = { ...(config.outputs ?? {}) };
         delete outputs.published_at;
         config = { ...config, outputs };

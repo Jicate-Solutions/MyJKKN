@@ -5,11 +5,13 @@ import { describe, expect, it } from 'vitest';
 import {
   apportion,
   boardOf,
+  boardShapeConflicts,
   defaultLevelMix,
   defaultParams,
   filterMismatches,
   findSwap,
   generatePaper,
+  isPaperLive,
   lockWarnings,
   questionCountFor,
   resolveOptionLayout,
@@ -274,6 +276,71 @@ describe('English — decision 15 board shape and PRD §4.4 chapter-agnostic ite
     const board = boardOf({ resolved_item_ids: resolved, empty_slots: first.empty_reserved_slots });
     const second = generatePaper({ pool, ctx: c, lockedIds: [lockedId], previousIds: board });
     expect(second.slots[7]).toBe(lockedId);
+  });
+
+  it('round 3 (a) — a lock held at Q1 under shape OFF moves out of Q1 when the shape is switched ON', () => {
+    const pool = [
+      ...Array.from({ length: 4 }, (_, i) => item(`syn-${i}`, { tags: ['synonyms'] })),
+      ...Array.from({ length: 4 }, (_, i) => item(`ant-${i}`, { tags: ['antonyms'] })),
+      ...Array.from({ length: 20 }, (_, i) => item(`gram-${i}`, { tags: ['spelling'], topic_id: null })),
+    ];
+    const off = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 20, enforce_board_blueprint: false }), lockedIds: [], previousIds: [] });
+    // Lock whatever sits at Q1 under the free shape — make sure it is a grammar item for the repro.
+    const q1 = off.slots[0] as string;
+    const lockedId = q1.startsWith('gram-') ? q1 : (off.slots.find((s) => s?.startsWith('gram-')) as string);
+    const previous = off.slots.map((s) => (s === lockedId ? lockedId : s));
+    // Force the lock to be remembered at board slot 0.
+    previous.splice(previous.indexOf(lockedId), 1);
+    previous.unshift(lockedId);
+    const on = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 20 }), lockedIds: [lockedId], previousIds: previous });
+    expect(on.slots.slice(0, 3).every((s) => s?.startsWith('syn-'))).toBe(true);
+    expect(on.slots.slice(3, 6).every((s) => s?.startsWith('ant-'))).toBe(true);
+    expect(on.slots.indexOf(lockedId)).toBeGreaterThanOrEqual(6);
+    expect(on.report.lock_moves).toEqual([
+      { item_id: lockedId, from: 0, to: on.slots.indexOf(lockedId), reason: 'Q1 is reserved for synonyms' },
+    ]);
+    expect(on.report.blueprint_missing).toBe(0);
+  });
+
+  it('round 3 (b) — a lock beyond the new count never overflows into a reserved slot', () => {
+    const pool = [
+      ...Array.from({ length: 4 }, (_, i) => item(`syn-${i}`, { tags: ['synonyms'] })),
+      ...Array.from({ length: 4 }, (_, i) => item(`ant-${i}`, { tags: ['antonyms'] })),
+      ...Array.from({ length: 20 }, (_, i) => item(`gram-${i}`, { tags: ['spelling'], topic_id: null })),
+    ];
+    const twenty = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 20 }), lockedIds: [], previousIds: [] });
+    const q20 = twenty.slots[19] as string;
+    expect(q20.startsWith('gram-')).toBe(true);
+    const fifteen = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 15 }), lockedIds: [q20], previousIds: twenty.slots });
+    expect(fifteen.slots[0]?.startsWith('syn-')).toBe(true);
+    const to = fifteen.slots.indexOf(q20);
+    expect(to).toBeGreaterThanOrEqual(6);
+    expect(fifteen.report.lock_moves).toEqual([{ item_id: q20, from: 19, to, reason: 'beyond the new question count' }]);
+    expect(fifteen.slots.slice(0, 6).some((s) => s?.startsWith('gram-'))).toBe(false);
+  });
+
+  it('a locked synonym keeps a reserved synonym slot; a locked synonym in an antonym slot is moved', () => {
+    const pool = [
+      ...Array.from({ length: 4 }, (_, i) => item(`syn-${i}`, { tags: ['synonyms'] })),
+      ...Array.from({ length: 4 }, (_, i) => item(`ant-${i}`, { tags: ['antonyms'] })),
+      ...Array.from({ length: 10 }, (_, i) => item(`gram-${i}`, { tags: ['spelling'], topic_id: null })),
+    ];
+    const keep = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 12 }), lockedIds: ['syn-2'], previousIds: ['x', 'syn-2'] });
+    expect(keep.slots[1]).toBe('syn-2');
+    expect(keep.report.lock_moves).toEqual([]);
+    const moved = generatePaper({ pool, ctx: ctx('tn_hsc_english', { question_count: 12 }), lockedIds: ['syn-2'], previousIds: ['x', 'y', 'z', 'syn-2'] });
+    expect(moved.slots[3]?.startsWith('ant-')).toBe(true);
+    expect(moved.slots.indexOf('syn-2')).toBeGreaterThanOrEqual(6);
+    // Read-back check catches a persisted board that breaks the shape.
+    const conflicts = boardShapeConflicts(
+      { resolved_item_ids: ['gram-0', 'syn-0', 'syn-1', 'ant-0', 'ant-1', 'ant-2', 'gram-1'], empty_slots: [], params: { ...defaultParams({ examKey: 'tn_hsc_english', questionCount: 20 }) } },
+      'tn_hsc_english',
+      (id) => pool.find((p) => p.id === id)?.tags,
+    );
+    expect(conflicts).toEqual([{ position: 1, item_id: 'gram-0', tag_key: 'synonyms' }]);
+    expect(isPaperLive({ outputs: { published_at: '2026-09-05T00:00:00Z' } })).toBe(true);
+    expect(isPaperLive({ outputs: { pdf_exported_at: '2026-09-05T00:00:00Z' } })).toBe(false);
+    expect(isPaperLive({})).toBe(false);
   });
 
   it('"available" counts only what the board shape can place — a fourth synonym is not a promise', () => {
