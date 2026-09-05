@@ -239,11 +239,27 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
   local run="$STATE/run-$ts"; mkdir -p "$run"
-  exec > >(tee "$RECEIPT" -a "$RUNLOG") 2>&1
+  # Redirect ONCE per process. In a --goal loop this used to re-exec every round, stacking a live
+  # tee per round; each new tee truncated $RECEIPT while the older ones kept flushing their copy,
+  # so the receipt held the same header N times and no round's real output survived
+  # (2026-09-05 19:47: six identical headers, zero readable history).
+  if [ -z "${_REDIR_DONE:-}" ]; then
+    _REDIR_DONE=1
+    exec > >(tee "$RECEIPT" -a "$RUNLOG") 2>&1
+  fi
   say "=== W12 ship wave · mode=$MODE · approve-normal=${APPROVE_NORMAL:-no} · approve-held=${APPROVE_HELD:-none} · max-dispatch=$MAX_DISPATCH · $(date '+%F %T') ==="
 
   # ── 0. preflight ───────────────────────────────────────────────────────────
-  gh auth status >/dev/null 2>&1 || { say "PREFLIGHT FAIL: gh not authenticated"; return 1; }
+  # `gh auth status` makes a live API call, so one network blip reads as "not authenticated".
+  # On 2026-09-05 exactly that killed a goal run and the wave sat dead 2.5 hours with seven
+  # approved, green PRs waiting. Retry before believing it.
+  local gh_ok="" gh_try
+  for gh_try in 1 2 3; do
+    if gh auth status >/dev/null 2>&1; then gh_ok=1; break; fi
+    say "  preflight: gh auth check failed (attempt $gh_try/3) — retrying in $((gh_try*5))s"
+    sleep $((gh_try*5))
+  done
+  [ -n "$gh_ok" ] || { say "PREFLIGHT FAIL: gh not authenticated after 3 attempts"; return 1; }
   local frozen=""; if [ -f "$FREEZE" ]; then frozen=1; say "  ⛔ FROZEN since: $(head -1 "$FREEZE") — this round merges NOTHING (sweep/report only). Clear with --unfreeze."; fi
   local tok; tok=$(vtok); [ -n "$tok" ] || say "  warn: no Vercel CLI token — deploy verification will be blind"
   if [ -n "$tok" ]; then
@@ -435,7 +451,7 @@ PY
 if [ -n "$GOAL" ]; then
   # goal loop (Director 2026-09-05): rounds until open PRs == 0, or GOAL_ROUNDS, or a freeze
   for round in $(seq 1 $GOAL_ROUNDS); do
-    run_once
+    run_once || { say "=== round $round aborted before it could plan — goal loop ends (nothing was merged) ==="; break; }
     left=$(cat "$STATE/last-open-count" 2>/dev/null || echo 1)
     movable=$(python3 -c "import json,glob;p=sorted(glob.glob('$STATE/run-*/plan.json'))[-1];c=json.load(open(p))['counts'];print(c['ready']+c['conflicted']+c['quiet_wait'])" 2>/dev/null || echo 1)
     say "=== goal round $round/$GOAL_ROUNDS · open=$left · movable=$movable ==="
