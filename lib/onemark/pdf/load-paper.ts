@@ -48,7 +48,10 @@ export function normaliseOptions(raw: unknown): PaperOption[] {
   return raw.map((o, i) => {
     if (o && typeof o === 'object' && 'text' in (o as Record<string, unknown>)) {
       const r = o as Record<string, unknown>;
-      return { key: String(r.key ?? String.fromCharCode(97 + i)), text: String(r.text ?? '') };
+      // An empty-string key is no key: it would match an absent answer on the
+      // key sheet and present this option's text as the answer.
+      const key = typeof r.key === 'string' && r.key.trim() ? r.key : String.fromCharCode(97 + i);
+      return { key, text: String(r.text ?? '') };
     }
     return { key: String.fromCharCode(97 + i), text: String(o ?? '') };
   });
@@ -77,42 +80,102 @@ export function normaliseTamilOptions(raw: unknown, english: PaperOption[], item
   return ta;
 }
 
-/** fp_items.answer: scalar "b", `{correct: "b"}` or `["b"]` (fp_rpcs.sql contract). */
-export function normaliseAnswer(raw: unknown): string | null {
+/**
+ * fp_items.answer → the canonical option key.
+ *   scalar "b" · `{correct: "b"}` · `["b"]`   fp_rpcs.sql contract
+ *   `{index: 1}` (0-based into `options`)      what EVERY item on production
+ *                                              carries today (48/48 across
+ *                                              tn_hsc_physics + tn_hsc_english,
+ *                                              checked live 2026-09-05): the
+ *                                              key printed "—" on all of them
+ *                                              until this shape was read.
+ *   `{key: "b"}`                               tolerated alias
+ */
+export function normaliseAnswer(raw: unknown, options: PaperOption[] = []): string | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === 'string') return raw.toLowerCase();
-  if (Array.isArray(raw)) return raw.length ? String(raw[0]).toLowerCase() : null;
-  if (typeof raw === 'object' && 'correct' in (raw as Record<string, unknown>)) {
-    return normaliseAnswer((raw as Record<string, unknown>).correct);
+  if (typeof raw === 'number') return indexToKey(raw, options);
+  if (Array.isArray(raw)) return raw.length ? normaliseAnswer(raw[0], options) : null;
+  if (typeof raw === 'object') {
+    const r = raw as Record<string, unknown>;
+    if ('correct' in r) return normaliseAnswer(r.correct, options);
+    if ('key' in r) return normaliseAnswer(r.key, options);
+    if ('index' in r) {
+      const n = Number(r.index);
+      return Number.isInteger(n) ? indexToKey(n, options) : null;
+    }
   }
   return null;
 }
 
-interface QuestionOverride {
+function indexToKey(n: number, options: PaperOption[]): string | null {
+  if (!Number.isInteger(n) || n < 0) return null;
+  const key = options[n]?.key ?? (n < 26 ? String.fromCharCode(97 + n) : null);
+  return key ? key.toLowerCase() : null;
+}
+
+/**
+ * fp_assessments.config.question_overrides[itemId] (decision 14). Every field
+ * is independent and PER LANGUAGE: an English-only edit never touches the
+ * Tamil block and vice versa. `answer` lets an edit that rewrites or reorders
+ * the options carry the key that goes with them.
+ */
+export interface QuestionOverride {
   stem?: string;
   stem_ta?: string;
   options?: unknown;
   options_ta?: unknown;
   explanation?: string;
   explanation_ta?: string;
+  /** Same shapes as fp_items.answer. Honoured only on a key render. */
+  answer?: unknown;
 }
 
-function applyOverride(item: PaperItem, o: QuestionOverride | undefined): PaperItem {
+/**
+ * Apply one override on top of the master row. Rules (reviewer findings,
+ * PR #3276 round 2):
+ *   • `options` rewrites the English list only; `options_ta` the Tamil list
+ *     only. An untouched language is kept as loaded.
+ *   • If an English rewrite changes the option COUNT, an untouched Tamil list
+ *     can no longer be lettered against it and is dropped with a warning —
+ *     the same rule normaliseTamilOptions applies to a half-translated row.
+ *   • On a key render, `answer` replaces the key; without it, an `options`
+ *     rewrite keeps the key ONLY if the new list still carries that key —
+ *     otherwise the key is nulled (prints "—") and logged, never left pointing
+ *     at whatever now sits under the old letter.
+ *   • On a paper render (answers stripped) `answer` is ignored, so an
+ *     override can never put an answer into the question paper.
+ */
+export function applyOverride(item: PaperItem, o: QuestionOverride | undefined, includeAnswers: boolean): PaperItem {
   if (!o) return item;
-  const optionsEn = o.options !== undefined ? normaliseOptions(o.options) : item.optionsEn;
-  const optionsTa =
-    o.options_ta !== undefined || optionsEn.length !== item.optionsEn.length
-      ? normaliseTamilOptions(o.options_ta !== undefined ? o.options_ta : item.optionsTa, optionsEn, item.id)
-      : item.optionsTa;
-  return {
-    ...item,
-    stemEn: typeof o.stem === 'string' ? o.stem : item.stemEn,
-    stemTa: typeof o.stem_ta === 'string' ? o.stem_ta : item.stemTa,
-    optionsEn,
-    optionsTa,
-    explanationEn: typeof o.explanation === 'string' ? o.explanation : item.explanationEn,
-    explanationTa: typeof o.explanation_ta === 'string' ? o.explanation_ta : item.explanationTa,
-  };
+  const next: PaperItem = { ...item };
+  if (typeof o.stem === 'string') next.stemEn = o.stem;
+  if (typeof o.stem_ta === 'string') next.stemTa = o.stem_ta;
+  if (typeof o.explanation === 'string') next.explanationEn = o.explanation;
+  if (typeof o.explanation_ta === 'string') next.explanationTa = o.explanation_ta;
+
+  const englishRewritten = o.options !== undefined;
+  if (englishRewritten) next.optionsEn = normaliseOptions(o.options);
+
+  if (o.options_ta !== undefined) {
+    next.optionsTa = normaliseTamilOptions(o.options_ta, next.optionsEn, item.id);
+  } else if (next.optionsTa && next.optionsTa.length !== next.optionsEn.length) {
+    console.warn(
+      `[onemark/paper] item ${item.id}: override changed the English option count to ${next.optionsEn.length}; the untouched Tamil list (${next.optionsTa.length}) cannot be lettered against it — printing English options only`,
+    );
+    next.optionsTa = null;
+  }
+
+  if (includeAnswers) {
+    if (o.answer !== undefined) next.answerKey = normaliseAnswer(o.answer, next.optionsEn);
+    if (englishRewritten && next.answerKey && !next.optionsEn.some((op) => op.key.toLowerCase() === next.answerKey)) {
+      console.warn(
+        `[onemark/paper] item ${item.id}: override rewrote the options without an answer that matches them (key "${next.answerKey}" not in ${next.optionsEn.map((op) => op.key).join(',')}) — key row will print "—"`,
+      );
+      next.answerKey = null;
+    }
+  }
+  return next;
 }
 
 export interface LoadPaperOptions {
@@ -142,7 +205,12 @@ export async function loadPaperModel(assessmentId: string, opts: LoadPaperOption
       'position, item:fp_items(id, stem, stem_ta, options, options_ta, answer, explanation, explanation_ta, option_layout, tags, bloom_level, topic:cdc_exam_syllabus_topics(display_name, config_key))',
     )
     .eq('assessment_id', assessmentId)
-    .order('position', { ascending: true });
+    // position then item_id: fp_assessment_items.position is `integer NOT NULL
+    // DEFAULT 1` with no uniqueness, and the paper and its key are two
+    // separate requests — on a tie an unspecified row order would let the key
+    // disagree with the sheet. (Reviewer finding, PR #3276 round 2.)
+    .order('position', { ascending: true })
+    .order('item_id', { ascending: true });
   if (iErr) throw new Error(iErr.message);
   if (!rows || rows.length === 0) return null;
 
@@ -185,7 +253,7 @@ export async function loadPaperModel(assessmentId: string, opts: LoadPaperOption
         stemTa: it.stem_ta ?? null,
         optionsEn,
         optionsTa: normaliseTamilOptions(it.options_ta, optionsEn, it.id),
-        answerKey: opts.includeAnswers ? normaliseAnswer(it.answer) : null,
+        answerKey: opts.includeAnswers ? normaliseAnswer(it.answer, optionsEn) : null,
         explanationEn: opts.includeAnswers ? it.explanation ?? null : null,
         explanationTa: opts.includeAnswers ? it.explanation_ta ?? null : null,
         optionLayout: it.option_layout ?? 'auto',
@@ -195,7 +263,7 @@ export async function loadPaperModel(assessmentId: string, opts: LoadPaperOption
         topicKey: it.topic?.config_key ?? null,
         directive: directiveForTags(examKey, tags),
       };
-      return applyOverride(base, overrides[it.id]);
+      return applyOverride(base, overrides[it.id], opts.includeAnswers);
     });
 
   const seriesRaw = Number(config.series_count ?? 1);

@@ -24,29 +24,66 @@ import type {
   ResolvedOptionLayout,
 } from './types';
 import type { OneMarkOptionLayout } from '@/types/onemark';
+import { isTamilRunChar, tamilRunWidthChars } from './fonts';
 
 /** Longest option above this → one option per line (PRD Physics §4.3 "~40"). */
 export const STACKED_THRESHOLD = 40;
 /** Longest option above this → two rows of two (PRD English §4.5 "~15"). */
 export const TWO_BY_TWO_THRESHOLD = 15;
 
-/** Text length as the reader sees it: TeX/markup stripped, code points counted. */
-function visibleLength(text: string): number {
+/**
+ * Width of a Tamil run in Latin-character equivalents when the embedded faces
+ * cannot be measured: Noto Sans Tamil sets ~1.7 Tinos lowercase letters per
+ * code point (அதிபரவளையம் = 11 code points, measured 18.9). Only the fallback.
+ */
+export const TAMIL_FALLBACK_WIDTH_PER_CODEPOINT = 1.7;
+
+/**
+ * Text length as the reader sees it, in the PRD's unit — Latin characters.
+ * TeX/markup stripped; Latin and notation counted per code point; a TAMIL run
+ * measured in the embedded Noto Sans Tamil and converted with the Tinos
+ * lowercase average (fonts.ts), because Tamil sets far wider per code point
+ * and the board prints both language blocks in the SAME grid. Reviewer
+ * finding, PR #3276 round 2: Q11's (இ) அதிபரவளையம் overflowed an inline_4
+ * classified from "a hyperbola".
+ */
+export function visibleWidthChars(text: string): number {
   const stripped = text
     .replace(/\$[^$]+\$/g, (m) => m.slice(1, -1))
     .replace(/<\/?u>/gi, '')
     .replace(/\\[a-zA-Z]+/g, 'x');
-  return Array.from(stripped).length;
+  let width = 0;
+  let tamil = '';
+  const flushTamil = () => {
+    if (!tamil) return;
+    const measured = tamilRunWidthChars(tamil);
+    width += measured ?? Array.from(tamil).length * TAMIL_FALLBACK_WIDTH_PER_CODEPOINT;
+    tamil = '';
+  };
+  for (const ch of Array.from(stripped)) {
+    if (isTamilRunChar(ch)) {
+      tamil += ch;
+      continue;
+    }
+    flushTamil();
+    width += 1;
+  }
+  flushTamil();
+  return width;
 }
 
+/** Both language blocks print under ONE layout class, so the longest option
+ *  in EITHER language decides it. */
 export function classifyOptionLayout(
   declared: OneMarkOptionLayout | null | undefined,
   options: PaperOption[],
   tags: string[],
+  optionsTa?: PaperOption[] | null,
 ): ResolvedOptionLayout {
   if (declared && declared !== 'auto') return declared;
   if (tags.includes('assertion_set')) return 'stacked';
-  const longest = options.reduce((max, o) => Math.max(max, visibleLength(o.text ?? '')), 0);
+  const all = [...options, ...(optionsTa ?? [])];
+  const longest = all.reduce((max, o) => Math.max(max, visibleWidthChars(o.text ?? '')), 0);
   if (longest > STACKED_THRESHOLD) return 'stacked';
   if (longest > TWO_BY_TWO_THRESHOLD) return 'inline_2x2';
   return 'inline_4';
@@ -120,7 +157,12 @@ function segments(items: PaperItem[]): PaperItem[][] {
 }
 
 export function arrangeForSeries(model: PaperModel, series: PaperSeries): ArrangedPaper {
-  const ordered = model.items.slice().sort((a, b) => a.position - b.position);
+  // position, then id: two items on one position (nothing in the schema forbids
+  // it) must still order the same way for the paper and, in a separate
+  // request, its key.
+  const ordered = model.items
+    .slice()
+    .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   let itemOrder: PaperItem[];
   let rand: (() => number) | null = null;
 
@@ -143,7 +185,7 @@ export function arrangeForSeries(model: PaperModel, series: PaperSeries): Arrang
       item,
       number: idx + 1,
       optionOrder,
-      layout: classifyOptionLayout(item.optionLayout, item.optionsEn, item.tags),
+      layout: classifyOptionLayout(item.optionLayout, item.optionsEn, item.tags, item.optionsTa),
     };
   });
 

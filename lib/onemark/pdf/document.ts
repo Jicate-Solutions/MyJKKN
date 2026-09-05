@@ -304,9 +304,11 @@ export function answerKeyHtml(paper: ArrangedPaper): string {
     .map((arr) => {
       const keyEn = printedAnswerKey(arr, OPTION_KEYS_EN);
       const keyTa = printedAnswerKey(arr, OPTION_KEYS_TA);
-      const canonicalIndex = arr.item.optionsEn.findIndex(
-        (o) => (o.key ?? '').toLowerCase() === (arr.item.answerKey ?? '').toLowerCase(),
-      );
+      // No key → no answer text either: an empty-string key on some option must
+      // not match an empty answer and present that option as the answer.
+      const canonicalIndex = arr.item.answerKey
+        ? arr.item.optionsEn.findIndex((o) => (o.key ?? '').toLowerCase() === arr.item.answerKey!.toLowerCase())
+        : -1;
       const ansEn = canonicalIndex >= 0 ? arr.item.optionsEn[canonicalIndex].text : '';
       const ansTa = canonicalIndex >= 0 && arr.item.optionsTa ? arr.item.optionsTa[canonicalIndex]?.text ?? '' : '';
       const code = keyEn

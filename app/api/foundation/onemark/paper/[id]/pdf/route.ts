@@ -5,6 +5,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { loadPaperModel } from '@/lib/onemark/pdf/load-paper';
+import { GlyphCoverageError } from '@/lib/onemark/pdf/notation';
 import { renderAnswerKeyPdf, renderQuestionPaperPdf } from '@/lib/onemark/pdf/render';
 import { PAPER_SERIES, type PaperSeries } from '@/lib/onemark/pdf/types';
 
@@ -72,6 +73,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       },
     });
   } catch (err: any) {
+    if (err instanceof GlyphCoverageError) {
+      // A character no embedded font can print. Explicit, item by item, so the
+      // Senior Learner can reword it (decision 14) — never a box in the hall.
+      // Only item ids and the glyphs themselves are returned, no item text.
+      return NextResponse.json(
+        { error: 'The paper contains characters the embedded fonts cannot print. Reword the items listed.', gaps: err.gaps },
+        { status: 422 },
+      );
+    }
     // The detail (raw PostgREST text can name tables and columns) goes to the
     // log only; the caller gets a fixed string. This is the answer-key route.
     console.error('[onemark/paper/pdf] GET error:', err);

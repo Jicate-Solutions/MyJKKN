@@ -146,6 +146,9 @@ table.key tr { break-inside: avoid; }
 table.key td.n { text-align: right; width: 28pt; }
 table.key td.code { white-space: nowrap; width: 62pt; }
 table.key td.ans { width: 30%; }
+/* Tamil answer over English answer: two display fractions (N₀/√2) stacked
+   with no gap touched each other in the round-2 eyeball. */
+table.key td.ans > div + div { margin-top: 3pt; }
 table.key .ref { display: block; font-size: 9pt; color: #222; margin-top: 2pt; }
 .coverage { margin-top: 8pt; font-size: 10pt; }
 .coverage .h { font-weight: 700; letter-spacing: 0.06em; }

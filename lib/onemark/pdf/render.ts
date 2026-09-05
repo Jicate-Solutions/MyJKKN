@@ -13,6 +13,7 @@ import chromium from '@sparticuz/chromium';
 import { pdfFontFaceCss } from '@/lib/utils/bos/pdf-fonts';
 import { answerKeyHtml, footerTemplate, questionPaperHtml } from './document';
 import { arrangeForSeries } from './layout';
+import { GlyphCoverageError, paperGlyphGaps } from './notation';
 import type { ArrangedPaper, PaperModel, PaperSeries } from './types';
 
 let browser: Browser | null = null;
@@ -92,13 +93,23 @@ function filenameFor(model: PaperModel, series: PaperSeries, key: boolean): stri
   return `onemark-${subject}-${short}-series-${series}${key ? '-answer-key' : ''}.pdf`;
 }
 
+/** A character no embedded face can set would print as a box on Vercel while
+ *  looking right on a developer Mac. Refuse, naming the item and the glyph,
+ *  rather than hand a hall a paper with a box in it (CLAUDE.md #25/#27). */
+function refuseUncoverable(model: PaperModel): void {
+  const gaps = paperGlyphGaps(model);
+  if (gaps.length) throw new GlyphCoverageError(gaps);
+}
+
 export async function renderQuestionPaperPdf(model: PaperModel, series: PaperSeries): Promise<RenderedPaper> {
+  refuseUncoverable(model);
   const paper = arrangeForSeries(model, series);
   const buffer = await htmlToPdf(questionPaperHtml(paper), footerWithFonts(paper));
   return { buffer, filename: filenameFor(model, series, false) };
 }
 
 export async function renderAnswerKeyPdf(model: PaperModel, series: PaperSeries): Promise<RenderedPaper> {
+  refuseUncoverable(model);
   const paper = arrangeForSeries(model, series);
   const buffer = await htmlToPdf(answerKeyHtml(paper), footerWithFonts(paper));
   return { buffer, filename: filenameFor(model, series, true) };

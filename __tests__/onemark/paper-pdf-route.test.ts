@@ -13,6 +13,7 @@ let rpcCalls: Array<{ name: string; args: any }> = [];
 let loadCalls: Array<{ id: string; includeAnswers: boolean }> = [];
 let renderCalls: string[] = [];
 let modelResult: any = { assessmentId: 'a1' };
+let renderImpl: ((series: string) => Promise<any>) | null = null;
 
 vi.mock('next/server', async () => {
   const actual = await vi.importActual<any>('next/server');
@@ -41,6 +42,7 @@ vi.mock('@/lib/onemark/pdf/load-paper', () => ({
 vi.mock('@/lib/onemark/pdf/render', () => ({
   renderQuestionPaperPdf: (_m: any, series: string) => {
     renderCalls.push(`paper:${series}`);
+    if (renderImpl) return renderImpl(series);
     return Promise.resolve({ buffer: Buffer.from('%PDF-paper'), filename: `paper-${series}.pdf` });
   },
   renderAnswerKeyPdf: (_m: any, series: string) => {
@@ -63,6 +65,7 @@ beforeEach(() => {
   loadCalls = [];
   renderCalls = [];
   modelResult = { assessmentId: 'a1' };
+  renderImpl = null;
 });
 
 describe('GET /api/foundation/onemark/paper/[id]/pdf', () => {
@@ -112,6 +115,16 @@ describe('GET /api/foundation/onemark/paper/[id]/pdf', () => {
     const body = await res.json();
     expect(body.error).toBe('Could not render the paper');
     expect(JSON.stringify(body)).not.toContain('fp_items');
+  });
+
+  it('422 naming the item and the glyph when no embedded font can print a character — never a box', async () => {
+    const { GlyphCoverageError } = await import('@/lib/onemark/pdf/notation');
+    renderImpl = () => Promise.reject(new GlyphCoverageError([{ itemId: 'item-9', glyphs: ['‰ U+2030'] }]));
+    const res = await call('?series=A');
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.gaps).toEqual([{ itemId: 'item-9', glyphs: ['‰ U+2030'] }]);
+    expect(body.error).toMatch(/cannot print/);
   });
 
   it('streams the question paper WITHOUT answers by default', async () => {
