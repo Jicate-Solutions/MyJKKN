@@ -83,6 +83,8 @@ ledger_remedy() {
       echo "a harness that cannot sign in is 'L1 unavailable', NOT a broken page — never freeze on it (fixed 2026-09-05, commit 4c27c077)";;
     *"deploy deploy canceled"*)
       echo "CANCELED with no errorCode = Vercel's ignoreCommand skipped a build with nothing deployable (every merged file under supabase/ docs/ specs/ .claude/ .github/ or *.md). NOT a failed deploy — production is still on the right code and the migration was applied in 3b. Check the merged files, then --unfreeze (fixed 2026-09-05: the deploy stage now detects this before firing the hook)";;
+    *"verdict unavailable"*|*"unverified"*)
+      echo "the Vercel CLI token (auth.json) expires; only the CLI refreshes it. vtok() now runs 'vercel whoami' when expiresAt is near — if you still see this, run it by hand and verify the build with 'vercel ls my-jkkn --scope jicate-solutions' before re-firing (2026-09-06 01:53: build was fine, poll was blind)";;
     *"base is not main"*|*"stacked"*)
       echo "never merge a PR whose base is not main — it lands someone else's commits. List it, leave it to its author (fixed 2026-09-05)";;
     *) return 1;;
