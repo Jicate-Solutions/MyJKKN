@@ -12,6 +12,7 @@ import {
   normaliseAnswer,
   resolveCaller,
   timedMinutes,
+  verifyServedSet,
   type AttemptRow,
 } from '@/lib/services/onemark/attempt-server';
 
@@ -43,6 +44,8 @@ interface RespondBody {
   chosen?: unknown;
   skipped?: boolean;
   timeMs?: number;
+  /** The signed served set from POST /attempts. Required unless mode = live. */
+  servedToken?: unknown;
 }
 
 export async function POST(
@@ -114,8 +117,23 @@ export async function POST(
     }
 
     // ---- The item must belong to this sitting --------------------------------
-    // A response can only be recorded against a question this sitting could
-    // have shown: same subject, active, and — for a live paper — on the paper.
+    // A response can only be recorded against a question this sitting DID
+    // show. For practice / timed / vault review that is the signed served set
+    // minted when the questions were drawn; for a live paper it is
+    // fp_assessment_items (checked below). Either way the answer key of an
+    // item that was never served cannot be reached through this route.
+    if (attempt.mode !== 'live') {
+      const served = verifyServedSet(attempt.id, body.servedToken);
+      if (!served) {
+        return NextResponse.json(
+          { error: 'This sitting could not be verified. Please reopen it and try again.' },
+          { status: 400 },
+        );
+      }
+      if (!served.has(body.itemId)) {
+        return NextResponse.json({ error: 'That question is not part of this sitting.' }, { status: 400 });
+      }
+    }
     const { data: assessment } = await admin
       .from('fp_assessments')
       .select('id, exam_definition_id, config')

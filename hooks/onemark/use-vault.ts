@@ -62,8 +62,15 @@ export function useRespond() {
 export function useFinalizeSitting() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ attemptId, skippedItemIds }: { attemptId: string; skippedItemIds: string[] }) =>
-      OneMarkVaultService.finalize(attemptId, skippedItemIds),
+    mutationFn: ({
+      attemptId,
+      skippedItemIds,
+      servedToken,
+    }: {
+      attemptId: string;
+      skippedItemIds: string[];
+      servedToken?: string;
+    }) => OneMarkVaultService.finalize(attemptId, skippedItemIds, servedToken),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: oneMarkKeys.all });
     },

@@ -88,6 +88,8 @@ export interface OneMarkQuestion {
 export interface OneMarkSitting {
   attemptId: string;
   sessionId: string | null;
+  /** Signed served set; handed back on every respond / finalize. Opaque. */
+  servedToken?: string;
   mode: OneMarkAttemptMode;
   examDefinitionId: string;
   assessmentId: string;
@@ -120,6 +122,7 @@ export interface RespondInput {
   chosen?: string;
   skipped?: boolean;
   timeMs?: number;
+  servedToken?: string;
 }
 
 export interface RespondResult {
@@ -218,11 +221,15 @@ export class OneMarkVaultService {
   /** Close the sitting. Blank questions are passed as skips. A sitting that
    *  was already closed comes back as 409 WITH the review — handled here so
    *  the caller always gets the review either way, flagged alreadySubmitted. */
-  static async finalize(attemptId: string, skippedItemIds: string[]): Promise<SittingReview> {
+  static async finalize(
+    attemptId: string,
+    skippedItemIds: string[],
+    servedToken?: string,
+  ): Promise<SittingReview> {
     try {
       return await call<SittingReview>(
         `/api/foundation/onemark/attempts/${encodeURIComponent(attemptId)}/finalize`,
-        { method: 'POST', body: JSON.stringify({ skippedItemIds }) },
+        { method: 'POST', body: JSON.stringify({ skippedItemIds, servedToken }) },
       );
     } catch (err) {
       if (

@@ -68,9 +68,12 @@ export default function OneMarkPracticePage() {
   const [lastStart, setLastStart] = useState<StartSittingInput | null>(null);
   const [review, setReview] = useState<SittingReview | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  // A calm, non-error message — e.g. the vault had nothing due after all.
+  const [notice, setNotice] = useState<string | null>(null);
 
   async function open(input: StartSittingInput, examName: string) {
     setStartError(null);
+    setNotice(null);
     try {
       const s = await start.mutateAsync(input);
       setLastStart(input);
@@ -91,6 +94,13 @@ export default function OneMarkPracticePage() {
           return;
         }
       }
+      if (err instanceof OneMarkApiError && err.body?.empty === true) {
+        // Nothing due is a state, not a failure (the panel's count and the
+        // draw can differ by a hair — an item retired since the page loaded).
+        setNotice('Nothing in your vault is due for review right now.');
+        void home.refetch();
+        return;
+      }
       setStartError(err instanceof Error ? err.message : 'The sitting could not be opened.');
     }
   }
@@ -99,6 +109,7 @@ export default function OneMarkPracticePage() {
     setSitting(null);
     setReview(null);
     setStartError(null);
+    setNotice(null);
     void home.refetch();
   }
 
@@ -179,6 +190,12 @@ export default function OneMarkPracticePage() {
         {(loadError || startError) && (
           <p className="mb-6 rounded-xl border border-amber-300/60 bg-amber-50/60 p-4 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
             {startError ?? loadError}
+          </p>
+        )}
+
+        {notice && !startError && (
+          <p className="mb-6 rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+            {notice}
           </p>
         )}
 

@@ -19,6 +19,7 @@ import {
   resolveCaller,
   shuffle,
   shuffleOptionsTogether,
+  signServedSet,
   sittingQuestionCount,
   timedMinutes,
   type LearnerItem,
@@ -198,10 +199,13 @@ export async function GET() {
     // carry item ids; which SUBJECT an item belongs to lives on fp_items, which
     // a learner cannot read. So the grouping happens here, above RLS, and only
     // counts and dates go back — never an item.
+    // Only items still ACTIVE in the bank — the same filter fn_onemark_vault_draw
+    // applies — so the count promised here is the count the draw can serve.
     const { data: vaultRows } = await admin
       .from('onemark_mistake_vault')
-      .select('item_id, status, next_eligible_at, item:fp_items!inner(exam_definition_id)')
-      .eq('student_id', learner.id);
+      .select('item_id, status, next_eligible_at, item:fp_items!inner(exam_definition_id, is_active)')
+      .eq('student_id', learner.id)
+      .eq('item.is_active', true);
 
     const vaultByExam = new Map<
       string,
@@ -624,9 +628,18 @@ export async function POST(request: NextRequest) {
 
     const deadline = deadlineFor(attempt, { timedMinutes: minutes, assessmentConfig });
 
+    // Bind the drawn set to this attempt. Practice / timed / vault review
+    // must hand this back on every respond / finalize; a live paper's set is
+    // fp_assessment_items, so the token is issued but not required there.
+    const servedToken = signServedSet(
+      attempt.id,
+      questions.map((q) => q.id),
+    );
+
     return NextResponse.json({
       attemptId: attempt.id,
       sessionId: attempt.session_id,
+      servedToken,
       mode,
       examDefinitionId,
       assessmentId,

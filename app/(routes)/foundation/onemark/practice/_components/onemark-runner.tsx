@@ -158,6 +158,7 @@ export function OneMarkRunner({
           chosen: chosen ?? undefined,
           skipped,
           timeMs: Date.now() - askedAt,
+          servedToken: sitting.servedToken,
         });
         const nextDone = { ...doneRef.current, [itemId]: result };
         doneRef.current = nextDone;
@@ -245,6 +246,7 @@ export function OneMarkRunner({
         const review = await finalize.mutateAsync({
           attemptId: sitting.attemptId,
           skippedItemIds: blanks,
+          servedToken: sitting.servedToken,
         });
         onFinished(review);
       } catch (err) {

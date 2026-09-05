@@ -17,6 +17,7 @@
 //                fn_onemark_record_response, and the explanation is released
 //                only AFTER a response has been recorded.
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   OneMarkExamKeys,
@@ -290,6 +291,74 @@ export function deadlineFor(
 
 export function admin() {
   return createServiceRoleClient() as any;
+}
+
+// ---------------------------------------------------------------------------
+// The served set — which questions THIS sitting actually showed.
+// ---------------------------------------------------------------------------
+// fp_attempts has no column for the draw, so for practice / timed / vault
+// review the set is bound to the attempt with a signed token instead: the
+// attempts route mints it when it draws, the browser hands it back, and the
+// respond / finalize routes accept an item id only if it is inside it. Without
+// this a caller could name any active id of the subject as a "blank" — a
+// costless skip (decision 18) — and read its answer key at review, walking
+// the bank fifteen ids per sitting. A LIVE paper needs no token: its set is
+// fp_assessment_items.
+//
+// Token = base64url(JSON {a: attemptId, i: sorted item ids}) + '.' +
+//         HMAC-SHA256(payload, secret). Opaque to the browser; verified with
+//         a constant-time compare; never carries an answer.
+//
+// Secret: the same convention as lib/auth/preview-session.ts —
+// SUPABASE_JWT_SECRET, else JWT_SECRET (present in production) — with the
+// service-role key as the last resort so a dev box with neither still signs
+// (it never leaves the server either way).
+
+function servedSecret(): string {
+  const s =
+    process.env.SUPABASE_JWT_SECRET ||
+    process.env.JWT_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!s) {
+    throw new Error(
+      'OneMark served-set signing secret missing — set SUPABASE_JWT_SECRET or JWT_SECRET in env',
+    );
+  }
+  return s;
+}
+
+function hmacHex(payload: string): string {
+  return createHmac('sha256', servedSecret()).update(payload).digest('hex');
+}
+
+/** Mint the token binding `itemIds` to `attemptId`. */
+export function signServedSet(attemptId: string, itemIds: string[]): string {
+  const ids = [...new Set(itemIds)].sort();
+  const payload = Buffer.from(JSON.stringify({ a: attemptId, i: ids }), 'utf8').toString(
+    'base64url',
+  );
+  return `${payload}.${hmacHex(payload)}`;
+}
+
+/** The served ids for `attemptId`, or null when the token is missing, malformed,
+ *  tampered with, or minted for another attempt. */
+export function verifyServedSet(attemptId: string, token: unknown): Set<string> | null {
+  if (typeof token !== 'string') return null;
+  const dot = token.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const payload = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = hmacHex(payload);
+  if (sig.length !== expected.length) return null;
+  if (!timingSafeEqual(Buffer.from(sig, 'utf8'), Buffer.from(expected, 'utf8'))) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!parsed || parsed.a !== attemptId || !Array.isArray(parsed.i)) return null;
+    const ids = parsed.i.filter((v: unknown): v is string => typeof v === 'string');
+    return new Set(ids);
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

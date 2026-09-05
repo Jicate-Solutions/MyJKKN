@@ -10,6 +10,7 @@ import {
   normaliseAnswer,
   resolveCaller,
   sittingQuestionCount,
+  verifyServedSet,
   type AttemptRow,
 } from '@/lib/services/onemark/attempt-server';
 
@@ -32,9 +33,10 @@ import {
 //             are DERIVED here — every paper question without a response —
 //             and the caller's list is ignored. Nothing off the paper can be
 //             named into the review.
-//   others    the draw is not persisted (fp_attempts has no column for it;
-//             that is a Lane S schema matter), so the caller's list is
-//             filtered to active items of the same subject not yet answered
+//   others    the draw is not persisted (fp_attempts has no column for it),
+//             so it is BOUND to the attempt by the signed servedToken the
+//             attempts route minted: every named blank must be in that set,
+//             then filtered to active, same-subject, not-yet-answered items
 //             and CAPPED at one sitting's worth (onemark.paper.question_count).
 //
 // CORRECTNESS IS READ, NEVER RECOMPUTED. fp_responses.is_correct was written
@@ -46,6 +48,9 @@ import {
 
 interface FinalizeBody {
   skippedItemIds?: unknown;
+  /** The signed served set from POST /attempts. Required whenever blanks are
+   *  named on a practice / timed / vault-review sitting. */
+  servedToken?: unknown;
 }
 
 export async function POST(
@@ -101,6 +106,23 @@ export async function POST(
       if (attempt.mode === 'live') {
         blanks = await liveBlankItemIds(admin, attempt);
       } else if (namedSkips.length > 0) {
+        // Every named blank must be inside the signed served set — one id
+        // outside it and the whole request is refused, because the only
+        // client that names blanks is the runner, and it only ever names
+        // what it was served.
+        const served = verifyServedSet(attempt.id, body.servedToken);
+        if (!served) {
+          return NextResponse.json(
+            { error: 'This sitting could not be verified. Please reopen it and try again.' },
+            { status: 400 },
+          );
+        }
+        if (namedSkips.some((id) => !served.has(id))) {
+          return NextResponse.json(
+            { error: 'A question named as blank is not part of this sitting.' },
+            { status: 400 },
+          );
+        }
         const cap = await sittingQuestionCount(admin);
         const requested = new Set(namedSkips.slice(0, cap));
         const { data: assessment } = await admin

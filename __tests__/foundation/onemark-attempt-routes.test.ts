@@ -32,6 +32,10 @@ let rpcResult: any = { is_correct: false, vault_status: 'active', streak: 0 };
 let rpcError: any = null;
 let permissionAllowed = true;
 let selects: string[] = [];
+let eqCalls: string[] = [];
+
+// The served-set token is signed with the estate's JWT secret convention.
+process.env.SUPABASE_JWT_SECRET = 'onemark-test-secret';
 
 const EXAM_ID = '11111111-2222-4333-8444-555555555555';
 const POOL_ID = '22222222-2222-4333-8444-555555555555';
@@ -73,7 +77,10 @@ function builder(table: string) {
       if (opts?.head) headCount = true;
       return b;
     }),
-    eq: vi.fn(() => b),
+    eq: vi.fn((col: string, val: unknown) => {
+      eqCalls.push(`${table}:${col}=${String(val)}`);
+      return b;
+    }),
     in: vi.fn(() => b),
     is: vi.fn(() => b),
     order: vi.fn(() => b),
@@ -139,7 +146,7 @@ import { GET as getHome, POST as startSitting } from '@/app/api/foundation/onema
 import { POST as respond } from '@/app/api/foundation/onemark/attempts/[attemptId]/respond/route';
 import { POST as finalize } from '@/app/api/foundation/onemark/attempts/[attemptId]/finalize/route';
 import { localDayKey, upcomingVaultDays } from '@/lib/services/onemark/vault-service';
-import { shuffleOptionsTogether } from '@/lib/services/onemark/attempt-server';
+import { shuffleOptionsTogether, signServedSet, verifyServedSet } from '@/lib/services/onemark/attempt-server';
 import { OneMarkPolicyDefaults, OneMarkPolicyKeys } from '@/types/onemark';
 
 function post(body: unknown) {
@@ -188,7 +195,11 @@ beforeEach(() => {
   rpcError = null;
   permissionAllowed = true;
   selects = [];
+  eqCalls = [];
 });
+
+/** The token POST /attempts would have minted for a sitting that served ITEM_ID. */
+const served = (ids: string[] = [ITEM_ID]) => signServedSet(ATTEMPT_ID, ids);
 
 /** A live paper whose window and duration are both in the past. */
 function closedPaper() {
@@ -233,6 +244,11 @@ describe('GET /api/foundation/onemark/attempts', () => {
     expect((await res.json()).error).toMatch(/access/i);
     const gate = rpcCalls.find((c) => c.fn === 'user_has_permission');
     expect(gate?.args).toEqual({ permission_name: 'foundation.practice.take' });
+  });
+
+  it('counts only vault items still ACTIVE in the bank — the same filter the draw applies', async () => {
+    await getHome();
+    expect(eqCalls).toContain('onemark_mistake_vault:item.is_active=true');
   });
 
   it('picks the ACTIVE fp_students row when a profile has two (no UNIQUE on profile_id)', async () => {
@@ -377,6 +393,16 @@ describe('POST /api/foundation/onemark/attempts', () => {
     expect(insertedAttempts).toHaveLength(0);
   });
 
+  it('binds the drawn set to the attempt with a signed token that names exactly the served ids', async () => {
+    const body = await (await startSitting(post({ mode: 'practice', examDefinitionId: EXAM_ID }))).json();
+    expect(typeof body.servedToken).toBe('string');
+    const set = verifyServedSet(ATTEMPT_ID, body.servedToken);
+    expect(set).not.toBeNull();
+    expect([...set!]).toEqual(body.questions.map((q: any) => q.id));
+    // Minted for one attempt only.
+    expect(verifyServedSet('99999999-8888-4777-8666-000000000001', body.servedToken)).toBeNull();
+  });
+
   it('keeps Tamil options on a shuffled live paper, paired by key', () => {
     const q = {
       id: ITEM_ID,
@@ -430,7 +456,7 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/respond', () => {
 
   it('404s an attempt RLS did not return, without confirming it exists', async () => {
     attemptRow = null;
-    const res = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    const res = await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).not.toMatch(/permission|denied|not yours/i);
@@ -439,7 +465,7 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/respond', () => {
   it('records through fn_onemark_record_response and reports ITS verdict, not its own', async () => {
     // chosen equals the mocked key, yet the RPC says wrong — the record wins.
     rpcResult = { is_correct: false, vault_status: 'active', streak: 0 };
-    const res = await respond(post({ itemId: ITEM_ID, chosen: 'A', timeMs: 1200 }), params(ATTEMPT_ID));
+    const res = await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'A', timeMs: 1200 }), params(ATTEMPT_ID));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.isCorrect).toBe(false);
@@ -455,18 +481,18 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/respond', () => {
   });
 
   it('reveals the explanation AFTER answering in practice mode only', async () => {
-    const practice = await (await respond(post({ itemId: ITEM_ID, chosen: 'B' }), params(ATTEMPT_ID))).json();
+    const practice = await (await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'B' }), params(ATTEMPT_ID))).json();
     expect(practice.reveal.correctAnswer).toBe('A');
     expect(practice.reveal.explanation).toContain('coulomb per volt');
 
     attemptRow = { ...(attemptRow as any), mode: 'timed' };
-    const timed = await (await respond(post({ itemId: ITEM_ID, chosen: 'B' }), params(ATTEMPT_ID))).json();
+    const timed = await (await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'B' }), params(ATTEMPT_ID))).json();
     expect(timed.reveal).toBeNull();
     expect(JSON.stringify(timed)).not.toContain('coulomb per volt');
   });
 
   it('passes a skip through as skipped, with no verdict and no reveal', async () => {
-    const body = await (await respond(post({ itemId: ITEM_ID, skipped: true }), params(ATTEMPT_ID))).json();
+    const body = await (await respond(post({ servedToken: served(), itemId: ITEM_ID, skipped: true }), params(ATTEMPT_ID))).json();
     expect(body.skipped).toBe(true);
     expect(body.isCorrect).toBeNull();
     expect(body.reveal).toBeNull();
@@ -481,23 +507,58 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/respond', () => {
       mode: 'timed',
       started_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
     };
-    const late = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    const late = await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
     expect(late.status).toBe(409);
     expect((await late.json()).expired).toBe(true);
-    const skip = await respond(post({ itemId: ITEM_ID, skipped: true }), params(ATTEMPT_ID));
+    const skip = await respond(post({ servedToken: served(), itemId: ITEM_ID, skipped: true }), params(ATTEMPT_ID));
     expect(skip.status).toBe(200);
   });
 
   it('refuses a response on a submitted sitting', async () => {
     attemptRow = { ...(attemptRow as any), status: 'submitted' };
-    const res = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    const res = await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
     expect(res.status).toBe(409);
+  });
+
+  it('refuses an item that was NOT served — the answer key of an unserved item is unreachable', async () => {
+    const unserved = '44444444-2222-4333-8444-000000000077';
+    itemRows = [LACED_ITEM, { ...LACED_ITEM, id: unserved }]; // active, same subject — still refused
+    const res = await respond(
+      post({ servedToken: served([ITEM_ID]), itemId: unserved, chosen: 'A' }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(400);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_record_response')).toBe(false);
+    expect(JSON.stringify(await res.json())).not.toContain('coulomb per volt');
+  });
+
+  it('refuses a missing or tampered served token on a practice sitting', async () => {
+    const missing = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    expect(missing.status).toBe(400);
+    const good = served([ITEM_ID]);
+    const tampered = good.slice(0, -1) + (good.endsWith('0') ? '1' : '0');
+    const bad = await respond(post({ servedToken: tampered, itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    expect(bad.status).toBe(400);
+    // A token that names OTHER ids, correctly signed, still excludes this one.
+    const other = served(['44444444-2222-4333-8444-000000000078']);
+    const wrongSet = await respond(post({ servedToken: other, itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    expect(wrongSet.status).toBe(400);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_record_response')).toBe(false);
+  });
+
+  it('needs no token on a LIVE paper — fp_assessment_items is the served set there', async () => {
+    attemptRow = { ...(attemptRow as any), mode: 'live', assessment_id: PAPER_ID };
+    assessmentRow = { ...closedPaper(), config: { open_at: new Date(Date.now() - 60_000).toISOString() } };
+    paperItemRows = [{ item_id: ITEM_ID, position: 1 }];
+    rpcResult = { is_correct: null, skipped: false, vault_status: null, streak: null, revealed: false };
+    const res = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    expect(res.status).toBe(200);
   });
 
   it('reports a withheld verdict (timed / live) as null, never as wrong', async () => {
     attemptRow = { ...(attemptRow as any), mode: 'timed' };
     rpcResult = { is_correct: null, skipped: false, vault_status: null, streak: null, revealed: false };
-    const body = await (await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID))).json();
+    const body = await (await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID))).json();
     expect(body.isCorrect).toBeNull();
     expect(body.vaultStatus).toBeNull();
     expect(body.reveal).toBeNull();
@@ -507,14 +568,14 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/respond', () => {
     rpcError = {
       message: `fn_onemark_record_response: attempt ${ATTEMPT_ID} is submitted, not in_progress (single submission, decision 19)`,
     };
-    const res = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    const res = await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
     expect(res.status).toBe(409);
     expect((await res.json()).alreadySubmitted).toBe(true);
   });
 
   it('answers 503 in plain words while Lane S’s RPC is not yet applied', async () => {
     rpcError = { message: 'Could not find the function public.fn_onemark_record_response' };
-    const res = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    const res = await respond(post({ servedToken: served(), itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
     expect(res.status).toBe(503);
   });
 });
@@ -573,9 +634,44 @@ describe('POST /api/foundation/onemark/attempts/[attemptId]/finalize', () => {
     // must hold the line.
     itemRows = ids.map((id) => ({ id, exam_definition_id: EXAM_ID, is_active: true }));
     responseRows = [];
-    await finalize(post({ skippedItemIds: ids }), params(ATTEMPT_ID));
+    await finalize(post({ skippedItemIds: ids, servedToken: served(ids) }), params(ATTEMPT_ID));
     const skips = rpcCalls.filter((c) => c.fn === 'fn_onemark_record_response');
     expect(skips).toHaveLength(OneMarkPolicyDefaults[OneMarkPolicyKeys.PAPER_QUESTION_COUNT]);
+  });
+
+  it('refuses injected blanks outside the served set — no skip, no key, 400', async () => {
+    const injected = ['44444444-2222-4333-8444-000000000081', '44444444-2222-4333-8444-000000000082'];
+    itemRows = injected.map((id) => ({ id, exam_definition_id: EXAM_ID, is_active: true }));
+    const res = await finalize(
+      post({ skippedItemIds: injected, servedToken: served([ITEM_ID, 'other-item']) }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(400);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_record_response')).toBe(false);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_finalize_attempt')).toBe(false);
+    const body = await res.json();
+    expect(body.questions).toBeUndefined();
+  });
+
+  it('refuses named blanks with no token on a timed sitting, but closes cleanly with none named', async () => {
+    const blank = '44444444-2222-4333-8444-000000000083';
+    itemRows = [{ id: blank, exam_definition_id: EXAM_ID, is_active: true }];
+    const noToken = await finalize(post({ skippedItemIds: [blank] }), params(ATTEMPT_ID));
+    expect(noToken.status).toBe(400);
+    const none = await finalize(post({ skippedItemIds: [] }), params(ATTEMPT_ID));
+    expect(none.status).toBe(200);
+  });
+
+  it('records blanks that ARE in the served set', async () => {
+    const blank = '44444444-2222-4333-8444-000000000084';
+    itemRows = [{ id: blank, exam_definition_id: EXAM_ID, is_active: true }];
+    const res = await finalize(
+      post({ skippedItemIds: [blank], servedToken: served([ITEM_ID, 'other-item', blank]) }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(200);
+    const skips = rpcCalls.filter((c) => c.fn === 'fn_onemark_record_response');
+    expect(skips.map((c) => c.args.p_item_id)).toEqual([blank]);
   });
 
   it('derives the blanks of a LIVE paper from the paper itself and ignores caller-named ids', async () => {
