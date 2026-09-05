@@ -24,6 +24,13 @@ for p in light:
     x = extra.get(p["number"], {})
     p["files"] = x.get("files", [])
     p["statusCheckRollup"] = x.get("statusCheckRollup", [])
+    # quiet rule (Director 2026-09-05 23:40): only a real push restarts the "author may still be typing"
+    # wait. updatedAt also moves on a CI re-run or a comment — #3164 waited 30 min for a re-run tonight.
+    # …and the wave's OWN rebase pushes (author w12-ship-wave@jkkn.ai) are not the author typing either —
+    # otherwise every PR the wave brings up to date waits another 30 min. Age from the last HUMAN commit.
+    human = [c for c in (x.get("commits") or [])
+             if not any((a or {}).get("email") == "w12-ship-wave@jkkn.ai" for a in (c.get("authors") or []))]
+    p["headCommittedAt"] = (human[-1] if human else {}).get("committedDate", "")
     if x.get("hydrate_failed") or p["number"] not in extra:
         failed += 1
         p["files"] = []

@@ -250,6 +250,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/learn', 'PDE Learning'],
   ['/meetings', 'System'], // jicate-booking inbox; Overview-group sidebar entry per PR #655
   ['/profile', 'Users'],
+  // What's New — the product changelog. Open to everyone signed in
+  // (view_profile sentinel); it scopes its own content by role.
+  ['/whats-new', 'System'],
   ['/okr', 'Work Pulse'],
   ['/vac', 'VAC'],
   ['/bos', 'System'],

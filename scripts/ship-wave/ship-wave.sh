@@ -65,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --no-sweep) NO_SWEEP=1;;
     --goal) GOAL=1;;
     --only) ONLY="${2:-}"; shift;;
+    --ledger) LEDGER_REPORT=1;;
     --unfreeze) rm -f "$FREEZE"; echo "freeze cleared"; exit 0;;
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
@@ -82,7 +83,20 @@ fi
 vtok() { python3 -c "import json;print(json.load(open('$HOME/Library/Application Support/com.vercel.cli/auth.json'))['token'])" 2>/dev/null; }
 say() { printf '%s\n' "$*"; }
 unlock() { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; }
-freeze() { printf '%s\t%s\n' "$(date '+%F %T')" "$*" >> "$FREEZE"; say "  ⛔ FROZEN: $* — no further merges until: ship-wave.sh --unfreeze"; }
+freeze() {
+  printf '%s\t%s\n' "$(date '+%F %T')" "$*" >> "$FREEZE"
+  say "  ⛔ FROZEN: $* — no further merges until: ship-wave.sh --unfreeze"
+  # the wave used to stop mute here and a human had to reconstruct why from a
+  # receipt that overwrote itself. Now it says what this cost last time.
+  type -t ledger_on_freeze >/dev/null 2>&1 && ledger_on_freeze "$*"
+}
+
+# The ledger is sourced BEFORE the single-flight lock on purpose: --ledger is a
+# read-only report, and being unable to read what already went wrong *because a
+# wave is currently running* is exactly backwards.
+# shellcheck source=scripts/ship-wave/failure-ledger.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/failure-ledger.sh"
+if [ -n "${LEDGER_REPORT:-}" ]; then ledger_report; exit 0; fi
 
 # ── single-flight: two ship waves merging at once would race main ─────────────
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -134,7 +148,9 @@ def minutes_since(iso):
     except Exception: return 1e9
 plan = {"stacked":[], "draft":[], "conflicted":[], "blocked":[], "waiting_ci":[], "quiet_wait":[], "ready":{"LOW":[], "NORMAL":[], "HELD":[]}}
 for p in prs:
-    t, why = tier(p); v, names = ci(p); age = minutes_since(p.get("updatedAt",""))
+    # age = minutes since the last real PUSH (head commit), not since anything touched the PR — a CI re-run
+    # or a comment moves updatedAt and used to restart the 30-min quiet wait (Director 2026-09-05 23:40)
+    t, why = tier(p); v, names = ci(p); age = minutes_since(p.get("headCommittedAt") or p.get("updatedAt",""))
     row = {"number":p["number"], "title":p["title"], "branch":p["headRefName"], "tier":t, "tier_reasons":why,
            "ci":v, "ci_names":names, "state":p["mergeStateStatus"], "files":[f["path"] for f in (p.get("files") or [])], "age_min":int(age),
            "base":p.get("baseRefName") or "?"}
@@ -235,15 +251,33 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
 # BEGIN…ROLLBACK dry-run → BEGIN…COMMIT → record → pgrst reload → verify. Runs BEFORE deploy; any failure FREEZES.
 # shellcheck source=scripts/ship-wave/apply-migrations.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/apply-migrations.sh"
+# shellcheck source=scripts/ship-wave/rebase-remaining.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rebase-remaining.sh"
 
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
   local run="$STATE/run-$ts"; mkdir -p "$run"
-  exec > >(tee "$RECEIPT" -a "$RUNLOG") 2>&1
+  # Redirect ONCE per process. In a --goal loop this used to re-exec every round, stacking a live
+  # tee per round; each new tee truncated $RECEIPT while the older ones kept flushing their copy,
+  # so the receipt held the same header N times and no round's real output survived
+  # (2026-09-05 19:47: six identical headers, zero readable history).
+  if [ -z "${_REDIR_DONE:-}" ]; then
+    _REDIR_DONE=1
+    exec > >(tee "$RECEIPT" -a "$RUNLOG") 2>&1
+  fi
   say "=== W12 ship wave · mode=$MODE · approve-normal=${APPROVE_NORMAL:-no} · approve-held=${APPROVE_HELD:-none} · max-dispatch=$MAX_DISPATCH · $(date '+%F %T') ==="
 
   # ── 0. preflight ───────────────────────────────────────────────────────────
-  gh auth status >/dev/null 2>&1 || { say "PREFLIGHT FAIL: gh not authenticated"; return 1; }
+  # `gh auth status` makes a live API call, so one network blip reads as "not authenticated".
+  # On 2026-09-05 exactly that killed a goal run and the wave sat dead 2.5 hours with seven
+  # approved, green PRs waiting. Retry before believing it.
+  local gh_ok="" gh_try
+  for gh_try in 1 2 3; do
+    if gh auth status >/dev/null 2>&1; then gh_ok=1; break; fi
+    say "  preflight: gh auth check failed (attempt $gh_try/3) — retrying in $((gh_try*5))s"
+    sleep $((gh_try*5))
+  done
+  [ -n "$gh_ok" ] || { say "PREFLIGHT FAIL: gh not authenticated after 3 attempts"; return 1; }
   local frozen=""; if [ -f "$FREEZE" ]; then frozen=1; say "  ⛔ FROZEN since: $(head -1 "$FREEZE") — this round merges NOTHING (sweep/report only). Clear with --unfreeze."; fi
   local tok; tok=$(vtok); [ -n "$tok" ] || say "  warn: no Vercel CLI token — deploy verification will be blind"
   if [ -n "$tok" ]; then
@@ -289,13 +323,15 @@ run_once() {
       say "  MERGED $t #$n"; gh pr view "$n" --repo "$REPO" --json files -q '.files[].path' | tee -a "$merged_files" | sed "s/^/$n\t/" >> "$run/merged-map.tsv"; sleep 4; return 0
     else say "  FAILED $t #$n — $(head -c 200 "$run/merge-$n.err")"; return 1; fi
   }
-  if [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
-    for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['LOW']))"); do merge_one "$n" LOW && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; done
+  already_merged() { case " $merged_list " in *" #$1 "*) return 0;; *) return 1;; esac; }
+  merge_tiers() {  # one pass LOW → NORMAL → HELD; bumps merged / merged_list (bash dynamic scope)
+    for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['LOW']))"); do already_merged "$n" || { merge_one "$n" LOW && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; }; done
     if [ -n "$APPROVE_NORMAL" ]; then
-      for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do merge_one "$n" NORMAL && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; done
+      for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do already_merged "$n" || { merge_one "$n" NORMAL && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; }; done
     else say "  NORMAL: $(python3 -c "import json;print(len(json.load(open('$run/plan.json'))['ready']['NORMAL']))") ready — waiting for your tap (run again with --approve-normal)"; fi
     if [ -n "$APPROVE_HELD" ]; then
       for n in $(printf '%s' "$APPROVE_HELD" | tr ', ' '  '); do
+        already_merged "$n" && continue
         python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)" \
           && { merge_one "$n" HELD && { merged=$((merged+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
           || say "  HOLD   HELD #$n — not in this run's ready-HELD list, refusing"
@@ -304,6 +340,21 @@ run_once() {
       local held; held=$(python3 -c "import json;print(' '.join('#'+str(r['number'])+' '+r['title'][:40].replace(' ','_') for r in json.load(open('$run/plan.json'))['ready']['HELD']))")
       [ -n "$held" ] && say "  HELD waiting for your reply (reply with the numbers to ship): $held" || say "  HELD: none ready"
     fi
+  }
+  if [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
+    # Director 2026-09-05 23:40: up to three merge passes per round. After a pass that merged something,
+    # the remaining approved PRs are brought up to date with main (rebase-remaining.sh — the SQL index is
+    # the usual conflict and is kept both-sides), then the pass repeats. The one-index-PR-per-pass gate
+    # still holds inside a pass; it resets between passes because the rebase has absorbed the merge.
+    local pass before_pass
+    for pass in 1 2 3; do
+      before_pass=$merged; INDEX_MERGED=0
+      [ "$pass" -gt 1 ] && say "  merge pass $pass"
+      merge_tiers
+      # pass 1 always tries the rebase: approved PRs left DIRTY by an EARLIER round are candidates too;
+      # later passes only repeat after a pass that actually merged something
+      if [ "$merged" -gt "$before_pass" ] || [ "$pass" -eq 1 ]; then rebase_remaining "$run" "$merged_list" || break; else break; fi
+    done
     # interview: a merge can turn another PR DIRTY — re-read and send helpers for the NEW conflicts this round
     if [ "$merged" -gt 0 ] && [ "$MAX_DISPATCH" -gt 0 ]; then
       say "  re-checking conflicts after $merged merge(s)…"; sleep 15
@@ -331,6 +382,16 @@ PY
   local deploy="skipped" dpl=""
   say; say "--- 4. deploy ---"
   if [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
+  elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
+    # Mirrors vercel.json's ignoreCommand: when every merged file sits under supabase/, docs/, specs/,
+    # .claude/, .github/ or is *.md, Vercel has nothing to build — its ignoreCommand exits 0 and the
+    # deployment comes back CANCELED with no errorCode. 2026-09-05 22:50: #3296 (one migration + the
+    # index) did exactly that, the wave read the CANCELED as a failed deploy and froze, and two manual
+    # re-fires cancelled the same way. Migrations were already applied in 3b; there is nothing to make live.
+    # Counted with `grep -c`, not `grep -qv`: on this grep, -q with -v keys its exit on whether any line
+    # MATCHED, which inverts the answer for exactly the mixed and empty cases (proven 2026-09-05 22:56).
+    deploy="nothing to deploy (migration/docs-only round — Vercel's ignoreCommand skips the build)"
+    say "  $deploy"
   elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ]; then
     local r; r=$(curl -s -X POST "$HOOK"); dpl=$(python3 -c "import json,sys;print(json.load(sys.stdin)['job']['id'])" <<<"$r" 2>/dev/null)
     printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 ship$merged_list" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"
@@ -390,6 +451,8 @@ PY
   # ── 6. scoreboard + HTML report ────────────────────────────────────────────
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
   say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $((c_ready-merged)) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $merged · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
+  type -t ledger_record >/dev/null 2>&1 && ledger_record round \
+    "merged=$merged open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
   RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" || echo "")" python3 - "$html" <<'PY'
 import json, os, sys, html as H
@@ -428,6 +491,7 @@ td{{padding:8px 10px;border-top:1px solid var(--ln);vertical-align:top}}tr:first
 <!-- session-provenance v1 --><span>Built by session <b>google chrome setup</b> · <a href="https://claude.ai/code/session_015MShroHA7qe5UvpmCSoXsR">reopen the authoring session</a> · file ship-wave-{os.environ['TS']}.html</span></footer></main></html>"""
 open(sys.argv[1],"w").write(page); print("  report:", sys.argv[1])
 PY
+  LAST_MERGED=$merged   # read by the goal loop: two merge-less rounds in a row end the run
   echo "$after" > "$STATE/last-open-count"
   return 0
 }
@@ -435,13 +499,22 @@ PY
 if [ -n "$GOAL" ]; then
   # goal loop (Director 2026-09-05): rounds until open PRs == 0, or GOAL_ROUNDS, or a freeze
   for round in $(seq 1 $GOAL_ROUNDS); do
-    run_once
+    run_once || { say "=== round $round aborted before it could plan — goal loop ends (nothing was merged) ==="; break; }
     left=$(cat "$STATE/last-open-count" 2>/dev/null || echo 1)
     movable=$(python3 -c "import json,glob;p=sorted(glob.glob('$STATE/run-*/plan.json'))[-1];c=json.load(open(p))['counts'];print(c['ready']+c['conflicted']+c['quiet_wait'])" 2>/dev/null || echo 1)
     say "=== goal round $round/$GOAL_ROUNDS · open=$left · movable=$movable ==="
     [ "$left" = "0" ] && { say "=== GOAL MET: open PRs = 0 ==="; break; }
     [ -f "$FREEZE" ] && { say "=== FROZEN — goal loop ends; Director must look, then --unfreeze ==="; break; }
     [ "$movable" = "0" ] && { say "=== nothing left this wave can move (rest needs CI, authors, or your approval) — loop ends ==="; break; }
+    # Director 2026-09-05 23:40: a round that merges nothing is usually a round whose blockers need a
+    # human (stale GitHub verdicts, approvals, CI). Sweeping four more times an hour apart changes
+    # nothing — tonight it burned 40 minutes. Two empty rounds in a row end the run.
+    # …but a round is not "empty" while approved PRs are only waiting out the 30-minute quiet window
+    # (00:16: the four just-unstuck PRs sat in quiet_wait and this rule would have ended the run before
+    # they became eligible). Count an empty round only when nothing is about to become ready.
+    quiet_now=$(python3 -c "import json,glob;p=sorted(glob.glob('$STATE/run-*/plan.json'))[-1];print(json.load(open(p))['counts']['quiet_wait'])" 2>/dev/null || echo 0)
+    if [ "${LAST_MERGED:-0}" -eq 0 ] && [ "${quiet_now:-0}" -eq 0 ]; then EMPTY_ROUNDS=$(( ${EMPTY_ROUNDS:-0} + 1 )); else EMPTY_ROUNDS=0; fi
+    [ "${EMPTY_ROUNDS:-0}" -ge 2 ] && { say "=== two rounds in a row merged nothing — loop ends; what is left needs a human (see the plan above) ==="; break; }
     [ "$round" -lt "$GOAL_ROUNDS" ] && sleep $((GOAL_PAUSE_MIN*60))
   done
 else
