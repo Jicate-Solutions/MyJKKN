@@ -98,6 +98,7 @@ def tier(p):
     reasons = []
     for f in files:
         if f.startswith("supabase/migrations/") or f.endswith(".sql"): reasons.append(f"migration: {f}")
+        elif f.startswith(".github/workflows/"): reasons.append(f"CI gate change: {f}")   # #2724 turned main red for every PR (2026-09-05)
         elif HELD_RX.search(f): reasons.append(f"path: {f}")
     m = HELD_RX.search(p["title"] or "")
     if m: reasons.append(f"title: {m.group(2)}")
