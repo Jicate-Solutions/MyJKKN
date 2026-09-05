@@ -97,11 +97,10 @@
 --     `correct` key (exactly fn_fp_record_attempt, 20260808220000), otherwise
 --     compared whole. A key stored as {"correct":"A"} or "A" grades a chosen
 --     "A"; any other shape (e.g. {"index":2}) grades every answer wrong
---     unless p_chosen is that very object. Read live 2026-09-05: all 48 active
---     items on the two subject exams carry {"index":n} — those are Lane W's
---     [TEST-W] fixture rows, off the {correct} contract, and the Director is
---     being re-asked about them; this file keeps the estate normaliser rather
---     than teaching the RPC a fixture's shape.
+--     unless p_chosen is that very object. (Lane W's 48 [TEST-W] fixture rows
+--     carried {"index":n}; the Director had them and 5 test papers DELETED on
+--     2026-09-05 — read live after the deletion: 0 remain. This file keeps the
+--     estate normaliser rather than teaching the RPC a fixture's shape.)
 --   · Withheld modes: on a timed / live attempt the respond RPC returns
 --     is_correct / vault_status / streak as NULL and STORES no verdict; the
 --     verdicts exist only after finalize (fp_responses.is_correct is
@@ -120,12 +119,17 @@
 -- enrolment scoping (that is how the 20260808180000 pools already behave: a
 -- NEET learner sees the JEE / CUET pools). So the two pools in step 1 appear
 -- on /foundation/practice as "Practice — TN HSC Physics / English" for every
--- active Foundation learner the moment this file applies, NOT only once Lane
--- I's first draft is approved — read live 2026-09-05: 48 items are ALREADY
--- active on those two exams (the [TEST-W] fixture rows above), and 3 fp_students
--- rows are active (the [PILOT] fixtures). Real Nattraja learners are not
--- enrolled until both banks reach 300 (decision 8). Scoping that page by
--- enrolment or exam is a follow-up outside this lane.
+-- active Foundation learner (3 fp_students rows today, the [PILOT] fixtures)
+-- — but that page lists a pool ONLY when its exam has > 0 active fp_items
+-- rows. With Lane W's 48 [TEST-W] fixture rows and 5 test papers DELETED by
+-- the Director on 2026-09-05 and the draft job shipped disabled (§5), the
+-- pools surface nothing until a human approves an ingested item. Read live
+-- 2026-09-05 after the deletion: 0 active items on tn_hsc_physics; 1 on
+-- tn_hsc_english (a hand-authored {"correct":…} row created that day), so the
+-- English pool WILL list for those 3 learners from apply — that one row is
+-- the whole exposure. Real Nattraja learners are not enrolled until both
+-- banks reach 300 (decision 8). Scoping that page by enrolment or exam is a
+-- follow-up outside this lane.
 --
 -- HARMFUL FAILURE DIRECTION OF THE DRAFT JOB (disclosed, and why enabled=false):
 --   fp_items.is_active is NOT NULL DEFAULT true and Lane I's review queue
@@ -169,7 +173,10 @@
 --      AND NOT EXISTS (SELECT 1 FROM school_jkkn_owners o JOIN schools s ON s.id = o.school_id
 --            WHERE s.institution_id = p.institution_id AND s.ownership = 'internal'
 --              AND o.jkkn_user_id = p.id AND o.is_active);
--- Any row = re-run step 6 of this file (idempotent). Wiring that query into a
+-- Any row = re-run step 6's INSERT statement ON ITS OWN, NOT the whole file
+-- (step 7 asserts enabled = false on the job type, which Lane J's runner PR
+-- deliberately flips, so a whole-file re-run aborts there). The INSERT is
+-- idempotent. Wiring that query into a
 -- MetaLoop / dashboard check is a follow-up outside this lane.
 --
 -- Reversible (in this order):
@@ -1101,7 +1108,8 @@ BEGIN
       -- and no jkkn_identities row. A trigger cannot block a sign-in, so it
       -- mirrors that ruling the only way it can: the role is NOT inserted
       -- for such a profile, and the WARNING names the repair (fix the staff
-      -- row, then re-run step 6 / re-save the profile). The owner row above
+      -- row, then re-run step 6's INSERT on its own / re-save the profile).
+      -- The owner row above
       -- is unaffected.
       IF EXISTS (
            SELECT 1 FROM public.profiles p
@@ -1132,7 +1140,8 @@ BEGIN
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
   -- Never break a sign-in. The miss is visible in the logs and repairable by
-  -- re-running step 6 of this file.
+  -- re-running step 6's INSERT statement on its own (not the whole file —
+  -- see the header's SILENT-FAILURE SURFACING block).
   RAISE WARNING '[onemark provision] profile % (institution %) not provisioned: % (%)', NEW.id, NEW.institution_id, SQLERRM, SQLSTATE;
   RETURN NULL;
 END;
