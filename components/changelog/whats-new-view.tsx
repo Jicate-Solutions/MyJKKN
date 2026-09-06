@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useChangelog } from '@/lib/changelog/use-changelog';
+import { usePermissions } from '@/hooks/use-permissions';
 import { KIND_LABEL, type ChangeKind, type ChangelogEntry } from '@/lib/changelog/types';
 
 const PAGE = 60;
