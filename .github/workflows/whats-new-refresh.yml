@@ -1,0 +1,126 @@
+name: What's New — refresh the changelog
+
+# The /whats-new page is generated from git history, and the generated JSON is
+# COMMITTED (lib/changelog/data/). That is deliberate: it is served through an
+# authenticated route, needs no database, and renders instantly.
+#
+# But it means the page is only as current as the last commit of that data. The
+# generator does run at the head of `npm run build`, and on a full checkout it
+# refreshes itself — however a build host that hands us a SHALLOW clone produces
+# a truncated history, and the generator's own guard then (correctly) keeps the
+# committed files rather than publishing six months of history as two weeks. So
+# on such a host the build-time regeneration is a no-op by design.
+#
+# This job is what actually keeps the page current: a full-depth checkout, a
+# regeneration, and a pull request when the data moved. It opens a PR rather than
+# pushing to main because everything in this repo goes through review.
+#
+# The generator has NO dependencies beyond node and git — it is a plain .mjs
+# reading `git log` — so there is no install step.
+
+on:
+  schedule:
+    # 03:17 UTC = 08:47 IST, after the overnight merges and before the day starts.
+    # Deliberately not on the hour: every scheduled job in the world fires at :00.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: whats-new-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Load-bearing: the generator reads the whole history. With the default
+          # shallow clone it would produce a short changelog, trip its own 0.9
+          # staleness guard, and exit 0 having changed nothing.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Reuse the open refresh branch, if there is one
+        # Checked out BEFORE generating, so the new data lands as an ordinary
+        # commit on top of the existing branch. That is why this job never needs
+        # to rewrite history. CHANGELOG_REF below still reads origin/main, so the
+        # branch we sit on does not affect which history is read.
+        run: |
+          set -euo pipefail
+          BRANCH=chore/whats-new-refresh
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+            echo "Reusing the open refresh branch."
+          else
+            git checkout -B "$BRANCH"
+            echo "Starting a fresh refresh branch."
+          fi
+
+      - name: Regenerate
+        env:
+          CHANGELOG_REF: origin/main
+        run: node scripts/generate-changelog.mjs
+
+      - name: Open a PR if the changelog moved
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- lib/changelog/data/; then
+            echo "No new entries since the last refresh — nothing to do."
+            exit 0
+          fi
+
+          BRANCH=chore/whats-new-refresh
+          TOTAL=$(node -e "console.log(require('./lib/changelog/data/meta.json').total)")
+          LATEST=$(node -e "console.log(require('./lib/changelog/data/meta.json').latest)")
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/changelog/data/
+          git commit -m "chore(whats-new): refresh the changelog — ${TOTAL} entries through ${LATEST}"
+          git push origin "$BRANCH"
+
+          # AUTO-MERGE — a deliberate, NARROW exception to this repo's standing
+          # rule that nothing merges itself (Director, 2026-09-06). It applies to
+          # THIS job only, and only because of what this PR can contain: the diff
+          # is restricted to lib/changelog/data/ and the step above exits early if
+          # anything else moved. No code, no migration, no permission change. Every
+          # required check still has to pass before the merge fires.
+          #
+          # The reason it is needed: without it the page silently falls behind
+          # whenever nobody approves a one-line data update, which is exactly the
+          # failure the age indicator on the page was added to expose.
+          #
+          # This becomes UNNECESSARY once the changelog moves into the database
+          # (decided 2026-09-06) — at that point there is no daily PR at all, and
+          # this whole workflow and its exception should be deleted rather than
+          # left lying around.
+          enable_auto_merge() {
+            gh pr merge "$BRANCH" --auto --squash \
+              || echo "::warning::Could not enable auto-merge; this PR needs a human."
+          }
+
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            echo "Refresh PR already open; the newer data is now on it."
+            enable_auto_merge
+          else
+            gh pr create \
+              --base main --head "$BRANCH" \
+              --title "chore(whats-new): refresh the changelog (${TOTAL} entries)" \
+              --body "Generated by .github/workflows/whats-new-refresh.yml. Only lib/changelog/data/ changes — no code.
+
+          Latest entry: **${LATEST}**. Total: **${TOTAL}**.
+
+          Merging this is what makes the newest shipped work visible on /whats-new."
+            enable_auto_merge
+          fi
