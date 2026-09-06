@@ -10387,3 +10387,15 @@ CREATE POLICY hr_wpw_write ON public.hr_work_pattern_weeks
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_weeks TO authenticated;
 GRANT ALL ON public.hr_work_pattern_weeks TO service_role;
+
+-- cl_girls_bc_reconcile_log — read-only evidence table. No INSERT/UPDATE/DELETE
+-- policy exists on purpose: only the migrations that own it write to it, as
+-- table owner, and nothing in the app should be able to rewrite the record of
+-- what a data migration did.
+CREATE POLICY cl_girls_bc_reconcile_log_read
+  ON public.cl_girls_bc_reconcile_log
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.user_has_permission('campus_living.upgrades.manage')
+  )
