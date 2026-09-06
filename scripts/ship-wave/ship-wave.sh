@@ -477,22 +477,28 @@ PY
     # L2 — every touched API route, unauthenticated: 401/403/405 = correct, 5xx = FAIL, 200 = WARN (public?)
     local l2f=0 l2p=0 l2bad=""; for a in $apis; do local code; code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$SITE$a"); case "$code" in 5*) l2f=$((l2f+1)); l2bad="$l2bad $a→$code"; say "  L2 FAIL $a → $code";; 401|403|405|400) l2p=$((l2p+1));; *) say "  L2 WARN $a → $code";; esac; done
     l2="$l2p ok · $l2f fail of $(echo "$apis" | grep -c .) routes"
-    # L1 — persona harness (real sessions per role) against the changed pages, from a jicate/main mirror
+    # L1-lite — Lightpanda sweep (Director 2026-09-06 07:33): every changed page as every persona, sessions minted
+    # by admin magiclink (no PERSONA_PASSWORD). Judges status / wrong bounce / JS exception / timeout / crash — never
+    # what a person sees (no layout engine). 5xx after a deploy = broken page = FREEZE (and the guard stage holds the
+    # shipped directories); everything else is reported. Tooling failure = "L1-lite unavailable", never a freeze.
     local l1bad=0
     if [ -n "$pages" ]; then
-      ( cd "$LOCAL" && git fetch jicate main -q && { [ -d "$WT" ] && git -C "$WT" checkout -q --detach jicate/main || git worktree add -q --detach "$WT" jicate/main; } ) 2>/dev/null
-      [ -f "$WT/.env.local" ] || cp "$LOCAL/.env.local" "$WT/.env.local" 2>/dev/null
-      local roles; roles=$(python3 -c "import json;d=json.load(open('$WT/scripts/persona-harness/personas.json'));print(' '.join(list((d.get('personas') or d.get('accounts') or d.get('roles') or {}).keys())[:5]))" 2>/dev/null)
-      local targets=""; for p in $pages; do for r in ${roles:-superadmin}; do targets="$targets $r:$p"; done; done
-      if [ -f "$WT/scripts/persona-harness/harness.mjs" ]; then
-        ( cd "$WT" && PERSONA_MODE=headless timeout 600 node scripts/persona-harness/harness.mjs $targets ) > "$run/l1.txt" 2>&1
-        if grep -qE 'PERSONA_PASSWORD is not set|Invalid login credentials|Cannot find module|ERR_MODULE_NOT_FOUND' "$run/l1.txt"; then
-          # the HARNESS could not run — that is "L1 unavailable", not a broken page. Do not freeze on tooling. (12:33 receipt)
-          l1bad=0; l1="UNAVAILABLE — harness could not sign in ($(grep -oE 'PERSONA_PASSWORD is not set|Invalid login credentials' "$run/l1.txt" | head -1)); pages NOT verified as roles"
+      local wave_root; wave_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+      local sweep="$wave_root/scripts/persona-harness/lightpanda-sweep.mjs"
+      [ -f "$wave_root/.env.local" ] || cp "$LOCAL/.env.local" "$wave_root/.env.local" 2>/dev/null
+      [ -e "$wave_root/node_modules" ] || ln -s "$LOCAL/node_modules" "$wave_root/node_modules" 2>/dev/null
+      if [ -f "$sweep" ]; then
+        ( cd "$wave_root" && timeout 900 node "$sweep" --pages "$(printf '%s' "$pages" | tr ' \n' ',,' | sed 's/,,*/,/g; s/^,//; s/,$//')" --out "$run/l1.json" ) > "$run/l1.txt" 2>&1
+        local l1rc=$?
+        if [ "$l1rc" -eq 2 ] || [ "$l1rc" -eq 3 ]; then l1="UNAVAILABLE — $(head -1 "$run/l1.txt")"
+        elif [ "$l1rc" -ne 0 ]; then l1="UNAVAILABLE — sweep exited $l1rc (see $run/l1.txt); pages NOT verified as roles"
         else
-          l1bad=$(grep -ciE '/unauthorized|/auth/login|error' "$run/l1.txt"); l1="$(echo "$targets" | wc -w | tr -d ' ') role×page snapshots · $l1bad flagged (see $run/l1.txt)"
+          l1="$(grep -m1 '^L1-lite:' "$run/l1.txt" | sed 's/^L1-lite: //')"
+          l1bad=$(python3 -c "import json;print(json.load(open('$run/l1.json'))['sum']['s5xx'])" 2>/dev/null || echo 0)
+          grep -E '^  (s5xx|bounces|jsErr|timeouts|failed):' "$run/l1.txt" | head -8 | sed 's/^/  L1 /' | while read -r line; do say "$line"; done
+          if [ "${l1bad:-0}" -gt 0 ]; then freeze "broken page after deploy: $l1bad page×role load(s) returned 5xx (see $run/l1.txt); on main:$merged_list"; fi
         fi
-      else l1="harness missing in $WT"; fi
+      else l1="UNAVAILABLE — $sweep not found"; fi
     else l1="no page changed"; fi
     # L3 — tables touched by merged migrations (v1: inventory + the authed persona pass above exercises RLS; a per-role probe is not automated yet)
     if [ -n "$migs" ]; then l3="PARTIAL: $(for m in $migs; do git -C "$WT" show "jicate/main:$m" 2>/dev/null | grep -oiE '(create table|alter table|create policy)[^(]*' | head -3; done | tr '\n' ';' | cut -c1-200)"; else l3="no migration shipped"; fi
