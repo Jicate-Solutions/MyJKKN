@@ -16,6 +16,10 @@
 #   LOW    docs, types, lint, tests only                          → merged UNATTENDED in `go` mode (the ONLY auto tier)
 #   NORMAL everything else                                        → merged only with --approve-normal (his one tap)
 #   The standing no-auto-merge rule is overridden for LOW ONLY, on record here (Director, 2026-09-05).
+#   STANDING RUN (Director 2026-09-06 06:31, by interview): launchd job com.omm.myjkkn-ship-wave fires
+#   `go --goal --approve-normal --max-dispatch 2` every 2 hours (xx:23). So NORMAL merges UNATTENDED when its
+#   checks are green — a second, explicit override of the no-auto-merge rule. HELD (money / grades / any
+#   migration) still needs his number in $STATE/approve-held. Helper tabs: at most 2 per round.
 #
 # EDGE RULES (same interview):
 #   • a PR updated in the last QUIET_MIN (30) minutes is left alone — its author may still be typing
@@ -67,6 +71,9 @@ while [[ $# -gt 0 ]]; do
     --goal) GOAL=1;;
     --only) ONLY="${2:-}"; shift;;
     --ledger) LEDGER_REPORT=1;;
+    --policy|--guards) POLICY_SHOW=1;;
+    --ratify) POLICY_RATIFY="${2:-}"; shift;;
+    --unguard) UNGUARD="${2:-}"; shift;;
     --unfreeze) rm -f "$FREEZE"; echo "freeze cleared"; exit 0;;
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
@@ -100,6 +107,8 @@ freeze() {
   # the wave used to stop mute here and a human had to reconstruct why from a
   # receipt that overwrote itself. Now it says what this cost last time.
   type -t ledger_on_freeze >/dev/null 2>&1 && ledger_on_freeze "$*"
+  # tighten alone: what shipped in this round becomes HELD until a human clears it (policy-learning.sh)
+  type -t guard_add_from_freeze >/dev/null 2>&1 && guard_add_from_freeze "$*" "${run:-}"
 }
 
 # The ledger is sourced BEFORE the single-flight lock on purpose: --ledger is a
@@ -108,6 +117,11 @@ freeze() {
 # shellcheck source=scripts/ship-wave/failure-ledger.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/failure-ledger.sh"
 if [ -n "${LEDGER_REPORT:-}" ]; then ledger_report; exit 0; fi
+# shellcheck source=scripts/ship-wave/policy-learning.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/policy-learning.sh"
+if [ -n "${POLICY_SHOW:-}" ]; then policy_show; exit 0; fi
+if [ -n "${POLICY_RATIFY:-}" ]; then policy_ratify "$POLICY_RATIFY"; exit $?; fi
+if [ -n "${UNGUARD:-}" ]; then guard_remove "$UNGUARD"; exit 0; fi
 
 # ── single-flight: two ship waves merging at once would race main ─────────────
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -118,8 +132,9 @@ echo $$ > "$LOCK/pid"; trap unlock EXIT
 
 # ── the classifier, shared by the sweep and the post-merge re-cluster ─────────
 classify() {  # $1=prs.json $2=plan.json  (ONLY / QUIET_MIN from env)
-  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" python3 - "$1" "$2" <<'PY'
+  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" GUARDS_ENV="$(guards_env 2>/dev/null)" python3 - "$1" "$2" <<'PY'
 import json, sys, os, re, datetime
+GUARDS = [g for g in os.environ.get("GUARDS_ENV", "").split() if g]
 from collections import Counter, defaultdict
 prs = json.load(open(sys.argv[1]))
 only = {int(x) for x in os.environ.get("ONLY","").replace(" ","").split(",") if x}
@@ -134,11 +149,17 @@ def tier(p):
     reasons = []
     for f in files:
         if f.startswith("supabase/migrations/") or f.endswith(".sql"): reasons.append(f"migration: {f}")
+        # the fleet's own tooling is not a money/grades domain: scripts/ship-wave/failure-ledger.sh is not the
+        # fee ledger. The word match below is for app/lib/supabase paths (Director 2026-09-06 06:30, #3297/#3306)
+        if f.startswith(("scripts/", ".claude/")): continue
         elif f.startswith(".github/workflows/"): reasons.append(f"CI gate change: {f}")   # #2724 turned main red for every PR (2026-09-05)
         elif f.startswith("__tests__/") or ".test." in f or ".spec." in f: continue         # a test cannot move money or grades
         # a money/grades word must be a WHOLE path segment (…/score/route.ts, app/(routes)/fees/…), never a fragment of a
         # filename — "summarize-routine-result.ts" held #2932 for the word "result" (2026-09-05 14:30)
         elif any(re.fullmatch(HELD_WORDS, seg, re.I) for seg in re.split(r"[/]", f)): reasons.append(f"path: {f}")
+        # guards learned from a deploy/page freeze (policy-learning.sh) — checked after the tier rules, never inside them
+        for g in GUARDS:
+            if f == g or f.startswith(g + "/"): reasons.append(f"guard: {g} (froze the wave once — HELD until --unguard)")
     m = HELD_RX.search(p["title"] or "")
     if m: reasons.append(f"title: {m.group(2)}")
     if reasons: return "HELD", reasons[:4]
@@ -239,7 +260,7 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
       [ -n "$prev" ] && say "  re-dispatching $ckey — previous tab $prev has finished, PRs still conflicted"
     fi
     local u8 uuid sname nm
-    uuid=$(/usr/bin/uuidgen | tr '[:upper:]' '[:lower:]'); u8="${uuid:0:8}"; sname="v5-jkknkb-$u8"; nm="ship: $ckey"
+    uuid=$(/usr/bin/uuidgen | tr '[:upper:]' '[:lower:]'); u8="${uuid:0:8}"; sname="v5-jkknkb-$u8"; nm="⚙ W12 · fixing conflicts in $ckey ($cprs)"   # phone rows: robots announce themselves (Director 2026-09-06 07:01)
     printf '%s\t%s\t%s\t%s\n' "" "$LOCAL" "$(date -u +%FT%TZ)" "JKKNKB" > "$_CFG/v5-tab-sessions/$u8"   # sid filled by the tab's own hooks
     printf '%s @ %s\n' "$nm" "$LOCAL" > "$_CFG/v5-tab-names/$u8"
     local prompt="First invoke the /myjkkn-chain skill and take its CONFLICT LANE — every rule of that skill applies to you. You own ONE job: make these conflicted MyJKKN PRs mergeable again — $cprs (all touch $ckey). Repo Jicate-Solutions/MyJKKN, production remote 'jicate', branch 'main'. For EACH PR, in ONE Bash call: cd $LOCAL && git fetch jicate main && git fetch jicate <headRefName> && git worktree add $LOCAL/.claude/worktrees/ship-<n> <headRefName> ; then inside that worktree rebase onto jicate/main, resolve every conflict keeping BOTH sides' intent (never drop the other author's change; if the file is a shared registry/list, keep every entry; supabase/SQL_FILE_INDEX.md is APPEND-ONLY — on conflict keep BOTH sides, every entry survives, never drop a row), run the repo's typecheck and the scoped unit tests, force-push with --force-with-lease to the PR branch, and leave a PR comment summarising what conflicted and how you resolved it. NEVER merge, never push to main, never touch any database. The local checkout at $LOCAL is far behind production — only trust jicate/main and the worktree. When every PR shows mergeStateStatus CLEAN (gh pr view <n> --json mergeStateStatus), or one is genuinely unresolvable, finish with ONE summary: per PR → CLEAN / still DIRTY + why. For every PR you could NOT make CLEAN, your PR comment MUST end with one line exactly of the form 'W12-VERDICT: SUPERSEDED' (main already contains it) or 'W12-VERDICT: UNRESOLVABLE' (real overlapping logic, needs its author) — the wave reads that line and stops sending tabs. Then run /remote-control so the Director can see you from the phone."
@@ -274,7 +295,11 @@ run_once() {
   # (2026-09-05 19:47: six identical headers, zero readable history).
   if [ -z "${_REDIR_DONE:-}" ]; then
     _REDIR_DONE=1
-    exec > >(tee "$RECEIPT" -a "$RUNLOG") 2>&1
+    # BSD tee stops parsing options at the first file name, so `tee "$RECEIPT" -a "$RUNLOG"` treated -a as a
+    # FILE: a stray "-a" appeared in the CWD and the run log was never appended (under launchd, CWD is / and it
+    # errored aloud — 2026-09-06 06:32). Truncate the receipt first, then append to both.
+    : > "$RECEIPT"
+    exec > >(tee -a "$RECEIPT" "$RUNLOG") 2>&1
   fi
   say "=== W12 ship wave · mode=$MODE · approve-normal=${APPROVE_NORMAL:-no} · approve-held=${APPROVE_HELD:-none} · max-dispatch=$MAX_DISPATCH · $(date '+%F %T') ==="
 
@@ -313,7 +338,7 @@ run_once() {
 
   # ── 3. merge by tier ───────────────────────────────────────────────────────
   say; say "--- 3. merge: LOW unattended · NORMAL needs --approve-normal · HELD needs --approve-held ---"
-  local merged=0 merged_list="" merged_files="$run/merged-files.txt"; : > "$merged_files"; : > "$run/merged-map.tsv"
+  local merged=0 merged_list="" merged_files="$run/merged-files.txt" m_low=0 m_normal=0 m_held=0; : > "$merged_files"; : > "$run/merged-map.tsv"
   INDEX_MERGED=0
   merge_one() {  # $1=number $2=tier — re-verify the instant before the irreversible step
     local n="$1" t="$2" st i
@@ -336,15 +361,15 @@ run_once() {
   }
   already_merged() { case " $merged_list " in *" #$1 "*) return 0;; *) return 1;; esac; }
   merge_tiers() {  # one pass LOW → NORMAL → HELD; bumps merged / merged_list (bash dynamic scope)
-    for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['LOW']))"); do already_merged "$n" || { merge_one "$n" LOW && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; }; done
+    for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['LOW']))"); do already_merged "$n" || { merge_one "$n" LOW && { merged=$((merged+1)); m_low=$((m_low+1)); merged_list="$merged_list #$n"; }; }; done
     if [ -n "$APPROVE_NORMAL" ]; then
-      for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do already_merged "$n" || { merge_one "$n" NORMAL && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; }; done
+      for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do already_merged "$n" || { merge_one "$n" NORMAL && { merged=$((merged+1)); m_normal=$((m_normal+1)); merged_list="$merged_list #$n"; }; }; done
     else say "  NORMAL: $(python3 -c "import json;print(len(json.load(open('$run/plan.json'))['ready']['NORMAL']))") ready — waiting for your tap (run again with --approve-normal)"; fi
     if [ -n "$APPROVE_HELD" ]; then
       for n in $(printf '%s' "$APPROVE_HELD" | tr ', ' '  '); do
         already_merged "$n" && continue
         python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)" \
-          && { merge_one "$n" HELD && { merged=$((merged+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
+          && { merge_one "$n" HELD && { merged=$((merged+1)); m_held=$((m_held+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
           || say "  HOLD   HELD #$n — not in this run's ready-HELD list, refusing"
       done
     else
@@ -352,6 +377,10 @@ run_once() {
       [ -n "$held" ] && say "  HELD waiting for your reply (reply with the numbers to ship): $held" || say "  HELD: none ready"
     fi
   }
+  if policy_active AUTO_APPROVE_ADDITIVE_MIGRATIONS && [ -z "${FINAL_DEPLOY:-}" ]; then
+    local auto; auto=$(python3 -c "import json;p=json.load(open('$run/plan.json'));print(' '.join(str(r['number']) for r in p['ready']['HELD'] if r['tier_reasons'] and all(x.startswith('migration: supabase/migrations/') for x in r['tier_reasons'])))" 2>/dev/null)
+    [ -n "$auto" ] && { say "  policy P1 (ratified): HELD PRs whose only reason is a migration are approved this run: $auto"; APPROVE_HELD="${APPROVE_HELD:+$APPROVE_HELD }$auto"; }
+  fi
   if [ -n "${FINAL_DEPLOY:-}" ]; then say "  (end-of-run deploy pass — merging nothing)"
   elif [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
     # Director 2026-09-05 23:40: up to three merge passes per round. After a pass that merged something,
@@ -403,9 +432,12 @@ PY
     cat "$merged_files" >> "$pending"; DEPLOY_DEFERRED=1
     deploy="deferred — goal runs deploy ONCE at the end ($(grep -c . "$pending") file(s) waiting; migrations already applied)"
     say "  $deploy"
-  elif [ -z "$GOAL" ] && [ -s "$pending" ]; then
+  elif [ "$MODE" = "go" ] && [ -z "$GOAL" ] && [ -s "$pending" ]; then
     cat "$pending" >> "$merged_files"; merged=$((merged+1)); merged_list="$merged_list +earlier-batch"
   fi
+  # 2026-09-06 07:55: a read-only `plan` sweep fired a production build through the flush branch above —
+  # the deploy stage must never act outside `go`, whatever the batch file holds.
+  if [ "$MODE" != "go" ]; then deploy="skipped (plan mode)"; DEPLOY_DEFERRED=1; fi
   if [ -n "$DEPLOY_DEFERRED" ]; then :
   elif [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
   elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
@@ -449,22 +481,28 @@ PY
     # L2 — every touched API route, unauthenticated: 401/403/405 = correct, 5xx = FAIL, 200 = WARN (public?)
     local l2f=0 l2p=0 l2bad=""; for a in $apis; do local code; code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$SITE$a"); case "$code" in 5*) l2f=$((l2f+1)); l2bad="$l2bad $a→$code"; say "  L2 FAIL $a → $code";; 401|403|405|400) l2p=$((l2p+1));; *) say "  L2 WARN $a → $code";; esac; done
     l2="$l2p ok · $l2f fail of $(echo "$apis" | grep -c .) routes"
-    # L1 — persona harness (real sessions per role) against the changed pages, from a jicate/main mirror
+    # L1-lite — Lightpanda sweep (Director 2026-09-06 07:33): every changed page as every persona, sessions minted
+    # by admin magiclink (no PERSONA_PASSWORD). Judges status / wrong bounce / JS exception / timeout / crash — never
+    # what a person sees (no layout engine). 5xx after a deploy = broken page = FREEZE (and the guard stage holds the
+    # shipped directories); everything else is reported. Tooling failure = "L1-lite unavailable", never a freeze.
     local l1bad=0
     if [ -n "$pages" ]; then
-      ( cd "$LOCAL" && git fetch jicate main -q && { [ -d "$WT" ] && git -C "$WT" checkout -q --detach jicate/main || git worktree add -q --detach "$WT" jicate/main; } ) 2>/dev/null
-      [ -f "$WT/.env.local" ] || cp "$LOCAL/.env.local" "$WT/.env.local" 2>/dev/null
-      local roles; roles=$(python3 -c "import json;d=json.load(open('$WT/scripts/persona-harness/personas.json'));print(' '.join(list((d.get('personas') or d.get('accounts') or d.get('roles') or {}).keys())[:5]))" 2>/dev/null)
-      local targets=""; for p in $pages; do for r in ${roles:-superadmin}; do targets="$targets $r:$p"; done; done
-      if [ -f "$WT/scripts/persona-harness/harness.mjs" ]; then
-        ( cd "$WT" && PERSONA_MODE=headless timeout 600 node scripts/persona-harness/harness.mjs $targets ) > "$run/l1.txt" 2>&1
-        if grep -qE 'PERSONA_PASSWORD is not set|Invalid login credentials|Cannot find module|ERR_MODULE_NOT_FOUND' "$run/l1.txt"; then
-          # the HARNESS could not run — that is "L1 unavailable", not a broken page. Do not freeze on tooling. (12:33 receipt)
-          l1bad=0; l1="UNAVAILABLE — harness could not sign in ($(grep -oE 'PERSONA_PASSWORD is not set|Invalid login credentials' "$run/l1.txt" | head -1)); pages NOT verified as roles"
+      local wave_root; wave_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+      local sweep="$wave_root/scripts/persona-harness/lightpanda-sweep.mjs"
+      [ -f "$wave_root/.env.local" ] || cp "$LOCAL/.env.local" "$wave_root/.env.local" 2>/dev/null
+      [ -e "$wave_root/node_modules" ] || ln -s "$LOCAL/node_modules" "$wave_root/node_modules" 2>/dev/null
+      if [ -f "$sweep" ]; then
+        ( cd "$wave_root" && timeout 900 node "$sweep" --pages "$(printf '%s' "$pages" | tr ' \n' ',,' | sed 's/,,*/,/g; s/^,//; s/,$//')" --out "$run/l1.json" ) > "$run/l1.txt" 2>&1
+        local l1rc=$?
+        if [ "$l1rc" -eq 2 ] || [ "$l1rc" -eq 3 ]; then l1="UNAVAILABLE — $(head -1 "$run/l1.txt")"
+        elif [ "$l1rc" -ne 0 ]; then l1="UNAVAILABLE — sweep exited $l1rc (see $run/l1.txt); pages NOT verified as roles"
         else
-          l1bad=$(grep -ciE '/unauthorized|/auth/login|error' "$run/l1.txt"); l1="$(echo "$targets" | wc -w | tr -d ' ') role×page snapshots · $l1bad flagged (see $run/l1.txt)"
+          l1="$(grep -m1 '^L1-lite:' "$run/l1.txt" | sed 's/^L1-lite: //')"
+          l1bad=$(python3 -c "import json;print(json.load(open('$run/l1.json'))['sum']['s5xx'])" 2>/dev/null || echo 0)
+          grep -E '^  (s5xx|bounces|jsErr|timeouts|failed):' "$run/l1.txt" | head -8 | sed 's/^/  L1 /' | while read -r line; do say "$line"; done
+          if [ "${l1bad:-0}" -gt 0 ]; then freeze "broken page after deploy: $l1bad page×role load(s) returned 5xx (see $run/l1.txt); on main:$merged_list"; fi
         fi
-      else l1="harness missing in $WT"; fi
+      else l1="UNAVAILABLE — $sweep not found"; fi
     else l1="no page changed"; fi
     # L3 — tables touched by merged migrations (v1: inventory + the authed persona pass above exercises RLS; a per-role probe is not automated yet)
     if [ -n "$migs" ]; then l3="PARTIAL: $(for m in $migs; do git -C "$WT" show "jicate/main:$m" 2>/dev/null | grep -oiE '(create table|alter table|create policy)[^(]*' | head -3; done | tr '\n' ';' | cut -c1-200)"; else l3="no migration shipped"; fi
@@ -481,7 +519,7 @@ PY
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
   say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $([ -n "${FINAL_DEPLOY:-}" ] && echo "$c_ready" || echo $((c_ready-merged))) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $([ -n "${FINAL_DEPLOY:-}" ] && echo "0 (final pass: $merged file(s) built)" || echo "$merged") · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
   type -t ledger_record >/dev/null 2>&1 && ledger_record round \
-    "merged=$merged open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
+    "merged=$merged low=$m_low normal=$m_normal held=$m_held open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
   RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" || echo "")" python3 - "$html" <<'PY'
 import json, os, sys, html as H
