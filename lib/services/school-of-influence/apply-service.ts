@@ -62,10 +62,20 @@ import {
   SOI_POLICY_DEFAULTS,
   isWithinSoiIntakeWindow,
   normaliseSoiAudience,
+  soiDisplayName,
   type SoiBatchChoiceMode,
   type SoiBatchFullBehaviour,
   type SoiMemberType,
 } from '@/lib/services/school-of-influence/constants';
+import {
+  deriveSoiYearFromSemesterName,
+  isSoiServerDerivedField,
+  soiKnownAnswersFor,
+  soiOnRecordAnswerKey,
+  soiPrefillMismatches,
+  type SoiApplicantRecord,
+  type SoiKnownAnswer,
+} from '@/lib/services/school-of-influence/known-answers';
 import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
 import type { Cohort } from '@/lib/types/cohort-core';
 import type {
@@ -330,7 +340,10 @@ async function loadBatches(
 
     views.push({
       id: batch.id,
-      name: batch.name,
+      // The three live rows still read "School of Influence — Batch A/B/C". The
+      // programme's name changed, the rows have not (that is a data decision the
+      // Director has not been asked for), so the swap happens on the way out.
+      name: soiDisplayName(batch.name),
       opensAt: batch.opens_at,
       closesAt: batch.closes_at,
       intakeOpen,
@@ -364,6 +377,20 @@ async function countOccupancy(cohortId: string): Promise<number> {
  * service LAZILY CREATES the form row on first read, and materialising a row
  * merely because somebody opened the apply page would be a write from a read
  * path. An event with no form yet simply collects no extra questions.
+ *
+ * ── ONE QUESTION IS DROPPED HERE, AND ONLY HERE (Director decision 2026-08-13)
+ * A field the SERVER already answers for itself — today "Learner or Senior
+ * Learner" — is filtered out of both returned lists. Both, because the same
+ * pair drives two different things: `sections` is what the applicant sees, and
+ * `fields` is what validateCustomFields enforces. Dropping it from one alone
+ * would either show a box nothing validates or, far worse, demand an answer to
+ * a question the form no longer asks — an application nobody could submit.
+ *
+ * Filtering in code rather than deleting the row keeps the change to THIS flow:
+ * the events form builder still shows the field, no data is destroyed, and a
+ * coordinator can put the question back by removing this filter rather than by
+ * recreating a row. The row's own answer is not lost either — the server writes
+ * what it derived onto the application instead (see submitSoiApplication).
  */
 async function loadFormSections(
   eventId: string
@@ -389,12 +416,99 @@ async function loadFormSections(
       .order('display_order', { ascending: true }),
   ]);
 
-  const allFields = (fields ?? []) as EventRegistrationFormField[];
+  const allFields = ((fields ?? []) as EventRegistrationFormField[]).filter(
+    (field) => !isSoiServerDerivedField(field)
+  );
   const withFields = ((sections ?? []) as EventRegistrationFormSection[]).map((section) => ({
     ...section,
     fields: allFields.filter((f) => f.section_id === section.id),
   }));
   return { sections: withFields, fields: allFields };
+}
+
+// ─── what the platform already knows about the applicant ─────────────────────
+
+/**
+ * The applicant's own record, read for the four questions the form asks that
+ * the platform can already answer: name, college, department, year.
+ *
+ * FAILS SOFT, ALWAYS. Every read is wrapped, and anything unreadable becomes a
+ * null — which renders as an empty, editable box. A person must never be unable
+ * to apply because a lookup for a convenience failed, and a spinner that never
+ * resolves would be worse than no prefill at all.
+ *
+ * The chain is the canonical one: auth.users.id == profiles.id, and
+ * profiles.learner_id → learners_profiles.id. Service-role, exactly as the rest
+ * of this module reads: an applicant holds no permission over `departments` or
+ * `semesters`, so their own RLS would return nothing and every box would be
+ * blank for everybody. The reads are scoped to the caller's OWN row and the
+ * lookups it points at, and none of them decides anything.
+ */
+async function readSoiApplicantRecord(applicant: SoiApplicant): Promise<SoiApplicantRecord> {
+  const empty: SoiApplicantRecord = {
+    name: applicant.fullName,
+    college: null,
+    department: null,
+    year: null,
+  };
+
+  try {
+    const svc = createServiceRoleClient();
+
+    let name = applicant.fullName;
+    let institutionId = applicant.institutionId;
+    let departmentId: string | null = null;
+    let semesterId: string | null = null;
+
+    if (applicant.learnerId) {
+      const { data: learner } = await (svc as any)
+        .from('learners_profiles')
+        .select('first_name, last_name, institution_id, department_id, semester_id')
+        .eq('id', applicant.learnerId)
+        .maybeSingle();
+      if (learner) {
+        const composed = [learner.first_name, learner.last_name]
+          .map((part: string | null) => String(part ?? '').trim())
+          .filter(Boolean)
+          .join(' ');
+        // The learner record is the more specific one, but a blank field on it
+        // must not erase a name the profile does have.
+        if (composed) name = composed;
+        institutionId = learner.institution_id ?? institutionId;
+        departmentId = learner.department_id ?? null;
+        semesterId = learner.semester_id ?? null;
+      }
+    }
+
+    const [institution, department, semester] = await Promise.all([
+      institutionId
+        ? (svc as any).from('institutions').select('name').eq('id', institutionId).maybeSingle()
+        : Promise.resolve({ data: null }),
+      departmentId
+        ? (svc as any)
+            .from('departments')
+            .select('department_name')
+            .eq('id', departmentId)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      semesterId
+        ? (svc as any).from('semesters').select('semester_name').eq('id', semesterId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    return {
+      name: String(name ?? '').trim() || null,
+      college: String(institution?.data?.name ?? '').trim() || null,
+      department: String(department?.data?.department_name ?? '').trim() || null,
+      year: deriveSoiYearFromSemesterName(semester?.data?.semester_name ?? null),
+    };
+  } catch (error) {
+    console.error(
+      'SoI apply: could not read the applicant record for the prefilled boxes — showing them empty',
+      error
+    );
+    return empty;
+  }
 }
 
 // ─── the context ─────────────────────────────────────────────────────────────
@@ -420,13 +534,14 @@ export async function buildSoiApplyContext(
 
   const base = {
     eventId,
-    eventName: (event?.name as string) ?? 'School of Influence',
+    eventName: soiDisplayName((event?.name as string) ?? null),
     registrationOpensAt: (event?.registration_open_date as string) ?? null,
     registrationClosesAt: (event?.registration_close_date as string) ?? null,
     batches: [] as SoiApplyBatchView[],
     existingApplication: null,
     existingMembership: null,
     formSections: [] as EventRegistrationFormSection[],
+    knownAnswers: {} as Record<string, SoiKnownAnswer>,
   };
 
   // Read the programme-level policy even on refusal paths: the surface says
@@ -472,7 +587,7 @@ export async function buildSoiApplyContext(
       code: 'not_a_programme',
       status: 404,
       message:
-        'This event is not open as a School of Influence programme yet. No batch ' +
+        'This event is not open as a School of Influencer programme yet. No batch ' +
         'has been set up for it, so there is nothing to apply to. Please check ' +
         'back, or ask the programme coordinator when applications open.',
     });
@@ -616,7 +731,11 @@ export async function buildSoiApplyContext(
     });
   }
 
-  const { sections } = await loadFormSections(eventId);
+  // Only now — after every refusal has been cleared — is it worth reading the
+  // applicant's record for the boxes the platform can fill in itself. Somebody
+  // who cannot apply costs no lookup.
+  const { sections, fields } = await loadFormSections(eventId);
+  const record = await readSoiApplicantRecord(applicant);
   return {
     ...base,
     batches,
@@ -625,6 +744,7 @@ export async function buildSoiApplyContext(
     existingApplication: null,
     existingMembership: null,
     formSections: sections,
+    knownAnswers: soiKnownAnswersFor(fields, record),
     refusal: null,
   };
 }
@@ -685,7 +805,7 @@ async function findLiveMembership(
   const batch = batchRows.find((b) => b.id === data.cohort_id);
   return {
     cohortId: data.cohort_id,
-    batchName: batch?.name ?? 'a batch of this programme',
+    batchName: batch?.name ? soiDisplayName(batch.name) : 'a batch of this programme',
     status: data.status,
   };
 }
@@ -859,7 +979,7 @@ export async function submitSoiApplication(
   // D5 — the applicant is waitlisted when the batch they will land in is full
   // and the programme's answer to a full batch is to hold them. With
   // staff_assign there is no chosen batch, so the question is whether every batch
-  // that is STILL OPEN is full.
+  // that is STILL OPEN is full — and whether the programme keeps a list at all.
   //
   // Only open batches are counted. `acceptingNow` is intakeOpen && !isFull, so
   // asking every(!acceptingNow) would read a closed window as a full one and
@@ -868,10 +988,18 @@ export async function submitSoiApplication(
   // promise a seat that was never the obstacle. buildSoiApplyContext has already
   // refused the all-windows-shut case above, so openBatches is non-empty here;
   // the length check keeps this honest if that guard is ever moved.
+  //
+  // soi.batch_full_behaviour is named on BOTH branches on purpose. The
+  // staff_assign branch used to rely on the earlier no_open_batch guard having
+  // already refused when nothing keeps a list — true today, but it left the one
+  // decision the setting governs reading as though the setting were not
+  // consulted. Anybody reordering those guards would have silently turned the
+  // waiting list on for a programme that had switched it off.
   const openBatches = context.batches.filter((b) => b.intakeOpen);
+  const anyBatchWaitlists = context.batches.some((b) => b.fullBehaviour === 'waitlist');
   const isWaitlisted = requestedBatch
     ? requestedBatch.isFull && requestedBatch.fullBehaviour === 'waitlist'
-    : openBatches.length > 0 && openBatches.every((b) => b.isFull);
+    : openBatches.length > 0 && openBatches.every((b) => b.isFull) && anyBatchWaitlists;
 
   // Required questions are validated with the SAME helper the tournament path
   // uses, so "required" means one thing across the platform.
@@ -902,6 +1030,19 @@ export async function submitSoiApplication(
         }
       : {};
 
+  // ── the prefilled boxes, judged against the record (Director decision) ─────
+  // A changed box is never a refusal. It is recorded, so a coordinator sees the
+  // disagreement instead of the typed value silently becoming the truth about
+  // this person. The record's own value is filed under a readable key as well,
+  // because the review queue prints every custom_fields entry with its field's
+  // label and falls back to the raw key — which puts "Name — on record" right
+  // beside "Name" in the answer list, with no change to any SQL.
+  const mismatches = soiPrefillMismatches(fields, context.knownAnswers, answers);
+  const answersWithRecord = { ...answers };
+  for (const mismatch of mismatches) {
+    answersWithRecord[soiOnRecordAnswerKey(mismatch.field_label)] = mismatch.on_record;
+  }
+
   const svc = createServiceRoleClient();
   const { data, error } = await (svc as any)
     .from('events_registrations')
@@ -919,10 +1060,22 @@ export async function submitSoiApplication(
       payment_status: 'not_required',
       source: SOI_APPLICATION_SOURCE,
       registered_by: applicant.profileId,
-      custom_fields: answers,
+      custom_fields: answersWithRecord,
       custom_data: {
         soi: {
           audiences: applicant.audiences,
+          // The answer to the question the form no longer asks. Derived from
+          // this person's own records — profiles.learner_id and an ACTIVE staff
+          // row — which is the same reading eligibility was already decided on
+          // above, so the application cannot contradict its own admission.
+          // 'learner' wins when somebody is both: they applied to a programme
+          // whose learner audience already admitted them.
+          member_type: applicant.audiences.includes('learner')
+            ? ('learner' as SoiMemberType)
+            : (applicant.audiences[0] ?? null),
+          member_type_source: 'derived_from_record',
+          // Empty when every prefilled box was left as the record had it.
+          prefill_mismatches: mismatches,
           batch_choice_mode: batchChoiceMode,
           requested_batch_cohort_id: requestedBatch?.id ?? null,
           requested_batch_name: requestedBatch?.name ?? null,
@@ -946,7 +1099,10 @@ export async function submitSoiApplication(
       status: isWaitlisted ? 'waitlisted' : 'pending',
       requestedBatchId: requestedBatch?.id ?? null,
       message: isWaitlisted
-        ? 'Your application is on the waiting list. A coordinator will contact you when a place opens up.'
+        ? 'Every batch is full right now, so you are on the waiting list rather than ' +
+          'turned away. Your application stays open: when a place frees up a ' +
+          'coordinator offers it from this list, and you will be told either way. ' +
+          'You do not need to apply again.'
         : 'Your application has been received. A coordinator will review it and let you know the outcome.',
     },
   };

@@ -47,6 +47,19 @@ const STATUS_STYLE: Record<OrchestrationModule['status'], string> = {
   blocked: 'bg-amber-100 text-amber-800',
 };
 
+// Ship-policy tier (lib/services/orchestration/risk-tier.ts). HELD is the one
+// that must catch the eye — it needs an explicit acknowledgement to merge.
+// Rows synced before the risk-tier migration have no tier and show NORMAL.
+const TIER_STYLE: Record<NonNullable<OrchestrationPr['risk_tier']>, string> = {
+  HELD: 'bg-red-100 text-red-800',
+  LOW: 'bg-muted text-muted-foreground',
+  NORMAL: 'border-border bg-background text-muted-foreground',
+};
+
+function tierOf(pr: OrchestrationPr): NonNullable<OrchestrationPr['risk_tier']> {
+  return pr.risk_tier === 'HELD' || pr.risk_tier === 'LOW' ? pr.risk_tier : 'NORMAL';
+}
+
 function honestCiLabel(pr: OrchestrationPr): { label: string; className: string } {
   if (!pr.ci_state) return { label: 'no CI', className: 'bg-muted text-muted-foreground' };
   const checkedAt = pr.ci_checked_at ? new Date(pr.ci_checked_at).getTime() : null;
@@ -156,7 +169,10 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
       const resp = await fetch('/api/admin/orchestration/actions/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prNumber: mergeCandidate.number, confirm: true }),
+        // tierAck carries the tier this card showed the operator. The route
+        // re-classifies live and answers 422 with the reasons if the PR is
+        // HELD and the stored tier had gone stale — never a silent merge.
+        body: JSON.stringify({ prNumber: mergeCandidate.number, confirm: true, tierAck: tierOf(mergeCandidate) }),
       });
       const data = await resp.json().catch(() => null);
       if (!resp.ok || !data?.ok) {
@@ -206,10 +222,21 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
           </span>
           {prs.map((p) => {
             const ci = honestCiLabel(p);
+            const tier = tierOf(p);
+            const tierTitle = (p.risk_reasons ?? []).join('; ') || `${tier} risk`;
             return (
-              <Badge key={p.id} variant="outline" className={cn('border-transparent font-mono text-[11px]', ci.className)}>
-                #{p.number} {ci.label}
-              </Badge>
+              <span key={p.id} className="inline-flex items-center gap-0.5">
+                <Badge variant="outline" className={cn('border-transparent font-mono text-[11px]', ci.className)}>
+                  #{p.number} {ci.label}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  title={tierTitle}
+                  className={cn('font-mono text-[10px] uppercase', tier === 'NORMAL' ? '' : 'border-transparent', TIER_STYLE[tier])}
+                >
+                  {tier}
+                </Badge>
+              </span>
             );
           })}
         </div>
@@ -279,6 +306,13 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-left">
                 <p className="font-medium text-foreground">{mergeCandidate?.title ?? 'Untitled PR'}</p>
+                {mergeCandidate && tierOf(mergeCandidate) === 'HELD' && (
+                  <p className="rounded-md bg-red-50 p-2 text-sm text-red-800">
+                    <span className="font-medium">HELD: </span>
+                    {(mergeCandidate.risk_reasons ?? []).join('; ') || 'touches money, marks, exams or the database schema'}.
+                    Confirming acknowledges this.
+                  </p>
+                )}
                 <dl className="space-y-1.5">
                   <div>
                     <dt className="inline font-medium text-foreground">Does: </dt>

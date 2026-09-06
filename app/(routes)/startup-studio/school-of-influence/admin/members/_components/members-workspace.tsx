@@ -84,6 +84,7 @@ import {
   type SoiBatchMember,
   type SoiBatchRoster,
 } from '@/lib/services/school-of-influence/batch-service';
+import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 import type { Cohort, MembershipStatus } from '@/lib/types/cohort-core';
 
 function messageOf(error: unknown): string {
@@ -159,7 +160,7 @@ function AccessPanel({ message }: { message: string }) {
 
 const NO_ACCESS_MESSAGE =
   'You do not have access to manage members here. Managing who holds a place in ' +
-  'a School of Influence batch needs the "cohort.manage" permission for the ' +
+  'a School of Influencer batch needs the "cohort.manage" permission for the ' +
   'institution that runs the programme, or an appointment as one of its ' +
   'coordinators. Ask the COO — or a MyJKKN administrator — to grant it, then ' +
   'reload this page.';
@@ -290,7 +291,7 @@ export function MembersWorkspace({ eventId }: Props) {
         <CardHeader>
           <CardTitle className="text-base">Pick a programme</CardTitle>
           <CardDescription>
-            This screen lists the people in one School of Influence programme&rsquo;s
+            This screen lists the people in one School of Influencer programme&rsquo;s
             batches. Open it from the programme&rsquo;s batch admin so it knows which one,
             or add
             <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">?event=</code>
@@ -380,7 +381,7 @@ export function MembersWorkspace({ eventId }: Props) {
             <SelectContent>
               {batches.map((b) => (
                 <SelectItem key={b.id} value={b.id}>
-                  {b.name}
+                  {soiDisplayName(b.name)}
                 </SelectItem>
               ))}
             </SelectContent>

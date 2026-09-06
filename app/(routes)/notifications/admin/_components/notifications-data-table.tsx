@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Notification } from '@/types/notifications';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useRoles } from '@/hooks/organization/use-roles';
+import { describeTargetAudience } from '@/lib/notifications/target-audience';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,7 +38,6 @@ export function NotificationsDataTable({
 }: NotificationsDataTableProps) {
   const router = useRouter();
   const { canAccess } = usePermissions();
-  const { data: rolesData } = useRoles({ includeSystemRoles: true });
 
   const canDeleteNotifications = canAccess('notifications', 'delete');
 
@@ -96,34 +95,27 @@ export function NotificationsDataTable({
     }
   };
 
-  const getTargetDescription = (notification: any) => {
-    // Handle both the new targeting object structure and legacy individual fields
+  // The audience label comes from the one shared rule (PR #3128), not a local
+  // copy. The copy that used to live here recognised only `target_roles` and
+  // the structural keys, so every person-targeted send — 99.9% of the table —
+  // fell through to the literal 'All Users'.
+  //
+  // Legacy top-level `target_*` columns are still honoured: they predate the
+  // `targeting` JSONB and a handful of old rows carry nothing else.
+  const getTargetDescription = (notification: Notification) => {
     const targeting = notification.targeting || {};
-
-    const parts: string[] = [];
-    if (targeting.institution_id || notification.target_institution_id)
-      parts.push('Institution');
-    if (targeting.department_id || notification.target_department_id)
-      parts.push('Department');
-    if (targeting.program_id || notification.target_program_id)
-      parts.push('Program');
-    if (targeting.semester_id || notification.target_semester) {
-      const semester = targeting.semester_id || notification.target_semester;
-      parts.push(`Semester ${semester}`);
-    }
-    if (targeting.section_id || notification.target_section) {
-      const section = targeting.section_id || notification.target_section;
-      parts.push(`Section ${section}`);
-    }
-    if (targeting.target_roles && targeting.target_roles.length > 0) {
-      const roleNames = targeting.target_roles.map((roleKey: string) => {
-        const role = rolesData?.find((r) => r.role_key === roleKey);
-        return role ? role.role_name : roleKey;
-      });
-      parts.push(`Roles: ${roleNames.join(', ')}`);
-    }
-
-    return parts.length > 0 ? parts.join(' → ') : 'All Users';
+    return describeTargetAudience({
+      ...targeting,
+      institution_id:
+        targeting.institution_id || notification.target_institution_id || null,
+      department_id:
+        targeting.department_id || notification.target_department_id || null,
+      program_id: targeting.program_id || notification.target_program_id || null,
+      semester_id:
+        targeting.semester_id ||
+        (notification.target_semester ? String(notification.target_semester) : null),
+      section_id: targeting.section_id || notification.target_section || null
+    });
   };
 
   const columns: PermissionColumnDef<Notification, any>[] = [

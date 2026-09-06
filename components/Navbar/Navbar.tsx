@@ -2,11 +2,8 @@
 
 import { Suspense } from 'react';
 import { SheetMenu } from './sheet-menu';
-import { Button } from '../ui/button';
-import { LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { AuthService } from '@/lib/auth/auth-service';
 import { UserNav } from './user-nav';
 import { ModeToggle } from '../theme/mode-toggle';
 import { NotificationBell } from '../notifications/notification-bell';
@@ -91,14 +88,6 @@ export function Navbar({ title }: NavbarProps) {
   // other route keep their visible heading unchanged.
   const hideVisibleTitle = pathname === '/dashboard';
 
-  const handleLogout = async () => {
-    try {
-      await AuthService.signOut();
-    } catch (error) {
-      console.error('Error during logout:', error);
-    }
-  };
-
   return (
     <header className='sticky top-0 z-30 w-full bg-background border-b border-border shadow-sm dark:shadow-secondary'>
       <div className='mx-2 sm:mx-8 flex h-14 items-center justify-between gap-2'>
@@ -138,18 +127,17 @@ export function Navbar({ title }: NavbarProps) {
             <UserNav />
           </div>
 
-          {/* Mobile view */}
-          <div className='flex md:hidden items-center space-x-1 sm:space-x-2'>
+          {/* Mobile view.
+              No standalone logout button here. It used to be a solid red
+              button sitting ~8px from the avatar — the loudest control in the
+              header, one mis-tap from ending the session, on the surface
+              people touch with a thumb. Sign out lives in the account menu
+              behind the avatar (see UserNav), which is where a rarely-wanted,
+              costly-to-mistap action belongs. */}
+          <div className='flex md:hidden items-center space-x-2'>
             <HeaderConnectionBadge />
             <NotificationBell />
             <UserNav />
-            <Button
-              variant='destructive'
-              onClick={handleLogout}
-              className='text-sm px-3'
-            >
-              <LogOut className='w-4 h-4' />
-            </Button>
           </div>
         </div>
       </div>
