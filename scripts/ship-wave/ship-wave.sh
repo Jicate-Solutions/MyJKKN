@@ -71,6 +71,9 @@ while [[ $# -gt 0 ]]; do
     --goal) GOAL=1;;
     --only) ONLY="${2:-}"; shift;;
     --ledger) LEDGER_REPORT=1;;
+    --policy|--guards) POLICY_SHOW=1;;
+    --ratify) POLICY_RATIFY="${2:-}"; shift;;
+    --unguard) UNGUARD="${2:-}"; shift;;
     --unfreeze) rm -f "$FREEZE"; echo "freeze cleared"; exit 0;;
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
@@ -104,6 +107,8 @@ freeze() {
   # the wave used to stop mute here and a human had to reconstruct why from a
   # receipt that overwrote itself. Now it says what this cost last time.
   type -t ledger_on_freeze >/dev/null 2>&1 && ledger_on_freeze "$*"
+  # tighten alone: what shipped in this round becomes HELD until a human clears it (policy-learning.sh)
+  type -t guard_add_from_freeze >/dev/null 2>&1 && guard_add_from_freeze "$*" "${run:-}"
 }
 
 # The ledger is sourced BEFORE the single-flight lock on purpose: --ledger is a
@@ -112,6 +117,11 @@ freeze() {
 # shellcheck source=scripts/ship-wave/failure-ledger.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/failure-ledger.sh"
 if [ -n "${LEDGER_REPORT:-}" ]; then ledger_report; exit 0; fi
+# shellcheck source=scripts/ship-wave/policy-learning.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/policy-learning.sh"
+if [ -n "${POLICY_SHOW:-}" ]; then policy_show; exit 0; fi
+if [ -n "${POLICY_RATIFY:-}" ]; then policy_ratify "$POLICY_RATIFY"; exit $?; fi
+if [ -n "${UNGUARD:-}" ]; then guard_remove "$UNGUARD"; exit 0; fi
 
 # ── single-flight: two ship waves merging at once would race main ─────────────
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -122,8 +132,9 @@ echo $$ > "$LOCK/pid"; trap unlock EXIT
 
 # ── the classifier, shared by the sweep and the post-merge re-cluster ─────────
 classify() {  # $1=prs.json $2=plan.json  (ONLY / QUIET_MIN from env)
-  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" python3 - "$1" "$2" <<'PY'
+  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" GUARDS_ENV="$(guards_env 2>/dev/null)" python3 - "$1" "$2" <<'PY'
 import json, sys, os, re, datetime
+GUARDS = [g for g in os.environ.get("GUARDS_ENV", "").split() if g]
 from collections import Counter, defaultdict
 prs = json.load(open(sys.argv[1]))
 only = {int(x) for x in os.environ.get("ONLY","").replace(" ","").split(",") if x}
@@ -141,6 +152,8 @@ def tier(p):
         # the fleet's own tooling is not a money/grades domain: scripts/ship-wave/failure-ledger.sh is not the
         # fee ledger. The word match below is for app/lib/supabase paths (Director 2026-09-06 06:30, #3297/#3306)
         if f.startswith(("scripts/", ".claude/")): continue
+        for g in GUARDS:
+            if f == g or f.startswith(g + "/"): reasons.append(f"guard: {g} (froze the wave once — HELD until --unguard)")
         elif f.startswith(".github/workflows/"): reasons.append(f"CI gate change: {f}")   # #2724 turned main red for every PR (2026-09-05)
         elif f.startswith("__tests__/") or ".test." in f or ".spec." in f: continue         # a test cannot move money or grades
         # a money/grades word must be a WHOLE path segment (…/score/route.ts, app/(routes)/fees/…), never a fragment of a
@@ -324,7 +337,7 @@ run_once() {
 
   # ── 3. merge by tier ───────────────────────────────────────────────────────
   say; say "--- 3. merge: LOW unattended · NORMAL needs --approve-normal · HELD needs --approve-held ---"
-  local merged=0 merged_list="" merged_files="$run/merged-files.txt"; : > "$merged_files"; : > "$run/merged-map.tsv"
+  local merged=0 merged_list="" merged_files="$run/merged-files.txt" m_low=0 m_normal=0 m_held=0; : > "$merged_files"; : > "$run/merged-map.tsv"
   INDEX_MERGED=0
   merge_one() {  # $1=number $2=tier — re-verify the instant before the irreversible step
     local n="$1" t="$2" st i
@@ -347,15 +360,15 @@ run_once() {
   }
   already_merged() { case " $merged_list " in *" #$1 "*) return 0;; *) return 1;; esac; }
   merge_tiers() {  # one pass LOW → NORMAL → HELD; bumps merged / merged_list (bash dynamic scope)
-    for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['LOW']))"); do already_merged "$n" || { merge_one "$n" LOW && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; }; done
+    for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['LOW']))"); do already_merged "$n" || { merge_one "$n" LOW && { merged=$((merged+1)); m_low=$((m_low+1)); merged_list="$merged_list #$n"; }; }; done
     if [ -n "$APPROVE_NORMAL" ]; then
-      for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do already_merged "$n" || { merge_one "$n" NORMAL && { merged=$((merged+1)); merged_list="$merged_list #$n"; }; }; done
+      for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do already_merged "$n" || { merge_one "$n" NORMAL && { merged=$((merged+1)); m_normal=$((m_normal+1)); merged_list="$merged_list #$n"; }; }; done
     else say "  NORMAL: $(python3 -c "import json;print(len(json.load(open('$run/plan.json'))['ready']['NORMAL']))") ready — waiting for your tap (run again with --approve-normal)"; fi
     if [ -n "$APPROVE_HELD" ]; then
       for n in $(printf '%s' "$APPROVE_HELD" | tr ', ' '  '); do
         already_merged "$n" && continue
         python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)" \
-          && { merge_one "$n" HELD && { merged=$((merged+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
+          && { merge_one "$n" HELD && { merged=$((merged+1)); m_held=$((m_held+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
           || say "  HOLD   HELD #$n — not in this run's ready-HELD list, refusing"
       done
     else
@@ -363,6 +376,10 @@ run_once() {
       [ -n "$held" ] && say "  HELD waiting for your reply (reply with the numbers to ship): $held" || say "  HELD: none ready"
     fi
   }
+  if policy_active AUTO_APPROVE_ADDITIVE_MIGRATIONS && [ -z "${FINAL_DEPLOY:-}" ]; then
+    local auto; auto=$(python3 -c "import json;p=json.load(open('$run/plan.json'));print(' '.join(str(r['number']) for r in p['ready']['HELD'] if r['tier_reasons'] and all(x.startswith('migration: supabase/migrations/') for x in r['tier_reasons'])))" 2>/dev/null)
+    [ -n "$auto" ] && { say "  policy P1 (ratified): HELD PRs whose only reason is a migration are approved this run: $auto"; APPROVE_HELD="${APPROVE_HELD:+$APPROVE_HELD }$auto"; }
+  fi
   if [ -n "${FINAL_DEPLOY:-}" ]; then say "  (end-of-run deploy pass — merging nothing)"
   elif [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
     # Director 2026-09-05 23:40: up to three merge passes per round. After a pass that merged something,
@@ -492,7 +509,7 @@ PY
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
   say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $([ -n "${FINAL_DEPLOY:-}" ] && echo "$c_ready" || echo $((c_ready-merged))) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $([ -n "${FINAL_DEPLOY:-}" ] && echo "0 (final pass: $merged file(s) built)" || echo "$merged") · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
   type -t ledger_record >/dev/null 2>&1 && ledger_record round \
-    "merged=$merged open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
+    "merged=$merged low=$m_low normal=$m_normal held=$m_held open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
   RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" || echo "")" python3 - "$html" <<'PY'
 import json, os, sys, html as H
