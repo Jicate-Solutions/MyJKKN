@@ -10382,3 +10382,15 @@ CREATE POLICY aiu_trails_update_own ON public.aiu_prompt_trails
   FOR UPDATE TO authenticated
   USING (learner_id = (SELECT auth.uid()))
   WITH CHECK (learner_id = (SELECT auth.uid()))
+
+-- cl_girls_bc_reconcile_log — read-only evidence table. No INSERT/UPDATE/DELETE
+-- policy exists on purpose: only the migrations that own it write to it, as
+-- table owner, and nothing in the app should be able to rewrite the record of
+-- what a data migration did.
+CREATE POLICY cl_girls_bc_reconcile_log_read
+  ON public.cl_girls_bc_reconcile_log
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.user_has_permission('campus_living.upgrades.manage')
+  )
