@@ -6,14 +6,50 @@ import { Settings, BookOpen, Target, Grid3x3 } from 'lucide-react';
 import Link from 'next/link';
 import { useMockRegulationConfig } from '@/hooks/obe/use-mock-obe-data';
 
+/*
+ * A regulation can be configured against THREE frameworks, not two. Both database
+ * CHECK constraints (obe_regulation_config_taxonomy_type_check and
+ * chk_curriculum_lesson_primary_taxonomy) admit 'jkkn_advanced', so this surface
+ * can receive it today. Branching on a boolean made the third value render as
+ * Fink's. See specs/jkkn-advanced-blooms-taxonomy-2026-07-30.md (§2.2, §8.4).
+ */
+type ObeTaxonomyType = 'blooms' | 'finks' | 'jkkn_advanced';
+
+/* JABT: Bloom's six retained (K1-K6) plus five added (A1-A5). Spec §2.2. */
+const JABT_ELEMENT_COUNT = 11;
+
+const JABT_ELEMENT_LIST =
+  'K1-K6, plus A1 Human Dimension, A2 Caring, A3 Learning How to Learn, A4 Performed Skill and A5 Accountable AI Use';
+
+/* Mandatory attribution line — spec §1. Shown wherever JABT is named as the framework in force. */
+const JABT_ATTRIBUTION =
+  "JKKN Advanced Bloom's Taxonomy: Bloom's revised cognitive taxonomy (Bloom et al., 1956; Anderson & Krathwohl, 2001) retained in full, extended by three dimensions drawn from L. Dee Fink's Taxonomy of Significant Learning (Creating Significant Learning Experiences, 2003) — Human Dimension, Caring, and Learning How to Learn; by Performed Skill, operationalising Bloom's uncompleted psychomotor domain in three bands after Simpson (1972); and by Accountable AI Use, which has no precedent in either author.";
+
 export default function OBEDashboardPage() {
   const { config } = useMockRegulationConfig();
-  const isBlooms = config.taxonomy_type === 'blooms';
-  const taxonomyLabel = isBlooms ? "Bloom's" : "Fink's";
-  const taxonomyCount = isBlooms
-    ? config.blooms_active_levels.length
-    : config.finks_active_dimensions.length;
-  const taxonomyUnit = isBlooms ? 'Levels Active' : 'Dimensions Active';
+  // The stored value is one of three; the shared config type still declares only the legacy pair.
+  const taxonomyType = config.taxonomy_type as ObeTaxonomyType;
+
+  const taxonomySummary: Record<ObeTaxonomyType, { label: string; count: number; unit: string }> = {
+    blooms: {
+      label: "Bloom's",
+      count: config.blooms_active_levels.length,
+      unit: 'Levels Active',
+    },
+    finks: {
+      label: "Fink's",
+      count: config.finks_active_dimensions.length,
+      unit: 'Dimensions Active',
+    },
+    jkkn_advanced: {
+      label: 'JKKN Advanced',
+      count: JABT_ELEMENT_COUNT,
+      unit: 'Elements Active',
+    },
+  };
+
+  const { label: taxonomyLabel, count: taxonomyCount, unit: taxonomyUnit } =
+    taxonomySummary[taxonomyType];
 
   return (
     <div className='space-y-6 w-full min-w-0 px-4 md:px-8 pb-24 lg:pb-0'>
@@ -144,8 +180,11 @@ export default function OBEDashboardPage() {
             <strong>Course Outcomes (COs):</strong> Learning objectives per course, linked to POs and PSOs through a correlation matrix.
           </p>
           <p>
-            <strong>Taxonomy Support:</strong> Bloom's Taxonomy (6 levels: L1-L6) or Fink's Taxonomy (6 dimensions: FK, AP, IN, HD, CA, LL).
+            <strong>Taxonomy Support:</strong> Bloom&apos;s Taxonomy (6 levels: L1-L6), Fink&apos;s Taxonomy (6 dimensions: FK, AP, IN, HD, CA, LL), or JKKN Advanced Bloom&apos;s Taxonomy ({JABT_ELEMENT_COUNT} elements: {JABT_ELEMENT_LIST}).
           </p>
+          {taxonomyType === 'jkkn_advanced' && (
+            <p className='text-xs'>{JABT_ATTRIBUTION}</p>
+          )}
         </CardContent>
       </Card>
     </div>

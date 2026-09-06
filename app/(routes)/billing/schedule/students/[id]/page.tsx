@@ -9,19 +9,14 @@ import {
   Plus,
   RefreshCw,
   FileText,
-  Calendar,
   Phone,
   Mail,
   User,
-  Building,
-  GraduationCap,
   Filter,
-  TrendingUp,
   TrendingDown,
   AlertCircle,
   IndianRupee,
-  CreditCard,
-  Home
+  CreditCard
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -51,7 +46,9 @@ import { StudentTransactionHistory } from './_components/student-transaction-his
 import { StudentReceiptsTable } from './_components/student-receipts-table';
 import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
 import { StudentRefundHistory } from './_components/student-refund-history';
+import { ReevaluateStatusButton } from './_components/reevaluate-status-button';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
+import { QuickReceiptDialog } from '../../../receipts/_components/quick-receipt-dialog';
 import { isBillableBill } from '@/lib/billing/bill-status';
 import { toast } from 'react-hot-toast';
 
@@ -78,6 +75,10 @@ export default function StudentBillingDetailPage() {
 
   const [billStatusFilter, setBillStatusFilter] = useState<string>('all');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  // Non-null = the Collect Payment popup is showing, for these bills. Keeps the
+  // operator on this page instead of navigating to /billing/receipts/new and
+  // losing the tab, filter and scroll position they were working in.
+  const [receiptBillIds, setReceiptBillIds] = useState<string[] | null>(null);
   const previousBillCountRef = useRef<number | null>(null);
 
   const {
@@ -106,6 +107,12 @@ export default function StudentBillingDetailPage() {
   const canViewBills = isSuperAdmin || canAccess('billing.schedule', 'view');
   const canCreateBills =
     isSuperAdmin || canAccess('billing.schedule', 'create');
+  // bulk_create rather than create/update: those two are held by 68 roles each
+  // (the billing namespace is broadly over-granted), while bulk_create is the
+  // narrow operator-batch key — 13 roles, the accounts/admin set. Re-running the
+  // automatic status check is that same kind of operator action.
+  const canReevaluateStatus =
+    isSuperAdmin || canAccess('billing.schedule', 'bulk_create');
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -374,6 +381,17 @@ export default function StudentBillingDetailPage() {
                   </Link>
                 </Button>
               )}
+              {canReevaluateStatus && (
+                <ReevaluateStatusButton
+                  studentId={studentId}
+                  lifecycleStatus={student.lifecycle_status}
+                  onEvaluated={() => {
+                    // The lifecycle badge in this header is driven by the
+                    // summary query, so a promotion is invisible without this.
+                    refetchSummary();
+                  }}
+                />
+              )}
               <RefundInitiateDialog
                 studentId={studentId}
                 institutionId={student.institution_id}
@@ -432,113 +450,75 @@ export default function StudentBillingDetailPage() {
                 </div>
               </div>
 
-              {/* Academic Information */}
-              <div className='space-y-4'>
-                <h4 className='font-semibold text-sm text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b pb-2'>
+              {/* Academic Information — dense definition grid.
+                  This was eleven padded icon tiles in a 2-column grid plus a
+                  whole separate Card for the single Accommodation field:
+                  ~470 px of vertical space to show eleven short strings, which
+                  pushed the bill tables (the reason accounts opens this page)
+                  below the fold on a laptop.
+
+                  Same eleven facts, now a label-over-value grid that reflows
+                  from 2 columns on a phone to 6 on a wide screen, in roughly a
+                  third of the height. Accommodation folds in as a twelfth cell
+                  rather than owning a card. The icons are gone deliberately —
+                  they were decorative (three different fields shared the same
+                  GraduationCap) and each one cost 16 px of row height. */}
+              <div className='space-y-2'>
+                <h4 className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>
                   Academic Information
                 </h4>
-                <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                    <Building className='h-4 w-4 text-indigo-600 shrink-0' />
-                    <div className='min-w-0 flex-1'>
-                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                        Institution
-                      </p>
-                      <p className='text-sm text-muted-foreground truncate'>
-                        {student.institution?.name || 'N/A'}
-                      </p>
+                <dl className='grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border bg-muted/40 p-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6'>
+                  {(
+                    [
+                      ['Institution', student.institution?.name],
+                      // Admission year is the cohort the learner joined in and
+                      // never changes; Academic Year is the year they are
+                      // currently billed against. Accounts needs both to tell
+                      // an arrears bill from a current-year one.
+                      [
+                        'Admission Year',
+                        student.admission_year?.admission_year_name ||
+                          (student.admission_year?.year != null
+                            ? String(student.admission_year.year)
+                            : undefined)
+                      ],
+                      ['Academic Year', student.academic_year?.academic_year_name],
+                      ['Degree', student.degree?.degree_name],
+                      ['Department', student.department?.department_name],
+                      ['Program', student.program?.program_name],
+                      ['Semester', student.semester?.semester_name],
+                      ['Section', student.section?.section_name],
+                      // Quota and Community are the dimensions a fee structure
+                      // is matched on, so when a learner shows the wrong fee
+                      // (or "no fee structure configured") these two are the
+                      // first thing accounts checks. Both are FK-only on
+                      // learners_profiles — the legacy text columns were
+                      // dropped.
+                      ['Quota', student.quota?.name],
+                      ['Community', student.community_category?.code],
+                      // gender is free text on learners_profiles with no CHECK
+                      // and mixed casing (FEMALE / male / Male) plus
+                      // empty-string rows, so lower-case it and let the
+                      // `capitalize` class render one form.
+                      ['Gender', student.gender?.trim().toLowerCase()],
+                      ['Accommodation', student.accommodation_type?.name]
+                    ] as [string, string | undefined][]
+                  ).map(([label, value]) => (
+                    <div key={label} className='min-w-0'>
+                      <dt className='text-[11px] uppercase tracking-wide text-muted-foreground'>
+                        {label}
+                      </dt>
+                      <dd
+                        className={`truncate text-sm font-medium ${
+                          label === 'Gender' ? 'capitalize' : ''
+                        }`}
+                        title={value || 'N/A'}
+                      >
+                        {value || 'N/A'}
+                      </dd>
                     </div>
-                  </div>
-                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                    <Calendar className='h-4 w-4 text-cyan-600 shrink-0' />
-                    <div className='min-w-0 flex-1'>
-                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                        Academic Year
-                      </p>
-                      <p className='text-sm text-muted-foreground truncate'>
-                        {student.academic_year?.academic_year_name || 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                    <GraduationCap className='h-4 w-4 text-purple-600 shrink-0' />
-                    <div className='min-w-0 flex-1'>
-                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                        Degree
-                      </p>
-                      <p className='text-sm text-muted-foreground truncate'>
-                        {student.degree?.degree_name || 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                    <GraduationCap className='h-4 w-4 text-orange-600 shrink-0' />
-                    <div className='min-w-0 flex-1'>
-                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                        Department
-                      </p>
-                      <p className='text-sm text-muted-foreground truncate'>
-                        {student.department?.department_name || 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                    <GraduationCap className='h-4 w-4 text-blue-600 shrink-0' />
-                    <div className='min-w-0 flex-1'>
-                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                        Program
-                      </p>
-                      <p className='text-sm text-muted-foreground truncate'>
-                        {student.program?.program_name || 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                    <Calendar className='h-4 w-4 text-teal-600 shrink-0' />
-                    <div className='min-w-0 flex-1'>
-                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                        Current Semester
-                      </p>
-                      <p className='text-sm text-muted-foreground truncate'>
-                        {student.semester?.semester_name || 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                    <User className='h-4 w-4 text-green-600 shrink-0' />
-                    <div className='min-w-0 flex-1'>
-                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                        Section
-                      </p>
-                      <p className='text-sm text-muted-foreground truncate'>
-                        {student.section?.section_name || 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Accommodation Information Card */}
-        <Card className='overflow-hidden'>
-          <CardHeader className='bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950 dark:to-teal-950'>
-            <CardTitle className='flex items-center gap-2 text-lg'>
-              <Home className='h-5 w-5' />
-              Accommodation
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='p-4 sm:p-6'>
-            <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-              <Home className='h-4 w-4 text-emerald-600 shrink-0' />
-              <div className='min-w-0 flex-1'>
-                <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                  Accommodation Type
-                </p>
-                <p className='text-sm text-muted-foreground truncate'>
-                  {student.accommodation_type?.name || 'N/A'}
-                </p>
+                  ))}
+                </dl>
               </div>
             </div>
           </CardContent>
@@ -809,6 +789,9 @@ export default function StudentBillingDetailPage() {
                     statusFilter={billStatusFilter}
                     onRefresh={refetchSummary}
                     isStudentView={isStudent}
+                    onGenerateReceipt={(billIds) =>
+                      setReceiptBillIds(billIds)
+                    }
                   />
                 </TabsContent>
 
@@ -839,6 +822,28 @@ export default function StudentBillingDetailPage() {
           onOpenChange={setShowPaymentModal}
           bills={billingSummary.bills}
           studentId={studentId}
+        />
+
+        {/* Collect Payment — same form as /billing/receipts/new, in place */}
+        <QuickReceiptDialog
+          open={receiptBillIds !== null}
+          onOpenChange={(receiptOpen) => {
+            if (!receiptOpen) setReceiptBillIds(null);
+          }}
+          billIds={receiptBillIds ?? []}
+          studentId={studentId}
+          studentName={
+            [student.first_name, student.last_name]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
+          subtitle={
+            student.roll_number ? `Roll ${student.roll_number}` : undefined
+          }
+          onGenerated={() => {
+            setReceiptBillIds(null);
+            refetchSummary();
+          }}
         />
       </div>
     </ContentLayout>

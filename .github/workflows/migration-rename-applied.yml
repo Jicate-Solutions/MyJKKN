@@ -33,6 +33,19 @@ name: Migration rename vs applied source
 # nothing. So a ledger HIT is definitive and a ledger MISS proves nothing; the
 # load-bearing signal is whether the OBJECTS are already there.
 #
+# NOT EVERY OBJECT IS EVIDENCE (2026-09-04). An object's presence shows THIS
+# migration ran only if this migration is the only thing that could have put it
+# there. A file that says `DROP POLICY IF EXISTS p ON t; CREATE POLICY p ON t …`
+# is saying the opposite out loud — `p` may already exist because an earlier
+# migration created it — so objects a file DROPs or CREATE-OR-REPLACEs are now
+# subtracted before the verdict is taken. Without that subtraction every
+# policy-replacing migration reads as partially applied forever. It wrongly
+# blocked PR #3263, whose "5 of 59 objects present" were four grievance_tickets
+# policies owned by 20260423_unification_crud_retrofit.sql plus one deliberate
+# compatibility wrapper, while all 8 tables that file creates were absent from
+# production. The guard keeps its teeth: the 2026-08-04 file above still fails,
+# on the columns, indexes and policies it creates outright.
+#
 # COST TO AN ORDINARY PR: zero database round-trips. Rename detection is pure git.
 # The database is contacted only when a version-changing rename actually exists,
 # which is a handful of PRs a year. That is why this can gate on pull_request at
@@ -127,3 +140,11 @@ jobs:
           echo "database and is refusing to guess. Re-run with the secret available, or"
           echo "state the evidence in the file header:"
           echo "  -- RENAME-SAFE: <old-version> -> <new-version> — <how you know it never ran>"
+          echo ""
+          echo "Read the object lists in the log before arguing with the verdict. Only"
+          echo "objects the file CREATES OUTRIGHT count as evidence; ones it DROPs or"
+          echo "CREATE-OR-REPLACEs are listed separately as 'excluded as replaced',"
+          echo "because an earlier migration explains those equally well. If the"
+          echo "failure reads 'evidence-all-replaced', every object the file declares"
+          echo "is a replacement, so object existence cannot decide the rename at all"
+          echo "and a human has to."

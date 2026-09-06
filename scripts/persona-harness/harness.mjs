@@ -38,7 +38,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ---- per-platform config: personas.json next to this script -----------------
 // { "baseUrl": "https://app", "accounts": { "role": "test.x@domain" },
-//   "password"?: "Test@1234", "envPath"?: "../../.env.local",
+//   "password"?: "<from PERSONA_PASSWORD>", "envPath"?: "../../.env.local",
 //   "defaultSet"?: [["role","/path"], ...] }
 function loadConfig() {
   const p = resolve(SCRIPT_DIR, 'personas.json');
@@ -53,7 +53,7 @@ function loadConfig() {
 const CONFIG = loadConfig();
 const ROLE_EMAIL = CONFIG.accounts;
 const BASE = process.env.PERSONA_BASE_URL || CONFIG.baseUrl;
-const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password || 'Test@1234';
+const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password;
 const HOST = new URL(BASE).hostname;
 // default set when no role:path args given — from config, else each role at '/'
 const DEFAULT_SET = CONFIG.defaultSet && CONFIG.defaultSet.length
@@ -63,13 +63,31 @@ const DEFAULT_SET = CONFIG.defaultSet && CONFIG.defaultSet.length
 // ---- read public env from the app's .env.local (NEXT_PUBLIC_* — safe) -------
 const ENV_PATH = resolve(SCRIPT_DIR, CONFIG.envPath || '../../.env.local');
 function readEnv(key) {
-  const txt = readFileSync(ENV_PATH, 'utf8');
+  let txt;
+  try { txt = readFileSync(ENV_PATH, 'utf8'); }
+  catch { throw new Error(`Cannot read ${ENV_PATH} — the harness needs NEXT_PUBLIC_SUPABASE_URL + _ANON_KEY.\n  A fresh worktree has no .env.local: copy or symlink one in, or point "envPath" in personas.json at it.`); }
   const m = txt.match(new RegExp('^' + key + '=(.*)$', 'm'));
   if (!m) throw new Error(`missing ${key} in ${ENV_PATH}`);
   return m[1].trim().replace(/^["']|["']$/g, '');
 }
 const SUPA_URL = readEnv('NEXT_PUBLIC_SUPABASE_URL');
 const ANON = readEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+const PROJECT_REF = new URL(SUPA_URL).hostname.split('.')[0];
+
+// PERSONA_PASSWORD has no default (the literal was removed in 388a6d4d so it
+// stops shipping). Left unset, signInWithPassword sends no password and Supabase
+// answers with its generic "Invalid login credentials" — indistinguishable from a
+// rotated password or a deleted account, and it fires one failed login per
+// persona at the target project. Refuse before the first request instead.
+if (!PASSWORD) {
+  throw new Error(
+    'PERSONA_PASSWORD is not set (and personas.json carries no "password").\n'
+    + `  There is no default, so sign-in to Supabase project ${PROJECT_REF} would fail as "Invalid login credentials"\n`
+    + '  even though the accounts are fine. Export the password the test.* accounts were seeded with:\n'
+    + '      export PERSONA_PASSWORD=...\n'
+    + '  See scripts/persona-harness/README.md.'
+  );
+}
 
 // ---- mint byte-correct session cookies for one persona ----------------------
 async function mintCookies(email) {
@@ -81,7 +99,7 @@ async function mintCookies(email) {
     },
   });
   const { data, error } = await sb.auth.signInWithPassword({ email, password: PASSWORD });
-  if (error) throw new Error(`signIn ${email}: ${error.message}`);
+  if (error) throw new Error(`signIn ${email} on Supabase project ${PROJECT_REF} (target ${BASE}): ${error.message}`);
   // belt + suspenders: force a write if setAll didn't fire during signIn
   if (Object.keys(store).length === 0 && data?.session) {
     await sb.auth.setSession({

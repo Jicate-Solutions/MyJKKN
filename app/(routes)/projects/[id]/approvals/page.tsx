@@ -27,6 +27,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+  TAP_TARGET_TABS_LIST,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckCircle2, GitBranch, Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
@@ -50,7 +55,7 @@ function ProjectApprovalsPageInner() {
   return (
     <ContentLayout title="Approval Workflows">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -87,12 +92,12 @@ function ProjectApprovalsPageInner() {
 
       <div className="mt-6">
         <Tabs value={tab} onValueChange={(v) => setTab(v as ApprovalsTab)}>
-          <TabsList>
-            <TabsTrigger value="requests" className="gap-1.5">
+          <TabsList className={TAP_TARGET_TABS_LIST}>
+            <TabsTrigger value="requests" className={`gap-1.5 ${TAP_TARGET}`}>
               <CheckCircle2 className="h-4 w-4" />
               Requests
             </TabsTrigger>
-            <TabsTrigger value="workflows" className="gap-1.5">
+            <TabsTrigger value="workflows" className={`gap-1.5 ${TAP_TARGET}`}>
               <GitBranch className="h-4 w-4" />
               Workflow config
             </TabsTrigger>

@@ -1,0 +1,55 @@
+-- 20260927000001_close_api_keys_anon_read.sql
+--
+-- WHAT THIS CHANGES
+--   Removes anonymous (public anon key) SELECT access to public.api_keys by
+--   dropping the permissive SELECT policy "Public can verify API keys"
+--   (granted to anon + authenticated, USING (is_active AND not-expired)) and
+--   revoking the anon table-level SELECT grant. This is the DURABLE version of
+--   the two-line hotfix in artifacts/URGENT-security-remediation-2026-08-17.sql,
+--   so a future schema rebuild cannot silently re-open the hole.
+--
+-- WHY  (VERIFIED READ-ONLY AGAINST PRODUCTION 2026-08-25)
+--   The anon JWT harvested from the public www.jkkn.ai bundle reads the whole
+--   table:
+--     GET /rest/v1/api_keys?select=id   (apikey/Bearer = NEXT_PUBLIC anon key)
+--       -> HTTP 206, content-range 0-0/51    (all 51 rows, incl. name + key_value)
+--   CONTROL, same anon key, same request shape:
+--     GET /rest/v1/profiles?select=id   -> HTTP 200, content-range */0
+--   profiles' RLS returns nothing to anon, so api_keys is the genuine outlier,
+--   not a broken probe. pg_policies confirms exactly ONE anon-facing SELECT
+--   policy on the table -- "Public can verify API keys", PERMISSIVE, roles
+--   {anon,authenticated} -- while "Administrators can view all API keys" is
+--   admin-gated (profiles.role IN ('super_admin','admin')) and is not the leak.
+--   There is no second permissive anon SELECT policy; the only one is dropped.
+--
+-- BLAST RADIUS
+--   - anon: loses all read access to api_keys (this is the fix).
+--   - authenticated non-admins: also lose the "verify" read path. The app does
+--     NOT verify keys from a browser/authenticated client -- key checks run on a
+--     service-role client server-side (service_role bypasses RLS), so no signed-
+--     in user flow depends on this policy. Admin viewing continues via the
+--     "Administrators can view all API keys" policy.
+--   - service_role: unaffected (rolbypassrls = true, verified).
+--   authenticated keeps its DIRECT table SELECT grant (the admin SELECT policy
+--   needs it; admins are authenticated) -- only the anon grant is revoked. No
+--   PUBLIC grant exists on this table (verified via role_table_grants), so anon
+--   cannot inherit SELECT through PUBLIC after this runs.
+--
+-- COUPLED FOLLOW-UP  (NOT done here; must NOT be done on merge)
+--   Exactly one key is stored raw (43 chars, name "UChat WhatsApp Google Sheet
+--   Integration"); app/api/v1/transport-requests/route.ts compares it raw
+--   (.eq('key_value', token)). Hashing that column is coupled to a Director-run
+--   key rotation and WOULD break the live integration on merge, so it is left
+--   untouched here and tracked as a rotation-coupled follow-up.
+--
+-- WHAT COULD NOT BE VERIFIED
+--   Not applied, so the post-state was not observed on a live call. The pre-
+--   state (policy name/roles, the leak, the control, the absence of a PUBLIC
+--   grant) was verified live against production.
+--
+-- 🛑 STAGING-FIRST -- do not apply to prod until tested on a clone.
+--    FILE ONLY / NOT APPLIED -- Director-gated.
+
+DROP POLICY IF EXISTS "Public can verify API keys" ON public.api_keys;
+
+REVOKE SELECT ON public.api_keys FROM anon;

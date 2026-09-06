@@ -38,7 +38,111 @@ export const REQUIRES = {
   // that actually runs sessions today, school_faculty, does not hold that key —
   // gating these steps on it would hide them from the only person who needs them.
   session_leader: "foundation.practice.take",
+  // OneMark (the TN Class-12 one-mark MCQ product, specs/onemark-decisions-
+  // 2026-09-02.md) — two Senior Learner jobs on two EXISTING keys, no new
+  // permission keys by ruling. Composed by the registry under these keys, NOT
+  // under `coordinator` or `facilitator`: the one role that does both jobs
+  // (school_faculty) holds neither foundation.cohorts.manage nor, before Wave
+  // 1, foundation.students.view — stamping either lane key would hide these
+  // steps from exactly the person they are written for.
+  //
+  // Builds a board-shape one-mark paper (/foundation/onemark/paper).
+  paper_builder: "foundation.assessments.manage",
+  // Ticks drafted items into the live bank (/foundation/onemark/review) —
+  // one subject Senior Learner's approval is the whole sign-off (decision 7).
+  item_approver: "foundation.items.manage",
 } as const;
+
+/**
+ * ONEMARK — BUILDING A PAPER. Kept OUT of `GUIDES.lanes` for the same reason
+ * `SESSION_LEADER_SECTIONS` is: `withRequires()` stamps one key across every
+ * section it is given, so these carry their own gate only if the registry
+ * composes them separately (under `REQUIRES.paper_builder`).
+ */
+export const ONEMARK_PAPER_SECTIONS: GuideSection[] = [
+  {
+    id: "onemark-paper",
+    title: "Build a one-mark paper (OneMark)",
+    steps: [
+      {
+        action:
+          "Open **OneMark: Build a Paper**, start a new paper (subject and title), then under **Scope** pick the chapters to draw from.",
+        detail:
+          "Only approved questions count. A chapter that shows fewer questions than you expected is not broken — drafts nobody has ticked yet do not appear.",
+        prerequisite:
+          "This screen opens only for someone who builds assessments for the programme. If it says you do not have access, that is the honest answer — ask whoever runs the programme to grant it.",
+        platforms: {
+          web: "left sidebar → Foundation Programme → OneMark: Build a Paper",
+          mobile: "tap the menu (☰) → Foundation Programme → OneMark: Build a Paper",
+        },
+        link: { label: "Open OneMark: Build a Paper", href: "/foundation/onemark/paper" },
+      },
+      {
+        action:
+          "Under **Quantity**, set the question count, the **JABT level mix** (K1–K6) and the **series variants** (A–D) you want.",
+        detail:
+          "There is no Easy / Medium / Hard here. The mix is by JABT level, and it starts proportional to what the bank holds for those units. English keeps the board shape by default — Q1–3 synonyms, Q4–6 antonyms, the rest from the pool — and the **Board shape** switch turns that off for a practice sheet.",
+        tip: "Fifteen questions is the board standard. Each extra series is the same questions in a different order with the options re-lettered, so a hall can sit A to D side by side.",
+        link: { label: "Open OneMark: Build a Paper", href: "/foundation/onemark/paper" },
+      },
+      {
+        action:
+          "Tap **Preview the paper**, **Lock** the questions you want kept, and **Swap** the rest.",
+        detail:
+          "If a chapter has fewer questions than you asked for, the page shows the real number and lets you take fewer or widen the chapters — it never fills the gap from elsewhere. A locked question stays even when you change a filter; the card says it is locked but no longer matches, and it is kept on the paper. Any wording you edit changes this paper only, never the bank.",
+        link: { label: "Open OneMark: Build a Paper", href: "/foundation/onemark/paper" },
+      },
+      {
+        action:
+          "Tap **Confirm & finalise**, then either open the **Question paper** PDF (and its **Answer key**) for each series, or **Publish to cohort** with an open window and a duration.",
+        detail:
+          "The PDF prints each question in Tamil then English, with a separate answer key per series. A published paper appears under **Assigned papers** on the OneMark screen of every learner in that cohort — one sitting each, enforced on the server. A learner who missed the hall sitting can take it on a device later under the same score list, flagged as taken digitally; a learner who sat it already sees their result, not a retake. Publishing freezes the paper.",
+        link: { label: "Open OneMark: Build a Paper", href: "/foundation/onemark/paper" },
+      },
+    ],
+  },
+];
+
+/**
+ * ONEMARK — APPROVING DRAFTED QUESTIONS. Composed separately under
+ * `REQUIRES.item_approver` (see ONEMARK_PAPER_SECTIONS for why).
+ */
+export const ONEMARK_REVIEW_SECTIONS: GuideSection[] = [
+  {
+    id: "onemark-review",
+    title: "Approve drafted one-mark questions (OneMark)",
+    steps: [
+      {
+        action:
+          "Open **OneMark: Review Drafts** and pick the subject tab.",
+        detail:
+          "Drafts arrive from two places — past board papers read in by the ingestion script, and AI drafting that a Senior Learner queues. Nothing on this screen is visible to a learner yet.",
+        prerequisite:
+          "Only a subject Senior Learner who manages the question bank can open this. If the page says so, nobody has granted you that yet.",
+        platforms: {
+          web: "left sidebar → Foundation Programme → OneMark: Review Drafts",
+          mobile: "tap the menu (☰) → Foundation Programme → OneMark: Review Drafts",
+        },
+        link: { label: "Open OneMark: Review Drafts", href: "/foundation/onemark/review" },
+      },
+      {
+        action:
+          "Read each draft against the paper it came from and fix what the extraction got wrong — both stems, the correct option, the unit, the tags, the **JABT level** (K1–K6) and how the options sit on paper.",
+        detail:
+          "**No JABT level** and **Untagged** are the two flags on a card to clear, and the unit picker must not be left on **Not anchored to a unit**, before you approve. The Tamil block prints before the English block on every paper, so a missing Tamil stem is a real gap, not a nicety.",
+        link: { label: "Open OneMark: Review Drafts", href: "/foundation/onemark/review" },
+      },
+      {
+        action:
+          "Tap **Approve**. Your tick is the whole sign-off — the question goes live under your name.",
+        detail:
+          "There is no second reviewer and no batch gate. The explanation you leave is shown to a learner right after they answer in practice, so write it for the learner, not for a colleague.",
+        tip: "Learners are enrolled only once both subjects hold 300 approved questions. The number beside **Drafts waiting for a tick** is how many are still unapproved — not the approved count — so it should fall, not climb toward 300.",
+        link: { label: "Open OneMark: Review Drafts", href: "/foundation/onemark/review" },
+      },
+    ],
+  },
+];
 
 /**
  * RUNNING A SESSION FOR A GROUP — kept OUT of `GUIDES.lanes` on purpose.
@@ -97,7 +201,19 @@ export const SESSION_LEADER_SECTIONS: GuideSection[] = [
   },
 ];
 
-export const GUIDES: GuideBook = {
+/**
+ * Foundation fills three of the nine canonical lanes. `GuideBook.lanes` is a
+ * CLOSED record (every canonical persona), which the registry satisfies at
+ * compose time by re-keying these lanes and filling the rest from the platform
+ * overview — so this constant is typed on the lanes it actually ships. Same
+ * shape the registry indexes (`FOUNDATION_GUIDES.lanes.<learner|coordinator|
+ * facilitator>`), so a lane rename here is still a compile error there.
+ */
+type FoundationGuideBook = Pick<GuideBook, "glossary" | "plannedLocaleNote"> & {
+  lanes: Pick<GuideBook["lanes"], "learner" | "coordinator" | "facilitator">;
+};
+
+export const GUIDES: FoundationGuideBook = {
   lanes: {
     /* ── LEARNER (the person answering the questions) ───────────────────── */
     learner: {
@@ -106,7 +222,7 @@ export const GUIDES: GuideBook = {
       tagline:
         "You pick a subject, answer a short set of questions one at a time, and read why each answer was what it was.",
       whyItMatters:
-        "Nothing here is a mark against you and nothing is timed. Getting one wrong is the useful part — the explanation afterwards is what you came for, and answering regularly is what tells your resource person where to help you.",
+        "Nothing here is a mark against you. Practice is untimed; only a OneMark Timed sitting runs a clock, and a Live paper is one go. Getting one wrong is the useful part — the explanation afterwards is what you came for, and answering regularly is what tells your resource person where to help you.",
       startHere: { label: "Open Practice", href: "/foundation/practice" },
       requires: REQUIRES.learner,
       journey: ["Pick a subject", "Answer the questions", "Read what each answer was"],
@@ -151,6 +267,45 @@ export const GUIDES: GuideBook = {
                 "If a question looks wrong to you, use **Report a problem** on it.",
               detail:
                 "Your report goes to whoever reviews the question bank. A question only stops counting toward mastery once enough different people have reported the same one.",
+            },
+          ],
+        },
+        {
+          id: "onemark-practice",
+          title: "OneMark — one-mark questions for Class 12",
+          steps: [
+            {
+              action:
+                "Open **OneMark Practice** and pick your subject. There are four ways to sit: **Practice**, **Timed**, an **Assigned paper** and the **Mistake Vault**.",
+              detail:
+                "Practice is untimed and shows the explanation as you go. A Timed paper submits itself when the clock runs out. An Assigned paper (it opens as a Live paper) is one your Senior Learner published — you get one go. The Mistake Vault brings back what you got wrong, when it is due.",
+              prerequisite:
+                "You have to be on the Foundation programme first. If the page says you are not on it yet, or that no subject is ready yet, nothing is broken — the questions are still being approved.",
+              platforms: {
+                web: "left sidebar → OneMark Practice",
+                mobile: "tap the menu (☰) → OneMark Practice",
+              },
+              link: { label: "Open OneMark Practice", href: "/foundation/onemark/practice" },
+            },
+            {
+              action:
+                "Answer, or **Skip**, then **Next**. On the last question tap **Finish and see how it went** — in a Timed or Live paper that last button is **Submit paper**.",
+              detail:
+                "Skipping is never a mistake — a skipped question does not go into your vault and does not count against you. A wrong answer does go into the vault. In a Timed sitting, anything left when the clock ends counts as skipped, not wrong.",
+              link: { label: "Open OneMark Practice", href: "/foundation/onemark/practice" },
+            },
+            {
+              action:
+                "Clear your **Mistake Vault**: a question you got wrong comes back when it is due — get it right in two separate sittings, at least two days apart, and it is mastered.",
+              detail:
+                "Getting it right twice in the same sitting counts once. A mastered question leaves the vault, but if you get it wrong again months later it comes back and the streak starts over. A vault review never lets one unit crowd the session, so a short review is normal.",
+              tip: "The panel shows **next due** for each subject and offers **Review … due now** only when something is — before then there is nothing to do.",
+            },
+            {
+              action:
+                "For a **Live paper**, submit once. Opening it again shows your result, not a fresh paper.",
+              detail:
+                "The window and the time limit come from your Senior Learner. Wrong answers from a live paper still feed your vault, so the review afterwards is worth the time.",
             },
           ],
         },
@@ -287,6 +442,10 @@ export const GUIDES: GuideBook = {
     { term: "Diagnostic", def: "A test that sets a student's starting baseline, so later progress is measured as movement from it." },
     { term: "Weakness map", def: "A student's mastery per topic (weakest first), built as a rolling average across all their attempts." },
     { term: "Revision plan", def: "A generated, prioritised plan targeting a student's weakest topics with recommended practice questions." },
+    { term: "OneMark", def: "The Tamil Nadu State Board Class-12 one-mark MCQ product — Physics and English, bilingual, run inside the Foundation programme." },
+    { term: "JABT level", def: "The K1–K6 thinking level a one-mark question asks for (JKKN Advanced Bloom's Taxonomy). OneMark mixes papers by level, not by Easy / Medium / Hard." },
+    { term: "Series", def: "One of up to four printed versions (A–D) of the same paper — same questions, different order, options re-lettered — each with its own answer key." },
+    { term: "Mistake Vault", def: "A learner's own list of one-mark questions they got wrong. A question is mastered after two correct answers in separate sittings at least two days apart; a later wrong answer puts it back." },
   ],
 
   plannedLocaleNote: "A Tamil version is planned — English only for now.",

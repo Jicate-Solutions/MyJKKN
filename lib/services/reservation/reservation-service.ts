@@ -13,11 +13,7 @@ import {
   notifyBookingRejected,
 } from '@/lib/services/reservation/reservation-notification-service';
 import { TimeSlotGeneratorService } from '@/lib/services/resource-management/time-slot-generator-service';
-import {
-  DEFAULT_TIME_SLOT_CONFIG,
-  CUSTOM_RANGE_STEP_MINUTES,
-  CUSTOM_RANGE_MIN_MINUTES,
-} from '@/lib/services/resource-management/default-slots';
+import { CUSTOM_RANGE_MIN_MINUTES } from '@/lib/services/resource-management/default-slots';
 import type {
   Reservation,
   CreateReservationDto,
@@ -154,10 +150,36 @@ export class ReservationService {
   }
 
   /**
-   * Guard a requested booking window. Accepts it when it exactly matches a
-   * generated slot (a default chip or an admin-configured slot, which are valid
-   * by construction); otherwise validates it as a free-form custom range within
-   * the resource's operating hours. Throws with a human-readable reason.
+   * Guard a requested booking window.
+   *
+   * Enforces exactly two things, in this order:
+   *
+   *  1. REAL INVARIANTS — end after start, and at least CUSTOM_RANGE_MIN_MINUTES
+   *     long. True for every caller and every resource.
+   *  2. THE RESOURCE OWNER'S OWN POLICY — operating hours, break times and closed
+   *     days, but ONLY when an admin actually configured `time_slot_config` on
+   *     this resource. A window nobody set is not a rule to book by.
+   *
+   * What it deliberately does NOT enforce is the 30-minute grid. That is the
+   * Resource Management picker's UI granularity — its inputs carry
+   * `step={CUSTOM_RANGE_STEP_MINUTES * 60}` and it runs validateCustomRange
+   * client-side before it ever reaches this spine, so here it was pure
+   * redundancy for the picker and a trap for everyone else. The events module
+   * became a second caller five days after this guard was written and holds a
+   * room for organizer-chosen hours typed into a plain <input type="time">:
+   * 09:45–15:45 is a perfectly ordinary workshop and was being refused with
+   * "Start and end times must align to 30-minute steps" AFTER the event row had
+   * already been written, demoting the room to "… (not reserved)". Nothing
+   * downstream needs the grid — the only time rule on `resource_reservations` is
+   * CHECK (end_time > start_time), and conflict detection is a plain timestamp
+   * overlap test.
+   *
+   * Likewise DEFAULT_TIME_SLOT_CONFIG is no longer substituted for an absent
+   * config. Its 09:00–17:30 window exists to OFFER default chips (see
+   * generateSlotsForDate) for the 542 of 552 resources nobody has configured;
+   * enforcing it as policy refused every legitimate evening programme.
+   *
+   * Throws with a human-readable reason.
    */
   private static validateBookingRange(
     bookingConfig: any,
@@ -165,12 +187,24 @@ export class ReservationService {
     startTime: string,
     endTime: string
   ): void {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+
+    if (!(end.getTime() > start.getTime())) {
+      throw new Error('End time must be after start time');
+    }
+    if ((end.getTime() - start.getTime()) / 60000 < CUSTOM_RANGE_MIN_MINUTES) {
+      throw new Error(`Booking must be at least ${CUSTOM_RANGE_MIN_MINUTES} minutes long`);
+    }
+
     const timeConfig = bookingConfig?.time_slot_config;
-    const effectiveConfig = timeConfig ?? DEFAULT_TIME_SLOT_CONFIG;
+    if (!timeConfig) return;
+
     const bookingDate = this.toLocalDateString(startTime);
 
+    // An exact match on a configured slot is valid by construction.
     const generated = TimeSlotGeneratorService.generateSlotsForDate(
-      effectiveConfig,
+      timeConfig,
       bookingDate,
       resourceId
     );
@@ -179,11 +213,12 @@ export class ReservationService {
     );
     if (matchesSlot) return;
 
-    const check = TimeSlotGeneratorService.validateCustomRange(
-      effectiveConfig,
+    // Otherwise hold the range to the hours/breaks/closed days the admin set.
+    const check = TimeSlotGeneratorService.validateTimeSlot(
+      timeConfig,
       startTime,
       endTime,
-      { stepMinutes: CUSTOM_RANGE_STEP_MINUTES, minMinutes: CUSTOM_RANGE_MIN_MINUTES }
+      bookingDate
     );
     if (!check.valid) {
       throw new Error(check.reason || 'Invalid booking time range');
@@ -262,9 +297,19 @@ export class ReservationService {
       status: initialStatus,
       approved_at: requiresApproval ? null : new Date().toISOString(),
       // Booking-spine links — only set when the caller provides them.
+      // These are an ALLOW-LIST, not a passthrough: a link column absent from
+      // this list is silently dropped before it ever reaches PostgREST. That is
+      // exactly what happened to course_session_id between Phase 1 (which added
+      // the column) and Phase 2c (which added the line below) — course venue
+      // holds would have looked successful and linked to nothing.
       ...(dto.event_id ? { event_id: dto.event_id } : {}),
       ...(dto.session_id ? { session_id: dto.session_id } : {}),
       ...(dto.bundle_id ? { bundle_id: dto.bundle_id } : {}),
+      // resource_reservations_single_owner_check is
+      // num_nonnulls(event_id, session_id, course_session_id) <= 1 — a COURSE
+      // hold passes course_session_id and NEITHER event_id nor session_id.
+      // Setting two of the three is a 23514, not a richer link.
+      ...(dto.course_session_id ? { course_session_id: dto.course_session_id } : {}),
       ...(dto.session_label ? { session_label: dto.session_label } : {})
     };
 

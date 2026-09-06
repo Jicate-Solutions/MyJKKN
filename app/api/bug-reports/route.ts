@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { withAuth } from '@/lib/auth/with-auth';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const BUG_REPORTS_BUCKET = 'bug-reports';
@@ -381,7 +382,14 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+/**
+ * Listing bug reports was unguarded. `bug_reports_with_details` is a view that
+ * grants SELECT to `authenticated` and not to `anon`, so an unauthenticated
+ * caller hit permission-denied, the throw landed in the catch below, and the
+ * endpoint answered 500 — the bug reporter itself looking broken to anyone not
+ * signed in. `withAuth` answers 401 first. (POST already checked auth.)
+ */
+export const GET = withAuth(async (request) => {
   await connection();
   try {
     const supabase = await createServerSupabaseClient();
@@ -482,4 +490,4 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-}
+}, { requiredPermission: 'read' });

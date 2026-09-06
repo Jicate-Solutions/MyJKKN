@@ -12,6 +12,7 @@ import type {
   ClinicalQuestionType,
   OSCEDomain,
 } from '@/types/pde';
+import { toAnswersArray } from '@/lib/pde/answers-shape';
 
 export async function GET(
   _request: NextRequest,
@@ -79,7 +80,7 @@ export async function GET(
     const qById = new Map<string, any>((questions || []).map((q: any) => [q.id, q]));
 
     const transcripts: ClinicalCaseSubmissionTranscript[] = (subs || []).map((s: any) => {
-      const answers = Array.isArray(s.answers) ? s.answers : [];
+      const answers = toAnswersArray(s.answers);
       const perDomain: Record<string, { sum: number; count: number }> = {};
       const mappedAnswers = answers.map((a: any) => {
         const q = qById.get(a.question_id);

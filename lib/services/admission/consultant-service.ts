@@ -42,7 +42,108 @@ import type {
   ConsultantLeadSubmission,
   CommissionLiabilityReport,
   RateType,
+  ResolvedReferralLearner,
 } from '@/types/education-consultants';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEAD ATTRIBUTION SHAPE
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * A referral's learner is reachable by two different paths and the writer
+ * decides which one exists:
+ *
+ *   referral_source 'auto_sync_lead'    → admission_id set, learner_profile_id
+ *                                         often NULL → resolve via lead
+ *   referral_source 'auto_sync_learner' → admission_id NULL → resolve via the
+ *                                         attribution's own learner_profile_id
+ *
+ * Selecting only the `lead` path (as this did until BUG-003877 follow-up) makes
+ * every 'auto_sync_learner' row render with no name, no program and a spurious
+ * "Not Enquired" status. Both embeds are always selected; callers resolve them
+ * through resolveReferralLearner().
+ */
+const ATTRIBUTION_SELECT = `
+  *,
+  consultant:education_consultants(id, name, code),
+  institution:institutions(id, name),
+  learner_profile:learners_profiles!learner_profile_id(
+    id, first_name, last_name, lifecycle_status,
+    program:programs!program_id(id, program_name),
+    admission_year:admission_years!admission_year_id(id, admission_year_name)
+  ),
+  lead:admission_leads(
+    id, full_name, phone, email, funnel_stage, program_id,
+    program:programs!program_id(id, program_name),
+    learner_profile:learners_profiles!learner_profile_id(
+      id, lifecycle_status,
+      admission_year:admission_years!admission_year_id(id, admission_year_name)
+    )
+  )
+` as const;
+
+/**
+ * Apply the column-level filters shared by the paged and fetch-all queries.
+ * Kept separate so the two code paths can never drift apart — a filter applied
+ * to only one of them would silently change what "total" means.
+ */
+function applyAttributionFilters(query: any, filters: LeadAttributionFilters) {
+  const {
+    institution_id,
+    consultant_id,
+    lead_id,
+    attribution_type,
+    is_verified,
+    date_from,
+    date_to,
+  } = filters;
+
+  if (institution_id) query = query.eq('institution_id', institution_id);
+  if (consultant_id) query = query.eq('consultant_id', consultant_id);
+  if (lead_id) query = query.eq('admission_id', lead_id);
+  if (attribution_type) query = query.eq('attribution_type', attribution_type);
+  if (is_verified !== undefined) query = query.eq('is_verified', is_verified);
+  if (date_from) query = query.gte('created_at', date_from);
+  if (date_to) query = query.lte('created_at', date_to);
+
+  return query;
+}
+
+/**
+ * Resolve a referral's learner across both attribution paths.
+ *
+ * The single place that knows the coalesce order. `lifecycle_status` comes back
+ * null ONLY when neither path reaches a learners_profiles row — that is the one
+ * case a caller may legitimately label "Not Enquired".
+ */
+export function resolveReferralLearner(
+  row: ConsultantLeadAttribution | null | undefined
+): ResolvedReferralLearner {
+  const direct = row?.learner_profile ?? null;
+  const viaLead = row?.lead?.learner_profile ?? null;
+
+  const directName = [direct?.first_name, direct?.last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
+  const admissionYear = direct?.admission_year ?? viaLead?.admission_year ?? null;
+
+  return {
+    learner_profile_id: direct?.id ?? viaLead?.id ?? null,
+    // Prefer the lead's full_name — it is the name the learner was enquired
+    // under; fall back to the profile's first/last parts.
+    name: row?.lead?.full_name || directName || null,
+    program_name:
+      row?.lead?.program?.program_name ?? direct?.program?.program_name ?? null,
+    lifecycle_status: direct?.lifecycle_status ?? viaLead?.lifecycle_status ?? null,
+    // The learner's admission year — NOT the year the attribution row was
+    // written. created_at is worthless as a year here: the referral sync
+    // bulk-created every existing attribution, so they all share one date.
+    admission_year_id: admissionYear?.id ?? null,
+    admission_year_name: admissionYear?.admission_year_name ?? null,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSULTANT SERVICE
@@ -719,75 +820,94 @@ export class ConsultantService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Get lead attributions with filters
+   * Get lead attributions with filters.
+   *
+   * Pass `fetch_all: true` to page through the entire matching set instead of
+   * a single page — see LeadAttributionFilters.fetch_all for why the Referrals
+   * tab needs it.
    */
   static async getLeadAttributions(
     filters: LeadAttributionFilters
   ): Promise<{ data: ConsultantLeadAttribution[]; total: number }> {
     const supabase = createClientSupabaseClient();
-    const {
-      institution_id,
-      consultant_id,
-      lead_id,
-      attribution_type,
-      is_verified,
-      date_from,
-      date_to,
-      page = 1,
-      limit = 20,
-    } = filters;
+    const { page = 1, limit = 20, fetch_all = false, admission_year } = filters;
 
-    let query = (supabase as any)
-      .from('consultant_lead_attributions')
-      .select(
-        `
-        *,
-        consultant:education_consultants(id, name, code),
-        institution:institutions(id, name),
-        lead:admission_leads(id, full_name, phone, email, funnel_stage, program_id, program:programs!program_id(id, program_name), learner_profile:learners_profiles!learner_profile_id(id, lifecycle_status))
-      `,
-        { count: 'exact' }
+    // PostgREST caps a single response (db-max-rows, 1000 here), so fetch_all
+    // walks fixed windows rather than asking for an open-ended range — an
+    // unwalked .range(0, 99999) would come back quietly truncated.
+    const buildQuery = (from: number, to: number) =>
+      applyAttributionFilters(
+        (supabase as any)
+          .from('consultant_lead_attributions')
+          .select(ATTRIBUTION_SELECT, { count: 'exact' }),
+        filters
+      )
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+    // ── Admission-year filter ────────────────────────────────────────────────
+    // The year hangs off the learner, and a referral's learner is reachable by
+    // TWO paths (see ATTRIBUTION_SELECT above): the attribution's own
+    // learner_profile_id, or the lead's. Measured on production, 166 of 1,842
+    // attributions have ONLY the lead path — so a PostgREST `!inner` filter on
+    // either single embed would silently drop 9% of the rows, which is the exact
+    // BUG-003877 failure this file already warns about.
+    //
+    // COALESCE across both paths is only expressible in SQL, so the year-aware
+    // paging happens in fn_referral_attribution_page, which returns just the ids
+    // for one page. Those ids are then fetched through the SAME rich select
+    // below, so every embed, sort and downstream helper is unchanged.
+    if (admission_year != null && !fetch_all) {
+      const { data: pageInfo, error: pageError } = await (supabase as any).rpc(
+        'fn_referral_attribution_page',
+        {
+          p_year: admission_year,
+          p_consultant_id: filters.consultant_id ?? null,
+          p_institution_id: filters.institution_id ?? null,
+          p_attribution_type: filters.attribution_type ?? null,
+          p_is_verified: filters.is_verified ?? null,
+          p_page: page,
+          p_limit: limit,
+        },
       );
+      if (pageError) throw new Error(pageError.message);
 
-    if (institution_id) {
-      query = query.eq('institution_id', institution_id);
+      const ids: string[] = pageInfo?.ids ?? [];
+      if (ids.length === 0) return { data: [], total: pageInfo?.total ?? 0 };
+
+      const { data, error } = await (supabase as any)
+        .from('consultant_lead_attributions')
+        .select(ATTRIBUTION_SELECT)
+        .in('id', ids)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+
+      return { data: data || [], total: pageInfo?.total ?? 0 };
     }
 
-    if (consultant_id) {
-      query = query.eq('consultant_id', consultant_id);
+    if (!fetch_all) {
+      const from = (page - 1) * limit;
+      const { data, error, count } = await buildQuery(from, from + limit - 1);
+      if (error) {
+        throw new Error(error.message);
+      }
+      return { data: data || [], total: count || 0 };
     }
 
-    if (lead_id) {
-      query = query.eq('admission_id', lead_id);
+    const PAGE = 1000;
+    const rows: ConsultantLeadAttribution[] = [];
+    let total = 0;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error, count } = await buildQuery(from, from + PAGE - 1);
+      if (error) {
+        throw new Error(error.message);
+      }
+      rows.push(...((data || []) as ConsultantLeadAttribution[]));
+      total = count ?? rows.length;
+      if (!data || data.length < PAGE || rows.length >= total) break;
     }
 
-    if (attribution_type) {
-      query = query.eq('attribution_type', attribution_type);
-    }
-
-    if (is_verified !== undefined) {
-      query = query.eq('is_verified', is_verified);
-    }
-
-    if (date_from) {
-      query = query.gte('created_at', date_from);
-    }
-
-    if (date_to) {
-      query = query.lte('created_at', date_to);
-    }
-
-    // Pagination
-    const from = (page - 1) * limit;
-    query = query.range(from, from + limit - 1).order('created_at', { ascending: false });
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return { data: data || [], total: count || 0 };
+    return { data: rows, total };
   }
 
   /**
@@ -1121,102 +1241,6 @@ export class ConsultantService {
     }
 
     return { data: data || [], total: count || 0 };
-  }
-
-  /**
-   * Create payout batch
-   */
-  static async createPayoutBatch(
-    input: CreatePayoutBatchInput,
-    generatedBy: string
-  ): Promise<ConsultantPayoutBatch> {
-    const supabase = createClientSupabaseClient();
-
-    // Get approved transactions for the period
-    let transactionsQuery = (supabase as any)
-      .from('consultant_commission_transactions')
-      .select('*')
-      .eq('institution_id', input.institution_id)
-      .eq('status', 'approved')
-      .is('payout_batch_id', null)
-      .gte('created_at', input.payout_period_start)
-      .lte('created_at', input.payout_period_end);
-
-    if (input.consultant_ids && input.consultant_ids.length > 0) {
-      transactionsQuery = transactionsQuery.in('consultant_id', input.consultant_ids);
-    }
-
-    if (input.min_amount) {
-      transactionsQuery = transactionsQuery.gte('net_amount', input.min_amount);
-    }
-
-    const { data: transactions, error: txError } = await transactionsQuery;
-
-    if (txError) {
-      throw new Error(txError.message);
-    }
-
-    if (!transactions || transactions.length === 0) {
-      throw new Error('No approved transactions found for the specified period');
-    }
-
-    // Calculate totals
-    const totals = transactions.reduce(
-      (acc, tx) => {
-        acc.gross += tx.gross_amount || 0;
-        acc.tds += tx.tds_amount || 0;
-        acc.net += tx.net_amount || 0;
-        return acc;
-      },
-      { gross: 0, tds: 0, net: 0 }
-    );
-
-    // Create batch
-    const { data: batch, error: batchError } = await (supabase as any)
-      .from('consultant_payout_batches')
-      .insert({
-        institution_id: input.institution_id,
-        batch_name: input.batch_name,
-        payout_period_start: input.payout_period_start,
-        payout_period_end: input.payout_period_end,
-        total_gross_amount: totals.gross,
-        total_tds_amount: totals.tds,
-        total_net_amount: totals.net,
-        total_transactions: transactions.length,
-        status: 'draft',
-        generated_at: new Date().toISOString(),
-        generated_by: generatedBy,
-        notes: input.notes,
-      } as any)
-      .select()
-      .single();
-
-    if (batchError) {
-      throw new Error(batchError.message);
-    }
-
-    // Link transactions to batch
-    const transactionIds = transactions.map((t) => t.id);
-    const { error: linkError } = await (supabase as any)
-      .from('consultant_commission_transactions')
-      .update({ payout_batch_id: batch.id } as any)
-      .in('id', transactionIds);
-
-    if (linkError) {
-      // Attempt rollback - log failures but don't mask the original error
-      try {
-        await (supabase as any)
-          .from('consultant_commission_transactions')
-          .update({ payout_batch_id: null } as any)
-          .in('id', transactionIds);
-        await (supabase as any).from('consultant_payout_batches').delete().eq('id', batch.id);
-      } catch (rollbackError) {
-        console.error('[admission/consultants] Rollback failed during batch creation:', rollbackError);
-      }
-      throw new Error(linkError.message);
-    }
-
-    return batch;
   }
 
   /**
@@ -2697,91 +2721,6 @@ export class ConsultantService {
         updated_at: new Date().toISOString(),
       } as any)
       .eq('id', consultantId);
-  }
-
-  /**
-   * Calculate commission for a lead conversion
-   */
-  static async calculateCommission(
-    consultantId: string,
-    leadId: string,
-    feeAmount: number,
-    milestoneStage?: string
-  ): Promise<{
-    calculatedAmount: number;
-    commissionRate: number;
-    rateType: RateType;
-    volumeBonus: number;
-    finalAmount: number;
-  }> {
-    const supabase = createClientSupabaseClient();
-
-    // Get active commission structure
-    const structure = await this.getActiveCommissionStructure(consultantId);
-    if (!structure) {
-      throw new Error('No active commission structure found for this consultant');
-    }
-
-    let calculatedAmount = 0;
-    let volumeBonus = 0;
-    const commissionRate = structure.base_rate;
-    const rateType = structure.rate_type;
-
-    // Calculate base commission
-    if (structure.calculation_method === 'milestone' && structure.milestone_config) {
-      // Find matching milestone
-      const milestone = structure.milestone_config.find(
-        (m) => m.stage === milestoneStage
-      );
-      if (milestone) {
-        calculatedAmount = feeAmount * (milestone.percentage / 100);
-      }
-    } else if (structure.rate_type === 'percentage') {
-      calculatedAmount = feeAmount * (structure.base_rate / 100);
-    } else {
-      calculatedAmount = structure.base_rate;
-    }
-
-    // Apply volume tiers if configured
-    if (structure.volume_tiers && structure.volume_tiers.length > 0) {
-      // Get consultant's conversion count this period
-      const { data: consultant } = await (supabase as any)
-        .from('education_consultants')
-        .select('total_conversions')
-        .eq('id', consultantId)
-        .single();
-
-      const conversions = consultant?.total_conversions || 0;
-
-      // Find applicable tier
-      const applicableTier = structure.volume_tiers.find(
-        (tier) =>
-          conversions >= tier.min_count &&
-          (tier.max_count === null || conversions <= tier.max_count)
-      );
-
-      if (applicableTier) {
-        if (applicableTier.rate_type === 'percentage') {
-          volumeBonus = calculatedAmount * (applicableTier.rate / 100);
-        } else {
-          volumeBonus = applicableTier.rate;
-        }
-      }
-    }
-
-    // Apply caps
-    let finalAmount = calculatedAmount + volumeBonus;
-    if (structure.max_commission_per_student && finalAmount > structure.max_commission_per_student) {
-      finalAmount = structure.max_commission_per_student;
-    }
-
-    return {
-      calculatedAmount,
-      commissionRate,
-      rateType,
-      volumeBonus,
-      finalAmount,
-    };
   }
 }
 

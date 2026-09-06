@@ -36,15 +36,49 @@ const GENERATED_FILE = path.join(
   'route-gate-map.generated.ts'
 );
 
+/**
+ * scanRouteGates() walks the whole of app/(routes) off disk — 1,142 pages and
+ * climbing — so this one test is IO-bound in a way none of its neighbours are.
+ * Vitest's default per-test budget is 5s, which it fits inside comfortably on an
+ * idle machine (~1.8s measured) and does NOT fit inside on a busy one (~7.9s
+ * measured at load average 35, with four concurrent `tsc --noEmit` runs from
+ * sibling sessions on the same laptop).
+ *
+ * That produced the worst kind of red: a drift guard reporting
+ *
+ *     Error: Test timed out in 5000ms
+ *
+ * while the artifact it guards was provably correct — regenerating gave a
+ * zero-byte diff. The failure said nothing about drift and everything about how
+ * busy the machine was, and it is the assertion BELOW, not the clock, that this
+ * test exists to make.
+ *
+ * 30s is deliberately far above the honest worst case rather than a whisker
+ * above it: the point is to stop the timeout ever being the thing that speaks.
+ * A scan that genuinely hangs still fails here, six times slower than the
+ * slowest real reading on record.
+ *
+ * This matters more than it looks. Nothing globs __tests__/director-desk/ today,
+ * so this file runs only where someone types it. PR #2988 ("actually run the
+ * test suites that no workflow executes") turns it into a blocking check — at
+ * which point a load-sensitive timeout becomes a gate that fails on how busy a
+ * CI runner happens to be.
+ */
+const SCAN_TIMEOUT_MS = 30_000;
+
 describe('route-gate-map.generated.ts is in step with app/(routes)', () => {
-  it('matches a fresh scan exactly', () => {
-    const fresh = renderModule(scanRouteGates());
-    const committed = readFileSync(GENERATED_FILE, 'utf8');
-    expect(
-      committed,
-      'route-gate-map.generated.ts is stale. Run: node scripts/director-desk/scan-route-gates.mjs'
-    ).toBe(fresh);
-  });
+  it(
+    'matches a fresh scan exactly',
+    () => {
+      const fresh = renderModule(scanRouteGates());
+      const committed = readFileSync(GENERATED_FILE, 'utf8');
+      expect(
+        committed,
+        'route-gate-map.generated.ts is stale. Run: node scripts/director-desk/scan-route-gates.mjs'
+      ).toBe(fresh);
+    },
+    SCAN_TIMEOUT_MS
+  );
 
   it('is not empty (a scanner that finds nothing would pass the check above)', () => {
     const routes = Object.keys(ROUTE_GATE_MAP);

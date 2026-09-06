@@ -124,3 +124,32 @@ export interface PremiumDashboardSummary {
     fill_rate_percent: number;
   }>;
 }
+
+/**
+ * One learner who may be invited into the caller's room.
+ *
+ * Produced by fn_premium_invite_candidates, which mirrors
+ * fn_premium_create_invite's rules exactly — same institution, same gender,
+ * hostelite, not already in this room, retry cap not spent. A candidate this
+ * type describes is one the invite will accept; the list is never a set of dead
+ * ends.
+ */
+export interface PremiumInviteCandidate {
+  /** profiles.id — the id the invite RPC expects, NOT learners_profiles.id. */
+  profile_id: string;
+  full_name: string;
+  register_number: string | null;
+  department_name: string | null;
+  semester_name: string | null;
+  program_name: string | null;
+  institution_name: string | null;
+  /** Where she lives today. Null when she has no allocation yet. */
+  current_room_category: string | null;
+  current_block_name: string | null;
+  current_room_number: string | null;
+  current_room_id: string | null;
+  /** True when her room is the same category as the inviter's — shown first. */
+  same_category: boolean;
+  /** She already has a pending invite from this inviter. */
+  already_invited: boolean;
+}

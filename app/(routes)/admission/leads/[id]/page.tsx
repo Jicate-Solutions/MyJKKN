@@ -857,6 +857,11 @@ function LeadDetailPageContent() {
   const [editConsultantId, setEditConsultantId] = useState('');
   const [editReferralType, setEditReferralType] = useState<ReferralType | ''>('');
   const [editReferrerId, setEditReferrerId] = useState('');
+  // A referrer with no record is stored as a name with a NULL referred_by_id.
+  // Without this the dropdown lookup below returns undefined on save and the
+  // name is silently erased — the edit form would quietly destroy the very
+  // thing the create form was just taught to record.
+  const [editManualReferrerName, setEditManualReferrerName] = useState('');
 
   // Primary program display name (from lead.program_id, with join fallback)
   const primaryProgramName = useMemo(() => {
@@ -954,6 +959,7 @@ function LeadDetailPageContent() {
     // Pre-populate referral type and referrer
     setEditReferralType((l.referral_type as ReferralType) || '');
     setEditReferrerId(l.referred_by_id || '');
+    setEditManualReferrerName(l.referred_by_id ? '' : l.referred_by_name || '');
     // Pre-populate consultant from primary lead attribution (stored in consultant_lead_attributions, not on the lead row)
     const primaryAttribution = leadAttributions.find((a) => a.attribution_type === 'primary');
     setEditConsultantId(primaryAttribution?.consultant_id || l.referred_by_id || '');
@@ -1056,11 +1062,15 @@ function LeadDetailPageContent() {
             if (editReferralType === 'consultant') {
               return consultantsDropdown.find((c) => c.id === editConsultantId)?.name || null;
             }
+            // Fall back to the typed name so a name-only referral survives a
+            // save, and so an id the (active-only, capped) dropdown no longer
+            // returns does not blank an otherwise-good name.
+            const manual = editManualReferrerName.trim() || lead?.referred_by_name || null;
             if (editReferralType === 'student') {
-              return studentsDropdown.find((s) => s.id === editReferrerId)?.name || null;
+              return studentsDropdown.find((s) => s.id === editReferrerId)?.name || manual;
             }
             if (editReferralType === 'faculty') {
-              return facultyDropdown.find((f) => f.id === editReferrerId)?.name || null;
+              return facultyDropdown.find((f) => f.id === editReferrerId)?.name || manual;
             }
             return null;
           })(),
@@ -1338,7 +1348,7 @@ function LeadDetailPageContent() {
                   />
                 </>
               ) : (
-                <PermissionGuard module="admission" action="leads.convert_to_admitted">
+                <PermissionGuard module="admission" action="leads.convert_to_admitted" fallback={null}>
                   <Button
                     variant="default"
                     size="sm"
@@ -2566,6 +2576,7 @@ function LeadDetailPageContent() {
                             setEditReferralType(value as ReferralType);
                             setEditConsultantId('');
                             setEditReferrerId('');
+                            setEditManualReferrerName('');
                           }}
                         >
                           <SelectTrigger>
@@ -2618,6 +2629,34 @@ function LeadDetailPageContent() {
                               ))}
                             </SelectContent>
                           </Select>
+                        )}
+
+                        {/* Staff and learners are owned by HR / Admissions, so a
+                          * referrer with no record is kept as a name with a NULL
+                          * referred_by_id. Consultants are excluded: they are
+                          * created in the Consultants module and always linked. */}
+                        {(editReferralType === 'student' || editReferralType === 'faculty') && (
+                          <div className="space-y-1.5 rounded-md border border-dashed p-3">
+                            <Label htmlFor="edit-manual-referrer" className="text-xs">
+                              Not in the list?{' '}
+                              <span className="font-normal text-muted-foreground">
+                                Type the name
+                              </span>
+                            </Label>
+                            <Input
+                              id="edit-manual-referrer"
+                              placeholder="e.g. M.KRISHNAVENI / AP / Nursing"
+                              value={editManualReferrerName}
+                              onChange={(e) => {
+                                setEditManualReferrerName(e.target.value);
+                                if (e.target.value.trim()) setEditReferrerId('');
+                              }}
+                              disabled={!!editReferrerId && editReferrerId !== '_none'}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Saved as a name only — no linked record.
+                            </p>
+                          </div>
                         )}
                       </>
                     ) : (

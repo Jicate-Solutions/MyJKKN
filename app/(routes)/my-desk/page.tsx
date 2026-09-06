@@ -134,6 +134,9 @@ import {
   type DeskProbe,
   type HandoverRow,
 } from './_lib/desk';
+import { HandedOutByMe, useHandedOutByMe } from './_components/handed-out';
+import { Trail } from './_components/trail';
+import { WaitingOnYou } from './_components/waiting-on-you';
 
 const LOG = 'director-desk/my-desk';
 
@@ -502,61 +505,10 @@ function AccessChip({ level }: { level: string }) {
   );
 }
 
-function Trail({
-  entries,
-  people,
-  unavailable,
-}: {
-  entries: AuditRow[];
-  people: Record<string, DeskPerson> | undefined;
-  /** The audit read failed. An empty trail here would be a claim, not a fact. */
-  unavailable: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-
-  if (unavailable) {
-    return (
-      <span className="text-xs text-muted-foreground">
-        The history could not be loaded — this does not mean nothing happened.
-      </span>
-    );
-  }
-  if (entries.length === 0) return null;
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
-          <History className="mr-1 h-3.5 w-3.5" />
-          What has happened ({entries.length})
-          <ChevronDown
-            className={`ml-1 h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-          />
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <ol className="mt-2 space-y-2 border-l pl-4">
-          {entries.map((entry) => {
-            const { headline, body } = describeAudit(entry);
-            const who = personName(people, entry.actor_user_id);
-            return (
-              <li key={entry.id} className="text-xs">
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <span className="font-medium">{headline}</span>
-                  <span className="text-muted-foreground">
-                    {new Date(entry.created_at).toLocaleString()}
-                    {who ? ` · ${who}` : ''}
-                  </span>
-                </div>
-                {body && <p className="mt-0.5 text-muted-foreground">{body}</p>}
-              </li>
-            );
-          })}
-        </ol>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
+// Trail now lives in ./_components/trail so the SENDING half of the desk
+// ("Handed out by me") uses the same one rather than a copy that would have to
+// be kept in step — including its `unavailable` branch, which is the line a
+// copy would most easily lose.
 
 /** The note dialog, shared by decline / update / done. */
 function NoteDialog({
@@ -890,8 +842,21 @@ export default function MyDeskPage() {
   const probeQuery = useDeskProbe(userId);
   const peopleQuery = useDeskPeople(userId);
 
+  // The SENDING half of the same desk. Reads on its own interval so an item's
+  // state moves while somebody is watching; see _components/handed-out.tsx for
+  // why it takes two reads rather than one.
+  const sentQuery = useHandedOutByMe(userId);
+
   const rows = useMemo(() => rowsQuery.data?.rows ?? [], [rowsQuery.data]);
-  const handoverIds = useMemo(() => rows.map((row) => row.id), [rows]);
+  const sentRows = useMemo(() => sentQuery.data?.rows ?? [], [sentQuery.data]);
+
+  // ONE audit read for both halves. Two reads would double the round trips and
+  // give the page two different truncation verdicts to reconcile — and a trail
+  // is a trail whichever direction the handover went.
+  const handoverIds = useMemo(
+    () => [...new Set([...rows.map((row) => row.id), ...sentRows.map((row) => row.id)])],
+    [rows, sentRows],
+  );
   const auditQuery = useDeskAudit(handoverIds);
 
   const today = istToday();
@@ -1034,6 +999,15 @@ export default function MyDeskPage() {
   return (
     <ContentLayout>
       <div className="space-y-6">
+        {/*
+          ── Waiting on you ─────────────────────────────────────────────────
+          Everything the database has computed to be waiting on this person —
+          hires, refunds, leave, meeting triggers, grievances — oldest first,
+          one Open per row. Reads its own RPC; see _components/waiting-on-you.tsx
+          for why a failed read is never shown as an empty list.
+        */}
+        <WaitingOnYou userId={userId} />
+
         <Card className="border-indigo-200 bg-indigo-50/40 dark:border-indigo-900/40 dark:bg-indigo-950/20">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-xl">
@@ -1282,6 +1256,23 @@ export default function MyDeskPage() {
             </CardContent>
           </Card>
         )}
+
+        {/*
+          ── The other direction ────────────────────────────────────────────
+          Everything above is what was handed TO this person. This is what they
+          handed OUT: to whom, where, when it is due, and whether the receiver
+          has actually touched it. It renders nothing at all when you have
+          handed nothing out, so the ordinary desk is unchanged.
+        */}
+        <HandedOutByMe
+          result={sentQuery.data}
+          isLoading={sentQuery.isLoading}
+          error={sentQuery.error}
+          todayIso={today}
+          trails={trails}
+          people={peopleQuery.data}
+          trailsUnavailable={trailUnavailable}
+        />
       </div>
 
       {/*

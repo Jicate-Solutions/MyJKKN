@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -192,7 +193,7 @@ function MitigationStepRow({
       <Button
         size="sm"
         variant="ghost"
-        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+        className={`h-7 w-7 p-0 text-muted-foreground hover:text-destructive ${TAP_TARGET_ICON}`}
         onClick={handleDelete}
         disabled={deleteStep.isPending}
         aria-label="Delete mitigation step"

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -18,41 +18,37 @@ import { AlertCircle, UserX } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
 import { useLeaveBalance, useMyEncashments, useRequestEncashment } from '@/hooks/hr/use-leave';
 import { useCurrentEmployee } from '@/hooks/hr/use-regularization';
-import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
-import { useAcademicYears, useCurrentAcademicYear } from '@/hooks/use-academic-years';
+import {
+  useCurrentHRAcademicYear,
+  useHRAcademicYears,
+} from '@/hooks/hr/use-hr-academic-years';
 
 export default function EncashmentPage() {
   // Auto-resolve the employee from the logged-in user (same pattern as Apply —
   // BUG-003319: never expose raw UUID inputs to end users).
   const { data: employee, isLoading: employeeLoading } = useCurrentEmployee();
-  const { institutionIdByOrg, isLoading: mappingsLoading } = useHrOrgMappings();
 
   const hrOrgId = employee?.hr_organization_id ?? '';
   const employeeId = employee?.id ?? '';
-  const institutionId = hrOrgId ? institutionIdByOrg.get(hrOrgId) : undefined;
 
-  // Academic years scoped to the employee's own institution. Ignore results
-  // until the institution scope is resolved — an unscoped fetch returns years
-  // across ALL institutions.
-  const { data: academicYearsResp, isLoading: yearsFetching } = useAcademicYears(institutionId);
-  // Default selection is the year that CONTAINS today, not the
-  // lexically-highest active name — the dropdown itself still lists all
-  // active years via useAcademicYears above.
-  const { data: currentYear, isLoading: currentYearFetching } = useCurrentAcademicYear(institutionId);
-  const yearsLoading = yearsFetching || currentYearFetching || mappingsLoading;
-  const academicYears = useMemo(
-    () => (institutionId ? academicYearsResp?.data ?? [] : []),
-    [academicYearsResp, institutionId],
-  );
+  // HR years are group-wide, so there is no institution to scope by and no
+  // hr_organization_id -> institution_id lookup to wait on first.
+  const { data: academicYears = [], isLoading: yearsFetching } = useHRAcademicYears({
+    isActive: true,
+  });
+  // Default selection is the year that CONTAINS today, resolved by date bracket
+  // — active HR years cannot overlap, so exactly one matches.
+  const { data: currentYear, isLoading: currentYearFetching } = useCurrentHRAcademicYear();
+  const yearsLoading = yearsFetching || currentYearFetching;
 
   const [selectedYearId, setSelectedYearId] = useState('');
-  const academicYearId = selectedYearId || currentYear?.id || '';
+  const hrAcademicYearId = selectedYearId || currentYear?.id || '';
 
   // Leave types come from the employee's balances (same source as Apply) so the
   // dropdown shows how many days are actually available to encash.
   const { data: balances, isLoading: balanceLoading } = useLeaveBalance(
     employeeId || undefined,
-    academicYearId || undefined,
+    hrAcademicYearId || undefined,
   );
 
   const [leaveTypeId, setLeaveTypeId] = useState('');
@@ -64,12 +60,12 @@ export default function EncashmentPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hrOrgId || !employeeId || !academicYearId || !leaveTypeId || !days || !rate) return;
+    if (!hrOrgId || !employeeId || !hrAcademicYearId || !leaveTypeId || !days || !rate) return;
 
     await request.mutateAsync({
       hr_organization_id: hrOrgId,
       employee_id: employeeId,
-      academic_year_id: academicYearId,
+      hr_academic_year_id: hrAcademicYearId,
       leave_type_id: leaveTypeId,
       days_encashed: Number(days),
       per_diem_rate: Number(rate),
@@ -114,22 +110,22 @@ export default function EncashmentPage() {
               <form onSubmit={onSubmit} className="space-y-3">
                 <div className="grid md:grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor="academicYear">Academic Year</Label>
+                    <Label htmlFor="academicYear">HR Academic Year</Label>
                     {yearsLoading ? (
-                      <p className="text-xs text-muted-foreground mt-1">Loading academic years…</p>
+                      <p className="text-xs text-muted-foreground mt-1">Loading HR academic years…</p>
                     ) : academicYears.length === 0 ? (
                       <p className="text-xs text-amber-700 mt-1">
-                        No active academic year configured for your institution. Please contact HR.
+                        No active HR academic year is configured. Please contact HR.
                       </p>
                     ) : (
-                      <Select value={academicYearId} onValueChange={setSelectedYearId}>
+                      <Select value={hrAcademicYearId} onValueChange={setSelectedYearId}>
                         <SelectTrigger id="academicYear" className="mt-1">
-                          <SelectValue placeholder="Select academic year" />
+                          <SelectValue placeholder="Select HR academic year" />
                         </SelectTrigger>
                         <SelectContent>
                           {academicYears.map((y) => (
                             <SelectItem key={y.id} value={y.id}>
-                              {y.academic_year_name}
+                              {y.year_name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -147,7 +143,9 @@ export default function EncashmentPage() {
                         </SelectTrigger>
                         <SelectContent>
                           {balances.map((b) => {
-                            const available = (b.entitled + b.carried_forward - b.used).toFixed(1);
+                            // Read, not recomputed: days held by a request
+                            // awaiting approval are not encashable either.
+                            const available = b.available.toFixed(1);
                             return (
                               <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                                 {b.leave_type_name} — {available} day(s) available
@@ -185,7 +183,7 @@ export default function EncashmentPage() {
                   </Alert>
                 )}
 
-                <Button type="submit" disabled={request.isPending || !academicYearId || !leaveTypeId}>
+                <Button type="submit" disabled={request.isPending || !hrAcademicYearId || !leaveTypeId}>
                   {request.isPending ? 'Submitting…' : 'Request Encashment'}
                 </Button>
               </form>

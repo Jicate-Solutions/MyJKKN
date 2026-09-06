@@ -5,14 +5,19 @@
 // call the SECURITY DEFINER RPCs via InductionService.
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { InductionService, type PreviewEnrollResult } from '@/lib/services/induction/induction-service';
+import { INDUCTION_ACTIVE_STATUS } from '@/types/events';
 import { SessionsSection } from './_components/sessions-section';
 import { EventCoordinatorsSection } from './_components/event-coordinators-section';
+import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
+import { FeedbackByCollegeSection } from './_components/feedback-by-college-section';
+import { SessionFeedbackSection } from './_components/session-feedback-section';
 import { ScorecardSection } from './_components/scorecard-section';
 import { LoopPlaybookSection } from './_components/loop-playbook-section';
 import {
@@ -26,7 +31,7 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
   AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin, Rocket, AlertTriangle } from 'lucide-react';
+import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin, Rocket, AlertTriangle, ClipboardList, BookOpen, Network } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 interface EventRow {
@@ -52,6 +57,9 @@ export default function InductionDetailPage() {
   const [targetInstitutionIds, setTargetInstitutionIds] = useState<string[] | null>(null);
   const [targetDegreeIds, setTargetDegreeIds] = useState<string[] | null>(null);
   const [targetDepartmentIds, setTargetDepartmentIds] = useState<string[] | null>(null);
+  // Names behind the target_*_ids arrays — the program row stores IDs only.
+  const [degreeNames, setDegreeNames] = useState<string[]>([]);
+  const [departmentNames, setDepartmentNames] = useState<string[]>([]);
   const [venueName, setVenueName] = useState<string | null>(null);
   const [enrolled, setEnrolled] = useState(0);
   const [batches, setBatches] = useState<BatchCount[]>([]);
@@ -83,6 +91,21 @@ export default function InductionDetailPage() {
     setTargetDegreeIds((prog as any)?.target_degree_ids ?? null);
     setTargetDepartmentIds((prog as any)?.target_department_ids ?? null);
     setEnrolled(count ?? 0);
+
+    // Resolve the degree/department scope to names so the header can show what
+    // was actually picked at create time (empty array = no filter = "all").
+    const degIds = ((prog as any)?.target_degree_ids as string[] | null) ?? [];
+    const deptIds = ((prog as any)?.target_department_ids as string[] | null) ?? [];
+    const [degRes, deptRes] = await Promise.all([
+      degIds.length
+        ? supabase.from('degrees').select('degree_name').in('id', degIds).order('degree_name')
+        : Promise.resolve({ data: [] as any[] }),
+      deptIds.length
+        ? supabase.from('departments').select('department_name').in('id', deptIds).order('department_name')
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
+    setDegreeNames(((degRes.data as any[]) ?? []).map((d) => d.degree_name).filter(Boolean));
+    setDepartmentNames(((deptRes.data as any[]) ?? []).map((d) => d.department_name).filter(Boolean));
 
     // Resolve the main venue — a Resource-Management room (preferred) or custom text.
     const vrid = (ev as any)?.venue_resource_id ?? null;
@@ -187,6 +210,21 @@ export default function InductionDetailPage() {
     : enrollScope === 'group' ? 'All colleges (group)'
     : enrollScope === 'institution' ? 'This college only' : null;
 
+  // Degree / department scope. These are optional at create time, but the header
+  // still states them so the scope of the cohort is never left to guesswork:
+  // nothing picked = no filter = every degree/department of the target colleges.
+  // The count fallbacks cover IDs whose name row is unreadable (deleted / RLS).
+  const degreesLabel = !hasProgram ? null
+    : degreeNames.length ? degreeNames.join(', ')
+    : targetDegreeIds?.length ? `${targetDegreeIds.length} selected`
+    : degreeFilter === 'ug' ? 'All UG degrees'
+    : degreeFilter === 'pg' ? 'All PG degrees'
+    : 'All degrees';
+  const departmentsLabel = !hasProgram ? null
+    : departmentNames.length ? departmentNames.join(', ')
+    : targetDepartmentIds?.length ? `${targetDepartmentIds.length} selected`
+    : 'All departments';
+
   return (
     <ContentLayout title={event.name}>
       <PageBreadcrumb items={[
@@ -206,22 +244,42 @@ export default function InductionDetailPage() {
               </div>
               <h1 className="text-2xl font-bold leading-tight">{event.name}</h1>
             </div>
-            <Badge variant={event.status === 'live' ? 'default' : 'secondary'} className="capitalize shrink-0">
-              {event.status ?? 'draft'}
-            </Badge>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Report console — attendance + feedback, day-wise / session-wise */}
+              <Button asChild size="sm" variant="outline" className="gap-1">
+                <Link href={`/events/induction/${id}/report`}>
+                  <ClipboardList className="h-4 w-4" aria-hidden /> Report
+                </Link>
+              </Button>
+              <Badge variant={event.status === 'live' ? 'default' : 'secondary'} className="capitalize">
+                {event.status ?? 'draft'}
+              </Badge>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Every field renders, blank or not — a hidden row reads as "not applicable"
+                when it really means "not set", which hides the true enrollment scope. */}
             <MetaItem icon={Building2} label="Institution" value={event.institutions?.name} />
-            {dateRange && <MetaItem icon={CalendarDays} label="Dates" value={dateRange} />}
-            {admissionYear != null && <MetaItem icon={GraduationCap} label="Admission year" value={admissionYear} />}
-            {scopeLabel && <MetaItem icon={Users} label="Enrollment" value={scopeLabel} />}
-            {venueName && <MetaItem icon={MapPin} label="Main venue" value={venueName} />}
+            <MetaItem icon={CalendarDays} label="Dates" value={dateRange} />
+            <MetaItem icon={GraduationCap} label="Admission year" value={admissionYear} />
+            <MetaItem icon={Users} label="Enrollment" value={scopeLabel} />
+            <MetaItem icon={BookOpen} label="Degrees" value={degreesLabel} />
+            <MetaItem icon={Network} label="Departments" value={departmentsLabel} />
+            <MetaItem icon={MapPin} label="Main venue" value={venueName} />
           </div>
         </section>
 
         {/* Per-event coordinators — appoint who runs THIS induction, independent of any institution-wide coordinator */}
         <EventCoordinatorsSection eventId={id} />
+
+        {/* Custom feedback questionnaires.
+            Deliberately ADDITIVE to the existing day/programme feedback below,
+            which is a fixed rating-plus-comment shape (event_day_feedback /
+            event_program_feedback) that a coordinator cannot reword. This card
+            is for questions they write themselves. The two are stored
+            separately and neither replaces the other. */}
+        <EventFeedbackLinkCard eventId={id} />
 
         {/* KPI strip — cohort at a glance */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -299,10 +357,22 @@ export default function InductionDetailPage() {
         </Card>
 
         {/* Day-by-day schedule editor */}
-        <SessionsSection eventId={id} batches={batches.map((b) => ({ id: b.id, label: b.label }))} />
+        <SessionsSection
+          eventId={id}
+          batches={batches.map((b) => ({ id: b.id, label: b.label }))}
+          // Only 'live' opens attendance/feedback — a legacy status is not Live.
+          // Server-enforced by fn_induction_assert_live; this just mirrors it.
+          isLive={event.status === INDUCTION_ACTIVE_STATUS}
+        />
 
         {/* Peer-mentor feedback scale layer — appoint mentors, auto-balance, coverage */}
         <FeedbackVolunteersSection eventId={id} />
+
+        {/* Each college's own read on a session — split by the fresher's college (D5) */}
+        <FeedbackByCollegeSection eventId={id} />
+
+        {/* Individual responses behind those averages — who said what, + XLSX export */}
+        <SessionFeedbackSection eventId={id} eventName={event?.name ?? null} />
 
         {/* Value → advocacy → referral → JOIN funnel + NAAC evidence */}
         <ScorecardSection eventId={id} />
@@ -384,7 +454,10 @@ function MetaItem({ icon: Icon, label, value }: {
       <Icon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="font-medium truncate">{value ?? '—'}</div>
+        {/* title = the untruncated value, so a long degree/department list stays readable on hover */}
+        <div className="font-medium truncate" title={value != null ? String(value) : undefined}>
+          {value ?? '—'}
+        </div>
       </div>
     </div>
   );

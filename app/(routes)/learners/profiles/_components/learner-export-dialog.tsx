@@ -180,7 +180,10 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     semester_name: learner.semester?.semester_name || '',
     section_name: learner.section?.section_name || '',
     academic_year_name: learner.academic_year?.academic_year_name || '',
-    admission_year_name: learner.admission_year_id || '',
+    // Resolved from the joined cohort row, never from admission_year_id — the
+    // FK was being written into this column verbatim, so every export carried a
+    // UUID under the "Admission Year" header.
+    admission_year_name: learner.admission_year_obj?.admission_year_name || '',
     entry_type: learner.entry_type || '',
     regulation_name: learner.regulation
       ? `${learner.regulation.regulation_code} (${learner.regulation.regulation_year})`
@@ -258,11 +261,22 @@ interface FilterBadge {
   value: string;
 }
 
-function buildFilterBadges(filters: ProfilesSearchParams, statusFilter?: string): FilterBadge[] {
+function buildFilterBadges(
+  filters: ProfilesSearchParams,
+  statusFilter?: LifecycleStatus | LifecycleStatus[]
+): FilterBadge[] {
   const badges: FilterBadge[] = [];
 
   const effectiveStatus = statusFilter || filters.lifecycle_status;
-  if (effectiveStatus) badges.push({ label: 'Status', value: effectiveStatus });
+  if (effectiveStatus)
+    badges.push({
+      label: 'Status',
+      // The "All Statuses" tab passes its whole set. Naming the members keeps
+      // the badge honest about what the download will contain.
+      value: Array.isArray(effectiveStatus)
+        ? effectiveStatus.join(', ')
+        : effectiveStatus,
+    });
   if (filters.institution_id) badges.push({ label: 'Institution', value: 'Filtered' });
   if (filters.degree_id) badges.push({ label: 'Degree', value: 'Filtered' });
   if (filters.department_id) badges.push({ label: 'Department', value: 'Filtered' });
@@ -271,6 +285,11 @@ function buildFilterBadges(filters: ProfilesSearchParams, statusFilter?: string)
   if (filters.section_id) badges.push({ label: 'Section', value: 'Filtered' });
   if (filters.academic_year_id) badges.push({ label: 'Academic Year', value: 'Filtered' });
   if (filters.gender) badges.push({ label: 'Gender', value: filters.gender });
+  // 'Filtered' rather than the name: this builder is pure and synchronous, and
+  // the id→name lookup is an async query. Matches how every other id-valued
+  // filter above reports itself.
+  if (filters.accommodation_type_id)
+    badges.push({ label: 'Accommodation', value: 'Filtered' });
   if (filters.is_profile_complete !== undefined && filters.is_profile_complete !== '')
     badges.push({
       label: 'Profile Complete',
@@ -289,8 +308,17 @@ interface LearnerExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   filters: ProfilesSearchParams;
-  /** Passed from parent to lock lifecycle_status (e.g. 'active' | 'inactive' | 'exited') */
-  statusFilter?: 'active' | 'inactive' | 'exited';
+  /**
+   * Passed from the parent to lock lifecycle_status to the selected tab.
+   * Typed as the full LifecycleStatus union rather than a hand-listed subset —
+   * the old three-value copy silently excluded 'reserved' and 'admitted' once
+   * those became tabs, and it feeds straight into `.eq('lifecycle_status', …)`.
+   *
+   * An ARRAY on the "All Statuses" tab: the parent maps that tab to the five
+   * statuses the page lists (LearnerProfileService applies it with `.in()`),
+   * so the download matches the rows on screen instead of every enum label.
+   */
+  statusFilter?: LifecycleStatus | LifecycleStatus[];
 }
 
 // ============================================
@@ -381,9 +409,21 @@ export function LearnerExportDialog({
       const result = await LearnerProfileService.getLearnerProfiles({
         page: 1,
         limit: 10000,
+        // The advanced search term the table is currently narrowed by. It was
+        // omitted here while every other predicate was forwarded, so exporting
+        // during a search silently returned the whole unsearched result set —
+        // more rows than the table on screen was showing.
+        search: filters.search,
+        // Forwarded with the term, never defaulted — see LearnerProfileFilters.
+        // The URL carries these as strings; the service takes real booleans.
+        search_case_sensitive: filters.search_case_sensitive === 'true',
+        search_exact_match: filters.search_exact_match === 'true',
+        search_fields: filters.search_fields
+          ? filters.search_fields.split(',').map((f) => f.trim()).filter(Boolean)
+          : undefined,
         lifecycle_status: (statusFilter ||
           filters.lifecycle_status ||
-          undefined) as LifecycleStatus | undefined,
+          undefined) as LifecycleStatus | LifecycleStatus[] | undefined,
         institution_id: filters.institution_id,
         degree_id: filters.degree_id,
         department_id: filters.department_id,
@@ -391,7 +431,9 @@ export function LearnerExportDialog({
         semester_id: filters.semester_id,
         section_id: filters.section_id,
         academic_year_id: filters.academic_year_id,
+        admission_year: filters.admission_year,
         gender: filters.gender,
+        accommodation_type_id: filters.accommodation_type_id,
         is_profile_complete:
           filters.is_profile_complete !== undefined && filters.is_profile_complete !== ''
             ? filters.is_profile_complete === 'true'

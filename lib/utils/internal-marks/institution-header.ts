@@ -118,6 +118,10 @@ const CAS_HEADER: InstitutionPdfHeader = {
 const CET_CODES = new Set(['CET', 'JKKNCET'])
 /** COE counselling_code / institution_code values that map to Arts & Science. */
 const CAS_CODES = new Set(['CAS', 'JKKNCAS'])
+/** Allied Health Sciences (Dr. MGR Medical University). */
+const AHS_CODES = new Set(['AHS'])
+const MGR_MEDICAL_ACCREDITATION =
+	'(Affiliated to The Tamil Nadu Dr. M.G.R. Medical University, Chennai)'
 
 function isCetName(name: string): boolean {
 	// Short codes ("CET", "JKKNCET") must win — DB display names often omit
@@ -125,8 +129,24 @@ function isCetName(name: string): boolean {
 	return /\bcet\b|jkkncet|engineering|technology/i.test(name)
 }
 
+// AHS is checked BEFORE CAS: "Allied Health Science" contains "science", which
+// would otherwise be stolen by the Arts & Science (Periyar) letterhead.
+function isAhsName(name: string): boolean {
+	return /\bahs\b|allied\s+health/i.test(name)
+}
+
 function isCasName(name: string): boolean {
 	return /\bcas\b|jkkncas|arts|science/i.test(name)
+}
+
+/** AHS header — shows the institution's OWN name + Dr. MGR Medical affiliation. */
+function ahsHeader(name?: string | null): InstitutionPdfHeader {
+	return {
+		institution_name: (name?.trim() || 'J.K.K.NATARAJA COLLEGE OF ALLIED HEALTH SCIENCES').toUpperCase(),
+		institution_address: DEFAULT_ADDRESS,
+		institution_accreditation: MGR_MEDICAL_ACCREDITATION,
+		rightLogoImage: '/jkkn_logo.png',
+	}
 }
 
 /**
@@ -143,10 +163,13 @@ export function getInstitutionHeader(
 ): InstitutionPdfHeader {
 	const code = (institutionCode ?? '').trim().toUpperCase()
 	if (CET_CODES.has(code)) return CET_HEADER
+	if (AHS_CODES.has(code)) return ahsHeader(name)
 	if (CAS_CODES.has(code)) return CAS_HEADER
 
 	if (name) {
 		if (isCetName(name)) return CET_HEADER
+		// AHS before CAS — "Allied Health Science" would otherwise match CAS.
+		if (isAhsName(name)) return ahsHeader(name)
 		if (isCasName(name)) return CAS_HEADER
 		// Unknown institution — render its own name with no accreditation line
 		return {

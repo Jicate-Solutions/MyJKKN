@@ -3,9 +3,15 @@
  * Cascading filters for the Learner Onboarding page.
  *
  * Mirrors profiles' ProfilesFilters: Institution → Degree → Department →
- * Program → Semester → Section + Academic Year + Gender, plus a Missing Field
- * dropdown unique to this page so admins can batch-fix one field at a time
- * (e.g. "show me everyone missing a College Email").
+ * Program → Semester → Section + Academic Year + Admission Year + Gender +
+ * Accommodation, plus a Missing Field dropdown unique to this page so admins
+ * can batch-fix one field at a time (e.g. "show me everyone missing a College
+ * Email").
+ *
+ * Admission Year and Accommodation sit OUTSIDE the academic cascade and are
+ * deliberately not cleared when the institution changes: the cohort filter is
+ * an integer year (identical in every institution) and accommodation_types is a
+ * global 4-row lookup, so neither has an institution-specific value to reset.
  *
  * Profile Status filter is omitted — this page already lists ONLY incomplete
  * profiles by definition.
@@ -13,6 +19,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   Select,
   SelectContent,
@@ -36,6 +43,8 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { LookupService } from '@/lib/services/admission/lookup-service';
+import { useGroupAdmissionYears } from '@/hooks/admission/use-group-admission-years';
 import type { OnboardingSearchParams } from './data-table-schema';
 
 interface OnboardingFiltersProps {
@@ -50,8 +59,11 @@ const FILTER_KEYS = [
   'semester_id',
   'section_id',
   'academic_year_id',
+  'admission_year',
   'gender',
-  'missing_field'
+  'accommodation_type_id',
+  'missing_field',
+  'lifecycle_status'
 ] as const;
 
 export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
@@ -70,8 +82,12 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     semester_id?: string;
     section_id?: string;
     academic_year_id?: string;
+    /** Integer year held as a string — it only ever travels through the URL. */
+    admission_year?: string;
     gender?: string;
+    accommodation_type_id?: string;
     missing_field?: string;
+    lifecycle_status?: string;
   }>({
     institution_id: searchParams.institution_id || undefined,
     degree_id: searchParams.degree_id || undefined,
@@ -80,8 +96,13 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     semester_id: searchParams.semester_id || undefined,
     section_id: searchParams.section_id || undefined,
     academic_year_id: searchParams.academic_year_id || undefined,
+    admission_year: searchParams.admission_year
+      ? String(searchParams.admission_year)
+      : undefined,
     gender: searchParams.gender || undefined,
-    missing_field: searchParams.missing_field || undefined
+    accommodation_type_id: searchParams.accommodation_type_id || undefined,
+    missing_field: searchParams.missing_field || undefined,
+    lifecycle_status: searchParams.lifecycle_status || undefined
   });
 
   const [institutions, setInstitutions] = useState<any[]>([]);
@@ -125,8 +146,11 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       semester_id: undefined,
       section_id: undefined,
       academic_year_id: undefined,
+      admission_year: undefined,
       gender: undefined,
-      missing_field: undefined
+      accommodation_type_id: undefined,
+      missing_field: undefined,
+      lifecycle_status: undefined
     });
     const params = new URLSearchParams(currentSearchParams.toString());
     FILTER_KEYS.forEach((key) => params.delete(key));
@@ -144,8 +168,13 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       semester_id: searchParams.semester_id || undefined,
       section_id: searchParams.section_id || undefined,
       academic_year_id: searchParams.academic_year_id || undefined,
+      admission_year: searchParams.admission_year
+        ? String(searchParams.admission_year)
+        : undefined,
       gender: searchParams.gender || undefined,
-      missing_field: searchParams.missing_field || undefined
+      accommodation_type_id: searchParams.accommodation_type_id || undefined,
+      missing_field: searchParams.missing_field || undefined,
+      lifecycle_status: searchParams.lifecycle_status || undefined
     });
   }, [searchParams]);
 
@@ -269,6 +298,30 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       })
       .finally(() => setLoadingAcademicYears(false));
   }, [localFilters.institution_id]);
+
+  /**
+   * accommodation_types is a small GLOBAL lookup (4 active rows, no
+   * institution_id column), so it is cached for the session and never cleared
+   * by the cascade. Same query key and staleTime as the profiles / billing
+   * coverage filter bars, so all three share one cache entry.
+   */
+  const { data: accommodationTypes, isLoading: loadingAccommodation } = useQuery({
+    queryKey: ['accommodation-types', 'active'],
+    queryFn: () => LookupService.listAccommodationTypes(true),
+    staleTime: 30 * 60 * 1000
+  });
+
+  /**
+   * Admission cohorts, deduped by YEAR across institutions — one "2026" entry
+   * rather than one per college. Scoped to the picked institution only to keep
+   * the list short; the value submitted is the year integer either way.
+   *
+   * Reads admission_years, whose RLS wants `admission.settings.years.view`. A
+   * role without it (currently only `registrar`) sees an empty list here — the
+   * same reason its Admission Year column already renders blank.
+   */
+  const { data: admissionYears, isLoading: loadingAdmissionYears } =
+    useGroupAdmissionYears(localFilters.institution_id ? [localFilters.institution_id] : null);
 
   // Auto-select institution / department for scoped roles
   useEffect(() => {
@@ -520,6 +573,61 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
               </SelectContent>
             </Select>
 
+            {/* Admission cohort. Value is the INTEGER year, never
+                admission_year_id — that column holds one row per (institution,
+                year), so a uuid would match only one college's slice of the
+                cohort while the page is in All Institutions mode. */}
+            <Select
+              value={localFilters.admission_year || ''}
+              onValueChange={(v) =>
+                setLocalFilters((prev) => ({
+                  ...prev,
+                  admission_year: v === 'all' ? undefined : v
+                }))
+              }
+              disabled={loadingAdmissionYears}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={loadingAdmissionYears ? 'Loading...' : 'Select Admission Year'}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Admission Years</SelectItem>
+                {(admissionYears ?? []).map((y) => (
+                  <SelectItem key={y.programStartYear} value={String(y.programStartYear)}>
+                    {y.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Accommodation — FK to the global accommodation_types lookup. */}
+            <Select
+              value={localFilters.accommodation_type_id || ''}
+              onValueChange={(v) =>
+                setLocalFilters((prev) => ({
+                  ...prev,
+                  accommodation_type_id: v === 'all' ? undefined : v
+                }))
+              }
+              disabled={loadingAccommodation}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={loadingAccommodation ? 'Loading...' : 'Select Accommodation'}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Accommodations</SelectItem>
+                {(accommodationTypes ?? []).map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             {/* Missing Field — unique to the onboarding page */}
             <Select
               value={localFilters.missing_field || ''}
@@ -539,6 +647,29 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
                 <SelectItem value="academic_year_id">Missing Academic Year</SelectItem>
                 <SelectItem value="semester_id">Missing Semester</SelectItem>
                 <SelectItem value="section_id">Missing Section</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Lifecycle status — the workspace covers two statuses since
+                2026-08-10, so it needs a way to look at one at a time. Only the
+                two pre-active statuses are offered; any other value is rejected
+                by onboardingStatusSchema and falls back to "both". */}
+            <Select
+              value={localFilters.lifecycle_status || ''}
+              onValueChange={(v) =>
+                setLocalFilters((prev) => ({
+                  ...prev,
+                  lifecycle_status: v === 'all' ? undefined : v
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Filter by Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Reserved &amp; Admitted</SelectItem>
+                <SelectItem value="reserved">Reserved only</SelectItem>
+                <SelectItem value="admitted">Admitted only</SelectItem>
               </SelectContent>
             </Select>
           </div>

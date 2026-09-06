@@ -2,9 +2,14 @@
 
 // ============================================================================
 // IdCardTemplateEditor — template editor tabs.
-// Created: 2026-05-07. Rewired: 2026-07-25.
+// Created: 2026-05-07. Rewired: 2026-07-25. Back tab wired: 2026-08-25.
 //
 // Tab 1: Card design — per-template artwork (IdCardDesignTab, live).
+// Tab 3: Back side — per-template back_layout_json (IdCardBackDesignTab).
+//         Shipped 2026-07-25 with no caller anywhere in the repo, so the
+//         back of a card could not be seen or edited from any screen for a
+//         month while three templates already carried a back layout.
+//         Always rendered — never gated on the printer policy (see below).
 // Tab 2: Field mappings — per-template `field_mappings` jsonb on
 //         id_card_templates, the SAME column the render engine reads
 //         (parseFieldMappings in the render route). Served by
@@ -12,16 +17,25 @@
 //         The old /api/id-cards/template/mappings endpoints never existed —
 //         the tab stubbed to defaults and its Save posted into the void.
 //
-// Photo fallback: the old tab was REMOVED — the fallback chain is hardcoded
-// in lib/id-cards/render-data.ts (learner photo / team-member picture →
-// profile avatar → printed initials); there is no editable substrate. A
-// muted note below the tabs explains the fixed behaviour.
+// Photo: the old "Photo fallback" tab was REMOVED, and since 2026-09-03 there
+// is no fallback left to describe. Guard 3 on POST /api/id-cards/jobs refuses a
+// card outright when no institutional photograph is on file — an account avatar
+// does not qualify and there is no override. The render engine still carries a
+// candidate chain internally, but nothing printed through the queue reaches it
+// without a real photo. No editable substrate; the muted note below the tabs
+// explains the rule.
 //
 // Sides badge: GET /api/id-cards/policy?institution_id=<uuid>. The endpoint
 // REQUIRES institution_id and wraps responses as { data: IdCardPolicy }, so
 // sides lives at data.sides (the old top-level `json.sides` read plus the
 // missing query param made the badge always claim "Single-sided").
 // Fail-soft: any failure → 1.
+//
+// `sides` is DESCRIPTIVE ONLY. Nothing in the render or print path reads it:
+// the render route gates side=back on the template's own back_layout_json,
+// and /jobs/[id]/pickup derives has_back the same way. So the old hint
+// ("change in Printer Policy to enable it") pointed at a setting that
+// enables nothing — see sidesNoticeText below for the honest wording.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -48,6 +62,7 @@ import {
   fetchTemplatesWithLayout,
   type TemplateDesignRow,
 } from '@/lib/services/id-cards/template-design-client';
+import { pickPreferredAdminTemplateId } from '@/lib/services/id-cards/template-picker';
 
 import {
   CARD_FIELD_LABELS,
@@ -56,6 +71,7 @@ import {
   type CardField,
 } from '@/app/(routes)/admin/id-cards/_types';
 import { IdCardDesignTab } from '@/components/admin/id-cards/id-card-design-tab';
+import { IdCardBackDesignTab } from '@/components/admin/id-cards/id-card-back-design-tab';
 
 // Display order for mapping rows = the order fields appear on the card.
 const CARD_FIELD_ORDER = Object.keys(CARD_FIELD_LABELS) as CardField[];
@@ -77,6 +93,26 @@ export function parseSidesFromPolicyResponse(json: unknown): 1 | 2 {
     }
   }
   return 1;
+}
+
+/**
+ * The note shown beside the "Printer configured as" badge.
+ *
+ * It must describe the ACTUAL state and must never tell someone to change a
+ * setting that is already correct. The previous copy ("Back layout not used —
+ * change in Printer Policy to enable it") failed both tests: `sides` is read
+ * by nothing in the render or print path, and on production it is already 2,
+ * so following the instruction changed nothing while the back stayed
+ * unreachable. What really decides a back is the per-template switch on the
+ * Back side tab, which writes back_layout_json.
+ *
+ * null (still loading) → no note.
+ */
+export function sidesNoticeText(sides: 1 | 2 | null): string | null {
+  if (sides === null) return null;
+  return sides === 2
+    ? 'Your printer is recorded as double-sided. Whether a card actually gets a back is set per template on the Back side tab.'
+    : 'Your printer is recorded as front-only. You can still prepare a back design — whether a card gets a back is set per template on the Back side tab, not by this setting.';
 }
 
 /**
@@ -216,7 +252,7 @@ const mappingConfig: LookupConfig<FieldMappingRow> = {
   columns: mappingColumns,
   rowHint: (row) => {
     if (row.card_field === 'photo') {
-      return 'This sets the primary photo source. If it has no image, the print engine automatically falls back to the profile avatar and finally to printed initials.';
+      return 'This sets the photo source. If it holds no image the card is REFUSED, not printed with a stand-in — an account avatar does not count and there is no override.';
     }
     return null;
   },
@@ -257,9 +293,9 @@ export function IdCardTemplateEditor() {
       .then((rows) => {
         if (cancelled) return;
         setTemplates(rows);
-        setSelectedId((prev) =>
-          prev && rows.some((r) => r.id === prev) ? prev : (rows[0]?.id ?? '')
-        );
+        // Full list stays (dark templates must be mappable); only the default
+        // prefers an active template.
+        setSelectedId((prev) => pickPreferredAdminTemplateId(rows, prev));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -305,6 +341,7 @@ export function IdCardTemplateEditor() {
   );
 
   const selectedTemplate = templates?.find((t) => t.id === selectedId) ?? null;
+  const sidesNotice = sidesNoticeText(sides);
 
   return (
     <div className="space-y-4">
@@ -320,10 +357,10 @@ export function IdCardTemplateEditor() {
         ) : (
           <Badge variant="outline">Single-sided</Badge>
         )}
-        {sides === 1 && (
+        {sidesNotice && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Info className="h-3 w-3" />
-            Back layout not used — change in Printer Policy to enable it.
+            {sidesNotice}
           </span>
         )}
       </div>
@@ -331,6 +368,7 @@ export function IdCardTemplateEditor() {
       <Tabs defaultValue="design">
         <TabsList>
           <TabsTrigger value="design">Card design</TabsTrigger>
+          <TabsTrigger value="back">Back side</TabsTrigger>
           <TabsTrigger value="mappings">Field mappings</TabsTrigger>
         </TabsList>
 
@@ -341,6 +379,15 @@ export function IdCardTemplateEditor() {
             details print on top. No artwork = the standard green design.
           </div>
           <IdCardDesignTab />
+        </TabsContent>
+
+        <TabsContent value="back" className="mt-4">
+          <div className="mb-3 text-sm text-muted-foreground">
+            The back of the card. Turn it on for a template, upload back
+            artwork if you have it, and preview the result. A template with the
+            back switched off prints front-only.
+          </div>
+          <IdCardBackDesignTab />
         </TabsContent>
 
         <TabsContent value="mappings" className="mt-4">
@@ -377,6 +424,11 @@ export function IdCardTemplateEditor() {
                     ))}
                   </SelectContent>
                 </Select>
+                {selectedTemplate && !selectedTemplate.active && (
+                  <Badge variant="destructive">
+                    Not switched on — will not be offered for printing
+                  </Badge>
+                )}
               </div>
               {selectedTemplate && (
                 <LookupTable
@@ -398,13 +450,15 @@ export function IdCardTemplateEditor() {
         </TabsContent>
       </Tabs>
 
-      {/* Photo fallback: no editable substrate — the chain is fixed in the
-          print engine (lib/id-cards/render-data.ts). Explains, no dead UI. */}
+      {/* No photo, no card. There is no fallback to describe any more and no
+          editable substrate — the rule lives in Guard 3 on POST /api/id-cards/jobs
+          (lib/services/id-cards/reprint-eligibility.ts). Explains, no dead UI. */}
       <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-        Photo fallback: when a learner has no uploaded photo (or a team member
-        has no profile picture), cards automatically fall back to the account
-        avatar, and finally to printed initials. This order is fixed in the
-        print engine today — an editing screen is planned.
+        No photograph, no card. When a learner has no uploaded photo (or a team member
+        has no profile picture), the card is refused rather than printed with a stand-in.
+        A picture from their own login account does not count — it is not evidence the
+        institution photographed anyone — and there is no override. Photo Check lists
+        who is affected, per college.
       </div>
     </div>
   );

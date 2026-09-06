@@ -221,11 +221,17 @@ export default function LoginPage() {
         session: 'Error creating session',
         general: 'An unexpected error occurred',
         callback: 'Authentication callback failed',
-        profile_load_failed: 'Unable to load your profile. This is usually a temporary issue. Please sign in again.'
+        // Do NOT call this temporary. It can be a one-off database blip, but for
+        // people whose profile is missing or whose profile is linked to a
+        // different id, it never clears — and the old wording ("temporary …
+        // please sign in again") is why not one of them ever reported a fault.
+        // Name the real next step instead of promising it will pass.
+        profile_load_failed:
+          'You signed in successfully, but we could not open your profile. If this happens again, signing in once more will not fix it — please contact your institution\'s administrator and give them the email address you just used.'
       };
 
       const errorTitles: Record<string, string> = {
-        profile_load_failed: 'Temporary Connection Issue'
+        profile_load_failed: 'We could not open your account'
       };
 
       const message = errorMessages[error] || `Login error: ${error}`;

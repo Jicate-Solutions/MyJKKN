@@ -37,11 +37,11 @@ export interface BulkEditReport {
  * collides with them.
  *
  * Why this exists: validateStaffBulkEditRow is per-row and pure. It catches a value that
- * is already owned in the DATABASE (via ctx.emailOwner / ctx.staffIdOwner /
- * ctx.biometricOwner), but it cannot see that two DIFFERENT rows of the same upload both
- * claim the same NEW Personal Email or Staff ID — neither is in the database yet, so both
- * validate cleanly and the second one raises 23505 at write time. That is precisely the
- * late failure the preview screen exists to prevent.
+ * is already owned in the DATABASE (via ctx.emailOwner / ctx.biometricOwner), but it
+ * cannot see that two DIFFERENT rows of the same upload both claim the same NEW Personal
+ * Email or biometric code — neither is in the database yet, so both validate cleanly and
+ * the second one raises 23505 at write time. That is precisely the late failure the
+ * preview screen exists to prevent.
  *
  * Exported so it can be unit-tested without a database.
  */
@@ -52,9 +52,6 @@ export function claimUniqueValues(
 ): void {
   if (updates.email) {
     ctx.emailOwner.set(String(updates.email).toLowerCase(), staff.id);
-  }
-  if (updates.staff_id) {
-    ctx.staffIdOwner.set(String(updates.staff_id).toLowerCase(), staff.id);
   }
   // The pair is coupled: a code claims a slot on a machine. Use the new value where the
   // row supplied one, otherwise what is already on file — the same "effective pair" rule
@@ -146,22 +143,22 @@ export class BulkStaffEditService extends BaseService {
       }
     }
 
-    // ── uniqueness owners: personal email, staff_id, biometric (machine, code) ──
-    // Unscoped by design: Personal Email / Staff ID / the biometric pair are unique across
-    // ALL staff, not just the accessible institutions, so a collision outside the caller's
+    // ── uniqueness owners: personal email, biometric (machine, code) ──
+    // Unscoped by design: Personal Email and the biometric pair are unique across ALL
+    // staff, not just the accessible institutions, so a collision outside the caller's
     // scope must still be caught here — otherwise it only surfaces as a 23505 at write time.
+    // Staff ID is absent deliberately: since 2026-08-28 it is database-generated and
+    // permanent, so bulk edit cannot write it and cannot collide on it.
     const emailOwner = new Map<string, string>();
-    const staffIdOwner = new Map<string, string>();
     const biometricOwner = new Map<string, string>();
     {
       const { data, error } = await supabase
         .from('staff')
-        .select('id, email, staff_id, biometric_id, biometric_institution_id')
+        .select('id, email, biometric_id, biometric_institution_id')
         .range(0, LOOKUP_RANGE_END);
       if (error) throw new Error(getErrorMessage(error));
       for (const r of data ?? []) {
         if (r.email) emailOwner.set(String(r.email).toLowerCase(), r.id);
-        if (r.staff_id) staffIdOwner.set(String(r.staff_id).toLowerCase(), r.id);
         const code = normaliseBiometricCode(r.biometric_id);
         if (code && r.biometric_institution_id) {
           biometricOwner.set(`${r.biometric_institution_id}|${code}`, r.id);
@@ -170,6 +167,10 @@ export class BulkStaffEditService extends BaseService {
     }
 
     // ── name -> id lookups ──
+    // labelById is the reverse of all three, built from the same rows so it cannot drift.
+    // Display-only: it turns the UUIDs in a preview change line back into readable names.
+    const labelById = new Map<string, string>();
+
     const departmentsByInstitution = new Map<string, Map<string, string>>();
     {
       const { data, error } = await supabase
@@ -184,6 +185,7 @@ export class BulkStaffEditService extends BaseService {
         departmentsByInstitution
           .get(d.institution_id)!
           .set(String(d.department_name).trim().toLowerCase(), d.id);
+        labelById.set(d.id, String(d.department_name));
       }
     }
 
@@ -194,7 +196,10 @@ export class BulkStaffEditService extends BaseService {
         .select('id, category_name')
         .range(0, LOOKUP_RANGE_END);
       if (error) throw new Error(getErrorMessage(error));
-      for (const c of data ?? []) categoriesByName.set(String(c.category_name).trim().toLowerCase(), c.id);
+      for (const c of data ?? []) {
+        categoriesByName.set(String(c.category_name).trim().toLowerCase(), c.id);
+        labelById.set(c.id, String(c.category_name));
+      }
     }
 
     // ALL institutions — a biometric machine may belong to another institution.
@@ -205,7 +210,10 @@ export class BulkStaffEditService extends BaseService {
         .select('id, name')
         .range(0, LOOKUP_RANGE_END);
       if (error) throw new Error(getErrorMessage(error));
-      for (const i of data ?? []) institutionsByName.set(String(i.name).trim().toLowerCase(), i.id);
+      for (const i of data ?? []) {
+        institutionsByName.set(String(i.name).trim().toLowerCase(), i.id);
+        labelById.set(i.id, String(i.name));
+      }
     }
 
     return {
@@ -214,8 +222,8 @@ export class BulkStaffEditService extends BaseService {
       categoriesByName,
       institutionsByName,
       emailOwner,
-      staffIdOwner,
-      biometricOwner
+      biometricOwner,
+      labelById
     };
   }
 
@@ -235,6 +243,15 @@ export class BulkStaffEditService extends BaseService {
     const writes = new Map<string, Partial<Record<StaffEditableField, string | null>>>();
 
     const headerOf = new Map(EDITABLE_COLUMNS.map(c => [c.field, c.header] as const));
+    // A `lookup` column stores a UUID but the sheet speaks names, so a change line for one
+    // has to be translated back or it reads as gibberish. Driven off the column contract's
+    // own `kind` rather than a hand-listed set of fields, so a lookup column added later is
+    // covered automatically.
+    const kindOf = new Map(EDITABLE_COLUMNS.map(c => [c.field, c.kind] as const));
+    const display = (field: StaffEditableField, value: string | null) => {
+      if (value == null || value === '') return null;
+      return kindOf.get(field) === 'lookup' ? (ctx.labelById?.get(value) ?? value) : value;
+    };
 
     for (const row of rows) {
       const key = row.institutionEmail.trim().toLowerCase();
@@ -251,8 +268,8 @@ export class BulkStaffEditService extends BaseService {
 
       const changes = Object.entries(updates).map(([field, to]) => ({
         field: headerOf.get(field as StaffEditableField) ?? field,
-        from: (staff?.[field] as string | null) ?? null,
-        to: (to as string | null) ?? null
+        from: display(field as StaffEditableField, (staff?.[field] as string | null) ?? null),
+        to: display(field as StaffEditableField, (to as string | null) ?? null)
       }));
 
       if (changes.length === 0) {
@@ -268,11 +285,11 @@ export class BulkStaffEditService extends BaseService {
         //
         // validateStaffBulkEditRow is per-row and pure, so on its own it cannot see that
         // TWO DIFFERENT rows in the same file both claim the same new Personal Email or
-        // Staff ID. `seen` only tracks the match key (Institution Email). Without this
-        // block, both rows validate cleanly and the second one raises 23505 at write time
-        // — the exact class of late failure the preview screen exists to prevent.
+        // biometric code. `seen` only tracks the match key (Institution Email). Without
+        // this block, both rows validate cleanly and the second one raises 23505 at write
+        // time — the exact class of late failure the preview screen exists to prevent.
         // Registering the claim here makes the later row collide in ctx.emailOwner /
-        // ctx.staffIdOwner / ctx.biometricOwner and surface as a `record` issue instead.
+        // ctx.biometricOwner and surface as a `record` issue instead.
         claimUniqueValues(ctx, staff, updates);
       }
     }

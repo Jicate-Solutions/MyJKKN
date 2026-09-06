@@ -97,6 +97,33 @@ export async function setTemplateBackground(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Availability for printing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Switch a template on (offered on every print picker) or off (design-only).
+ *
+ * `active` defaults FALSE in the schema and until now NOTHING in the codebase
+ * ever wrote it — a template could only be switched on by a hand-run SQL
+ * UPDATE. That is why this ships alongside the print-picker filter: without it,
+ * hiding inactive templates from the pickers would block printing outright with
+ * no way back from inside the app.
+ *
+ * Same shape, table and session client as setTemplateBackEnabled, so it rides
+ * the id_cards.templates.edit RLS path already proven in production.
+ */
+export async function setTemplateActive(
+  template: TemplateDesignRow,
+  active: boolean
+): Promise<void> {
+  const supabase = createClientSupabaseClient();
+  const { error } = await (supabase.from('id_card_templates' as never) as any)
+    .update({ active, updated_at: new Date().toISOString() })
+    .eq('id', template.id);
+  if (error) throw new Error(error.message);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Back side (DARK feature)
 // ─────────────────────────────────────────────────────────────────────────────
 

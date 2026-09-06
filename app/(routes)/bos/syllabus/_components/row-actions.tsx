@@ -24,7 +24,160 @@ import { toast } from 'sonner';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import { generateCourseSyllabusPDF, extractPOKeys, type CourseSyllabusPDFData } from '@/lib/utils/bos/course-syllabus-pdf';
 import { generateCourseSyllabusDOCX } from '@/lib/utils/bos/course-syllabus-docx';
+import { modelUsesAhsContent } from '@/lib/services/bos/academic-model';
 import { exportSyllabusToXlsx } from './syllabus-actions';
+
+// ── AHS / Pharm.D (mgr_ahs / mgr_pharmd) PDF mapping ────────────────────────
+// These models store content in ahs_content { subjects[] }, marks in exam_scheme,
+// and rotations in internship_postings — NOT in the Anna course_content/CO-PO
+// columns the PDF data-builder reads. Map them onto the generator's existing
+// primitives (units + references + instruction) so the letterhead PDF renders.
+const ahsTopicStr = (t: unknown): string =>
+  typeof t === 'string'
+    ? t
+    : t && typeof t === 'object'
+      ? [((t as Record<string, unknown>).title ?? '') as string,
+         ((t as Record<string, unknown>).content ?? '') as string].filter(Boolean).join(': ')
+      : String(t ?? '');
+
+/** Normalise ahs_content to a subjects[] list, tolerating the pre-reshape shape
+ *  where a single paper's fields sit at the root ({ paper_no, topics, ... }). */
+function ahsSubjects(ahs: BosCourseSyllabus['ahs_content']): NonNullable<BosCourseSyllabus['ahs_content']>['subjects'] {
+  if (ahs?.subjects?.length) return ahs.subjects;
+  const root = ahs as Record<string, unknown> | undefined;
+  if (root && (root.paper_no || root.topics || root.units)) {
+    return [{
+      subject_no: (root.paper_no as string) ?? undefined,
+      title: (root.title as string) ?? '',
+      mode: (root.mode as 'flat' | 'units') ?? 'flat',
+      topics: (root.topics as string[]) ?? [],
+      units: (root.units as { unit_no: string; topics: string[] }[]) ?? [],
+      reference_books: (root.reference_books as string[]) ?? [],
+    }];
+  }
+  return [];
+}
+
+/** Split one AHS topic string into a bold heading + its `;`-separated subtopics.
+ *  Source topics are "HEADING: item; item; item" — the heading becomes the bold
+ *  chapter title and each item a subtopic (rendered as normal detail below it),
+ *  instead of the whole run-on string sitting in the (bold) title. Splits on the
+ *  FIRST colon only, so colons inside an item are preserved. No colon → the whole
+ *  string is the heading with no subtopics. */
+function ahsTopicToChapter(raw: unknown, idx: number): NonNullable<CourseSyllabusPDFData['units']>[number]['chapters'][number] {
+  const t = ahsTopicStr(raw).trim();
+  const ci = t.indexOf(':');
+  if (ci > 0 && ci < t.length - 1) {
+    const heading = t.slice(0, ci).trim();
+    const subs = t.slice(ci + 1)
+      .split(/\s*;\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (subs.length > 0) {
+      return {
+        chapter_number: String(idx + 1),
+        title: heading,
+        sections: '',
+        subtopics: subs.map((s, si) => ({ number: si + 1, title: s })),
+      };
+    }
+  }
+  return { chapter_number: String(idx + 1), title: t, sections: '' };
+}
+
+/** ahs_content.subjects → the generator's BosUnit[] (paper → topics/units). */
+function ahsContentToUnits(
+  ahs: BosCourseSyllabus['ahs_content'],
+): NonNullable<CourseSyllabusPDFData['units']> {
+  const subjects = ahsSubjects(ahs);
+  const units: NonNullable<CourseSyllabusPDFData['units']> = [];
+  subjects.forEach((s) => {
+    if ((s.mode ?? 'flat') === 'units' && (s.units?.length ?? 0) > 0) {
+      (s.units ?? []).forEach((u, ui) => {
+        // Source blocks are "Block N: Name". Put the short "Block N" tag in the
+        // narrow Unit column and the name (bold) in the content column — NOT the
+        // full string in both, which wraps ugly and duplicates the heading.
+        const raw = (u.unit_no || '').trim();
+        const ci = raw.indexOf(':');
+        const col1 = ci > 0 ? raw.slice(0, ci).trim() : (raw || String(ui + 1));
+        const title = ci > 0 ? raw.slice(ci + 1).trim() : raw;
+        units.push({
+          unit_id: col1,
+          unit_title: title,
+          chapters: (u.topics ?? []).map((t, ci2) => ahsTopicToChapter(t, ci2)),
+        });
+      });
+    } else {
+      // flat: ONE table row PER topic heading — NOT one mega-row. autoTable
+      // paginates between rows, so a single huge cell would overflow the page and
+      // the exam/references/signature blocks after it would overlap the content.
+      // The paper number sits on the first row; each heading is the bold unit
+      // title with its sub-items as the detail line beneath.
+      const topics = s.topics ?? [];
+      if (topics.length === 0) {
+        units.push({ unit_id: s.subject_no || '', unit_title: s.title || '', chapters: [] });
+      }
+      topics.forEach((t, ti) => {
+        const ch = ahsTopicToChapter(t, 0);
+        units.push({
+          unit_id: ti === 0 ? (s.subject_no || '') : '',
+          unit_title: ch.title,
+          chapters:
+            ch.subtopics && ch.subtopics.length > 0
+              ? [{ chapter_number: '1', title: '', sections: '', subtopics: ch.subtopics }]
+              : [],
+        });
+      });
+    }
+  });
+  return units;
+}
+
+/** ahs_content reference_books → the generator's reference list. */
+function ahsReferences(
+  ahs: BosCourseSyllabus['ahs_content'],
+): NonNullable<CourseSyllabusPDFData['references']> {
+  const out: NonNullable<CourseSyllabusPDFData['references']> = [];
+  ahsSubjects(ahs).forEach((s) =>
+    (s.reference_books ?? []).forEach((r) => out.push({ title: ahsTopicStr(r), author: '' })),
+  );
+  return out;
+}
+
+/** exam_scheme + internship_postings → a plain-text block printed after content. */
+function ahsExamInternshipText(
+  exam: BosCourseSyllabus['exam_scheme'],
+  intern: BosCourseSyllabus['internship_postings'],
+): string {
+  const parts: string[] = [];
+  const comps = exam?.components ?? [];
+  if (comps.length) {
+    parts.push(
+      'EXAMINATION SCHEME: ' +
+        comps
+          .map((c) => `${c.name} (Max ${c.max ?? '-'}${c.min != null ? `/Min ${c.min}` : ''})`)
+          .join('; '),
+    );
+  }
+  const qsecs = exam?.question_pattern?.sections ?? [];
+  if (qsecs.length) {
+    parts.push(
+      'QUESTION PATTERN: ' +
+        qsecs.map((s) => `${s.name}${s.marks != null ? ` (${s.marks})` : ''}`).join('; ') +
+        (exam?.question_pattern?.total_marks != null
+          ? ` = ${exam.question_pattern.total_marks}`
+          : ''),
+    );
+  }
+  const postings = intern?.postings ?? [];
+  if (postings.length) {
+    parts.push(
+      `INTERNSHIP${intern?.total_duration ? ` (${intern.total_duration})` : ''}: ` +
+        postings.map((p) => `${p.area}${p.duration ? ` — ${p.duration}` : ''}`).join('; '),
+    );
+  }
+  return parts.join('\n\n');
+}
 
 // Resolve the course's CURRENT code / part / category / workload for the report,
 // anchored on the stable COE course_id when present. A course_code search would
@@ -99,6 +252,33 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
     // non-fatal — fall back to the stored snapshot
   }
   return { course_code, course_name, coursePartLabel, courseCategory, workload };
+}
+
+// Resolve the SYLLABUS's OWN institution (name + code) for the PDF header. The
+// caller-supplied institutionName is the scoped filter selection, not the row's
+// institution — so a super-admin viewing an unfiltered list gets the wrong (or
+// no) name, which falls back to the Arts & Science letterhead. Cached so a bulk
+// export doesn't refetch the small list per syllabus.
+type InstLite = { id: string; name?: string; institution_code?: string; myjkkn_institution_ids?: string[] };
+let _instListCache: Promise<InstLite[]> | null = null;
+function loadInstitutionsList(): Promise<InstLite[]> {
+  if (!_instListCache) {
+    _instListCache = fetch('/api/bos/institutions')
+      .then((r) => (r.ok ? (r.json() as Promise<InstLite[]>) : []))
+      .catch(() => [] as InstLite[]);
+  }
+  return _instListCache;
+}
+async function resolveSyllabusInstitution(institutionsId: string): Promise<{ name?: string; code?: string }> {
+  try {
+    const list = await loadInstitutionsList();
+    const m = list.find(
+      (i) => i.id === institutionsId || (i.myjkkn_institution_ids ?? []).includes(institutionsId),
+    );
+    return { name: m?.name, code: m?.institution_code };
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -243,10 +423,14 @@ export async function buildSyllabusPdfData(
   const variant: 'default' | 'engineering' =
     isCet || isEngineeringStream || isAnnaUnivCode ? 'engineering' : 'default';
 
-  // Force the Engineering header (name/accreditation/right logo) for the CET
-  // variant; otherwise resolve branding from the hosting institution's name.
+  // Force the Engineering header for the CET variant; otherwise resolve branding
+  // from the SYLLABUS's OWN institution (name + code), falling back to the scoped
+  // institutionName. Passing the code lets AHS ('AHS') route to the Dr. MGR
+  // Medical header instead of the "Science"-matched Arts & Science letterhead.
+  const ownInst = await resolveSyllabusInstitution(syllabus.institutions_id);
   const header = getInstitutionHeader(
-    variant === 'engineering' ? 'Engineering' : (institutionName ?? null),
+    variant === 'engineering' ? 'Engineering' : (ownInst.name ?? institutionName ?? null),
+    ownInst.code,
   );
   const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
   const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
@@ -257,13 +441,18 @@ export async function buildSyllabusPdfData(
     await (resolveCourse ? resolveCourse(syllabus) : resolveCourseForReport(syllabus));
   const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
-  // A&S prefixes course_name with course_type_code ("Major-I-Programming in
-  // Python"); engineering/CET AND pharmacy (COP) show the bare course name —
-  // PCI/Dr.MGR syllabi don't use the arts "Part-" prefix (avoids the
-  // redundant "Core CORE-…" title).
+  // Print bos_course_syllabi.course_name verbatim for CAS (Arts & Science),
+  // engineering/CET and pharmacy (COP); only the remaining models still get the
+  // course_type_code prefix ("Major-I-Programming in Python").
+  //
+  // CAS was originally the reason the prefix existed, but ~210 of its 1,134
+  // course names already open with their own category ("CORE X - PHP
+  // PROGRAMMING", "CORE PRACTICAL-I-ORGANIC CHEMISTRY PRACTICAL"), so prefixing
+  // restated it — "Core-CORE X - PHP PROGRAMMING". The author's stored
+  // course_name is the title of record for CAS; nothing is prepended to it.
   const isPharmacyDoc =
     syllabus.academic_model === 'pci_pharm' || syllabus.academic_model === 'mgr_pharmd';
-  const displayCourseName = variant === 'engineering' || isPharmacyDoc
+  const displayCourseName = variant === 'engineering' || isPharmacyDoc || isCas
     ? storedName
     : coursePartLabel
       ? `${coursePartLabel}-${storedName}`
@@ -316,6 +505,18 @@ export async function buildSyllabusPdfData(
   // so nothing authored is dropped when the framework simply isn't configured.
   const skipV35Blocks = isCas && taxonomyType === 'blooms';
 
+  // AHS / Pharm.D (year/paper) models: content lives in ahs_content, marks in
+  // exam_scheme, rotations in internship_postings — map them onto the generator's
+  // units / references / instruction so the letterhead PDF isn't empty.
+  const isAhsDoc = modelUsesAhsContent(syllabus.academic_model);
+  const ahsUnits = isAhsDoc ? ahsContentToUnits(syllabus.ahs_content) : undefined;
+  const ahsRefs = isAhsDoc ? ahsReferences(syllabus.ahs_content) : undefined;
+  const ahsInstr = isAhsDoc
+    ? [ahsExamInternshipText(syllabus.exam_scheme, syllabus.internship_postings),
+       syllabus.course_content?.instruction ?? '']
+        .filter(Boolean).join('\n\n') || undefined
+    : undefined;
+
   return {
     variant,
     // CAS (Arts & Science) prints unit content as one flowing paragraph per
@@ -340,21 +541,26 @@ export async function buildSyllabusPdfData(
     total_hours: syllabus.total_hours ?? undefined,
     contact_hours: syllabus.contact_hours ?? undefined,
     credits: syllabus.course_credits ?? undefined,
-    // PCI/pharmacy Scope paragraph — printed above Course Objectives.
-    scope: syllabus.scope ?? undefined,
+    // PCI/pharmacy Scope paragraph — printed above Course Objectives. AHS reuses
+    // it for the ahs_content "intro" paragraph.
+    scope: isAhsDoc ? (syllabus.ahs_content?.intro ?? syllabus.scope) : (syllabus.scope ?? undefined),
     // COP (pharmacy): hide the Course Designer / BoS Chairman sign-off (temp).
     hideSignature: isPharmacyDoc,
     objectives: objectivesContent?.objectives ?? [],
     clos: outcomesContent?.clos ?? [],
     k_values: kValues,
-    units: contentModes.includeTheory ? (syllabus.course_content?.units ?? []) : [],
-    practical_topics: contentModes.includePractical
-      ? (syllabus.course_content?.topics ?? [])
-      : undefined,
+    // AHS: paper → topics/units mapped from ahs_content; Anna: course_content units.
+    units: isAhsDoc
+      ? ahsUnits
+      : (contentModes.includeTheory ? (syllabus.course_content?.units ?? []) : []),
+    practical_topics: isAhsDoc
+      ? undefined
+      : (contentModes.includePractical ? (syllabus.course_content?.topics ?? []) : undefined),
     number_practical_topics: syllabus.course_content?.number_practical_topics,
-    instruction: syllabus.course_content?.instruction,
+    // AHS: exam scheme + internship folded into the instruction block after content.
+    instruction: isAhsDoc ? ahsInstr : syllabus.course_content?.instruction,
     textbooks: syllabus.textbooks?.primary ?? [],
-    references: syllabus.textbooks?.references ?? [],
+    references: isAhsDoc ? ahsRefs : (syllabus.textbooks?.references ?? []),
     web_resources: syllabus.web_resources?.resources ?? [],
     pedagogy_methods: syllabus.pedagogy?.methods ?? [],
     po_mappings: syllabus.po_mappings?.mappings ?? [],
@@ -393,11 +599,18 @@ export function SyllabusPdfDownloadButton({
     setLoading(true);
     const tid = toast.loading(`Generating PDF for ${syllabus.course_code}…`);
     try {
-      // Everything about WHAT this PDF contains lives in buildSyllabusPdfData,
-      // which the bulk board-wise ZIP export shares — keeping the two exports
-      // from drifting apart.
-      const data = await buildSyllabusPdfData(syllabus, { institutionName, isCas, isCet });
-      generateCourseSyllabusPDF(data);
+      if (syllabus.academic_model === 'mgr_bds') {
+        // Dental (BDS/DCI): content lives in bds_content/exam_scheme, not the
+        // Anna units/CO-PO shape — use the dedicated dental renderer.
+        const { downloadBdsSyllabusPDF } = await import('@/lib/utils/bos/course-syllabus-bds-pdf');
+        await downloadBdsSyllabusPDF(syllabus as any, { institutionName });
+      } else {
+        // Everything about WHAT this PDF contains lives in buildSyllabusPdfData,
+        // which the bulk board-wise ZIP export shares — keeping the two exports
+        // from drifting apart.
+        const data = await buildSyllabusPdfData(syllabus, { institutionName, isCas, isCet });
+        generateCourseSyllabusPDF(data);
+      }
 
       toast.success('PDF downloaded', { id: tid });
     } catch (e) {
@@ -489,9 +702,12 @@ export function SyllabusHtmlDownloadButton({ syllabus }: { syllabus: BosCourseSy
 export function SyllabusDocxDownloadButton({
   syllabus,
   institutionName,
+  isCas = false,
 }: {
   syllabus: BosCourseSyllabus;
   institutionName?: string;
+  /** Arts-&-Science (CAS) institution → print course_name with no part prefix. */
+  isCas?: boolean;
 }) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
@@ -526,7 +742,8 @@ export function SyllabusDocxDownloadButton({
         }
       }
 
-      const header = getInstitutionHeader(institutionName ?? null);
+      const ownInst = await resolveSyllabusInstitution(syllabus.institutions_id);
+      const header = getInstitutionHeader(ownInst.name ?? institutionName ?? null, ownInst.code);
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
@@ -534,11 +751,11 @@ export function SyllabusDocxDownloadButton({
         await resolveCourseForReport(syllabus);
       const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
-      // Mirror the PDF: A&S prefixes course_name with course_type_code, but
-      // pharmacy (COP) uses the bare name (no "Core-" prefix).
+      // Mirror the PDF (buildSyllabusPdfData): CAS and pharmacy (COP) print the
+      // stored course_name verbatim; the rest get the course_type_code prefix.
       const isPharmacyDoc =
         syllabus.academic_model === 'pci_pharm' || syllabus.academic_model === 'mgr_pharmd';
-      const displayCourseName = !isPharmacyDoc && coursePartLabel
+      const displayCourseName = !isPharmacyDoc && !isCas && coursePartLabel
         ? `${coursePartLabel}-${storedName}`
         : storedName;
 

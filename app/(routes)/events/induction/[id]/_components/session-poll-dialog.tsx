@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart3, Plus, X, Radio, Square, Users, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Presentation, Download } from 'lucide-react';
+import { BarChart3, Plus, X, Radio, Square, Users, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Presentation, Download, Lock, AlertCircle } from 'lucide-react';
 import { InductionPollService, type PollQuestionDraft, type PollQuestionKind, type PollTotals, type PollResponder } from '@/lib/services/induction/induction-poll-service';
 import { useInductionPollRealtime } from '@/hooks/induction/use-induction-poll-realtime';
 import { exportPollResponsesToExcel } from '@/lib/utils/induction-poll-export';
@@ -33,6 +33,42 @@ function genScaleOptions(min: number, max: number, existing: { id?: string; labe
 }
 const clampInt = (v: string, fallback: number) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
 
+// Shape one draft question exactly the way the save payload needs it:
+//  · scale     → generate the numeric options from the range; carry anchor labels.
+//  · wordcloud → prompt only (options are minted server-side at answer time).
+//  · single/multi → drop blank option rows and re-number what survives.
+// The save path and the inline "can't save this" note both run through this, so
+// what the builder flags and what the RPC receives can never drift apart.
+function shapeForSave(q: PollQuestionDraft, position: number): PollQuestionDraft {
+  if (q.kind === 'scale') {
+    const min = q.scale_min ?? 1; const max = Math.max(min, q.scale_max ?? 5);
+    return {
+      ...q, position, options: genScaleOptions(min, max, q.options),
+      scale_min_label: q.scale_min_label?.trim() || null,
+      scale_max_label: q.scale_max_label?.trim() || null,
+    };
+  }
+  if (q.kind === 'wordcloud') return { ...q, position, options: [] };
+  return { ...q, position, options: q.options.filter((o) => o.label.trim()).map((o, k) => ({ ...o, position: k })) };
+}
+
+// Why a question can't go to the server yet, phrased to drop into a sentence.
+// fn_induction_upsert_session_poll reads "absent from the payload" as "delete this
+// question", so an incomplete one can never simply be left out: doing that erased
+// the question the coordinator was still typing, and raised "cannot delete a
+// question that already has votes" once the room had started answering. Anything
+// that fails here blocks the whole save instead.
+const incompleteReason = (q: PollQuestionDraft): string | null => {
+  const shaped = shapeForSave(q, q.position);
+  if (!shaped.prompt.trim()) return 'needs a question prompt';
+  if (shaped.kind !== 'wordcloud' && shaped.options.length < 2) return 'needs at least two filled options';
+  return null;
+};
+
+const KIND_LABEL: Record<PollQuestionKind, string> = {
+  single: 'Pick one', multi: 'Pick many', scale: 'Rating scale', wordcloud: 'Word cloud',
+};
+
 export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: string; sessionTitle: string }) {
   const [open, setOpen] = useState(false);
   const [questions, setQuestions] = useState<PollQuestionDraft[]>([]);
@@ -46,6 +82,10 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
   const [currentQid, setCurrentQid] = useState<string | null>(null);
   const [presenting, setPresenting] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Wall clock, ticked while the dialog is open, so the live→expired boundary flips
+  // on its own. Nothing else re-renders on that crossing: the totals poll keeps
+  // returning status 'open', so without this the badge would stay green for hours.
+  const [nowTs, setNowTs] = useState(() => Date.now());
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
@@ -95,8 +135,22 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
 
   useEffect(() => { if (open) load(); else { stop(); setTotals(null); setResponders([]); setShowResponders(false); } }, [open, load]);
 
+  // Tick the clock only while the dialog is on screen (see nowTs).
+  useEffect(() => {
+    if (!open) return;
+    setNowTs(Date.now());
+    const t = setInterval(() => setNowTs(Date.now()), 15000);
+    return () => clearInterval(t);
+  }, [open]);
+
   // builder mutations
-  const addQuestion = () => setQuestions((qs) => [...qs, { prompt: '', kind: 'single', position: qs.length, options: [{ label: '', position: 0 }] }]);
+  // Seed TWO option rows: a choice question needs two to be saveable, so opening
+  // with one row put every new question in a state the save refuses, and finding
+  // the "+ Option" button was left as a discovery.
+  const addQuestion = () => setQuestions((qs) => [...qs, {
+    prompt: '', kind: 'single', position: qs.length,
+    options: [{ label: '', position: 0 }, { label: '', position: 1 }],
+  }]);
   const setQ = (i: number, patch: Partial<PollQuestionDraft>) => setQuestions((qs) => qs.map((q, j) => j === i ? { ...q, ...patch } : q));
   // Switching kind seeds the shape each kind needs: scale gets a default 1..5 range
   // (options generated on save); wordcloud drops options; single/multi keep at least one.
@@ -107,8 +161,10 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
       return { ...q, kind, scale_min: min, scale_max: max, options: genScaleOptions(min, max, q.options) };
     }
     if (kind === 'wordcloud') return { ...q, kind, options: [] };
-    // single/multi
-    return { ...q, kind, options: q.options.length ? q.options : [{ label: '', position: 0 }] };
+    // single/multi — pad up to the two rows a choice question needs to be saveable.
+    const opts = [...q.options];
+    while (opts.length < 2) opts.push({ label: '', position: opts.length });
+    return { ...q, kind, options: opts };
   }));
   const setScaleRange = (i: number, next: { min?: number; max?: number }) => setQuestions((qs) => qs.map((q, j) => {
     if (j !== i) return q;
@@ -125,27 +181,27 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
   const removeOpt = (i: number, k: number) => setQuestions((qs) => qs.map((q, j) => j === i ? { ...q, options: q.options.filter((_, m) => m !== k) } : q));
 
   const savePoll = async () => {
-    // Normalize positions and build a per-kind payload:
-    //  · scale     → generate numeric options from the range; carry anchor labels.
-    //  · wordcloud → prompt only, no options (options are minted at answer time).
-    //  · single/multi → keep non-empty options (need at least two).
-    const payload = questions
-      .map((q, i) => {
-        if (q.kind === 'scale') {
-          const min = q.scale_min ?? 1; const max = Math.max(min, q.scale_max ?? 5);
-          return {
-            ...q, position: i, options: genScaleOptions(min, max, q.options),
-            scale_min_label: q.scale_min_label?.trim() || null,
-            scale_max_label: q.scale_max_label?.trim() || null,
-          } as PollQuestionDraft;
-        }
-        if (q.kind === 'wordcloud') return { ...q, position: i, options: [] } as PollQuestionDraft;
-        return { ...q, position: i, options: q.options.filter((o) => o.label.trim()).map((o, k) => ({ ...o, position: k })) } as PollQuestionDraft;
-      })
-      .filter((q) => q.prompt.trim() && (q.kind === 'wordcloud' || q.options.length >= 2));
-    if (!payload.length) { toast.error('Add at least one question (options: two for a choice question, none for a word cloud).'); return; }
+    if (!questions.length) { toast.error('Add at least one question first.'); return; }
+    // Every question travels, or none does. The payload IS the poll's desired state
+    // — the RPC deletes whatever it doesn't mention — so an incomplete question has
+    // to stop the save and be named, never be quietly filtered out.
+    const bad = questions
+      .map((q, i) => ({ n: i + 1, reason: incompleteReason(q) }))
+      .filter((x): x is { n: number; reason: string } => x.reason !== null);
+    if (bad.length) {
+      toast.error(bad.length === 1
+        ? `Question ${bad[0].n} ${bad[0].reason} — nothing was saved.`
+        : `${bad.length} questions are incomplete — nothing was saved: ${bad.map((b) => `Q${b.n} ${b.reason}`).join('; ')}.`);
+      return;
+    }
+    const payload = questions.map((q, i) => shapeForSave(q, i));
     setBusy(true);
-    try { const id = await InductionPollService.upsertPoll(sessionId, payload); setPollId(id); toast.success('Poll saved.'); await load(); }
+    try {
+      const id = await InductionPollService.upsertPoll(sessionId, payload);
+      setPollId(id);
+      toast.success(`Poll saved — ${payload.length} question${payload.length === 1 ? '' : 's'}.`);
+      await load();
+    }
     catch (e: any) { toast.error(e?.message ?? 'Could not save poll'); } finally { setBusy(false); }
   };
   const openLive = async () => { setBusy(true); try { await InductionPollService.openPoll(sessionId); toast.success('Poll is live.'); await load(); } catch (e: any) { toast.error(e?.message ?? 'Could not open'); } finally { setBusy(false); } };
@@ -172,24 +228,54 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
     } catch (e: any) { toast.error(e?.message ?? 'Could not export'); } finally { setBusy(false); }
   };
 
+  // "open" and "live" are NOT the same thing. The learner RPCs filter on
+  // auto_close_at > now(), so once the lazy auto-close passes, the poll vanishes
+  // from every fresher's My Induction page while the row still reads status='open'.
+  // That state is recoverable — fn_induction_open_session_poll is idempotent and
+  // pushes auto_close_at forward without touching votes — so surface it as its own
+  // "paused" state with the reopen action attached, instead of a green badge and a
+  // hint pointing at a button that isn't rendered.
+  // How many questions currently block a save (see savePoll: it is all-or-nothing).
+  const blockingCount = questions.filter((q) => incompleteReason(q) !== null).length;
+  const expired = status === 'open' && !!autoCloseAt && new Date(autoCloseAt).getTime() <= nowTs;
+  const isLive = status === 'open' && !expired;
+  const autoCloseLabel = autoCloseAt
+    ? new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })
+    : '';
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="icon" variant="ghost" title="Poll"><BarChart3 className="h-4 w-4" /></Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[88vh] sm:max-w-2xl flex flex-col gap-3">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">Poll — {sessionTitle}
-            <Badge variant={status === 'open' ? 'default' : 'secondary'}>{status}</Badge></DialogTitle>
+            <Badge variant={isLive ? 'default' : expired ? 'destructive' : 'secondary'}>
+              {expired ? 'paused' : status}
+            </Badge></DialogTitle>
           <DialogDescription>Build questions, open it live, and watch anonymized results (hidden until 3 answers).</DialogDescription>
-          {/* Surface the lazy auto-close: an open poll silently disappears for learners
-              after this time even though the status here still reads "open". */}
+          {/* Surface the lazy auto-close: past this time the poll silently disappears
+              for learners, so say so plainly and point at the button that fixes it. */}
           {status === 'open' && autoCloseAt && (
-            <p className="text-xs text-amber-600 dark:text-amber-500">
-              Auto-closes at {new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })} — reopen with &quot;Open live&quot; to extend.
-            </p>
+            expired ? (
+              <p className="flex items-start gap-1.5 text-xs font-medium text-destructive">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Auto-closed at {autoCloseLabel} — freshers can no longer see this poll on My Induction.
+                  Press &quot;Reopen live&quot; to bring it back; answers already given are kept.
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs text-amber-600 dark:text-amber-500">
+                Auto-closes at {autoCloseLabel} — reopen with &quot;Open live&quot; to extend.
+              </p>
+            )
           )}
         </DialogHeader>
+
+        {/* Only the body scrolls — header and the action footer stay put. */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
 
         {/* live results when open */}
         {status === 'open' && totals && (
@@ -264,13 +350,36 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
 
         {/* builder */}
         <div className="space-y-3">
-          {questions.map((q, i) => (
-            <div key={q.id ?? i} className="rounded-md border p-2 space-y-2">
-              <div className="flex gap-2">
-                <Input placeholder="Question" value={q.prompt} onChange={(e) => setQ(i, { prompt: e.target.value })} />
+          {/* Explain the greyed-out controls rather than leaving them mysteriously dead. */}
+          {hasVotes && questions.length > 0 && (
+            <p className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-700 dark:text-amber-500">
+              <Lock className="h-3.5 w-3.5 shrink-0" />
+              Votes are in — question types, options and deletions are locked so ballots stay valid. Wording can still be corrected.
+            </p>
+          )}
+
+          {questions.length === 0 && (
+            <div className="rounded-md border border-dashed p-6 text-center">
+              <BarChart3 className="mx-auto h-6 w-6 text-muted-foreground" />
+              <p className="mt-2 text-sm font-medium">No questions yet</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Add a question, save the poll, then open it live for the room to answer.
+              </p>
+            </div>
+          )}
+
+          {questions.map((q, i) => {
+            const reason = incompleteReason(q);
+            return (
+            <div key={q.id ?? i} className={`rounded-md border p-3 space-y-2 ${reason ? 'border-amber-500/50 bg-amber-500/[0.03]' : ''}`}>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="shrink-0 tabular-nums">Q{i + 1}</Badge>
+                {q.id && q.id === currentQid && <Badge className="shrink-0">LIVE</Badge>}
                 {/* Kind is locked once votes exist — changing it would corrupt the ballot shape. */}
                 <Select value={q.kind} onValueChange={(v) => changeKind(i, v as PollQuestionKind)} disabled={hasVotes}>
-                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="ml-auto w-40" title={hasVotes ? `Locked — votes already cast (${KIND_LABEL[q.kind]})` : undefined}>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="single">Pick one</SelectItem>
                     <SelectItem value="multi">Pick many</SelectItem>
@@ -278,8 +387,13 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
                     <SelectItem value="wordcloud">Word cloud</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button size="icon" variant="ghost" disabled={hasVotes} onClick={() => removeQ(i)}><X className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" className="shrink-0" disabled={hasVotes}
+                  title={hasVotes ? 'Locked — votes already cast' : 'Remove question'} onClick={() => removeQ(i)}>
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
+
+              <Input placeholder="Ask your question…" value={q.prompt} onChange={(e) => setQ(i, { prompt: e.target.value })} />
 
               {q.kind === 'wordcloud' ? (
                 <p className="pl-3 text-xs text-muted-foreground">Learners type one word or short phrase — the most-common answers grow largest. No options to set.</p>
@@ -304,31 +418,70 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
                   </div>
                 </div>
               ) : (
-                <>
+                <div className="space-y-1.5 pl-3">
                   {q.options.map((o, k) => (
-                    <div key={o.id ?? k} className="flex gap-2 pl-3">
+                    <div key={o.id ?? k} className="flex items-center gap-2">
+                      <span className="w-4 shrink-0 text-xs text-muted-foreground tabular-nums">{k + 1}.</span>
                       <Input placeholder={`Option ${k + 1}`} value={o.label} onChange={(e) => setOpt(i, k, e.target.value)} />
-                      <Button size="icon" variant="ghost" disabled={hasVotes} onClick={() => removeOpt(i, k)}><X className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" className="shrink-0" disabled={hasVotes}
+                        title={hasVotes ? 'Locked — votes already cast' : 'Remove option'} onClick={() => removeOpt(i, k)}>
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
                   ))}
-                  <Button size="sm" variant="ghost" onClick={() => addOpt(i)}><Plus className="h-3.5 w-3.5 mr-1" /> Option</Button>
-                </>
+                  <Button size="sm" variant="ghost" className="ml-6" onClick={() => addOpt(i)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Option
+                  </Button>
+                </div>
+              )}
+
+              {/* Saving is all-or-nothing, so name what is blocking it. */}
+              {reason && (
+                <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  This question {reason} — fix or remove it before saving.
+                </p>
               )}
             </div>
-          ))}
+            );
+          })}
           <Button size="sm" variant="outline" onClick={addQuestion}><Plus className="h-4 w-4 mr-1" /> Add question</Button>
         </div>
 
-        <DialogFooter className="gap-2">
+        </div>
+
+        <DialogFooter className="gap-2 sm:justify-between">
+          {/* Say up front whether Save will go through, since it is all-or-nothing. */}
+          <span className={`text-xs sm:mr-auto ${blockingCount ? 'text-amber-600 dark:text-amber-500' : 'text-muted-foreground'}`}>
+            {questions.length === 0
+              ? 'No questions yet'
+              : blockingCount
+                ? `${blockingCount} of ${questions.length} question${questions.length === 1 ? '' : 's'} incomplete — fix or remove before saving`
+                : `${questions.length} question${questions.length === 1 ? '' : 's'} ready to save`}
+          </span>
+          <div className="flex flex-wrap gap-2">
           {pollId && hasVotes && (
             <Button variant="outline" onClick={exportExcel} disabled={busy} title="Download learner-wise responses as Excel">
               <Download className="h-4 w-4 mr-1" /> Export Excel
             </Button>
           )}
-          <Button variant="outline" onClick={savePoll} disabled={busy}>Save poll</Button>
-          {status !== 'open'
-            ? <Button onClick={openLive} disabled={busy || !pollId}><Radio className="h-4 w-4 mr-1" /> Open live</Button>
-            : <Button variant="secondary" onClick={closeLive} disabled={busy}><Square className="h-4 w-4 mr-1" /> Close</Button>}
+          <Button variant="outline" onClick={savePoll} disabled={busy}
+            title={blockingCount ? 'Some questions are incomplete — saving is blocked so nothing is lost' : undefined}>
+            Save poll
+          </Button>
+          {/* Reopen must stay reachable while the poll is open-but-expired — that is
+              exactly the state the coordinator needs to escape, and it used to be
+              the one state with no button for it. */}
+          {!isLive && (
+            <Button onClick={openLive} disabled={busy || !pollId}
+              title={!pollId ? 'Save the poll first' : expired ? 'Bring the poll back for learners (answers are kept)' : 'Open for learners to answer'}>
+              <Radio className="h-4 w-4 mr-1" /> {expired ? 'Reopen live' : 'Open live'}
+            </Button>
+          )}
+          {status === 'open' && (
+            <Button variant="secondary" onClick={closeLive} disabled={busy}><Square className="h-4 w-4 mr-1" /> Close</Button>
+          )}
+          </div>
         </DialogFooter>
 
         {presenting && pollId && (

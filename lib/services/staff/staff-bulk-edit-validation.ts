@@ -9,6 +9,7 @@
  * Pure: no database access. The caller supplies every lookup through ValidationContext.
  */
 import { validateEmail, validatePhone, parseFlexibleDate } from '@/lib/utils/staff-field-validators';
+import { getLocationIdByFuzzyName, getLocationDisplayName } from '@/lib/data/locations';
 import {
   EDITABLE_COLUMNS,
   GENDERS,
@@ -48,10 +49,17 @@ export interface ValidationContext {
   institutionsByName: Map<string, string>;
   /** lowercased personal email -> owning staff id */
   emailOwner: Map<string, string>;
-  /** lowercased staff_id -> owning staff id */
-  staffIdOwner: Map<string, string>;
   /** `${institution_id}|${normalisedCode}` -> owning staff id */
   biometricOwner: Map<string, string>;
+  /**
+   * id -> display name, for departments, employment categories and institutions.
+   *
+   * Not used for validation — the validator never reads it. It exists so the preview can
+   * render "Biometric Machine: (empty) -> JKKN College of Pharmacy" instead of a bare UUID,
+   * which is unreadable and reads to the user as the edit not having been understood.
+   * Optional so a caller that only wants to validate need not build it.
+   */
+  labelById?: Map<string, string>;
 }
 
 /**
@@ -131,16 +139,6 @@ export function validateStaffBulkEditRow(
         break;
       }
 
-      case 'staff_id': {
-        const owner = ctx.staffIdOwner.get(raw.toLowerCase());
-        if (owner && owner !== staff.id) {
-          issues.push({ field: col.header, kind: 'record', message: `Staff ID ${raw} already belongs to another staff member.` });
-          break;
-        }
-        if (raw !== (staff.staff_id as string | null)) updates.staff_id = raw;
-        break;
-      }
-
       case 'pincode': {
         if (!/^\d{6}$/.test(raw)) {
           issues.push({ field: col.header, kind: 'format', message: `"${raw}" is not a 6-digit pincode.` });
@@ -206,8 +204,53 @@ export function validateStaffBulkEditRow(
         break;
       }
 
+      // State and District are dataset-validated as of 2026-08-28, when the
+      // stored values were standardised (nine spellings of "Tamil Nadu", 50
+      // district values for ~20 real districts). Left as free text this sheet
+      // would re-introduce the mess within weeks — a bulk edit writes far more
+      // rows than the form does.
+      //
+      // The canonical spelling is written back, so "TAMILNADU" is accepted and
+      // stored as "Tamil Nadu" rather than rejected: the operator's intent is
+      // unambiguous and refusing it would just be pedantry.
+      case 'state': {
+        const id = getLocationIdByFuzzyName(raw, 'state');
+        if (!id) {
+          issues.push({
+            field: col.header,
+            kind: 'record',
+            message: `"${raw}" is not a known state. Use the spelling shown in the staff form's State dropdown.`
+          });
+          break;
+        }
+        const canonical = getLocationDisplayName(id, 'state');
+        if (canonical !== (staff.state as string | null)) updates.state = canonical;
+        break;
+      }
+
+      case 'district': {
+        // Resolved within the person's state where known, so an ambiguous name
+        // cannot silently land in the wrong state's district.
+        const stateId = getLocationIdByFuzzyName(
+          (updates.state as string | undefined) ?? (staff.state as string | null),
+          'state'
+        );
+        const id = getLocationIdByFuzzyName(raw, 'district', stateId || undefined);
+        if (!id) {
+          issues.push({
+            field: col.header,
+            kind: 'record',
+            message: `"${raw}" is not a known district. Use the spelling shown in the staff form's District dropdown.`
+          });
+          break;
+        }
+        const canonical = getLocationDisplayName(id, 'district', stateId || undefined);
+        if (canonical !== (staff.district as string | null)) updates.district = canonical;
+        break;
+      }
+
       default: {
-        // plain text: address, state, district, designation
+        // plain text: address, designation
         if (raw !== (staff[col.field] as string | null)) updates[col.field] = raw;
       }
     }
@@ -276,13 +319,22 @@ export function validateStaffBulkEditRow(
           updates.biometric_institution_id = machineId;
         }
       }
-    } else if (machineGiven && machineId) {
-      // Machine resolved, but no code is in play at all (none given, none on file) — just
-      // move the machine. The UNIQUE index only applies where the code is non-blank.
-      if (machineId !== (staff.biometric_institution_id as string | null)) {
-        updates.biometric_institution_id = machineId;
-      }
     }
+    // Remaining case: the machine resolved but NO code is in play at all — none in the cell
+    // and none on file. Deliberately a no-op, not a write.
+    //
+    // A machine on its own identifies nobody: enrolment is the PAIR, and every reader filters
+    // on a non-null code (BiometricMappingService.listForMachine, the attendance import's
+    // (machine, normalised code) match). Storing a bare machine would be noise that no query
+    // ever returns.
+    //
+    // It also has to stay a no-op because the template can pre-fill "Biometric Machine" for a
+    // whole sheet (see the biometric_institution_id param on the template route). Writing here
+    // would turn that convenience into a mass update of every staff member who has no code —
+    // hundreds of meaningless writes from one dropdown choice.
+    //
+    // This is NOT the "move someone's machine" case: when a code exists on file, effectiveCode
+    // is non-null and the branch above handles the move, clash check included.
   }
 
   return { issues, updates };

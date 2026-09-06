@@ -22,10 +22,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // RLS) so the UI PermissionGuard alone is not a security boundary — every
   // authenticated user could otherwise POST here directly. user_has_permission
   // honors super_admin bypass internally; we just call it with the catalog key.
+  //
+  // Use the ONE-ARG overload user_has_permission(permission_name text). It
+  // resolves auth.uid() internally, and `supabase` here is the cookie-scoped
+  // client, so it answers about exactly this caller — identical to passing
+  // user.id explicitly, which is all this route ever did.
+  //
+  // Do NOT switch back to user_has_permission(user_id uuid, permission_key text).
+  // Migration 20260811100100 deliberately REVOKED EXECUTE on that overload from
+  // `authenticated` because it is SECURITY DEFINER, accepts a caller-supplied
+  // uuid, and never compares it to auth.uid() — a signed-in user could ask
+  // "does <anyone> hold <any key>" and harvest the whole role map, handover
+  // delegations included. Calling it from a cookie-scoped client now yields
+  // 42501 and the button dies for everyone. (The service-role callers in
+  // /api/admission/leads/program-counts and lib/auth/bulk-receipt-access.ts
+  // still use the 2-arg form legitimately — service_role kept its grant.)
   const { data: canConvert, error: permError } = await (supabase as any)
     .rpc('user_has_permission', {
-      user_id: user.id,
-      permission_key: 'admission.leads.convert_to_admitted',
+      permission_name: 'admission.leads.convert_to_admitted',
     });
   // A check that could not RUN is not a denial. Reading `data` alone conflates
   // the two — both arrive falsy — and that conflation is what shipped: when the
@@ -33,8 +47,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // returned 42501 and every caller was told "Forbidden", including admission
   // officers whose role plainly carried the key. Wrong AND unactionable: it
   // points the reader at the permissions catalog, where nothing is broken.
-  // Restored by migration 20260814020000; this branch is what makes the next
-  // occurrence legible instead of silent.
+  // This branch is what makes the next occurrence legible instead of silent.
   if (permError) {
     console.error(
       '[bridge/convert] Permission check could not run:',

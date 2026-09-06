@@ -37,12 +37,23 @@ const VIEW_SELECT = [
   'gender',
   'father_name',
   'mother_name',
+  // Contact numbers for the roster export (migration 20260902140000). Both the
+  // base view and v_learner_hostelites_scoped project these — the scoped view's
+  // `SELECT v.*` had to be re-expanded to pick them up, since Postgres freezes
+  // the star at creation time.
+  'student_mobile',
+  'father_mobile',
+  'mother_mobile',
   'accommodation_type',
   'hostel_fee',
   'dayscholar_fee',
   'institution_id',
   'admission_year_id',
   'year_of_study',
+  // The cohort year behind admission_year_id. Selected as well as the id
+  // because admission_years is per-institution: the id differs per college for
+  // the same cohort, the year does not.
+  'program_start_year',
   'current_block_id',
   'current_room_id',
   'current_bed_id',
@@ -134,6 +145,11 @@ export class LearnerHosteliteService {
       if (filters?.year_of_study !== undefined && filters.year_of_study !== null)
         query = query.eq('year_of_study', filters.year_of_study);
 
+      // Admission cohort. Composes with year_of_study rather than replacing it:
+      // the two answer different questions (which intake vs how far through).
+      if (filters?.admission_year !== undefined && filters.admission_year !== null)
+        query = query.eq('program_start_year', filters.admission_year);
+
       if (filters?.gender)
         // Case-insensitive match — chip values are TitleCase ('Male'/'Female'/
         // 'Other') but prod data is lowercase ('male'/'female'). `.eq()` was
@@ -189,6 +205,7 @@ export class LearnerHosteliteService {
         'program_name',
         'current_block_name',
         'gender',
+        'program_start_year',
       ]);
       const sortColumn = filters?.sortBy && SORTABLE.has(filters.sortBy)
         ? filters.sortBy
