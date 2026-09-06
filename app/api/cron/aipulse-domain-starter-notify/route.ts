@@ -68,6 +68,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { filterPushRecipients } from '@/lib/push/opt-out';
+import { withCronRun } from '@/lib/cron/run-log';
 import webpush from 'web-push';
 import {
   cycleNotificationExpiresAt,
@@ -220,7 +221,13 @@ async function pushOne(admin: Admin, row: PushSubRow, serialized: string): Promi
   }
 }
 
-export async function GET(request: NextRequest) {
+// Run-logged (2026-09-10). THIS is the route the whole cron_run_log lane exists
+// for: it returned HTTP 500 nine times in one window on 2026-08-20 ("canceling
+// statement due to statement timeout"), had failed identically the Thursday
+// before, and cost 588 then 635 learners their starter prompt — with nothing
+// anywhere going red. withCronRun records every authorized fire; three in a row
+// now raises a bell notification via /api/cron/cron-failure-alerts.
+async function handler(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -471,3 +478,5 @@ export async function GET(request: NextRequest) {
     elapsed_ms: Date.now() - started,
   });
 }
+
+export const GET = withCronRun('aipulse-domain-starter-notify', handler);
