@@ -1800,6 +1800,13 @@ export interface FeeStructureMatrixDimensions {
   department_id: string;
   programme_id: string;
   quota_id: string;
+  /** Optional matching dimension. The junction `admission_fee_structure_communities`
+   *  is keyed by it, so FeeStructureService.findByDimensions filters it server-side
+   *  as a SEPARATE argument rather than through the dims object. Declared here
+   *  because FeeResolutionService reads it off dims (isValidDimensions,
+   *  previewMatchByDimensions) — the field was load-bearing at runtime but missing
+   *  from this interface, which `typescript.ignoreBuildErrors` masked. */
+  community_category_id?: string;
   /** Optional matching dimension (NULL/undefined = "Any"). Resolution prefers
    *  an accommodation-specific structure, then falls back to an "Any" one. */
   accommodation_type_id?: string;

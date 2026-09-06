@@ -24,6 +24,7 @@
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { classifyRiskTier } from '@/lib/services/orchestration/risk-tier';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -37,6 +38,10 @@ interface IncomingPrRow {
   ci_checked_at?: string | null;
   gate_state?: string | null;
   is_draft?: boolean | null;
+  /** Changed file paths. When present the row is classified into a risk
+   *  tier (lib/services/orchestration/risk-tier.ts) and the tier columns
+   *  are written; when absent the stored tier is left untouched. */
+  changed_files?: string[] | null;
 }
 
 interface SyncRequestBody {
@@ -65,6 +70,9 @@ function sanitizePrRows(rows: unknown): IncomingPrRow[] {
       ci_checked_at: typeof r.ci_checked_at === 'string' ? r.ci_checked_at : null,
       gate_state: typeof r.gate_state === 'string' ? r.gate_state : null,
       is_draft: typeof r.is_draft === 'boolean' ? r.is_draft : null,
+      changed_files: Array.isArray(r.changed_files)
+        ? r.changed_files.filter((f): f is string => typeof f === 'string')
+        : null,
     });
   }
   return out;
@@ -79,7 +87,7 @@ async function tryGhPrList(): Promise<{ rows: IncomingPrRow[]; error: string | n
     const execFileAsync = promisify(execFile);
     const { stdout } = await execFileAsync(
       'gh',
-      ['pr', 'list', '--state', 'open', '--limit', '200', '--json', 'number,title,mergeable,isDraft'],
+      ['pr', 'list', '--state', 'open', '--limit', '200', '--json', 'number,title,mergeable,isDraft,files'],
       { timeout: 20_000 },
     );
     const parsed = JSON.parse(stdout) as Array<{
@@ -87,6 +95,7 @@ async function tryGhPrList(): Promise<{ rows: IncomingPrRow[]; error: string | n
       title: string;
       mergeable: string;
       isDraft: boolean;
+      files?: Array<{ path?: string }>;
     }>;
     return {
       rows: parsed.map((p) => ({
@@ -94,6 +103,9 @@ async function tryGhPrList(): Promise<{ rows: IncomingPrRow[]; error: string | n
         title: p.title ?? null,
         mergeable: p.mergeable ?? null,
         is_draft: p.isDraft ?? null,
+        changed_files: Array.isArray(p.files)
+          ? p.files.map((f) => f.path).filter((path): path is string => typeof path === 'string')
+          : null,
       })),
       error: null,
     };
@@ -142,17 +154,39 @@ export async function POST(request: NextRequest) {
   }
 
   let prsUpserted = 0;
+  let prsRiskClassified = 0;
   if (prRows.length > 0) {
-    const { error } = await supabase
-      .from('orchestration_prs')
-      .upsert(
-        prRows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),
-        { onConflict: 'number' },
-      );
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    const nowIso = new Date().toISOString();
+    // `changed_files` is input, not a column: strip it, and where it was given
+    // turn it into the risk-tier columns. Two upserts because PostgREST needs
+    // every object in one bulk upsert to share the same keys, and a row with
+    // no file list must not reset its stored tier to the column default.
+    const withTier = [];
+    const withoutTier = [];
+    for (const r of prRows) {
+      const { changed_files, ...row } = r;
+      if (changed_files) {
+        const risk = classifyRiskTier(changed_files, { title: row.title ?? '', isDraft: row.is_draft === true });
+        withTier.push({
+          ...row,
+          risk_tier: risk.tier,
+          risk_reasons: risk.reasons,
+          changed_files_count: changed_files.length,
+          updated_at: nowIso,
+        });
+      } else {
+        withoutTier.push({ ...row, updated_at: nowIso });
+      }
+    }
+    for (const rows of [withTier, withoutTier]) {
+      if (rows.length === 0) continue;
+      const { error } = await supabase.from('orchestration_prs').upsert(rows, { onConflict: 'number' });
+      if (error) {
+        return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      }
     }
     prsUpserted = prRows.length;
+    prsRiskClassified = withTier.length;
   }
 
   const sessionId = body.session?.session_id?.trim() || 'web-sync';
@@ -172,6 +206,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     prsUpserted,
+    prsRiskClassified,
     sessionHeartbeat: sessionId,
     ghAttempted,
     ghError,

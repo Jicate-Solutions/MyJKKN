@@ -62,6 +62,10 @@
       "schedule": "5,35 * * * *"
     },
     {
+      "path": "/api/cron/onemark-item-drafts?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "9,39 * * * *"
+    },
+    {
       "path": "/api/cron/meeting-trigger-reconcile?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
     },
@@ -252,6 +256,10 @@
     {
       "schedule": "22,52 * * * *",
       "path": "/api/cron/orchestration-sync?secret=${CRON_SECRET}"
+    },
+    {
+      "schedule": "14 * * * *",
+      "path": "/api/cron/cron-failure-alerts?secret=${CRON_SECRET}"
     }
   ]
 }
