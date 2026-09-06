@@ -134,6 +134,9 @@ def tier(p):
     reasons = []
     for f in files:
         if f.startswith("supabase/migrations/") or f.endswith(".sql"): reasons.append(f"migration: {f}")
+        # the fleet's own tooling is not a money/grades domain: scripts/ship-wave/failure-ledger.sh is not the
+        # fee ledger. The word match below is for app/lib/supabase paths (Director 2026-09-06 06:30, #3297/#3306)
+        if f.startswith(("scripts/", ".claude/")): continue
         elif f.startswith(".github/workflows/"): reasons.append(f"CI gate change: {f}")   # #2724 turned main red for every PR (2026-09-05)
         elif f.startswith("__tests__/") or ".test." in f or ".spec." in f: continue         # a test cannot move money or grades
         # a money/grades word must be a WHOLE path segment (…/score/route.ts, app/(routes)/fees/…), never a fragment of a
