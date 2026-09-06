@@ -3886,6 +3886,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/admin/designation-mapping",
+            "label": "Designation Mapping",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/admin/disciplinary",
             "label": "Disciplinary Cases",
             "iconName": "Gavel",
