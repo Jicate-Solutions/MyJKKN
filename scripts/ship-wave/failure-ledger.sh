@@ -85,6 +85,8 @@ ledger_remedy() {
       echo "CANCELED with no errorCode = Vercel's ignoreCommand skipped a build with nothing deployable (every merged file under supabase/ docs/ specs/ .claude/ .github/ or *.md). NOT a failed deploy — production is still on the right code and the migration was applied in 3b. Check the merged files, then --unfreeze (fixed 2026-09-05: the deploy stage now detects this before firing the hook)";;
     *"verdict unavailable"*|*"unverified"*)
       echo "the Vercel CLI token (auth.json) expires; only the CLI refreshes it. vtok() now runs 'vercel whoami' when expiresAt is near — if you still see this, run it by hand and verify the build with 'vercel ls my-jkkn --scope jicate-solutions' before re-firing (2026-09-06 01:53: build was fine, poll was blind)";;
+    *"destructive statement"*)
+      echo "the apply stage refuses DROP TABLE/COLUMN/SCHEMA, TRUNCATE, DELETE FROM by hard rule — often a retention DELETE inside a function the same file creates (20260910030000_cron_run_log, 2026-09-06). Review the file; if safe: echo <version> >> \$STATE/allow-destructive, then --unfreeze; the wave applies it (dry-run → commit → verify) and logs the allow";;
     *"base is not main"*|*"stacked"*)
       echo "never merge a PR whose base is not main — it lands someone else's commits. List it, leave it to its author (fixed 2026-09-05)";;
     *) return 1;;

@@ -29,7 +29,9 @@ guard_prefixes_from_files() {  # stdin: file paths → unique 2-segment prefixes
 guard_add_from_freeze() {  # $1 = freeze message · $2 = run dir (its merged-files.txt names what shipped)
   local msg="$1" run="${2:-}" p cls now n=0
   [ -n "$run" ] && [ -s "$run/merged-files.txt" ] || return 0
-  case "$msg" in *deploy*|*page*|*migration*|*apply*|*dry-run*|*verify*) ;; *) return 0;; esac
+  # only a freeze caused by SHIPPED CODE guards code directories (deploy error, broken page). A refused or
+  # failed migration is a supabase/ matter, and supabase/ is HELD by rule already — guarding app/lib would be noise.
+  case "$msg" in *deploy*|*page*) ;; *) return 0;; esac
   cls=$(ledger_class "$msg"); now=$(date '+%F %T')
   while read -r p; do
     [ -n "$p" ] || continue
