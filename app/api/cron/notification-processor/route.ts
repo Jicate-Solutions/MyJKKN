@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { filterPushRecipients } from '@/lib/push/opt-out';
 import webpush from 'web-push';
 
 // Configure VAPID keys for push notifications
@@ -252,13 +253,17 @@ async function sendPushToUsers(
 
   if (userIds.length === 0) return 0;
 
-  // Fetch push subscriptions for target users. is_active=false is how an
-  // unsubscribe is recorded, so pushing to those rows would buzz learners
-  // who explicitly opted out.
+  // Drop anyone who switched push off before looking up any subscription.
+  // is_active alone cannot carry that answer: unsubscribing destroys the browser
+  // endpoint, so the next page load mints a NEW row that is is_active=true and
+  // passes the filter below perfectly.
+  const pushUserIds = await filterPushRecipients(serviceClient, userIds);
+  if (pushUserIds.length === 0) return 0;
+
   const { data: subscriptions, error: subError } = await serviceClient
     .from('push_subscriptions')
     .select('id, subscription, user_id')
-    .in('user_id', userIds)
+    .in('user_id', pushUserIds)
     .eq('is_active', true);
 
   if (subError) {

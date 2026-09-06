@@ -19,10 +19,17 @@ name: Test suite
 #     whole suite   128 files   1455 tests   1442 passed   13 failed   ~5s
 #     gated subset  107 files   1408 tests   1408 passed    0 failed   ~4s
 #
-#   The 107 gate this job: one red test there fails the build. The other 21 files
+#   The workflow then sat unmerged for five weeks (#2724 landed 2026-09-05) while
+#   the suite grew to 327 files. Re-measured on 2026-09-05 at jicate/main 5a3139c8ae,
+#   on the runner this job actually uses (node 22, ubuntu-latest):
+#
+#     whole suite   327 files   5138 tests   5112 passed   26 failed   ~60s
+#     gated subset  300 files   5011 tests   5011 passed    0 failed   ~60s
+#
+#   The 300 gate this job: one red test there fails the build. The other 27 files
 #   are quarantined as literal `--exclude` paths in the `test:ci` script in
 #   package.json — one path each, no directory-wide wildcards — so narrowing the
-#   gate further cannot happen without showing up in a diff. Every one of the 21
+#   gate further cannot happen without showing up in a diff. Every one of the 27
 #   is listed below with its reason.
 #
 #   The WHOLE suite also runs on every invocation, reporting-only, and publishes
@@ -32,19 +39,47 @@ name: Test suite
 #   already knows — a check that reports success having checked less than you
 #   think.
 #
-#   Making the gate cover all 128 is a deliberate follow-up for the Director once
-#   the 21 are triaged. Nothing here should be read as a claim that the suite is
-#   green. It is not. 13 tests are failing on main right now.
+#   Making the gate cover all 327 is a deliberate follow-up for the Director once
+#   the 27 are triaged. Nothing here should be read as a claim that the suite is
+#   green. It is not.
 #
-# THE 21 QUARANTINED FILES, AND WHY EACH IS OUT
+# THE POSTGRES SERVICE
+#   Five gated files are behavioural proofs of migrations: each creates a
+#   throwaway database on localhost:5432, applies the migration SQL verbatim
+#   (via `pg` or `psql`), and asserts on what the functions actually return.
+#   They deliberately REFUSE to skip when no server is reachable — "this suite
+#   is a behavioural proof and refuses to skip silently" — which is what turned
+#   every PR red the moment #2724 merged: the runner had no Postgres, and
+#   `connection to server at "localhost" (127.0.0.1), port 5432 failed:
+#   Connection refused` failed all five before a single assertion ran.
 #
-#   A. Written for a test runner this repo does not install (9 files). These
+#   They need plain PostgreSQL, not Supabase: each builds its own `auth` schema
+#   and `auth.uid()` stub and the handful of tables its migration touches. So
+#   this job runs the official postgres:16 container as a service, trust auth,
+#   and points the five at it through the `*_TEST_PGUSER` overrides each file
+#   documents in its own header (their default is `$USER`, which on the runner
+#   is `runner`, not a role that exists). `psql` is preinstalled on ubuntu-latest.
+#          __tests__/academic/unmarked-periods-timetable-grain.test.ts    UNMARKED_TEST_*
+#          __tests__/attention-bar/aqs-family-identity-guard.test.ts     AQS_TEST_*
+#          __tests__/organizations/institution-leadership-posts.test.ts  LEADERSHIP_TEST_*
+#          __tests__/organizations/leadership-appointment-basis.test.ts  LEADERSHIP_TEST_*
+#          __tests__/users/permission-holder-count.test.ts               PHC_TEST_*
+#   A sixth file that would need the service has to use one of those prefixes
+#   or add its own here — an unlisted prefix falls back to `runner` and fails
+#   with "role does not exist", loudly, not silently.
+#
+# THE 27 QUARANTINED FILES, AND WHY EACH IS OUT
+#   16 remain from the 2026-08-01 triage of 21: scripts/staff-search.test.ts has
+#   since been deleted from the repo (its exclude was inert and is gone), and
+#   #3133 ported four to vitest — the three __tests__/hr/recruitment-need/ files
+#   and __tests__/meetings/booking-crm-bridge.test.ts — so those four are back in
+#   the gate. 11 were added 2026-09-05, marked NEW: they were red on main the day
+#   the gate went live, having never run in CI either.
+#
+#   A. Written for a test runner this repo does not install (6 files). These
 #      cannot execute under vitest at all — the import fails before collection.
 #      Neither `bun`, `jest` nor `@jest/globals` is a dependency in package.json.
 #        imports 'bun:test'
-#          __tests__/hr/recruitment-need/signal-hooks.test.ts
-#          __tests__/hr/recruitment-need/signal-service.test.ts
-#          __tests__/hr/recruitment-need/types.test.ts
 #          __tests__/lib/api-keys/audit-logger.test.ts
 #          __tests__/lib/api-keys/authenticate.test.ts
 #          __tests__/lib/api-keys/rate-limiter.test.ts
@@ -54,15 +89,22 @@ name: Test suite
 #          __tests__/hooks/use-bos-permissions.test.ts  bare `jest.` globals
 #      Fix is mechanical: swap the import for 'vitest' and `jest.` for `vi.`.
 #
-#   B. Standalone node:assert scripts, not vitest suites (5 files). They are named
-#      *.test.ts so vitest collects them, then finds no describe/it and errors
-#      "No test suite found". They are meant to be run with `npx tsx <file>` — the
-#      fee-structure one says so in its own header comment.
+#   B. Standalone node:assert scripts, not vitest suites (10 files). They are
+#      named *.test.ts so vitest collects them, then finds no describe/it and
+#      errors "No test suite found" — or, worse, they end in `process.exit(...)`,
+#      which vitest reports as "process.exit unexpectedly called" and fails the
+#      file even when every assertion inside it passed. They are meant to be run
+#      with `npx tsx <file>` — most say so in their own header comment.
 #          lib/utils/mappings/__tests__/fee-structure-excel-mappings.test.ts
 #          scripts/form-errors.test.ts
 #          scripts/import/lib/field-mapper.test.ts
 #          scripts/learner-search.test.ts
-#          scripts/staff-search.test.ts
+#          lib/utils/__tests__/staff-name.test.ts            NEW  no test suite found
+#          scripts/attendance-close-order.test.ts            NEW  process.exit(0)
+#          scripts/bank-account-validation.test.ts           NEW  process.exit(0)
+#          scripts/biometric-parser.test.ts                  NEW  process.exit(0)
+#          scripts/salary-import.test.ts                     NEW  process.exit(0)
+#          scripts/salary-template-roundtrip.test.ts         NEW  process.exit(0)
 #      NOTE: scripts/learner-search.test.ts does not merely fail to collect — its
 #      top-level assertion is RED (deep-equal mismatch on the search conditions it
 #      builds). Whoever converts these should expect a real failure there, not a
@@ -73,10 +115,7 @@ name: Test suite
 #      imports '@/lib/constants/institution-type-labels'. `git ls-tree` finds no
 #      such file on main — only the test survives.
 #
-#   D. Needs environment/config this job does not provide (2 files).
-#          __tests__/meetings/booking-crm-bridge.test.ts
-#            vi.mock factory closes over a top-level variable, so hoisting throws
-#            "Cannot access 'createActivity' before initialization". Code-level fix.
+#   D. Needs environment/config this job does not provide (1 file).
 #          app/(routes)/admission/counselors/team/allocation/[id]/
 #            _components/distribute/__tests__/distribute-panel.test.tsx
 #            needs NEXT_PUBLIC_SUPABASE_URL + _ANON_KEY at import time, AND the
@@ -85,15 +124,27 @@ name: Test suite
 #            it means editing vitest.config.js, which this change deliberately
 #            leaves alone.
 #
-#   E. Genuinely failing assertions — 4 files, 13 tests. These are the ones worth
-#      reading. They are real red tests against real code, and they have been red
-#      and invisible.
+#   E. Genuinely failing assertions — 9 files. These are the ones worth reading.
+#      They are real red tests against real code, and they have been red and
+#      invisible. Each is either a stale test or a live defect. Triaging them is
+#      the point of turning the lights on, and is not attempted here.
 #          __tests__/lib/sidebar-filter.test.ts                        6 failing
 #          lib/validations/__tests__/learner-create-schema.test.ts      4 failing
 #          __tests__/lib/services/pde-bridge-service.test.ts            2 failing
 #          lib/services/admission/__tests__/bulk-assign-service.test.ts 1 failing
-#      Each is either a stale test or a live defect. Triaging them is the point of
-#      turning the lights on, and is not attempted here.
+#          __tests__/director-desk/handover-key-classification.test.ts  NEW  3 of 50
+#            "46 permission key(s) are not classified against the handover walls" —
+#            lib/constants/permissions.ts gained keys the classification never saw.
+#          __tests__/director-desk/role-write-sweep.test.ts             NEW  2 of 4
+#            "the recorded key list no longer matches what the SQL says".
+#          __tests__/director-desk/route-gate-map.test.ts               NEW  1 of 10
+#            "route-gate-map.generated.ts is stale. Run: node
+#            scripts/director-desk/scan-route-gates.mjs" — a regenerate, not a fix.
+#          __tests__/api/admission-bridge-convert-permission-gate.test.ts NEW 1 of 5
+#            expects user_has_permission to be consulted; it no longer is.
+#          __tests__/question-papers/paper-authoring-autosave.test.tsx  NEW  5 of 5
+#            the vi.mock of @/hooks/question-papers/use-question-papers lacks the
+#            `useCourseOutcomes` export the component now imports.
 #
 # DELIBERATELY NOT IN THIS JOB
 #   No typecheck. A full `tsc` on this repo OOMs and blows past ten minutes; that
@@ -114,9 +165,29 @@ concurrency:
 
 jobs:
   vitest:
-    name: Vitest (107 gated of 128 — 21 quarantined)
+    name: Vitest (gated subset — quarantine list in test-suite.yml)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    # See "THE POSTGRES SERVICE" above. Trust auth: throwaway container, no data.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      UNMARKED_TEST_PGUSER: postgres
+      AQS_TEST_PGUSER: postgres
+      LEADERSHIP_TEST_PGUSER: postgres
+      PHC_TEST_PGUSER: postgres
 
     steps:
       - uses: actions/checkout@v4
@@ -144,21 +215,23 @@ jobs:
 
       # A gate can be defeated without editing the gate: delete or rename enough
       # test files and `npm run test:ci` still exits 0 over whatever is left. The
-      # floors are the measured 2026-08-01 baseline. They only trip when the gated
-      # suite SHRINKS, so adding tests is free and removing them is a decision
-      # somebody has to make on purpose, in this file, in the diff.
+      # floors are the measured 2026-09-05 baseline (they were the 2026-08-01
+      # one, 107/1408, until the suite tripled and that floor stopped meaning
+      # anything). They only trip when the gated suite SHRINKS, so adding tests
+      # is free and removing them is a decision somebody has to make on purpose,
+      # in this file, in the diff.
       - name: Gated subset must not shrink
         run: |
           node - <<'NODE'
-          const MIN_FILES = 107;
-          const MIN_TESTS = 1408;
+          const MIN_FILES = 300;
+          const MIN_TESTS = 5011;
           const r = require('./vitest-gated.json');
           const files = r.testResults.length;
           const tests = r.numTotalTests;
           console.log(`gated: ${files} files, ${tests} tests (floor ${MIN_FILES}/${MIN_TESTS})`);
           if (files < MIN_FILES || tests < MIN_TESTS) {
             console.log(`::error::The gated suite shrank: ${files} files / ${tests} tests, ` +
-              `below the ${MIN_FILES} / ${MIN_TESTS} baseline measured on 2026-08-01. ` +
+              `below the ${MIN_FILES} / ${MIN_TESTS} baseline measured on 2026-09-05. ` +
               `Tests were deleted, renamed, or newly excluded. If that was intended, ` +
               `lower the floors in .github/workflows/test-suite.yml in the same commit ` +
               `and say why — a shrinking gate that still reports green is the exact ` +
@@ -167,7 +240,7 @@ jobs:
           }
           NODE
 
-      # THE TRUTH. Never blocks — it is expected to be red until the 21 are triaged.
+      # THE TRUTH. Never blocks — it is expected to be red until the 27 are triaged.
       - name: Whole suite (reporting only, never blocks)
         if: always()
         continue-on-error: true

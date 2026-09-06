@@ -171,7 +171,11 @@ const statusConfig: Record<
 > = {
   active: { label: 'Active', variant: 'success' },
   vacated: { label: 'Past Allocation', variant: 'secondary' },
-  transferred: { label: 'Transferred', variant: 'outline' },
+  // Dropdown label only — no row ever holds status='transferred', so the row
+  // badge below never renders this entry. Named 'Transfers' because the option
+  // now scopes the table by allocation_type='transfer' (see
+  // statusScopedAllocations), i.e. the rows a learner was transferred INTO.
+  transferred: { label: 'Transfers', variant: 'outline' },
   pending_approval: { label: 'Pending', variant: 'default' },
   pending_vacate: { label: 'Pending Vacate', variant: 'default' },
   suspended: { label: 'Suspended', variant: 'destructive' },
@@ -341,13 +345,20 @@ export function AllAllocationsTab() {
   // The allocated half of the table, scoped by the Status filter. 'active' is
   // the default, so the table opens on exactly the set it showed before the
   // tabs were folded in.
-  const statusScopedAllocations = useMemo(
-    () =>
-      statusFilter === 'all'
-        ? (allocations as Alloc[])
-        : (allocations as Alloc[]).filter((a) => a.status === statusFilter),
-    [allocations, statusFilter]
-  );
+  const statusScopedAllocations = useMemo(() => {
+    // 'transferred' is a TYPE, not a status: a transfer writes a NEW row with
+    // allocation_type='transfer' whose status is active (or vacated once
+    // superseded again) — no row ever carries status='transferred'. Filtering
+    // on that nonexistent status made the Status dropdown's Transfers option
+    // return an empty table (BUG-005810). Matching by type, with no status
+    // narrowing, is what makes the option show the transfers that exist.
+    if (statusFilter === 'transferred') {
+      return (allocations as Alloc[]).filter((a) => a.allocation_type === 'transfer');
+    }
+    return statusFilter === 'all'
+      ? (allocations as Alloc[])
+      : (allocations as Alloc[]).filter((a) => a.status === statusFilter);
+  }, [allocations, statusFilter]);
 
   // Merge the two shapes into one normalised row list.
   const allRows = useMemo<UnifiedRow[]>(() => {
