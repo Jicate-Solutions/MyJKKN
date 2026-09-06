@@ -404,6 +404,9 @@ export interface CreateLeadAttributionInput {
 }
 
 export interface LeadAttributionFilters {
+  /** Intake year. Resolved across BOTH learner paths in SQL — see
+   *  fn_referral_attribution_page. Omit for every year. */
+  admission_year?: number | null;
   institution_id?: string;
   consultant_id?: string;
   lead_id?: string;

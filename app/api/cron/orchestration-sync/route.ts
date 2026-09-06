@@ -57,15 +57,17 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { classifyPullRequestRisk, type PullRequestRisk } from '@/lib/services/orchestration/pr-risk';
 
 const GITHUB_API = 'https://api.github.com';
 const REPO_OWNER = 'Jicate-Solutions';
 const REPO_NAME = 'MyJKKN';
 
-// Per-PR detail (mergeable state + CI check-runs) costs up to 2 extra GitHub
-// calls each. Bounded so one run can never fan out into hundreds of calls —
-// PRs beyond this count still get their basic row (number/title/module_key/
-// is_draft), just without mergeable/ci_state this tick.
+// Per-PR detail (mergeable state + CI check-runs + changed files for the risk
+// tier) costs up to 3 extra GitHub calls each. Bounded so one run can never
+// fan out into hundreds of calls — PRs beyond this count still get their basic
+// row (number/title/module_key/is_draft), just without mergeable/ci_state/
+// risk_tier this tick.
 const MAX_PRS_DETAILED = 60;
 const GH_CONCURRENCY = 8;
 
@@ -79,6 +81,9 @@ interface NormalizedPr {
   moduleKey: string | null;
   mergeableState: string | null;
   ciState: CiState | null;
+  /** null when the files read failed or the PR was past MAX_PRS_DETAILED —
+   *  the stored tier is then left untouched rather than reset to NORMAL. */
+  risk: PullRequestRisk | null;
 }
 
 function ghHeaders(token: string): HeadersInit {
@@ -187,6 +192,7 @@ async function fetchOpenPrList(
 }
 
 async function buildNormalizedPr(
+  token: string,
   headers: HeadersInit,
   listItem: { number: number; title: string; draft: boolean; head: { sha: string; ref: string } },
 ): Promise<NormalizedPr> {
@@ -225,6 +231,14 @@ async function buildNormalizedPr(
     // best-effort — leave ciState at its default
   }
 
+  // Risk tier from the changed-file list. Title/draft come from the list call
+  // already in hand, so this is one extra GitHub read per PR (files), not two.
+  // null on a read failure — the stored tier is then preserved, never reset.
+  const risk = await classifyPullRequestRisk(token, listItem.number, {
+    title: listItem.title ?? '',
+    isDraft: !!listItem.draft,
+  });
+
   return {
     number: listItem.number,
     title: listItem.title ?? null,
@@ -232,6 +246,7 @@ async function buildNormalizedPr(
     moduleKey,
     mergeableState,
     ciState,
+    risk,
   };
 }
 
@@ -244,7 +259,7 @@ async function fetchOpenPrsWithDetail(token: string): Promise<{ prs: NormalizedP
   const results: NormalizedPr[] = [];
   for (let i = 0; i < detailed.length; i += GH_CONCURRENCY) {
     const chunk = detailed.slice(i, i + GH_CONCURRENCY);
-    const chunkResults = await Promise.all(chunk.map((pr) => buildNormalizedPr(headers, pr)));
+    const chunkResults = await Promise.all(chunk.map((pr) => buildNormalizedPr(token, headers, pr)));
     results.push(...chunkResults);
   }
 
@@ -256,6 +271,7 @@ async function fetchOpenPrsWithDetail(token: string): Promise<{ prs: NormalizedP
       moduleKey: deriveModuleKey(pr.title ?? null, pr.head?.ref ?? null),
       mergeableState: null,
       ciState: null,
+      risk: null,
     });
   }
 
@@ -266,6 +282,19 @@ function isMissingRelationError(err: unknown): boolean {
   const code = (err as { code?: string } | null)?.code;
   const message = err instanceof Error ? err.message : String((err as { message?: string } | null)?.message ?? err);
   return code === '42P01' || /relation .* does not exist/i.test(message ?? '');
+}
+
+// Postgres 42703 (undefined_column), or PostgREST's schema-cache phrasing of
+// the same fact — the risk-tier migration has not been applied to this DB.
+function isMissingColumnError(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  const message = err instanceof Error ? err.message : String((err as { message?: string } | null)?.message ?? err);
+  return (
+    code === '42703' ||
+    code === 'PGRST204' ||
+    /column .* does not exist/i.test(message ?? '') ||
+    /Could not find the .* column/i.test(message ?? '')
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -303,6 +332,8 @@ export async function GET(request: NextRequest) {
       error: null as string | null,
     },
     prs_upserted: 0,
+    prs_risk_classified: 0,
+    risk_columns_missing: false,
     prs_pruned: 0,
     modules_upserted: 0,
     modules_pruned: 0,
@@ -338,7 +369,7 @@ export async function GET(request: NextRequest) {
   // ── 2) Upsert orchestration_prs ──────────────────────────────────────────
   if (openPrs.length > 0) {
     const nowIso = new Date().toISOString();
-    const rows = openPrs.map((p) => ({
+    const baseRow = (p: NormalizedPr) => ({
       number: p.number,
       module_key: p.moduleKey,
       title: p.title,
@@ -347,22 +378,55 @@ export async function GET(request: NextRequest) {
       ci_checked_at: p.ciState !== null ? nowIso : null,
       is_draft: p.isDraft,
       updated_at: nowIso,
+    });
+
+    // Two upserts, not one: PostgREST requires every object in a bulk upsert
+    // to carry the same keys, and a PR whose files could not be read must NOT
+    // have its stored tier reset to the column default — so classified PRs go
+    // with the risk columns, the rest without.
+    const classified = openPrs.filter((p) => p.risk !== null);
+    const unclassified = openPrs.filter((p) => p.risk === null);
+    const riskRows = classified.map((p) => ({
+      ...baseRow(p),
+      risk_tier: p.risk!.tier,
+      risk_reasons: p.risk!.reasons,
+      changed_files_count: p.risk!.changedFilesCount,
     }));
+    const plainRows = unclassified.map(baseRow);
+
+    const reportUpsertError = (error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : String((error as { message?: string } | null)?.message ?? error);
+      if (isMissingRelationError(error)) summary.tables_missing.push('orchestration_prs');
+      else summary.errors.push(`orchestration_prs upsert: ${message}`);
+    };
+
     try {
-      const { error } = await supabase.from('orchestration_prs').upsert(rows, { onConflict: 'number' });
-      if (error) {
-        if (isMissingRelationError(error)) {
-          summary.tables_missing.push('orchestration_prs');
+      if (riskRows.length > 0) {
+        const { error } = await supabase.from('orchestration_prs').upsert(riskRows, { onConflict: 'number' });
+        if (error && isMissingColumnError(error)) {
+          // 20261105000000_orchestration_prs_risk_tier.sql not applied yet —
+          // fall back to the pre-tier row shape so the console keeps syncing.
+          summary.risk_columns_missing = true;
+          const retry = await supabase
+            .from('orchestration_prs')
+            .upsert(classified.map(baseRow), { onConflict: 'number' });
+          if (retry.error) reportUpsertError(retry.error);
+          else summary.prs_upserted += classified.length;
+        } else if (error) {
+          reportUpsertError(error);
         } else {
-          summary.errors.push(`orchestration_prs upsert: ${error.message}`);
+          summary.prs_upserted += riskRows.length;
+          summary.prs_risk_classified = riskRows.length;
         }
-      } else {
-        summary.prs_upserted = rows.length;
+      }
+      if (plainRows.length > 0) {
+        const { error } = await supabase.from('orchestration_prs').upsert(plainRows, { onConflict: 'number' });
+        if (error) reportUpsertError(error);
+        else summary.prs_upserted += plainRows.length;
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'orchestration_prs upsert threw';
-      if (isMissingRelationError(err)) summary.tables_missing.push('orchestration_prs');
-      else summary.errors.push(`orchestration_prs upsert: ${message}`);
+      reportUpsertError(err instanceof Error ? err : new Error('orchestration_prs upsert threw'));
     }
   }
 
