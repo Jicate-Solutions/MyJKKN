@@ -16,6 +16,10 @@
 #   LOW    docs, types, lint, tests only                          → merged UNATTENDED in `go` mode (the ONLY auto tier)
 #   NORMAL everything else                                        → merged only with --approve-normal (his one tap)
 #   The standing no-auto-merge rule is overridden for LOW ONLY, on record here (Director, 2026-09-05).
+#   STANDING RUN (Director 2026-09-06 06:31, by interview): launchd job com.omm.myjkkn-ship-wave fires
+#   `go --goal --approve-normal --max-dispatch 2` every 2 hours (xx:23). So NORMAL merges UNATTENDED when its
+#   checks are green — a second, explicit override of the no-auto-merge rule. HELD (money / grades / any
+#   migration) still needs his number in $STATE/approve-held. Helper tabs: at most 2 per round.
 #
 # EDGE RULES (same interview):
 #   • a PR updated in the last QUIET_MIN (30) minutes is left alone — its author may still be typing
