@@ -58623,3 +58623,42 @@ COMMENT ON FUNCTION public.fn_hr_delete_work_pattern(uuid) IS
 
 REVOKE ALL ON FUNCTION public.fn_hr_delete_work_pattern(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_hr_delete_work_pattern(uuid) TO authenticated;
+
+-- Updated: 2026-08-21 - AIU evidence trail immutability guard
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
+-- Plain trigger fn (NOT SECURITY DEFINER — touches only NEW/OLD). Capture
+-- columns are frozen at insert; learner_final/changed are write-once.
+CREATE OR REPLACE FUNCTION public.tg_aiu_prompt_trails_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.prompt_sent   IS DISTINCT FROM OLD.prompt_sent
+     OR NEW.ai_output     IS DISTINCT FROM OLD.ai_output
+     OR NEW.learner_input IS DISTINCT FROM OLD.learner_input
+     OR NEW.learner_id    IS DISTINCT FROM OLD.learner_id
+     OR NEW.surface       IS DISTINCT FROM OLD.surface
+     OR NEW.created_at    IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: capture columns are immutable (prompt_sent, ai_output, learner_input, learner_id, surface, created_at)'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF OLD.learner_final IS NOT NULL
+     AND NEW.learner_final IS DISTINCT FROM OLD.learner_final THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: learner_final is write-once'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF OLD.changed IS NOT NULL
+     AND NEW.changed IS DISTINCT FROM OLD.changed THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: changed is write-once'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.tg_aiu_prompt_trails_guard() FROM anon, PUBLIC;

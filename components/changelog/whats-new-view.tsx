@@ -41,6 +41,9 @@ import { KIND_LABEL, type ChangeKind, type ChangelogEntry } from '@/lib/changelo
 
 const PAGE = 60;
 
+/** Contributor pills shown before the "+N more" button, below `sm`. */
+const PHONE_CONTRIBUTORS = 5;
+
 const KIND_STYLE: Record<ChangeKind, { icon: typeof Sparkles; chip: string }> = {
   new: {
     icon: Sparkles,
@@ -70,6 +73,25 @@ function formatDay(iso: string) {
   });
 }
 
+/**
+ * Whole days between a YYYY-MM-DD stamp and today, computed in UTC so it never
+ * shifts by one at a timezone boundary.
+ */
+function daysSince(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const then = Date.UTC(y, m - 1, d);
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.max(0, Math.round((today - then) / 86_400_000));
+}
+
+/** "today" / "yesterday" / "N days ago" — a number alone reads as noise. */
+function ageLabel(days: number) {
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
+}
+
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -94,6 +116,7 @@ export function WhatsNewView() {
   const [kind, setKind] = useState<ChangeKind | 'all'>('all');
   const [moduleSlug, setModuleSlug] = useState('all');
   const [shown, setShown] = useState(PAGE);
+  const [allContributors, setAllContributors] = useState(false);
 
   const filtered = useMemo(() => {
     if (!entries) return [];
@@ -135,8 +158,13 @@ export function WhatsNewView() {
   if (error) {
     return (
       <Card>
-        <CardContent className="flex items-start gap-3 py-6">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+        {/* The fetch resolves after mount, so this card appears dynamically —
+            role="alert" is heard. text-amber-600 needs its dark counterpart. */}
+        <CardContent className="flex items-start gap-3 py-6" role="alert">
+          <AlertCircle
+            className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden="true"
+          />
           <div>
             <p className="font-medium">{error}</p>
             <p className="text-sm text-muted-foreground">
@@ -150,7 +178,10 @@ export function WhatsNewView() {
 
   if (isLoading || !meta) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4" aria-busy="true">
+        <span className="sr-only" role="status">
+          Loading changes…
+        </span>
         <Skeleton className="h-24 w-full rounded-xl" />
         {[...Array(6)].map((_, i) => (
           <Skeleton key={i} className="h-16 w-full rounded-lg" />
@@ -177,23 +208,56 @@ export function WhatsNewView() {
           </p>
 
           {contributors.length > 0 && (
+            /*
+              Phones see the top few names, everything else sees all of them.
+              Measured at 375px: 11 pills wrapped to 296px — most of the first
+              screen was credits, before a single change. Five pills plus the
+              "+N more" button is 144px. Nothing changes at sm and up, where
+              the strip was always two rows.
+            */
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Built by
               </span>
-              {contributors.map(([name, count]) => (
+              {contributors.map(([name, count], i) => (
                 <span
                   key={name}
-                  className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 py-1 pl-1 pr-2.5 text-xs"
+                  className={cn(
+                    'max-w-full items-center gap-1.5 rounded-full border bg-muted/40 py-1 pl-1 pr-2.5 text-xs',
+                    i >= PHONE_CONTRIBUTORS && !allContributors
+                      ? 'hidden sm:inline-flex'
+                      : 'inline-flex'
+                  )}
                   title={`${count.toLocaleString('en-IN')} changes`}
                 >
-                  <span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                  {/* Initials repeat the name that follows — decorative to AT. */}
+                  <span
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground"
+                    aria-hidden="true"
+                  >
                     {initials(name)}
                   </span>
-                  <span className="font-medium">{name}</span>
-                  <span className="tabular-nums text-muted-foreground">{count}</span>
+                  <span className="min-w-0 truncate font-medium">{name}</span>
+                  {/* The bare number only reads as a count because of where it
+                      sits. Say so for a screen reader. */}
+                  <span className="shrink-0 tabular-nums text-muted-foreground" aria-hidden="true">
+                    {count}
+                  </span>
+                  <span className="sr-only">
+                    {count.toLocaleString('en-IN')} {count === 1 ? 'change' : 'changes'}
+                  </span>
                 </span>
               ))}
+              {contributors.length > PHONE_CONTRIBUTORS && !allContributors && (
+                <button
+                  type="button"
+                  onClick={() => setAllContributors(true)}
+                  className="rounded-full border border-dashed px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
+                >
+                  +{contributors.length - PHONE_CONTRIBUTORS} more
+                  <span className="sr-only"> contributors</span>
+                </button>
+              )}
             </div>
           )}
         </CardContent>
@@ -202,7 +266,10 @@ export function WhatsNewView() {
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
           <Input
             value={query}
             onChange={(e) => {
@@ -235,17 +302,22 @@ export function WhatsNewView() {
         </Select>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      {/* Five toggles over one value — a group of aria-pressed buttons, so a
+          screen reader hears which one is on rather than inferring it from the
+          green fill. py-1.5 puts the tap target at 30px: over the 24px WCAG
+          2.5.8 floor, still under Apple's 44px comfort size. */}
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by kind of change">
         {(['all', 'new', 'fixed', 'faster', 'security'] as const).map((k) => (
           <button
             key={k}
             type="button"
+            aria-pressed={kind === k}
             onClick={() => {
               setKind(k);
               setShown(PAGE);
             }}
             className={cn(
-              'rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               kind === k
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'bg-background hover:bg-muted'
@@ -259,12 +331,19 @@ export function WhatsNewView() {
       {activeModule?.href && (
         <Link
           href={activeModule.href}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm py-1 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Open {activeModule.label}
-          <ArrowRight className="h-3.5 w-3.5" />
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </Link>
       )}
+
+      {/* Filtering swaps the list out with nothing said. Announce the new
+          count, politely, so a screen-reader user knows the search took. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {filtered.length.toLocaleString('en-IN')}{' '}
+        {filtered.length === 1 ? 'change' : 'changes'} shown
+      </p>
 
       {/* Timeline */}
       {filtered.length === 0 ? (
@@ -280,7 +359,15 @@ export function WhatsNewView() {
         <div className="space-y-8">
           {days.map(({ day, items }) => (
             <section key={day}>
-              <h2 className="sticky top-0 z-10 -mx-1 bg-background/95 px-1 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+              {/*
+                top-14, not top-0: the app's Navbar is `sticky top-0 z-30` over
+                an h-14 (56px) bar, so a date header parked at top-0 stops
+                underneath it and is never seen. Verified against
+                components/Navbar/Navbar.tsx and admin-panel-layout.tsx's
+                min-h-[calc(100vh-56px)]. z-10 keeps it below the navbar, which
+                is what we want — it should slide under, not over.
+              */}
+              <h2 className="sticky top-14 z-10 -mx-1 bg-background/95 px-1 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                 {formatDay(day)}
               </h2>
               <ul className="mt-1 space-y-2">
@@ -300,11 +387,11 @@ export function WhatsNewView() {
                             style.chip
                           )}
                         >
-                          <Icon className="h-3 w-3" />
+                          <Icon className="h-3 w-3" aria-hidden="true" />
                           {KIND_LABEL[e.t]}
                         </span>
                         {mod && (
-                          <span className="text-xs font-medium text-muted-foreground">
+                          <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">
                             {mod.label}
                           </span>
                         )}
@@ -314,15 +401,32 @@ export function WhatsNewView() {
                           </span>
                         )}
                       </div>
-                      <p className="mt-1.5 text-sm leading-relaxed text-foreground">{e.s}</p>
+                      {/* Measured at 375px: today's longest token (57 chars,
+                          a route glob) wraps on its own — slashes and commas
+                          are break opportunities. A snake_case identifier is
+                          not: a 49-char `fn_…` name overflowed the card by
+                          17px, and main's overflow-x-clip would have cut it
+                          off silently. Real subjects carry such names up to
+                          36 chars today, so this is a near miss, not a
+                          hypothetical. */}
+                      <p className="mt-1.5 break-words text-sm leading-relaxed text-foreground">
+                        {e.s}
+                      </p>
                       <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="grid h-4 w-4 place-items-center rounded-full bg-muted text-[8px] font-bold text-muted-foreground">
+                        <span className="inline-flex min-w-0 items-center gap-1.5">
+                          <span
+                            className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-muted text-[8px] font-bold text-foreground/70"
+                            aria-hidden="true"
+                          >
                             {initials(e.a)}
                           </span>
-                          <span className="font-medium text-foreground/80">{e.a}</span>
+                          <span className="break-words font-medium text-foreground/80">{e.a}</span>
                         </span>
-                        {e.p && <span className="font-mono">#{e.p}</span>}
+                        {e.p && (
+                          <span className="font-mono">
+                            <span className="sr-only">pull request </span>#{e.p}
+                          </span>
+                        )}
                       </p>
                     </li>
                   );
@@ -335,19 +439,49 @@ export function WhatsNewView() {
 
       <div className="flex flex-col items-center gap-3 pb-4">
         {shown < filtered.length && (
-          <Button variant="outline" onClick={() => setShown((s) => s + PAGE)}>
+          <Button
+            variant="outline"
+            className="max-w-full"
+            onClick={() => setShown((s) => s + PAGE)}
+          >
             Show more ({(filtered.length - shown).toLocaleString('en-IN')} left)
           </Button>
         )}
         {shown >= filtered.length && hasArchive && (
-          <Button variant="outline" onClick={loadArchive} disabled={loadingArchive}>
-            {loadingArchive && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button
+            variant="outline"
+            className="h-auto max-w-full whitespace-normal py-2 text-center"
+            onClick={loadArchive}
+            disabled={loadingArchive}
+            aria-busy={loadingArchive}
+          >
+            {loadingArchive && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
             Show changes before {formatDay(meta.recentFrom)}
           </Button>
         )}
+        {/* The age is shown ALWAYS, not only when it is bad (Director, 2026-09-06).
+            This list is generated and committed, so it can silently stop moving
+            while still looking perfectly healthy — a plain date gives a reader no
+            way to tell. Past a week we say so outright rather than leaving them to
+            do the arithmetic. */}
         <p className="text-center text-xs text-muted-foreground">
-          Updated {formatDay(meta.generatedAt)}. Changes you cannot see belong to parts of MyJKKN
-          you do not have access to.
+          Updated {formatDay(meta.generatedAt)} ·{' '}
+          <span
+            className={cn(
+              daysSince(meta.generatedAt) >= 7 && 'font-medium text-amber-700 dark:text-amber-400'
+            )}
+          >
+            {ageLabel(daysSince(meta.generatedAt))}
+          </span>
+          {daysSince(meta.generatedAt) >= 7 && (
+            <>
+              {' '}
+              — newer changes have shipped but are not shown here yet.
+            </>
+          )}
+        </p>
+        <p className="text-center text-xs text-muted-foreground">
+          Changes you cannot see belong to parts of MyJKKN you do not have access to.
         </p>
       </div>
     </div>
