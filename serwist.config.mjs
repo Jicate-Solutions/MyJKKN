@@ -16,4 +16,12 @@ export default await serwist({
   additionalPrecacheEntries: [
     { url: "/offline", revision: "1" },
   ],
+  // The /whats-new changelog data is NOT in public/ and so cannot be swept
+  // into the precache by the default `public/**/*` glob. It lives in
+  // lib/changelog/data/ and is served only through the authenticated route
+  // /api/whats-new — anything ending in .json under public/ bypasses auth
+  // (proxy.ts STATIC_ASSET_PATTERN). app/sw.ts gives that route a
+  // NetworkFirst rule so it stays available offline without ever being
+  // preferred over the network.
+
 });
