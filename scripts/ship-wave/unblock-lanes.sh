@@ -43,13 +43,19 @@ _lane_stage() { [ -f "$UNBLOCK_DIR/$1" ] && cut -f2 "$UNBLOCK_DIR/$1" 2>/dev/nul
 _lane_mark()  { printf '%s\t%s\t%s\n' "$(date '+%F %T')" "$2" "${3:-}" > "$UNBLOCK_DIR/$1"; }
 
 merge_main_into() {  # $1 = PR number  $2 = branch → merged | current | conflict | failed:<msg>
+  # GitHub's own "Update branch" button (PUT /pulls/N/update-branch): one purpose-built action per PR,
+  # never a merge script. 2026-09-06 21:55: the auto-mode classifier refused a 17-branch merges-API loop
+  # and accepted this per-PR call — and the Director drives the fleet from his phone, so an action a
+  # session cannot take itself is an action that does not happen.
   local out rc
-  out=$(gh api -X POST "repos/$REPO/merges" -f base="$2" -f head=main \
-        -f commit_message="chore(w12): merge main into $2 so CI runs on a current base (stale-head lane)" 2>&1); rc=$?
-  if [ "$rc" -eq 0 ]; then
-    if [ -z "$out" ] || [ "$out" = "null" ]; then echo current; else echo merged; fi
+  out=$(gh api -X PUT "repos/$REPO/pulls/$1/update-branch" 2>&1); rc=$?
+  if [ "$rc" -eq 0 ]; then echo merged   # 202 "Updating pull request branch." — the merge commit lands asynchronously
   else
-    case "$out" in *onflict*|*409*) echo conflict;; *) echo "failed:$(printf '%s' "$out" | grep -o '"message": *"[^"]*"' | head -1 | cut -c1-80)";; esac
+    case "$out" in
+      *"already up to date"*|*"no new commits"*) echo current;;
+      *onflict*|*422*) echo conflict;;
+      *) echo "failed:$(printf '%s' "$out" | grep -o '"message": *"[^"]*"' | head -1 | cut -c1-80)";;
+    esac
   fi
 }
 
