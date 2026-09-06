@@ -56,14 +56,33 @@
 //      existing "may we go online?" request path and gains nothing here.
 //      Turning back CLEARS location_mode_override, which the column's CHECK
 //      already allows (NULL or 'online'), so no migration is involved.
+//
+// 2026-08-31 — WHOSE HOURS DOES A SWITCHED MEETING KEEP?
+//   Because the switch deliberately never touches meeting_type_id (that single
+//   flag is what makes it work for all 110 hosts), every availability question
+//   below used to be answered by the ORIGINAL, in-person type — so a meeting
+//   that had just become a video call was still being validated against the
+//   host's face-to-face hours. Those hours genuinely differ: the 14 live online
+//   types sit on 2 schedules and NONE of them on a host default, while 108 of
+//   the 141 in-person types sit on the default.
+//   Availability for a booking whose EFFECTIVE mode is online is now resolved
+//   against the host's ONLINE schedule instead — derived structurally by
+//   pickOnlineScheduleId, since meeting_host_schedules has no mode column. The
+//   meeting type itself is still untouched: only the schedule_id handed to the
+//   slot engine changes, and only for the online direction. A host with no
+//   online type at all resolves to null and keeps today's behaviour exactly.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
-import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
+import {
+  NativeSchedulingService,
+  type NativeMeetingType,
+} from '@/lib/services/meetings/native-scheduling-service';
 import {
   effectiveLocationMode,
   isSwitchAllowedNow,
+  pickOnlineScheduleId,
   resolvedRequestPatch,
   switchBackState,
   switchRequestState,
@@ -133,6 +152,22 @@ export interface ModeSwitchData {
   timeMoved?: boolean;
   /** True when a pending visitor request was recorded rather than applied. */
   pending?: boolean;
+  /**
+   * The switch kept the meeting's time, and that time is NOT one the host's
+   * ONLINE schedule offers.
+   *
+   * A WARNING, never a failure and never a silent move. Craft decision A says a
+   * mode-only switch must not touch reschedule_count / rescheduled_at /
+   * previous_start_time, so this path deliberately skips slot re-validation and
+   * the meeting stays exactly where it was. That is still the right behaviour —
+   * but before this flag the host was never told that their newly-online
+   * meeting sits outside the hours they keep for online meetings. Now they are.
+   *
+   * Absent (undefined) whenever the question does not arise: the meeting moved
+   * and was therefore already validated, or the host has no online schedule to
+   * compare against, or the online schedule is the one the type already used.
+   */
+  outsideOnlineHours?: boolean;
 }
 
 /**
@@ -222,6 +257,68 @@ export class MeetingModeSwitchService {
     return (data as { is_super_admin?: boolean } | null)?.is_super_admin === true;
   }
 
+  /**
+   * The id of the schedule this host keeps their ONLINE hours in, or null.
+   *
+   * Structural, not by name: `meeting_host_schedules` has no mode column, so a
+   * schedule is identified as the online one only by the fact that the host's
+   * own online meeting types point at it (see pickOnlineScheduleId for the rule
+   * and for why a name match would be wrong).
+   *
+   * Only ACTIVE types are counted, matching getMeetingType's own filter — an
+   * archived online type's schedule is not evidence about the hours the host
+   * keeps today.
+   *
+   * FALLS BACK, NEVER FAILS. Any error, and any host with no online type,
+   * yields null, and every caller then behaves exactly as it did before this
+   * existed. Most of the 110 hosts with an in-person type are in that state and
+   * they must go on switching meetings to online as they do today.
+   */
+  private static async resolveOnlineScheduleId(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('meeting_types')
+        .select('schedule_id')
+        .eq('host_profile_id', hostProfileId)
+        .eq('location_mode', 'online')
+        .eq('is_active', true);
+      if (error) {
+        console.warn(`${LOG_PREFIX} online schedule lookup failed:`, error.message);
+        return null;
+      }
+      return pickOnlineScheduleId((data ?? []) as Array<{ schedule_id?: string | null }>);
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} online schedule lookup threw for ${hostProfileId}:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * The meeting type to resolve AVAILABILITY with when the booking is becoming
+   * (or already is) a video call.
+   *
+   * A copy of the real type with one field swapped: `schedule_id` points at the
+   * host's online schedule. Nothing is written — meeting_type_id on the booking
+   * is untouched, which is the whole design — and every other property the slot
+   * engine reads (duration, buffers, notice, interval) still comes from the
+   * type the visitor actually booked.
+   *
+   * Returns the type UNCHANGED when there is no online schedule to move to, or
+   * when the type already sits on it. Both mean "today's behaviour", and the
+   * identity of the returned object is what callers use to tell that apart.
+   */
+  private static async onlineAvailabilityType(
+    supabase: SupabaseClient,
+    mt: NativeMeetingType,
+  ): Promise<NativeMeetingType> {
+    const scheduleId = await this.resolveOnlineScheduleId(supabase, mt.host_profile_id);
+    if (!scheduleId || scheduleId === mt.schedule_id) return mt;
+    return { ...mt, schedule_id: scheduleId };
+  }
+
   /** Decision 7: block on a missing/broken connection and NAME the reason. */
   private static async connectionIsUsable(
     supabase: SupabaseClient,
@@ -304,7 +401,13 @@ export class MeetingModeSwitchService {
 
     let requestedStart: string | null = null;
     if (opts.newStart) {
-      const ctx = await NativeSchedulingService.resolveMoveContext(supabase, mt, {
+      // What the visitor is asking for is an ONLINE meeting, so the time they
+      // pick has to be one the host's online hours offer — not one their
+      // face-to-face hours do. Checking it here as well as at approval means a
+      // visitor is refused at the moment they ask rather than after a host
+      // approval that could not land.
+      const availabilityType = await this.onlineAvailabilityType(supabase, mt);
+      const ctx = await NativeSchedulingService.resolveMoveContext(supabase, availabilityType, {
         newStartIso: opts.newStart,
         exclude: { start: booking.start_time, end: booking.end_time },
         now,
@@ -457,6 +560,12 @@ export class MeetingModeSwitchService {
 
     // No move here, so this call only resolves the timezone the email renders
     // its times in — the same use the forward path makes of it.
+    //
+    // Deliberately the ORIGINAL type, NOT the online schedule the forward
+    // switch used. This booking is going back to the mode its type describes,
+    // so the hours (and the timezone the visitor is written to about) are that
+    // type's own again. Reading the online schedule here would render the times
+    // in the zone of a meeting that is no longer happening online.
     const ctx = await NativeSchedulingService.resolveMoveContext(supabase, mt, {
       newStartIso: null,
       exclude: { start: booking.start_time, end: booking.end_time },
@@ -592,9 +701,15 @@ export class MeetingModeSwitchService {
     }
     if (!booking.google_event_id) return { ok: false, error: 'NO_CALENDAR_EVENT' };
 
+    // The meeting is BECOMING a video call, so both the timezone it is shown in
+    // and the slot it is validated against belong to the host's online hours,
+    // not to the in-person type it was booked under. Identical to `mt` for a
+    // host who has no online schedule, which is most of them.
+    const availabilityType = await this.onlineAvailabilityType(supabase, mt);
+
     // Resolve the timezone (always) and re-validate the new slot (only when
     // the switch also moves the meeting).
-    const ctx = await NativeSchedulingService.resolveMoveContext(supabase, mt, {
+    const ctx = await NativeSchedulingService.resolveMoveContext(supabase, availabilityType, {
       newStartIso: opts.newStart ?? null,
       exclude: { start: booking.start_time, end: booking.end_time },
       now,
@@ -612,6 +727,30 @@ export class MeetingModeSwitchService {
     );
     const startIso = timeMoved ? (ctx.startIso as string) : booking.start_time;
     const endIso = timeMoved ? (ctx.endIso as string) : booking.end_time;
+
+    // ── the mode-only switch, and the one thing it cannot check for itself ──
+    // A switch that keeps the time skips slot re-validation on purpose (craft
+    // decision A, below): re-validating would mean moving, and moving would
+    // wrongly bump reschedule_count for something that never moved. That gap
+    // stays. What closes here is the SILENCE around it — a meeting can now
+    // become online at a time the host's online hours do not offer, and the
+    // host was never told. Ask the question, keep the meeting where it is, and
+    // hand the answer back as a warning.
+    //
+    // Only asked when there is a different schedule to ask about; a host with
+    // no online schedule has no online hours to fall outside of. INVALID_SLOT
+    // is the only answer that warns — NO_SCHEDULE and a thrown lookup mean we
+    // could not tell, and "we could not tell" must not be shown as "you are
+    // outside your hours".
+    let outsideOnlineHours: boolean | undefined;
+    if (!timeMoved && availabilityType !== mt) {
+      const check = await NativeSchedulingService.resolveMoveContext(supabase, availabilityType, {
+        newStartIso: booking.start_time,
+        exclude: { start: booking.start_time, end: booking.end_time },
+        now,
+      });
+      if (!check.ok && check.error === 'INVALID_SLOT') outsideOnlineHours = true;
+    }
 
     // ── step 3: claim the row ───────────────────────────────────────────────
     // A host who switches DIRECTLY while a visitor request is open has, in
@@ -748,6 +887,7 @@ export class MeetingModeSwitchService {
         end: endIso,
         videoUrl: meetUrl,
         timeMoved,
+        outsideOnlineHours,
       },
     };
   }

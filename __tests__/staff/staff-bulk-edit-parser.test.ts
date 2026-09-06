@@ -10,7 +10,7 @@ function build(sheets: Record<string, unknown[][]>): Buffer {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
-const HEADERS = ['Institution Email', 'Staff ID (current)', 'Name', 'Institution', 'Phone', 'Gender'];
+const HEADERS = ['Institution Email', 'Staff ID', 'Name', 'Institution', 'Phone', 'Gender'];
 
 describe('parseStaffBulkEditWorkbook', () => {
   it('reads the data sheet and keys cells by header', () => {

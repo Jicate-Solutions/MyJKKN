@@ -29,7 +29,7 @@
  */
 
 /** Shared password for every seeded /auth/test-login account. */
-export const TEST_PASSWORD = "Test@1234";
+export const TEST_PASSWORD = process.env.PERSONA_PASSWORD ?? "";
 
 export interface PersonaAccount {
   /** Seeded test-login email, of the form test.<role>@jkkn.ac.in. */

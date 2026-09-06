@@ -149,7 +149,13 @@ function fetchBillingCategoriesCached(): Promise<BillingCategory[]> {
 interface StudentBillFormProps {
   bill?: StudentBill;
   preSelectedStudent?: StudentForBilling;
-  onSuccess?: () => void;
+  /**
+   * `createdBillIds` carries the rows that were just inserted, so a dialog host
+   * can chain straight into collecting payment against them. Only populated on
+   * CREATE — an edit has nothing newly billable to receipt, so hosts must not
+   * pop a payment form after one.
+   */
+  onSuccess?: (createdBillIds?: string[]) => void;
   returnTo?: string;
   /**
    * Cancel handler. Defaults to router.back(), which is right on the
@@ -473,13 +479,20 @@ export function StudentBillForm({
         return;
       }
 
+      // Ids of what was actually inserted, so the caller can offer to collect
+      // payment on exactly these bills. Recurring bills contribute only their
+      // parent row here — the future instalments are not yet collectable.
+      const createdBillIds: string[] = [];
       for (const item of data.billing_items) {
-        await createStudentBill.mutateAsync(buildBillDto(item, data));
+        const created = await createStudentBill.mutateAsync(
+          buildBillDto(item, data)
+        );
+        if (created?.id) createdBillIds.push(created.id);
         createdCount += 1;
       }
 
       if (onSuccess) {
-        onSuccess();
+        onSuccess(createdBillIds);
       } else if (returnTo) {
         router.push(returnTo);
       } else if (preSelectedStudent) {

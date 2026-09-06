@@ -22,6 +22,7 @@ import {
   ListChecks,
   ListTodo,
   History,
+  Repeat,
   Video,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -34,6 +35,7 @@ import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
 import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-service';
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
+import { MeetingPersonHistoryService } from '@/lib/services/meetings/meeting-person-history-service';
 import {
   effectiveLocationMode,
   switchBackState,
@@ -49,6 +51,7 @@ import { MarkOutcomeButtons } from './_components/mark-outcome-buttons';
 import { AgendaSection } from './_components/agenda-section';
 import { ActionItemsSection } from './_components/action-items-section';
 import { CarriedOverSection } from './_components/carried-over-section';
+import { PersonHistorySection } from './_components/person-history-section';
 
 const BREADCRUMB_ITEMS = [
   { label: 'Home', href: '/' },
@@ -166,6 +169,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const { items: agendaItems } = await MeetingAgendaService.getAgenda(supabase, booking.id);
   const actionItems = await MeetingActionItemService.listForBooking(supabase, booking.id);
   const carriedOver = await MeetingActionItemService.listOpenCarryOver(supabase, booking.id);
+  // Past meetings with this person. Same session client, same RLS, and matched
+  // on attendee_email exactly as listOpenCarryOver above — the two panels sit
+  // next to each other and must agree on who "this person" is. Returns null
+  // when there is no prior history, and the panel is then not rendered at all.
+  const personHistory = await MeetingPersonHistoryService.getForBooking(supabase, booking.id);
   const canEditAgenda = !!user && user.id === booking.host_profile_id;
 
   const duration = durationMinutes(booking.start_time, booking.end_time);
@@ -357,6 +365,24 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             ) : null}
           </CardContent>
         </Card>
+
+        {/* Directly under Attendee, because it answers the next question that
+            card raises: have I dealt with this person before? Rendered only
+            when there IS history — an empty "no past meetings" box would be
+            noise on every first meeting, which is most of them. */}
+        {personHistory ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Repeat className="h-4 w-4 text-muted-foreground" aria-hidden />
+                <CardTitle className="text-base">Past meetings with this person</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <PersonHistorySection history={personHistory} />
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader className="pb-3">

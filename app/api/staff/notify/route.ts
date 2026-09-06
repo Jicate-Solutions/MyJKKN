@@ -142,16 +142,32 @@ async function handleLeaveSubmitted(
   if (currentStep?.approver_user_id) {
     approverUserIds = [currentStep.approver_user_id];
   } else if (currentStep?.approver_role) {
-    // Look up profiles by role within the same institution
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', currentStep.approver_role)
-      .eq('is_active', true);
-    approverUserIds = (profiles ?? []).map((p: { id: string }) => p.id);
+    // BUG-005884: the comment here used to say "within the same institution"
+    // while the query below did no such thing — it was
+    // profiles.eq('role', …).eq('is_active', true) on a service-role client, so
+    // every principal in the group was notified of every college's leave. The
+    // RPC is the inverse of fn_is_designated_leave_approver: recipients equal
+    // the set hla_select admits, so nobody is notified of a row they cannot
+    // open. Keys off user_roles, not the legacy profiles.role mirror.
+    const { data: ids, error: rpcErr } = await supabase.rpc(
+      'hr_leave_step_approver_user_ids',
+      { p_application_id: applicationId }
+    );
+    if (rpcErr) {
+      console.error('[staff/notify] approver resolution failed', rpcErr);
+      return NextResponse.json(
+        { type: 'leave_submitted', notified: 0, reason: 'approver_resolution_failed' },
+        { status: 500 }
+      );
+    }
+    approverUserIds = (ids as string[] | null) ?? [];
   }
 
   if (approverUserIds.length === 0) {
+    console.warn('[staff/notify] no approver resolved', {
+      application: applicationId,
+      role: currentStep?.approver_role ?? null,
+    });
     return NextResponse.json({ type: 'leave_submitted', notified: 0, reason: 'no_approvers_resolved' });
   }
 

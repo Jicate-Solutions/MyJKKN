@@ -22,6 +22,7 @@ import type {
   HRShiftTiming,
   IsoDayOfWeek,
   ResolvedShiftTiming,
+  ShiftApplicableGender,
   ShiftStaffScope,
   ShiftTimingCoverageRow,
 } from '@/types/hr-shift-timings';
@@ -43,15 +44,44 @@ export interface SaveWeekParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Required with staffScope 'work_pattern'; the RPC refuses any other pairing. */
+  workPatternId?: string | null;
+  /** Defaults to 'all'. A Female save never touches the Everyone week. */
+  applicableGender?: ShiftApplicableGender;
   /** ISO date. Today (or earlier) corrects in place; a future date supersedes. */
   effectiveFrom: string;
   days: WeekDayInput[];
+}
+
+/** One override in force, as the Override tab lists it. */
+export interface ShiftTimingOverrideSummary {
+  staff_scope: ShiftStaffScope;
+  employment_category_id: string | null;
+  applicable_gender: ShiftApplicableGender;
+  /** From the first working day of the week — see listOverrides. */
+  first_half_start: string | null;
+  second_half_end: string | null;
+  working_days: IsoDayOfWeek[];
+  effective_from: string;
+}
+
+export interface EndOverrideParams {
+  institutionId: string;
+  staffScope: ShiftStaffScope;
+  employmentCategoryId?: string | null;
+  applicableGender: ShiftApplicableGender;
+  /** Defaults to today. Exclusive: the override stops applying ON this date. */
+  on?: string;
 }
 
 export interface GetWeekParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Required with staffScope 'work_pattern'. Reaches the key through `params`. */
+  workPatternId?: string | null;
+  /** Defaults to 'all'. Must reach the React Query key — see ShiftTimingFilters. */
+  applicableGender?: ShiftApplicableGender;
   /** ISO date. Defaults to today. */
   asOf?: string;
 }
@@ -116,6 +146,10 @@ export class ShiftTimingService {
       .select('*')
       .eq('institution_id', params.institutionId)
       .eq('staff_scope', params.staffScope)
+      // Explicit, never omitted: without it the Female week and the Everyone
+      // week come back interleaved and hydrate() — which keys by day_of_week —
+      // would keep whichever of the two arrived last for each day.
+      .eq('applicable_gender', params.applicableGender ?? 'all')
       .eq('is_active', true)
       .lte('effective_from', asOf)
       .or(`effective_until.is.null,effective_until.gt.${asOf}`)
@@ -126,6 +160,10 @@ export class ShiftTimingService {
     query = params.employmentCategoryId
       ? query.eq('employment_category_id', params.employmentCategoryId)
       : query.is('employment_category_id', null);
+    // Same reasoning for the pattern: a null is the non-pattern rows, not "any".
+    query = params.workPatternId
+      ? query.eq('work_pattern_id', params.workPatternId)
+      : query.is('work_pattern_id', null);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -157,6 +195,93 @@ export class ShiftTimingService {
       .map((r: { employment_category_id: string | null }) => r.employment_category_id)
       .filter((id): id is string => Boolean(id));
     return Array.from(new Set(ids));
+  }
+
+  /**
+   * EVERY override in force at an institution, one entry per
+   * (staff_scope, category, gender).
+   *
+   * The tab could always CREATE any number of these — the current-row unique
+   * index is per (institution, scope, category, gender, weekday), so they
+   * coexist happily. What was missing was any way to see them, so an operator
+   * had no way to find an override again or tell a new combination from one
+   * they configured last month. That is what made the tab feel single-override.
+   *
+   * Grouped in TypeScript rather than SQL: this is at most a few dozen rows for
+   * one institution, and a GROUP BY would still need the day-by-day detail to
+   * summarise the week.
+   */
+  static async listOverrides(
+    supabase: SupabaseClient,
+    institutionId: string,
+    asOf?: string,
+  ): Promise<ShiftTimingOverrideSummary[]> {
+    const on = asOf ?? today();
+    const { data, error } = await supabase
+      .from('hr_shift_timings')
+      .select('*')
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .lte('effective_from', on)
+      .or(`effective_until.is.null,effective_until.gt.${on}`)
+      .order('day_of_week', { ascending: true });
+
+    if (error) throw error;
+
+    const byKey = new Map<string, HRShiftTiming[]>();
+    for (const row of (data ?? []) as HRShiftTiming[]) {
+      // The GENERAL weeks are not overrides — they are what an override
+      // overrides. Excluded here so the list only shows things that can be
+      // added and removed. A work pattern's week is not one either: it is
+      // managed on its own page and is exclusive for its members.
+      if (row.staff_scope === 'work_pattern') continue;
+      const isGeneral = row.staff_scope !== 'category' && row.applicable_gender === 'all';
+      if (isGeneral) continue;
+      const key = `${row.staff_scope}|${row.employment_category_id ?? ''}|${row.applicable_gender}`;
+      const bucket = byKey.get(key);
+      if (bucket) bucket.push(row);
+      else byKey.set(key, [row]);
+    }
+
+    return [...byKey.values()].map((rows) => {
+      const first = rows[0];
+      const working = rows.filter((r) => r.is_working_day);
+      return {
+        staff_scope: first.staff_scope,
+        employment_category_id: first.employment_category_id,
+        applicable_gender: first.applicable_gender,
+        // The window shown in the list. Taken from the first working day rather
+        // than asserted to be uniform: a week may legitimately differ on
+        // Saturday, and `working_days` below is what tells the operator that.
+        first_half_start: working[0]?.first_half_start ?? null,
+        second_half_end: working[0]?.second_half_end ?? null,
+        working_days: working.map((r) => r.day_of_week),
+        effective_from: first.effective_from,
+      };
+    });
+  }
+
+  /**
+   * Retire one override from `on` onward via fn_end_shift_timing_override.
+   *
+   * An RPC, not a client-side update: the function picks between closing a row
+   * that had a life and deactivating one that never applied, and getting that
+   * backwards violates hr_shift_timings_effective_chk. It also refuses to touch
+   * a general week, which a hand-written filter could reach by accident.
+   */
+  static async endOverride(
+    supabase: SupabaseClient,
+    params: EndOverrideParams,
+  ): Promise<number> {
+    const { data, error } = await supabase.rpc('fn_end_shift_timing_override', {
+      p_institution_id: params.institutionId,
+      p_staff_scope: params.staffScope,
+      p_employment_category_id: params.employmentCategoryId ?? null,
+      p_applicable_gender: params.applicableGender,
+      ...(params.on ? { p_on: params.on } : {}),
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
   }
 
   /**
@@ -194,6 +319,8 @@ export class ShiftTimingService {
       p_employment_category_id: params.employmentCategoryId ?? null,
       p_effective_from: params.effectiveFrom,
       p_days: payload,
+      p_applicable_gender: params.applicableGender ?? 'all',
+      p_work_pattern_id: params.workPatternId ?? null,
     });
 
     if (error) throw error;

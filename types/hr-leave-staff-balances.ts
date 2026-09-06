@@ -8,6 +8,8 @@
  * page-level hr_academic_years id.
  */
 
+import type { StoLimitMode } from './hr-leave-types';
+
 /**
  * Which of the three entitlement tiers supplied the number, straight from
  * v_hr_leave_balance_src's CASE:
@@ -42,12 +44,73 @@ export interface HRStaffBalanceCell {
   has_row: boolean;
 }
 
+/**
+ * One column of the SECOND pivot — an institution's Short Time Off types.
+ *
+ * Kept apart from HRStaffBalanceLeaveType because the two are denominated
+ * differently and cannot share a cell renderer: a day type carries an
+ * entitlement that `used` draws down, an STO type carries a per-period minute
+ * or request budget that nothing writes to hr_leave_balances at all.
+ *
+ * These limit fields are the TYPE's own and are here for the column header. A
+ * hr_leave_type_assignments row can override the whole limit block for one
+ * person or one department, so the authoritative figures are per cell.
+ */
+export interface HRStaffBalanceStoType {
+  id: string;
+  code: string;
+  name: string;
+  limit_mode: StoLimitMode;
+  limit_period: string | null;
+  total_minutes: number | null;
+  max_requests: number | null;
+}
+
+/**
+ * One STO cell: a single (staff, STO type) budget for the period covering
+ * today (or the selected year's last day, when viewing a past year).
+ *
+ * Deliberately the same shape hr_sto_usage() returns to the staff apply-drawer,
+ * plus `exhausted`. The admin figure and the figure the staff member sees are
+ * computed by the same two functions server-side — hr_resolve_sto_limits for
+ * the precedence and hr_leave_period_window for the window — so they cannot
+ * disagree.
+ */
+export interface HRStaffBalanceStoCell {
+  limit_mode: StoLimitMode;
+  limit_period: string | null;
+  /** Which rule supplied these limits: the type, or an assignment scope. */
+  source: 'type' | 'organization' | 'department' | 'staff' | null;
+  /**
+   * The period could not be resolved, so the database refuses every submission
+   * from this person. Reported rather than flattened into limit_mode 'none' —
+   * calling someone unlimited while every submit is blocked is the worse lie.
+   */
+  window_unresolved: boolean;
+  period_start: string | null;
+  period_end: string | null;
+  total_minutes: number | null;
+  max_requests: number | null;
+  min_minutes: number | null;
+  max_minutes: number | null;
+  requests_used: number;
+  minutes_used: number;
+  /** Null unless limit_mode is 'total_duration'. */
+  minutes_left: number | null;
+  /** Null unless limit_mode is 'request_count'. */
+  requests_left: number | null;
+  /** Budget spent for the period — the one STO state that needs acting on. */
+  exhausted: boolean;
+}
+
 /** Per-staff counts of cells needing attention, computed server-side. */
 export interface HRStaffBalanceFlags {
   missing_rows: number;
   negative: number;
   overdrawn: number;
   off_policy: number;
+  /** STO types whose per-period budget is already spent. */
+  sto_exhausted: number;
 }
 
 export interface HRStaffBalanceRow {
@@ -85,6 +148,8 @@ export interface HRStaffBalanceRow {
   role_name: string | null;
   /** Keyed by leave_type_id, so the pivot is a lookup rather than a search. */
   balances: Record<string, HRStaffBalanceCell>;
+  /** Keyed by leave_type_id, same as `balances` but for the STO column group. */
+  sto: Record<string, HRStaffBalanceStoCell>;
   flags: HRStaffBalanceFlags;
 }
 
@@ -103,6 +168,12 @@ export interface HRStaffBalanceDetail {
    * like missing data.
    */
   leave_types: HRStaffBalanceLeaveType[];
+  /**
+   * The second column group. Every institution runs exactly two today —
+   * Permission (Hourly) and On Duty (Hourly) — but the set is read per
+   * institution for the same reason `leave_types` is.
+   */
+  sto_types: HRStaffBalanceStoType[];
   staff: HRStaffBalanceRow[];
 }
 

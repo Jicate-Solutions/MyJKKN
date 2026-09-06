@@ -179,20 +179,22 @@ function isRenderablePhotoRef(value: string | null): boolean {
 }
 
 /**
- * "Has a photo" = the card would render with a real photo, per the render
- * engine's fallback chain (learners_profiles photo → profiles.avatar_url).
- * Either slot holding a renderable value counts — never skip a learner whose
- * card would print fine off their account avatar. Junk values (e.g. a roll
- * number stored in the photo column) count as no photo, matching what the
- * engine would actually draw. (Exported for unit tests.)
+ * "Has a photo" = the card would print, per Guard 3 on POST /api/id-cards/jobs.
+ *
+ * REVERSED 2026-09-03 (Director): the account avatar NO LONGER counts. It used
+ * to — this screen mirrored the render engine's fallback chain
+ * (learners_profiles photo → profiles.avatar_url) and an avatar was enough. The
+ * server rule now requires a photograph the institution took, with no override,
+ * so a screen that still counted avatars would offer the office 30 learners the
+ * endpoint refuses — the office chasing a different list than the printer.
+ *
+ * Junk values (e.g. a roll number stored in the photo column) count as no
+ * photo, matching what the engine would actually draw. The account avatar is
+ * not a parameter at all any more — it is not fetched, not weighed, not
+ * rejected. (Exported for unit tests.)
  */
-export function hasPrintablePhoto(
-  learnerPhotoUrl: string | null,
-  avatarUrl: string | null
-): boolean {
-  return (
-    isRenderablePhotoRef(learnerPhotoUrl) || isRenderablePhotoRef(avatarUrl)
-  );
+export function hasPrintablePhoto(learnerPhotoUrl: string | null): boolean {
+  return isRenderablePhotoRef(learnerPhotoUrl);
 }
 
 export function IdCardBatchPrint() {
@@ -440,8 +442,7 @@ export function IdCardBatchPrint() {
 
       // Resolve accounts up front — only learners with an account
       // (profiles.learner_id) can get a card, and the ribbon estimate
-      // must count real printable cards. avatar_url rides along as the
-      // second link of the photo fallback chain.
+      // must count real printable cards.
       const accountMap = await resolveAccountsForLearners(
         matched.map((l) => l.id)
       );
@@ -464,7 +465,7 @@ export function IdCardBatchPrint() {
         }
         if (
           !includeNoPhoto &&
-          !hasPrintablePhoto(l.student_photo_url, account.avatarUrl)
+          !hasPrintablePhoto(l.student_photo_url)
         ) {
           noPhoto.push({ name, rollNumber: l.roll_number });
           continue;

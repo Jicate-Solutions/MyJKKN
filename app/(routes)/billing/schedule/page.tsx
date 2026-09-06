@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Settings2, Filter, Receipt, Pencil } from 'lucide-react';
+import { Settings2, Filter, ReceiptIndianRupee, Pencil } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BillingScheduleDataTable } from './_components/billing-schedule-data-table';
@@ -144,7 +144,7 @@ export default function BillingSchedulePage() {
                   className='bg-emerald-600 hover:bg-emerald-700 flex items-center gap-2'
                   title='Generate receipts in bulk for the currently filtered bills'
                 >
-                  <Receipt className='h-4 w-4' />
+                  <ReceiptIndianRupee className='h-4 w-4' />
                   Bulk Generate Receipts
                 </Button>
               )}

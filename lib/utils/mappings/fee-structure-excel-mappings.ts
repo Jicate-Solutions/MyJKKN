@@ -4,6 +4,12 @@
 // The import route builds the `BulkResolveLookups` maps from the DB, then calls
 // resolveRow() once per spreadsheet row to get a payload or a list of errors.
 
+// The one implementation of "how big is instalment i of a ₹N fee" — the TS
+// mirror of the SQL engine that sizes the bills. Pure (no client import), so
+// this module stays DB-free, and the sheet is checked against the exact rupees
+// a bill would carry rather than a re-derivation that could drift.
+import { computeInstalmentAmounts } from '@/lib/services/billing/instalments/instalment-arithmetic';
+
 export const FEE_STRUCTURE_SHEET_NAME = 'Fee Structures';
 
 // Fixed (non-amount) columns, left→right. Amount columns (one per active
@@ -117,7 +123,20 @@ export interface BulkUpsertPayload {
   notes: string | null;
   effective_from: string | null;
   effective_to: string | null;
-  items: Array<{ billing_category_id: string; amount: number; is_optional: boolean }>;
+  items: Array<{
+    billing_category_id: string;
+    amount: number;
+    is_optional: boolean;
+    /**
+     * OMITTED when the sheet has no "Applies To" column, or left the cell
+     * blank. The RPC then keeps the stored value (every_year on a new fee).
+     * Sending a default here would silently re-bill a first-year-only fee in
+     * every year of the course, on every re-import of an older workbook.
+     */
+    applies_to?: FeeAppliesTo;
+    /** Only ever set alongside applies_to === 'specific_year'. */
+    applies_year_of_study?: number | null;
+  }>;
   /** Fallback due offset for items that set no date of their own. */
   default_due_offset_days?: number | null;
   /**
@@ -134,6 +153,14 @@ export interface RowResolution {
   name: string;
   payload?: BulkUpsertPayload;
   errors: string[];
+  /**
+   * The structure columns as the SHEET spells them, carried through untouched.
+   * The payload holds ids; ids cannot be shown to an operator, and inverting the
+   * lookup maps only gets the lowercased key back. This is the one place the
+   * operator's own text survives, so the change preview can say
+   * "Institution: JKKN College" on a row that is creating one.
+   */
+  source?: Record<string, string>;
 }
 
 const norm = (v: unknown): string => String(v ?? '').trim();
@@ -149,6 +176,13 @@ export function parseAmountCell(cell: unknown): number | null {
   if (s === '') return null;
   return Number(s.replace(/,/g, ''));
 }
+
+/** Rupees → integer paise, the unit the engine sums in; 2dp floats drift. */
+const toPaise = (amount: number): number => Math.round(amount * 100);
+
+/** "₹1,40,000" — a figure the way the accounts team reads it. */
+const rupees = (amount: number): string =>
+  `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
 export function normalizeGender(cell: unknown): string | null | 'INVALID' {
   const s = norm(cell).toUpperCase();
@@ -360,10 +394,13 @@ export function resolveRow(
     }
   }
 
-  if (errors.length > 0) return { rowNumber, name, errors };
+  const source: Record<string, string> = {};
+  for (const header of FIXED_HEADERS) source[header] = norm(raw[header]);
+
+  if (errors.length > 0) return { rowNumber, name, errors, source };
 
   return {
-    rowNumber, name, errors: [],
+    rowNumber, name, errors: [], source,
     payload: {
       structure_id: structureId,
       institution_id: instId!, degree_id: degId!, department_id: deptId!,
@@ -407,7 +444,9 @@ export function resolveRow(
 //                          category. Use it to set a single due date, or a
 //                          status rule, on a fee that is paid in one go.
 //   Instalment # 1..N   -> a split. At least 2 rows, numbered contiguously
-//                          from 1, percentages totalling 100.
+//                          from 1, percentages totalling 100 — and once any
+//                          row states rupees (Fixed Amount) the instalments
+//                          must add up to the fee's Amount exactly.
 //
 // A category with NO rows here is left exactly as it is — the sheet only needs
 // to carry what you are changing. To REMOVE a split, include a single blank-#
@@ -430,9 +469,12 @@ export const SCHEDULE_REF_HEADERS = [
   'Structure Name (ref)',
   // What this instalment actually bills, in rupees — the same number the
   // on-screen editor shows in its "Amount" column, computed by the shared
-  // last-absorbs-rounding rule. Export-only: editing it changes nothing,
-  // because the SIZE of an instalment is Share % or Fixed Amount. It is here
-  // so "30 / 40 / 30" can be checked against real money without a calculator.
+  // last-absorbs-rounding rule. It never SETS the size of an instalment (that
+  // is Share % or Fixed Amount) — it is a cross-check, so "30 / 40 / 30" can
+  // be read against real money without a calculator. And on the unified tab,
+  // where the fee's Amount sits on the same row, a filled-in figure that
+  // disagrees with what the instalment would bill is an ERROR: a mistyped or
+  // stale rupee value must not sit beside a share it contradicts.
   'Amount (ref)',
 ] as const;
 
@@ -505,6 +547,8 @@ interface ScheduleCells {
   instalmentNo: number | null; // null = the whole fee
   sharePercent: number | null;
   fixedAmount: number | null;
+  /** "Amount (ref)" — a cross-check of the rupees, never a size. */
+  amountRef: number | null;
   dueAnchor: ScheduleDueAnchor | null;
   dueOffsetDays: number | null;
   dueDate: string | null;
@@ -540,6 +584,19 @@ export interface ItemScheduleConfig {
     promotes_to_status_code: string | null;
   }>;
 }
+
+/**
+ * The two rungs of the learner ladder (account → reserved → admitted) that
+ * EVERY structure must be able to climb. "Promotes To" on a fee or an
+ * instalment is what moves a learner up when it is settled; a structure that
+ * names only one rung, or neither, strands learners on it however much they
+ * pay. Codes are `admission_statuses.code` (scope 'learner'); the labels are
+ * what the sheet's "Promotes To" column shows and what the error names.
+ */
+export const REQUIRED_PROMOTIONS = [
+  { code: 'reserved', label: 'Reserved' },
+  { code: 'admitted', label: 'Admitted' },
+] as const;
 
 export interface ScheduleSheetResolution {
   /** structure_id -> the schedules to apply to it. */
@@ -584,6 +641,9 @@ function parseScheduleCells(
   if (sharePercent !== null && Number.isNaN(sharePercent)) { fail('Share % is not a number.'); return null; }
   if (fixedAmount !== null && Number.isNaN(fixedAmount)) { fail('Fixed Amount is not a number.'); return null; }
 
+  const amountRef = parseAmountCell(raw['Amount (ref)']);
+  if (amountRef !== null && Number.isNaN(amountRef)) { fail('Amount (ref) is not a number.'); return null; }
+
   const dueAnchor = normalizeDueAnchor(raw['Due Anchor']);
   if (dueAnchor === 'INVALID') {
     fail(`Due Anchor "${norm(raw['Due Anchor'])}" must be ${Object.values(DUE_ANCHOR_LABELS).join(', ')}, or blank to leave it unchanged.`);
@@ -620,7 +680,7 @@ function parseScheduleCells(
     promotesTo = code;
   }
 
-  return { instalmentNo, sharePercent, fixedAmount, dueAnchor, dueOffsetDays, dueDate, promotesTo };
+  return { instalmentNo, sharePercent, fixedAmount, amountRef, dueAnchor, dueOffsetDays, dueDate, promotesTo };
 }
 
 /**
@@ -633,6 +693,13 @@ function resolveScheduleGroup(
   group: RawScheduleLine[],
   where: string,
   at: (rowNumber: number, msg: string) => void,
+  /**
+   * The fee's Amount, when the sheet carries it beside the instalments (the
+   * unified tab). null on the legacy schedules tab, which knows the structure
+   * only by ID — the rupee checks are skipped there, exactly as before,
+   * because that sheet holds nothing to check against.
+   */
+  amount: number | null,
 ): ItemScheduleConfig | null {
   const first = group[0];
   const whole = group.filter((l) => l.instalmentNo === null);
@@ -691,6 +758,11 @@ function resolveScheduleGroup(
       return null;
     }
 
+    if (amount !== null && w.amountRef !== null && toPaise(w.amountRef) !== toPaise(amount)) {
+      at(w.rowNumber, `${where}: Amount (ref) says ${rupees(w.amountRef)}, but the fee's Amount is ${rupees(amount)}. Amount (ref) only cross-checks the Amount — make them agree, or clear Amount (ref).`);
+      return null;
+    }
+
     return {
       billing_category_id: w.categoryId,
       schedule_mode: 'single',
@@ -719,6 +791,15 @@ function resolveScheduleGroup(
     if ((l.sharePercent === null) === (l.fixedAmount === null)) {
       at(l.rowNumber, 'set EITHER Share % OR Fixed Amount, not both or neither.');
       bad = true;
+    } else if (l.sharePercent !== null && !(l.sharePercent > 0 && l.sharePercent <= 100)) {
+      // 120 / -20 totals 100 and would bill instalment 1 for more than the
+      // whole fee; the engine then refuses to split and bills it in one go,
+      // silently.
+      at(l.rowNumber, 'Share % must be more than 0 and at most 100.');
+      bad = true;
+    } else if (l.fixedAmount !== null && !(l.fixedAmount > 0)) {
+      at(l.rowNumber, 'Fixed Amount must be more than 0.');
+      bad = true;
     }
     if ((l.dueOffsetDays === null) === (l.dueDate === null)) {
       at(l.rowNumber, 'set EITHER Due After (Days) OR Due Date.');
@@ -738,11 +819,73 @@ function resolveScheduleGroup(
     }
   }
 
+  // ── The instalments must add up to the fee ──────────────────────────────
+  // The engine sizes lines 1..n-1 as typed and gives the LAST line whatever is
+  // left, so a sheet whose parts do not total the Amount is not rejected by
+  // the engine — it is quietly corrected: 70,000 + 80,000 on a ₹1,40,000 fee
+  // bills 70,000 + 70,000, and 1,50,000 + 20,000 leaves nothing for the
+  // second instalment, so the fee is billed in one go with no split at all.
+  // A percent-only split is already pinned by the 100% rule above (the last
+  // line absorbs only rounding paise there); the moment any row states rupees
+  // the parts must total the Amount exactly, as the operator typed them. Each
+  // part is sized the way the engine sizes it — a percent in paise, rounded.
+  if (amount !== null && sorted.some((l) => l.fixedAmount !== null)) {
+    const totalPaise = toPaise(amount);
+    const typedPaise = sorted.reduce(
+      (s, l) =>
+        s + (l.fixedAmount !== null ? toPaise(l.fixedAmount) : Math.round((totalPaise * l.sharePercent!) / 100)),
+      0,
+    );
+    if (typedPaise !== totalPaise) {
+      const diff = (typedPaise - totalPaise) / 100;
+      at(
+        // The last instalment: the line the engine would silently resize.
+        sorted[sorted.length - 1].rowNumber,
+        `${where} instalments add up to ${rupees(typedPaise / 100)}, not the fee's Amount of ${rupees(amount)} (${rupees(Math.abs(diff))} ${diff > 0 ? 'too much' : 'short'}). Size the instalments with Share % / Fixed Amount so they total the Amount exactly.`,
+      );
+      return null;
+    }
+  }
+
   // On a split the anchor only bases the per-line "Due After (Days)"; the
   // lines carry their own dates, so 'fixed_date' has nothing to point at.
   if (explicitAnchor === 'fixed_date') {
     at(sorted[0].rowNumber, `${where} is split into instalments, so Due Anchor ${DUE_ANCHOR_LABELS.fixed_date} means nothing — each instalment carries its own Due Date. Use ${DUE_ANCHOR_LABELS.generation_date} or ${DUE_ANCHOR_LABELS.academic_year_start}.`);
     return null;
+  }
+
+  // ── Amount (ref), when filled in, must be what the instalment bills ──────
+  // The column is a cross-check, not a size: the export writes the rupees each
+  // instalment will carry, and an operator who then retypes a share — or the
+  // Amount — is looking at a figure that no longer matches it. Compared
+  // against the same arithmetic that sizes the bills, so the sheet and the
+  // bill cannot disagree. Skipped on the legacy tab (no Amount to derive from).
+  if (amount !== null && sorted.some((l) => l.amountRef !== null)) {
+    const billed = computeInstalmentAmounts(
+      amount,
+      sorted.map((l) => ({ share_percent: l.sharePercent, fixed_amount: l.fixedAmount })),
+    );
+    // null = the engine would not split this (an instalment ≤ 0). Once rupees
+    // are stated the totals rule above has already reported every way that can
+    // happen; for a percent-only split it takes a sub-paisa fee.
+    if (billed) {
+      let refBad = false;
+      sorted.forEach((l, i) => {
+        if (l.amountRef === null || toPaise(l.amountRef) === toPaise(billed[i])) return;
+        const basis =
+          l.fixedAmount !== null
+            ? 'its Fixed Amount'
+            : i === sorted.length - 1
+              ? `what is left of ${rupees(amount)} after the earlier instalments`
+              : `${l.sharePercent}% of ${rupees(amount)}`;
+        at(
+          l.rowNumber,
+          `${where} instalment ${l.instalmentNo}: Amount (ref) says ${rupees(l.amountRef)}, but this instalment bills ${rupees(billed[i])} (${basis}). Amount (ref) never sets the size — correct the Share % / Fixed Amount, or clear Amount (ref).`,
+        );
+        refBad = true;
+      });
+      if (refBad) return null;
+    }
   }
 
   return {
@@ -816,8 +959,9 @@ export function resolveScheduleSheet(
   for (const [key, group] of groups) {
     const structureId = structureOf.get(key)!;
     const where = `${group[0].categoryName} (structure ${structureId.slice(0, 8)}…)`;
+    // null: this tab carries no Amount, so the rupee checks cannot run here.
     const config = resolveScheduleGroup(group, where, (rowNumber, msg) =>
-      errors.push(`Schedules row ${rowNumber}: ${msg}`));
+      errors.push(`Schedules row ${rowNumber}: ${msg}`), null);
     if (!config) continue;
 
     const list = byStructure.get(structureId);
@@ -847,12 +991,62 @@ export function resolveScheduleSheet(
 // of 57, every field sortable and filterable, "show me every Tuition row across
 // 237 structures" is one filter, and adding a fee is adding a row.
 //
+// EVERY STRUCTURE PROMOTES TO BOTH RUNGS. "Promotes To" is how a settled fee
+// moves a learner account → reserved → admitted. A structure on this sheet
+// must name Reserved somewhere and Admitted somewhere — any fee, any
+// instalment, in any combination — or it is rejected (REQUIRED_PROMOTIONS).
+// This tab carries every fee of a structure, so it can be held to that; the
+// legacy schedules tab only carries what is being changed, and cannot be.
+//
 // REPEATED VALUES MUST AGREE. A structure column filled differently on two of
 // its rows is a contradiction — the structure stores one value. Blank rows
 // inherit, two different non-blank values are an error naming the row. The same
 // rule already governs Due Anchor, so there is one thing to learn, not two.
 
-export const UNIFIED_ITEM_HEADERS = ['Fee Category', 'Amount'] as const;
+export const UNIFIED_ITEM_HEADERS = [
+  'Fee Category',
+  'Amount',
+  // WHICH YEARS OF THE COURSE THIS FEE IS BILLED IN. The column defaults to
+  // 'every_year' in Postgres, so before this column existed every fee the sheet
+  // created was billed in all four years of a BE -- including one-off fees like
+  // an admission or uniform charge. There was no way to say otherwise except by
+  // opening each structure on screen afterwards.
+  'Applies To',
+  'Year of Study',
+] as const;
+
+export const APPLIES_TO_LABELS = {
+  first_year_only: 'First year only',
+  every_year: 'Every year',
+  specific_year: 'Specific year',
+} as const;
+
+export type FeeAppliesTo = keyof typeof APPLIES_TO_LABELS;
+
+/**
+ * Accepts the label the on-screen picker shows ("First year only"), the stored
+ * code ('first_year_only'), and the shapes an operator actually types --
+ * "first year", "1st year", "all years". Blank returns null, which means "the
+ * sheet did not say": the RPC then keeps what is stored rather than resetting
+ * the fee to every_year because a cell was left empty.
+ */
+export function normalizeAppliesTo(cell: unknown): FeeAppliesTo | null | 'INVALID' {
+  const key = lower(cell).replace(/[\s_-]+/g, '');
+  if (key === '') return null;
+  if (key === 'firstyearonly' || key === 'firstyear' || key === '1styear') return 'first_year_only';
+  if (key === 'everyyear' || key === 'allyears' || key === 'every' || key === 'all') return 'every_year';
+  if (key === 'specificyear' || key === 'specific') return 'specific_year';
+  return 'INVALID';
+}
+
+/** Parses "Year of Study": blank -> null, else an integer 1-10. */
+export function parseYearOfStudy(cell: unknown): number | null | 'INVALID' {
+  const raw = norm(cell);
+  if (raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 10) return 'INVALID';
+  return n;
+}
 
 export const UNIFIED_INSTALMENT_HEADERS = [
   'Instalment #',
@@ -865,7 +1059,7 @@ export const UNIFIED_INSTALMENT_HEADERS = [
   'Promotes To',
 ] as const;
 
-/** 29 columns: 19 structure, 2 fee item, 8 instalment. */
+/** 31 columns: 19 structure, 4 fee item, 8 instalment. */
 export const UNIFIED_HEADERS = [
   ...FIXED_HEADERS,
   ...UNIFIED_ITEM_HEADERS,
@@ -918,6 +1112,13 @@ export interface UnifiedSheetResolution {
 export function resolveUnifiedSheet(
   rawRows: Record<string, unknown>[],
   lookups: BulkResolveLookups,
+  /**
+   * Spreadsheet row number of rawRows[0]. 2 when the header is on row 1, which
+   * it almost always is — but an operator who inserts a title line above the
+   * headers shifts every row, and a preview that then names row 7 for a problem
+   * on row 8 sends them to the wrong cell.
+   */
+  firstRowNumber = 2,
 ): UnifiedSheetResolution {
   interface SheetRow { rowNumber: number; raw: Record<string, unknown> }
 
@@ -946,9 +1147,10 @@ export function resolveUnifiedSheet(
     const key = structureId
       ? `id::${structureId}`
       : `new::${NEW_KEY_FIELDS.map((f) => lower(raw[f])).join(' ')}`;
+    const rowNumber = firstRowNumber + i;
     const b = buckets.get(key);
-    if (b) b.push({ rowNumber: i + 2, raw });
-    else buckets.set(key, [{ rowNumber: i + 2, raw }]);
+    if (b) b.push({ rowNumber, raw });
+    else buckets.set(key, [{ rowNumber, raw }]);
   });
 
   const resolutions: RowResolution[] = [];
@@ -1004,6 +1206,22 @@ export function resolveUnifiedSheet(
     }
 
     const schedules: ItemScheduleConfig[] = [];
+    /**
+     * billing_category_id -> what the sheet said about which years bill this
+     * fee. Collected here and stamped onto the payload's items after
+     * resolveRow() has built them, so the wide-row validator stays the single
+     * owner of "is this a valid fee amount for a valid category".
+     */
+    const appliesByCategory = new Map<
+      string,
+      { appliesTo: FeeAppliesTo; year: number | null }
+    >();
+    // Absent COLUMN (an export taken before it existed) is not the same as a
+    // blank CELL: neither writes, but only the column's absence is a workbook
+    // the operator never had the chance to fill in.
+    const hasAppliesColumn = rows.some((r) =>
+      Object.prototype.hasOwnProperty.call(r.raw, 'Applies To'),
+    );
 
     for (const [key, group] of feeRows) {
       const categoryName = feeNames.get(key)!;
@@ -1032,6 +1250,70 @@ export function resolveUnifiedSheet(
       structureCells[categoryName] = amountRows[0].raw['Amount'];
       itemCount++;
 
+      // ── Which years of the course bill this fee ─────────────────────────
+      if (hasAppliesColumn) {
+        const appliesRows = group.filter((r) => norm(r.raw['Applies To']) !== '');
+        const distinctApplies = [...new Set(appliesRows.map((r) => norm(r.raw['Applies To'])))];
+        const yearRows = group.filter((r) => norm(r.raw['Year of Study']) !== '');
+        const distinctYears = [...new Set(yearRows.map((r) => norm(r.raw['Year of Study'])))];
+
+        if (distinctApplies.length > 1) {
+          at(
+            appliesRows[1].rowNumber,
+            `"${categoryName}" has more than one "Applies To" (${distinctApplies[0]} and ${distinctApplies[1]}). It is a property of the fee, so it must read the same on every row of it.`,
+          );
+          continue;
+        }
+        if (distinctYears.length > 1) {
+          at(
+            yearRows[1].rowNumber,
+            `"${categoryName}" has more than one "Year of Study" (${distinctYears[0]} and ${distinctYears[1]}). It is a property of the fee, so it must read the same on every row of it.`,
+          );
+          continue;
+        }
+
+        const appliesTo = normalizeAppliesTo(distinctApplies[0] ?? '');
+        if (appliesTo === 'INVALID') {
+          at(
+            appliesRows[0].rowNumber,
+            `"${categoryName}" has an unrecognised "Applies To" (${distinctApplies[0]}). Use First year only, Every year, or Specific year.`,
+          );
+          continue;
+        }
+
+        const year = parseYearOfStudy(distinctYears[0] ?? '');
+        if (year === 'INVALID') {
+          at(
+            yearRows[0].rowNumber,
+            `"${categoryName}" has an invalid "Year of Study" (${distinctYears[0]}). Use a whole number from 1 to 10.`,
+          );
+          continue;
+        }
+
+        // The DB guard afsi_applies_year_chk is a BICONDITIONAL: the year is
+        // set if and only if applies_to is 'specific_year'. Both halves are
+        // enforced here so the operator gets a row number instead of a
+        // constraint name mid-import.
+        if (appliesTo === 'specific_year' && year === null) {
+          at(
+            appliesRows[0].rowNumber,
+            `"${categoryName}" is set to Specific year, so it needs a "Year of Study" (1-10).`,
+          );
+          continue;
+        }
+        if (appliesTo !== 'specific_year' && year !== null) {
+          at(
+            yearRows[0].rowNumber,
+            `"${categoryName}" has a "Year of Study" but "Applies To" is ${appliesTo === null ? 'blank' : APPLIES_TO_LABELS[appliesTo]}. Year of Study only means something next to Specific year — clear one of them.`,
+          );
+          continue;
+        }
+
+        if (appliesTo !== null) {
+          appliesByCategory.set(categoryId, { appliesTo, year });
+        }
+      }
+
       const lines: RawScheduleLine[] = [];
       let lineFailed = false;
       for (const r of group) {
@@ -1043,10 +1325,15 @@ export function resolveUnifiedSheet(
       }
       if (lineFailed) continue;
 
+      // The rupee checks need the fee's Amount as a number. A bad cell is
+      // resolveRow()'s to report — hand over null then, and for a ₹0 fee,
+      // which has nothing to split — so it is reported once, not twice.
+      const feeAmount = parseAmountCell(amountRows[0].raw['Amount']);
       const config = resolveScheduleGroup(
         lines,
         `"${categoryName}"${structureName ? ` on ${structureName}` : ''}`,
         at,
+        feeAmount !== null && feeAmount > 0 ? feeAmount : null,
       );
       if (config) schedules.push(config);
     }
@@ -1054,9 +1341,46 @@ export function resolveUnifiedSheet(
     // ── Structure validation, through the one resolver both layouts share ──
     const resolved = resolveRow(structureCells, headRow, lookups);
     resolved.errors = [...resolved.errors, ...errors];
+
+    // ── Every structure must promote to BOTH Reserved and Admitted ─────────
+    // Any fee, any instalment may carry either rung; what matters is that both
+    // appear somewhere on the structure. Checked only once every row of the
+    // structure resolved cleanly: a fee whose rows failed has not yet said what
+    // it promotes to, and a second error about that would only be noise.
+    // Archived structures bill nobody and are exempt.
+    if (resolved.errors.length === 0 && resolved.payload!.status !== 'archived') {
+      const promoted = new Set<string>();
+      for (const s of schedules) {
+        if (s.promotes_to_status_code) promoted.add(s.promotes_to_status_code);
+        for (const l of s.lines) if (l.promotes_to_status_code) promoted.add(l.promotes_to_status_code);
+      }
+      const missing = REQUIRED_PROMOTIONS.filter((p) => !promoted.has(p.code));
+      if (missing.length > 0) {
+        resolved.errors.push(
+          `Row ${headRow}: "${resolved.name}" must promote a learner to both Reserved and Admitted — set "Promotes To" to Reserved on one fee or instalment and to Admitted on another (any fee category will do). Missing: ${missing.map((p) => p.label).join(' and ')}.`,
+        );
+      }
+    }
+
     if (resolved.errors.length > 0) {
-      resolutions.push({ rowNumber: headRow, name: resolved.name, errors: resolved.errors });
+      resolutions.push({
+        rowNumber: headRow,
+        name: resolved.name,
+        errors: resolved.errors,
+        source: resolved.source,
+      });
       continue;
+    }
+
+    for (const item of resolved.payload!.items) {
+      const applies = appliesByCategory.get(item.billing_category_id);
+      if (!applies) continue; // blank cell / absent column = leave it alone
+      item.applies_to = applies.appliesTo;
+      // Set ONLY for specific_year. The RPC derives it the same way, but a
+      // payload that carries a year next to 'every_year' is a lie either way.
+      if (applies.appliesTo === 'specific_year') {
+        item.applies_year_of_study = applies.year;
+      }
     }
 
     // ALWAYS set, even when empty: its presence is what tells the RPC the sheet
@@ -1067,4 +1391,152 @@ export function resolveUnifiedSheet(
   }
 
   return { resolutions, itemCount };
+}
+
+// ============================================================================
+// WHICH TAB, AND WHICH ROW IS THE HEADER
+// ============================================================================
+// The importer used to do `wb.Sheets['Fee Structures']` and 400 with
+// `Sheet "Fee Structures" not found` when that exact key was absent. Every one
+// of these ordinary things produced that dead end, with nothing in the message
+// to say what had actually been uploaded:
+//
+//   • Excel duplicating a tab as "Fee Structures (2)" (right-click → Move or
+//     Copy, the usual way an operator keeps a backup before editing).
+//   • The sheet pasted onto a fresh tab, or the tab simply renamed.
+//   • A workbook re-saved as CSV and renamed back to .xlsx — SheetJS then
+//     reports a single tab called "Sheet1".
+//   • A non-breaking space or a stray trailing space in the tab name.
+//
+// detectSheetLayout() already refuses to trust the tab NAME for the layout,
+// for exactly these reasons; sheet SELECTION never got the same treatment.
+// It does now: a sheet is recognised by the COLUMNS it carries. The name is
+// only a tie-breaker.
+//
+// The same pass also finds the header ROW, because the other half of this
+// failure is an operator inserting a title line above the headers. sheet_to_json
+// assumes row 1, so that one insertion silently re-keys every column and the
+// whole file comes back as errors about missing institutions.
+
+/**
+ * Columns that mark a sheet as a fee-structure data sheet. Deliberately spans
+ * BOTH layouts (the unified tab's 'Fee Category'/'Amount' and the structure
+ * columns both layouts share) so an old wide-format workbook scores just as
+ * well as a current one — the layout question is detectSheetLayout()'s, not
+ * this one's.
+ */
+export const SHEET_SIGNATURE_HEADERS: readonly string[] = [
+  'Fee Structure ID',
+  'Institution',
+  'Degree',
+  'Department',
+  'Programme',
+  'Admission Year',
+  'Quota',
+  'Communities',
+  'Name',
+  'Status',
+  'Fee Category',
+  'Amount',
+];
+
+/**
+ * Header text, comparable. Collapses the non-breaking space Excel leaves behind
+ * when a header is pasted from a web page, folds runs of whitespace, and
+ * lowercases — so "  Fee  Structure ID " matches "Fee Structure ID".
+ */
+export function normalizeHeaderText(v: unknown): string {
+  return String(v ?? '').replace(/[\u00a0\u2007\u202f]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** How many signature columns a candidate header row carries. */
+export function headerRowScore(row: readonly unknown[]): number {
+  const seen = new Set(row.map(normalizeHeaderText).filter(Boolean));
+  return SHEET_SIGNATURE_HEADERS.filter((h) => seen.has(normalizeHeaderText(h))).length;
+}
+
+/**
+ * 5 of 12, not all 12: an operator is allowed to delete columns they are not
+ * editing, and an old export predates some of them. 5 is comfortably more than
+ * any non-data tab in these workbooks scores — the legacy "Fee Schedules" tab
+ * shares only 'Fee Structure ID' and 'Fee Category', and "Lists" shares at most
+ * a handful of one-word names.
+ */
+const MIN_SIGNATURE_SCORE = 5;
+
+/** How far down a sheet to look for the header row. */
+const HEADER_SEARCH_DEPTH = 10;
+
+export interface SheetCandidate {
+  name: string;
+  /** The sheet's first rows as arrays (XLSX.utils.sheet_to_json(ws, {header:1})). */
+  rows: ReadonlyArray<readonly unknown[]>;
+}
+
+export interface DataSheetPick {
+  name: string;
+  /** 0-based index of the header row WITHIN the sheet. 0 = the normal case. */
+  headerRowIndex: number;
+  header: unknown[];
+  layout: 'unified' | 'legacy';
+  score: number;
+  /** True when the tab was actually called "Fee Structures". */
+  nameMatched: boolean;
+}
+
+/** The best header row in one sheet, or null when it carries none. */
+function bestHeaderRow(rows: SheetCandidate['rows']): { index: number; score: number } | null {
+  let best: { index: number; score: number } | null = null;
+  const depth = Math.min(rows.length, HEADER_SEARCH_DEPTH);
+  for (let i = 0; i < depth; i++) {
+    const score = headerRowScore(rows[i] ?? []);
+    // Strictly greater, so the EARLIEST row wins a tie. A data row can repeat a
+    // header's text, and picking the later one would drop rows above it.
+    if (score >= MIN_SIGNATURE_SCORE && (!best || score > best.score)) {
+      best = { index: i, score };
+    }
+  }
+  return best;
+}
+
+/**
+ * Picks the data sheet out of a workbook by its columns.
+ *
+ * Preference order: a tab actually named "Fee Structures" that also carries the
+ * columns, then the highest-scoring tab, then workbook order. Returns null when
+ * no tab looks like a fee-structure sheet — the caller reports what it DID find
+ * rather than naming a tab the operator does not have.
+ */
+export function pickDataSheet(sheets: readonly SheetCandidate[]): DataSheetPick | null {
+  const target = normalizeHeaderText(FEE_STRUCTURE_SHEET_NAME);
+  let best: DataSheetPick | null = null;
+
+  for (const sheet of sheets) {
+    const head = bestHeaderRow(sheet.rows);
+    if (!head) continue;
+    const header = [...(sheet.rows[head.index] ?? [])];
+    const pick: DataSheetPick = {
+      name: sheet.name,
+      headerRowIndex: head.index,
+      header,
+      layout: detectSheetLayout(header),
+      score: head.score,
+      nameMatched: normalizeHeaderText(sheet.name) === target,
+    };
+    if (
+      !best ||
+      (pick.nameMatched && !best.nameMatched) ||
+      (pick.nameMatched === best.nameMatched && pick.score > best.score)
+    ) {
+      best = pick;
+    }
+  }
+
+  return best;
+}
+
+/** The workbook's real key for a tab, matched loosely. Used for "Fee Schedules". */
+export function findSheetName(sheetNames: readonly string[], target: string): string | null {
+  const want = normalizeHeaderText(target);
+  return sheetNames.find((n) => normalizeHeaderText(n) === want) ?? null;
 }

@@ -21,7 +21,7 @@ import {
   FileText,
   CalendarClock,
 } from 'lucide-react';
-import { apiClient } from '@/lib/api/client';
+import { ApiError, apiClient } from '@/lib/api/client';
 import type { SolutionsDigest } from '@/lib/solutions/digest';
 
 const PIPELINE_ORDER = ['lead', 'qualified', 'proposal', 'negotiation', 'won', 'lost', 'dormant'];
@@ -86,6 +86,23 @@ export function DigestView() {
         <Skeleton className="h-48 w-full" />
         <Skeleton className="h-48 w-full" />
       </div>
+    );
+  }
+
+  // A permission refusal is a decision, not a glitch. GET /api/solutions/digest is gated on
+  // solutions.dashboard.view and answers 403 to anyone without it; apiClient carries that status
+  // through on ApiError. Telling those users to "try refreshing" sent them round a loop they had
+  // no way to diagnose — name the situation and who can fix it instead (rule 27).
+  if (error instanceof ApiError && error.status === 403) {
+    return (
+      <Alert>
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>
+          You do not have access to the Director Digest. Ask a super admin to grant you the{' '}
+          <code className="rounded bg-muted px-1 py-0.5">solutions.dashboard.view</code> permission
+          in Users → Role Management. Refreshing this page will not change it.
+        </AlertDescription>
+      </Alert>
     );
   }
 

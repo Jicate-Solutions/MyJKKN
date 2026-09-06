@@ -10,6 +10,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
+import { applyDecision, buildChain, readApprovers } from '@/lib/hr/leave/approval-chain';
 import type {
   HRLeaveApplication,
   HRLeaveApplicationInsert,
@@ -21,6 +22,12 @@ import type {
   LeaveApplicationStatus,
   LeaveApprovalStep,
 } from '@/types/hr';
+import type {
+  LeaveApprovalFlowStep,
+  LeaveApproverEntry,
+  LeaveFlowRunMode,
+  LeaveFlowStepSource,
+} from '@/types/hr-leave-types';
 
 // =====================================================================================
 // List filters
@@ -99,10 +106,36 @@ export class LeaveService {
     // that silently returns empty is the exact failure mode this module already
     // suffered from. Authorisation does NOT rest on this filter — RLS
     // (hla_select) and assertCanDecide() are the enforcement points.
+    // REPLACED THE CONTAINMENT FILTER (2026-08-31). The `.contains()` above
+    // matched only a PINNED approver_user_id, so a step routed to a ROLE — which
+    // is every step a role ladder produces — returned an empty inbox. An HOD
+    // could be the current approver of 40 requests and see none of them, which is
+    // the same silent-empty failure the caveat below was written about.
+    //
+    // hr_leave_my_approval_queue() answers "which applications am I the current
+    // approver of", using fn_leave_step_admits — the SAME rule the RLS helper and
+    // the gate trigger use, so the inbox cannot list a row the approver is then
+    // refused on, nor hide one they could act on. It returns ids only; the rows
+    // themselves still come back through this RLS'd select.
     if (filters.pending_approver_id) {
-      q = q.contains('approval_chain', [
-        { approver_user_id: filters.pending_approver_id },
-      ]);
+      const { data: queue, error: queueError } = await (supabase as any).rpc(
+        'hr_leave_my_approval_queue',
+        { p_hr_organization_id: filters.hr_organization_id ?? null }
+      );
+      if (queueError) throw queueError;
+
+      const ids = ((queue ?? []) as Array<{ application_id: string }>).map(
+        (r) => r.application_id
+      );
+      // `.in('id', [])` is a valid empty result; without this short-circuit
+      // PostgREST would be asked for `id=in.()`, which is a syntax error.
+      if (ids.length === 0) {
+        return {
+          data: [],
+          metadata: { total: 0, page, pageSize, totalPages: 1 },
+        };
+      }
+      q = q.in('id', ids);
     }
 
     const { data, count, error } = await q;
@@ -139,7 +172,14 @@ export class LeaveService {
     supabase: SupabaseClient,
     hrOrgId: string,
     leaveTypeId: string,
-    departmentId: string | null
+    departmentId: string | null,
+    /**
+     * staff.id of the person the leave is FOR — not the caller. Only read when
+     * the flow is a role ladder, where the chain is "everyone above this person"
+     * and so differs per applicant. Optional so the recruitment-shaped callers
+     * and any older positional call keep working.
+     */
+    employeeId: string | null = null
   ): Promise<LeaveApprovalStep[]> {
     // SCHEMA NOTE (fixed 2026-07-21). This previously queried
     // hr_approval_flows for leave_type_id / scope_level / chain_order /
@@ -156,7 +196,10 @@ export class LeaveService {
     // leave_type_id, or leaves it empty for a catch-all.
     const { data: flows, error } = await supabase
       .from('hr_approval_flows')
-      .select('flow_name, conditions, steps, escalate_after_hours')
+      .select(
+        'flow_name, conditions, steps, escalate_after_hours, ' +
+          'step_source, run_mode, role_ladder, fallback_approver'
+      )
       .eq('hr_organization_id', hrOrgId)
       .eq('flow_for', 'leave_approval')
       .eq('is_active', true)
@@ -169,6 +212,10 @@ export class LeaveService {
       conditions: Record<string, unknown> | null;
       steps: Array<Record<string, unknown>> | null;
       escalate_after_hours: number | null;
+      step_source: LeaveFlowStepSource | null;
+      run_mode: LeaveFlowRunMode | null;
+      role_ladder: string[] | null;
+      fallback_approver: LeaveApproverEntry | null;
     };
     const candidates = (flows ?? []) as FlowRow[];
 
@@ -180,34 +227,68 @@ export class LeaveService {
       candidates.find((f) => !f.conditions?.leave_type_id);
 
     if (!chosen) {
+      // Name the exact screen. "Ask HR to add one" left the admin hunting —
+      // leave flows are set from the Leave Types list, not from a page called
+      // anything like "approval flows", which is where everyone looks first
+      // (that one is recruitment-only). Same treatment the recruitment path
+      // already got.
       throw new Error(
-        'No leave approval flow is configured for your organization. Ask HR to add one before applying.'
+        'No leave approval flow is configured for your organisation. ' +
+        'Open HR → Admin → Leave Types, use the row menu on the leave type and pick ' +
+        '"Who approves this" to add one. A flow with no leave type set acts as the ' +
+        'catch-all for every type.'
       );
     }
 
-    const steps = (chosen.steps ?? []).slice().sort(
-      (a, b) => Number(a.chain_order ?? 0) - Number(b.chain_order ?? 0)
-    );
-
-    if (steps.length === 0) {
-      throw new Error('The configured leave approval flow has no steps.');
+    // A ROLE LADDER IS RESOLVED IN POSTGRES, NEVER HERE. The rungs above the
+    // applicant depend on the roles they hold, and user_roles / custom_roles are
+    // not readable by an ordinary member of staff — a browser-side lookup comes
+    // back empty for exactly the people applying, which is the silent
+    // false-negative this module has shipped twice (see assertCanDecide).
+    let rungsAbove: string[] = [];
+    if ((chosen.step_source ?? 'explicit') === 'role_ladder') {
+      const ladder = Array.isArray(chosen.role_ladder) ? chosen.role_ladder : [];
+      const { data: rungs, error: ladderError } = await (supabase as any).rpc(
+        'hr_resolve_leave_ladder',
+        { p_employee_id: employeeId, p_ladder: ladder }
+      );
+      if (ladderError) throw ladderError;
+      rungsAbove = (rungs ?? []) as string[];
     }
 
-    // approver_user_id is carried through when the flow pins a specific person.
-    // Seeded flows leave it null, which assertCanDecide() treats as "any
-    // permitted approver" rather than a hard block — authorization rests on
-    // user_has_permission('hr.leave.approve') in RLS plus the self-approval
-    // check, per the permission-based routing decision (no org chart exists:
-    // reports_to_staff_id is 0/543 and head_of_department_id is 0/79).
-    return steps.map((s) => ({
-      step_order: Number(s.chain_order ?? 1),
-      approver_role: String(s.approver_role ?? 'hr_approver'),
-      approver_user_id: (s.approver_user_id as string | null) ?? null,
-      status: 'pending' as const,
-      escalate_after_hours: Number(
-        s.escalate_after_hours ?? chosen.escalate_after_hours ?? 48
-      ),
-    }));
+    const steps = buildChain({
+      flow: {
+        steps: (chosen.steps ?? []) as unknown as LeaveApprovalFlowStep[],
+        escalate_after_hours: chosen.escalate_after_hours ?? 48,
+        step_source: chosen.step_source ?? 'explicit',
+        run_mode: chosen.run_mode ?? 'sequential',
+        fallback_approver: chosen.fallback_approver ?? null,
+      },
+      rungsAbove,
+    });
+
+    if (steps.length === 0) {
+      // A LADDER THAT RESOLVED TO NOBODY IS A DIFFERENT PROBLEM from a flow with
+      // no steps, and telling someone to "add an approver" when the real cause is
+      // that they sit at the top of the ladder sends them to the wrong screen.
+      if ((chosen.step_source ?? 'explicit') === 'role_ladder') {
+        throw new Error(
+          `The approval ladder on "${chosen.flow_name ?? 'this leave type'}" has nobody above ` +
+          'you, so there is no one to send this request to. Open HR → Admin → Leave Types → ' +
+          '"Who approves this" and set a fallback approver for people at the top of the ladder.'
+        );
+      }
+      throw new Error(
+        `The leave approval flow "${chosen.flow_name ?? 'for this type'}" exists but has no ` +
+        'approval steps, so there is nobody to send the request to. Open HR → Admin → ' +
+        'Leave Types → "Who approves this" and add at least one approver.'
+      );
+    }
+
+    // The chain is fully built by buildChain() — one place that knows the shape,
+    // shared with the editor's preview and covered by
+    // __tests__/hr/leave-approval-chain.test.ts.
+    return steps;
   }
 
   /**
@@ -307,7 +388,10 @@ export class LeaveService {
       supabase,
       payload.hr_organization_id,
       payload.leave_type_id,
-      payload.department_id ?? null
+      payload.department_id ?? null,
+      // The chain belongs to the person the leave is FOR. On a role-ladder flow
+      // this is what decides where they enter it.
+      payload.employee_id ?? null
     );
 
     // 6. Balance check (decision 18 — reject at apply-time on exhaustion)
@@ -348,12 +432,23 @@ export class LeaveService {
       resolvedYearId = yearRow?.id ?? null;
     }
 
-    let balance: { entitled?: number; carried_forward?: number; used?: number } | null = null;
+    let balance: {
+      entitled?: number;
+      carried_forward?: number;
+      used?: number;
+      accrued?: number;
+      pending?: number;
+      available?: number;
+    } | null = null;
 
     if (resolvedYearId) {
       const { data, error: balanceError } = await supabase
         .from('v_hr_leave_balance')
-        .select('entitled, carried_forward, used')
+        // `available` is now authoritative and is read rather than recomputed.
+        // The view nets off BOTH what has been taken and what is awaiting a
+        // decision, and caps at what has actually accrued — three rules this
+        // service would otherwise have to restate and could get wrong.
+        .select('entitled, carried_forward, used, accrued, pending, available')
         .eq('employee_id', payload.employee_id)
         .eq('leave_type_id', payload.leave_type_id)
         .eq('hr_academic_year_id', resolvedYearId)
@@ -375,12 +470,50 @@ export class LeaveService {
       );
     }
 
+    // The DAY COMPARISON, unlike the eligibility check above, applies to
+    // request_category='leave' ONLY. This mirrors hr_trig_update_leave_balance()'s
+    // own early return:
+    //
+    //   IF v_category IN ('compensatory_off', 'short_time_off') THEN RETURN NEW;
+    //
+    // Those two categories never have `used` incremented by anything, anywhere —
+    // verified in production: sum(used) = 0 across every comp-off and STO balance
+    // row. So this comparison was measuring a number that means nothing, and
+    // refusing on it:
+    //   * Short Time Off — 101 staff (Matric 55, Nattraja CBSE 33, Jicate 13) got
+    //     "Insufficient balance. You have 0.0 day(s)…" on every submit, because
+    //     their Permission type sat at default_entitled_days = 0 (the leave-type
+    //     form's default) and an hourly request prices at 0.125.
+    //   * Compensatory Off — all 504 cells resolve to available <= 0, so this line
+    //     refused 100% of comp-off claims. Zero were ever filed.
+    //
+    // Each category keeps its own real budget, enforced where the currency lives:
+    // STO by hr_trig_sto_enforce_limits (minutes per period), comp off by its
+    // credit ledger — the drawer blocks at zero credits and the database refuses
+    // an approval with no credit behind it.
+    const tracksDayEntitlement = leaveType.request_category === 'leave';
+
+    // READ, NOT RECOMPUTED. This used to be entitled + carried - used, which
+    // could not see an unapproved request: apply for two days, apply again, and
+    // the second request saw the full balance. 354 applications / 371 days were
+    // invisible to it. The view's `available` now subtracts pending too.
+    const pending = balance.pending ?? 0;
     const available =
-      (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
-    if (estimatedDays > available) {
+      balance.available ??
+      (balance.accrued ?? balance.entitled ?? 0) +
+        (balance.carried_forward ?? 0) -
+        (balance.used ?? 0) -
+        pending;
+
+    if (tracksDayEntitlement && estimatedDays > available) {
       // hr_leave_types has no `name` column — it is `leave_type_name`.
+      // The pending figure is named: "you have 10 left" is baffling when the
+      // person believes they have 12, and the two days they cannot see are the
+      // ones they filed themselves an hour ago.
+      const pendingNote =
+        pending > 0 ? ` (${pending.toFixed(1)} day(s) already awaiting approval)` : '';
       throw new Error(
-        `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
+        `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available${pendingNote}; requested ${estimatedDays}.`
       );
     }
 
@@ -466,9 +599,19 @@ export class LeaveService {
     // Honour a pinned approver. Chains built before flows named concrete people
     // carry approver_user_id = null, so this is a no-op for them rather than a
     // hard block.
+    //
+    // MULTI-APPROVER STEPS ARE CHECKED AS A SET. A step is only refused here if
+    // EVERY slot on it pins a person and none of them is the caller — one
+    // unpinned (role) slot means the database is the one that can answer, and it
+    // does so in trg_hla_approver_gate where user_roles is readable.
     const step = app.approval_chain?.[app.current_step];
-    if (step?.approver_user_id && step.approver_user_id !== approverId) {
-      throw new Error('This approval step is assigned to a different approver.');
+    if (step) {
+      const entries = readApprovers(step);
+      const allPinned = entries.length > 0 && entries.every((e) => e.approver_user_id !== null);
+      const namesCaller = entries.some((e) => e.approver_user_id === approverId);
+      if (allPinned && !namesCaller) {
+        throw new Error('This approval step is assigned to a different approver.');
+      }
     }
 
     // A step routed to a ROLE is deliberately NOT checked here. custom_roles and
@@ -498,14 +641,30 @@ export class LeaveService {
     const step = chain[app.current_step];
     if (!step) throw new Error('Approval chain exhausted');
 
-    step.status = 'approved';
-    step.decided_at = new Date().toISOString();
-    step.decided_by = approverId;
-    step.comment = comment ?? null;
-    step.approver_user_id = approverId;
+    const now = new Date().toISOString();
 
-    const nextStep = app.current_step + 1;
-    const isFinal = nextStep >= chain.length;
+    // QUORUM DECIDES WHETHER THE STEP ADVANCES, not the fact that someone acted.
+    // On a quorum='all' step this records the decision and leaves current_step
+    // where it is, so the request stays with the remaining approvers.
+    const { step: decided, satisfied } = applyDecision(step, {
+      by: approverId,
+      at: now,
+      decision: 'approved',
+      comment: comment ?? null,
+    });
+
+    // approver_user_id was previously stamped with whoever acted, which on a
+    // multi-approver step would rewrite the step to name one person and lock the
+    // others out of a quorum they still have to complete. Only stamp it when the
+    // step is a single pinned slot, which is the case that behaviour was for.
+    const entries = readApprovers(step);
+    const singlePinnedSlot = entries.length === 1 && entries[0].approver_user_id !== null;
+    chain[app.current_step] = singlePinnedSlot
+      ? { ...decided, approver_user_id: approverId }
+      : decided;
+
+    const nextStep = satisfied ? app.current_step + 1 : app.current_step;
+    const isFinal = satisfied && nextStep >= chain.length;
 
     const update: Record<string, unknown> = {
       approval_chain: chain,
@@ -514,7 +673,7 @@ export class LeaveService {
     if (isFinal) {
       update.status = 'approved';
       update.final_approver_id = approverId;
-      update.final_decided_at = new Date().toISOString();
+      update.final_decided_at = now;
     }
 
     const { data, error } = await supabase
@@ -543,11 +702,16 @@ export class LeaveService {
     const chain = [...app.approval_chain];
     const step = chain[app.current_step];
     if (step) {
-      step.status = 'rejected';
-      step.decided_at = new Date().toISOString();
-      step.decided_by = approverId;
-      step.comment = rejection_reason;
-      step.approver_user_id = approverId;
+      // Terminal at any step, including a parallel one where colleagues had
+      // already approved — the decision the user confirmed was "reject", and
+      // letting a pending quorum outvote it would be a surprise.
+      const { step: decided } = applyDecision(step, {
+        by: approverId,
+        at: new Date().toISOString(),
+        decision: 'rejected',
+        comment: rejection_reason,
+      });
+      chain[app.current_step] = decided;
     }
 
     const { data, error } = await supabase
@@ -730,6 +894,9 @@ export class LeaveService {
       entitled: Number(row.entitled),
       used: Number(row.used),
       carried_forward: Number(row.carried_forward),
+      accrued: Number(row.accrued ?? row.entitled ?? 0),
+      pending: Number(row.pending ?? 0),
+      available: Number(row.available ?? 0),
       // Null for a derived row that has no ledger row behind it yet.
       created_at: (row.created_at ?? null) as string,
       updated_at: (row.updated_at ?? null) as string,

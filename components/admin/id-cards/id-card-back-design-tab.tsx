@@ -1,13 +1,15 @@
 'use client';
 
 // ============================================================================
-// IdCardBackDesignTab — "Back side" tab of the template editor (DARK).
-// Created: 2026-07-25.
+// IdCardBackDesignTab — "Back side" tab of the template editor.
+// Created: 2026-07-25. Wired into IdCardTemplateEditor: 2026-08-25.
 //
-// EXPORT-ONLY: this component is intentionally NOT wired into any page yet.
-// The back-side feature ships dark — every template has back_layout_json
-// NULL, so ?side=back 404s everywhere until a registrar enables it here
-// once this tab is integrated.
+// It shipped export-only — no caller anywhere in the repo — so for a month
+// the back of a card could not be seen or edited from any screen, even after
+// templates started carrying a back layout. It is now the editor's third tab
+// and is always shown; the printer policy's `sides` value does not gate it
+// (nothing in the render or print path reads `sides` — the render route and
+// /jobs/[id]/pickup both key off this template's own back_layout_json).
 //
 // Mirrors IdCardDesignTab exactly (session client + RLS, same bucket), plus
 // an enable/disable control: back_layout_json null = off, {} = on with the
@@ -208,7 +210,7 @@ export function IdCardBackDesignTab() {
         <div className="text-sm">
           <div className="font-medium">Print a back side for this template</div>
           <div className="text-muted-foreground">
-            Off = cards stay front-only (today's behavior). Turning it off
+            Off = cards stay front-only (today&apos;s behavior). Turning it off
             again discards the back configuration below.
           </div>
         </div>
@@ -230,7 +232,7 @@ export function IdCardBackDesignTab() {
           ) : (
             <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
               No back artwork uploaded — the back prints the standard design:
-              blood group, date of birth, guardian, address, the learner's
+              blood group, date of birth, guardian, address, the learner&apos;s
               roll number as a scannable barcode (team members: their id
               code), and the green footer band.
             </div>

@@ -145,6 +145,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // Projects module (menu-visibility gap fix 2026-07-12 — first
   // MENU_PERMISSIONS entry for /projects needed a module mapping too)
   ['/projects', 'Projects'],
+  // Campus Walk writes project_tasks under CAMPUS-OPS, so it rolls up into the
+  // existing Projects module rather than introducing a new canonical module.
+  ['/campus-walk', 'Projects'],
   // My Kit — store-kit self view (PR-K2 2026-07-12); module home is IMS
   ['/my-kit', 'IMS'],
   // /admin/* — sub-prefixes first
@@ -247,6 +250,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/learn', 'PDE Learning'],
   ['/meetings', 'System'], // jicate-booking inbox; Overview-group sidebar entry per PR #655
   ['/profile', 'Users'],
+  // What's New — the product changelog. Open to everyone signed in
+  // (view_profile sentinel); it scopes its own content by role.
+  ['/whats-new', 'System'],
   ['/okr', 'Work Pulse'],
   ['/vac', 'VAC'],
   ['/bos', 'System'],

@@ -46,7 +46,24 @@ export interface StaffSalaryRow {
   eligible_for_insurance: boolean;
   eligible_for_gratuity: boolean;
   eligible_for_etf: boolean;
-  effective_from: string;
+  /** Monthly EPF contribution in rupees. 0 whenever eligible_for_pf is false. */
+  epf_amount: number;
+  eligible_for_esi: boolean;
+  esi_amount: number;
+  /** Paid on top of the gross. Never part of the TDS base. */
+  allowance_amount: number;
+  allowance_label: string | null;
+  /**
+   * NULLABLE, and usually null: 369 of the 433 salaries in force carry no
+   * effective date, because the bulk import that created them had a blank
+   * Effective_Date on every row.
+   *
+   * This was typed `string` until 2026-09-02, which was simply false. With
+   * strictNullChecks off the compiler never questioned it, and the history
+   * sheet crashed on `iso.split('-')` for 85% of staff the first time anyone
+   * opened it. Every consumer must handle null.
+   */
+  effective_from: string | null;
   notes: string | null;
   updated_at: string;
 }
@@ -72,6 +89,11 @@ const SELECT_CURRENT = `
   eligible_for_insurance,
   eligible_for_gratuity,
   eligible_for_etf,
+  epf_amount,
+  eligible_for_esi,
+  esi_amount,
+  allowance_amount,
+  allowance_label,
   effective_from,
   notes,
   updated_at,
@@ -95,7 +117,12 @@ interface RawSalaryRow {
   eligible_for_insurance: boolean;
   eligible_for_gratuity: boolean;
   eligible_for_etf: boolean;
-  effective_from: string;
+  epf_amount: number | string;
+  eligible_for_esi: boolean;
+  esi_amount: number | string;
+  allowance_amount: number | string;
+  allowance_label: string | null;
+  effective_from: string | null;
   notes: string | null;
   updated_at: string;
   staff: {
@@ -134,6 +161,11 @@ function shape(r: RawSalaryRow): StaffSalaryRow {
     eligible_for_insurance: r.eligible_for_insurance,
     eligible_for_gratuity: r.eligible_for_gratuity,
     eligible_for_etf: r.eligible_for_etf,
+    epf_amount: toNumber(r.epf_amount),
+    eligible_for_esi: r.eligible_for_esi,
+    esi_amount: toNumber(r.esi_amount),
+    allowance_amount: toNumber(r.allowance_amount),
+    allowance_label: r.allowance_label ?? null,
     effective_from: r.effective_from,
     notes: r.notes,
     updated_at: r.updated_at,
@@ -168,6 +200,15 @@ export interface StaffSalaryDirectoryRow {
   eligible_for_insurance: boolean;
   eligible_for_gratuity: boolean;
   eligible_for_etf: boolean;
+  /**
+   * Null when this person has no salary row at all — the same distinction the
+   * other money fields carry here. Zero means "recorded, and it is nothing".
+   */
+  epf_amount: number | null;
+  eligible_for_esi: boolean;
+  esi_amount: number | null;
+  allowance_amount: number | null;
+  allowance_label: string | null;
   effective_from: string | null;
   notes: string | null;
 }
@@ -198,6 +239,9 @@ export class StaffSalaryService {
       monthly_gross: r.monthly_gross === null ? null : Number(r.monthly_gross),
       annual_gross: r.annual_gross === null ? null : Number(r.annual_gross),
       overtime_amount: r.overtime_amount === null ? null : Number(r.overtime_amount),
+      epf_amount: r.epf_amount === null ? null : Number(r.epf_amount),
+      esi_amount: r.esi_amount === null ? null : Number(r.esi_amount),
+      allowance_amount: r.allowance_amount === null ? null : Number(r.allowance_amount),
     })) as StaffSalaryDirectoryRow[];
   }
 
@@ -269,6 +313,13 @@ export class StaffSalaryService {
       eligibleForInsurance?: boolean;
       eligibleForGratuity?: boolean;
       eligibleForEtf?: boolean;
+      /** Ignored by the RPC unless eligibleForPf is true — it zeroes it there. */
+      epfAmount?: number;
+      eligibleForEsi?: boolean;
+      esiAmount?: number;
+      allowanceAmount?: number;
+      /** Discarded by the RPC when the amount is zero - a label with no money behind it. */
+      allowanceLabel?: string | null;
       notes?: string | null;
     }
   ): Promise<string> {
@@ -286,6 +337,11 @@ export class StaffSalaryService {
       p_eligible_for_gratuity: input.eligibleForGratuity ?? false,
       p_eligible_for_etf: input.eligibleForEtf ?? false,
       p_notes: input.notes ?? null,
+      p_epf_amount: input.epfAmount ?? 0,
+      p_eligible_for_esi: input.eligibleForEsi ?? false,
+      p_esi_amount: input.esiAmount ?? 0,
+      p_allowance_amount: input.allowanceAmount ?? 0,
+      p_allowance_label: input.allowanceLabel ?? null,
     });
 
     if (error) {

@@ -238,6 +238,44 @@ export async function GET() {
     });
 
     // ──────────────────────────────────────────────
+    // 2g. People who can sign in but have no profile
+    // ──────────────────────────────────────────────
+    //
+    // Distinct from "orphans" above: those are profiles with no ROLE. These are
+    // auth users with no PROFILE — they sign in, then bounce to
+    // /auth/login?error=profile_load_failed forever.
+    //
+    // Only people who have ACTUALLY signed in are counted. The far larger set of
+    // never-signed-in rows are pre-created shells that have not hit anything, and
+    // counting them would turn this card into noise.
+    //
+    // Reads auth.users, so it must go through the SECURITY DEFINER RPC. A failure
+    // here is deliberately non-fatal: the rest of the health page is still useful,
+    // and the card renders nothing rather than a wrong zero.
+
+    let signedInWithoutProfile = 0;
+    let signedInWithoutProfileRecoverable = 0;
+
+    const { data: unlinkedUsers, error: unlinkedError } = await (
+      supabase as any
+    ).rpc('check_orphaned_auth_users');
+
+    if (unlinkedError) {
+      console.error(
+        '[permissions-audit/health] check_orphaned_auth_users failed:',
+        unlinkedError.message
+      );
+    } else {
+      const signedIn = (unlinkedUsers ?? []).filter(
+        (u: { has_signed_in?: boolean }) => u.has_signed_in
+      );
+      signedInWithoutProfile = signedIn.length;
+      signedInWithoutProfileRecoverable = signedIn.filter(
+        (u: { profile_exists_by_email?: boolean }) => u.profile_exists_by_email
+      ).length;
+    }
+
+    // ──────────────────────────────────────────────
     // 3. Build response
     // ──────────────────────────────────────────────
 
@@ -247,7 +285,9 @@ export async function GET() {
         orphans: orphanCount,
         mismatches: mismatchCount,
         roles: rolesCount,
-        superAdmins: superAdminCount
+        superAdmins: superAdminCount,
+        signedInWithoutProfile,
+        signedInWithoutProfileRecoverable
       },
       orphansByRole,
       usersPerRole,

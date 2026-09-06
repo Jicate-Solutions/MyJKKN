@@ -1,9 +1,21 @@
 // ── OBE Type Definitions ────────────────────────────────────────────────
 // Outcome-Based Education system supporting Bloom's and Fink's taxonomies
 
-export type TaxonomyType = 'blooms' | 'finks';
+export type TaxonomyType = 'blooms' | 'finks' | 'jkkn_advanced';
 export type BloomsLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 export type FinksDimension = 'FK' | 'AP' | 'IN' | 'HD' | 'CA' | 'LL';
+/** JKKN Advanced final form ("C + three bands", 2026-08-21): alongside the six
+ *  cognitive levels sit Krathwohl's affective ladder AF1-AF5 (a hierarchy — it
+ *  absorbs Fink's Caring at AF3), three psychomotor bands PS-a/b/c after Simpson
+ *  (a hierarchy), and a flat rail — HD Human Dimension, L2L Learning How to
+ *  Learn, AIU Accountable AI Use — whose members do not outrank one another.
+ *  Which elements are active varies by college family; the per-institution
+ *  bos_taxonomy_levels rows are the activation record. */
+export type AdvancedDimension =
+  | 'AF1' | 'AF2' | 'AF3' | 'AF4' | 'AF5'
+  | 'PS-a' | 'PS-b' | 'PS-c'
+  | 'HD' | 'L2L' | 'AIU';
+
 export type CorrelationLevel = 0 | 1 | 2 | 3;
 export type AssessmentComponentType = 'cia' | 'ese' | 'assignment' | 'lab' | 'seminar' | 'project' | 'other';
 
@@ -15,6 +27,21 @@ export const BLOOMS_LEVEL_LABELS: Record<BloomsLevel, string> = {
   L4: 'Analyze',
   L5: 'Evaluate',
   L6: 'Create',
+};
+
+// JKKN Advanced — the added elements beyond Bloom's six cognitive levels
+export const ADVANCED_DIMENSION_LABELS: Record<AdvancedDimension, string> = {
+  AF1: 'Receiving',
+  AF2: 'Responding',
+  AF3: 'Valuing',
+  AF4: 'Organising',
+  AF5: 'Characterising',
+  'PS-a': 'Guided Performance',
+  'PS-b': 'Independent Performance',
+  'PS-c': 'Adaptive Performance',
+  HD: 'Human Dimension',
+  L2L: 'Learning How to Learn',
+  AIU: 'Accountable AI Use',
 };
 
 // Fink's labels

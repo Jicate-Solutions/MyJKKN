@@ -304,6 +304,51 @@ export function CourseSelectionSection({
     ? [currentAcademicYearToUse, ...filteredAcademicYears]
     : filteredAcademicYears;
 
+  /**
+   * Clear every course field that hangs off `from` downwards.
+   *
+   * Each picker used to clear only its immediate child (institution wiped
+   * degree/department/program and stopped; degree wiped department/program;
+   * department wiped program). Only the Program picker cleared the deep set
+   * (semester / section / admission year), and it can never run after an
+   * upstream change: an upstream cascade sets program_id via setValue, which
+   * does not fire the Program Select's onValueChange, so when the user
+   * re-picks the programme its `oldValue` is '' and the `oldValue &&` guard
+   * skips the deep clears entirely.
+   *
+   * The stale semester/section then reached the UPDATE and Postgres refused
+   * the WHOLE row (23514, from trg_validate_learner_semester_year_scope):
+   *   "semester_id <id> belongs to institution <old>, not the learner's
+   *    institution <new>"
+   * — so changing a learner's institution saved none of the course details.
+   * Clearing the whole downstream chain at the point of change is what keeps
+   * the payload internally consistent.
+   */
+  const clearDownstreamCourseFields = (
+    from: 'institution' | 'degree' | 'department' | 'program',
+  ) => {
+    if (from === 'institution') {
+      form.setValue('degree_id', '');
+      // Institution-scoped, and validated against institution_id by
+      // trg_validate_learner_semester_year_scope / _admission_year_scope.
+      form.setValue('academic_year_id', '');
+      form.setValue('regulation_id', '');
+      form.setValue('batch_id', '');
+    }
+    if (from === 'institution' || from === 'degree') {
+      form.setValue('department_id', '');
+    }
+    if (from === 'institution' || from === 'degree' || from === 'department') {
+      form.setValue('program_id', '');
+    }
+    // Programme-scoped: semester and section are FK'd to programs, and the
+    // admission-year cohort row is scoped to (institution, program).
+    form.setValue('semester_id', '');
+    form.setValue('section_id', '');
+    form.setValue('admission_year_id', '');
+    form.setValue('admission_year', undefined);
+  };
+
   console.log('[course-selection] Academic Year Debug:', {
     watchedInstitutionId,
     watchedAcademicYearId,
@@ -373,9 +418,7 @@ export function CourseSelectionSection({
                   field.onChange(value);
                   // Only reset dependent fields if institution is actually changing (not initial load)
                   if (oldValue && oldValue !== value) {
-                    form.setValue('degree_id', '');
-                    form.setValue('department_id', '');
-                    form.setValue('program_id', '');
+                    clearDownstreamCourseFields('institution');
                   }
                 }}
                 value={field.value || ''}
@@ -425,8 +468,7 @@ export function CourseSelectionSection({
                   field.onChange(value);
                   // Only reset dependent fields if degree is actually changing (not initial load)
                   if (oldValue && oldValue !== value) {
-                    form.setValue('department_id', '');
-                    form.setValue('program_id', '');
+                    clearDownstreamCourseFields('degree');
                   }
                 }}
                 value={field.value || ''}
@@ -505,7 +547,7 @@ export function CourseSelectionSection({
                   field.onChange(value);
                   // Only reset dependent field if department is actually changing (not initial load)
                   if (oldValue && oldValue !== value) {
-                    form.setValue('program_id', '');
+                    clearDownstreamCourseFields('department');
                   }
                 }}
                 value={field.value || ''}
@@ -706,15 +748,13 @@ export function CourseSelectionSection({
                   if (pickedDeptId && pickedDeptId !== watchedDepartmentId) {
                     form.setValue('department_id', pickedDeptId);
                   }
-                  // Only reset dependent fields if program is actually changing (not initial load)
+                  // Only reset dependent fields if program is actually changing
+                  // (not initial load). 2026-04-23: the admission_year cohort
+                  // row is scoped to the previous program and would be rejected
+                  // by the DB scope-validator trigger on save, so it clears too
+                  // — see clearDownstreamCourseFields.
                   if (oldValue && oldValue !== value) {
-                    form.setValue('semester_id', '');
-                    form.setValue('section_id', '');
-                    // 2026-04-23: clear admission_year selection too — old
-                    // cohort row is scoped to the previous program and would
-                    // be rejected by the DB scope-validator trigger on save.
-                    form.setValue('admission_year_id', '');
-                    form.setValue('admission_year', undefined);
+                    clearDownstreamCourseFields('program');
                   }
                 }}
                 value={field.value || ''}

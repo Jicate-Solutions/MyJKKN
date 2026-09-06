@@ -25,3 +25,24 @@ export function formatDays(value: number | string | null | undefined): string {
 
 /** Same rule for hour totals on Short Time Off. */
 export const formatHours = formatDays;
+
+/**
+ * The first day a request's biometric file is missing, for the approval gate's
+ * message — "12 Aug 2026".
+ *
+ * Parsed as parts rather than `new Date(iso)`: the value is a bare `date` from
+ * Postgres with no zone, and `new Date('2026-08-12')` is read as UTC midnight,
+ * which renders as 11 Aug in any timezone behind UTC. India is ahead so it
+ * happens not to bite here, but the same shortcut has produced off-by-one dates
+ * in this codebase before and there is no reason to leave the trap set.
+ */
+export function formatBiometricGap(isoDate: string | null | undefined): string {
+  if (!isoDate) return '—';
+  const [y, m, d] = isoDate.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return isoDate;
+  return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}

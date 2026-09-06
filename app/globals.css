@@ -73,6 +73,28 @@ body {
     hsl(var(--background));
 }
 
+/* Hostel Allocations (/campus-living/allocations) — the single merged table.
+   Exactly the problem .audit-wide-table solves above, on a second table.
+
+   Folding the Allocated and Not Allocated tabs into one table took it from 9
+   columns to 14 (Mess Cat., Type, Date, Fee, Why not allocated). Because
+   components/ui/table.tsx renders <table class="w-full">, the table stayed
+   pinned to its container and every column was squeezed below its declared
+   size: "JKKN Coll…", "Classic Ro", and — worst of it — the sticky actions
+   cell clipped its own buttons off the right edge, so a row's actions looked
+   like they were missing rather than merely cut off. No scrollbar appeared to
+   recover any of it, because overflow-x-auto never engages on a table that
+   already fits.
+
+   2060px = the sum of the declared column sizes in the widest case (2010, the
+   super-admin with manage rights, who gets both the select checkbox and the
+   Institution column) plus slack, so the browser never has to steal width from
+   a column. A narrower role set simply distributes the surplus; nothing clips
+   either way. Opt-in and unlayered, exactly like the two rules above. */
+.allocations-wide-table .table-container table {
+  min-width: 2060px;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -121,7 +143,7 @@ body {
 
   .dark {
     /* ═══ Ultrahuman-Inspired Dark Cinema Theme ═══ */
-    /* 4-tier surface elevation: L0 (#050506) → L1 (#0A0A0C) → L2 (#141416) → L3 (#2A2A2E) */
+    /* 4-tier surface elevation: L0 (#050506) → L1 (#070708) → L2 (#131316) → L3 (#29292E) */
 
     /* L0 — Deepest background */
     --background: 240 10% 2%;
@@ -143,7 +165,7 @@ body {
     --secondary: 240 5% 17%;
     --secondary-foreground: 0 0% 90%;
 
-    /* Between L1 and L2 — subtle surface variation */
+    /* Above --card: L2 is 8%, this is 12% — sits between L2 and L3 */
     --muted: 240 5% 12%;
     --muted-foreground: 240 4% 63%;
 
@@ -797,4 +819,28 @@ body {
     font-weight: 600;
     white-space: normal;
   }
+}
+/* ── IA question paper rich editor ─────────────────────────────────────────
+   The paper-wide language/font is a PAPER-level choice (ia_question_papers.
+   default_font): the authoring screen sets --qp-editor-font on a wrapper and it
+   cascades into every question and option editor, so the screen matches what the
+   COE PDF renderer prints from the same column.
+
+   Bamini and Suntommy must NEVER appear in the FALLBACK stack — they are legacy
+   glyph faces whose LATIN codepoints carry Tamil shapes, so English text would
+   render as Tamil. They only ever apply when explicitly selected.
+
+   Inline font marks saved on older papers are spans with their own font-family
+   and still override this, matching the renderer. */
+.qp-rich-editor-body {
+  font-family: var(--qp-editor-font, inherit);
+}
+
+/* The placeholder is driven by the data-placeholder attribute the editor sets. */
+.qp-rich-editor-root .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: hsl(var(--muted-foreground));
 }

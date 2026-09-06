@@ -16,6 +16,7 @@ import type {
   SoiBatchFullBehaviour,
   SoiMemberType,
 } from '@/lib/services/school-of-influence/constants';
+import type { SoiKnownAnswer } from '@/lib/services/school-of-influence/known-answers';
 
 /**
  * Every way this flow can say no. Each one is rendered as an explicit sentence
@@ -81,8 +82,21 @@ export interface SoiApplyContext {
   existingApplication: { id: string; status: string } | null;
   /** The applicant's live place in a batch of this programme, if any. */
   existingMembership: { cohortId: string; batchName: string; status: string } | null;
-  /** Questions to render. Empty when no form is built, or it is disabled. */
+  /**
+   * Questions to render. Empty when no form is built, or it is disabled.
+   *
+   * A question the SERVER already answers for itself is not in here at all —
+   * see isSoiServerDerivedField. The applicant is never shown a box whose
+   * answer the server has already decided and would override.
+   */
   formSections: EventRegistrationFormSection[];
+  /**
+   * Answers the platform already holds about this applicant, keyed by
+   * field_key. The browser fills these boxes in and leaves them EDITABLE
+   * (Director decision, 2026-08-13). A field the record cannot answer is
+   * absent, so its box renders blank — never a blocked application.
+   */
+  knownAnswers: Record<string, SoiKnownAnswer>;
   /** null means "you may apply". Anything else is shown verbatim. */
   refusal: SoiRefusal | null;
 }

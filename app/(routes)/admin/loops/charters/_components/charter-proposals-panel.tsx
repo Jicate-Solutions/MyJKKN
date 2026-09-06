@@ -34,7 +34,7 @@ export interface CharterProposalRow {
   loop_name: string;
   proposed: Record<string, unknown>;
   rationale: string | null;
-  status: 'proposed' | 'approved' | 'rejected';
+  status: 'proposed' | 'approved' | 'rejected' | 'insufficient';
   decided_at: string | null;
   decision_note: string | null;
   created_at: string;
@@ -57,6 +57,8 @@ const STATUS_BADGE: Record<CharterProposalRow['status'], string> = {
     'border-emerald-400/60 bg-emerald-50/60 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/30 dark:text-emerald-300',
   rejected:
     'border-rose-400/60 bg-rose-50/60 text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/30 dark:text-rose-300',
+  insufficient:
+    'border-slate-400/60 bg-slate-50/60 text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300',
 };
 
 function fieldText(proposed: Record<string, unknown>, key: string): string {
@@ -152,7 +154,17 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
   }
 
   const open = rows.filter((r) => r.status === 'proposed');
-  const decided = rows.filter((r) => r.status !== 'proposed');
+  const decided = rows.filter((r) => r.status === 'approved' || r.status === 'rejected');
+  // Honest abstentions — the machine read the evidence and declined to draft.
+  // Latest per loop only (history stays in the table); newest-first.
+  const insufficient = useMemo(() => {
+    const latest = new Map<string, CharterProposalRow>();
+    for (const r of rows.filter((x) => x.status === 'insufficient')) {
+      const prev = latest.get(r.loop_key);
+      if (!prev || r.created_at > prev.created_at) latest.set(r.loop_key, r);
+    }
+    return [...latest.values()].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  }, [rows]);
 
   const card = (row: CharterProposalRow) => {
     const busy = busyId === row.id;
@@ -233,14 +245,54 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
         </div>
         {open.length === 0 ? (
           <div className="rounded-xl border border-border p-6 text-center text-sm text-muted-foreground">
-            No charter drafts are waiting. The MetaLoop routine runs Sundays and
-            files a draft only when a loop has enough live evidence to charter
-            honestly.
+            No charter drafts are waiting. MetaLoop drafts on Sundays and
+            finished drafts surface daily; when the machine judges a loop&rsquo;s
+            evidence too thin to charter honestly, its reason appears below
+            instead.
           </div>
         ) : (
           open.map(card)
         )}
       </section>
+
+      {insufficient.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold tracking-tight">
+              Can&rsquo;t charter yet — the machine&rsquo;s reasons
+            </h2>
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {insufficient.length} loop{insufficient.length === 1 ? '' : 's'} waiting on a human
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            MetaLoop read each loop&rsquo;s live evidence and declined to draft a
+            charter. Each reason names what has to change first — usually a
+            human action, not a code fix. The loop is re-examined every Sunday;
+            this list shows the latest verdict per loop.
+          </p>
+          {insufficient.map((row) => (
+            <article key={row.id} className="rounded-xl border border-border">
+              <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted/30 px-4 py-3">
+                <div className="flex flex-col gap-0.5">
+                  <h3 className="text-sm font-semibold tracking-tight">{row.loop_name}</h3>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {row.loop_key} · examined {row.created_at.slice(0, 10)}
+                  </span>
+                </div>
+                <span
+                  className={`inline-block rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${STATUS_BADGE.insufficient}`}
+                >
+                  insufficient evidence
+                </span>
+              </header>
+              <p className="px-4 py-3 text-sm text-muted-foreground">
+                {row.rationale ?? '(no reason recorded)'}
+              </p>
+            </article>
+          ))}
+        </section>
+      )}
 
       {decided.length > 0 && (
         <section className="flex flex-col gap-3">

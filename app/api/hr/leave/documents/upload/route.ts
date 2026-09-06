@@ -73,6 +73,10 @@ export async function POST(request: NextRequest) {
     const employeeId = String(formData.get('employee_id') ?? '');
     const leaveTypeId = String(formData.get('leave_type_id') ?? '');
     const startDate = String(formData.get('start_date') ?? '');
+    // 'comp_off_claim' files proof for a worked-day claim — no leave type
+    // exists there, so the filename carries COMPOFF instead of a type code.
+    const purpose = String(formData.get('purpose') ?? 'leave');
+    const isCompOffClaim = purpose === 'comp_off_claim';
 
     if (!file || typeof file === 'string') {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -89,7 +93,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!employeeId || !leaveTypeId) {
+    if (!employeeId || (!leaveTypeId && !isCompOffClaim)) {
       return NextResponse.json(
         { error: 'employee_id and leave_type_id are required' },
         { status: 400 }
@@ -106,14 +110,16 @@ export async function POST(request: NextRequest) {
         .select('id, staff_id, institution_id, institutions(name)')
         .eq('id', employeeId)
         .maybeSingle(),
-      supabase
-        .from('hr_leave_types')
-        .select('id, leave_type_code, hr_organization_id, hr_organizations(name)')
-        .eq('id', leaveTypeId)
-        .maybeSingle(),
+      isCompOffClaim
+        ? Promise.resolve({ data: null })
+        : supabase
+            .from('hr_leave_types')
+            .select('id, leave_type_code, hr_organization_id, hr_organizations(name)')
+            .eq('id', leaveTypeId)
+            .maybeSingle(),
     ]);
 
-    if (!staffRow || !leaveType) {
+    if (!staffRow || (!leaveType && !isCompOffClaim)) {
       return NextResponse.json(
         { error: 'Staff member or leave type not found' },
         { status: 404 }
@@ -121,7 +127,7 @@ export async function POST(request: NextRequest) {
     }
 
     const orgName =
-      (leaveType as any).hr_organizations?.name ??
+      (leaveType as any)?.hr_organizations?.name ??
       (staffRow as any).institutions?.name ??
       'Unknown Organisation';
 
@@ -129,7 +135,9 @@ export async function POST(request: NextRequest) {
       organizationName: orgName,
       startDate,
       staffCode: (staffRow as any).staff_id ?? null,
-      leaveTypeCode: (leaveType as any).leave_type_code ?? 'LEAVE',
+      leaveTypeCode: isCompOffClaim
+        ? 'COMPOFF'
+        : ((leaveType as any)?.leave_type_code ?? 'LEAVE'),
       file,
     });
 

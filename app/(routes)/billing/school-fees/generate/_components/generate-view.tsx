@@ -10,9 +10,19 @@
 // per-class table that explains every skip, and a typed confirmation on the
 // commit.
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Info, PlayCircle, ShieldAlert, History, CheckCircle2 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import {
+  Info,
+  PlayCircle,
+  ShieldAlert,
+  History,
+  CheckCircle2,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +44,21 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSchoolYearSelection } from '@/hooks/school-fees/use-school-year-selection';
 import { useSchoolFeeGeneration } from '@/hooks/school-fees/use-school-fee-generation';
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { SchoolFeeGenerationService } from '@/lib/services/school-fees/school-fee-generation-service';
+import {
+  classesInReport,
+  downloadLearnerWiseExcel,
+  downloadLearnerWisePdf,
+} from '@/lib/utils/billing/school-fee-report';
+import type { SchoolFeeReportRow } from '@/types/school-fees';
 
 import { SchoolYearPicker } from '../../_components/school-year-picker';
 import { GENERATION_STATUS_LABEL, type GenerationClassStatus } from '@/types/school-fees';
@@ -69,11 +94,68 @@ export function GenerateView() {
   const { rows, summary, runs, lastResult, loading, running, error, dryRun, commit } =
     useSchoolFeeGeneration(institutionId || undefined, academicYearId || undefined);
 
+  const yearName =
+    yearOptions.find((y) => y.id === academicYearId)?.academic_year_name ?? 'this year';
+
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
 
-  const yearName =
-    yearOptions.find((y) => y.id === academicYearId)?.academic_year_name ?? 'this year';
+  // Report state. Rows are fetched on FIRST download, not on page load: this
+  // is thousands of bill rows and most visits to this screen never ask for it.
+  const [reportRows, setReportRows] = useState<SchoolFeeReportRow[] | null>(null);
+  const [reportClass, setReportClass] = useState<string>('all');
+  const [reportBusy, setReportBusy] = useState<'excel' | 'pdf' | null>(null);
+
+  const institutionName =
+    institutions.find((i) => i.id === institutionId)?.name ?? 'School';
+
+  const downloadReport = useCallback(
+    async (format: 'excel' | 'pdf') => {
+      if (!institutionId || !academicYearId) return;
+      setReportBusy(format);
+      try {
+        // Re-fetched per download rather than cached across a commit: the whole
+        // point of this report is to reflect what is in the table right now.
+        const rows = await SchoolFeeGenerationService.getLearnerWiseReport(
+          institutionId,
+          academicYearId,
+        );
+        setReportRows(rows);
+
+        const scoped =
+          reportClass === 'all' ? rows : rows.filter((r) => r.class_name === reportClass);
+
+        if (scoped.length === 0) {
+          toast('No generated bills to report for this selection.');
+          return;
+        }
+
+        const ctx = {
+          institutionName,
+          academicYearName: yearName,
+          className: reportClass === 'all' ? null : reportClass,
+        };
+        if (format === 'excel') downloadLearnerWiseExcel(scoped, ctx);
+        else downloadLearnerWisePdf(scoped, ctx);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not build the report');
+      } finally {
+        setReportBusy(null);
+      }
+    },
+    [institutionId, academicYearId, reportClass, institutionName, yearName],
+  );
+
+  // Class list comes from the PREVIEW when no report has been fetched yet, so
+  // the filter is usable before the first download.
+  const reportClasses = useMemo(
+    () =>
+      reportRows
+        ? classesInReport(reportRows)
+        : [...new Set(rows.map((r) => r.class_name).filter(Boolean))],
+    [reportRows, rows],
+  );
+
 
   const blocked = useMemo(
     () => rows.filter((r) => r.status === 'no_calendar'),
@@ -237,6 +319,76 @@ export function GenerateView() {
               </AlertDescription>
             </Alert>
           ) : null}
+
+          {/* ── Learner-wise report ──────────────────────────────────────
+              Reads billing_student_bills, so it reports what was actually
+              generated — available whether or not a run happened this session,
+              which is what makes it useful for checking an earlier run. */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                </span>
+                Learner-wise fee details
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Every generated bill for {institutionName} in {yearName}, learner by learner.
+                Excel carries a column per fee head and term plus a raw detail sheet; the PDF is
+                a printable per-term summary grouped by class.
+              </p>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="space-y-1.5 sm:w-64">
+                  <Label htmlFor="report-class" className="text-xs">
+                    Class
+                  </Label>
+                  <Select value={reportClass} onValueChange={setReportClass}>
+                    <SelectTrigger id="report-class">
+                      <SelectValue placeholder="All classes" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      <SelectItem value="all">All classes</SelectItem>
+                      {reportClasses.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => downloadReport('excel')}
+                    disabled={reportBusy !== null}
+                  >
+                    {reportBusy === 'excel' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    )}
+                    Excel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => downloadReport('pdf')}
+                    disabled={reportBusy !== null}
+                  >
+                    {reportBusy === 'pdf' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <FileText className="h-4 w-4 mr-2" />
+                    )}
+                    PDF
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {runs.length > 0 ? (
             <Card>

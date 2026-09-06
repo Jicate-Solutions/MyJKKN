@@ -58,15 +58,25 @@ export const STATUS_BADGE_CLASS: Record<ImprovementIdeaStatus, string> = {
 /**
  * Forward moves a manager may offer from each status. The RPC still validates
  * every move server-side; this is only the UI's proposed set.
+ *
+ * This MUST stay a subset of the transition guard inside fn_improvement_set_status.
+ * Offering a move the RPC rejects renders a button that throws 'invalid transition'
+ * when pressed — two such dead buttons shipped here until 2026-09-01
+ * (logged -> not_pursued, and approved -> rejected). __tests__/lib/improvement-board/
+ * manager-transitions.test.ts pins this against the RPC's graph; update both together.
+ *
+ * 'withdrawn' is deliberately absent from every row. The RPC reserves it for the
+ * AUTHOR of an idea, pre-approval — it means "I am pulling my own idea", not
+ * "a manager closed it". A manager rejects or does not pursue instead.
  */
 export const ALLOWED_MANAGER_TRANSITIONS: Record<
   ImprovementIdeaStatus,
   ImprovementIdeaStatus[]
 > = {
-  logged: ['under_review', 'not_pursued', 'rejected'],
+  logged: ['under_review', 'rejected'],
   under_review: ['approved', 'not_pursued', 'rejected'],
-  approved: ['applied', 'rejected'],
-  applied: ['verified'],
+  approved: ['applied', 'not_pursued'],
+  applied: ['verified', 'closed'],
   verified: ['closed'],
   closed: [],
   rejected: [],

@@ -175,7 +175,7 @@ export function BiometricPurgePanel() {
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
           A month is listed against the <strong>machine</strong> that produced the file, not the
-          staff member&rsquo;s own college — one machine routinely records people from several. Use
+          team member&rsquo;s own college — one machine routinely records people from several. Use
           this to undo a file loaded against the wrong machine, or a month imported before the shift
           timings were configured. Deleting cannot be undone; re-import the file to restore it.
         </p>
@@ -291,7 +291,7 @@ export function BiometricPurgePanel() {
                       <th className="px-3 py-2 font-medium">Machine institution</th>
                       <th className="px-3 py-2 font-medium">Month</th>
                       <th className="px-3 py-2 text-right font-medium">Day records</th>
-                      <th className="px-3 py-2 text-right font-medium">Staff</th>
+                      <th className="px-3 py-2 text-right font-medium">Team members</th>
                       <th className="px-3 py-2 text-right font-medium">Exceptions</th>
                       <th className="px-3 py-2 font-medium">Last imported</th>
                       <th className="px-3 py-2" />
@@ -380,12 +380,12 @@ export function BiometricPurgePanel() {
             <div className="space-y-3">
               <div className="rounded-md border">
                 <Line label="Day records deleted" value={preview.records} strong />
-                <Line label="Staff affected" value={preview.staff} />
+                <Line label="Team members affected" value={preview.staff} />
                 {preview.staff_institutions > 1 && (
                   <Line
                     label="Colleges affected"
                     value={preview.staff_institutions}
-                    note="this machine records staff from more than one"
+                    note="this machine records team members from more than one"
                     warn
                   />
                 )}
@@ -407,7 +407,7 @@ export function BiometricPurgePanel() {
                     )}
                     {preview.regularizations_unlinked > 0 && (
                       <p>
-                        {preview.regularizations_unlinked} staff regularization request(s) point at
+                        {preview.regularizations_unlinked} team member regularization request(s) point at
                         these days. The requests are <strong>kept</strong> and simply unlinked — a
                         re-import re-anchors them.
                       </p>

@@ -66,6 +66,7 @@ import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
 import { canEditEvent } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
+import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -559,10 +560,19 @@ export default function GeneralEventDetailPage() {
 
         {isSchoolOfInfluence && (
           <p className="text-xs text-muted-foreground">
-            These forms are what applicants answer on the School of Influence
+            These forms are what applicants answer on the School of Influencer
             application page below.
           </p>
         )}
+
+        {/* Post-event feedback. Deliberately NOT gated on `canEdit`: that rule
+            (canEditEvent) recognises only the creator, the super admin and
+            same-institution rows, while the DB's fn_can_manage_event_feedback
+            also counts the event in-charge from events.config->'incharges'.
+            Gating on canEdit hid the card outright from the appointed
+            coordinator. Consistent with this page's header decision — the DB
+            is the authority, and a denial surfaces as an error toast. */}
+        <EventFeedbackLinkCard eventId={event.id} />
 
         {/* Shared event logistics — sponsors, budget, committees, check-in, QR,
             volunteers, incidents, certificates, bulk import, analytics, kit.

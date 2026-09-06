@@ -21,13 +21,22 @@
  *   the timing comes from fn_shift_window, which is ungated precisely so this
  *   path can resolve it.
  *
- * SCOPE: source='biometric' rows only. A LEAVE, HOLIDAY or REGULARIZED day was
- * authored by another writer; re-deriving it from punches would revoke it.
+ * SCOPE: source='biometric' rows only. A LEAVE or REGULARIZED day was authored
+ * by another writer; re-deriving it from punches would revoke it.
+ *
+ * HOLIDAY IS THE EXCEPTION, AND IT USED TO BE A BUG. A holiday stamped onto a
+ * biometric row leaves `source` as 'biometric', so the filter below does NOT
+ * exclude it — this function would re-derive the day from punches and put a
+ * declared holiday straight back to ABSENT. Every stamp died at the next leave
+ * approval or import, including the ones the older institution_leaves trigger
+ * made. The holiday is therefore re-applied here (2026-09-02) rather than
+ * assumed out of scope.
  */
 
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { evaluateDay, type AttendanceVerdict } from '@/lib/hr/biometric/evaluate-day';
 import { fetchApprovedPermissions, permissionKey } from '@/lib/hr/biometric/fetch-permissions';
+import { applyHolidayToStatusCode, isCalendarHoliday } from '@/lib/hr/attendance/holiday-dates';
 import type { ResolvedShiftTiming } from '@/types/hr-shift-timings';
 
 const VERDICT_TO_CODE: Record<Exclude<AttendanceVerdict, 'EXCEPTION'>, string> = {
@@ -71,7 +80,7 @@ export async function recomputeAttendanceDay(
 
   const { data: record, error: recErr } = await svc
     .from('hr_attendance_records')
-    .select('id, status_type_id, in_at, out_at, day_calc, first_half_attended, second_half_attended, late_minutes, excused_minutes, shift_timing_id')
+    .select('id, institution_id, status_type_id, in_at, out_at, day_calc, first_half_attended, second_half_attended, late_minutes, excused_minutes, shift_timing_id')
     .eq('employee_id', employeeId)
     .eq('work_date', workDate)
     .eq('source', 'biometric')
@@ -90,8 +99,14 @@ export async function recomputeAttendanceDay(
     ? {
         timing_id: w.timing_id as string,
         institution_id: '',
-        staff_scope: w.matched_by as ResolvedShiftTiming['staff_scope'],
+        // matched_by is the RESOLVED scope ('second_saturday_holiday' included);
+        // evaluateDay never reads staff_scope, so the wider value is harmless.
+        staff_scope: w.matched_by as ResolvedShiftTiming['matched_by'] as ResolvedShiftTiming['staff_scope'],
         employment_category_id: null,
+        // Placeholder, like institution_id above and day_of_week below:
+        // fn_shift_window returns the window only, and evaluateDay reads none of
+        // the three. The gender was already applied inside the resolver.
+        applicable_gender: 'all',
         day_of_week: 1,
         is_working_day: w.is_working_day as boolean,
         first_half_start: w.first_half_start as string | null,
@@ -133,7 +148,13 @@ export async function recomputeAttendanceDay(
     codeById.set(t.id, t.code);
   }
 
-  const nextStatusId = idByCode.get(VERDICT_TO_CODE[verdict.verdict]);
+  // Re-apply the declared holiday before choosing a status: without this the
+  // punches decide, and a festival with no punches resolves to ABSENT again.
+  const nextCode = applyHolidayToStatusCode(
+    VERDICT_TO_CODE[verdict.verdict],
+    await isCalendarHoliday(svc, record.institution_id as string | null, workDate),
+  );
+  const nextStatusId = idByCode.get(nextCode);
   if (!nextStatusId) return { changed: false, from: null, to: null, reason: 'Status type missing.' };
 
   const fromCode = codeById.get(record.status_type_id as string) ?? 'UNKNOWN';

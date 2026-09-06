@@ -19,7 +19,7 @@ import { useCallback, useMemo } from 'react';
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { ExportableData } from '@/components/data-table/utils/export-utils';
 import { Badge } from '@/components/ui/badge';
-import { maskAccountNumber } from '@/lib/hr/payroll/bank-account-validation';
+import { isPayable, maskAccountNumber } from '@/lib/hr/payroll/bank-account-validation';
 import type { StaffBankDirectoryRow } from '@/lib/services/hr/payroll/staff-bank-account-service';
 
 import { getBankAccountColumns } from './bank-account-columns';
@@ -137,7 +137,16 @@ export function BankDirectoryDataTable({
         </div>
         <div className='flex flex-wrap gap-1'>
           {r.bank_name && <Badge variant='outline' className='font-normal'>{r.bank_name}</Badge>}
-          {r.account_id && !r.verified_at && (
+          {/* Mirrors the desktop State column: unpayable outranks unverified. */}
+          {r.account_id && !isPayable(r) && (
+            <Badge
+              variant='outline'
+              className='border-orange-300 font-normal text-orange-700 dark:border-orange-800 dark:text-orange-400'
+            >
+              No IFSC
+            </Badge>
+          )}
+          {r.account_id && isPayable(r) && !r.verified_at && (
             <Badge
               variant='outline'
               className='border-amber-300 font-normal text-amber-700 dark:border-amber-800 dark:text-amber-400'

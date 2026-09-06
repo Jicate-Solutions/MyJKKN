@@ -1,5 +1,9 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { Database } from '@/types/database.types';
+// '@/types/database.types' does not exist in this repo (nothing generates it —
+// the import resolved to nothing, so CustomRoleRow was silently `any`).
+// '@/types/supabase' is the tracked generated schema, and it is what the
+// Supabase client itself is typed with in lib/supabase/client.ts.
+import type { Database } from '@/types/supabase';
 import {
   CustomRole,
   CustomRoleCreate,
@@ -23,11 +27,11 @@ export class RoleService {
   private static toCustomRole(row: CustomRoleRow): CustomRole {
     return {
       id: row.id,
-      institution_id: (row as any).institution_id ?? null,
       role_key: row.role_key,
       role_name: row.role_name,
       description: row.description,
       is_system_role: row.is_system_role ?? false,
+      is_privileged: (row as any).is_privileged ?? false,
       institution_scope: (row as any).institution_scope ?? 'own',
       module_scopes: ((row as any).module_scopes as Record<string, any>) ?? {},
       permissions: (row.permissions as Record<string, boolean>) || {},
@@ -299,6 +303,12 @@ export class RoleService {
         basicUpdateData.module_scopes = updates.module_scopes;
       }
 
+      // Explicit undefined check, not truthiness: is_privileged is a boolean, so
+      // `if (updates.is_privileged)` would silently drop every un-tick.
+      if (updates.is_privileged !== undefined) {
+        basicUpdateData.is_privileged = updates.is_privileged;
+      }
+
       // Update the basic info
       const { error: basicUpdateError } = await (this.supabase as any)
         .from('custom_roles')
@@ -417,20 +427,31 @@ export class RoleService {
 
   /**
    * Get roles assignable to staff (teaching + non-teaching).
-   * Filters out reserved role_keys (student, super_admin, administrator,
-   * admission, counselor, guest) that belong to other onboarding flows.
+   * Filters out reserved role_keys (student, guest) that belong to other
+   * onboarding flows.
    * Added: 2026-04-14 for dynamic staff role onboarding.
+   *
+   * 2026-08-28: privileged roles are withheld from non-super-admins. This is
+   * the convenience half only — the control is trg_staff_guard_role_key, which
+   * rejects the write regardless of what the client sends. A filtered dropdown
+   * gates nothing on its own, because role_key is posted from the browser.
    */
-  static async getStaffAssignableRoles(): Promise<CustomRole[]> {
+  static async getStaffAssignableRoles(
+    { includePrivileged = false }: { includePrivileged?: boolean } = {}
+  ): Promise<CustomRole[]> {
     try {
       // Updated: 2026-04-16 — Narrowed exclusion to only 'student' and 'guest'.
-      // Privileged roles (super_admin, administrator, admission, counselor) are
-      // now assignable for staff. Students are onboarded via the learners module.
-      const { data, error } = await this.supabase
+      // Students are onboarded via the learners module.
+      let query = this.supabase
         .from('custom_roles')
         .select('*')
-        .not('role_key', 'in', '(student,guest)')
-        .order('role_name');
+        .not('role_key', 'in', '(student,guest)');
+
+      if (!includePrivileged) {
+        query = query.eq('is_privileged', false);
+      }
+
+      const { data, error } = await query.order('role_name');
 
       if (error) {
         console.error('[RoleService] Error fetching staff-assignable roles:', error);

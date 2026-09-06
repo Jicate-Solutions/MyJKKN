@@ -8,6 +8,16 @@
 // already carry a lead-sync attribution — the screen warns before the admin
 // links to a different agency (which would create a double-credit conflict).
 // Linking records who is owed; it never pays anyone.
+//
+// 2026-08-24: the picker was never the blocker — knowing WHICH agency to pick
+// was. None of the 20 typed agency names matches an agency record, and 19 rows
+// carry no name at all, so the answer is never in the row. It is with the people
+// now shown beside it: 39 of 39 have a learner mobile, 37 a parent mobile, 14 the
+// referrer's own contact, 31 the name of whoever entered the record. Rows with no
+// typed name sort first, because they are the ones that cannot be read.
+//
+// Deliberately NOT built: automatic agency matching. It would resolve 3 of the 39
+// (only 3 match even by substring) while risking a wrong agency on a money path.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -126,6 +136,11 @@ export default function UnlinkedReferralsPage() {
               this is a one-time link and cannot be changed afterwards. Linking records who is owed; it
               never pays anyone.
             </p>
+            <p className="text-sm text-muted-foreground max-w-2xl">
+              The name typed at admission does not match any agency on record, and half these rows have
+              no name at all — so “Who can tell you” lists the people who know. Ringing the learner or
+              the referrer is usually the fastest way to close one.
+            </p>
           </div>
 
           <Card>
@@ -156,6 +171,7 @@ export default function UnlinkedReferralsPage() {
                         <TableHead>Program</TableHead>
                         <TableHead>Institution</TableHead>
                         <TableHead>Referred by (as entered)</TableHead>
+                        <TableHead className="min-w-[190px]">Who can tell you</TableHead>
                         <TableHead className="min-w-[240px]">Link to consultant</TableHead>
                         <TableHead />
                       </TableRow>
@@ -184,7 +200,16 @@ export default function UnlinkedReferralsPage() {
                             <TableCell>{row.program_name || '—'}</TableCell>
                             <TableCell>{row.institution_name || '—'}</TableCell>
                             <TableCell>
-                              {row.referred_by_name || <span className="text-muted-foreground">—</span>}
+                              {row.referred_by_name || (
+                                // Half of these rows have no name at all. Saying so
+                                // plainly is the point: it tells the reader to stop
+                                // looking at the row and start using the column
+                                // beside it.
+                                <span className="text-muted-foreground italic">No name recorded</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <ResolutionLeads row={row} />
                             </TableCell>
                             <TableCell>
                               <SearchableSelect
@@ -235,5 +260,38 @@ export default function UnlinkedReferralsPage() {
         </div>
       </PermissionGuard>
     </ContentLayout>
+  );
+}
+
+/**
+ * Who to ask which agency sent this learner.
+ *
+ * None of the 20 typed agency names matches an agency record, and 19 rows carry
+ * no name at all — so the answer is never in the row. It is with one of these
+ * people, and every one of the 39 has at least one of them. Ordered by how
+ * directly they answer: the referrer's own number first, then the learner, then
+ * a parent, then whoever typed the record in.
+ */
+function ResolutionLeads({ row }: { row: UnlinkedConsultantReferral }) {
+  const leads: { label: string; value: string }[] = [];
+  if (row.reference_contact) leads.push({ label: 'Referrer', value: row.reference_contact });
+  if (row.student_mobile) leads.push({ label: 'Learner', value: row.student_mobile });
+  if (row.parent_mobile) leads.push({ label: 'Parent', value: row.parent_mobile });
+
+  return (
+    <div className="space-y-0.5">
+      {leads.map((l) => (
+        <div key={l.label + l.value}>
+          <span className="text-muted-foreground">{l.label}: </span>
+          <a href={`tel:${l.value}`} className="hover:underline">{l.value}</a>
+        </div>
+      ))}
+      {row.recorded_by_name && (
+        <div className="text-muted-foreground">Entered by {row.recorded_by_name}</div>
+      )}
+      {!leads.length && !row.recorded_by_name && (
+        <span className="text-muted-foreground">No contact on file</span>
+      )}
+    </div>
   );
 }

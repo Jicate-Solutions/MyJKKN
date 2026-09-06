@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import type { FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'react-hot-toast';
@@ -48,7 +48,14 @@ import { getFirstErrorField } from '@/lib/utils/form-errors';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CustomRole } from '@/types/auth';
-import { fullStaffSchema, extendedStaffSchema, type StaffFormValues } from './staff-form-schema';
+import { buildStaffSchema, extendedStaffSchema, type StaffFormValues } from './staff-form-schema';
+import { LocationCombobox } from './location-combobox';
+import {
+  indianStates,
+  getDistrictsByState,
+  resolveLocationId,
+  getLocationDisplayName,
+} from '@/lib/data/locations';
 import { TagsInput } from './tags-input';
 import { useStaffTags } from '@/hooks/staff/use-staff-tags';
 import { TabbedFormShell, type TabSpec } from '@/components/forms';
@@ -87,8 +94,15 @@ function buildDefaults(staff?: Staff) {
     biometric_institution_id: (staff as any)?.biometric_institution_id ?? '',
     profile_picture: staff?.profile_picture || '',
     address: staff?.address || '',
-    state: staff?.state || '',
-    district: staff?.district || '',
+    // The columns store display NAMES; the pickers work in ids. resolveLocationId
+    // passes an unrecognised value straight through instead of returning '',
+    // so a legacy address stays visible rather than silently blanking.
+    state: resolveLocationId(staff?.state, 'state'),
+    district: resolveLocationId(
+      staff?.district,
+      'district',
+      resolveLocationId(staff?.state, 'state')
+    ),
     pincode: staff?.pincode || '',
     date_of_joining: staff?.date_of_joining
       ? new Date(staff.date_of_joining)
@@ -228,10 +242,64 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   // Track if this is the initial load to avoid unnecessary resets
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
+  // Biometric enrolment is required on CREATE only — see buildStaffSchema.
+  const schema = useMemo(() => buildStaffSchema(!isEditing), [isEditing]);
+
   const form = useForm<FormValues>({
-    resolver: zodResolver(fullStaffSchema),
+    resolver: zodResolver(schema),
     defaultValues: buildDefaults(staff)
   });
+
+  // ── Address pickers ────────────────────────────────────────────────────────
+  const selectedStateId = useWatch({ control: form.control, name: 'state' });
+  const availableDistricts = useMemo(
+    () => (selectedStateId ? getDistrictsByState(selectedStateId) : []),
+    [selectedStateId]
+  );
+
+  // Clear the district ONLY when the user actually changes state. Without the
+  // ref guard this effect fires on mount and wipes a district that isn't in the
+  // (possibly unrecognised) parent state's list — the exact regression that had
+  // to be fixed in the learner form.
+  const prevStateIdRef = useRef(selectedStateId);
+  useEffect(() => {
+    if (prevStateIdRef.current === selectedStateId) return;
+    prevStateIdRef.current = selectedStateId;
+
+    const currentDistrict = form.getValues('district');
+    if (!currentDistrict) return;
+
+    // Clear ONLY a district that is a real dataset id belonging to a different
+    // state. A value that resolves to no known district is legacy free text
+    // passed through by resolveLocationId — clearing that is precisely the
+    // silent data loss this whole change is guarding against, and it would fire
+    // here because the edit form calls form.reset() once the staff row loads.
+    const isKnownDistrictId =
+      getLocationDisplayName(currentDistrict, 'district') !== currentDistrict;
+
+    if (isKnownDistrictId && !availableDistricts.some((d) => d.id === currentDistrict)) {
+      form.setValue('district', '');
+    }
+  }, [selectedStateId, availableDistricts, form]);
+
+  // ── Role ───────────────────────────────────────────────────────────────────
+  // Only super admins may set or change a role (trg_staff_guard_role_key
+  // enforces it in the database — this is the UI half). Role is required and
+  // NOT NULL, so a non-super-admin creating staff would otherwise be stuck with
+  // an unfillable field. Derive a safe, non-privileged default from the
+  // employment category instead; a super admin adjusts it afterwards.
+  const selectedCategoryId = useWatch({ control: form.control, name: 'category_id' });
+  useEffect(() => {
+    if (isSuperAdmin || isEditing || !selectedCategoryId) return;
+
+    const category = categories.find((c) => c.id === selectedCategoryId);
+    if (!category) return;
+
+    const derived = category.is_teaching ? 'faculty' : 'staff';
+    if (form.getValues('role_key') !== derived) {
+      form.setValue('role_key', derived, { shouldValidate: true });
+    }
+  }, [selectedCategoryId, categories, isSuperAdmin, isEditing, form]);
 
   // Distinct tags already used across staff — powers the tags-input autocomplete.
   // Global (not institution-scoped) so the same vocabulary is suggested everywhere.
@@ -303,7 +371,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         // which silently truncated the dropdown when active categories grew past 10.
         // Pass a generous limit so every active category appears in the select.
         CategoryService.getCategories({ isActive: true, limit: 100 }),
-        RoleService.getStaffAssignableRoles()
+        // Privileged roles are withheld from everyone but super admins. The
+        // database rejects them regardless (trg_staff_guard_role_key); this
+        // just keeps them out of a dropdown nobody else may use.
+        RoleService.getStaffAssignableRoles({ includePrivileged: isSuperAdmin })
       ]);
 
       if (institutionsResult.status === 'fulfilled') {
@@ -341,10 +412,14 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     // render isInstitutionScoped=false and the client-side filter above is skipped.
     // When roles settle and isInstitutionScoped flips to true, we re-run so the
     // institutions list is properly filtered to the user's own institution.
+    //
+    // isSuperAdmin is in deps for exactly the same reason: it is false until
+    // permissions resolve, so the first fetch withholds privileged roles. Without
+    // the re-run a genuine super admin would be left with a filtered dropdown.
     if (profile) {
       loadInitialData();
     }
-  }, [profile, form, isEditing, isInstitutionScoped]);
+  }, [profile, form, isEditing, isInstitutionScoped, isSuperAdmin]);
 
   // Auto-select institution for own-scoped roles (HOD, principal, etc.).
   // We re-run on `institutions.length` so the setValue fires AFTER the async
@@ -529,6 +604,12 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         ...values,
         biometric_id: biometricCode || null,
         biometric_institution_id: biometricInstitutionId,
+        // The pickers hold ids; the columns store display names, as the learner
+        // profiles do. getLocationDisplayName passes an unrecognised id straight
+        // through, so a value that arrived as legacy free text round-trips
+        // unchanged rather than being written back as a meaningless slug.
+        state: getLocationDisplayName(values.state, 'state'),
+        district: getLocationDisplayName(values.district, 'district', values.state),
         department_id: normalizedDepartmentId,
         date_of_birth: values.date_of_birth.toISOString(),
         date_of_joining: values.date_of_joining.toISOString(),
@@ -843,14 +924,26 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           )}
         />
 
+        {/* State and District are pickers over lib/data/locations.ts as of
+            2026-08-28. Free text had produced nine spellings of "Tamil Nadu"
+            and 50 district values for ~20 real districts, which made the data
+            useless for grouping. The stored values were standardised in the
+            same change, so every existing address resolves. */}
         <FormField
           control={form.control}
           name='state'
           render={({ field }) => (
             <FormItem data-field='state'>
-              <FormLabel>State</FormLabel>
+              <FormLabel>State <span className='text-destructive'>*</span></FormLabel>
               <FormControl>
-                <Input placeholder='Enter state' {...field} />
+                <LocationCombobox
+                  value={field.value}
+                  onChange={field.onChange}
+                  options={indianStates}
+                  placeholder='Select state'
+                  searchPlaceholder='Search state...'
+                  emptyText='No state found.'
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -862,9 +955,18 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           name='district'
           render={({ field }) => (
             <FormItem data-field='district'>
-              <FormLabel>District</FormLabel>
+              <FormLabel>District <span className='text-destructive'>*</span></FormLabel>
               <FormControl>
-                <Input placeholder='Enter district' {...field} />
+                <LocationCombobox
+                  value={field.value}
+                  onChange={field.onChange}
+                  options={availableDistricts}
+                  placeholder='Select district'
+                  searchPlaceholder='Search district...'
+                  emptyText='No district found.'
+                  disabled={!selectedStateId}
+                  disabledText='First select state'
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -1012,6 +1114,12 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     <div className='space-y-4'>
       <h2 className='text-lg font-semibold'>Employment Information</h2>
       <div className='grid gap-4 md:grid-cols-2'>
+        {/* Read-only since 2026-08-28. The ID is issued by trg_staff_autonumber
+            from the institution code and the teaching flag (DCH001 / NOTDCH001)
+            and frozen thereafter — the database rejects any change with P0001,
+            for every role. The field stays registered so its value round-trips
+            unchanged on save; sending a DIFFERENT value is what the guard
+            rejects, not sending the same one. */}
         <FormField
           control={form.control}
           name='staff_id'
@@ -1019,8 +1127,20 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             <FormItem data-field='staff_id'>
               <FormLabel>Staff ID</FormLabel>
               <FormControl>
-                <Input placeholder='Enter staff ID' {...field} />
+                <Input
+                  {...field}
+                  value={field.value ?? ''}
+                  readOnly
+                  disabled
+                  className='bg-muted'
+                  placeholder='Generated automatically on save'
+                />
               </FormControl>
+              <FormDescription>
+                {staff?.legacy_staff_id
+                  ? `System-generated and permanent. Previously ${staff.legacy_staff_id}.`
+                  : 'System-generated from the institution and staff type, and permanent once issued.'}
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -1037,7 +1157,14 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           name='biometric_id'
           render={({ field }) => (
             <FormItem data-field='biometric_id'>
-              <FormLabel>Biometric code</FormLabel>
+              {/* Required on CREATE only — see buildStaffSchema. The marker
+                  follows that rule rather than being always-on, because 351
+                  existing staff have no enrolment and their records must stay
+                  editable without one. */}
+              <FormLabel>
+                Biometric code{' '}
+                {!isEditing && <span className='text-destructive'>*</span>}
+              </FormLabel>
               <FormControl>
                 <Input
                   placeholder='Empcode from the machine, e.g. 00002'
@@ -1047,7 +1174,9 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               </FormControl>
               <FormDescription>
                 Leading zeros do not matter — 00002, 002 and 2 are the same code.
-                Leave blank to remove this person from biometric attendance.
+                {isEditing
+                  ? ' Leave blank to remove this person from biometric attendance.'
+                  : ' New staff must be enrolled on a machine.'}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -1061,7 +1190,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             const selectedMachine = institutions.find((i) => i.id === field.value);
             return (
               <FormItem data-field='biometric_institution_id'>
-                <FormLabel>Biometric machine</FormLabel>
+                <FormLabel>
+                  Biometric machine{' '}
+                  {!isEditing && <span className='text-destructive'>*</span>}
+                </FormLabel>
                 <Select
                   onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
                   value={field.value || '__none__'}
@@ -1099,7 +1231,15 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           name='institution_email'
           render={({ field }) => (
             <FormItem data-field='institution_email'>
-              <FormLabel>Institution Email</FormLabel>
+              {/* Required whenever the person can sign in: this address IS the
+                  login. sync_staff_to_profiles builds the profile row with
+                  `email = NEW.institution_email` and skips the whole block when
+                  it is blank, so leaving it empty produces a staff member with
+                  login_enabled = true and no profile — no error, no login. */}
+              <FormLabel>
+                Institution Email{' '}
+                {loginEnabled && <span className='text-destructive'>*</span>}
+              </FormLabel>
               <FormControl>
                 <Input
                   type='email'
@@ -1113,6 +1253,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                   value={field.value || ''}
                 />
               </FormControl>
+              <FormDescription>
+                {loginEnabled
+                  ? 'This becomes the sign-in address and creates the user account.'
+                  : 'Not needed — a placeholder address is generated for view-only staff.'}
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -1183,9 +1328,13 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           render={({ field }) => (
             <FormItem data-field='role_key'>
               <FormLabel>Role <span className='text-destructive'>*</span></FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
+              <Select
+                onValueChange={field.onChange}
+                value={field.value}
+                disabled={!isSuperAdmin}
+              >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger className={!isSuperAdmin ? 'bg-muted' : undefined}>
                     <SelectValue placeholder='Select role' />
                   </SelectTrigger>
                 </FormControl>
@@ -1201,8 +1350,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                 </SelectContent>
               </Select>
               <p className='text-xs text-muted-foreground'>
-                Drives the user&apos;s permissions after first login. Pick the role
-                that matches the staff member&apos;s responsibilities.
+                {isSuperAdmin
+                  ? 'Drives the user’s permissions after first login. Pick the role that matches the staff member’s responsibilities.'
+                  : isEditing
+                    ? 'Only a super administrator can change a role. Ask them if this is wrong.'
+                    : 'Set automatically from the employment category. A super administrator can change it after the record is created.'}
               </p>
               <FormMessage />
             </FormItem>
@@ -1465,9 +1617,22 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
         <TabbedFormShell tabs={tabs} defaultTab='basic' />
 
-        {/* Form Actions — Task 23 (P4.23). Cancel / Save Draft / Save & Publish.
-            Save Draft skips the extended-schema check; Save & Publish runs it.
-            Save & Publish only appears when has_extended_profile is on. */}
+        {/* Form Actions — Cancel / primary save / Save & Publish.
+            Save & Publish only appears when has_extended_profile is on.
+
+            2026-08-30: the primary button used to be labelled "Save Draft" and
+            hard-coded `status: 'draft'`. Two things were wrong with that.
+            `staff.status` is the PUBLIC-DIRECTORY publishing flag, not a
+            form-completeness state, so (a) on a record without an extended
+            profile this was the ONLY save button, meaning the sole way to
+            update an employee was a button that said you were saving a draft;
+            and (b) it silently overrode the "Profile Status" dropdown a few
+            fields above — set that to Published, save, and it reverted to
+            draft, un-publishing anyone already live.
+
+            The primary now saves the status the form actually holds, and
+            validates the extended schema whenever the record will end up
+            publicly visible. */}
         <div className='flex flex-wrap items-center justify-end gap-2 pt-4 border-t'>
           <Button
             type='button'
@@ -1479,14 +1644,18 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           </Button>
           <Button
             type='button'
-            variant='outline'
-            onClick={form.handleSubmit(
-              (values) => onSubmit({ ...values, status: 'draft' }, { strict: false }),
-              onInvalid
-            )}
+            variant={hasExtended ? 'outline' : 'default'}
+            onClick={form.handleSubmit((values) => {
+              const nextStatus = values.status ?? 'draft';
+              return onSubmit(values, {
+                // A published record is on the public site, so its extended
+                // fields must pass validation however it got there.
+                strict: Boolean(values.has_extended_profile) && nextStatus === 'published',
+              });
+            }, onInvalid)}
             disabled={isSubmitting}
           >
-            Save Draft
+            {isEditing ? 'Update Employee' : 'Create Employee'}
           </Button>
           {hasExtended && (
             <Button
@@ -1497,7 +1666,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               )}
               disabled={isSubmitting}
             >
-              Save & Publish
+              Save &amp; Publish
             </Button>
           )}
         </div>

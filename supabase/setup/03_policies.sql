@@ -2934,11 +2934,20 @@ CREATE POLICY "workflow_configs_delete" ON admission_workflow_configs FOR DELETE
 -- ============================================================================
 ALTER TABLE admission_years ENABLE ROW LEVEL SECURITY;
 
+-- 2026-08-31: `learners.profiles.view` added as a second accepted key. This is
+-- a 79-row lookup naming the cohort on learners_profiles.admission_year_id, and
+-- 17 of the 24 roles that can read a learner could not read that learner's
+-- cohort name — leaving the admission-year filters on /learners/profiles and on
+-- the Analytics Profile Completion drill-down silently empty for them.
+-- Institution scope is unchanged.
 DROP POLICY IF EXISTS "admission_years_select" ON admission_years;
 CREATE POLICY "admission_years_select" ON admission_years
     FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (user_has_permission('admission.settings.years.view')
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR ((
+                (SELECT user_has_permission('admission.settings.years.view'))
+                OR (SELECT user_has_permission('learners.profiles.view'))
+            )
             AND role_has_institution_access(institution_id))
     );
 
@@ -9780,3 +9789,573 @@ COMMENT ON COLUMN public.hr_attendance_periods.forced IS
 COMMENT ON TABLE public.hr_attendance_period_summaries IS
   'Frozen per-staff day counts. Derived from hr_attendance_records so working days match the evaluator, not a separate calendar rule.';
 
+
+
+-- ── Receipt cancellation approval flows (20260825160000) ──────────────────
+ALTER TABLE public.billing_receipt_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
+
+-- Readable by anyone who can see the queue, so a requester can be told who
+-- their request is waiting on. Writable by super admins ONLY, which is the
+-- whole point: approval authority must not be delegable by whoever holds a
+-- billing permission.
+DROP POLICY IF EXISTS billing_receipt_cancel_flows_select ON public.billing_receipt_cancel_approval_flows;
+CREATE POLICY billing_receipt_cancel_flows_select
+  ON public.billing_receipt_cancel_approval_flows FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT user_has_permission('billing.receipts.view'))
+    OR (SELECT user_has_permission('billing.receipts.cancel.request'))
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_flows_write ON public.billing_receipt_cancel_approval_flows;
+CREATE POLICY billing_receipt_cancel_flows_write
+  ON public.billing_receipt_cancel_approval_flows FOR ALL TO authenticated
+  USING ((SELECT is_super_admin()))
+  WITH CHECK ((SELECT is_super_admin()));
+
+-- The two queue SELECTs were widened at the same time: without the
+-- fn_is_receipt_cancel_approver() arm, a delegated approver opens the page
+-- to an EMPTY list, because most candidate roles lack billing.receipts.view.
+DROP POLICY IF EXISTS billing_receipt_cancel_requests_select ON public.billing_receipt_cancel_requests;
+CREATE POLICY billing_receipt_cancel_requests_select
+  ON public.billing_receipt_cancel_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR requested_by = (SELECT auth.uid())
+    OR ((SELECT user_has_permission('billing.receipts.view')) AND role_has_institution_access(institution_id))
+    OR public.fn_is_receipt_cancel_approver(institution_id)
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_actions_select ON public.billing_receipt_cancel_request_actions;
+CREATE POLICY billing_receipt_cancel_actions_select
+  ON public.billing_receipt_cancel_request_actions FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.billing_receipt_cancel_requests r
+      WHERE r.id = billing_receipt_cancel_request_actions.request_id
+        AND (
+          (SELECT is_super_admin())
+          OR r.requested_by = (SELECT auth.uid())
+          OR ((SELECT user_has_permission('billing.receipts.view')) AND role_has_institution_access(r.institution_id))
+          OR public.fn_is_receipt_cancel_approver(r.institution_id)
+        )
+    )
+  );
+
+-- Updated: 2026-08-25 - id_card_templates scoped per institution (migration
+-- 20261012000000_id_card_templates_institution_scope.sql). The table shipped in
+-- 20260507150000 WITH an institution_id column and NOT ONE of its four
+-- authenticated policies gated on it, so whoever held id_cards.templates.* held
+-- it over every college's card design. lib/services/id-cards/template-design-client.ts
+-- applies no institution filter of its own — RLS is the entire control surface,
+-- and no SECURITY DEFINER function reads this table. The predicate below is the
+-- canonical pattern; role_has_institution_access() is what decides whether a
+-- role legitimately reaches other colleges, so cross-college reach is expressed
+-- by institution_scope rather than by a missing clause.
+-- ⚠️ role_has_institution_access(NULL) returns TRUE by design and
+--    institution_id is nullable, so a NULL-institution template stays global.
+
+DROP POLICY IF EXISTS "id_card_templates_view" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_view"
+  ON public.id_card_templates FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.view'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_create" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_create"
+  ON public.id_card_templates FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.create'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_edit" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_edit"
+  ON public.id_card_templates FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.edit'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.edit'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_delete" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_delete"
+  ON public.id_card_templates FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.delete'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827170000_hr_attendance_regularizations_staff_rewire.sql
+-- (policies half; the employee_id->staff FK is mirrored in 01_tables.sql)
+-- =============================================================================
+
+DROP POLICY IF EXISTS hr_attendance_regs_select ON public.hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_select ON public.hr_attendance_regularizations
+  FOR SELECT USING (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR (SELECT user_has_permission('hr.attendance.view_all'))
+    OR (SELECT user_has_permission('hr.attendance.regularize_approve'))
+    OR (SELECT user_has_permission('hr.attendance.approve_team'))
+    OR (
+      (SELECT user_has_permission('hr.attendance.regularize_self'))
+      AND employee_id = ANY (COALESCE((SELECT public.fn_my_staff_ids()), ARRAY[]::uuid[]))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_attendance_regs_insert ON public.hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_insert ON public.hr_attendance_regularizations
+  FOR INSERT WITH CHECK (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR (SELECT user_has_permission('hr.attendance.override'))
+    OR (
+      (SELECT user_has_permission('hr.attendance.regularize_self'))
+      AND employee_id = ANY (COALESCE((SELECT public.fn_my_staff_ids()), ARRAY[]::uuid[]))
+    )
+  );
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql
+-- and 20260828130000_staff_id_backfill.sql (policies and grants)
+-- =============================================================================
+
+-- Both tables are read-only to users and written only by SECURITY DEFINER code.
+-- No INSERT/UPDATE/DELETE policy exists, by design.
+
+ALTER TABLE public.staff_id_counters ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.staff_id_counters FROM anon;
+GRANT SELECT ON public.staff_id_counters TO authenticated;
+
+DROP POLICY IF EXISTS staff_id_counters_select_super_admin ON public.staff_id_counters;
+CREATE POLICY staff_id_counters_select_super_admin
+  ON public.staff_id_counters FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+ALTER TABLE public.staff_id_crosswalk ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.staff_id_crosswalk FROM anon;
+GRANT SELECT ON public.staff_id_crosswalk TO authenticated;
+
+DROP POLICY IF EXISTS staff_id_crosswalk_select_super_admin ON public.staff_id_crosswalk;
+CREATE POLICY staff_id_crosswalk_select_super_admin
+  ON public.staff_id_crosswalk FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
+-- =============================================================================
+
+ALTER TABLE public.staff_address_backfill_20260828 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.staff_address_backfill_20260828 FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.staff_address_backfill_20260828 TO authenticated;
+
+DROP POLICY IF EXISTS staff_address_backfill_select_super_admin ON public.staff_address_backfill_20260828;
+CREATE POLICY staff_address_backfill_select_super_admin
+  ON public.staff_address_backfill_20260828 FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830150000_hr_salary_register.sql
+-- =============================================================================
+
+-- Salary register. Gated on its OWN key pair, not a reuse of the salary/bank
+-- ones: a register is the single screen showing amount AND destination AND day
+-- counts for everybody at once, which is a wider grant than any of the three.
+-- Granted to HR Head alone — the only role already holding all four keys a run
+-- reads through (payroll.institution.view, payroll.salary.view,
+-- payroll.bank.view, attendance.period.view). A role missing any of them would
+-- produce a run that SILENTLY omits people: RLS returns zero rows, no error.
+--
+-- Unlike hr_staff_salaries these also scope on role_has_institution_access — a
+-- register is inherently a per-institution document. HR Head is
+-- institution_scope='all' so it passes everywhere; a future 'own'-scoped
+-- payroll role is correctly confined.
+--
+-- Every helper call is wrapped in (SELECT ...) so Postgres evaluates it once as
+-- an InitPlan rather than per row — the unwrapped form is what produced 57014
+-- statement timeouts elsewhere in this schema.
+--
+-- No self-read policy, deliberately: there is no employee-facing payslip screen
+-- yet, and a register row exposes colleagues' context alongside your own.
+ALTER TABLE public.hr_salary_register_runs  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_register_lines ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hr_salary_register_runs_select
+  ON public.hr_salary_register_runs FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.view'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_runs_write
+  ON public.hr_salary_register_runs FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.manage'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.manage'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_runs_service_role
+  ON public.hr_salary_register_runs FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+-- Lines inherit the parent's verdict via EXISTS rather than a duplicated
+-- predicate, so the two cannot drift apart.
+CREATE POLICY hr_salary_register_lines_select
+  ON public.hr_salary_register_lines FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_register_runs r
+       WHERE r.id = hr_salary_register_lines.run_id
+         AND (SELECT public.user_has_permission('hr.payroll.register.view'))
+         AND (SELECT public.role_has_institution_access(r.institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_lines_write
+  ON public.hr_salary_register_lines FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_register_runs r
+       WHERE r.id = hr_salary_register_lines.run_id
+         AND (SELECT public.user_has_permission('hr.payroll.register.manage'))
+         AND (SELECT public.role_has_institution_access(r.institution_id))
+    )
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_register_runs r
+       WHERE r.id = hr_salary_register_lines.run_id
+         AND (SELECT public.user_has_permission('hr.payroll.register.manage'))
+         AND (SELECT public.role_has_institution_access(r.institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_lines_service_role
+  ON public.hr_salary_register_lines FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+-- REVOKE FROM anon, not FROM public: revoking from public also strips what
+-- authenticated inherits through it.
+REVOKE ALL ON public.hr_salary_register_runs  FROM anon;
+REVOKE ALL ON public.hr_salary_register_lines FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_runs  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_lines TO authenticated;
+
+-- ============================================================================
+-- billing_bill_cancellations (mig 20260901010000). SELECT-only, and ONE
+-- permissive policy rather than several ORed together: multiple permissive
+-- policies are all evaluated per candidate row. No UPDATE/DELETE policy --
+-- every write goes through fn_cancel_student_bill.
+-- ============================================================================
+DROP POLICY IF EXISTS billing_bill_cancellations_select ON public.billing_bill_cancellations;
+CREATE POLICY billing_bill_cancellations_select
+  ON public.billing_bill_cancellations FOR SELECT
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      role_has_institution_access(institution_id)
+      AND (
+        (SELECT user_has_permission('billing.schedule.view'))
+        OR (SELECT user_has_permission('billing.bills.view'))
+      )
+    )
+  );
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+--
+-- READ IS DELIBERATELY WIDER THAN WRITE. The register RESOLVES these bands
+-- while generating, under the generating user's own session -- and a slab read
+-- emptied by RLS is indistinguishable from 'no bands configured', which
+-- silently produces a register with no tax on it. Anyone who can see a salary
+-- or a register can read the bands; only salary.manage edits them.
+-- ===========================================================================
+ALTER TABLE public.hr_tds_slabs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hr_tds_slabs_select ON public.hr_tds_slabs
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.view'))
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+    OR (SELECT public.user_has_permission('hr.payroll.register.view'))
+    OR (SELECT public.user_has_permission('hr.payroll.register.manage'))
+  );
+
+CREATE POLICY hr_tds_slabs_write ON public.hr_tds_slabs
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+  );
+
+CREATE POLICY hr_tds_slabs_service_role ON public.hr_tds_slabs
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_tds_slabs TO authenticated;
+GRANT ALL ON public.hr_tds_slabs TO service_role;
+
+
+-- ── Event feedback forms (coordinator-editable questions per event) ──
+-- Migration: supabase/migrations/event_feedback_forms.sql
+-- ============================================================================
+-- RLS
+-- ============================================================================
+
+ALTER TABLE public.event_feedback_forms     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_sections  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_responses ENABLE ROW LEVEL SECURITY;
+
+-- Table privileges, restated explicitly.
+--
+-- Supabase ships ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon,
+-- authenticated, service_role, so these four tables arrive with ANON already
+-- holding INSERT and DELETE. Every policy below is `TO authenticated`, so RLS
+-- denies anon today regardless — a role with no matching policy is refused.
+-- But that safety is one permissive policy away from evaporating, and a
+-- feedback table is exactly where a `USING (true)` gets added by someone
+-- wiring up a public link later. Revoke the grant rather than rely on the
+-- absence of a policy.
+--
+-- `authenticated` is revoked alongside anon deliberately: it also arrives
+-- holding DELETE from those default privileges, so revoking only anon would
+-- leave that in place and make the GRANT below a no-op restating privileges
+-- already held.
+REVOKE ALL ON public.event_feedback_forms     FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_sections  FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_questions FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_responses FROM anon, authenticated, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_forms     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_sections  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_questions TO authenticated;
+-- Responses: no UPDATE/DELETE restriction at the GRANT level because both are
+-- needed — a respondent corrects their own row, a manager moderates one — and
+-- the policies above are what separate those two cases.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_responses TO authenticated;
+
+-- Read: a manager, or a registered participant of the event (who needs the
+-- questions in order to answer them). Note this is NOT the registration
+-- builder's `visibility IN ('public','all_jkkn')` clause — a feedback form is
+-- never anonymous-readable, because only registrants may answer it.
+DROP POLICY IF EXISTS "event_feedback_forms_select" ON public.event_feedback_forms;
+CREATE POLICY "event_feedback_forms_select" ON public.event_feedback_forms
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_forms_manage" ON public.event_feedback_forms;
+CREATE POLICY "event_feedback_forms_manage" ON public.event_feedback_forms
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+DROP POLICY IF EXISTS "event_feedback_sections_select" ON public.event_feedback_sections;
+CREATE POLICY "event_feedback_sections_select" ON public.event_feedback_sections
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_sections_manage" ON public.event_feedback_sections;
+CREATE POLICY "event_feedback_sections_manage" ON public.event_feedback_sections
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+DROP POLICY IF EXISTS "event_feedback_questions_select" ON public.event_feedback_questions;
+CREATE POLICY "event_feedback_questions_select" ON public.event_feedback_questions
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_questions_manage" ON public.event_feedback_questions;
+CREATE POLICY "event_feedback_questions_manage" ON public.event_feedback_questions
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+-- Responses. A participant may read and write ONLY their own row, and only for
+-- the registration that is actually theirs — checking registration_id against
+-- fn_my_event_registration() rather than trusting the id the client sent is
+-- what stops one registrant from answering as another. Managers read every
+-- response but never write one: feedback is not editable by the people it is
+-- about.
+DROP POLICY IF EXISTS "event_feedback_responses_select" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_select" ON public.event_feedback_responses
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR registration_id = public.fn_my_event_registration(event_id)
+  );
+
+-- The window is enforced HERE, not only in the UI: a closed form must refuse
+-- answers even when the write arrives straight at PostgREST.
+DROP POLICY IF EXISTS "event_feedback_responses_insert" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_insert" ON public.event_feedback_responses
+  FOR INSERT TO authenticated WITH CHECK (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  );
+
+-- Update is the respondent's own correction, and only while the form is still
+-- open — reopening the edit door after a survey closes would let someone revise
+-- an answer the coordinator has already reported on. Deliberately no manager
+-- branch either way: feedback is not editable by the people it is about.
+DROP POLICY IF EXISTS "event_feedback_responses_update" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_update" ON public.event_feedback_responses
+  FOR UPDATE TO authenticated
+  USING (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  )
+  WITH CHECK (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  );
+
+-- Only a manager may delete a response (moderating abuse). A respondent
+-- withdrawing their feedback would silently distort the counts.
+DROP POLICY IF EXISTS "event_feedback_responses_delete" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_delete" ON public.event_feedback_responses
+  FOR DELETE TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+  );
+
+
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+DROP POLICY IF EXISTS hr_work_patterns_select ON public.hr_work_patterns;
+CREATE POLICY hr_work_patterns_select ON public.hr_work_patterns
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+         OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_work_patterns_write ON public.hr_work_patterns;
+CREATE POLICY hr_work_patterns_write ON public.hr_work_patterns
+  FOR ALL USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  ) WITH CHECK (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- Assignments: HR reads by institution; a staff member reads their own row.
+-- Writes are the RPC's job (SECURITY DEFINER, so it is not subject to this);
+-- a direct write is left to super admins only.
+DROP POLICY IF EXISTS hr_swpa_select ON public.hr_staff_work_pattern_assignments;
+CREATE POLICY hr_swpa_select ON public.hr_staff_work_pattern_assignments
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+         OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+        AND public.role_has_institution_access(institution_id))
+    OR staff_id = ANY (public.fn_my_staff_ids())
+  );
+
+DROP POLICY IF EXISTS hr_swpa_write ON public.hr_staff_work_pattern_assignments;
+CREATE POLICY hr_swpa_write ON public.hr_staff_work_pattern_assignments
+  FOR ALL USING ((SELECT public.is_super_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()));
+
+DROP POLICY IF EXISTS hr_wple_select ON public.hr_work_pattern_leave_entitlements;
+CREATE POLICY hr_wple_select ON public.hr_work_pattern_leave_entitlements
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+                   OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_wple_write ON public.hr_work_pattern_leave_entitlements;
+CREATE POLICY hr_wple_write ON public.hr_work_pattern_leave_entitlements
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  ) WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_patterns                    TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_staff_work_pattern_assignments   TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_leave_entitlements  TO authenticated;
+GRANT ALL ON public.hr_work_patterns                   TO service_role;
+GRANT ALL ON public.hr_staff_work_pattern_assignments  TO service_role;
+GRANT ALL ON public.hr_work_pattern_leave_entitlements TO service_role;

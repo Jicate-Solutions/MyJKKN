@@ -7,7 +7,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Download,
-  Receipt,
+  ReceiptIndianRupee,
   ChevronRight,
   Loader2,
   Filter,
@@ -449,7 +449,7 @@ export function BulkReceiptDialog({
       <DialogContent className='max-w-4xl max-h-[90vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
-            <Receipt className='h-5 w-5 text-emerald-600' />
+            <ReceiptIndianRupee className='h-5 w-5 text-emerald-600' />
             Bulk Generate Receipts
           </DialogTitle>
           <DialogDescription>
@@ -1607,7 +1607,7 @@ function PreviewPanel({
             </>
           ) : (
             <>
-              <Receipt className='mr-2 h-4 w-4' />
+              <ReceiptIndianRupee className='mr-2 h-4 w-4' />
               Confirm &amp; Generate {result.totalReceipts} receipt
               {result.totalReceipts !== 1 ? 's' : ''}
             </>

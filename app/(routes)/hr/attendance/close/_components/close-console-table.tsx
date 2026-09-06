@@ -22,7 +22,7 @@
 
 import { useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import { CalendarCheck, ExternalLink, LockOpen } from 'lucide-react';
+import { CalendarCheck, ExternalLink, FileSpreadsheet, LockOpen } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { ExportableData } from '@/components/data-table/utils/export-utils';
@@ -70,17 +70,19 @@ interface Props {
   month: number;
   canManage: boolean;
   isSuperAdmin: boolean;
+  /** hr.payroll.register.view — shows the Salary register link on closed rows. */
+  canViewRegister: boolean;
   busy: boolean;
   onClose: (row: AttendancePeriodConsoleRow) => void;
   onReopen: (row: AttendancePeriodConsoleRow) => void;
 }
 
 export function CloseConsoleTable({
-  rows, stateFilter, year, month, canManage, isSuperAdmin, busy, onClose, onReopen,
+  rows, stateFilter, year, month, canManage, isSuperAdmin, canViewRegister, busy, onClose, onReopen,
 }: Props) {
   const columns = useMemo(
-    () => getCloseConsoleColumns({ year, month, canManage, isSuperAdmin, busy, onClose, onReopen }),
-    [busy, canManage, isSuperAdmin, month, onClose, onReopen, year]
+    () => getCloseConsoleColumns({ year, month, canManage, isSuperAdmin, canViewRegister, busy, onClose, onReopen }),
+    [busy, canManage, canViewRegister, isSuperAdmin, month, onClose, onReopen, year]
   );
 
   const fetchData = useCallback(
@@ -193,11 +195,28 @@ export function CloseConsoleTable({
 
           <div className='flex flex-wrap gap-2 pt-1'>
             {state === 'closed'
-              ? isSuperAdmin && (
-                  <Button variant='outline' size='sm' className='h-8' onClick={() => onReopen(r)}>
-                    <LockOpen className='mr-1.5 h-3.5 w-3.5' />
-                    Reopen
-                  </Button>
+              ? (
+                  <>
+                    {/* Closing exists so payroll can read the month — carry the
+                        institution and month into the register rather than
+                        making someone re-pick both. */}
+                    {canViewRegister && (
+                      <Button asChild variant='outline' size='sm' className='h-8'>
+                        <Link
+                          href={`/hr/payroll/register?institution=${r.institution_id}&year=${year}&month=${month}`}
+                        >
+                          <FileSpreadsheet className='mr-1.5 h-3.5 w-3.5' />
+                          Salary register
+                        </Link>
+                      </Button>
+                    )}
+                    {isSuperAdmin && (
+                      <Button variant='outline' size='sm' className='h-8' onClick={() => onReopen(r)}>
+                        <LockOpen className='mr-1.5 h-3.5 w-3.5' />
+                        Reopen
+                      </Button>
+                    )}
+                  </>
                 )
               : canManage && (
                   <Button
@@ -219,7 +238,7 @@ export function CloseConsoleTable({
         </div>
       );
     },
-    [busy, canManage, isSuperAdmin, month, onClose, onReopen, year]
+    [busy, canManage, canViewRegister, isSuperAdmin, month, onClose, onReopen, year]
   );
 
   return (

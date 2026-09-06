@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label';
 import {
   AlertTriangle,
   Ban,
-  Receipt,
+  ReceiptIndianRupee,
   X
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
@@ -109,7 +109,7 @@ export function CancelConfirmationModal({
           <div className="p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Receipt className="h-5 w-5" />
+                <ReceiptIndianRupee className="h-5 w-5" />
                 <span className="font-medium">
                   {cancellable.length} bill{cancellable.length !== 1 ? 's' : ''} to cancel
                 </span>

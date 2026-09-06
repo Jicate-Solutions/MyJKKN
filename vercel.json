@@ -10,11 +10,9 @@
   },
   "functions": {
     "app/api/bos/meetings/[id]/preview-pdf/route.ts": {
-      "memory": 1769,
       "maxDuration": 60
     },
     "app/api/bos/meetings/[id]/notify-members/route.ts": {
-      "memory": 3008,
       "maxDuration": 60
     }
   },
@@ -62,6 +60,10 @@
     {
       "path": "/api/cron/rcltp-question-generate?mode=collect&secret=${CRON_SECRET}",
       "schedule": "5,35 * * * *"
+    },
+    {
+      "path": "/api/cron/onemark-item-drafts?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "9,39 * * * *"
     },
     {
       "path": "/api/cron/meeting-trigger-reconcile?secret=${CRON_SECRET}",
@@ -240,8 +242,24 @@
       "path": "/api/cron/lc-broadcast-autosend?secret=${CRON_SECRET}"
     },
     {
+      "path": "/api/cron/campus-walk-chase-up?secret=${CRON_SECRET}",
+      "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/api/cron/campus-walk-photo-retention?secret=${CRON_SECRET}",
+      "schedule": "17 3 * * *"
+    },
+    {
       "schedule": "35 20 * * *",
       "path": "/api/cron/billing/learner-status-sweep?secret=${CRON_SECRET}"
+    },
+    {
+      "schedule": "22,52 * * * *",
+      "path": "/api/cron/orchestration-sync?secret=${CRON_SECRET}"
+    },
+    {
+      "schedule": "14 * * * *",
+      "path": "/api/cron/cron-failure-alerts?secret=${CRON_SECRET}"
     }
   ]
 }

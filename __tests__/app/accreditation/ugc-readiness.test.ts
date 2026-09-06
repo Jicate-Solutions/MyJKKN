@@ -7,6 +7,7 @@ import {
   CAC_READINESS_PERMISSION,
   UGC_GUIDANCE,
   type ReadinessInput,
+  type ReadinessRow,
 } from '@/app/(routes)/accreditation/cac/_lib/ugc-readiness';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const PRODUCTION: ReadinessInput = {
+  internalAgreements: 0, // the register can hold one now; nobody has filed one
   councilsConstituted: 0, // accreditation_committees holds none of type 'cluster'
   peerBookings: 97, // real, and happening
   hubBookings: 0,
@@ -42,6 +44,7 @@ const PRODUCTION: ReadinessInput = {
 
 /** Everything empty — the worst case the screen has to survive intact. */
 const NOTHING: ReadinessInput = {
+  internalAgreements: 0,
   councilsConstituted: 0,
   peerBookings: 0,
   hubBookings: 0,
@@ -131,27 +134,59 @@ describe('buildUgcReadiness — a satisfied line and an unsatisfied one are dist
 });
 
 describe('buildUgcReadiness — the two kinds of empty are not interchangeable', () => {
-  it('marks a gap somebody can type away differently from one they cannot', () => {
-    const rows = buildUgcReadiness(PRODUCTION);
-    const agreement = rows.find((r) => r.id === 'written-agreement')!;
-    const research = rows.find((r) => r.id === 'shared-research-agenda')!;
-
-    // Both are empty. Only one is answerable by data entry.
-    expect(isSatisfied(agreement)).toBe(false);
-    expect(isSatisfied(research)).toBe(false);
-
-    expect(agreement.state).toBe('not-expressible');
-    expect(research.state).toBe('awaiting-entry');
-    expect(agreement.state).not.toBe(research.state);
-
-    expect(isFixableByEntry(agreement)).toBe(false);
-    expect(isFixableByEntry(research)).toBe(true);
+  // The distinction is enforced on the HELPER, not only on whichever rows
+  // happen to carry each state today. `not-expressible` currently has no row —
+  // the inter-college agreement was the last one, and the register gained a
+  // column that holds it (migration 20260921040000). Asserting the helper keeps
+  // rule 3 live for the next row that needs it, instead of quietly retiring the
+  // distinction along with its last user.
+  const asRow = (state: ReadinessRow['state']): ReadinessRow => ({
+    id: 'probe',
+    asks: 'A line of the guidance.',
+    reading: 'A reading of it.',
+    state,
+    figures: [],
+    fix: null,
   });
 
-  it('keeps the inter-college agreement unrecordable however much else fills up', () => {
-    // No volume of bookings, teaching, councils or papers makes a record
-    // appear that can hold a link between two colleges.
+  it('keeps a gap somebody can type away separable from one they cannot', () => {
+    expect(isFixableByEntry(asRow('awaiting-entry'))).toBe(true);
+    expect(isFixableByEntry(asRow('blocked'))).toBe(true);
+    expect(isFixableByEntry(asRow('not-expressible'))).toBe(false);
+    expect(isFixableByEntry(asRow('in-place'))).toBe(false);
+  });
+
+  it('has no line left that no record anywhere can hold', () => {
+    // What this change did, asserted as the fact it is. Every gap on the list
+    // is now answerable by somebody entering data — so the screen never tells a
+    // reader to go and type into a column that does not exist.
+    for (const row of buildUgcReadiness(PRODUCTION)) {
+      expect(row.state).not.toBe('not-expressible');
+      if (!isSatisfied(row)) expect(isFixableByEntry(row)).toBe(true);
+    }
+    for (const row of buildUgcReadiness(NOTHING)) {
+      expect(row.state).not.toBe('not-expressible');
+    }
+  });
+
+  it('moved the inter-college agreement to the kind somebody typing fixes', () => {
+    const agreement = buildUgcReadiness(PRODUCTION).find(
+      (r) => r.id === 'written-agreement',
+    )!;
+
+    expect(isSatisfied(agreement)).toBe(false);
+    expect(agreement.state).toBe('awaiting-entry');
+    expect(isFixableByEntry(agreement)).toBe(true);
+    // Still empty, and still says so as a reason rather than as a zero.
+    expect(agreement.figures[0].value).toBeNull();
+    expect(agreement.figures[0].reason).toMatch(/nothing recorded/i);
+  });
+
+  it('answers the agreement line to its own record and to nothing else', () => {
+    // No volume of bookings, teaching, councils or papers stands in for an
+    // agreement between two colleges — only an agreement does.
     const busy = buildUgcReadiness({
+      internalAgreements: 0,
       councilsConstituted: 3,
       peerBookings: 400,
       hubBookings: 400,
@@ -160,8 +195,17 @@ describe('buildUgcReadiness — the two kinds of empty are not interchangeable',
       publications: 40,
     }).find((r) => r.id === 'written-agreement')!;
 
-    expect(busy.state).toBe('not-expressible');
+    expect(busy.state).toBe('awaiting-entry');
     expect(isSatisfied(busy)).toBe(false);
+
+    // And one filed agreement satisfies it with everything else at zero.
+    const filed = buildUgcReadiness({ ...NOTHING, internalAgreements: 1 }).find(
+      (r) => r.id === 'written-agreement',
+    )!;
+
+    expect(filed.state).toBe('in-place');
+    expect(isSatisfied(filed)).toBe(true);
+    expect(filed.figures[0].value).toBe(1);
   });
 });
 

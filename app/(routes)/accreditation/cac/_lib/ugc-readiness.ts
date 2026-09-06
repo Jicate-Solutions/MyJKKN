@@ -84,6 +84,14 @@ export const UGC_GUIDANCE = {
  * `not-expressible` — nothing anywhere on the platform records this. No amount
  *                     of data entry changes it; the shape of the record would
  *                     have to change.
+ *                     ⚠ NO ROW CARRIES THIS TODAY, and that is the point rather
+ *                     than dead code. The inter-college agreement was the last
+ *                     one, until the agreements register gained a column that
+ *                     can hold the second college (migration 20260921040000).
+ *                     The state stays in the vocabulary because the distinction
+ *                     in rule 3 is what stops a future row being filed under
+ *                     `awaiting-entry` and telling a reader to go and type into
+ *                     a column that does not exist.
  * `blocked`         — it cannot exist until an earlier line does. Not a failing
  *                     of its own, and it must not be dressed as one.
  * `elsewhere`       — real, recorded, and read on another surface rather than
@@ -124,6 +132,13 @@ export interface ReadinessRow {
  *  definer-scoped read the CAC page already makes, so two council members
  *  looking at this section see the same thing. */
 export interface ReadinessInput {
+  /**
+   * Agreements in the register naming a JKKN college as the other signatory —
+   * one record joining two colleges, not two records each naming the other in
+   * free text. Cluster-wide, read as definer, so every council member sees the
+   * same figure rather than their own college's slice.
+   */
+  internalAgreements: number;
   /** Councils on record with committee_type = 'cluster'. */
   councilsConstituted: number;
   /** Bookings where one college booked another college. */
@@ -166,9 +181,15 @@ export function buildUgcReadiness(input: ReadinessInput): ReadinessRow[] {
       id: 'written-agreement',
       asks: 'A written agreement binding the colleges to one another.',
       reading:
-        'Nothing on the platform records an agreement between two JKKN colleges as a link between them. The agreements register carries one institution and writes the other side as free text; the solutions-hub agreement record carries no institution at all. So such an agreement can be typed in, and nothing would know which two colleges it joined. The register is still where one is filed today, and it is the place to start.',
-      state: 'not-expressible',
-      figures: [],
+        'The agreements register can now name the other signatory as a JKKN college rather than as free text, so an agreement between two colleges is held as one record joining them and both colleges see it. Until that column existed, no record anywhere could hold the fact and typing did not help. It does now: what is missing is the first agreement, not the means of keeping one.',
+      state: input.internalAgreements > 0 ? 'in-place' : 'awaiting-entry',
+      figures: [
+        figure(
+          'Agreements between colleges',
+          input.internalAgreements,
+          'nothing recorded yet',
+        ),
+      ],
       fix: {
         href: AGREEMENTS_REGISTER,
         label: 'Open the agreements register',

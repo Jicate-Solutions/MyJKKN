@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   LeaveApprovalFlowService,
+  type LeaveApprovalFlowCoverage,
   type SaveLeaveApprovalFlowInput,
 } from '@/lib/services/hr/leave-approval-flow-service';
 
@@ -37,6 +38,23 @@ export function useLeaveApprovalFlow(
  * Ids of applications waiting on this caller's decision. Returns a Set so the
  * approvals table can filter in one pass without an O(n*m) scan.
  */
+/**
+ * Which leave types have their own flow and which organizations have a
+ * catch-all — one fetch for the whole Leave Types table.
+ *
+ * Keyed under the same prefix as the per-type flows so the save and clear
+ * mutations below invalidate it too; without that the Approval column would
+ * still read "Not set" right after somebody set one.
+ */
+export function useLeaveApprovalFlowCoverage(enabled = true) {
+  const supabase = createClientSupabaseClient();
+  return useQuery<LeaveApprovalFlowCoverage>({
+    queryKey: [KEY, 'coverage'],
+    queryFn: () => LeaveApprovalFlowService.listCoverage(supabase),
+    enabled,
+  });
+}
+
 export function useMyLeaveApprovalQueue(hrOrgId: string | undefined) {
   const supabase = createClientSupabaseClient();
   return useQuery({
@@ -107,6 +125,8 @@ export function useSaveLeaveApprovalFlow() {
       LeaveApprovalFlowService.save(supabase, input),
     onSuccess: (_data, input) => {
       qc.invalidateQueries({ queryKey: [KEY, input.hrOrgId, input.leaveTypeId] });
+      // The Leave Types table's Approval column reads this.
+      qc.invalidateQueries({ queryKey: [KEY, 'coverage'] });
     },
   });
 }
@@ -119,6 +139,7 @@ export function useClearLeaveApprovalFlow() {
       LeaveApprovalFlowService.clear(supabase, vars.flowId),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: [KEY, vars.hrOrgId, vars.leaveTypeId] });
+      qc.invalidateQueries({ queryKey: [KEY, 'coverage'] });
     },
   });
 }

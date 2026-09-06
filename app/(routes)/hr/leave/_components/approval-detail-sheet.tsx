@@ -30,8 +30,9 @@ import {
   Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import { StatusBadge } from './request-table';
+import { ApprovalChainTimeline } from './approval-chain-timeline';
 import { LeaveDocumentList } from './leave-document-list';
-import { formatDays, formatHours } from './format';
+import { formatBiometricGap, formatDays, formatHours } from './format';
 import { hoursFor } from './approval-queue-columns';
 import type { ApprovalRowActionHandlers } from './approval-row-actions';
 import { useApplication, useApplicationComments, useAddComment } from '@/hooks/hr/use-leave';
@@ -154,12 +155,29 @@ export function ApprovalDetailSheet({
                     <span className="ml-1 text-xs font-normal text-amber-700">on their behalf</span>
                   )}
                 </Field>
+                {/* Decided rows only. Resolved by the queue RPC for the same
+                    reason as applied_by_name — profiles is RLS-hidden. */}
+                {row.final_approver_id && (
+                  <>
+                    <Field label="Decided by">{row.final_approver_name ?? '—'}</Field>
+                    <Field label="Decided at">{fmtStamp(row.final_decided_at)}</Field>
+                  </>
+                )}
               </dl>
 
               <div>
                 <p className="mb-1 text-xs text-muted-foreground">Reason</p>
                 <p className="whitespace-pre-wrap text-sm">{row.reason || '—'}</p>
               </div>
+
+              {row.status === 'rejected' && row.rejection_reason && (
+                <div>
+                  <p className="mb-1 text-xs text-muted-foreground">Rejection reason</p>
+                  <p className="whitespace-pre-wrap text-sm text-destructive">
+                    {row.rejection_reason}
+                  </p>
+                </div>
+              )}
 
               {/* Straight after the reason: the certificate is the evidence FOR
                   the reason, and an approver reads the two together. Waits on
@@ -180,28 +198,10 @@ export function ApprovalDetailSheet({
                 <p className="mb-2 text-xs font-medium text-muted-foreground">
                   Approval chain (frozen at apply-time)
                 </p>
-                {isLoading ? (
+                {isLoading || !app ? (
                   <Skeleton className="h-16 w-full" />
-                ) : app?.approval_chain?.length ? (
-                  <ol className="space-y-2">
-                    {app.approval_chain.map((step, idx) => (
-                      <li key={`${step.step_order}-${idx}`} className="flex flex-wrap items-center gap-2 text-sm">
-                        <span
-                          className={`h-2 w-2 shrink-0 rounded-full ${
-                            step.status === 'approved' ? 'bg-emerald-500'
-                              : step.status === 'rejected' ? 'bg-red-500'
-                              : idx === app.current_step ? 'bg-amber-500'
-                              : 'bg-muted-foreground/30'
-                          }`}
-                        />
-                        <span className="font-medium">Step {step.step_order}</span>
-                        <span className="text-muted-foreground">{step.approver_role}</span>
-                        <span className="text-xs text-muted-foreground">({step.status})</span>
-                      </li>
-                    ))}
-                  </ol>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No approval steps recorded.</p>
+                  <ApprovalChainTimeline app={app} />
                 )}
               </div>
 
@@ -243,12 +243,31 @@ export function ApprovalDetailSheet({
             </div>
 
             <SheetFooter className="flex-row gap-2 border-t p-4 sm:justify-end sm:p-6">
-              {row.can_decide ? (
+              {/* A decided row is undecidable for everyone — the "your own
+                  request" explanation below is only right on OPEN rows. */}
+              {row.status !== 'pending' && row.status !== 'escalated' ? (
+                <p className="text-xs text-muted-foreground">
+                  Already decided{row.final_approver_name ? ` by ${row.final_approver_name}` : ''}.
+                </p>
+              ) : row.can_decide ? (
                 <>
+                  {/* The reason sits in the footer beside the button it
+                      disables, not up in the body: an approver who has scrolled
+                      to the decision should not have to scroll back to find out
+                      why Approve is greyed. Reject stays live — refusing writes
+                      no attendance stamp, so the database does not refuse it. */}
+                  {row.biometric_gap_from !== null && (
+                    <p className="mr-auto max-w-[22rem] self-center text-xs leading-snug text-amber-700 dark:text-amber-400">
+                      Biometric attendance is not uploaded for{' '}
+                      <strong>{formatBiometricGap(row.biometric_gap_from)}</strong>.
+                      Approving now would not reach the attendance report — import
+                      the month first.
+                    </p>
+                  )}
                   <Button
                     variant="outline"
                     className="flex-1 border-emerald-600/40 text-emerald-700 hover:bg-emerald-600/10 hover:text-emerald-700 sm:flex-none"
-                    disabled={handlers.isPending}
+                    disabled={handlers.isPending || row.biometric_gap_from !== null}
                     onClick={() => { handlers.onApprove(row); onOpenChange(false); }}
                   >
                     <Check className="mr-1 h-4 w-4" />

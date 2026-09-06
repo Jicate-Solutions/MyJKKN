@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
-import { History, Info, Printer, Download, Loader2, Receipt } from 'lucide-react';
+import { History, Info, Printer, Download, Loader2, ReceiptIndianRupee } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -478,7 +478,7 @@ export function CollectView() {
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
                       <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                        <Receipt className="h-3.5 w-3.5" />
+                        <ReceiptIndianRupee className="h-3.5 w-3.5" />
                       </span>
                       Outstanding bills
                       <span className="ml-1 text-xs font-normal text-muted-foreground">

@@ -246,8 +246,8 @@ export const GUIDES: GuideBook = {
             {
               action: 'Start at **Review Worklist** — before you set any rate.',
               detail:
-                'This lists every credit that needs a human look first: referrals recorded as a walk-in yet credited to an agency, credits with no enquiry behind them at all, and referrals with no agency attached. Nothing here is payable yet — it is a review queue, not an approval queue.',
-              tip: 'A walk-in can be genuinely agency-referred, so treat this as a question to answer, not an accusation. The point is that somebody looks before money is committed.',
+                'This lists every credit that needs a human look first: referrals recorded as a walk-in yet credited to an agency, credits with no enquiry behind them at all, and referrals with no agency attached. The walk-in ones are HELD — the generator skips them, so they cannot be paid even after a rate exists, until someone opens each and presses Release. The screen shows how many are still held and how many have been released.',
+              tip: 'A walk-in can be genuinely agency-referred, so treat this as a question to answer, not an accusation. Releasing is the normal outcome, not the exception — the hold exists so that the answer is recorded rather than assumed, and it records who released it and when.',
               link: { label: 'Take me there', href: '/admission/consultants/review-worklist' },
             },
             {
@@ -265,10 +265,11 @@ export const GUIDES: GuideBook = {
               link: { label: 'Take me there', href: '/admission/consultants/reconciliation' },
             },
             {
-              action: 'Check each agency can actually be paid.',
+              action: 'Check each agency can actually be paid in **Payout Readiness**.',
               detail:
-                'An agency with no bank account or PAN on file cannot receive a payment, however correct its credits are. Fix these before generating, or those charges will stall at the last step.',
-              link: { label: 'Take me there', href: '/admission/consultants' },
+                'An agency with no bank account or PAN on file cannot receive a payment, however correct its credits are. This screen lists them ordered by how many referrals are waiting behind each one, so you start where the money is actually stuck.',
+              tip: 'Most blocked agencies have no referrals this year at all — collecting their details would move nothing. The screen opens on the few that are holding something up, and keeps the idle ones behind a toggle. Fill in the missing details on each agency\u2019s own page.',
+              link: { label: 'Take me there', href: '/admission/consultants/payout-readiness' },
             },
             {
               action: 'Set the rate in **Rates & Generate**, then run **Preview** first.',

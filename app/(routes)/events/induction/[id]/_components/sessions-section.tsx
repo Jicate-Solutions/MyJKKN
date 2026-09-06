@@ -19,6 +19,7 @@ import { AttendancePdfButton } from './attendance-pdf-button';
 import { DayAttendanceDialog } from './day-attendance-dialog';
 import { FeedbackKioskDialog } from './feedback-kiosk-dialog';
 import { SessionPollDialog } from './session-poll-dialog';
+import { SessionQuestionDialog } from './session-question-dialog';
 import { SessionShareDialog } from './session-share-dialog';
 import { SessionSpeakerPicker } from './session-speaker-picker';
 import {
@@ -673,6 +674,8 @@ export function SessionsSection({
                                 <>
                                   <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
                                   <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
+                                  {/* Learners ask + upvote; opening this switches the board on. */}
+                                  <SessionQuestionDialog sessionId={s.id} sessionTitle={s.title} />
                                 </>
                               )}
                             </>

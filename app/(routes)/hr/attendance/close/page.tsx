@@ -174,6 +174,10 @@ export default function AttendanceMonthClosePage() {
   const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const canView = canAccess('hr.attendance.period', 'view');
   const canManage = canAccess('hr.attendance.period', 'manage');
+  // Closing a month is not the end of the errand: the register is the
+  // reason it was frozen. Gated on its OWN key, which HR Head holds and
+  // most holders of hr.attendance.period.view do not.
+  const canViewRegister = canAccess('hr.payroll.register', 'view');
 
   // Lazy initialisers: nowIST reads a clock, so it must run once on mount.
   const [year, setYear] = useState(() => nowIST().year);
@@ -352,6 +356,7 @@ export default function AttendanceMonthClosePage() {
           year={year}
           month={month}
           canManage={canManage}
+          canViewRegister={canViewRegister}
           isSuperAdmin={isSuperAdmin}
           busy={lock.isPending}
           onClose={(row) => { setConfirmRow(row); setGapAcknowledged(false); }}

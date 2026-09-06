@@ -72,6 +72,11 @@ const ATTENTION_OPTIONS: Array<{ value: AttentionFilter; label: string; hint?: s
   { value: 'negative', label: FLAG_META.negative.label, hint: FLAG_META.negative.hint },
   { value: 'overdrawn', label: FLAG_META.overdrawn.label, hint: FLAG_META.overdrawn.hint },
   { value: 'off_policy', label: FLAG_META.off_policy.label, hint: FLAG_META.off_policy.hint },
+  {
+    value: 'sto_exhausted',
+    label: FLAG_META.sto_exhausted.label,
+    hint: FLAG_META.sto_exhausted.hint,
+  },
 ];
 
 const TEACHING_OPTIONS: Array<{ value: TeachingFilter; label: string }> = [
