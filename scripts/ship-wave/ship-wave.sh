@@ -281,7 +281,11 @@ run_once() {
   # (2026-09-05 19:47: six identical headers, zero readable history).
   if [ -z "${_REDIR_DONE:-}" ]; then
     _REDIR_DONE=1
-    exec > >(tee "$RECEIPT" -a "$RUNLOG") 2>&1
+    # BSD tee stops parsing options at the first file name, so `tee "$RECEIPT" -a "$RUNLOG"` treated -a as a
+    # FILE: a stray "-a" appeared in the CWD and the run log was never appended (under launchd, CWD is / and it
+    # errored aloud — 2026-09-06 06:32). Truncate the receipt first, then append to both.
+    : > "$RECEIPT"
+    exec > >(tee -a "$RECEIPT" "$RUNLOG") 2>&1
   fi
   say "=== W12 ship wave · mode=$MODE · approve-normal=${APPROVE_NORMAL:-no} · approve-held=${APPROVE_HELD:-none} · max-dispatch=$MAX_DISPATCH · $(date '+%F %T') ==="
 
