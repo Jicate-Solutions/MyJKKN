@@ -31,7 +31,7 @@ import {
   useUpdateStepComment,
 } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { CandidateDiscussionThread } from '../../_components/candidate-discussion-thread';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -125,7 +125,7 @@ export default function CandidateDetailPage() {
   const approve = useApproveCandidate();
   const rejectCand = useRejectCandidate();
   const { permissions, isSuperAdmin, userRoles } = usePermissions();
-  const { institutions } = useInstitutionsWithAccess();
+  const { institutions } = useHrInstitutionsWithAccess();
   const institutionName = useMemo(
     () => institutions.find((i) => i.id === candidate?.institution_id)?.name,
     [institutions, candidate?.institution_id],

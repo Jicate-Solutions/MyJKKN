@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   collidesWithExisting,
+  findDuplicateCreates,
   type ExistingStructureKey,
 } from '@/lib/services/admission/fee-structure-bulk-diff';
 import type { BulkUpsertPayload } from '@/lib/utils/mappings/fee-structure-excel-mappings';
@@ -84,5 +85,81 @@ describe('collidesWithExisting — the Validate step predicts the overlap trigge
     for (const k of ['institution_id', 'degree_id', 'department_id', 'programme_id', 'admission_year_id'] as const) {
       expect(collidesWithExisting(create(), stored({ [k]: 'something-else' }))).toBe(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findDuplicateCreates compares against the state the batch LEAVES, not the
+// state it finds. The B.Ed sheet that exposed this narrowed nine structures to
+// their BC/OC communities and created nine more for SC/ST in the same file;
+// read against stored state every new one "already existed".
+const stub = (rows: ExistingStructureKey[]): any => {
+  const q: any = {
+    select: () => q,
+    in: () => q,
+    neq: () => Promise.resolve({ data: rows, error: null }),
+  };
+  return { from: () => q };
+};
+
+/** A RowResolution as the sheet resolver hands it over. */
+const res = (rowNumber: number, name: string, payload: BulkUpsertPayload): any => ({
+  rowNumber, name, errors: [], payload,
+});
+
+describe('findDuplicateCreates — the batch is simulated, not ignored', () => {
+  const bcOc = [ids.bc, ids.mbc];
+  const scSt = [ids.sc];
+  /** The stored structure before the split: it holds BOTH sets. */
+  const beforeSplit = stored({ id: 'bed-bio', communities: [...bcOc, ...scSt].map((c) => ({ community_category_id: c })) });
+
+  it('a sheet that narrows a structure and creates its complement is NOT a duplicate', async () => {
+    const found = await findDuplicateCreates(stub([beforeSplit]), [
+      res(2, 'BEd (BIO) - MQ - DS - 2026', create({ structure_id: 'bed-bio', community_category_ids: bcOc })),
+      res(4, 'BEd (BIO) - MQ - DS - 2026', create({ community_category_ids: scSt })),
+    ]);
+    expect(found.size).toBe(0);
+  });
+
+  it('still catches a create the sheet does nothing to free', async () => {
+    const found = await findDuplicateCreates(stub([beforeSplit]), [
+      res(4, 'BEd (BIO) - MQ - DS - 2026', create({ community_category_ids: scSt })),
+    ]);
+    expect(found.get(4)).toMatchObject({ id: 'bed-bio' });
+    expect(found.get(4)?.sheetRow).toBeUndefined();
+  });
+
+  it('a narrowing that does NOT free the community still collides', async () => {
+    const found = await findDuplicateCreates(stub([beforeSplit]), [
+      // Keeps SC, so the new row still has nowhere to go.
+      res(2, 'BEd (BIO)', create({ structure_id: 'bed-bio', community_category_ids: [...bcOc, ids.sc] })),
+      res(4, 'BEd (BIO) SC', create({ community_category_ids: scSt })),
+    ]);
+    expect(found.get(4)).toMatchObject({ id: 'bed-bio' });
+  });
+
+  it('archiving the existing structure frees every community it held', async () => {
+    const found = await findDuplicateCreates(stub([beforeSplit]), [
+      res(2, 'BEd (BIO)', create({ structure_id: 'bed-bio', status: 'archived' })),
+      res(4, 'BEd (BIO) SC', create({ community_category_ids: scSt })),
+    ]);
+    expect(found.size).toBe(0);
+  });
+
+  it('two CREATE rows claiming one community collide with each other, naming the row', async () => {
+    const found = await findDuplicateCreates(stub([]), [
+      res(4, 'BEd (BIO) SC', create({ community_category_ids: [ids.sc] })),
+      res(9, 'BEd (BIO) SC again', create({ community_category_ids: [ids.sc, ids.bc] })),
+    ]);
+    expect(found.has(4)).toBe(false);
+    expect(found.get(9)).toMatchObject({ sheetRow: 4, name: 'BEd (BIO) SC' });
+  });
+
+  it('two CREATE rows with disjoint communities are both fine', async () => {
+    const found = await findDuplicateCreates(stub([]), [
+      res(4, 'A', create({ community_category_ids: [ids.sc] })),
+      res(9, 'B', create({ community_category_ids: [ids.bc] })),
+    ]);
+    expect(found.size).toBe(0);
   });
 });

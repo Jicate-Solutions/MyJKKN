@@ -52,7 +52,10 @@ export class HRPersonService {
           id, first_name, last_name, institution_email, phone, staff_id, department_id,
           date_of_joining, is_active, institution_id, profile_id,
           biometric_id, biometric_institution_id,
-          institution:institutions!staff_institution_id_fkey ( id, name ),
+          institution:institutions!staff_institution_id_fkey!inner (
+            id, name,
+            hr_organizations!inner ( included_in_hr )
+          ),
           department:departments ( id, department_name ),
           employment_categories!inner ( included_in_hr ),
           ${detailsJoin} (
@@ -66,9 +69,16 @@ export class HRPersonService {
       );
 
     // This is the HR employee directory, so it lists the HR population only.
-    // The !inner embed above does the filtering; dropping staff whose category
+    // The !inner embeds above do the filtering; dropping staff whose category
     // is excluded is the intent, not the usual silent-row-loss hazard.
     q = q.eq('employment_categories.included_in_hr', true);
+
+    // The INSTITUTION axis, and it is not optional the way the filter below is.
+    // `institution_id` is a user-chosen narrowing that is absent on "All
+    // institutions"; without this predicate that case listed staff of
+    // institutions excluded from the HR module entirely. Nested through
+    // institutions because staff has no FK to hr_organizations.
+    q = q.eq('institution.hr_organizations.included_in_hr', true);
 
     if (institution_id) q = q.eq('institution_id', institution_id);
     if (department_id) q = q.eq('department_id', department_id);
@@ -200,7 +210,9 @@ export class HRPersonService {
     // threading ids through, and it serves both lookups.
     const { data: orgs, error: orgErr } = await supabase
       .from('hr_organizations')
-      .select('id, name, institution_id');
+      .select('id, name, institution_id')
+      // Excluded institutions are not part of the HR module.
+      .eq('included_in_hr', true);
     if (orgErr) {
       console.error('[HRPersonService] organisation lookup failed', orgErr);
       return { payrollOrgByStaff, orgById, orgByInstitution };

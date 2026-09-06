@@ -51,7 +51,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { useAuth } from '@/hooks/use-auth';
 
 // ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ export function NewPolicyEditor({ policyKey, fields }: NewPolicyEditorProps) {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
   const { profile } = useAuth();
   const { institutions, loading: institutionsLoading } =
-    useInstitutionsWithAccess({ isActive: true });
+    useHrInstitutionsWithAccess({ isActive: true });
 
   const [rows, setRows] = useState<PolicyRow[]>([]);
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');

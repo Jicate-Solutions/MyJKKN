@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart3, IndianRupee, TrendingDown, TrendingUp, AlertCircle } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 
 interface PayrollPeriodRow {
   id: string;
@@ -56,7 +56,7 @@ function formatCurrency(amount: number): string {
 
 export function BudgetVsActualsTab() {
   const { data: periods, isLoading, isError } = usePayrollSummary();
-  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
+  const { institutions } = useHrInstitutionsWithAccess({ entityType: 'all' });
 
   const institutionNames = useMemo(() => {
     const map: Record<string, string> = {};

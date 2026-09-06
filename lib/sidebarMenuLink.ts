@@ -533,6 +533,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
   '/hr/admin/academic-years': 'hr.academic_years.manage',
   '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
+  // The page itself is super-admin only (it switches whole institutions out of
+  // the HR module). Mapped to hr.dashboard.view like its siblings so the nav
+  // reachability gate resolves it; the server RPCs are the real boundary.
+  '/hr/admin/institutions': 'hr.dashboard.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -2842,6 +2846,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
             { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
             { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
+            { href: '/hr/admin/institutions', label: 'Institutions in HR', active: pathname.startsWith('/hr/admin/institutions') },
           ]
         }
       ]

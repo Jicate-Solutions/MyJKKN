@@ -453,7 +453,11 @@ export class DataEntryService {
   ): Promise<Array<{ id: string; name: string }>> {
     const { data, error } = await supabase
       .from('institutions')
-      .select('id, name')
+      // Only institutions that are IN the HR module. The !inner embed is the
+      // intended row-drop here, not the usual silent-loss hazard: an excluded
+      // institution must not be offered as a choice.
+      .select('id, name, hr_organizations!inner(included_in_hr)')
+      .eq('hr_organizations.included_in_hr', true)
       .order('name');
     if (error) throw new Error(`Failed to list institutions: ${error.message}`);
     return data ?? [];

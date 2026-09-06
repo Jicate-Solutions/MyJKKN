@@ -387,6 +387,9 @@ export class HRDashboardService {
         .from('hr_organizations')
         .select('institution_id')
         .eq('id', hrOrgId)
+        // Resolves to null for an excluded institution, which is the point:
+        // its dashboard should not build at all.
+        .eq('included_in_hr', true)
         .maybeSingle();
       const instId = (org as { institution_id: string | null } | null)?.institution_id ?? null;
       if (instId) docsPending = docsPending.eq('institution_id', instId);
@@ -665,6 +668,8 @@ export class HRDashboardService {
     const { data: orgs, error } = await supabase
       .from('hr_organizations')
       .select('id, name, institution_id')
+      // Excluded institutions are not part of the HR module.
+      .eq('included_in_hr', true)
       .not('institution_id', 'is', null)
       .order('name', { ascending: true });
     if (error) throw error;

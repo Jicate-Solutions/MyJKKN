@@ -3893,6 +3893,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/hr/admin/institutions",
+            "label": "Institutions",
+            "iconName": "Building",
+            "children": []
+          },
+          {
             "path": "/hr/admin/leave-balances",
             "label": "Leave Balances",
             "iconName": "CalendarOff",

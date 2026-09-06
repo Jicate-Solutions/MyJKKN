@@ -113,6 +113,27 @@ function num(v: unknown): number {
   return typeof v === 'number' ? v : Number(v) || 0;
 }
 
+/** A row of hr_regularization_reasons — the reason dropdown's options. */
+export interface RegularizationReason {
+  id: string;
+  code: string;
+  label: string;
+}
+
+/** One day of a staff member's month, for the close preview's drill-down. */
+export interface StaffAttendanceDay {
+  record_id: string;
+  work_date: string;
+  status_code: string;
+  /**
+   * The punches, as recorded. Null on a day with no biometric event at all —
+   * which is exactly what an ABSENT day usually looks like, and is the evidence
+   * somebody needs to decide whether the absence is real.
+   */
+  in_at: string | null;
+  out_at: string | null;
+}
+
 export class AttendancePeriodService {
   /**
    * Every institution's state for one month.
@@ -196,6 +217,82 @@ export class AttendancePeriodService {
    * Read straight from the table rather than recomputed — that is the whole
    * point of freezing them. Empty while the month is open.
    */
+  /**
+   * One staff member's days for an institution-month, for the close preview.
+   *
+   * Reads hr_attendance_records directly rather than the frozen summaries: the
+   * whole point is to fix a day BEFORE the month is closed, so there are no
+   * summaries yet. RLS on the table is the access boundary.
+   */
+  static async listStaffDays(
+    supabase: SupabaseClient,
+    staffId: string,
+    year: number,
+    month: number,
+  ): Promise<StaffAttendanceDay[]> {
+    const start = `${year}-${String(month).padStart(2, '0')}-01`;
+    // Day 0 of the NEXT month is the last day of this one, so February and the
+    // 30-day months need no special case.
+    const endDate = new Date(year, month, 0);
+    const end = `${year}-${String(month).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+
+    const { data, error } = await (supabase as any)
+      .from('hr_attendance_records')
+      .select('id, work_date, in_at, out_at, hr_attendance_status_types!inner ( code )')
+      .eq('employee_id', staffId)
+      .gte('work_date', start)
+      .lte('work_date', end)
+      .order('work_date', { ascending: true });
+    if (error) throw error;
+
+    return ((data ?? []) as Array<Record<string, any>>).map((r) => ({
+      record_id: r.id as string,
+      work_date: r.work_date as string,
+      status_code: r.hr_attendance_status_types?.code ?? '',
+      in_at: (r.in_at ?? null) as string | null,
+      out_at: (r.out_at ?? null) as string | null,
+    }));
+  }
+
+  /**
+   * Correct one day, directly.
+   *
+   * Super-admin / HR Head only and reason-mandatory, both enforced inside
+   * fn_hr_regularize_attendance_day — this is a thin pass-through so the gate
+   * lives in exactly one place. Refused on a month that is already closed.
+   */
+  static async regularizeDay(
+    supabase: SupabaseClient,
+    input: { staffId: string; date: string; statusCode: string; reasonCodeId: string },
+  ): Promise<Record<string, unknown>> {
+    const { data, error } = await (supabase as any).rpc('fn_hr_regularize_attendance_day', {
+      p_staff_id: input.staffId,
+      p_date: input.date,
+      p_status_code: input.statusCode,
+      p_reason_code_id: input.reasonCodeId,
+    });
+    if (error) throw error;
+    return data as Record<string, unknown>;
+  }
+
+  /**
+   * The reason catalog. Shared with the staff-raised regularization flow, which
+   * is the point: admin corrections land in the same reason_code_id column, so
+   * "how often was the device offline" stays answerable now that corrections
+   * are admin-only.
+   */
+  static async listRegularizationReasons(
+    supabase: SupabaseClient,
+  ): Promise<RegularizationReason[]> {
+    const { data, error } = await (supabase as any)
+      .from('hr_regularization_reasons')
+      .select('id, code, label')
+      .eq('is_active', true)
+      .order('label', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as RegularizationReason[];
+  }
+
   static async listSummaries(
     supabase: SupabaseClient,
     periodId: string

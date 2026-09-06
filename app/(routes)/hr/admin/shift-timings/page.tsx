@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import {
   useEmploymentCategories,
   useEndShiftTimingOverride,
@@ -54,7 +54,7 @@ export default function ShiftTimingsPage() {
   // entityType 'all' is deliberate. The default ('institution') returns only 9
   // of the 14 entities — it would silently hide JKKN Main Office (admin_office,
   // 114 staff, all non-teaching), both schools (99 staff) and the two companies.
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
+  const { institutions, loading: institutionsLoading } = useHrInstitutionsWithAccess({
     entityType: 'all',
   });
 

@@ -130,7 +130,11 @@ export function PolicyEditorShell<V>(props: PolicyEditorShellProps<V>) {
       const supabase = createClientSupabaseClient();
       const { data, error: instErr } = await supabase
         .from('institutions')
-        .select('id, name')
+        // Only institutions that are IN the HR module. The !inner embed is the
+        // intended row-drop here, not the usual silent-loss hazard: an excluded
+        // institution must not be offered as a choice.
+        .select('id, name, hr_organizations!inner(included_in_hr)')
+        .eq('hr_organizations.included_in_hr', true)
         .eq('is_active', true)
         .order('name', { ascending: true });
       if (cancelled) return;

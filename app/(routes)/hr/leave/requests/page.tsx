@@ -10,9 +10,10 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Plus } from 'lucide-react';
+import { CalendarRange, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { LeaveMonthlyLedger } from '@/components/hr/leave-monthly-ledger';
 import { TableCell } from '@/components/ui/table';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,6 +47,14 @@ export default function LeaveRequestsPage() {
   const ctx = useTimeOffContext();
   const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
+  /**
+   * Which leave type has its month-wise ledger open on the Balance tab.
+   *
+   * Collapsed by default and one at a time: each expansion is its own RPC
+   * call, and the headline figure above already answers the common question.
+   * The ledger answers the follow-up -- "which month did that day come from".
+   */
+  const [ledgerFor, setLedgerFor] = useState<string | null>(null);
   const withdraw = useWithdrawApplication();
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
@@ -127,6 +136,37 @@ export default function LeaveRequestsPage() {
                           {formatDays(b.entitled)} day(s) a year, accruing monthly — the rest
                           become available as the year goes on.
                         </p>
+                      )}
+                      {/* Only day-denominated leave divides into months. Short
+                          Time Off is minute-backed and Compensatory Off is
+                          credit-backed; the RPC returns [] for both, so the
+                          control is hidden rather than opening an empty panel. */}
+                      {b.request_category === 'leave' && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="mt-1 h-7 px-2 text-xs"
+                            onClick={() =>
+                              setLedgerFor((prev) =>
+                                prev === b.leave_type_id ? null : b.leave_type_id
+                              )
+                            }
+                          >
+                            <CalendarRange className="mr-1.5 h-3.5 w-3.5" />
+                            {ledgerFor === b.leave_type_id ? 'Hide' : 'Month-wise breakdown'}
+                          </Button>
+                          {ledgerFor === b.leave_type_id && (
+                            <div className="mt-2 rounded-md border bg-muted/20 p-3">
+                              <LeaveMonthlyLedger
+                                staffId={b.employee_id}
+                                leaveTypeId={b.leave_type_id}
+                                hrAcademicYearId={b.hr_academic_year_id}
+                                leaveTypeName={b.leave_type_name}
+                              />
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   );

@@ -2,18 +2,27 @@
 
 // Correct one staff member's balance for one leave type.
 //
-// Two levers, deliberately kept apart because they mean different things and
-// are gated by different keys:
+// Three levers, kept apart because they mean different things:
 //
-//   * "Used days" writes hr_leave_balances.used — a factual correction ("she
-//     actually took 1.5, not 2"). Needs hr.leave.policies.write (2 roles).
+//   * "Used days" writes hr_leave_balances.used for the whole year — a factual
+//     correction ("she actually took 1.5, not 2").
 //   * "Entitlement" writes hr_leave_entitlement_overrides — a policy decision
-//     for this one person ("mid-year joiner, pro-rate to 7"). Needs
-//     hr.leave.balance.manage (7 roles).
+//     for this one person ("mid-year joiner, pro-rate to 7").
+//   * "Month-wise" sets the total for ONE month, overriding the approved
+//     requests dated in it.
 //
-// The RPC enforces both separately, mirroring each table's own RLS, so this
-// screen widens nobody's access. It hides the lever the caller cannot use
-// rather than letting them fill in a form the server will refuse.
+// ALL THREE ARE SUPER-ADMIN ONLY as of 2026-09-06 (migrations 20260906130000
+// and 20260906130100). They previously took hr.leave.policies.write and
+// hr.leave.balance.manage respectively; that was widened away because these
+// levers rewrite consumed days with no application and no approval chain behind
+// them. Note the old key reached further than it looked: user_has_permission
+// also grants through the user_roles multi-role table and Director handovers,
+// so roles such as hr_head held it.
+//
+// The RPCs check is_super_admin() themselves, so this screen widens nobody's
+// access. It hides the levers the caller cannot use rather than letting them
+// fill in a form the server will refuse — but the month-wise BREAKDOWN stays
+// readable, because that is what the dialog is most often opened to answer.
 //
 // What is NOT offered: writing hr_leave_balances.entitled. A literal there sets
 // entitlement_source='frozen' and detaches the row from the leave type's
@@ -35,7 +44,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { usePermissions } from '@/hooks/use-permissions';
+import { LeaveMonthlyLedger } from '@/components/hr/leave-monthly-ledger';
+import { useAuth } from '@/hooks/use-auth';
 import { useAdjustLeaveBalance } from '@/hooks/hr/use-hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import type {
@@ -73,7 +83,13 @@ export function AdjustBalanceDialog({
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      {/* DialogContent carries NO max-height and NO overflow of its own, so a
+          twelve-row ledger would run off the bottom of the viewport with the
+          footer painted over the page. The fix is a flex shell: cap the height
+          here, and let the middle region scroll — `min-h-0` and
+          `overflow-y-auto` must sit on the SAME element or the body scrolls
+          instead and the footer goes under it. */}
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-3xl">
         {target && (
           <AdjustForm
             key={`${target.staff.employee_id}:${target.leaveType.id}`}
@@ -98,12 +114,21 @@ function AdjustForm({
 }) {
   const { staff, leaveType, cell } = target;
 
-  const { can, isLoading: permsLoading } = usePermissions([
-    'hr.leave.policies.write',
-    'hr.leave.balance.manage',
-  ]);
-  const canSetUsed = can('hr.leave.policies.write');
-  const canSetEntitlement = can('hr.leave.balance.manage');
+  // SUPER ADMIN ONLY, for both levers and for the month-wise editor.
+  //
+  // Previously used days needed hr.leave.policies.write and entitlement needed
+  // hr.leave.balance.manage. Both RPCs now check is_super_admin() instead
+  // (20260906130000 / 20260906130100), so deriving the UI from those keys would
+  // show controls the server refuses. Gate on isSuperAdmin, never on a key.
+  // Mirrors the SERVER's check exactly. public.is_super_admin() reads ONLY
+  // profiles.is_super_admin -- it does NOT accept role = 'super_admin', unlike
+  // the `is_super_admin === true || role === 'super_admin'` pattern used
+  // elsewhere in this app. The two agree in the data today (15 profiles each,
+  // no divergence), but widening here would offer controls the RPC then refuses.
+  const { profile, isLoading: permsLoading } = useAuth();
+  const isSuperAdmin = profile?.is_super_admin === true;
+  const canSetUsed = isSuperAdmin;
+  const canSetEntitlement = isSuperAdmin;
 
   const mutation = useAdjustLeaveBalance();
 
@@ -116,8 +141,14 @@ function AdjustForm({
   // Controlled so the footer's Save button knows which lever is showing. With
   // an uncontrolled Tabs it always submitted the first permitted action, so
   // opening Entitlement and pressing Save wrote `used`.
-  const [tab, setTab] = useState<'used' | 'entitlement'>(
-    canSetUsed ? 'used' : 'entitlement'
+  //
+  // 'ledger' is read-only and always available — a viewer who can change
+  // nothing can still be shown where the days went, which is the question this
+  // dialog is most often opened to answer. It is the landing tab when the
+  // caller holds neither write key, so those users get content rather than an
+  // error card.
+  const [tab, setTab] = useState<'used' | 'entitlement' | 'ledger'>(
+    canSetUsed ? 'used' : canSetEntitlement ? 'entitlement' : 'ledger'
   );
 
   const sourceMeta = SOURCE_META[cell.source];
@@ -179,19 +210,31 @@ function AdjustForm({
 
       {/* Current state first: an adjustment made without seeing where the
           number came from is how a policy-tracking row gets frozen. */}
-      <div className="grid grid-cols-4 gap-3 rounded-md border bg-muted/30 p-3 text-sm">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+      <div className="grid grid-cols-3 gap-3 rounded-md border bg-muted/30 p-3 text-sm md:grid-cols-6">
         <Figure label="Entitled" value={cell.entitled} />
+        {/* Accrued sits beside Entitled rather than replacing it because for an
+            accruing type the two diverge all year — Casual Leave reads 12
+            entitled and 4 accrued in September, and only the second is
+            spendable. Showing entitled alone is what let this screen contradict
+            the staff member's own apply drawer. */}
+        <Figure
+          label="Accrued"
+          value={cell.accrued}
+          hint={cell.accrued < cell.entitled ? 'earned so far' : undefined}
+        />
         <Figure label="Carried" value={cell.carried} />
         <Figure label="Used" value={cell.used} />
+        <Figure label="Pending" value={cell.pending} />
         <Figure label="Available" value={cell.available} />
-        <div className="col-span-4 flex flex-wrap items-center gap-2 border-t pt-2">
+        <div className="col-span-full flex flex-wrap items-center gap-2 border-t pt-2">
           <Badge variant="outline" className={`font-normal ${sourceMeta.tone}`}>
             {sourceMeta.label}
           </Badge>
           <span className="text-xs text-muted-foreground">{sourceMeta.hint}</span>
         </div>
         {!cell.has_row && (
-          <div className="col-span-4">
+          <div className="col-span-full">
             <Alert>
               <Info className="h-4 w-4" />
               <AlertDescription className="text-xs">
@@ -203,24 +246,27 @@ function AdjustForm({
         )}
       </div>
 
-      {noLever ? (
+      {noLever && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            You can view balances but not change them. Correcting used days needs
-            <strong> hr.leave.policies.write</strong>; changing an entitlement needs
-            <strong> hr.leave.balance.manage</strong>.
+            You can view balances but not change them. Every adjustment here —
+            used days, entitlement, and the month-wise totals — is restricted to
+            <strong> super administrators</strong>. The month-wise breakdown below
+            is read-only and stays available.
           </AlertDescription>
         </Alert>
-      ) : (
-        <Tabs value={tab} onValueChange={(v) => setTab(v as 'used' | 'entitlement')}>
-          <TabsList className="grid w-full grid-cols-2">
+      )}
+      {(
+        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="used" disabled={!canSetUsed}>
               Used days
             </TabsTrigger>
             <TabsTrigger value="entitlement" disabled={!canSetEntitlement}>
               Entitlement
             </TabsTrigger>
+            <TabsTrigger value="ledger">Month-wise</TabsTrigger>
           </TabsList>
 
           <TabsContent value="used" className="space-y-3 pt-3">
@@ -276,21 +322,41 @@ function AdjustForm({
             )}
           </TabsContent>
 
-          <div className="pt-3">
-            <Label htmlFor="adj-reason">Reason</Label>
-            <Textarea
-              id="adj-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Carried over from the legacy HR system for June 2026"
-              className="mt-1"
-              rows={2}
-              disabled={busy}
+          <TabsContent value="ledger" className="pt-3">
+            {/* editable ONLY here. The Staff Balances row expander and the
+                staff member's own leave page render the same table read-only —
+                a staff member must never be able to record their own taken
+                days, and the component itself re-checks
+                hr.leave.policies.write before showing any control. */}
+            <LeaveMonthlyLedger
+              staffId={staff.employee_id}
+              leaveTypeId={leaveType.id}
+              hrAcademicYearId={hrAcademicYearId}
+              leaveTypeName={leaveType.name}
+              editable
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Recorded with the before/after values and your name. Required.
-            </p>
-          </div>
+          </TabsContent>
+
+          {/* The reason box belongs to the two write levers only. Rendering it
+              under the read-only ledger would put a required field in front of
+              somebody with nothing to submit. */}
+          {tab !== 'ledger' && (
+            <div className="pt-3">
+              <Label htmlFor="adj-reason">Reason</Label>
+              <Textarea
+                id="adj-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. Carried over from the legacy HR system for June 2026"
+                className="mt-1"
+                rows={2}
+                disabled={busy}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Recorded with the before/after values and your name. Required.
+              </p>
+            </div>
+          )}
         </Tabs>
       )}
 
@@ -300,12 +366,16 @@ function AdjustForm({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+      </div>
 
       <DialogFooter>
         <Button variant="outline" onClick={onDone} disabled={busy}>
-          Cancel
+          {tab === 'ledger' ? 'Close' : 'Cancel'}
         </Button>
-        {!noLever && (
+        {/* Hidden on the ledger tab: with only two write actions, a Save here
+            would have fallen through to set_entitlement and written the
+            entitlement box the user never opened. */}
+        {!noLever && tab !== 'ledger' && (
           <Button
             onClick={() => submit(tab === 'used' ? 'set_used' : 'set_entitlement')}
             disabled={busy || reason.trim() === ''}
@@ -318,11 +388,14 @@ function AdjustForm({
   );
 }
 
-function Figure({ label, value }: { label: string; value: number }) {
+function Figure({
+  label, value, hint,
+}: { label: string; value: number; hint?: string }) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="font-medium tabular-nums">{value}</p>
+      {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }

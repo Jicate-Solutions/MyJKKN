@@ -41,6 +41,18 @@ export default function RegularizePage() {
     can('hr.attendance.edit') ||
     can('hr.attendance.override');
 
+  // SELF-SERVICE REGULARIZATION IS WITHDRAWN (2026-09-06).
+  //
+  // hr.attendance.regularize_self was revoked from all 76 roles that held it by
+  // migration 20260906200000, so this reads false for everyone except a super
+  // admin. Day corrections now happen in the month-close salary preview, where
+  // the person closing the month sees what a wrong day does to somebody's pay
+  // before freezing it — and only a super admin or HR Head can act.
+  //
+  // The expression is deliberately UNCHANGED rather than hard-coded to false:
+  // re-granting the key is how you turn self-service back on, and rewriting
+  // this to `false` would make that grant silently do nothing. The approvals
+  // route next door is untouched — pending requests still need deciding.
   const canSubmitSelf =
     isSuperAdmin || can('hr.attendance.regularize_self');
 

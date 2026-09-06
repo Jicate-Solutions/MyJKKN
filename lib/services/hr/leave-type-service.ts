@@ -20,6 +20,8 @@ import type { HRLeaveBalanceAnalytics } from '@/types/hr-leave-analytics';
 import type {
   HRBalanceAdjustPayload,
   HRBalanceAdjustResult,
+  HRLeaveMonthEntryPayload,
+  HRLeaveMonthlyLedgerRow,
   HRStaffBalanceDetail,
 } from '@/types/hr-leave-staff-balances';
 import type { LeavePeriodUsage, StoUsage } from '@/types/hr-leave-types';
@@ -323,6 +325,63 @@ export class HRLeaveTypeService {
     });
     if (error) throw error;
     return data as HRStaffBalanceDetail;
+  }
+
+  /**
+   * The month-by-month ledger behind one (staff, leave type) cell.
+   *
+   * Answers the two questions the flat cell cannot: which month's credit paid
+   * for a given request, and how much of each month rolled forward unused.
+   *
+   * Gated inside the RPC on hr.leave.balance.manage OR hr.leave.approve OR the
+   * caller's own staff ids — the manage key matters because it is held by 7
+   * roles against approve's 2, and it is manage that opens the Adjust dialog
+   * this feeds. Self-access is what lets the same call serve the staff member's
+   * own leave page.
+   */
+  static async getMonthlyLedger(
+    supabase: SupabaseClient,
+    staffId: string,
+    leaveTypeId: string,
+    hrAcademicYearId: string | null
+  ): Promise<HRLeaveMonthlyLedgerRow[]> {
+    const { data, error } = await supabase.rpc('fn_hr_leave_monthly_ledger', {
+      p_staff_id: staffId,
+      p_leave_type_id: leaveTypeId,
+      p_hr_academic_year_id: hrAcademicYearId,
+    });
+    if (error) throw error;
+    // Empty for a type that is not day-denominated (comp off, short time off),
+    // which the RPC returns rather than raising.
+    return (data ?? []) as HRLeaveMonthlyLedgerRow[];
+  }
+
+  /**
+   * Record (or clear) days taken in one month that have no application.
+   *
+   * Gated on hr.leave.policies.write — the same key as the Used days tab,
+   * because in `add` mode this moves the same `used` figure. `reclassify` is
+   * additionally capped server-side at the days not yet explained by
+   * applications or other months; exceeding it raises 23514 with a message
+   * naming the remaining figure, which is worth surfacing verbatim.
+   *
+   * `days: 0` deletes the entry — there is no separate delete call.
+   */
+  static async setMonthEntry(
+    supabase: SupabaseClient,
+    payload: HRLeaveMonthEntryPayload
+  ): Promise<Record<string, unknown>> {
+    const { data, error } = await supabase.rpc('hr_leave_month_entry_set', {
+      p_employee_id: payload.employee_id,
+      p_leave_type_id: payload.leave_type_id,
+      p_hr_academic_year_id: payload.hr_academic_year_id,
+      p_month_start: payload.month_start,
+      p_days: payload.days,
+      p_mode: payload.mode,
+      p_reason: payload.reason,
+    });
+    if (error) throw error;
+    return data as Record<string, unknown>;
   }
 
   /**

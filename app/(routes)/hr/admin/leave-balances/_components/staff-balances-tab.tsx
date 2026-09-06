@@ -31,9 +31,9 @@
  * let every option carry a count that agrees with the table.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { AlertTriangle, Building2, Download, Pencil } from 'lucide-react';
+import { AlertTriangle, Building2, ChevronDown, ChevronRight, Download, Pencil } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -58,6 +58,7 @@ import type {
   HRStaffBalanceStoType,
 } from '@/types/hr-leave-staff-balances';
 
+import { LeaveMonthlyLedger } from '@/components/hr/leave-monthly-ledger';
 import { AdjustBalanceDialog, type AdjustTarget } from './adjust-balance-dialog';
 import {
   FLAG_META,
@@ -95,6 +96,14 @@ export function StaffBalancesTab({ year }: { year: string | null }) {
    */
   const [lastChanged, setLastChanged] = useState<StaffBalanceFilterKey | null>(null);
   const [target, setTarget] = useState<AdjustTarget | null>(null);
+  /**
+   * Which row has its month-wise ledger open, and for which leave type.
+   *
+   * One row at a time: the ledger is a 12-row table and a second RPC call per
+   * expansion, so leaving several open turns a 150-staff table into a scroll of
+   * nested tables and a burst of queries. Opening another closes the first.
+   */
+  const [expanded, setExpanded] = useState<{ staffId: string; typeId: string } | null>(null);
 
   const { data, isLoading, isError, error } = useStaffLeaveBalances(orgId, year);
 
@@ -186,6 +195,14 @@ export function StaffBalancesTab({ year }: { year: string | null }) {
           : 'No limit';
         row[`${t.name} — Used${unit}`] = c
           ? (byRequests ? c.requests_used : c.minutes_used)
+          : '';
+        // Emitted unconditionally, like every other key in this loop: a column
+        // added only for rows that have pending time would leave the sheet with
+        // a half-populated group, which is the union-of-keys trap the comment
+        // above describes. Used already INCLUDES this — it is a breakdown, not
+        // an addition, so the two columns must not be summed.
+        row[`${t.name} — Of which pending${unit}`] = c
+          ? (byRequests ? c.requests_pending : c.minutes_pending)
           : '';
         row[`${t.name} — Remaining${unit}`] = usable
           ? ((byRequests ? c.requests_left : c.minutes_left) ?? '')
@@ -333,6 +350,14 @@ export function StaffBalancesTab({ year }: { year: string | null }) {
                         <span className="ml-1 font-normal text-muted-foreground">
                           ({stoAllowanceLabel(t)})
                         </span>
+                        {/* Which period the numbers below belong to. Short Time
+                            Off does not carry forward, so a budget with no
+                            period named is unreadable. */}
+                        {stoPeriodLabel(t) && (
+                          <div className="font-normal text-[10px] text-muted-foreground">
+                            {stoPeriodLabel(t)}
+                          </div>
+                        )}
                       </TableHead>
                     ))}
                     <TableHead className="w-10" />
@@ -364,7 +389,8 @@ export function StaffBalancesTab({ year }: { year: string | null }) {
                     </TableRow>
                   ) : (
                     rows.map((s) => (
-                      <TableRow key={s.employee_id}>
+                      <Fragment key={s.employee_id}>
+                      <TableRow>
                         <TableCell className="whitespace-nowrap font-mono text-xs">
                           {s.staff_code ?? '—'}
                         </TableCell>
@@ -420,8 +446,70 @@ export function StaffBalancesTab({ year }: { year: string | null }) {
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
+                          {/* Month-wise ledger without leaving the table. Same
+                              disabled rule as Adjust: only a day-denominated
+                              type divides into months. */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={types.length === 0}
+                            title={
+                              types.length === 0
+                                ? 'No day-based leave type to break down'
+                                : `Month-wise breakdown for ${s.name}`
+                            }
+                            onClick={() =>
+                              setExpanded((prev) =>
+                                prev?.staffId === s.employee_id
+                                  ? null
+                                  : { staffId: s.employee_id, typeId: types[0].id }
+                              )
+                            }
+                          >
+                            {expanded?.staffId === s.employee_id
+                              ? <ChevronDown className="h-3.5 w-3.5" />
+                              : <ChevronRight className="h-3.5 w-3.5" />}
+                          </Button>
                         </TableCell>
                       </TableRow>
+                      {expanded?.staffId === s.employee_id && (
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell
+                            colSpan={5 + types.length + stoTypes.length}
+                            className="bg-muted/20 p-4"
+                          >
+                            {/* One ledger at a time, so the type is picked here
+                                rather than rendering a table per column. */}
+                            {types.length > 1 && (
+                              <div className="mb-3 flex flex-wrap gap-1">
+                                {types.map((t) => (
+                                  <Button
+                                    key={t.id}
+                                    size="sm"
+                                    variant={expanded.typeId === t.id ? 'secondary' : 'ghost'}
+                                    className="h-7"
+                                    onClick={() =>
+                                      setExpanded({ staffId: s.employee_id, typeId: t.id })
+                                    }
+                                  >
+                                    {t.name}
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                            <LeaveMonthlyLedger
+                              staffId={s.employee_id}
+                              leaveTypeId={expanded.typeId}
+                              hrAcademicYearId={data?.hr_academic_year_id ?? null}
+                              leaveTypeName={
+                                types.find((t) => t.id === expanded.typeId)?.name ?? 'This type'
+                              }
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </Fragment>
                     ))
                   )}
                 </TableBody>
@@ -489,6 +577,29 @@ function BalanceCell({
  * hr_leave_type_assignments row overrides the whole limit block for one staff
  * member or department — so the number in the cell is the one that binds.
  */
+const STO_MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/**
+ * The window a Short Time Off column covers, e.g. "Sep 2026".
+ *
+ * Split from the ISO string rather than parsed through Date: 'YYYY-MM-DD' parses
+ * as UTC midnight and renders a month early for west-of-UTC viewers.
+ *
+ * A window spanning more than one month (quarter, half-year, year) is shown as a
+ * range, so a quarterly type never looks monthly.
+ */
+function stoPeriodLabel(t: HRStaffBalanceStoType): string | null {
+  if (!t.period_start || !t.period_end) return null;
+  const [sy, sm] = t.period_start.split('-');
+  const [ey, em] = t.period_end.split('-');
+  const from = `${STO_MONTHS[Number(sm) - 1]} ${sy}`;
+  const to = `${STO_MONTHS[Number(em) - 1]} ${ey}`;
+  return from === to ? from : `${from} – ${to}`;
+}
+
 function stoAllowanceLabel(t: HRStaffBalanceStoType): string {
   if (t.limit_mode === 'total_duration') {
     return `${formatMinutes(t.total_minutes)}/${t.limit_period ?? 'month'}`;
@@ -555,6 +666,7 @@ function StoCell({
   const left = byRequests ? cell.requests_left : cell.minutes_left;
   const total = byRequests ? cell.max_requests : cell.total_minutes;
   const used = byRequests ? cell.requests_used : cell.minutes_used;
+  const pending = byRequests ? cell.requests_pending : cell.minutes_pending;
   const fmt = (n: number | null | undefined) =>
     byRequests ? String(n ?? 0) : formatMinutes(n ?? 0);
 
@@ -566,7 +678,9 @@ function StoCell({
         byRequests
           ? `${cell.requests_used} of ${cell.max_requests ?? 0} request(s) committed`
           : `${formatMinutes(cell.minutes_used)} of ${formatMinutes(cell.total_minutes)} committed`,
-        'Pending requests count — the database treats them as spent.',
+        pending > 0
+          ? `${fmt(pending)} of that is still awaiting approval — counted anyway, because the database spends it on submission.`
+          : 'Pending requests count — the database treats them as spent.',
         cell.min_minutes || cell.max_minutes
           ? `Per request: ${formatMinutes(cell.min_minutes)} to ${formatMinutes(cell.max_minutes)}`
           : null,
@@ -585,6 +699,14 @@ function StoCell({
       <div className="text-xs text-muted-foreground">
         {used > 0 ? `${fmt(used)} used` : '—'}
       </div>
+      {/* Undecided time, called out rather than folded into "used". It is
+          already subtracted from what is left — the database spends it on
+          submission — but showing it merged made pending look approved. */}
+      {pending > 0 && (
+        <div className="text-[10px] text-amber-600 dark:text-amber-400">
+          {fmt(pending)} awaiting approval
+        </div>
+      )}
     </TableCell>
   );
 }

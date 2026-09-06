@@ -309,6 +309,8 @@ export class WorkPatternService {
       .from('hr_organizations')
       .select('id')
       .eq('institution_id', institutionId)
+      // Null for an excluded institution — work patterns cannot be set for one.
+      .eq('included_in_hr', true)
       .maybeSingle();
     if (orgErr) throw orgErr;
     if (!org) return [];

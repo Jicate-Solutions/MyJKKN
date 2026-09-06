@@ -30,7 +30,7 @@ import {
   type EnumOption,
   type FieldSchema,
 } from '@/lib/admin/policy-shell';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { RecruitmentJobsService } from '@/lib/services/hr/recruitment-jobs-service';
@@ -215,7 +215,7 @@ export function JobsDataTable() {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
   // -------- Reference data: institutions + departments --------
-  const { institutions } = useInstitutionsWithAccess();
+  const { institutions } = useHrInstitutionsWithAccess();
   const { data: deptResp } = useDepartments({ isActive: true, limit: 1000 });
 
   const institutionOptions = useMemo<EnumOption[]>(

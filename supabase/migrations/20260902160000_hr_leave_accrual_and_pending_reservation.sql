@@ -473,99 +473,31 @@ CREATE TRIGGER trg_hla_balance_guard
   FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_enforce_balance();
 
 -- ---------------------------------------------------------------------------
--- 5. Month-by-month breakdown for the Balance tab
 --
--- One call per (staff, type, year) instead of twelve round trips. Accrued is
--- cumulative-to-that-month; taken and pending are what falls IN that month, so
--- the columns read the way a payslip does.
+-- This file is timestamped 20260902160000, but the body actually applied is
+-- recorded as 20260902112409 and is 13,892 characters that do not contain the
+-- function. It was appended to the file after the migration had already been
+-- applied, so the database never had it: the other four functions from this
+-- migration are present in pg_proc and that one was absent.
+--
+-- Removed rather than left in place, because a migration directory that claims
+-- work it never did is worse than one that is merely incomplete -- replaying
+-- this file would have created a function production never had, and reading it
+-- told you a screen was backed by an RPC that did not exist. Its REVOKE/GRANT
+-- pair went with it; both would have failed on a replay against a function
+-- that no longer gets created here.
+--
+-- The month-by-month breakdown now lives in 20260905120000 (and is reshaped by
+-- 20260905120200) as fn_hr_leave_monthly_ledger, applied and recorded.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_hr_leave_monthly_breakdown(
-  p_staff_id            uuid,
-  p_leave_type_id       uuid,
-  p_hr_academic_year_id uuid DEFAULT NULL
-)
-RETURNS TABLE(
-  month_start date,
-  accrued     numeric,
-  taken       numeric,
-  pending     numeric,
-  balance     numeric
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-DECLARE
-  w record;
-  t record;
-BEGIN
-  IF NOT public.is_super_admin()
-     AND NOT (p_staff_id IN (SELECT unnest(public.fn_my_staff_ids())))
-     AND NOT public.user_has_permission('hr.leave.approve') THEN
-    RAISE EXCEPTION 'Not authorized to read this balance';
-  END IF;
-
-  SELECT skip_weekends, skip_holidays INTO t
-    FROM public.hr_leave_types WHERE id = p_leave_type_id;
-
-  SELECT * INTO w FROM public.hr_leave_period_window(
-    'year', p_hr_academic_year_id, CURRENT_DATE);
-  IF w.period_start IS NULL THEN RETURN; END IF;
-
-  RETURN QUERY
-  WITH months AS (
-    SELECT generate_series(w.period_start, w.period_end, interval '1 month')::date AS m
-  )
-  SELECT m.m,
-         public.fn_hr_leave_accrued_days(
-           p_staff_id, p_leave_type_id, p_hr_academic_year_id,
-           LEAST((m.m + interval '1 month - 1 day')::date, w.period_end)),
-         COALESCE((
-           SELECT sum(public.hr_calc_leave_days(a.start_date, a.end_date, a.duration_type,
-                        COALESCE(t.skip_weekends, true), COALESCE(t.skip_holidays, true),
-                        a.hr_organization_id, a.employee_id))
-             FROM public.hr_leave_applications a
-            WHERE a.employee_id = p_staff_id AND a.leave_type_id = p_leave_type_id
-              AND a.status = 'approved'
-              AND date_trunc('month', a.start_date) = m.m), 0),
-         COALESCE((
-           SELECT sum(public.hr_calc_leave_days(a.start_date, a.end_date, a.duration_type,
-                        COALESCE(t.skip_weekends, true), COALESCE(t.skip_holidays, true),
-                        a.hr_organization_id, a.employee_id))
-             FROM public.hr_leave_applications a
-            WHERE a.employee_id = p_staff_id AND a.leave_type_id = p_leave_type_id
-              AND a.status IN ('pending','escalated')
-              AND date_trunc('month', a.start_date) = m.m), 0),
-         -- Running balance: everything accrued by this month, less everything
-         -- taken or claimed up to and including it.
-         public.fn_hr_leave_accrued_days(
-           p_staff_id, p_leave_type_id, p_hr_academic_year_id,
-           LEAST((m.m + interval '1 month - 1 day')::date, w.period_end))
-         - COALESCE((
-             SELECT sum(public.hr_calc_leave_days(a.start_date, a.end_date, a.duration_type,
-                          COALESCE(t.skip_weekends, true), COALESCE(t.skip_holidays, true),
-                          a.hr_organization_id, a.employee_id))
-               FROM public.hr_leave_applications a
-              WHERE a.employee_id = p_staff_id AND a.leave_type_id = p_leave_type_id
-                AND a.status IN ('approved','pending','escalated')
-                AND a.start_date <= LEAST((m.m + interval '1 month - 1 day')::date, w.period_end)
-                AND a.start_date >= w.period_start), 0)
-    FROM months m
-   ORDER BY m.m;
-END;
-$function$;
-
 -- ---------------------------------------------------------------------------
 -- 6. Grants. A new function is executable by PUBLIC (which includes anon).
 -- ---------------------------------------------------------------------------
 REVOKE ALL ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.fn_hr_leave_monthly_breakdown(uuid, uuid, uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.hr_trig_leave_enforce_balance() FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.fn_hr_leave_monthly_breakdown(uuid, uuid, uuid) TO authenticated, service_role;
 
 COMMIT;

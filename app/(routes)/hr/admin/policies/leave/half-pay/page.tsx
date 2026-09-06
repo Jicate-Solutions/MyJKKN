@@ -22,7 +22,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 
 import { InstitutionPolicyEditor } from '../../_components/institution-policy-editor';
 
@@ -124,7 +124,7 @@ function NotApplicableBanner({ institutionId }: { institutionId: string }) {
 
 export default function HalfPayLeavePolicyPage() {
   const { profile } = useAuth();
-  const { institutions } = useInstitutionsWithAccess({ entityType: 'institution' });
+  const { institutions } = useHrInstitutionsWithAccess({ entityType: 'institution' });
 
   // Mirror the default selection used inside InstitutionPolicyEditor so the
   // banner reads the same institution row that the editor renders.

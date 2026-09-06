@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/table';
 import { Target, AlertCircle } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 
 interface SpecializationRow {
   id: string;
@@ -86,7 +86,7 @@ function cellColor(count: number): string {
 
 export function CompetencyMatrixTab() {
   const { data, isLoading, isError } = useCompetencyData();
-  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
+  const { institutions } = useHrInstitutionsWithAccess({ entityType: 'all' });
 
   const matrix = useMemo(() => {
     if (!data || !institutions) return null;

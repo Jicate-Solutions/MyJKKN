@@ -35,6 +35,8 @@ export async function GET() {
     const { data, error } = await supabase
       .from('hr_organizations')
       .select('id, name, institution_id')
+      // Excluded institutions are not part of the HR module.
+      .eq('included_in_hr', true)
       .order('name', { ascending: true });
     if (error) throw error;
     return NextResponse.json({ data: data ?? [] });

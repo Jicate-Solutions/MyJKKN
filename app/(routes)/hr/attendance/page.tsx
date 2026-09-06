@@ -82,7 +82,6 @@ export default function MyAttendancePage() {
   const { data: employee, isLoading: empLoading } = useCurrentEmployee();
 
   const canViewAll = isSuperAdmin || can('hr.attendance.view_all');
-  const canRegularizeSelf = isSuperAdmin || can('hr.attendance.regularize_self');
 
   const tab = searchParams.get('tab') === 'calendar' ? 'calendar' : 'log';
   const month = readMonthParam(searchParams.get('month'));
@@ -211,7 +210,6 @@ export default function MyAttendancePage() {
                 <AttendanceLogTab
                   days={logDays}
                   isLoading={isLoading}
-                  canRegularize={canRegularizeSelf && !viewingOther}
                 />
               </TabsContent>
 

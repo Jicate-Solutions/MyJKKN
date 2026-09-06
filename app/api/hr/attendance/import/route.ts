@@ -345,6 +345,9 @@ export async function POST(request: NextRequest) {
     const { data: orgs, error: orgErr } = await svc
       .from('hr_organizations')
       .select('id, institution_id')
+      // This runs on the SERVICE-ROLE client, which bypasses RLS entirely, so
+      // the exclusion has to be spelled out here — nothing else will apply it.
+      .eq('included_in_hr', true)
       .limit(500);
     if (orgErr) {
       console.error('[hr/attendance/import] hr_organizations lookup error:', orgErr);
