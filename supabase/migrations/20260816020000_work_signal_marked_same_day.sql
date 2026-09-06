@@ -512,6 +512,13 @@ BEGIN
 END;
 $function$;
 
+-- ci:allow-secdef-authenticated fn_work_signals_for is self-scoped: it takes no user id, reads
+--   v_uid := auth.uid() and returns ONLY the caller's own work signals (the My Pulse card,
+--   work-signals-card.tsx via WorkSignalsService, called as the signed-in user). A caller cannot
+--   name anyone else, so there is nothing for an authz check to gate. Granted to authenticated
+--   since 20260717170852; this file only rewrites the body. Same shape as
+--   fn_scf_my_confirmed_attendance (20260921053000). Marker added 2026-09-06 because the
+--   authz-guard assertion (#3136) landed on main after this PR was opened.
 REVOKE EXECUTE ON FUNCTION public.fn_work_signals_for(date, date) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_work_signals_for(date, date) TO authenticated, service_role;
 
