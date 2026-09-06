@@ -1,6 +1,6 @@
 # OneMark — Wave 3 lane specs (decisions of record; mirror of .claude/onemark-wave3-specs.md) (prepared 2026-09-06 00:50 IST; launch AFTER the Wave 2 bank holds ≥ 50 approved items per subject OR on Director word)
 
-Wave 3 = "make it real": the PRD's Phase 3 (Senior Learner analytics), the debt Wave 2's reviewers named, and the operations that need people, not code. Eight code lanes + one operations lane. Wave 2 shipped 2026-09-05 (main `304b3314b2`+, live `cee167f8ae`); everything below builds on that.
+Wave 3 = "make it real": the PRD's Phase 3 (Senior Learner analytics), the debt Wave 2's reviewers named, and the operations that need people, not code. Nine code lanes + one operations lane. Wave 2 shipped 2026-09-05 (main `304b3314b2`+, live `cee167f8ae`); everything below builds on that.
 
 Common to every lane (read first, obey exactly):
 - Rulings: `specs/onemark-decisions-2026-09-02.md` (20 decisions) + `specs/onemark-wave3-2026-09-06.md` (this file, on jicate/main). Schema you build on: `20260917111500` (Wave 1), `20260918101500` + `20260918130000` (Lane S + hardening), `20260918120000` (draft enable) — all APPLIED in prod. `types/onemark.ts`. Read them, do not re-derive.
@@ -15,7 +15,7 @@ Common to every lane (read first, obey exactly):
 - Explicit `git add` paths; never `-A`, never `stash`; expect `wip: auto-save`, reset --soft and recommit. Fast-forward pushes only. PR READY unless it carries [risky] items (then Draft + list them). NEVER MERGE.
 - Every lane ends with: PR number, files, check tally by `status==completed`, and `[safe]`/`[risky]` assumptions.
 
-Sequencing: **S3 first** (apply before merge; A, L, T, D contract-depend on it) → A, T, D, L, Q, U in parallel (disjoint files; Q's one-line change to POST /attempts lands through L, U's one-file change to /cdc/admin/exam-topic-map is coordinated) → **N last** (nav + guide need the pages to exist). Lane 0 runs throughout and is people, not code.
+Sequencing: **S3 first** (apply before merge; A, L, T, D contract-depend on it) → A, T, D, L, Q, U, G in parallel (disjoint files; Q's one-line change to POST /attempts lands through L, U's one-file change to /cdc/admin/exam-topic-map is coordinated) → **N last** (nav + guide need the pages to exist). Lane 0 runs throughout and is people, not code.
 
 ---
 ## Lane S3 — `feat/onemark-w3-schema` — THE ONLY LANE WITH SQL
@@ -87,8 +87,20 @@ Own: `app/(routes)/foundation/onemark/units/**` (new), `app/api/foundation/onema
 4. Tamil unit names carry `[TAMIL_TBD]` where a native reviewer has not signed off (rule #24, and Wave 1 flagged every seeded row "needs native review"); the screen shows the English name with the Tamil one beneath when present, and marks the unreviewed ones so the review can actually be run from this screen.
 5. Gates: scoped tsc, vitest on the service (add-unit writes both rows; re-order touches only the map; DELETE → 405; a retired unit disappears from pickers but keeps its questions), `npm run build`, terminology, mirrors. Persona snapshot on the new page as a Senior Learner AND as a super admin, screenshots in the PR. [risky]: item 2 changes a screen another module owns; the "next free position" rule when a subject has a 99-style sentinel row.
 
+## Lane G — `feat/onemark-w3-ai-request` — the door a Senior Learner uses to ask for AI questions
+Director ruling 2026-09-06 10:0x IST, after "Where is [the] AI button on the UI for senior learners": there is none, and one is owed — spec it for Wave 3.
+MEASURED 2026-09-06: `POST /api/foundation/onemark/draft` (Lane I) is deployed and answers its gate correctly, but **nothing in the app calls it** — a repo-wide search for the path returns the route, two service files and comments, no caller. The only surface that can start ANY AI job by hand is the generic Run card at `/admin/ai-models`, whose sidebar key is `super_admin`. So decision 7 ("AI drafts, one subject Senior Learner approves") has a working approval half and no drafting door: a Senior Learner cannot request questions at all, and a super admin has to do it from an admin console. The review queue's own empty state already promises the feature ("Drafts arrive from an ingested past paper or an AI drafting request"), so the copy is ahead of the UI.
+Also fixed before this lane starts (do not re-fix): the job type asked its runner for a table write it does not implement, so every request failed in ~60 ms — `20260918140000` (PR #3311) repointed it at `job.result`, applied 2026-09-06; the runner now writes model text to `ai_jobs.result` and the Lane J cron files drafts into `fp_items`.
+Own: `app/(routes)/foundation/onemark/review/_components/request-drafts-*.tsx` (new), `lib/services/onemark/draft-request.ts`, `hooks/onemark/use-draft-request.ts`, `__tests__/onemark/draft-request-*.test.ts`. Do NOT touch `app/api/foundation/onemark/draft/route.ts` — it is complete and validated (schema fields, tag ownership, count 1–20, JABT level, 503 when the contract row is missing); this lane is the client for it.
+1. A **"Request AI questions"** panel on `/foundation/onemark/review`, above the queue it fills — the screen a subject Senior Learner already opens to approve drafts, so asking and approving live together. Fields come from the job type's `input_schema` (subject, unit — nullable for the English grammar-general tag set, category tags, how many, JABT level). Plain words, not job-queue words: a person asks for questions, not for a "job".
+2. Honest state, no spinner theatre: after POST, show the request with its queue position and poll `GET /api/ai-jobs/status?id=`. Say plainly that drafts appear in the queue below **after the collect pass** (`:09` and `:39` past the hour), so nobody watches a screen expecting instant rows. Terminal states: filed (with the count inserted and the count rejected), errored (with the reason), still waiting.
+3. Caps are visible BEFORE the click, never discovered by a refusal: 5 requests per person per day and ₹5,000 per month across the estate (`ai_job_types` row). Show today's remaining count for the caller; when it is 0, disable the button and say when it resets.
+4. Every drafted question arrives inactive and unapproved. The panel says so in one line — the drafting request is not an approval, and decision 7's single-teacher tick still stands between a draft and a learner.
+5. Gates: scoped tsc, vitest (cap exhaustion, a 503 contract-pending response, a rejected-items summary, poll terminal states), `npm run build`, terminology, mirrors. Persona snapshot as a Senior Learner holding `foundation.items.manage` AND as one without it (the panel must be absent, not broken). [risky]: whether the daily cap is read live or assumed; whether English's unit-less tag sets need the unit field hidden rather than optional.
+
 ## Lane N — `feat/onemark-w3-wiring` — navigation, guide, hub door — LAST
 Own: `lib/sidebarMenuLink.ts`, `lib/foundation/guide/**`, `lib/navigation/modules.ts` (mobile tabs), `app/(routes)/foundation/students/[id]/page.tsx` (one link only).
+0. Lane G needs no new door — its panel lives on `/foundation/onemark/review`, already in the sidebar.
 0. Lane U door: `/foundation/onemark/units` (key `foundation.items.manage`) joins the OneMark sidebar and the guide.
 0. Lane Q doors: `/foundation/onemark/sources` + `/foundation/onemark/sources/board-paper` (key `foundation.items.manage`) and `/foundation/onemark/results/sources` (key `foundation.assessments.manage`) go into `MENU_PERMISSIONS`, the sidebar entries and the guide; the learner guide gains one line on picking a source.
 1. Sidebar: "Results" row for `foundation.assessments.manage` (`/foundation/onemark/results`); a door to the hub `/foundation/onemark` WITHOUT revealing the operator accordion to learners (Wave 2 R proved a practice.take-keyed child leaks it — use a flat learner row or the mobile module tabs; if Academic would hit 15 top-level rows, say so and stop).
@@ -118,6 +130,9 @@ Own: `lib/sidebarMenuLink.ts`, `lib/foundation/guide/**`, `lib/navigation/module
 
 ### Decided 2026-09-06 09:4x IST — units are organised subject-first (Director)
 "the units are not organized as per subject wise. It needs to be a greater user interface and user experience." → Lane U. The units data needs no migration: `exam_topic_map.sort_order` is already per subject and correct; the shared topics table's global `sort_order` is what interleaves them, and no OneMark screen should order by it again.
+
+### Decided 2026-09-06 10:0x IST — Senior Learners get an AI-request door (Director)
+"Where is [the] AI button on the UI for senior learners" — there is none. `POST /api/foundation/onemark/draft` has no caller anywhere in the app, and the only manual AI-run surface (`/admin/ai-models`) is super-admin only. Ruling: build it, spec it for Wave 3 → Lane G, as a panel on the review queue.
 
 ## Deferred (not Wave 3, by ruling)
 Offline Android app (decision 1 — only if no-signal proves real); subjects beyond Physics and English; Parts II–IV; parent/guardian view (PRD minors-data rule keeps it out until asked).
