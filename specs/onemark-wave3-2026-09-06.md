@@ -22,11 +22,11 @@ Sequencing: **S3 first** (apply before merge; A, L, T, D contract-depend on it) 
 One migration `supabase/migrations/2026091914xxxx_onemark_wave3_schema.sql` (distinctive timestamp; run `check-migration-version-cross-pr.sh`) + `SQL_FILE_INDEX.md` row + `types/onemark.ts` additions. Rehearse BEGIN…ROLLBACK + separate rollback check; DO NOT APPLY.
 1. **Served-set persistence (replaces Lane V's HMAC token).** `ALTER TABLE fp_attempts ADD COLUMN served_item_ids uuid[]` (NULL for live papers, which use `fp_assessment_items`). `fn_onemark_record_response` and `fn_onemark_finalize_attempt`: when `served_item_ids IS NOT NULL`, refuse (RAISE 22023) any `p_item_id` / named skip outside the array — the server-side wall Lane V's token approximates. Keep the token path working until Lane L removes it (both checks can coexist).
 2. **Abandoned live sittings.** `fn_onemark_close_abandoned_live() RETURNS int` — SECURITY DEFINER, service-role-only (REVOKE from authenticated too; the cron route calls it with the service client): every `fp_attempts` `mode='live'`, `status='in_progress'` whose paper's `config.close_at + fn_get_policy_int('onemark.live.auto_close_after_minutes', 30) minutes < now()` gets its unanswered `fp_assessment_items` backfilled as skips, then `fn_onemark_finalize_attempt`. Returns the count. Idempotent.
-3. **Cohort results RPCs** (the PRD's Phase 3 analytics): `fn_onemark_cohort_results(p_assessment_id uuid) RETURNS jsonb` — caller must hold `foundation.assessments.manage` AND `fn_fp_manages_cohort_school(cohort_id)`; per learner: score, submitted_at, status, taken-digitally flag (decision 17), per-tag correct/total, per-unit correct/total; per item: p-value (fraction correct) and the most-chosen wrong option (distractor analysis). `fn_onemark_learner_report(p_student_id uuid, p_exam_definition_id uuid) RETURNS jsonb` — caller `fn_fp_can_view_student`; wraps `fn_fp_student_progress` and adds vault state (active/mastered counts, next due) and last 10 sittings. NEVER return `fp_items.answer` text in either payload — return option KEYS only, and only for submitted attempts.
+3. **Cohort results RPCs** (the PRD's Phase 3 analytics): `fn_onemark_cohort_results(p_assessment_id uuid) RETURNS jsonb` — caller must hold `foundation.assessments.manage` AND `fn_fp_manages_cohort_school(cohort_id)`, OR hold an active `school_jkkn_owners` row for the cohort's school (ruling 1 — principals); per learner: score, submitted_at, status, taken-digitally flag (decision 17), per-tag correct/total, per-unit correct/total; per item: p-value (fraction correct) and the most-chosen wrong option (distractor analysis). `fn_onemark_learner_report(p_student_id uuid, p_exam_definition_id uuid) RETURNS jsonb` — caller `fn_fp_can_view_student`; wraps `fn_fp_student_progress` and adds vault state (active/mastered counts, next due) and last 10 sittings. NEVER return `fp_items.answer` text in either payload — return option KEYS only, and only for submitted attempts.
 4. **Per-person interface language (decision 5).** `onemark_user_prefs(user_id uuid PK REFERENCES auth.users, ui_locale text NOT NULL DEFAULT 'en' CHECK (ui_locale IN ('en','ta')), updated_at)`, RLS: own row read/write only. No column on `profiles` (it has no preferences column and is shared by every module).
 5. **Question images.** Storage bucket `onemark-question-assets` (private; max 2 MB per object; RLS: read for `authenticated` holders of `foundation.practice.take` OR `foundation.items.manage`; write for `foundation.items.manage`). `onemark_question_assets` already exists (item_id, asset_type, storage_path, alt_text, sort_order) — add RLS policies mirroring `fp_items` (read via practice.take, write via items.manage) if missing (check `pg_policies` first).
-6. **Policy rows** (`platform_policies`, published, house style): `onemark.paper.question_count.tn_hsc_english = 20` (removes Lane W's hard-coded fallback), `onemark.live.auto_close_after_minutes = 30` [risky number], `onemark.live.grace_seconds = 15` (Lane V's literal), `onemark.results.min_learners_for_item_stats = 5` (distractor stats hidden below this — small cohorts identify individuals).
-7. Header: rollback recipe for every step; step-7 DO block asserting all objects exist and anon is locked. [risky]: the 30-minute auto-close window; results visibility scope (see Director decisions).
+6. **Policy rows** (`platform_policies`, published, house style): `onemark.paper.question_count.tn_hsc_english = 20` (removes Lane W's hard-coded fallback), `onemark.live.auto_close_after_minutes = 30` [risky number], `onemark.live.grace_seconds = 15` (Lane V's literal), `onemark.results.min_learners_for_item_stats = 3` (ruling 9; distractor stats hidden below this).
+7. Header: rollback recipe for every step; step-7 DO block asserting all objects exist and anon is locked. Rulings 1, 3, 8, 9 are settled (see the rulings table): withdrawn items are flagged per item in `fn_onemark_cohort_results`, never recomputed.
 
 ## Lane A — `feat/onemark-w3-results` — Senior Learner results and analytics (PRD Phase 3) — CONTRACT-DEPENDS ON S3
 Own: `app/(routes)/foundation/onemark/results/**`, `app/api/foundation/onemark/results/**`, `lib/services/onemark/results-*.ts`, `__tests__/onemark/results-*.test.ts`.
@@ -41,7 +41,7 @@ Own: `lib/onemark/i18n/**` (new), `app/(routes)/foundation/onemark/practice/_com
 1. Mechanism (nothing exists in MyJKKN today — verified 2026-09-06): `lib/onemark/i18n/strings.{en,ta}.ts` typed dictionaries + `useOneMarkT()` hook reading `onemark_user_prefs.ui_locale` (session client, cached in React state; default `en`) + a toggle (EN | தமிழ்) in the OneMark hub header and the practice runner. Persist via `PUT /api/foundation/onemark/prefs {ui_locale}`.
 2. Scope: **learner surfaces first** (hub cards, practice/timed/live runner, vault panel, sitting review, empty states, error messages), then the paper wizard and review queue. Sidebar labels and the guide are Lane N's, NOT yours — leave them English.
 3. Every Tamil string > 5 words is `[TAMIL_TBD: …]` (rule #24); ≤ 5-word strings may be written but the PR body lists ALL Tamil strings in a review sheet for a native reviewer (Lane 0 item 2). English is the fallback for any missing key — a missing Tamil key must never render an empty control.
-4. Question CONTENT is already bilingual (`stem_ta`, `options_ta`); do not touch the content path.
+4. Question CONTENT on screen follows ruling 15: show only the picked language; an item without `stem_ta`/`options_ta` shows English for that item (never blank). Lane L owns the runner logic — you supply `pickLang(item, locale)` from `lib/onemark/i18n/content.ts`; the printed paper stays bilingual (Lane D/P unchanged).
 5. Gates: scoped tsc, a test that every key in `strings.en` exists in `strings.ta` (placeholders allowed), `npm run build`, terminology (English strings only). [risky]: placeholder count at ship.
 
 ## Lane D — `feat/onemark-w3-diagrams` — images in questions (Physics circuits, ray diagrams) — CONTRACT-DEPENDS ON S3
@@ -49,7 +49,7 @@ Own: `lib/onemark/pdf/**` (image block only), `app/(routes)/foundation/onemark/r
 1. Upload: PNG/JPEG/SVG ≤ 2 MB to `onemark-question-assets/<item_id>/<uuid>.<ext>` via a route that checks `foundation.items.manage`, strips EXIF, and writes `onemark_question_assets` (alt_text REQUIRED — the PDF prints it for screen readers' sake and the review queue refuses to approve an item whose image lacks it).
 2. Render: practice runner (Lane L owns the runner — you export `<QuestionAsset>` from `lib/onemark/assets/render.tsx` and Lane L drops it in), PDF (`lib/onemark/pdf/document.ts`: image between stem and options, max width = text column, Tamil block shares the image), answer key unchanged.
 3. Signed URLs (60 s) for learner reads; never public.
-4. Gates: scoped tsc, vitest, PDF fixture with one image per subject rendered to PNG and EYEBALLED (rule #25), `npm run build`. [risky]: SVG sanitisation (reject scripts/foreignObject) — say what you did.
+4. Gates: scoped tsc, vitest, PDF fixture with one image per subject rendered to PNG and EYEBALLED (rule #25), `npm run build`. Ruling 11: on load failure the runner shows `alt_text` + Retry and the clock keeps running (Lane L wires it; you export the fallback component). [risky]: SVG sanitisation (reject scripts/foreignObject) — say what you did.
 
 ## Lane L — `feat/onemark-w3-live-ops` — live-sitting operations + served-set + learner progress card — CONTRACT-DEPENDS ON S3
 Own: `lib/services/onemark/attempt-server.ts`, `app/api/foundation/onemark/attempts/**`, `app/api/cron/onemark-live-autoclose/route.ts` (new) + its `vercel.json` cron line, `app/(routes)/foundation/onemark/practice/page.tsx` + `_components/**` (logic only; Lane T owns string extraction there — coordinate by touching different lines, never the same string), `__tests__/foundation/onemark-attempt-routes.test.ts`.
@@ -57,7 +57,8 @@ Own: `lib/services/onemark/attempt-server.ts`, `app/api/foundation/onemark/attem
 2. Cron `/api/cron/onemark-live-autoclose?secret=${CRON_SECRET}` every 10 minutes → `fn_onemark_close_abandoned_live()` with the service client; log the count; idiom of `app/api/cron/onemark-item-drafts`.
 3. "My progress" card on the learner home (`/foundation/onemark/practice`): from Lane A's learner-report API — score trend of last 10 sittings, vault due count, weakest unit. Never shows answers.
 4. Drop `<QuestionAsset>` (Lane D) into the runner behind a null-check so the runner builds before D merges.
-5. Gates: scoped tsc, vitest (auto-close idempotency with a fake clock; served-set refusal), `npm run build`, mirrors. [risky]: 15-second grace vs policy row; token retirement timing.
+5. Cap-reached fallback (ruling 12): when the paid inline path refuses for budget, `app/api/foundation/onemark/draft/route.ts` enqueues the same job for the Max-lane collect pass and answers 202 "queued, runs within 30 minutes at no cost"; `lib/services/onemark/draft-collect.ts` needs no change if the job is already `pending`. Rulings 7 and 13: resume keeps the clock running; an auto-closed sitting is never reopened (offer a fresh practice sitting on the same items instead).
+6. Gates: scoped tsc, vitest (auto-close idempotency with a fake clock; served-set refusal; cap-reached enqueue), `npm run build`, mirrors. [risky]: token retirement timing.
 
 ## Lane N — `feat/onemark-w3-wiring` — navigation, guide, hub door — LAST
 Own: `lib/sidebarMenuLink.ts`, `lib/foundation/guide/**`, `lib/navigation/modules.ts` (mobile tabs), `app/(routes)/foundation/students/[id]/page.tsx` (one link only).
@@ -73,13 +74,24 @@ Own: `lib/sidebarMenuLink.ts`, `lib/foundation/guide/**`, `lib/navigation/module
 4. **Real-user click-through on www.jkkn.ai** of every Wave 2 mode (passkey) before any learner sits a paper.
 5. **First live sitting** with one cohort; the auto-close cron and results sheet get their first real data.
 
-## Director decisions needed BEFORE launch (ask in one round, plain English)
-1. Results visibility: may a school principal (owner row, no `assessments.manage`) see every cohort sheet of his school? [recommend: yes via owner row]
-2. May a learner see their own item-level wrong answers after a LIVE paper closes, or only the score and weak units? [PRD: score + explanation after finalize; recommend: full review after close_at]
-3. Auto-close window after a live paper's close time: 30 minutes? [S3 policy row]
-4. Diagram uploads: allowed for every `items.manage` holder, or approver-only? [recommend: every author, approver must still tick]
-5. Tamil interface scope for this wave: learner surfaces only, or also the wizard and review queue? [recommend: learner first; wizard/review next wave]
-6. Matric HSS auto-provisioning (Lane 0 item 3): yes / no.
+## Rulings of 2026-09-06 01:20 IST (Director interview, 15 answers) — durable, do not reconsider without the Director
+| # | Question | Ruling | Lane |
+|---|---|---|---|
+| 1 | Principal sees every cohort sheet of his school? | **Yes** — the school-owner row alone grants read of every results sheet for that school (no `assessments.manage` needed). | S3 (RPC gate) + A |
+| 2 | What a learner sees after a live paper closes | **Full review** (each question, own answer, correct key, explanation) — only once the paper's `close_at` has passed for everyone. | S3 + L |
+| 3 | Auto-close window | **30 minutes** after `close_at` (`onemark.live.auto_close_after_minutes = 30`). | S3 + L |
+| 4 | Who attaches diagrams | **Any `items.manage` holder**; the approver still ticks the item; every image needs a one-line description. | D |
+| 5 | Tamil interface scope this wave | **Learner screens first**; wizard + review queue stay English until the next wave. | T |
+| 6 | Matric HSS auto-provisioning | **Yes, same rule as Nattraja** — APPLIED 2026-09-06 01:15: institution added to `onemark.provision.institution_ids`; catch-up gave 24 of 55 eligible profiles (those with a login) owner row + `school_faculty`; the other 31 self-provision on first sign-in. | done |
+| 7 | Internet drops mid-paper | **Resume where they were, clock kept running**; answers already recorded are safe; the 15-second grace applies to the last answer only. | L |
+| 8 | Question withdrawn after a paper was sat | **Scores stay as they were**; the results sheet marks the question as withdrawn (note per item), never recomputes. | S3 (RPC) + A |
+| 9 | Small cohorts and per-question stats | **Hide per-question numbers below 3 learners** (`onemark.results.min_learners_for_item_stats = 3`); the score list always shows. | S3 + A |
+| 10 | Tamil phrase not yet reviewed | **Show the English phrase quietly**; the reviewer sheet lists what is still English. | T |
+| 11 | Diagram fails to load in a timed paper | **Show the image's description, keep the clock running, offer Retry**; never a free skip. | D + L |
+| 12 | Monthly AI drafting cap reached | **Route "draft now" to the ₹0 Max lane** (enqueue for the scheduled collect pass, tell the Senior Learner "queued, runs within 30 minutes at no cost") instead of blocking; paid inline path resumes on the 1st. | L (draft route + `draft-collect.ts`) |
+| 13 | Reopen an auto-closed live sitting | **No.** The score stands; the Senior Learner may let the learner practise the same questions (a new practice sitting, not the live one). | L |
+| 14 | Results download | **Names and scores**; never answer keys or explanations. | A |
+| 15 | Question text on screen | **Only the picked language** (English or Tamil per the person's setting); if an item has no Tamil text, that item shows English. The printed paper stays bilingual. | T + L |
 
 ## Deferred (not Wave 3, by ruling)
 Offline Android app (decision 1 — only if no-signal proves real); subjects beyond Physics and English; Parts II–IV; parent/guardian view (PRD minors-data rule keeps it out until asked).
