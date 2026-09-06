@@ -73,6 +73,25 @@ function formatDay(iso: string) {
   });
 }
 
+/**
+ * Whole days between a YYYY-MM-DD stamp and today, computed in UTC so it never
+ * shifts by one at a timezone boundary.
+ */
+function daysSince(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const then = Date.UTC(y, m - 1, d);
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.max(0, Math.round((today - then) / 86_400_000));
+}
+
+/** "today" / "yesterday" / "N days ago" — a number alone reads as noise. */
+function ageLabel(days: number) {
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
+}
+
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -440,9 +459,29 @@ export function WhatsNewView() {
             Show changes before {formatDay(meta.recentFrom)}
           </Button>
         )}
+        {/* The age is shown ALWAYS, not only when it is bad (Director, 2026-09-06).
+            This list is generated and committed, so it can silently stop moving
+            while still looking perfectly healthy — a plain date gives a reader no
+            way to tell. Past a week we say so outright rather than leaving them to
+            do the arithmetic. */}
         <p className="text-center text-xs text-muted-foreground">
-          Updated {formatDay(meta.generatedAt)}. Changes you cannot see belong to parts of MyJKKN
-          you do not have access to.
+          Updated {formatDay(meta.generatedAt)} ·{' '}
+          <span
+            className={cn(
+              daysSince(meta.generatedAt) >= 7 && 'font-medium text-amber-700 dark:text-amber-400'
+            )}
+          >
+            {ageLabel(daysSince(meta.generatedAt))}
+          </span>
+          {daysSince(meta.generatedAt) >= 7 && (
+            <>
+              {' '}
+              — newer changes have shipped but are not shown here yet.
+            </>
+          )}
+        </p>
+        <p className="text-center text-xs text-muted-foreground">
+          Changes you cannot see belong to parts of MyJKKN you do not have access to.
         </p>
       </div>
     </div>

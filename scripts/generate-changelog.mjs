@@ -22,7 +22,9 @@ import {
   stripBugRefs,
   isInternalEngineering,
   isContentFree,
+  redactIdentifiers,
 } from '../lib/changelog/title-rules.mjs';
+import { HIDDEN } from '../lib/changelog/hidden.mjs';
 
 const REF = process.env.CHANGELOG_REF || 'jicate/main';
 const US = '\x1f'; // field separator
@@ -212,7 +214,7 @@ try {
 
 const entries = [];
 const authorTally = new Map();
-const skipped = { internal: 0, nonUserFacing: 0, engineering: 0, contentFree: 0 };
+const skipped = { internal: 0, hidden: 0, nonUserFacing: 0, engineering: 0, contentFree: 0 };
 const moduleDict = {};
 let recovered = 0;
 
@@ -225,6 +227,11 @@ for (const rec of raw.split(RS)) {
   // Everything after the last separator is the --name-only file list.
   const files = (parts[5] ?? '').split('\n').map((f) => f.trim()).filter(Boolean);
   if (!subject) continue;
+
+  // The one manual override on an otherwise fully automatic page — see
+  // lib/changelog/hidden.mjs. Checked before any other rule so a hidden entry
+  // costs nothing and cannot be resurrected by a later rule change.
+  if (HIDDEN.has(sha.slice(0, 7))) { skipped.hidden++; continue; }
 
   const m = subject.match(SUBJECT_RE);
   if (!m) { skipped.nonUserFacing++; continue; }
@@ -260,7 +267,7 @@ for (const rec of raw.split(RS)) {
   const prMatch = rawText.match(PR_RE);
   // Order matters: the PR number is stripped first (it is always outermost),
   // then the auto-triage bug tail it was hiding.
-  const text = stripBugRefs(rawText.replace(PR_RE, '')).trim();
+  const text = redactIdentifiers(stripBugRefs(rawText.replace(PR_RE, ''))).trim();
   if (!text) continue;
   if (isInternalEngineering(text)) { skipped.engineering++; continue; }
   if (isContentFree(text)) { skipped.contentFree++; continue; }
@@ -344,6 +351,7 @@ console.log(`changelog: ${entries.length} entries  ${meta.first} → ${meta.late
 console.log(`  recent (90d): ${recent.length}   archive: ${archive.length}`);
 console.log(`  skipped: ${skipped.nonUserFacing} non-user-facing, ${skipped.internal} internal-scope`);
 console.log(`           ${skipped.engineering} build-toolchain, ${skipped.contentFree} content-free titles`);
+if (skipped.hidden) console.log(`  hidden by lib/changelog/hidden.mjs: ${skipped.hidden}`);
 console.log(`  module recovered from changed files: ${recovered}`);
 console.log(`  platform (everyone-can-read) entries: ${entries.filter((e) => e.m === 'platform').length}`);
 console.log(`  contributors: ${meta.contributors.length}, modules: ${Object.keys(meta.modules).length}`);

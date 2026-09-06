@@ -17,6 +17,7 @@ import {
   stripBugRefs,
   isInternalEngineering,
   isContentFree,
+  redactIdentifiers,
 } from '@/lib/changelog/title-rules.mjs';
 
 describe('stripBugRefs — trailing bug-tracker noise', () => {
@@ -101,5 +102,37 @@ describe('isContentFree — titles that name a place and nothing else', () => {
     'Bos examiner pdf alignment fix',
   ])('keeps %s', (title) => {
     expect(isContentFree(title)).toBe(false);
+  });
+});
+
+describe('redactIdentifiers — details that should not travel with a change', () => {
+  it('removes an email address', () => {
+    // The real entry that prompted the rule.
+    expect(
+      redactIdentifiers('Preview exit restores admin session + add someone@jkkn.ac.in to write-mode allowlist')
+    ).toBe('Preview exit restores admin session + add [email removed] to write-mode allowlist');
+  });
+
+  it('removes a 10-digit mobile number', () => {
+    expect(redactIdentifiers('Send the reminder to 9876543210 on failure')).toBe(
+      'Send the reminder to [number removed] on failure'
+    );
+  });
+
+  it('leaves ordinary numbers alone', () => {
+    // Deliberately narrow: years, counts, amounts and bug ids all survive. A rule
+    // that ate these would strip the meaning out of most titles.
+    const kept = [
+      'Bump fetch limit 100 to 500 so the whole cohort loads',
+      '885 leaves were taken before anyone approved them',
+      'Late fee of 43850000 shown against the wrong term',
+      'Await dynamic params in the 2026 intake route',
+    ];
+    for (const s of kept) expect(redactIdentifiers(s)).toBe(s);
+  });
+
+  it('leaves a title with nothing to redact untouched', () => {
+    const s = 'A council seat can no longer be given two active holders';
+    expect(redactIdentifiers(s)).toBe(s);
   });
 });

@@ -90,8 +90,29 @@ jobs:
           git commit -m "chore(whats-new): refresh the changelog — ${TOTAL} entries through ${LATEST}"
           git push origin "$BRANCH"
 
+          # AUTO-MERGE — a deliberate, NARROW exception to this repo's standing
+          # rule that nothing merges itself (Director, 2026-09-06). It applies to
+          # THIS job only, and only because of what this PR can contain: the diff
+          # is restricted to lib/changelog/data/ and the step above exits early if
+          # anything else moved. No code, no migration, no permission change. Every
+          # required check still has to pass before the merge fires.
+          #
+          # The reason it is needed: without it the page silently falls behind
+          # whenever nobody approves a one-line data update, which is exactly the
+          # failure the age indicator on the page was added to expose.
+          #
+          # This becomes UNNECESSARY once the changelog moves into the database
+          # (decided 2026-09-06) — at that point there is no daily PR at all, and
+          # this whole workflow and its exception should be deleted rather than
+          # left lying around.
+          enable_auto_merge() {
+            gh pr merge "$BRANCH" --auto --squash \
+              || echo "::warning::Could not enable auto-merge; this PR needs a human."
+          }
+
           if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
             echo "Refresh PR already open; the newer data is now on it."
+            enable_auto_merge
           else
             gh pr create \
               --base main --head "$BRANCH" \
@@ -101,4 +122,5 @@ jobs:
           Latest entry: **${LATEST}**. Total: **${TOTAL}**.
 
           Merging this is what makes the newest shipped work visible on /whats-new."
+            enable_auto_merge
           fi
