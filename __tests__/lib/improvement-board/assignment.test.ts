@@ -36,12 +36,17 @@ const SQL = MIGRATION.split('\n')
   .join('\n');
 
 // --- service-layer mocks ---------------------------------------------------
-const rpcSpy = vi.fn(async () => ({ data: null, error: null }));
-const updateSpy = vi.fn();
+type RpcResult = { data: unknown; error: { message?: string } | null };
+
+/** Typed with its real signature: an untyped vi.fn() infers a ZERO-arg mock, and
+ *  then every toHaveBeenCalledWith(name, args) is a TS2554 the runtime never
+ *  notices — green tests, red TypeCheck. */
+const rpcSpy = vi.fn<(name: string, args: Record<string, unknown>) => Promise<RpcResult>>();
+const updateSpy = vi.fn<(patch: Record<string, unknown>) => unknown>();
 
 vi.mock('@/lib/supabase/client', () => ({
   createClientSupabaseClient: () => ({
-    rpc: (name: string, args: Record<string, unknown>) => rpcSpy(name as never, args as never),
+    rpc: (name: string, args: Record<string, unknown>) => rpcSpy(name, args),
     from: () => ({ update: updateSpy }),
   }),
 }));
@@ -55,7 +60,7 @@ const PERSON = 'person-1';
 
 beforeEach(() => {
   rpcSpy.mockReset();
-  rpcSpy.mockResolvedValue({ data: null, error: null } as never);
+  rpcSpy.mockResolvedValue({ data: null, error: null });
   updateSpy.mockReset();
 });
 
@@ -87,14 +92,14 @@ describe('the service assigns through the RPC and nothing else', () => {
     rpcSpy.mockResolvedValue({
       data: null,
       error: { message: 'Only Improvement Board managers can assign an improvement idea.' },
-    } as never);
+    });
     await expect(ImprovementAssignmentService.assign(IDEA, PERSON)).rejects.toThrow(
       /Only Improvement Board managers/,
     );
   });
 
   it('still throws when the RPC error carries no message', async () => {
-    rpcSpy.mockResolvedValue({ data: null, error: {} } as never);
+    rpcSpy.mockResolvedValue({ data: null, error: {} });
     await expect(ImprovementAssignmentService.assign(IDEA, PERSON)).rejects.toThrow(
       'Failed to assign the idea.',
     );
