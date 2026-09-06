@@ -3412,7 +3412,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.school_of_influence.view', label: 'School of Influencer — View batches and members' },
       { key: 'cohort.school_of_influence.create', label: 'School of Influencer — Create batches, accept applicants' },
       { key: 'cohort.school_of_influence.edit', label: 'School of Influencer — Edit batches and member status' },
-      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' }
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' },
+      // Added 2026-08-02 — the /cohorts/coordinators console (migration
+      // 20260809100000_cohort_coordinators_console.sql).
+      //
+      // ⚠ THIS KEY OPENS NOTHING ON ITS OWN, AND THAT IS DELIBERATE. The Director
+      // decided appointing coordinators is super-administrator-only, so the page,
+      // the API routes, the RLS on cohort_coordinators and every RPC all require
+      // COALESCE(is_super_admin(), false). The key exists so the sidebar entry has
+      // its own MENU_PERMISSIONS mapping instead of inheriting one from an
+      // ancestor route and gating on the wrong thing. Granting it shows somebody
+      // the menu item; the page then refuses them explicitly, naming who to ask.
+      // Do not grant it expecting it to admit anyone.
+      { key: 'cohort.coordinators.manage', label: 'Cohort Coordinators console (super administrators only — granting this alone admits nobody)' }
     ]
   },
   {
