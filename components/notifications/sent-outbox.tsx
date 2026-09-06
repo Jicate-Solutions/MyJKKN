@@ -5,6 +5,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import type { SentListResult } from '@/lib/services/notification/sent-service';
+import {
+  getTargetRoleKeys,
+  getTargetedUserIds
+} from '@/lib/notifications/target-audience';
 import { stripHtml } from '@/components/ui/rich-text-editor';
 
 /**
@@ -46,18 +50,24 @@ function describeAudience(targeting: Record<string, unknown> | null): string {
   if (t.program_id) parts.push('Program');
   if (t.semester_id) parts.push('Semester');
   if (t.section_id) parts.push('Section');
-  if (Array.isArray(t.target_roles) && t.target_roles.length > 0) {
+  // Role and person targeting are read through the shared rule
+  // (lib/notifications/target-audience.ts, PR #3128) rather than a local
+  // `t.target_roles` / `t.user_ids` check. Senders emit five different keys for
+  // "these people": reading only two of them sent 3,491 person-targeted rows
+  // through every branch below and out the bottom as the placeholder
+  // 'targeting set', which says nothing about blast radius at all.
+  const roleKeys = getTargetRoleKeys(t);
+  if (roleKeys.length > 0) {
     parts.push(
-      t.target_roles.length === 1
-        ? `Role: ${t.target_roles[0]}`
-        : `${t.target_roles.length} roles`
+      roleKeys.length === 1 ? `Role: ${roleKeys[0]}` : `${roleKeys.length} roles`
     );
   }
   // KEEP: BYOW single-user notifications persist targeting: { user_ids: [...] }
   // (lib/services/notification/byow-notification-service.ts:92) — this branch is live.
-  if (Array.isArray(t.user_ids) && t.user_ids.length > 0) {
+  const recipientIds = getTargetedUserIds(t);
+  if (recipientIds.length > 0) {
     parts.push(
-      t.user_ids.length === 1 ? '1 user' : `${t.user_ids.length} users`
+      recipientIds.length === 1 ? '1 person' : `${recipientIds.length} people`
     );
   }
   if (Array.isArray(t.audience_ids) && t.audience_ids.length > 0) {

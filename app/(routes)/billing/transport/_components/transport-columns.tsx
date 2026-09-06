@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Receipt } from 'lucide-react';
+import { ReceiptIndianRupee } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TransportPayOnlineButton } from './transport-pay-online-button';
@@ -176,7 +176,7 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
                 )}
                 {canReceipt && (
                   <Button asChild variant='outline' size='sm' className='h-8 gap-1 px-2 text-xs'>
-                    <Link href={receiptHref}><Receipt className='h-3.5 w-3.5' /> Receipt</Link>
+                    <Link href={receiptHref}><ReceiptIndianRupee className='h-3.5 w-3.5' /> Receipt</Link>
                   </Button>
                 )}
               </>

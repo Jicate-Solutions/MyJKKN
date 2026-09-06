@@ -36,7 +36,17 @@ export interface ApprovalFilterState {
   institutionId: string;
   /** 'any' or an hr_leave_types.id. */
   leaveTypeId: string;
-  status: 'any' | 'pending' | 'escalated';
+  /** 'open' = pending + escalated (the default work queue); 'any' = everything
+   *  the RPC returned, decided history included. */
+  status:
+    | 'open'
+    | 'any'
+    | 'pending'
+    | 'escalated'
+    | 'approved'
+    | 'rejected'
+    | 'withdrawn'
+    | 'cancelled';
   /** Only rows whose CURRENT step routes to me. */
   mineOnly: boolean;
   emergencyOnly: boolean;
@@ -46,7 +56,7 @@ export interface ApprovalFilterState {
 export const emptyApprovalFilters = (period: PeriodRange): ApprovalFilterState => ({
   institutionId: 'any',
   leaveTypeId: 'any',
-  status: 'any',
+  status: 'open',
   mineOnly: false,
   emergencyOnly: false,
   period,
@@ -56,7 +66,7 @@ export function approvalFiltersActive(f: ApprovalFilterState): boolean {
   return (
     f.institutionId !== 'any' ||
     f.leaveTypeId !== 'any' ||
-    f.status !== 'any' ||
+    f.status !== 'open' ||
     f.mineOnly ||
     f.emergencyOnly ||
     f.period.preset !== 'all'
@@ -91,7 +101,11 @@ export function matchesApprovalFilters(
   }
   if (f.institutionId !== 'any' && r.institution_id !== f.institutionId) return false;
   if (f.leaveTypeId !== 'any' && r.leave_type_id !== f.leaveTypeId) return false;
-  if (f.status !== 'any' && r.status !== f.status) return false;
+  if (f.status === 'open') {
+    if (r.status !== 'pending' && r.status !== 'escalated') return false;
+  } else if (f.status !== 'any' && r.status !== f.status) {
+    return false;
+  }
   if (f.mineOnly && !r.waiting_on_me) return false;
   if (f.emergencyOnly && !r.is_emergency) return false;
 

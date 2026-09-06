@@ -54,6 +54,11 @@ const lookups = {
   ]),
 } as unknown as BulkResolveLookups;
 
+// Every structure must promote to BOTH Reserved and Admitted somewhere (see
+// REQUIRED_PROMOTIONS), so each happy-path fixture below carries the two rungs
+// on rows that are otherwise about something else. A structure with one row
+// can only name one rung, which is why several fixtures gained a second fee.
+
 /** The structure columns as the export repeats them down every row. */
 const STRUCTURE = {
   Institution: 'Test College',
@@ -97,8 +102,8 @@ describe('detectSheetLayout', () => {
 describe('resolveUnifiedSheet — grouping rows into structures', () => {
   it('folds a structure’s fee rows into ONE payload', () => {
     const { res, resolutions, itemCount } = one([
-      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000 }),
-      row({ 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', Amount: 5000 }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Promotes To': 'Reserved' }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' }),
     ]);
     expect(resolutions).toHaveLength(1);
     expect(res.errors).toEqual([]);
@@ -113,9 +118,10 @@ describe('resolveUnifiedSheet — grouping rows into structures', () => {
 
   it('keeps two structures apart even when their fee rows interleave', () => {
     const { resolutions } = one([
-      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000 }),
-      row({ 'Fee Structure ID': STRUCT2, Name: 'Other', 'Fee Category': 'Uniform Fee', Amount: 2000 }),
-      row({ 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', Amount: 5000 }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Promotes To': 'Reserved' }),
+      row({ 'Fee Structure ID': STRUCT2, Name: 'Other', 'Fee Category': 'Uniform Fee', Amount: 2000, 'Instalment #': 1, 'Share %': 50, 'Due After (Days)': 15, 'Promotes To': 'Reserved' }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' }),
+      row({ 'Fee Structure ID': STRUCT2, Name: 'Other', 'Fee Category': 'Uniform Fee', Amount: 2000, 'Instalment #': 2, 'Share %': 50, 'Due After (Days)': 90, 'Promotes To': 'Admitted' }),
     ]);
     expect(resolutions).toHaveLength(2);
     const byId = new Map(resolutions.map((r) => [r.payload?.structure_id, r]));
@@ -138,6 +144,7 @@ describe('resolveUnifiedSheet — grouping rows into structures', () => {
       row({
         'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000,
         'Instalment #': n, 'Share %': pct, 'Due After (Days)': days,
+        'Promotes To': n === 1 ? 'Reserved' : 'Admitted',
       });
     const { res, itemCount } = one([inst(1, 30, 15), inst(2, 40, 90), inst(3, 30, 180)]);
     expect(res.errors).toEqual([]);
@@ -156,7 +163,8 @@ describe('resolveUnifiedSheet — grouping rows into structures', () => {
     // fee of every structure on it, so there is nothing left to preserve —
     // and a blank instalment row must be able to REMOVE a split.
     const { res } = one([
-      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000 }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Promotes To': 'Reserved' }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' }),
     ]);
     expect(res.payload).toHaveProperty('item_schedules');
     expect(res.payload!.item_schedules![0].schedule_mode).toBe('single');
@@ -177,8 +185,8 @@ describe('resolveUnifiedSheet — repeated values must agree', () => {
 
   it('lets a blank cell follow the rows that are filled', () => {
     const { res } = one([
-      row({ 'Fee Structure ID': STRUCT, Notes: 'Approved by AC', 'Fee Category': '1 Year Tuition Fee', Amount: 100000 }),
-      row({ 'Fee Structure ID': STRUCT, Notes: '', 'Fee Category': 'Uniform Fee', Amount: 5000 }),
+      row({ 'Fee Structure ID': STRUCT, Notes: 'Approved by AC', 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Promotes To': 'Reserved' }),
+      row({ 'Fee Structure ID': STRUCT, Notes: '', 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' }),
     ]);
     expect(res.errors).toEqual([]);
     expect(res.payload!.notes).toBe('Approved by AC');
@@ -230,7 +238,8 @@ describe('resolveUnifiedSheet — the shared rules still apply', () => {
 
   it('derives the fixed_date anchor from a Due Date, exactly as sheet 2 did', () => {
     const { res } = one([
-      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Due Date': '2027-01-31' }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Due Date': '2027-01-31', 'Promotes To': 'Reserved' }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' }),
     ]);
     expect(res.errors).toEqual([]);
     expect(res.payload!.item_schedules![0].due_anchor).toBe('fixed_date');
@@ -260,8 +269,9 @@ describe('resolveUnifiedSheet — the shared rules still apply', () => {
     for (const h of UNIFIED_HEADERS) blank[h] = '';
     const { resolutions } = one([
       blank,
-      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000 }),
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Promotes To': 'Reserved' }),
       blank,
+      row({ 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' }),
     ]);
     expect(resolutions).toHaveLength(1);
     expect(resolutions[0].errors).toEqual([]);
@@ -284,7 +294,7 @@ describe('the unified tab survives a real workbook write/read', () => {
     const base = { ...STRUCTURE, 'Fee Structure ID': STRUCT, 'Default Due (Days)': 30 };
     ws.addRow({ ...base, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Instalment #': 1, 'Share %': 30, 'Amount (ref)': 30000, 'Due Anchor': 'Academic Year Start', 'Due After (Days)': 15, 'Promotes To': 'Reserved' });
     ws.addRow({ ...base, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Instalment #': 2, 'Share %': 70, 'Amount (ref)': 70000, 'Due Anchor': 'Academic Year Start', 'Due After (Days)': 120 });
-    ws.addRow({ ...base, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Amount (ref)': 5000, 'Due Anchor': 'Generation Date' });
+    ws.addRow({ ...base, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Amount (ref)': 5000, 'Due Anchor': 'Generation Date', 'Promotes To': 'Admitted' });
 
     const read = XLSX.read(await wb.xlsx.writeBuffer(), { type: 'buffer', cellDates: true });
     expect(read.SheetNames).toContain(FEE_STRUCTURE_SHEET_NAME);
@@ -374,7 +384,7 @@ describe('the template’s sample rows are shapes the importer accepts', () => {
     // that use an offset — and there are none. This must NOT be rejected.
     const { res } = one([
       row({ ...B, 'Fee Category': '1 Year Tuition Fee', Amount: 90000, 'Instalment #': 1, 'Share %': 50, 'Due Anchor': 'Generation Date', 'Due Date': '2026-08-31', 'Promotes To': 'Reserved' }),
-      row({ ...B, 'Fee Category': '1 Year Tuition Fee', Amount: 90000, 'Instalment #': 2, 'Share %': 50, 'Due Anchor': 'Generation Date', 'Due Date': '2027-01-31' }),
+      row({ ...B, 'Fee Category': '1 Year Tuition Fee', Amount: 90000, 'Instalment #': 2, 'Share %': 50, 'Due Anchor': 'Generation Date', 'Due Date': '2027-01-31', 'Promotes To': 'Admitted' }),
     ]);
     expect(res.errors).toEqual([]);
     const sched = res.payload!.item_schedules![0];
@@ -402,9 +412,9 @@ describe('Due Date survives the formats Excel turns it into', () => {
 
     const base = { ...STRUCTURE, 'Fee Structure ID': STRUCT };
     // As the export writes it.
-    ws.addRow({ ...base, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Due Date': '2027-01-31' });
+    ws.addRow({ ...base, 'Fee Category': '1 Year Tuition Fee', Amount: 100000, 'Due Date': '2027-01-31', 'Promotes To': 'Reserved' });
     // As an operator types it on an Indian-locale machine.
-    ws.addRow({ ...base, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Due Date': '31/01/2027' });
+    ws.addRow({ ...base, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Due Date': '31/01/2027', 'Promotes To': 'Admitted' });
 
     const read = XLSX.read(await wb.xlsx.writeBuffer(), { type: 'buffer', cellDates: true });
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
@@ -420,4 +430,167 @@ describe('Due Date survives the formats Excel turns it into', () => {
       expect(s.due_anchor).toBe('fixed_date');
     }
   }, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// THE INSTALMENTS MUST ADD UP TO THE FEE. The engine sizes lines 1..n-1 as typed
+// and hands the LAST line whatever is left — so a sheet whose parts did not
+// total the Amount was never rejected, it was quietly corrected at billing
+// time: 70,000 + 80,000 on a ₹1,40,000 fee billed 70,000 + 70,000, and
+// 1,50,000 + 20,000 left nothing for the second instalment, so the fee was
+// billed in one go with no split at all. "Amount (ref)" was ignored outright,
+// so a wrong rupee figure could sit beside a share it contradicted.
+describe('resolveUnifiedSheet — the instalments must add up to the fee Amount', () => {
+  const FEE = { 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 140000 };
+  // Instalment 1 promotes to Reserved and the rest to Admitted, so every split
+  // here satisfies the both-rungs rule and only the rupees are under test.
+  const rung = (n: number) => (n === 1 ? 'Reserved' : 'Admitted');
+  const fixed = (n: number, amt: number, over: Record<string, unknown> = {}) =>
+    row({ ...FEE, 'Instalment #': n, 'Fixed Amount': amt, 'Due After (Days)': n * 30, 'Promotes To': rung(n), ...over });
+  const pct = (n: number, share: number, over: Record<string, unknown> = {}) =>
+    row({ ...FEE, 'Instalment #': n, 'Share %': share, 'Due After (Days)': n * 30, 'Promotes To': rung(n), ...over });
+
+  it('accepts fixed amounts that total the Amount', () => {
+    const { res } = one([fixed(1, 70000), fixed(2, 70000)]);
+    expect(res.errors).toEqual([]);
+    expect(res.payload!.item_schedules![0].lines.map((l) => l.fixed_amount)).toEqual([70000, 70000]);
+  });
+
+  it('rejects fixed amounts that total MORE than the Amount, naming the last instalment', () => {
+    const { res } = one([fixed(1, 70000), fixed(2, 80000)]);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0]).toMatch(/^Row 3:/);
+    expect(res.errors[0]).toMatch(/add up to ₹1,50,000, not the fee's Amount of ₹1,40,000/);
+    expect(res.errors[0]).toMatch(/₹10,000 too much/);
+  });
+
+  it('rejects fixed amounts that fall SHORT of the Amount', () => {
+    const { res } = one([fixed(1, 60000), fixed(2, 60000)]);
+    expect(res.errors.join(' ')).toMatch(/add up to ₹1,20,000/);
+    expect(res.errors.join(' ')).toMatch(/₹20,000 short/);
+  });
+
+  it('rejects a first instalment that already exceeds the Amount — the engine would not split at all', () => {
+    const { res } = one([fixed(1, 150000), fixed(2, 20000)]);
+    expect(res.errors.join(' ')).toMatch(/add up to ₹1,70,000/);
+  });
+
+  it('checks a MIXED split (percent + fixed) against the Amount too', () => {
+    // 50% of 1,40,000 is 70,000; a fixed 80,000 beside it is 10,000 too much.
+    expect(one([pct(1, 50), fixed(2, 80000)]).res.errors.join(' ')).toMatch(/₹10,000 too much/);
+    // 1,00,000 fixed + 50% is 1,70,000 — the 50% is NOT quietly reduced to 40,000.
+    expect(one([fixed(1, 100000), pct(2, 50)]).res.errors.join(' ')).toMatch(/₹30,000 too much/);
+    // The pair that does add up passes.
+    expect(one([pct(1, 50), fixed(2, 70000)]).res.errors).toEqual([]);
+  });
+
+  it('does not raise a rounding false alarm on a percent-only split', () => {
+    // 33.33 / 33.33 / 33.34 of 1,00,000 = 33,330 + 33,330 + 33,340 (the last
+    // absorbs rounding). Pinned by the 100% rule; no rupee rule is needed.
+    const rows = [1, 2, 3].map((n) =>
+      row({ ...FEE, Amount: 100000, 'Instalment #': n, 'Share %': n === 3 ? 33.34 : 33.33, 'Due After (Days)': n * 30, 'Promotes To': rung(n) }),
+    );
+    expect(one(rows).res.errors).toEqual([]);
+  });
+
+  it('rejects a Share % outside (0, 100] even when the percentages total 100', () => {
+    // 120 / -20 totals 100 and would bill instalment 1 for MORE than the fee;
+    // the engine then refuses to split and bills it in one go, silently.
+    const { res } = one([pct(1, 120), pct(2, -20)]);
+    expect(res.errors.join(' ')).toMatch(/Share % must be more than 0 and at most 100/);
+  });
+
+  it('rejects a Fixed Amount of 0', () => {
+    const { res } = one([fixed(1, 0), fixed(2, 140000)]);
+    expect(res.errors.join(' ')).toMatch(/Fixed Amount must be more than 0/);
+  });
+
+  describe('"Amount (ref)" is a cross-check, and it is now checked', () => {
+    it('accepts a ref that matches what the instalment bills, and a blank one', () => {
+      expect(one([pct(1, 50, { 'Amount (ref)': 70000 }), pct(2, 50, { 'Amount (ref)': 70000 })]).res.errors).toEqual([]);
+      expect(one([pct(1, 50, { 'Amount (ref)': 70000 }), pct(2, 50)]).res.errors).toEqual([]);
+    });
+
+    it('rejects a ref that contradicts the share, naming the row', () => {
+      const { res } = one([pct(1, 50, { 'Amount (ref)': 60000 }), pct(2, 50, { 'Amount (ref)': 70000 })]);
+      expect(res.errors).toHaveLength(1);
+      expect(res.errors[0]).toMatch(/^Row 2:/);
+      expect(res.errors[0]).toMatch(/Amount \(ref\) says ₹60,000, but this instalment bills ₹70,000 \(50% of ₹1,40,000\)/);
+    });
+
+    it('catches a stale ref after the Amount was raised', () => {
+      // Exported at 1,40,000 (70,000 + 70,000), then Amount edited to 1,50,000
+      // on both rows and the ref column left as it was.
+      const { res } = one([
+        pct(1, 50, { Amount: 150000, 'Amount (ref)': 70000 }),
+        pct(2, 50, { Amount: 150000, 'Amount (ref)': 70000 }),
+      ]);
+      expect(res.errors).toHaveLength(2);
+      expect(res.errors[0]).toMatch(/bills ₹75,000/);
+    });
+
+    it('checks the whole-fee row too', () => {
+      // A whole-fee row names one rung; the other rides on a second fee.
+      const ADMIT = row({ ...FEE, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' });
+      const bad = one([row({ ...FEE, 'Amount (ref)': 130000, 'Promotes To': 'Reserved' }), ADMIT]);
+      expect(bad.res.errors.join(' ')).toMatch(/Amount \(ref\) says ₹1,30,000, but the fee's Amount is ₹1,40,000/);
+      const ok = one([row({ ...FEE, 'Amount (ref)': 140000, 'Promotes To': 'Reserved' }), ADMIT]);
+      expect(ok.res.errors).toEqual([]);
+    });
+
+    it('rejects a non-numeric ref rather than silently skipping it', () => {
+      const { res } = one([pct(1, 50, { 'Amount (ref)': 'seventy' }), pct(2, 50)]);
+      expect(res.errors.join(' ')).toMatch(/Amount \(ref\) is not a number/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EVERY STRUCTURE MUST PROMOTE TO BOTH RUNGS. "Promotes To" is how a settled
+// fee moves a learner account → reserved → admitted; a structure that names
+// only one rung (or neither) strands learners on it however much they pay.
+describe('resolveUnifiedSheet — every structure must promote to both Reserved and Admitted', () => {
+  const FEE = { 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 140000 };
+  const inst = (n: number, promotes: string, over: Record<string, unknown> = {}) =>
+    row({ ...FEE, 'Instalment #': n, 'Share %': 50, 'Due After (Days)': n * 30, 'Promotes To': promotes, ...over });
+
+  it('accepts both rungs on two instalments of one fee', () => {
+    expect(one([inst(1, 'Reserved'), inst(2, 'Admitted')]).res.errors).toEqual([]);
+  });
+
+  it('accepts the rungs on two different fees, on whole-fee rows', () => {
+    const { res } = one([
+      row({ ...FEE, 'Promotes To': 'Reserved' }),
+      row({ ...FEE, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' }),
+    ]);
+    expect(res.errors).toEqual([]);
+  });
+
+  it('rejects a structure that names neither, at its first row', () => {
+    const { res } = one([inst(1, ''), inst(2, '')]);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0]).toMatch(/^Row 2:/);
+    expect(res.errors[0]).toMatch(/must promote a learner to both Reserved and Admitted/);
+    expect(res.errors[0]).toMatch(/Missing: Reserved and Admitted\.$/);
+  });
+
+  it('rejects a structure that names only one rung, and says which is missing', () => {
+    expect(one([inst(1, 'Reserved'), inst(2, 'Reserved')]).res.errors.join(' ')).toMatch(/Missing: Admitted\./);
+    expect(one([inst(1, 'Admitted'), inst(2, '')]).res.errors.join(' ')).toMatch(/Missing: Reserved\./);
+  });
+
+  it('holds a brand-new structure (no ID) to the same rule', () => {
+    const { res } = one([row({ 'Fee Category': '1 Year Tuition Fee', Amount: 100000 })]);
+    expect(res.errors.join(' ')).toMatch(/must promote a learner to both/);
+  });
+
+  it('exempts an archived structure — it bills nobody', () => {
+    expect(one([row({ ...FEE, Status: 'archived' })]).res.errors).toEqual([]);
+  });
+
+  it('reports row-level problems first, not the missing rungs on top of them', () => {
+    const { res } = one([inst(1, '', { 'Share %': 30 }), inst(2, '', { 'Share %': 30 })]);
+    expect(res.errors.join(' ')).toMatch(/not 100%/);
+    expect(res.errors.join(' ')).not.toMatch(/must promote/);
+  });
 });

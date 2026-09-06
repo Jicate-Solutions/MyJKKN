@@ -42,6 +42,10 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'scripts/ci/check-table-anon-revoke.mjs'
+      # The parser lives in its own module so it can be unit-tested. Without this
+      # path the guard would not re-run on a change to its own parsing layer —
+      # i.e. the half where a mistake turns the gate blind rather than noisy.
+      - 'scripts/ci/lib/sql-relation-parser.mjs'
 
 permissions:
   contents: read

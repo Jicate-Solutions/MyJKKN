@@ -96,6 +96,16 @@ on:
       - 'app/(routes)/meetings/schedule/**'
       - 'app/(routes)/meetings/availability/**'
       - 'app/api/contacts/card-scan/**'
+      # Added 2026-09-01 with recurring-series-write-actions.test.ts, which
+      # imports the recurring-series server actions out of app/ the same way the
+      # four files above do:
+      #   recurring-series-write-actions.test.ts -> app/(routes)/meetings/series/actions
+      #                                          -> app/(routes)/meetings/series/rules/actions
+      # WITHOUT this entry the gate would not fire on a pull request that edits
+      # only those actions — which is precisely the pull request the tests exist
+      # to catch. That is the same silent non-execution this workflow was written
+      # to end, so the path list has to keep up with the import list.
+      - 'app/(routes)/meetings/series/**'
       # Deliberately ABSENT: supabase/migrations/** and app/api/cron/**.
       # lib-unit-suite.yml needs those because registry-cron-wiring.test.ts reads
       # the repo off disk. Nothing in this suite does, so no file here can change

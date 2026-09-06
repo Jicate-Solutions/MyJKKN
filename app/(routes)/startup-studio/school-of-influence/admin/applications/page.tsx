@@ -44,14 +44,14 @@ import { ApplicationsWorkspace } from './_components/applications-workspace';
 // what anybody searching for this programme would type (BUG-005799 /
 // BUG-005800).
 export const navMeta = {
-  label: 'School of Influence Applications',
+  label: 'School of Influencer Applications',
   icon: 'ClipboardList',
 } as const;
 
 export const metadata: Metadata = {
-  title: 'School of Influence — Applications',
+  title: 'School of Influencer — Applications',
   description:
-    'Review who has applied to a School of Influence programme, accept them into a batch, or turn an application down with a reason the applicant can read.',
+    'Review who has applied to a School of Influencer programme, accept them into a batch, or turn an application down with a reason the applicant can read.',
 };
 
 interface PageProps {
@@ -71,12 +71,12 @@ export default async function SoiApplicationsPage({ searchParams }: PageProps) {
   const eventId = event ?? (choices.length === 1 ? choices[0].eventId : null);
 
   return (
-    <ContentLayout title="School of Influence">
+    <ContentLayout title="School of Influencer">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Startup Studio', href: '/startup-studio' },
-          { label: 'School of Influence' },
+          { label: 'School of Influencer' },
           { label: 'Applications' },
         ]}
       />
@@ -89,7 +89,7 @@ export default async function SoiApplicationsPage({ searchParams }: PageProps) {
           <CardHeader>
             <CardTitle className="text-base">Which programme?</CardTitle>
             <CardDescription>
-              You can review applications for more than one School of Influence
+              You can review applications for more than one School of Influencer
               programme. Pick the one you want to work through.
             </CardDescription>
           </CardHeader>
@@ -113,7 +113,7 @@ export default async function SoiApplicationsPage({ searchParams }: PageProps) {
               There is no programme here for you to review
             </CardTitle>
             <CardDescription>
-              Reviewing applications is done by a School of Influence coordinator.
+              Reviewing applications is done by a School of Influencer coordinator.
               If you have just been made one, sign out and back in so the change
               takes effect. Otherwise ask a coordinator, or a MyJKKN
               administrator, to appoint you on the Coordinators screen.

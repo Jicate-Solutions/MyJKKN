@@ -257,7 +257,7 @@ export class CoeRestClient {
           const errorMessage =
             errorBody.error || errorBody.message || `COE API error: ${response.status}`;
 
-          throw new CoeApiError(errorMessage, response.status, errorBody.details);
+          throw new CoeApiError(errorMessage, response.status, errorBody.details, errorBody);
         }
 
         return response.json() as Promise<T>;
@@ -276,11 +276,31 @@ export class CoeRestClient {
 export class CoeApiError extends Error {
   status: number;
   details?: string[];
+  /**
+   * The raw JSON error body COE returned.
+   *
+   * Some COE endpoints answer with a MACHINE code in `error` and the readable
+   * sentence in `message` — e.g. the IA save route's
+   * `{ error: "WOULD_CLEAR", message: "This save would erase..." }`. `this.message`
+   * resolves to `error` first (unchanged, so existing callers keep their
+   * behaviour), which for those endpoints is the bare code. A route that needs
+   * to branch on the code AND show the sentence reads them off here instead.
+   *
+   * See COE docs/ia-question-paper-entry-spec.md 9.4: "Coded errors carry the
+   * readable text in `message`, not `error`."
+   */
+  body?: Record<string, unknown>;
 
-  constructor(message: string, status: number, details?: string[]) {
+  constructor(
+    message: string,
+    status: number,
+    details?: string[],
+    body?: Record<string, unknown>
+  ) {
     super(message);
     this.name = 'CoeApiError';
     this.status = status;
     this.details = details;
+    this.body = body;
   }
 }

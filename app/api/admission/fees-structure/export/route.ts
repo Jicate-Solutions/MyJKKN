@@ -17,7 +17,9 @@ import {
   UNIFIED_HEADERS,
   FIXED_HEADERS,
   DUE_ANCHOR_LABELS,
+  APPLIES_TO_LABELS,
   DATE_HEADERS,
+  type FeeAppliesTo,
   type ScheduleDueAnchor,
 } from '@/lib/utils/mappings/fee-structure-excel-mappings';
 import { loadActiveFeeCategories } from '@/lib/services/admission/fee-structure-bulk-lookups';
@@ -55,7 +57,8 @@ export async function GET(req: NextRequest) {
       communities:admission_fee_structure_communities(community_category:community_categories(name)),
       default_due_offset_days,
       items:admission_fee_structure_items(
-        amount, schedule_mode, due_anchor, due_offset_days, due_date, promotes_to_status_code,
+        amount, applies_to, applies_year_of_study,
+        schedule_mode, due_anchor, due_offset_days, due_date, promotes_to_status_code,
         billing_category:billing_categories(category_name),
         schedules:admission_fee_structure_item_schedules(
           sequence_no, share_percent, fixed_amount, due_offset_days, due_date,
@@ -135,10 +138,20 @@ export async function GET(req: NextRequest) {
         const category = it.billing_category?.category_name;
         if (!category) continue;
 
+        // Written as the LABEL the picker and the dropdown show, never the
+        // stored code — the importer accepts both, but a round-trip that hands
+        // back 'first_year_only' teaches the operator the wrong vocabulary.
+        const appliesTo = (it.applies_to ?? 'every_year') as FeeAppliesTo;
         const feeCells = {
           ...structureCells,
           'Fee Category': category,
           Amount: Number(it.amount),
+          'Applies To': APPLIES_TO_LABELS[appliesTo] ?? APPLIES_TO_LABELS.every_year,
+          // Blank on every fee that is not year-specific, mirroring
+          // afsi_applies_year_chk — an exported year next to "Every year" would
+          // fail its own re-import.
+          'Year of Study':
+            appliesTo === 'specific_year' ? (it.applies_year_of_study ?? '') : '',
         };
 
         // The EFFECTIVE anchor, not the stored one. A split item's instalments

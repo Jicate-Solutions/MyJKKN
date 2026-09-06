@@ -37,6 +37,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { LookupService } from '@/lib/services/admission/lookup-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import { useAcademicCascade } from '@/hooks/organization/use-academic-tree';
 import type { ProfilesSearchParams } from './data-table-schema';
 import {
@@ -64,6 +66,10 @@ const FILTER_PARAM_KEYS = [
   'semester_id',
   'section_id',
   'academic_year_id',
+  // Integer calendar year, unlike every other key here. admission_years is
+  // institution-scoped (eleven "2026" rows), so filtering by a row id would
+  // silently narrow to one college — see lib/utils/admission-year-filter.ts.
+  'admission_year',
   'gender',
   'is_profile_complete',
   'accommodation_type_id',
@@ -102,6 +108,11 @@ function draftFromParams(searchParams: ProfilesSearchParams): Draft {
     semester_id: searchParams.semester_id || undefined,
     section_id: searchParams.section_id || undefined,
     academic_year_id: searchParams.academic_year_id || undefined,
+    // Draft values are all strings (they become query-string values); the
+    // schema coerces this one to a number, so it is stringified back here.
+    admission_year: searchParams.admission_year
+      ? String(searchParams.admission_year)
+      : undefined,
     gender: searchParams.gender || undefined,
     is_profile_complete: searchParams.is_profile_complete || undefined,
     accommodation_type_id: searchParams.accommodation_type_id || undefined,
@@ -161,6 +172,7 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
     searchParams.semester_id,
     searchParams.section_id,
     searchParams.academic_year_id,
+    searchParams.admission_year,
     searchParams.gender,
     searchParams.is_profile_complete,
     searchParams.accommodation_type_id,
@@ -212,6 +224,51 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
   const accommodationOptions = useMemo(
     () => (accommodationTypes ?? []).map((a) => ({ value: a.id, label: a.name })),
     [accommodationTypes]
+  );
+
+  /**
+   * Admission years, as DISTINCT CALENDAR YEARS.
+   *
+   * Deliberately NOT part of `useAcademicCascade`. That hook is
+   * `enabled: Boolean(institutionId)` and scopes every query with
+   * `.eq('institution_id', …)`, so it returns nothing in "All Institutions"
+   * mode — which is precisely where a cohort filter has to keep working, and is
+   * the default for anyone who can reach more than one institution.
+   * (/api/learners/analytics/incomplete-profiles/options reaches the same
+   * conclusion for the same reason.)
+   *
+   * The rows are institution-scoped (eleven "2026" rows, 79 total) but the
+   * FILTER is not: we dedupe to the year, and the server fans it back out to
+   * every visible row id. RLS on admission_years still decides which rows the
+   * user sees, so the year list is already tenant-correct.
+   */
+  const { data: admissionYears, isLoading: loadingAdmissionYears } = useQuery({
+    queryKey: ['admission-years', 'distinct-years'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('admission_years')
+        .select('year')
+        .order('year', { ascending: false });
+
+      // Supabase errors are plain objects — surface the code rather than
+      // letting a failure look like "this institution has no admission years".
+      if (error) {
+        throw new Error(
+          `Failed to load admission years: ${getErrorMessage(error)}`
+        );
+      }
+      return Array.from(
+        new Set((data ?? []).map((r: { year: number }) => r.year))
+      ).sort((a, b) => b - a);
+    },
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const admissionYearOptions = useMemo(
+    () =>
+      (admissionYears ?? []).map((y) => ({ value: String(y), label: String(y) })),
+    [admissionYears]
   );
 
   /**
@@ -337,6 +394,11 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
       'Academic Year',
       labelFor(cascade.academicYears, searchParams.academic_year_id)
     );
+    push(
+      'admission_year',
+      'Admission Year',
+      searchParams.admission_year ? String(searchParams.admission_year) : undefined
+    );
     push('gender', 'Gender', labelFor(GENDER_OPTIONS, searchParams.gender));
     push(
       'is_profile_complete',
@@ -457,6 +519,22 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
               searchPlaceholder='Search academic years…'
               loading={treeLoading}
               disabled={!draft.institution_id}
+            />
+
+            {/* Admission year (the cohort the learner JOINED in), as distinct
+                from Academic Year above (the term they are enrolled in now).
+                A flat filter like Gender: `pick` clears nothing under it and it
+                stays usable with no institution selected. */}
+            <SearchableSelect
+              value={draft.admission_year ?? ''}
+              onValueChange={(v) => pick('admission_year', v)}
+              options={[
+                { value: ALL, label: 'All Admission Years' },
+                ...admissionYearOptions,
+              ]}
+              placeholder='Select Admission Year'
+              searchPlaceholder='Search admission years…'
+              loading={loadingAdmissionYears}
             />
 
             {/* Lifecycle status. Options come straight from LIFECYCLE_TABS so

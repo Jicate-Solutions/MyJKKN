@@ -15,6 +15,15 @@
  * WHY VALIDATION MATTERS MORE HERE THAN ALMOST ANYWHERE ELSE: a malformed
  * account number or IFSC does not bounce loudly. The transfer fails silently,
  * or worse, succeeds into somebody else's account.
+ *
+ * IFSC AND BANK NAME ARE OPTIONAL (2026-09-02). Data arrives in pieces -- a
+ * salary register carries an account number and nothing else -- and refusing
+ * the row left the number in a spreadsheet, which is worse for audit than an
+ * incomplete record. Note what did NOT change: a PRESENT IFSC is still format
+ * checked. Absent means "we do not know yet"; wrong means "we are confident and
+ * mistaken", and only the second one silently pays the wrong branch.
+ *
+ * The rule moved rather than vanished -- see isPayable() at the bottom.
  */
 
 /** 4 letters, a literal zero, then 6 letters or digits. RBI's format. */
@@ -28,8 +37,10 @@ export interface BankAccountInput {
   accountNumber: string;
   /** Second entry of the same number. Optional — only checked when provided. */
   confirmAccountNumber?: string;
-  ifscCode: string;
-  bankName: string;
+  /** Optional. Format-checked when present; absence blocks payout, not saving. */
+  ifscCode?: string;
+  /** Optional. No format to get wrong, so no rule. */
+  bankName?: string;
   branchName?: string;
   accountType?: string;
 }
@@ -45,11 +56,13 @@ export type BankFieldError = {
  * way. Nothing else is "corrected" — silently rewriting an account number is
  * how you pay the wrong person politely.
  */
-export function normaliseIfsc(v: string): string {
+// Both accept nullish because IFSC and bank name are optional fields now, and
+// the bodies always guarded for it — only the signatures did not say so.
+export function normaliseIfsc(v: string | null | undefined): string {
   return (v ?? '').trim().toUpperCase();
 }
 
-export function normaliseAccountNumber(v: string): string {
+export function normaliseAccountNumber(v: string | null | undefined): string {
   return (v ?? '').replace(/[\s-]/g, '');
 }
 
@@ -94,25 +107,44 @@ export function validateBankAccount(input: BankAccountInput): BankFieldError[] {
     }
   }
 
+  // Optional, but never wrong. An empty IFSC is a record we can complete later;
+  // a malformed one is a payout into the wrong branch.
   const ifsc = normaliseIfsc(input.ifscCode);
-  if (!ifsc) {
-    errors.push({ field: 'ifscCode', message: 'IFSC is required.' });
-  } else if (!IFSC_RE.test(ifsc)) {
+  if (ifsc && !IFSC_RE.test(ifsc)) {
     errors.push({
       field: 'ifscCode',
       message: 'IFSC must be 4 letters, then 0, then 6 letters or digits (e.g. SBIN0001234).',
     });
   }
 
-  if (!input.bankName?.trim()) {
-    errors.push({ field: 'bankName', message: 'Bank name is required.' });
-  }
+  // Bank name is optional and has no format to get wrong, so it has no rule.
 
   if (input.accountType && !['savings', 'current'].includes(input.accountType)) {
     errors.push({ field: 'accountType', message: 'Account type must be savings or current.' });
   }
 
   return errors;
+}
+
+/**
+ * Can money actually be sent to this account?
+ *
+ * THIS IS WHERE THE OLD NOT NULL WENT. Making IFSC optional did not decide that
+ * an IFSC is unnecessary — it decided that "recorded" and "payable" are two
+ * different states. NEFT and IMPS both route on the IFSC, so an account without
+ * one is a note-to-self, not a destination.
+ *
+ * Any payout run, bank-file export, or "ready to pay" count must ask this rather
+ * than testing whether a row exists.
+ */
+export function isPayable(account: {
+  account_number: string | null;
+  ifsc_code: string | null;
+}): boolean {
+  return (
+    ACCOUNT_RE.test(normaliseAccountNumber(account.account_number ?? '')) &&
+    IFSC_RE.test(normaliseIfsc(account.ifsc_code ?? ''))
+  );
 }
 
 /** Convenience for a form: field -> first message. */

@@ -27,11 +27,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useTabParam } from '@/hooks/use-tab-param';
 import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { useStaffWorkPattern } from '@/hooks/hr/use-work-patterns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { getErrorMessage } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 import { PrintCardButton } from '@/components/id-cards/print-card-button';
+import { JkknIdChip } from '@/components/identity/jkkn-id-chip';
 
 interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -55,6 +57,10 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   const [staff, setStaff] = useState<Staff | null>(null);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [biometricMachine, setBiometricMachine] = useState<string | null>(null);
+  // Read-only: the pattern is assigned on /hr/admin/work-patterns. RLS lets a
+  // staff member see their own row and HR see their institution's, so an
+  // unauthorised viewer simply gets nothing here.
+  const { data: workPattern } = useStaffWorkPattern(staff?.id);
   const {
     canAccess,
     isSuperAdmin,
@@ -220,6 +226,12 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
               <p className='text-sm sm:text-base text-muted-foreground'>
                 Employee Details
               </p>
+              <JkknIdChip
+                kind='team_member'
+                refId={staff.id}
+                personName={`${staff.first_name} ${staff.last_name ?? ''}`.trim()}
+                className='mt-1'
+              />
             </div>
           </div>
           <div className='flex flex-wrap items-center gap-2 shrink-0'>
@@ -281,6 +293,15 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
                 <p className='text-sm text-muted-foreground'>
                   Staff ID: {staff.staff_id || 'Not Assigned'}
                 </p>
+                {workPattern && (
+                  <p className='text-sm text-muted-foreground'>
+                    Work pattern:{' '}
+                    <Badge variant='outline' className='align-middle'>
+                      {workPattern.pattern_name}
+                    </Badge>{' '}
+                    since {format(new Date(workPattern.effective_from), 'dd MMM yyyy')}
+                  </p>
+                )}
                 <Link
                   href={`mailto:${staff.institution_email}`}
                   className='block text-sm text-muted-foreground hover:text-primary break-all'

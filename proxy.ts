@@ -12,6 +12,7 @@ import { routeMatcher } from './lib/auth/route-matcher';
 import { routeAllowedByHandover } from './lib/auth/handover-route-access';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
+import { isInductionOnlyAllowedPath } from './lib/constants/induction-access';
 import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
 import {
   SCHOOL_PORTAL_SESSION_COOKIE,
@@ -194,6 +195,12 @@ const PUBLIC_PATHS_SET = new Set([
   '/terms', // Terms of Use — public, required for Meta App Review
   '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
   '/meet', // Universal Booking directory — public, no login (U4)
+  '/programmes', // Public programme catalogue — the page that answers "what is on
+  //                offer?" for somebody who was never sent a link. Lives under
+  //                app/(public)/programmes/. Being in that route group is NOT what
+  //                makes a page reachable — this allowlist is, and '/verify/' and
+  //                '/r/' below each shipped 307ing to login by omitting it. Caught
+  //                here before merge by fetching the URL with no session.
   '/employers/submit', // CDC employer self-submit vacancy form — public, no login
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
@@ -271,24 +278,15 @@ const isPublicPath = (path: string): boolean => {
 };
 
 // Pre-onboarding (induction-only) learners — admission-funnel statuses (enquiry,
-// enquiry_submitted, reserved, admitted) — may reach ONLY these authenticated
-// paths; everything else redirects to /learners/my-induction. Mirrors the
-// guest/driver scoping pattern below. NOTE: /auth/* and /auth/complete-profile are
-// already public (short-circuit in isPublicPath above), so they don't need listing
-// here. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
-const INDUCTION_ONLY_EXACT_PATHS = new Set([
-  '/learners/my-profile', // profile completion — the My Induction nudge target
-  '/unauthorized',
-  '/error'
-]);
-const INDUCTION_ONLY_PREFIXES = ['/learners/my-induction'];
-const isInductionOnlyAllowedPath = (path: string): boolean => {
-  if (INDUCTION_ONLY_EXACT_PATHS.has(path)) return true;
-  for (const prefix of INDUCTION_ONLY_PREFIXES) {
-    if (path === prefix || path.startsWith(prefix + '/')) return true;
-  }
-  return false;
-};
+// enquiry_submitted, reserved, admitted) — may reach ONLY the allowlisted
+// authenticated paths; everything else redirects to /learners/my-induction.
+// Mirrors the guest/driver scoping pattern below. NOTE: /auth/* and
+// /auth/complete-profile are already public (short-circuit in isPublicPath
+// above), so they don't need listing.
+//
+// The allowlist itself lives in lib/constants/induction-access.ts alongside the
+// sidebar's copy, so the gate and the nav can't drift apart.
+// Spec: specs/pre-onboarding-induction-access-2026-06-29.md
 
 // Legacy drip-sequence routes relocated to /automations/ (2026-05-12).
 // Keep these 301s for at least one release cycle / 90 days so external

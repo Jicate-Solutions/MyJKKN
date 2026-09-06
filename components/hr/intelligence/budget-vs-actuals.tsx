@@ -17,11 +17,17 @@ import { BarChart3, IndianRupee, TrendingDown, TrendingUp, AlertCircle } from 'l
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
+// `hr_payroll_periods` keys a period by year+month, not by a start/end date pair.
+// This component asked for `period_start` / `period_end`, which have never
+// existed on the table, so every request died with 42703 and the tab rendered
+// "Failed to load payroll data. Ensure payroll periods are configured." — which
+// blamed the reader's configuration for a broken query. Verified against
+// production 2026-09-04.
 interface PayrollPeriodRow {
   id: string;
   hr_organization_id: string;
-  period_start: string;
-  period_end: string;
+  period_year: number;
+  period_month: number;
   status: string;
   total_gross: number | null;
   total_net: number | null;
@@ -35,8 +41,9 @@ function usePayrollSummary() {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hr_payroll_periods')
-        .select('id, hr_organization_id, period_start, period_end, status, total_gross, total_net, total_deductions')
-        .order('period_start', { ascending: false })
+        .select('id, hr_organization_id, period_year, period_month, status, total_gross, total_net, total_deductions')
+        .order('period_year', { ascending: false })
+        .order('period_month', { ascending: false })
         .limit(200);
 
       if (error) throw error;

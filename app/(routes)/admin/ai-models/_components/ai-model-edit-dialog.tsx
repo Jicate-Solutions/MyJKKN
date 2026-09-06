@@ -166,13 +166,21 @@ export function AiModelEditDialog({
 
   const providerModels = useMemo<ModelOption[]>(() => {
     let models = getProviderRegistry(form.provider)?.models ?? [];
-    // Claude picks are restricted to the two always-latest family aliases
-    // (Sonnet/Opus). Haiku and pinned dated versions are no longer selectable —
+    // Claude picks are restricted to the always-latest family aliases
+    // (Sonnet/Opus/Fable). Haiku and pinned dated versions are not selectable —
     // every Anthropic job rides "latest" so it auto-follows new releases. The
     // concrete ids stay in the registry only for historical label/pricing lookup.
     // Non-Anthropic providers (the voice tasks) keep their full model list.
+    //
+    // Fable added 2026-08-06 when all eight bug.* jobs moved onto it. It was
+    // already running in production via a direct database write before this
+    // list knew about it — which is precisely the state this filter exists to
+    // prevent, because a row holding an unlisted model renders with no matching
+    // option and is silently rewritten to Sonnet the next time anyone saves it.
     if (form.provider === 'anthropic') {
-      models = models.filter((m) => m.id === 'sonnet' || m.id === 'opus');
+      models = models.filter(
+        (m) => m.id === 'sonnet' || m.id === 'opus' || m.id === 'fable',
+      );
     }
     if (!isSafetyJudgeFeature) return models;
     return models.filter((m) => !isBelowSonnet(form.provider, m.id));

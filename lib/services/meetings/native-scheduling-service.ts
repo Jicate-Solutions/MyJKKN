@@ -20,6 +20,7 @@
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
+import { bookingEventTitle } from './booking-event-title';
 import { formatVenueDirections } from './venue-directions';
 import { resolveVenuePlan, createVenueReservation } from './venue-reservation';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
@@ -87,49 +88,16 @@ export interface NativeMeetingType {
   deposit_amount_paise: number | null;
 }
 
+// The title itself lives in its own module so a CLI can import it without
+// booting this file's Resend / Supabase / ActivityService import chain.
+// Re-exported here because this is where every existing caller looks for it.
+export { bookingEventTitle } from './booking-event-title';
+
 /**
  * Why a meeting that had ALREADY ENDED is being given a new time.
  * 'missed' moves the meeting itself; the other two leave it closed and create a
  * successor that points back at it via follows_booking_id.
  */
-/**
- * What a booking is called on the host's calendar.
- *
- * THE GUEST'S NAME COMES FIRST, deliberately. It used to read
- * `${meetingType} — ${guest}`, and every one of the Director's one-to-one types
- * is 47-48 characters ("One to One Meeting with Ommsharravana 5 Minutes"), so a
- * phone truncated the line before ever reaching the name. Four back-to-back
- * bookings rendered as four identical rows and the host walked in blind — the
- * information was in the title all along, just past the cut.
- *
- * Format matches what the Director had before this system replaced Calendly:
- *
- *     Nazarkhan K — To discuss regarding the transfer
- *     KTHIRESAN — medical
- *
- * The meeting-type name is dropped when a discussion note exists: between "what
- * kind of slot this was" and "what this person wants", only the second earns the
- * characters. With no note, the type name is the fallback rather than leaving a
- * bare name.
- *
- * `showNote` stays the host's opt-in and is deliberately NOT flipped on for
- * everyone here: the guest is an attendee, so this title lands on THEIR lock
- * screen too, and one host's convenience is not a reason to publish another
- * guest's stated business. Reordering is safe for everybody; disclosing the note
- * is a choice each host makes.
- */
-export function bookingEventTitle(opts: {
-  attendeeName: string | null | undefined;
-  typeTitle: string;
-  note?: string | null;
-  showNote?: boolean;
-}): string {
-  const who = (opts.attendeeName ?? '').trim() || 'Guest';
-  const note = (opts.note ?? '').trim();
-  if (opts.showNote && note) return `${who} — ${note}`;
-  return `${who} — ${opts.typeTitle}`;
-}
-
 export type PastRescheduleReason = 'missed' | 'repeat' | 'follow_up';
 
 export interface NativeBookingInput {

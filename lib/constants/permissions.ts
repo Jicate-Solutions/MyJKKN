@@ -423,6 +423,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.standing.view', label: 'View Learner Standing Verdicts (band, narrative, next steps)' },
       { key: 'learners.standing.admin_note.view', label: 'View Learner Standing ADMIN Notes (contribution + relative rank — leadership only)' },
       { key: 'learners.standing.override', label: 'Override a Learner Standing Verdict (human correction)' },
+      // Gates fn_learner_360_record_intervention (20260930010000) — the
+      // learner-360 return edge's ACT leg: recording the action a mentor or
+      // counselor took on a standing verdict. Separate from .override on
+      // purpose: correcting the AI's narrative and acting on a learner are
+      // different responsibilities, grantable independently.
+      { key: 'learners.standing.intervene', label: 'Record an Action Taken on a Learner Standing Verdict' },
 
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },
@@ -561,6 +567,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.staff.planning.create', label: 'Create Employee Planning' },
       { key: 'academic.staff.planning.edit', label: 'Edit Employee Planning' },
       { key: 'academic.staff.planning.delete', label: 'Delete Employee Planning' },
+      {
+        key: 'academic.shared_teaching.label.view',
+        label: 'View Shared Teaching Labels'
+      },
+      {
+        key: 'academic.shared_teaching.label.manage',
+        label: 'Label Shared Teaching Received'
+      },
       { key: 'academic.timetables.view', label: 'View Timetables' },
       { key: 'academic.timetables.create', label: 'Create Timetables' },
       { key: 'academic.timetables.edit', label: 'Edit Timetables' },
@@ -774,6 +788,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
+      // Cancelling a bill writes off money, so it is deliberately NOT
+      // billing.schedule.update: that key is held by 6 roles and also covers
+      // fixing a typo. fn_cancel_student_bill gates on THIS key, and a trigger
+      // rejects any other route into status='cancelled'.
+      { key: 'billing.schedule.cancel', label: 'Cancel Bills' },
       // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
       // the /billing/schedule/bulk-create flow (pick many learners, or upload
       // an Excel of bills). Separate from billing.schedule.create so the bulk
@@ -802,13 +821,26 @@ export const PERMISSION_CATEGORIES = [
       // institutions — see lib/auth/bulk-receipt-access.ts.
       { key: 'billing.receipts.bulk_create', label: 'Bulk Generate Receipts (Excel Upload)' },
       // Cancelling a receipt reverses money, so it is split in two: staff RAISE
-      // a request, and only a SUPER ADMIN decides it. There is deliberately no
-      // "cancel.approve" key — approval is gated on is_super_admin() in
-      // fn_act_on_receipt_cancellation and cannot be delegated through Role
-      // Management. A key here would be a toggle that grants nothing.
+      // a request, and someone else DECIDES it.
+      //
+      // There is still deliberately no "cancel.approve" key, but the reason
+      // changed on 2026-08-25. Approval is no longer hardcoded to
+      // is_super_admin(); it is resolved from
+      // billing_receipt_cancel_approval_flows, which a super admin configures
+      // per institution (with an optional group-wide default) and which only a
+      // super admin may write. Deciding authority therefore lives in that
+      // table, NOT in Role Management — a key here would be a second, competing
+      // source of truth for the same question. With no flow configured the
+      // answer falls back to super-admin-only, exactly as it was before.
+      //
       // Anyone holding billing.receipts.delete can still void directly and
       // bypass this, which is why it was revoked from the accounts roles and
       // from Chief Accountant.
+      //
+      // The key below was narrowed on 2026-08-25 to Chief Accountant alone
+      // (migration 20260825120000). Note the consequence for the queue page: a
+      // delegated approver will NOT hold it, which is why that page guards on
+      // "requester OR configured approver" rather than on this key.
       { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },
@@ -966,6 +998,26 @@ export const PERMISSION_CATEGORIES = [
       // only widen the blast radius.
       { key: 'hr.payroll.bank.view', label: 'View Employee Bank Account' },
       { key: 'hr.payroll.bank.manage', label: 'Manage Employee Bank Account' },
+
+      // ── Salary register (2026-08-30) ─────────────────────────────────────
+      // The frozen monthly register: closed attendance month + recorded salary
+      // -> a per-institution pay register and its export workbook.
+      //
+      // A FOURTH pair rather than a reuse of the three above, because a
+      // register is the one artefact that shows amount AND destination AND the
+      // day counts behind them, for everybody at once. Someone entitled to
+      // maintain one staff member's salary is not thereby entitled to the whole
+      // institution's payroll on one screen.
+      //
+      // Granted to HR Head ALONE by 20260830150000_hr_salary_register.sql. That
+      // is the only role already holding all four keys a run must read through
+      // — hr.payroll.institution.view, hr.payroll.salary.view,
+      // hr.payroll.bank.view, hr.attendance.period.view. Granting these to a
+      // role missing any of them yields a run that SILENTLY omits people: RLS
+      // returns zero rows and no error, so a short register looks like a
+      // complete one.
+      { key: 'hr.payroll.register.view', label: 'View Salary Register' },
+      { key: 'hr.payroll.register.manage', label: 'Generate Salary Register' },
 
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
@@ -1326,7 +1378,7 @@ export const PERMISSION_CATEGORIES = [
       // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
       // disagree. Super admins bypass both.
       // -----------------------------------------------------------------
-      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influencer — Configure programme settings' },
 
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
@@ -1952,6 +2004,15 @@ export const PERMISSION_CATEGORIES = [
       // unregistered would make the table permanently super-admin-only.
       { key: 'solutions.first_use.view', label: 'View First Real Use' },
       { key: 'solutions.first_use.record', label: 'Record First Real Use' },
+
+      // Societal capture (2026-08-28). A department records community work that
+      // produced no invoice; the activity clock reads it so that closing
+      // un-invoiced problems no longer marks the department dormant. Both keys
+      // gate `sh_community_engagements` in RLS
+      // (20261013000000_societal_capture_and_activity_clock.sql), so leaving
+      // either unregistered would make the table permanently super-admin-only.
+      { key: 'solutions.societal.view', label: 'View Community Engagements' },
+      { key: 'solutions.societal.record', label: 'Record Community Engagements' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -2982,7 +3043,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'meetings.embed.manage', label: 'Manage Embed & Theming' },
       { key: 'meetings.analytics.view', label: 'View Meeting Analytics' },
       { key: 'meetings.webhooks.view', label: 'View Webhooks' },
-      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' }
+      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' },
+      // Recurring series + scheduling rules (Monthly Slate, pieces 1 and 2).
+      // The RLS policies on meeting_recurring_series and the two rules tables
+      // reference these via user_has_permission(); registering them here makes
+      // them grantable in Role Management. The EAO reaches the Director's own
+      // series through the EXISTING meeting_host_delegates link, so these keys
+      // are for anyone else who needs the surface — not a replacement for it.
+      { key: 'meetings.series.view', label: 'View Recurring Series' },
+      { key: 'meetings.series.manage', label: 'Manage Recurring Series & Scheduling Rules' }
     ]
   },
   // ======================================================================
@@ -3340,10 +3409,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.create', label: 'Create Cohorts (ALL programmes)' },
       { key: 'cohort.edit', label: 'Edit Cohorts (ALL programmes)' },
       { key: 'cohort.manage', label: 'Manage Cohorts (ALL programmes — delete, remove members, admin)' },
-      { key: 'cohort.school_of_influence.view', label: 'School of Influence — View batches and members' },
-      { key: 'cohort.school_of_influence.create', label: 'School of Influence — Create batches, accept applicants' },
-      { key: 'cohort.school_of_influence.edit', label: 'School of Influence — Edit batches and member status' },
-      { key: 'cohort.school_of_influence.manage', label: 'School of Influence — Run the programme (attendance, review queue, remove members)' }
+      { key: 'cohort.school_of_influence.view', label: 'School of Influencer — View batches and members' },
+      { key: 'cohort.school_of_influence.create', label: 'School of Influencer — Create batches, accept applicants' },
+      { key: 'cohort.school_of_influence.edit', label: 'School of Influencer — Edit batches and member status' },
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' }
     ]
   },
   {

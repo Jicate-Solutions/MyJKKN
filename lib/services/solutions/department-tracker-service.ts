@@ -178,17 +178,31 @@ export interface EligibleDepartment {
   exclusion_reasons: string[];
 }
 
-export interface EligibilityCriteria {
-  id: string;
-  criteria_name: string;
-  criteria_type: 'inclusion' | 'exclusion';
-  description: string;
-  rule_config: Record<string, unknown>;
-  is_active: boolean;
-  priority: number;
-  created_at: string;
-  updated_at: string;
+/**
+ * Explicit refusal returned by the nomination and eligibility calls below.
+ *
+ * Those two features were written against database objects that were never
+ * provisioned in this estate. Verified against production on 2026-08-17:
+ *   - `sh_department_nominations`            -> 42P01 relation does not exist
+ *   - `sh_department_eligibility_criteria`   -> 42P01 relation does not exist
+ *   - `approve_department_nomination()`      -> PGRST202 function not found
+ *   - `get_eligible_departments()`           -> PGRST202 function not found
+ *
+ * Every one of those calls used to surface a raw Postgres error to whoever
+ * triggered it. They now return this result instead: a named, readable refusal
+ * a caller can render — never an exception, and never an empty list that would
+ * read as "there are no nominations".
+ */
+export interface FeatureUnavailable {
+  success: false;
+  error: string;
 }
+
+export const DEPARTMENT_NOMINATIONS_UNAVAILABLE =
+  'Department nominations are not available in this environment — the nominations table was never provisioned. Departments are added to the Solutions Hub directly instead.';
+
+export const DEPARTMENT_ELIGIBILITY_UNAVAILABLE =
+  'Department eligibility screening is not available in this environment — the eligibility criteria table was never provisioned.';
 
 // ============================================
 // SERVICE CLASS
@@ -751,95 +765,58 @@ export class DepartmentTrackerService extends BaseService {
   // NOMINATIONS
   // ----------------------------------------
 
+  // `sh_department_nominations` does not exist in this estate (42P01) and
+  // `approve_department_nomination()` is not in the schema cache (PGRST202).
+  // All four calls below refuse explicitly instead of issuing a query that can
+  // only fail. No caller in the repo reaches them today; the exports are kept
+  // so the refusal is visible rather than the module silently losing an API.
+
   /**
-   * Submit a nomination for an academic department to become a solution department
+   * Submit a nomination for an academic department to become a solution department.
+   * Unavailable — see DEPARTMENT_NOMINATIONS_UNAVAILABLE.
    */
-  static async nominateDepartment(input: {
+  static async nominateDepartment(_input: {
     department_id: string;
     institution_id: string;
     nomination_reason: string;
     suggested_capabilities?: string[];
     nominated_by?: string;
-  }): Promise<DepartmentNomination> {
-    const { data, error } = await this.supabase
-      .from('sh_department_nominations')
-      .insert({
-        department_id: input.department_id,
-        institution_id: input.institution_id,
-        nomination_reason: input.nomination_reason,
-        suggested_capabilities: input.suggested_capabilities || [],
-        nominated_by: input.nominated_by || null,
-        status: 'pending',
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
+  }): Promise<FeatureUnavailable> {
+    return { success: false, error: DEPARTMENT_NOMINATIONS_UNAVAILABLE };
   }
 
   /**
-   * List nominations with optional status filter
+   * List nominations with optional status filter.
+   * Unavailable — see DEPARTMENT_NOMINATIONS_UNAVAILABLE.
    */
   static async getNominations(
-    status?: NominationStatus
-  ): Promise<DepartmentNominationWithDetails[]> {
-    let query = this.supabase
-      .from('sh_department_nominations')
-      .select(`
-        *,
-        department:departments!department_id(id, department_name, department_code),
-        institution:institutions!institution_id(id, name)
-      `)
-      .order('created_at', { ascending: false });
-
-    if (status) {
-      query = query.eq('status', status);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data || [];
+    _status?: NominationStatus
+  ): Promise<FeatureUnavailable> {
+    return { success: false, error: DEPARTMENT_NOMINATIONS_UNAVAILABLE };
   }
 
   /**
-   * Approve a pending nomination (uses DB function for atomic operation)
+   * Approve a pending nomination.
+   * Unavailable — see DEPARTMENT_NOMINATIONS_UNAVAILABLE.
    */
   static async approveNomination(
-    nominationId: string,
-    reviewerId: string,
-    reviewNotes?: string
-  ): Promise<string> {
-    const { data, error } = await this.supabase.rpc('approve_department_nomination', {
-      p_nomination_id: nominationId,
-      p_reviewer_id: reviewerId,
-      p_review_notes: reviewNotes || null,
-    });
-
-    if (error) throw error;
-    return data; // Returns the new solution department ID
+    _nominationId: string,
+    _reviewerId: string,
+    _reviewNotes?: string
+  ): Promise<FeatureUnavailable> {
+    return { success: false, error: DEPARTMENT_NOMINATIONS_UNAVAILABLE };
   }
 
   /**
-   * Reject a pending nomination
+   * Reject a pending nomination.
+   * Unavailable — see DEPARTMENT_NOMINATIONS_UNAVAILABLE.
    */
   static async rejectNomination(
-    nominationId: string,
-    reviewerId: string,
-    reviewNotes: string
-  ): Promise<void> {
-    const { error } = await this.supabase
-      .from('sh_department_nominations')
-      .update({
-        status: 'rejected',
-        reviewed_by: reviewerId,
-        reviewed_at: new Date().toISOString(),
-        review_notes: reviewNotes,
-      })
-      .eq('id', nominationId)
-      .eq('status', 'pending');
-
-    if (error) throw error;
+    _nominationId: string,
+    _reviewerId: string,
+    _reviewNotes: string
+  ): Promise<FeatureUnavailable> {
+    return { success: false, error: DEPARTMENT_NOMINATIONS_UNAVAILABLE };
   }
 
   // ----------------------------------------
@@ -880,29 +857,24 @@ export class DepartmentTrackerService extends BaseService {
   // ELIGIBILITY / CRITERIA ENGINE
   // ----------------------------------------
 
+  // `sh_department_eligibility_criteria` does not exist in this estate (42P01)
+  // and `get_eligible_departments()` is not in the schema cache (PGRST202).
+  // The `criteria_type` column these calls sorted on is real, but it belongs to
+  // the startup-studio table `ss_graduation_criteria` — never to an sh_ table.
+
   /**
-   * Get all departments not yet in Solutions Hub with eligibility status
+   * Get all departments not yet in Solutions Hub with eligibility status.
+   * Unavailable — see DEPARTMENT_ELIGIBILITY_UNAVAILABLE.
    */
-  static async getEligibleDepartments(): Promise<EligibleDepartment[]> {
-    const { data, error } = await this.supabase.rpc('get_eligible_departments');
-    if (error) throw error;
-    return data || [];
+  static async getEligibleDepartments(): Promise<FeatureUnavailable> {
+    return { success: false, error: DEPARTMENT_ELIGIBILITY_UNAVAILABLE };
   }
 
   /**
-   * Get all eligibility criteria rules
+   * Get all eligibility criteria rules.
+   * Unavailable — see DEPARTMENT_ELIGIBILITY_UNAVAILABLE.
    */
-  static async getEligibilityCriteria(activeOnly = true): Promise<EligibilityCriteria[]> {
-    let query = this.supabase
-      .from('sh_department_eligibility_criteria')
-      .select('*')
-      .order('criteria_type', { ascending: true })
-      .order('priority', { ascending: true });
-
-    if (activeOnly) query = query.eq('is_active', true);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data || [];
+  static async getEligibilityCriteria(_activeOnly = true): Promise<FeatureUnavailable> {
+    return { success: false, error: DEPARTMENT_ELIGIBILITY_UNAVAILABLE };
   }
 }

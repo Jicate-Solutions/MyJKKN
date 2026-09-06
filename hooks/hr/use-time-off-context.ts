@@ -18,6 +18,14 @@ import type { HRLeaveBalanceWithType, LeaveRequestCategory } from '@/types/hr';
 export interface TimeOffContext {
   employeeId: string;
   hrOrgId: string;
+  /** Attendance month-close is keyed on the institution, not the HR org. */
+  institutionId: string;
+  /**
+   * False when the employment category is excluded from HR. Distinct from
+   * hasEmployeeRecord: the person exists, HR just does not manage them, and the
+   * two states need different messages.
+   */
+  hrIncluded: boolean;
   hrAcademicYearId: string;
   employeeName: string;
   employeeCode: string | null;
@@ -41,6 +49,10 @@ export function useTimeOffContext(): TimeOffContext {
 
   const employeeId = employee?.id ?? '';
   const hrOrgId = employee?.hr_organization_id ?? '';
+  const institutionId = employee?.institution_id ?? '';
+  // Default true while the context is still loading, so a form does not flash
+  // "not managed in HR" at someone who is.
+  const hrIncluded = employee ? employee.hr_included !== false : true;
   const hrAcademicYearId = currentYear?.id ?? '';
 
   const { data: balances, isLoading: balanceLoading } = useLeaveBalance(
@@ -66,6 +78,8 @@ export function useTimeOffContext(): TimeOffContext {
   return {
     employeeId,
     hrOrgId,
+    institutionId,
+    hrIncluded,
     hrAcademicYearId,
     employeeName,
     employeeCode: employee?.employee_code ?? null,

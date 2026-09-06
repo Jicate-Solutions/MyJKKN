@@ -131,7 +131,9 @@ function BankHistorySheet({
                 <div className='flex items-baseline justify-between gap-3'>
                   <span className='font-mono text-sm'>
                     {maskAccountNumber(h.account_number)}
-                    <span className='ml-2 text-xs text-muted-foreground'>{h.ifsc_code}</span>
+                    <span className='ml-2 text-xs text-muted-foreground'>
+                      {h.ifsc_code ?? 'no IFSC'}
+                    </span>
                   </span>
                   {current ? (
                     <Badge variant='outline' className='font-normal'>In use</Badge>
@@ -139,9 +141,18 @@ function BankHistorySheet({
                     <Badge variant='secondary' className='font-normal'>Replaced</Badge>
                   )}
                 </div>
+                {/* Joined rather than interpolated: bank_name is nullable, and a
+                    literal " · " around it leaves a dangling separator. */}
                 <p className='mt-1 text-xs text-muted-foreground'>
-                  {h.account_holder_name} · {h.bank_name}
-                  {h.branch_name ? `, ${h.branch_name}` : ''} · {h.account_type}
+                  {[
+                    h.account_holder_name,
+                    h.bank_name
+                      ? `${h.bank_name}${h.branch_name ? `, ${h.branch_name}` : ''}`
+                      : null,
+                    h.account_type,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </p>
                 <p className='mt-0.5 text-xs text-muted-foreground'>
                   Recorded {formatDateTime(h.created_at)}

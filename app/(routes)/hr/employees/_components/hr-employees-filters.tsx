@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, memo } from 'react';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -13,7 +12,6 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DepartmentService } from '@/lib/services/organization/department-service';
 
 export interface HREmployeeFilterState {
-  search: string;
   institution_id?: string;
   department_id?: string;
   is_active?: boolean;
@@ -44,14 +42,10 @@ const HREmployeesFiltersComponent = ({ value, onChange }: Props) => {
     }
   }, [value.institution_id]);
 
+  // No search box here: the directory table ships its own in its toolbar, and
+  // two inputs over one list — each unaware of the other — is a trap.
   return (
-    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-      <Input
-        placeholder="Search name / code / email"
-        value={value.search}
-        onChange={(e) => onChange({ search: e.target.value })}
-      />
-
+    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
       <Select
         value={value.institution_id ?? 'all'}
         onValueChange={(v) =>

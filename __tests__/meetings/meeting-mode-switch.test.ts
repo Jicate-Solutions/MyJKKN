@@ -120,6 +120,14 @@ interface DbOpts {
   /** Result of a plain awaited UPDATE (link write-back, revert, request). */
   plainUpdate?: { error: { code?: string; message: string } | null };
   profile?: Record<string, unknown> | null;
+  /**
+   * The host's ACTIVE online meeting types, which is how the service works out
+   * which schedule holds their online hours. Default `[]` — this file's HOST
+   * owns one in-person type and nothing else, which is the state most of the
+   * 110 in-person hosts are in, so every expectation below is the unchanged
+   * behaviour of a host with no online schedule to switch to.
+   */
+  onlineTypes?: Array<{ schedule_id: string | null }>;
 }
 
 /**
@@ -146,6 +154,15 @@ function makeDb(opts: DbOpts = {}) {
             }),
           }),
         };
+      }
+      if (table === 'meeting_types') {
+        // Three chained .eq() and then AWAITED as a list — no maybeSingle.
+        const rows = opts.onlineTypes ?? [];
+        const builder: Record<string, unknown> = {};
+        builder.eq = () => builder;
+        builder.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+          Promise.resolve({ data: rows, error: null }).then(res, rej);
+        return { select: () => builder };
       }
       // meeting_bookings
       return {

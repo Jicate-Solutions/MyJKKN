@@ -32,12 +32,15 @@ import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
 import { useMyApplications } from '@/hooks/hr/use-leave';
 import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
+import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance';
 import { getErrorMessage } from '@/lib/utils';
 import { formatDays } from './format';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import type { HRLeaveApplicationWithType, LeaveDocument, LeaveDurationType } from '@/types/hr';
+import { toast } from 'sonner';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
   { value: 'full', label: 'Full day', days: 1 },
@@ -111,9 +114,15 @@ export function ApplyLeaveDrawer({
   const effectiveDuration: LeaveDurationType =
     selected?.allow_half_day && isSingleDay ? durationType : 'full';
 
-  const available = selected
-    ? selected.entitled + selected.carried_forward - selected.used
-    : null;
+  /**
+   * READ from the view, not recomputed.
+   *
+   * This was `entitled + carried_forward - used`, which cannot see a request
+   * awaiting approval -- so the drawer offered 12 days while the database, which
+   * does count them, refused. The view's `available` nets off pending and caps
+   * at what has actually accrued.
+   */
+  const available = selected ? selected.available : null;
 
   // Inclusive day span, adjusted for a half-day request.
   const requestedDays = useMemo(() => {
@@ -166,6 +175,18 @@ export function ApplyLeaveDrawer({
   const periodWindowBroken = !!periodUsage?.limited && !!periodUsage.window_unresolved;
   const overPeriod = periodCapped && requestedDays > Number(periodUsage?.days_left ?? 0);
 
+  // A month HR has closed refuses the request at the database
+  // (trg_hla_block_locked_period). Catching it here means the user is told
+  // before filling the form and — the reason this exists — before waiting on a
+  // document upload that a 400 then throws away.
+  const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
+  const closedHit = closedMonthsInRange(startDate, endDate, closedMonths);
+
+  // An employment category excluded from HR cannot raise anything —
+  // trg_hla_block_non_hr_staff refuses the insert. Say it before the form is
+  // filled in rather than after.
+  const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
+
   /**
    * A live request already covering these dates. hr_trig_leave_enforce_no_overlap
    * refuses it outright — this says so while the dates are being picked instead
@@ -210,7 +231,7 @@ export function ApplyLeaveDrawer({
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
     !!endDate && !!reason.trim() && !overBalance && !overContinuous && !shortNotice &&
-    !overPeriod && !periodWindowBroken && !clash &&
+    !overPeriod && !periodWindowBroken && !clash && closedHit.length === 0 && !notInHr &&
     requestedDays > 0 && !mutation.isPending && !uploading &&
     // A type that demands a certificate must not be submittable without one.
     // The server enforces the same rule; this only spares the round trip.
@@ -258,7 +279,9 @@ export function ApplyLeaveDrawer({
       try {
         documents = await uploadDocuments();
       } catch (err) {
-        setUploadError(getErrorMessage(err));
+        const message = getErrorMessage(err);
+        setUploadError(message);
+        toast.error(message);
         return;
       } finally {
         setUploading(false);
@@ -286,7 +309,13 @@ export function ApplyLeaveDrawer({
       onOpenChange(false);
     } catch (err) {
       // Supabase errors are plain objects, not Error instances.
-      setError(getErrorMessage(err));
+      // Toast AS WELL as the inline alert. The alert sits at the bottom of a
+      // scrollable sheet while Submit lives in the fixed footer, so a long
+      // form can push it out of view entirely — which is how a failed submit
+      // looked like nothing happening at all.
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -333,7 +362,8 @@ export function ApplyLeaveDrawer({
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((b) => {
-                      const avail = b.entitled + b.carried_forward - b.used;
+                      // Same figure the card below and the server use.
+                      const avail = b.available;
                       return (
                         <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                           {b.leave_type_name}
@@ -361,16 +391,43 @@ export function ApplyLeaveDrawer({
                       )}
                     </div>
 
-                    <div className="mt-2 grid grid-cols-4 gap-2 text-center">
+                    {/* Pending is named rather than silently deducted: "10
+                        available" is baffling to someone who believes they have
+                        12, when the two missing days are ones they filed
+                        themselves an hour ago. Shown only when there are any, so
+                        the common case keeps four columns. */}
+                    <div
+                      className={`mt-2 grid gap-2 text-center ${
+                        selected.pending > 0 ? 'grid-cols-5' : 'grid-cols-4'
+                      }`}
+                    >
                       <Figure label="Entitled" value={formatDays(selected.entitled)} />
                       <Figure label="Carried" value={formatDays(selected.carried_forward)} />
                       <Figure label="Used" value={formatDays(selected.used)} />
+                      {selected.pending > 0 && (
+                        <Figure label="Pending" value={formatDays(selected.pending)} />
+                      )}
                       <Figure label="Available" value={formatDays(available)} strong />
                     </div>
                     <Progress
                       className="mt-2 h-1.5"
-                      value={pct(selected.used, selected.entitled + selected.carried_forward)}
+                      value={pct(
+                        selected.used + selected.pending,
+                        selected.accrued + selected.carried_forward
+                      )}
                     />
+                    {selected.pending > 0 && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatDays(selected.pending)} day(s) are held by requests awaiting
+                        approval and cannot be applied for again.
+                      </p>
+                    )}
+                    {selected.accrued < selected.entitled && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatDays(selected.accrued)} of {formatDays(selected.entitled)} day(s)
+                        have accrued so far this year; the rest accrue month by month.
+                      </p>
+                    )}
 
                     {/* The per-period throttle sits ALONGSIDE the entitlement: a
                         request can be well inside the balance and still refused. */}
@@ -387,6 +444,16 @@ export function ApplyLeaveDrawer({
                               {new Date(`${periodUsage.period_end}T00:00:00`).toLocaleDateString('en-GB')})
                             </>
                           )}
+                        </p>
+                        {/* The balance card above already names its pending
+                            hold; this figure has the same one folded in and
+                            said nothing, so the two read as disagreeing.
+                            hr_leave_period_usage counts 'pending' and
+                            'escalated' beside 'approved', exactly as the cap
+                            trigger does. */}
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Requests awaiting approval are already counted here,
+                          and released if rejected, cancelled or withdrawn.
                         </p>
                       </div>
                     )}
@@ -427,6 +494,28 @@ export function ApplyLeaveDrawer({
                     onChange={(e) => setEndDate(e.target.value)} />
                 </div>
               </div>
+
+              {notInHr && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Your employment category is not managed in HR, so leave cannot be
+                    applied for here. Contact HR if you believe this is an error.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {closedHit.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Attendance for {describeClosedMonths(closedHit)}{' '}
+                    {closedHit.length > 1 ? 'are' : 'is'} closed, so leave covering{' '}
+                    {closedHit.length > 1 ? 'those months' : 'that month'} can no longer be
+                    applied for. Choose a date in an open month, or ask HR to reopen the month.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <div>
                 <Label htmlFor="duration">Duration</Label>

@@ -1,6 +1,6 @@
 'use client';
 
-// School of Influence — the apply surface (spec §7 S4).
+// School of Influencer — the apply surface (spec §7 S4).
 // Spec: specs/school-of-influence-batches-2026-07-30.md
 //
 // This component decides NOTHING. Eligibility, the intake window, capacity and
@@ -10,6 +10,11 @@
 // that a determined caller could disagree with — and the server would still be
 // the one that decides, so the client copy could only ever be wrong or
 // redundant.
+//
+// The same rule governs the prefilled boxes added 2026-08-13: the SERVER reads
+// the applicant's record and sends the answers it already holds in
+// context.knownAnswers. This file only puts them in the boxes and lets the
+// person edit them — it never looks a fact up for itself.
 //
 // The questions are the event's OWN registration form, rendered with the
 // platform's existing DynamicFieldInput — the same component the tournament
@@ -65,14 +70,28 @@ const seatsLabel = (batch: SoiApplyBatchView) => {
   return `${free} of ${batch.capacity} places left`;
 };
 
+/**
+ * The boxes the platform can already fill in, as the state this form starts
+ * from. Computed once, in a lazy initialiser, so that a refetch of the context
+ * (staleTime is 0) can never overwrite something the applicant has since typed.
+ */
+const seedFromRecord = (context: SoiApplyContext): Record<string, unknown> => {
+  const seeded: Record<string, unknown> = {};
+  for (const [fieldKey, known] of Object.entries(context.knownAnswers ?? {})) {
+    seeded[fieldKey] = known.value;
+  }
+  return seeded;
+};
+
 export function SoiApplyForm({ context, onApplied }: Props) {
-  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [answers, setAnswers] = useState<Record<string, unknown>>(() => seedFromRecord(context));
   const [batchCohortId, setBatchCohortId] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SoiApplyResult | null>(null);
 
   const mustChooseBatch = context.policy.batchChoiceMode === 'participant_choose';
+  const hasPrefilledBoxes = Object.keys(context.knownAnswers ?? {}).length > 0;
   /**
    * Offer exactly what the server will accept, and nothing else.
    *
@@ -168,7 +187,8 @@ export function SoiApplyForm({ context, onApplied }: Props) {
           <CardTitle className="text-lg">You are applying as</CardTitle>
           <CardDescription>
             Applications are tied to the account you are signed in with. You cannot
-            apply on behalf of anybody else.
+            apply on behalf of anybody else. Whether you are a learner or a team
+            member is read from your own record, so the form does not ask.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-1.5">
@@ -235,9 +255,20 @@ export function SoiApplyForm({ context, onApplied }: Props) {
       )}
 
       {/* The event's own registration form. No form built yet simply means no
-          extra questions — never a blocked application. */}
+          extra questions — never a blocked application.
+
+          A question the server answers for itself is not in here: the server
+          leaves it out of formSections entirely, so there is nothing to hide
+          on this side. */}
       {context.formSections.length > 0 && (
         <div className="space-y-4">
+          {hasPrefilledBoxes && (
+            <p className="text-xs text-muted-foreground">
+              Some boxes are already filled in from your JKKN record. Please read them,
+              and change anything that is wrong — what you send is what the coordinator
+              sees.
+            </p>
+          )}
           {context.formSections.map((section) => {
             const visible = (section.fields ?? []).filter((f) => isFieldVisible(f, answers));
             if (visible.length === 0) return null;

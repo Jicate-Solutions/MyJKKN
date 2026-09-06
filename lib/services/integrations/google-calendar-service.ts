@@ -727,6 +727,47 @@ export class GoogleCalendarService {
     return true;
   }
 
+  /**
+   * Rename an existing event WITHOUT notifying anybody.
+   *
+   * Every other write in this file sends `sendUpdates=all`, deliberately: they
+   * each change something the attendee agreed to — the time, the place, whether
+   * it still exists — so telling them is the honest close. A rename is the one
+   * change that is purely for the host. The meeting is at the same hour, in the
+   * same place, with the same people; only the words on the host's row differ.
+   * Mailing an external guest "your meeting was updated" for that is noise that
+   * costs their trust and tells them nothing, so this method sends
+   * `sendUpdates=none` and that is the whole reason it is a separate method
+   * rather than a flag on markEventCancelled.
+   *
+   * Built for the guest-first retitle backfill
+   * (scripts/retitle-calendar-events-guest-first.ts), which walks events booked
+   * before the title order was fixed. Best effort: 404/410 means the event is
+   * already gone, which needs no rename and is not an error.
+   */
+  static async patchEventSummarySilently(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    summary: string,
+  ): Promise<boolean> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return false;
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary }),
+      },
+    );
+    if (!res.ok && res.status !== 410 && res.status !== 404) {
+      console.error(`${LOG_PREFIX} event retitle failed:`, res.status);
+      return false;
+    }
+    return res.ok;
+  }
+
   /** Delete the calendar event for a cancelled booking (best effort). */
   static async deleteEvent(
     supabase: SupabaseClient,
@@ -1050,16 +1091,25 @@ export class GoogleCalendarService {
    *   null    — transient failure (caller must NOT change the booking);
    *   object  — the live start/end, plus the Meet link if the event has one.
    *
-   * meetUrl is additive: the reconcile cron ignores it, while the mode switch
-   * uses this call to re-read an event whose PATCH response carried no link
-   * yet (Google often provisions conferenceData a moment after it answers).
+   * meetUrl and summary are additive: the reconcile cron ignores both, the mode
+   * switch uses this call to re-read an event whose PATCH response carried no
+   * link yet (Google often provisions conferenceData a moment after it
+   * answers), and the guest-first retitle backfill reads summary to see what an
+   * event is called today before deciding whether to touch it.
    */
   static async getEvent(
     supabase: SupabaseClient,
     hostProfileId: string,
     eventId: string,
   ): Promise<
-    { startIso: string | null; endIso: string | null; meetUrl: string | null } | 'gone' | null
+    | {
+        startIso: string | null;
+        endIso: string | null;
+        meetUrl: string | null;
+        summary: string | null;
+      }
+    | 'gone'
+    | null
   > {
     const token = await this.accessTokenForHost(supabase, hostProfileId);
     if (!token) return null;
@@ -1071,6 +1121,7 @@ export class GoogleCalendarService {
     if (!res.ok) return null;
     const ev = (await res.json()) as {
       status?: string;
+      summary?: string;
       start?: { dateTime?: string };
       end?: { dateTime?: string };
       hangoutLink?: string;
@@ -1081,6 +1132,7 @@ export class GoogleCalendarService {
       startIso: ev.start?.dateTime ?? null,
       endIso: ev.end?.dateTime ?? null,
       meetUrl: extractMeetUrl(ev),
+      summary: ev.summary ?? null,
     };
   }
 }

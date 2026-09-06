@@ -24,6 +24,7 @@ import {
   type AttendancePeriodConsoleRow,
   type AttendancePeriodSummary,
 } from '@/lib/services/hr/attendance/attendance-period-service';
+import { invalidateAttendanceViews } from '@/hooks/hr/use-attendance-records';
 
 export const ATTENDANCE_PERIOD_KEYS = {
   all: ['hr', 'attendance-periods'] as const,
@@ -61,6 +62,11 @@ function invalidateAfterPeriodChange(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ATTENDANCE_PERIOD_KEYS.all });
   qc.invalidateQueries({ queryKey: ['hr', 'attendance'] });
   qc.invalidateQueries({ queryKey: ['hr', 'leave'] });
+  // My Attendance keys are FLAT strings ('hr-attendance-records', …), not the
+  // ['hr','attendance'] tuple above, so the line before never matched them —
+  // closing a month left that page showing the pre-close state until the cache
+  // expired. It reads the period row too, for the Closed badge.
+  invalidateAttendanceViews(qc);
 }
 
 /** Close one institution-month. */

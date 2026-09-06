@@ -88,18 +88,19 @@ export function SwitchToOnlineRequest({
   }
 
   return (
-    <div className="rounded-lg border border-[#0E4D34]/20 bg-white px-4 py-4 text-sm">
+    <div className="rounded-2xl border border-[#0b6d41]/15 bg-white px-4 py-4 text-sm dark:border-white/10 dark:bg-[#152420]">
       <p className="flex items-center gap-2 font-semibold">
-        <Video className="h-4 w-4" aria-hidden /> Would a video call be easier?
+        <Video className="h-4 w-4 shrink-0 text-[#0b6d41] dark:text-[#4fcb92]" aria-hidden />
+        Would a video call be easier?
       </p>
 
       {sent ? (
         <>
-          <p className="mt-2 flex items-center gap-2 text-[#1C2B24]/80">
+          <p className="mt-2 flex items-center gap-2 text-[#12261D]/80 dark:text-[#e8f0ea]/80">
             <Clock className="h-4 w-4 shrink-0" aria-hidden />
             Waiting for {hostName} to reply.
           </p>
-          <p className="mt-2 text-xs text-[#1C2B24]/60">
+          <p className="mt-2 text-xs leading-relaxed text-[#12261D]/60 dark:text-[#e8f0ea]/60">
             Your request has been sent. Nothing has changed yet — this meeting is
             still in person at the time above. If {hostName} agrees, you will be
             emailed a joining link.
@@ -107,14 +108,14 @@ export function SwitchToOnlineRequest({
         </>
       ) : (
         <>
-          <p className="mt-1.5 text-[#1C2B24]/70">
+          <p className="mt-1.5 leading-relaxed text-[#12261D]/70 dark:text-[#e8f0ea]/70">
             You can ask {hostName} to turn this into a video call instead. Your
             booked time stays exactly as it is.
           </p>
 
           {error && (
             <div
-              className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
               role="alert"
             >
               {error}
@@ -125,7 +126,7 @@ export function SwitchToOnlineRequest({
             type="button"
             onClick={askToSwitch}
             disabled={busy}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-[#0E4D34] px-4 py-2.5 text-sm font-semibold text-[#0E4D34] transition-colors hover:bg-[#0E4D34]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E4D34] focus-visible:ring-offset-2 disabled:opacity-60"
+            className="mt-3 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border border-[#0b6d41]/40 px-4 text-[15px] font-semibold text-[#0b6d41] transition-colors hover:bg-[#0b6d41]/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FAF7F0] disabled:opacity-60 dark:border-[#4fcb92]/40 dark:text-[#4fcb92] dark:hover:bg-[#4fcb92]/[0.08] dark:focus-visible:ring-[#4fcb92] dark:focus-visible:ring-offset-[#0b1411]"
           >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -135,7 +136,7 @@ export function SwitchToOnlineRequest({
             Ask to meet by video instead
           </button>
 
-          <p className="mt-2 text-xs text-[#1C2B24]/50">
+          <p className="mt-2 text-xs leading-relaxed text-[#12261D]/50 dark:text-[#e8f0ea]/50">
             This only sends a request. {hostName} has to agree before anything
             changes.
           </p>

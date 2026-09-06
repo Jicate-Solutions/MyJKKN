@@ -65,6 +65,7 @@ import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import { IncompleteFeeBanner, getMissingFeeDimensions } from './incomplete-fee-banner';
 import { getErrorMessage } from '@/lib/utils';
+import { errorMessage } from '@/lib/utils/supabase-error';
 import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
@@ -311,6 +312,36 @@ interface EnquiryFormProps {
    * first tab should not have to walk through four more tabs to commit it.
    */
   allowSubmitFromAnyTab?: boolean;
+  /**
+   * Collapse the create-wizard's step controls into a single "Update" button
+   * that saves from whatever tab the user is on. Hides "Previous", "Save &
+   * Next" and the separate final-submit button; the tab headers stay as the
+   * navigation.
+   *
+   * /learners/enquiries/[id]/edit passes true. Two separate defects made an
+   * edit there look like it never happened:
+   *
+   *  1. The button labelled "Update" on a middle tab was the SAVE DRAFT
+   *     button, and handleSaveDraft never called onSuccess. onSuccess is the
+   *     only hook that invalidates learnerProfileKeys.detail/lists and calls
+   *     router.refresh(), so with staleTime 5min + refetchOnWindowFocus off
+   *     the row was written but the detail page and a re-opened edit form both
+   *     kept serving the pre-edit snapshot. Same class of bug the Profiles
+   *     edit page fixed with hideDraft.
+   *  2. Three save-ish buttons ("Update", "Save & Next", and the final submit
+   *     on the last tab) were indistinguishable at a glance.
+   *
+   * Deliberately NOT the allowSubmitFromAnyTab + hideDraft pair that Profiles
+   * edit uses: that routes every save through requiredFieldsSchema, which
+   * requires section_id — and 390 of 456 open enquiries (86%, measured
+   * 2026-09-02) have none, because an enquiry is captured early and completed
+   * later. Making the only save button refuse those records would be worse
+   * than the bug. Enquiry edits therefore keep the non-blocking save and rely
+   * on the DB guards (trg_validate_learner_semester_year_scope refuses
+   * genuinely inconsistent course dimensions; trg_detect_fee_dimension_change
+   * re-runs admission_resolve_fee_items_for_lead when a fee dimension moves).
+   */
+  singleSaveButton?: boolean;
   /**
    * Render the Tamil-script name inputs (first_name_tamil / last_name_tamil)
    * on the Basic Details tab. Defaults to false.
@@ -700,6 +731,7 @@ export function EnquiryForm({
   isStudentView = false,
   enforceAdmissionRules = true,
   allowSubmitFromAnyTab = false,
+  singleSaveButton = false,
   showTamilNames = false,
   showLearnerIdentifiers = false
 }: EnquiryFormProps) {
@@ -1438,13 +1470,15 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving progress:', error);
-      toast.error('Failed to save progress');
+      toast.error(errorMessage(error, 'Failed to save progress'));
     } finally {
       setIsSavingDraft(false);
     }
   };
 
-  // Save draft (without validation) and stay on current page
+  // Save draft (without validation). On the create wizard this stays on the
+  // current page; when editing an existing record it is the "Update" button and
+  // must complete the save (see the onSuccess hand-off at the end).
   const handleSaveDraft = async () => {
     // Prevent double-click
     if (isSavingDraft || isSubmitting) {
@@ -1454,6 +1488,24 @@ export function EnquiryForm({
     setIsSavingDraft(true);
     try {
       const values = form.getValues();
+
+      // A queued photo has to be uploaded here too, not just on the final
+      // submit path. On an edit surface this IS the save button, so leaving the
+      // upload out meant picking a new photo and pressing Update discarded it
+      // with no error. Non-blocking, exactly as commitSubmit treats it: a
+      // failed upload must not throw away every other field the user changed.
+      if (pendingImageFile) {
+        try {
+          const imageUrl = await uploadProfileImage(pendingImageFile);
+          values.student_photo_url = imageUrl;
+          form.setValue('student_photo_url', imageUrl);
+          setPendingImageFile(null);
+        } catch (err) {
+          console.error('[enquiry-form] Image upload failed during save:', err);
+          toast.error('Photo could not be uploaded — saving the other changes without it.');
+        }
+      }
+
       const data = await formatFormDataForAPI(values);
 
       let result: LearnerProfile;
@@ -1461,16 +1513,31 @@ export function EnquiryForm({
       if (savedEnquiryId) {
         // Update existing draft
         result = await LearnerProfileService.updateLearnerProfile(savedEnquiryId, data);
-        toast.success('Progress saved successfully');
+        toast.success(learner ? 'Enquiry updated successfully' : 'Progress saved successfully');
       } else {
         // Create new draft
         result = await LearnerProfileService.createLearnerProfile(data as any);
         setSavedEnquiryId(result.id);
         toast.success('Progress saved successfully');
       }
+
+      // Editing an existing record: hand off to onSuccess. It is the ONLY hook
+      // that invalidates learnerProfileKeys.detail/lists and calls
+      // router.refresh(), and the row is already written by the time we get
+      // here — but with staleTime 5min and refetchOnWindowFocus off, skipping
+      // it left the detail page and a re-opened edit form showing the pre-edit
+      // course/program, so a successful save looked like it did nothing. This
+      // was the reported "I click Update and it still doesn't update".
+      //
+      // Gated on `learner`, NOT on savedEnquiryId: mid-wizard the create flow
+      // also has a savedEnquiryId, and onSuccess redirects — firing it there
+      // would throw the operator out of the form on the first "Save Draft".
+      if (learner && onSuccess) {
+        onSuccess(result);
+      }
     } catch (error) {
       console.error('[enquiry-form] Error saving draft:', error);
-      toast.error('Failed to save progress');
+      toast.error(errorMessage(error, 'Failed to save progress'));
     } finally {
       setIsSavingDraft(false);
     }
@@ -1790,7 +1857,12 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving enquiry:', error);
-      toast.error('Failed to save enquiry');
+      // Surface the real reason. The service throws actionable messages here
+      // (duplicate college_email, email already in use by another user), and a
+      // bare 'Failed to save enquiry' makes every one of them look identical.
+      // errorMessage() also translates the raw postgrest codes that reach this
+      // path on create — 23505 unique violations and 42501 RLS refusals.
+      toast.error(errorMessage(error, 'Failed to save enquiry'));
     } finally {
       setIsSubmitting(false);
     }
@@ -2249,8 +2321,11 @@ export function EnquiryForm({
 
           {/* Right side - Navigation and Action buttons */}
           <div className="flex flex-col-reverse items-stretch gap-2 w-full sm:flex-row sm:w-auto sm:items-center">
-            {/* Previous Button - Show on all tabs except first */}
-            {!isFirstTab && (
+            {/* Previous Button - Show on all tabs except first.
+                singleSaveButton drops it: "Previous" with no "Save & Next"
+                beside it is a half a wizard, and the tab headers already
+                navigate. */}
+            {!isFirstTab && !singleSaveButton && (
               <Button
                 type="button"
                 variant="outline"
@@ -2263,11 +2338,14 @@ export function EnquiryForm({
               </Button>
             )}
 
-            {/* Save Draft Button - Always visible unless hidden */}
+            {/* Save Draft Button - Always visible unless hidden.
+                Under singleSaveButton this is the ONE action button, so it
+                takes the primary variant instead of reading as a secondary
+                option next to nothing. */}
             {!hideDraft && (
               <Button
                 type="button"
-                variant="outline"
+                variant={singleSaveButton ? 'default' : 'outline'}
                 onClick={handleSaveDraft}
                 disabled={isSubmitting || isSavingDraft}
                 className="w-full sm:w-auto text-sm sm:text-base py-2"
@@ -2280,7 +2358,7 @@ export function EnquiryForm({
             )}
 
             {/* Save & Next Button - Show on all tabs except last */}
-            {!isLastTab && (
+            {!isLastTab && !singleSaveButton && (
               <Button
                 type="button"
                 onClick={handleSaveAndNext}
@@ -2305,8 +2383,15 @@ export function EnquiryForm({
                 submission, and Enter in any of this form's ~70 inputs would
                 then finalise and redirect mid-typing. Validation is identical
                 either way — handleSubmit runs the same resolver and routes to
-                onInvalid, which jumps to the first tab holding an error. */}
-            {(isLastTab || allowSubmitFromAnyTab) && (
+                onInvalid, which jumps to the first tab holding an error.
+
+                singleSaveButton suppresses it entirely: on an edit surface
+                there is no "final submission" left to make — the record exists
+                and lifecycle transitions belong to the explicit status actions
+                (row-actions / enquiry-status-update), not to a field edit. Its
+                only effect here would be a second, stricter save button that
+                refuses the 86% of enquiries with no section_id. */}
+            {(isLastTab || allowSubmitFromAnyTab) && !singleSaveButton && (
               <Button
                 type={allowSubmitFromAnyTab ? 'button' : 'submit'}
                 onClick={allowSubmitFromAnyTab ? form.handleSubmit(onSubmit, onInvalid) : undefined}

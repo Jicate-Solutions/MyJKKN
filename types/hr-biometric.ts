@@ -281,6 +281,19 @@ export interface BiometricImportReport {
   employees_in_file: number;
   matched_employees: number;
   unmatched_codes: Array<{ code: string; name: string }>;
+  /** Codes owned by a RELIEVED team member. Skipped, not imported -- named so
+   *  a skip is visible rather than looking like an unknown code. */
+  relieved_skipped: Array<{ code: string; name: string; staff: string }>;
+  /**
+   * Days this import marked ABSENT or HALF_DAY that already carry an undecided
+   * request. Reported, never acted on: attendance restamps only on approval,
+   * because status feeds payable_days and the Salary Register.
+   */
+  pending_requests_on_marked_days: {
+    count: number;
+    staff: number;
+    sample: Array<{ staff_name: string; work_date: string; request: string; category: string }>;
+  };
   total_day_cells: number;
   counts: Record<ImportVerdict, number>;
   preview: ImportPreviewRow[];
@@ -321,7 +334,7 @@ export const VERDICT_CLASS: Record<ImportVerdict, string> = {
 
 // ---------------------------------------------------------------------------
 // Import purge — super admin only. See
-// supabase/migrations/20260820140000_biometric_import_purge_super_admin.sql
+// supabase/migrations/20260820150000_biometric_import_purge_super_admin.sql
 // ---------------------------------------------------------------------------
 
 /**

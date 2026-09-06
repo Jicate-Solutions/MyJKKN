@@ -167,7 +167,7 @@ function IndustryMentorDetailContent({ params }: Props) {
                       </Badge>
                     )}
                     {!editing && (
-                      <PermissionGuard module="cdc.industry_mentors" action="edit">
+                      <PermissionGuard module="cdc.industry_mentors" action="edit" fallback={null}>
                         <Button size="sm" variant="outline" onClick={startEdit}>
                           <Pencil className="h-3 w-3 mr-1" />
                           Edit

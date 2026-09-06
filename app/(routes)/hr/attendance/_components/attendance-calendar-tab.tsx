@@ -21,23 +21,30 @@ import {
   type AttendanceDay,
 } from '@/types/hr-attendance';
 
-import { AttendanceLegend, tonesFor } from './attendance-legend';
+import { AttendanceLegend, cellWashFor, tonesFor } from './attendance-legend';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function AttendanceCalendarTab({
   weeks,
   isLoading,
+  closed = false,
 }: {
   weeks: AttendanceDay[][];
   isLoading: boolean;
+  /**
+   * HR has closed this month. Only then does the grid paint days green/red —
+   * an open month's figures can still move, and a paid/unpaid verdict on them
+   * would be a promise the data has not made yet.
+   */
+  closed?: boolean;
 }) {
   if (isLoading) return <Skeleton className="h-[32rem] w-full rounded-md" />;
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="space-y-4">
-        <AttendanceLegend />
+        <AttendanceLegend closed={closed} />
 
         <div className="overflow-x-auto">
           <div className="min-w-[52rem] overflow-hidden rounded-md border">
@@ -56,7 +63,7 @@ export function AttendanceCalendarTab({
             {weeks.map((week) => (
               <div key={week[0].date} className="grid grid-cols-7 border-b last:border-b-0">
                 {week.map((day) => (
-                  <CalendarCell key={day.date} day={day} />
+                  <CalendarCell key={day.date} day={day} closed={closed} />
                 ))}
               </div>
             ))}
@@ -67,9 +74,18 @@ export function AttendanceCalendarTab({
   );
 }
 
-function CalendarCell({ day }: { day: AttendanceDay }) {
+function CalendarCell({ day, closed }: { day: AttendanceDay; closed: boolean }) {
   const tones = tonesFor(day.token);
   const showToken = day.inMonth && !day.isFuture;
+  /**
+   * An undecided request covering this day.
+   *
+   * The token is NOT changed — attendance restamps only on approval, because
+   * status feeds payable_days and the register. The dot distinguishes "absent,
+   * and somebody has claimed it" from "absent, unexplained", which read
+   * identically until 2026-09-02.
+   */
+  const awaiting = day.requests.some((r) => r.decision === 'awaiting');
   const [first, second] = day.halfPair;
   // halfPairFor repeats the day token unless the day is HALF_DAY, so a split
   // pair IS the half day. Rendering only the pair — the reference UI's
@@ -83,7 +99,9 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
     <div
       className={cn(
         'min-h-[5.5rem] border-r p-2 last:border-r-0',
-        day.inMonth ? tones.cell : 'bg-muted/30',
+        // A future day carries no verdict yet, so it stays unwashed even in a
+        // closed month — closing December does not make the 31st "paid".
+        day.inMonth ? cellWashFor(day.token, closed && !day.isFuture) : 'bg-muted/30',
       )}
     >
       <div
@@ -103,6 +121,14 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
             <TooltipTrigger asChild>
               <span className={cn('text-xs font-bold', tones.text)}>
                 {day.tokenLabel}
+                {awaiting && (
+                  <span
+                    aria-label="a request is awaiting approval"
+                    className="ml-0.5 align-super text-[9px] text-amber-600 dark:text-amber-400"
+                  >
+                    ●
+                  </span>
+                )}
               </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
@@ -119,6 +145,18 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
           {day.inTime && day.outTime && (
             <span className="text-[10px] tabular-nums text-muted-foreground">
               {day.inTime}–{day.outTime}
+            </span>
+          )}
+
+          {/* Which holiday, in the cell and not only on hover — a holiday day
+              has no split and no punches, so the caption slot is free, and on a
+              phone there is no hover. */}
+          {day.token === 'HOLIDAY' && day.tokenDetail && (
+            <span
+              className="line-clamp-2 text-[10px] leading-tight text-muted-foreground"
+              title={day.tokenDetail}
+            >
+              {day.tokenDetail}
             </span>
           )}
         </div>
@@ -159,6 +197,20 @@ function CellTooltip({ day }: { day: AttendanceDay }) {
       {!day.lateMinutes && day.excusedMinutes ? (
         <p>{day.excusedMinutes} minute(s) covered by an approved permission.</p>
       ) : null}
+      {/* Names the pending claim behind the dot on the cell. A marker with no
+          explanation only moves the question from "why absent" to "why dot". */}
+      {day.requests
+        .filter((r) => r.decision === 'awaiting')
+        .map((r) => (
+          <p key={r.id} className="text-xs text-amber-300 dark:text-amber-400">
+            {r.type_name}
+            {r.start_time && r.end_time ? ` ${r.start_time}–${r.end_time}` : ''} — awaiting
+            approval
+            {r.category === 'short_time_off'
+              ? '; would excuse the shortfall'
+              : '; the day restamps once decided'}
+          </p>
+        ))}
       {day.exception?.reason && <p className="text-xs">{day.exception.reason}</p>}
     </div>
   );

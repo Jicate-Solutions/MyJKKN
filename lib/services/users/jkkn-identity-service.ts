@@ -8,12 +8,19 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
  * and team members, so someone who studies here and later joins the team
  * keeps the number they already had.
  *
- * The register SHIPS DORMANT. Nothing here issues anything — `issue` is
- * deliberately absent from this service, because issuance is a considered act
- * taken at confirmed admission or hire, not something a page offers.
+ * Nothing here issues anything — `issue` is deliberately absent from this
+ * service. Since 2026-08-27 issuance is automatic (database triggers fire at
+ * confirmed admission, at hire/activation, and at a custom-role grant —
+ * migration 20260827110000); manual issuance stays behind fn_issue_jkkn_id
+ * and the users.jkkn_id.issue key, and is not something a page offers.
  */
 
-export type PersonKind = 'learner' | 'team_member' | 'both';
+export type PersonKind =
+  | 'learner'
+  | 'team_member'
+  | 'both'
+  | 'associate'
+  | 'external_participant';
 
 export interface ResolvedPerson {
   person_kind: PersonKind;
@@ -46,6 +53,71 @@ export interface ResolveResult {
   /** Says whether the search covered the whole cluster or only the caller's institutions. */
   scope_note?: string;
   note?: string;
+}
+
+/** One kind per directory call — the three populations have different columns. */
+export type DirectoryKind = 'learner' | 'team_member' | 'associate';
+
+/** Uniform row shape from fn_jkkn_directory; fields absent for a kind are null. */
+export interface DirectoryRow {
+  id: string;
+  kind: PersonKind;
+  name: string;
+  photo_url: string | null;
+  email: string | null;
+  /** null until a number has been issued to this person. */
+  jkkn_id: string | null;
+  roll_number: string | null;
+  register_number: string | null;
+  team_code: string | null;
+  designation: string | null;
+  program: string | null;
+  institution_name: string | null;
+  admission_year: number | null;
+  status: string | null;
+  /** Index signature so DataTable's ExportableData constraint accepts rows. */
+  [key: string]: string | number | boolean | null | undefined;
+}
+
+export interface DirectoryFilters {
+  kind: DirectoryKind;
+  institutionId?: string | null;
+  /** learner: lifecycle_status value; team_member: 'active' | 'inactive'. */
+  status?: string | null;
+  issued?: 'issued' | 'not_issued' | null;
+  /** learners only. */
+  admissionYear?: number | null;
+}
+
+export interface DirectoryResult {
+  rows: DirectoryRow[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}
+
+export interface JkknKindStats {
+  eligible: number;
+  issued: number;
+  pending: number;
+  /** Learners only: unissued people phone-matching an unlinked team-member
+   *  identity — the set every backfill withheld for a human. */
+  review?: number;
+}
+
+export interface JkknStats {
+  learners: JkknKindStats;
+  team_members: JkknKindStats;
+  associates: JkknKindStats;
+  register: { total: number; both: number; external_participants: number; retired: number };
+}
+
+export interface ManualIssueResult {
+  /** 'issued' = fresh number; 'linked_existing' = the other-kind identity was
+   *  upgraded to 'both' (one person, one number); 'already_held' = no-op. */
+  action: 'issued' | 'linked_existing' | 'already_held';
+  jkkn_id: string;
 }
 
 export interface DuplicateFinding {
@@ -141,6 +213,102 @@ export class JkknIdentityService {
       scope_note: payload.scope_note,
       note: payload.note,
     };
+  }
+
+  /**
+   * Paginated, filterable directory — the default table on /users/jkkn-id.
+   * Server-side everything (filter, sort, page) via fn_jkkn_directory, which
+   * is gated on users.jkkn_id.view and institution-scoped for non-admins.
+   */
+  static async listDirectory(
+    params: DirectoryFilters & {
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      limit?: number;
+    }
+  ): Promise<DirectoryResult> {
+    const { data, error } = await (this.supabase as any).rpc('fn_jkkn_directory', {
+      p_kind: params.kind,
+      p_institution_id: params.institutionId ?? null,
+      p_status: params.status ?? null,
+      p_issued: params.issued ?? null,
+      p_admission_year: params.admissionYear ?? null,
+      p_search: params.search?.trim() || null,
+      p_sort_by: params.sortBy || 'name',
+      p_sort_order: params.sortOrder || 'asc',
+      p_page: params.page ?? 1,
+      p_limit: params.limit ?? 25,
+    });
+
+    if (error) {
+      console.error('[users/jkkn-id] directory failed:', error);
+      throw new Error(error.message ?? 'Directory failed');
+    }
+
+    const payload = (data ?? {}) as Partial<DirectoryResult>;
+    return {
+      rows: (payload.rows ?? []) as DirectoryRow[],
+      total: Number(payload.total ?? 0),
+      page: Number(payload.page ?? 1),
+      limit: Number(payload.limit ?? params.limit ?? 25),
+      total_pages: Number(payload.total_pages ?? 1),
+    };
+  }
+
+  /**
+   * The active JKKN ID for one person, or null. Backed by fn_jkkn_id_of,
+   * which is open to ALL authenticated users on purpose — it returns only the
+   * card-printed number for a row id the caller already reached through a
+   * detail page's own authorisation. Kinds: learner (learners_profiles.id),
+   * team_member (staff.id), profile (profiles.id — resolves learner/staff
+   * bridges itself).
+   */
+  static async getIdOf(
+    kind: 'learner' | 'team_member' | 'profile',
+    refId: string
+  ): Promise<string | null> {
+    const { data, error } = await (this.supabase as any).rpc('fn_jkkn_id_of', {
+      p_kind: kind,
+      p_ref_id: refId,
+    });
+    if (error) {
+      console.error('[identity] jkkn id lookup failed:', error);
+      return null; // A detail page must render even if the chip cannot.
+    }
+    const value = ((data as string | null) ?? '').trim();
+    return value === '' ? null : value;
+  }
+
+  /** Kind-wise issued/pending counts for the analytics cards. */
+  static async getStats(): Promise<JkknStats> {
+    const { data, error } = await (this.supabase as any).rpc('fn_jkkn_stats');
+    if (error) {
+      console.error('[users/jkkn-id] stats failed:', error);
+      throw new Error(error.message ?? 'Stats failed');
+    }
+    return data as JkknStats;
+  }
+
+  /**
+   * Manual "Issue ID". Server-gated on users.jkkn_id.issue; carries the same
+   * email guard as the auto-issue triggers, so a graduate-turned-staff gets
+   * LINKED to their existing number, never a duplicate.
+   */
+  static async issueManual(
+    kind: DirectoryKind,
+    refId: string
+  ): Promise<ManualIssueResult> {
+    const { data, error } = await (this.supabase as any).rpc('fn_jkkn_issue_manual', {
+      p_kind: kind,
+      p_ref_id: refId,
+    });
+    if (error) {
+      console.error('[users/jkkn-id] manual issue failed:', error);
+      throw new Error(error.message ?? 'Issue failed');
+    }
+    return data as ManualIssueResult;
   }
 
   /**

@@ -1,9 +1,17 @@
 'use client';
 
 // Create Sports Tournament — writes an `events` row (event_type='sports_tournament')
-// plus one seeded division. Minimal PR1 form: name, sport, level, scope, gender,
-// format, dates, registration window, venue (optional), is_public, external reg.
+// plus one seeded division PER SELECTED SPORT. Minimal PR1 form: name, sports,
+// level, scope, gender, format, dates, registration window, venue (optional),
+// is_public, external reg.
 // Created: 2026-06-22 (Sports Tournament PR1).
+//
+// Sports is multi-select because a tournament routinely runs several games on
+// one set of dates, venue and registration link (Chess + Carrom, say). Each
+// pick becomes its own division, which is what the registration form's
+// "Event / division" picker and the per-division fixtures are keyed on. The
+// other division fields (level, format, gender, age band, entry fee) apply to
+// every sport picked here; edit an individual division afterwards to vary them.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -21,6 +29,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectTrigger,
@@ -55,7 +64,7 @@ export default function CreateTournamentPage() {
 
   const [form, setForm] = useState({
     name: '',
-    sport: JKKN_SPORTS[0] as string,
+    sports: [JKKN_SPORTS[0]] as string[],
     level: 'intra_college' as SportLevel,
     scope: 'institution' as TournamentScope,
     gender: 'open' as DivisionGender,
@@ -75,9 +84,19 @@ export default function CreateTournamentPage() {
   const update = (field: string, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
+  // Keep the catalog's own order regardless of click order, so the divisions
+  // (and therefore the registration picker) read the same way every time.
+  const toggleSport = (sport: string, checked: boolean) =>
+    setForm((prev) => ({
+      ...prev,
+      sports: checked
+        ? JKKN_SPORTS.filter((s) => s === sport || prev.sports.includes(s))
+        : prev.sports.filter((s) => s !== sport),
+    }));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !institutionId) return;
+    if (!form.name.trim() || !institutionId || form.sports.length === 0) return;
 
     try {
       const event = await createMutation.mutateAsync({
@@ -93,17 +112,17 @@ export default function CreateTournamentPage() {
         venue: form.venue || undefined,
         is_public: form.is_public,
         allow_external_registration: form.allow_external_registration,
-        divisions: [
-          {
-            sport: form.sport,
-            gender: form.gender,
-            age_band: form.age_band.trim() || undefined,
-            format: form.format,
-            level: form.level,
-            sort_order: 0,
-            config: form.entry_fee ? { entry_fee: Number(form.entry_fee) } : undefined,
-          },
-        ],
+        // One division per selected sport. They share the level/format/gender/
+        // age band/fee set above — vary an individual one from Edit afterwards.
+        divisions: form.sports.map((sport, i) => ({
+          sport,
+          gender: form.gender,
+          age_band: form.age_band.trim() || undefined,
+          format: form.format,
+          level: form.level,
+          sort_order: i,
+          config: form.entry_fee ? { entry_fee: Number(form.entry_fee) } : undefined,
+        })),
       });
       // PR1 has no per-tournament detail page yet (arrives in PR2). Return to the
       // list, where the newly created tournament now appears.
@@ -174,22 +193,37 @@ export default function CreateTournamentPage() {
                 />
               </div>
 
-              {/* Sport + Level */}
+              {/* Sports (multi-select) + Level */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Sport</Label>
-                  <Select value={form.sport} onValueChange={(v) => update('sport', v)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {JKKN_SPORTS.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Sports *</Label>
+                  {/* Scrolls rather than growing, so picking many sports never
+                      pushes the rest of the form off screen. */}
+                  <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-md border p-2">
+                    {JKKN_SPORTS.map((s) => (
+                      <label
+                        key={s}
+                        className="flex cursor-pointer items-center gap-2 text-sm"
+                      >
+                        <Checkbox
+                          checked={form.sports.includes(s)}
+                          onCheckedChange={(c) => toggleSport(s, c === true)}
+                        />
+                        <span className="leading-tight">{s}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p
+                    className={
+                      form.sports.length === 0
+                        ? 'text-xs text-destructive'
+                        : 'text-xs text-muted-foreground'
+                    }
+                  >
+                    {form.sports.length === 0
+                      ? 'Pick at least one sport.'
+                      : `${form.sports.length} picked — each becomes its own division.`}
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>Level</Label>
@@ -393,7 +427,12 @@ export default function CreateTournamentPage() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={createMutation.isPending || !form.name.trim() || !institutionId}
+                  disabled={
+                    createMutation.isPending ||
+                    !form.name.trim() ||
+                    !institutionId ||
+                    form.sports.length === 0
+                  }
                 >
                   {createMutation.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

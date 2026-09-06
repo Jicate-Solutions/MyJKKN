@@ -336,17 +336,72 @@ async function readTeamMembers(
  */
 async function readAlreadyIssued(
   db: SupabaseClient
-): Promise<{ learners: Set<string>; teamMembers: Set<string> }> {
+): Promise<{ learners: Set<string>; teamMembers: Set<string>; profiles: Set<string> }> {
   const rows = await readAll<Record<string, unknown>>('jkkn_identities', () =>
-    db.from('jkkn_identities').select('learner_profile_id, team_member_id').order('id')
+    db.from('jkkn_identities').select('learner_profile_id, team_member_id, profile_id').order('id')
   );
   const learners = new Set<string>();
   const teamMembers = new Set<string>();
+  const profiles = new Set<string>();
   for (const r of rows) {
     if (r.learner_profile_id) learners.add(String(r.learner_profile_id));
     if (r.team_member_id) teamMembers.add(String(r.team_member_id));
+    if (r.profile_id) profiles.add(String(r.profile_id));
   }
-  return { learners, teamMembers };
+  return { learners, teamMembers, profiles };
+}
+
+// ─── Associates (2026-08-27) ─────────────────────────────────────────────────
+// Profile-only internal users: they hold a custom role in user_roles but are
+// neither learner-linked (profiles.learner_id) nor matched by email to ANY
+// staff row (active or not — the staff lane owns those, issuing at
+// activation). Mirrors the tg_jkkn_auto_issue_associate trigger's rule.
+
+export interface AssociateCandidate {
+  /** profiles.id */
+  id: string;
+  name: string;
+  email: string | null;
+}
+
+async function readAssociates(db: SupabaseClient): Promise<AssociateCandidate[]> {
+  const roleRows = await readAll<Record<string, unknown>>('user_roles', () =>
+    db.from('user_roles').select('user_id').order('user_id')
+  );
+  const userIds = [...new Set(roleRows.map((r) => String(r.user_id)).filter(Boolean))];
+
+  // Every staff email, ACTIVE OR NOT — same as the trigger's exclusion.
+  const staffRows = await readAll<Record<string, unknown>>('staff (emails)', () =>
+    db.from('staff').select('email, institution_email').order('id')
+  );
+  const staffEmails = new Set<string>();
+  for (const r of staffRows) {
+    for (const e of [r.email, r.institution_email]) {
+      const s = String(e ?? '').trim().toLowerCase();
+      if (s !== '') staffEmails.add(s);
+    }
+  }
+
+  const out: AssociateCandidate[] = [];
+  const CHUNK = 200;
+  for (let i = 0; i < userIds.length; i += CHUNK) {
+    const { data, error } = await db
+      .from('profiles')
+      .select('id, full_name, email, learner_id')
+      .in('id', userIds.slice(i, i + CHUNK));
+    if (error) throw new Error(`reading profiles for associates: ${error.message}`);
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      if (r.learner_id) continue;
+      const email = String(r.email ?? '').trim().toLowerCase();
+      if (email !== '' && staffEmails.has(email)) continue;
+      out.push({
+        id: String(r.id),
+        name: String(r.full_name ?? '').trim() || String(r.email ?? '').trim() || String(r.id),
+        email: email || null
+      });
+    }
+  }
+  return out;
 }
 
 // ─── Overlap resolution ──────────────────────────────────────────────────────
@@ -435,7 +490,8 @@ export function buildPlan(
 type Job =
   | { kind: 'both'; label: string; learnerId: string; teamMemberId: string }
   | { kind: 'learner'; label: string; learnerId: string }
-  | { kind: 'team_member'; label: string; teamMemberId: string };
+  | { kind: 'team_member'; label: string; teamMemberId: string }
+  | { kind: 'associate'; label: string; profileId: string };
 
 interface Totals {
   issued: number;
@@ -451,7 +507,7 @@ async function issueOne(
     p_person_kind: job.kind,
     p_learner_profile_id: 'learnerId' in job ? job.learnerId : null,
     p_team_member_id: 'teamMemberId' in job ? job.teamMemberId : null,
-    p_profile_id: null
+    p_profile_id: 'profileId' in job ? job.profileId : null
   });
 
   if (error) {
@@ -488,11 +544,13 @@ async function main(): Promise<void> {
 
   let learners: LearnerCandidate[];
   let teamMembers: TeamMemberCandidate[];
-  let issued: { learners: Set<string>; teamMembers: Set<string> };
+  let associates: AssociateCandidate[];
+  let issued: { learners: Set<string>; teamMembers: Set<string>; profiles: Set<string> };
   try {
-    [learners, teamMembers, issued] = await Promise.all([
+    [learners, teamMembers, associates, issued] = await Promise.all([
       readLearners(db, args.cohort),
       readTeamMembers(db, args.cohort),
+      readAssociates(db),
       readAlreadyIssued(db)
     ]);
   } catch (err) {
@@ -503,25 +561,30 @@ async function main(): Promise<void> {
 
   const totalLearners = learners.length;
   const totalTeamMembers = teamMembers.length;
+  const totalAssociates = associates.length;
 
   // Pre-filter: an already-issued person is never handed to the RPC. This is
   // the guard that makes the whole script re-runnable — fn_issue_jkkn_id
   // itself would raise on every one of them.
   const pendingLearners = learners.filter((l) => !issued.learners.has(l.id));
   const pendingTeamMembers = teamMembers.filter((t) => !issued.teamMembers.has(t.id));
+  const pendingAssociates = associates.filter((a) => !issued.profiles.has(a.id));
 
   const plan = buildPlan(pendingLearners, pendingTeamMembers);
 
   console.log('── Cohort ──────────────────────────────────────────────');
   console.log(`learners in cohort            ${totalLearners}`);
   console.log(`team members in cohort        ${totalTeamMembers}`);
+  console.log(`associates (role, no record)  ${totalAssociates}`);
   console.log(`already hold a number         ${totalLearners - pendingLearners.length} learners, ` +
-    `${totalTeamMembers - pendingTeamMembers.length} team members`);
+    `${totalTeamMembers - pendingTeamMembers.length} team members, ` +
+    `${totalAssociates - pendingAssociates.length} associates`);
   console.log('\n── Would issue ─────────────────────────────────────────');
   console.log(`one number as 'both'          ${plan.both.length}   (learner + team member, same person)`);
   console.log(`learner only                  ${plan.learnerOnly.length}`);
   console.log(`team member only              ${plan.teamMemberOnly.length}`);
-  console.log(`TOTAL NUMBERS                 ${plan.both.length + plan.learnerOnly.length + plan.teamMemberOnly.length}`);
+  console.log(`associate                     ${pendingAssociates.length}   (custom-role user, no learner/staff record)`);
+  console.log(`TOTAL NUMBERS                 ${plan.both.length + plan.learnerOnly.length + plan.teamMemberOnly.length + pendingAssociates.length}`);
   console.log('\n── Withheld, needs a human ─────────────────────────────');
   console.log(`phone-only overlaps           ${plan.needsHuman.length}   (${plan.needsHuman.length * 2} people not issued)`);
 
@@ -558,6 +621,9 @@ async function main(): Promise<void> {
     ),
     ...plan.learnerOnly.map(
       (l): Job => ({ kind: 'learner', label: `learner   ${l.name}`, learnerId: l.id })
+    ),
+    ...pendingAssociates.map(
+      (a): Job => ({ kind: 'associate', label: `associate ${a.name}`, profileId: a.id })
     )
   ];
   const selected = args.limit === null ? jobs : jobs.slice(0, args.limit);
@@ -617,7 +683,8 @@ async function main(): Promise<void> {
       write(
         `ISSUED ${result.jkknId} kind=${job.kind} ` +
           `learner=${'learnerId' in job ? job.learnerId : '-'} ` +
-          `team_member=${'teamMemberId' in job ? job.teamMemberId : '-'}`
+          `team_member=${'teamMemberId' in job ? job.teamMemberId : '-'} ` +
+          `profile=${'profileId' in job ? job.profileId : '-'}`
       );
     } else if (result.status === 'already') {
       totals.alreadyHeld++;

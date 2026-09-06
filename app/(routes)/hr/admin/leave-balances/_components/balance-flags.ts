@@ -40,7 +40,19 @@ export const SOURCE_META: Record<
   },
 };
 
-export type BalanceFlag = 'no_row' | 'negative' | 'overdrawn' | 'off_policy';
+/**
+ * `sto_exhausted` is the odd one out: it is a ROW-level flag only, never
+ * returned by cellFlags(). The other four describe a day cell's entitlement
+ * ledger; this one describes a Short Time Off cell's per-period minute budget,
+ * which has no ledger at all. It earns a place in the same vocabulary because
+ * the attention filter and the row tint are shared.
+ */
+export type BalanceFlag =
+  | 'no_row'
+  | 'negative'
+  | 'overdrawn'
+  | 'off_policy'
+  | 'sto_exhausted';
 
 export const FLAG_META: Record<BalanceFlag, { label: string; hint: string }> = {
   no_row: {
@@ -58,6 +70,10 @@ export const FLAG_META: Record<BalanceFlag, { label: string; hint: string }> = {
   off_policy: {
     label: 'Off policy',
     hint: 'Entitlement comes from an override or a frozen literal rather than the leave type default.',
+  },
+  sto_exhausted: {
+    label: 'Short time off spent',
+    hint: 'The whole Short Time Off budget for this period is committed — pending requests count too. Further requests will be refused until the period rolls over.',
   },
 };
 
@@ -91,11 +107,32 @@ export function rowNeedsAttention(flags: {
   negative: number;
   overdrawn: number;
   off_policy: number;
+  sto_exhausted?: number;
 }): boolean {
   return (
     flags.missing_rows > 0 ||
     flags.negative > 0 ||
     flags.overdrawn > 0 ||
-    flags.off_policy > 0
+    flags.off_policy > 0 ||
+    // Optional so a caller holding a pre-STO flags object still type-checks;
+    // the RPC always sends it.
+    (flags.sto_exhausted ?? 0) > 0
   );
+}
+
+/* ─────────────────── Short Time Off cell vocabulary ─────────────────── */
+
+/**
+ * Tint for one STO cell. Only two states are worth colouring: the budget is
+ * spent (red — every further request is refused), or the period could not be
+ * resolved (amber — the database refuses submissions but the reason is a
+ * misconfiguration, not the person's own usage). Everything else is normal.
+ */
+export function stoCellTone(cell: {
+  exhausted: boolean;
+  window_unresolved: boolean;
+}): string {
+  if (cell.window_unresolved) return 'text-amber-600 dark:text-amber-400';
+  if (cell.exhausted) return 'text-red-600 dark:text-red-400';
+  return '';
 }

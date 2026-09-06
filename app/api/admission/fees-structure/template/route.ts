@@ -13,6 +13,8 @@ import {
   FEE_STRUCTURE_SHEET_NAME,
   UNIFIED_HEADERS,
   DUE_ANCHOR_LABELS,
+  APPLIES_TO_LABELS,
+  REQUIRED_PROMOTIONS,
   DATE_HEADERS,
   headerColumn,
 } from '@/lib/utils/mappings/fee-structure-excel-mappings';
@@ -105,6 +107,13 @@ export async function GET(_req: NextRequest) {
     const tuition = categoryNames[0] ?? '1 Year Tuition Fee';
     const otherFee = categoryNames[1] ?? 'Uniform Fee';
     const statusLabels = (statuses.data ?? []).map((r: any) => r.label as string);
+    // The two rungs every structure must promote to, named explicitly. The
+    // samples used to take statusLabels[0] and [1], which the alphabetical
+    // order above made "Account" and "Admitted" — a shape the importer now
+    // rejects (no Reserved). The samples must be something it accepts.
+    const [reservedLabel, admittedLabel] = REQUIRED_PROMOTIONS.map(
+      (p) => statusLabels.find((l) => l.toLowerCase() === p.label.toLowerCase()) ?? p.label,
+    );
 
     // A SECOND structure, so the sheet shows where one ends and the next
     // begins — and so the date-driven example below has somewhere to live.
@@ -124,18 +133,21 @@ export async function GET(_req: NextRequest) {
       // ── Structure A ── a fee split 30 / 40 / 30, promoting twice.
       // Instalments 1 and 2 are OFFSETS; instalment 3 is a hard DATE. Mixing
       // the two down one fee is allowed, and this is what it looks like.
-      { ...sampleStructure, 'Fee Category': tuition, Amount: 100000, 'Instalment #': 1, 'Share %': 30, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due After (Days)': 15, 'Promotes To': statusLabels[0] ?? '' },
-      { ...sampleStructure, 'Fee Category': tuition, Amount: 100000, 'Instalment #': 2, 'Share %': 40, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due After (Days)': 90, 'Promotes To': statusLabels[1] ?? '' },
-      { ...sampleStructure, 'Fee Category': tuition, Amount: 100000, 'Instalment #': 3, 'Share %': 30, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due Date': '2027-06-30' },
-      // A second fee of the SAME structure, paid in one go on a hard date.
-      { ...sampleStructure, 'Fee Category': otherFee, Amount: 5000, 'Instalment #': '', 'Due Anchor': DUE_ANCHOR_LABELS.fixed_date, 'Due Date': '2027-01-31' },
+      { ...sampleStructure, 'Fee Category': tuition, Amount: 100000, 'Applies To': APPLIES_TO_LABELS.every_year, 'Instalment #': 1, 'Share %': 30, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due After (Days)': 15, 'Promotes To': reservedLabel },
+      { ...sampleStructure, 'Fee Category': tuition, Amount: 100000, 'Applies To': APPLIES_TO_LABELS.every_year, 'Instalment #': 2, 'Share %': 40, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due After (Days)': 90, 'Promotes To': admittedLabel },
+      { ...sampleStructure, 'Fee Category': tuition, Amount: 100000, 'Applies To': APPLIES_TO_LABELS.every_year, 'Instalment #': 3, 'Share %': 30, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due Date': '2027-06-30' },
+      // A second fee of the SAME structure, paid in one go on a hard date --
+      // and charged ONCE, at admission, not again in years 2, 3 and 4.
+      { ...sampleStructure, 'Fee Category': otherFee, Amount: 5000, 'Applies To': APPLIES_TO_LABELS.first_year_only, 'Instalment #': '', 'Due Anchor': DUE_ANCHOR_LABELS.fixed_date, 'Due Date': '2027-01-31' },
 
       // ── Structure B ── the same fee split 50 / 50 on two FIXED DATES.
       // Every instalment dated, no offsets anywhere. Note the anchor still
       // reads Generation Date: on a split it only governs rows that use
       // "Due After (Days)", and these rows do not.
-      { ...sampleStructureB, 'Fee Category': tuition, Amount: 90000, 'Instalment #': 1, 'Share %': 50, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due Date': '2026-08-31', 'Promotes To': statusLabels[0] ?? '' },
-      { ...sampleStructureB, 'Fee Category': tuition, Amount: 90000, 'Instalment #': 2, 'Share %': 50, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due Date': '2027-01-31' },
+      { ...sampleStructureB, 'Fee Category': tuition, Amount: 90000, 'Applies To': APPLIES_TO_LABELS.every_year, 'Instalment #': 1, 'Share %': 50, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due Date': '2026-08-31', 'Promotes To': reservedLabel },
+      { ...sampleStructureB, 'Fee Category': tuition, Amount: 90000, 'Applies To': APPLIES_TO_LABELS.every_year, 'Instalment #': 2, 'Share %': 50, 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due Date': '2027-01-31', 'Promotes To': admittedLabel },
+      // A fee billed in ONE nominated year -- the pair of cells that go together.
+      { ...sampleStructureB, 'Fee Category': otherFee, Amount: 2500, 'Applies To': APPLIES_TO_LABELS.specific_year, 'Year of Study': 3, 'Instalment #': '', 'Due Anchor': DUE_ANCHOR_LABELS.generation_date, 'Due After (Days)': 30 },
     ];
     for (const s of samples) sheet.addRow(s);
     // Two shades, one per sample structure, so "these rows are one structure"
@@ -158,6 +170,8 @@ export async function GET(_req: NextRequest) {
       const col = headerColumn(UNIFIED_HEADERS, header);
       if (col) sheet.getCell(`${col}1`).note = { texts: [{ font: { size: 9 }, text }] };
     };
+    noteOn('Applies To', "WHICH YEARS OF THE COURSE THIS FEE IS BILLED IN.\n\n  Every year       - billed in every year of the programme (the default).\n  First year only  - billed once, at admission. Use this for admission,\n                     uniform, kit and other one-off charges.\n  Specific year    - billed in ONE nominated year; put the year in the\n                     next column.\n\nBLANK leaves the fee as it is (Every year on a new fee).");
+    noteOn('Year of Study', "A YEAR NUMBER, 1-10.\n\nFill this in ONLY when \"Applies To\" reads Specific year, and leave it blank\notherwise. The two cells go together and the database rejects one without\nthe other.");
     noteOn('Due After (Days)',
       'A COUNT OF DAYS, e.g. 15 — counted from whatever "Due Anchor" says. Lands on a different calendar date for each learner.\n\nUse this OR "Due Date" on a row, never both.');
     noteOn('Due Date',
@@ -175,6 +189,8 @@ export async function GET(_req: NextRequest) {
     const roomNames = uniqueNames(rooms.data);
     const messNames = uniqueNames(messes.data);
     const anchorLabels = Object.values(DUE_ANCHOR_LABELS);
+    const appliesLabels = Object.values(APPLIES_TO_LABELS);
+    const yearNumbers = Array.from({ length: 10 }, (_, i) => i + 1);
     lists.columns = [
       { header: 'Institution', key: 'inst', width: 30 },
       { header: 'Quota', key: 'quota', width: 24 },
@@ -188,11 +204,14 @@ export async function GET(_req: NextRequest) {
       { header: 'Fee Category', key: 'cat', width: 30 },
       { header: 'Due Anchor', key: 'anchor', width: 22 },
       { header: 'Promotes To', key: 'promo', width: 20 },
+      { header: 'Applies To', key: 'applies', width: 18 },
+      { header: 'Year of Study', key: 'yos', width: 14 },
     ];
     const maxLen = Math.max(
       instNames.length, quotaNames.length, commNames.length, accNames.length,
       roomNames.length, messNames.length,
-      categoryNames.length, anchorLabels.length, statusLabels.length, 3,
+      categoryNames.length, anchorLabels.length, statusLabels.length,
+      appliesLabels.length, yearNumbers.length, 3,
     );
     for (let i = 0; i < maxLen; i++) {
       lists.addRow({
@@ -204,6 +223,8 @@ export async function GET(_req: NextRequest) {
         cat: categoryNames[i] ?? null,
         anchor: anchorLabels[i] ?? null,
         promo: statusLabels[i] ?? null,
+        applies: appliesLabels[i] ?? null,
+        yos: yearNumbers[i] ?? null,
       });
     }
 
@@ -236,6 +257,11 @@ export async function GET(_req: NextRequest) {
     validate('Fee Category', [colRange('J', categoryNames.length)], true, categoryNames.length > 0);
     validate('Due Anchor', [colRange('K', anchorLabels.length)], true);
     validate('Promotes To', [colRange('L', statusLabels.length)], true, statusLabels.length > 0);
+    // allowBlank on both: blank means "leave this fee's setting alone", which is
+    // the only way to re-import an older workbook without re-billing every
+    // one-off fee in every year of the course.
+    validate('Applies To', [colRange('M', appliesLabels.length)], true);
+    validate('Year of Study', [colRange('N', yearNumbers.length)], true);
 
     // ---- Sheet 3: Instructions ----
     const instr = wb.addWorksheet('Instructions');
@@ -249,11 +275,11 @@ export async function GET(_req: NextRequest) {
       'fee; a fee that is split owns one row per instalment. The structure columns',
       '(Institution ... Package Type) REPEAT on every row of that structure.',
       '',
-      '    Fee Structure ID | ... | Name        | Fee Category | Amount | Inst # | Share % | Due After | Due Date',
-      '    (blank)          | ... | BE CSE 2026 | Tuition Fee  | 100000 |   1    |   30    |    15     |',
-      '    (blank)          | ... | BE CSE 2026 | Tuition Fee  | 100000 |   2    |   40    |    90     |',
-      '    (blank)          | ... | BE CSE 2026 | Tuition Fee  | 100000 |   3    |   30    |           | 2027-06-30',
-      '    (blank)          | ... | BE CSE 2026 | Uniform Fee  |   5000 | (blank)|         |           | 2027-01-31',
+      '    Fee Structure ID | ... | Name        | Fee Category | Amount | Applies To      | Inst # | Share % | Due After | Due Date',
+      '    (blank)          | ... | BE CSE 2026 | Tuition Fee  | 100000 | Every year      |   1    |   30    |    15     |',
+      '    (blank)          | ... | BE CSE 2026 | Tuition Fee  | 100000 | Every year      |   2    |   40    |    90     |',
+      '    (blank)          | ... | BE CSE 2026 | Tuition Fee  | 100000 | Every year      |   3    |   30    |           | 2027-06-30',
+      '    (blank)          | ... | BE CSE 2026 | Uniform Fee  |   5000 | First year only | (blank)|         |           | 2027-01-31',
       '',
       '  = ONE structure, TWO fees, the first one split three ways.',
       '',
@@ -294,6 +320,19 @@ export async function GET(_req: NextRequest) {
       'F1. "Fee Category" + "Amount" define one fee of the structure. Amount is the FULL fee;',
       '    instalments split it, they do not add up on top of it — so put the same Amount on',
       '    every row of that fee.',
+      'F1a. "Applies To" says WHICH YEARS OF THE COURSE the fee is billed in, and it is',
+      '     the one column people most often need and never had. Every year (the default)',
+      '     re-bills the fee in year 2, 3 and 4 as well — right for tuition, WRONG for a',
+      '     one-time admission, uniform or kit charge, which wants First year only.',
+      '       Every year       — billed in every year of the programme.',
+      '       First year only  — billed once, at admission.',
+      '       Specific year    — billed in ONE year; name it in "Year of Study" (1-10).',
+      '     Like Amount, it belongs to the FEE, so it repeats down every row of that fee.',
+      'F1b. BLANK "Applies To" leaves the fee as it is — Every year on a fee you are',
+      '     creating, and whatever is already configured on a fee you are updating. That',
+      '     is what lets an older export re-import without re-billing one-off fees.',
+      '     "Year of Study" is filled ONLY next to Specific year, and must be blank',
+      '     otherwise; the database rejects one without the other.',
       'F2. To ADD a fee, add a row. To REMOVE a fee, DELETE its row(s). A row with a Fee',
       '    Category but no Amount is an error, not a removal — that ambiguity is the one way',
       '    a blank cell could quietly delete money.',
@@ -306,9 +345,12 @@ export async function GET(_req: NextRequest) {
       '    Percentages must total exactly 100 (unless you use Fixed Amount instead).',
       'S3. Each row: EITHER "Share %" OR "Fixed Amount" — never both. The LAST instalment',
       '    absorbs any rounding, so the parts always add up to the fee exactly.',
-      'S4. "Amount (ref)" is READ-ONLY — the rupee value each instalment actually bills, the',
-      '    same figure the fee structure screen shows. It is recalculated on import, so',
-      '    editing it does nothing. It is there so you can check 30/40/30 against real money.',
+      'S4. "Amount (ref)" is the rupee value each instalment actually bills — the same figure',
+      '    the fee structure screen shows. It never SETS the size (that is Share % / Fixed',
+      '    Amount); it is a cross-check. A filled-in value that does not match what the',
+      '    instalment bills is an ERROR — so if you change a share or an Amount, update or',
+      '    clear it. When any row uses Fixed Amount, the instalments must add up to the',
+      '    fee’s Amount exactly: a split that comes out short or over is refused.',
       'S5. Each row: EITHER "Due After (Days)" OR "Due Date" — never both, and never neither',
       '    on a numbered instalment. Mixing the two ACROSS rows is allowed: "+15 days" for the',
       '    first, a hard calendar date for the rest — or a date on every one.',
@@ -331,6 +373,10 @@ export async function GET(_req: NextRequest) {
       'S7. "Promotes To": the lifecycle status the learner reaches when THAT instalment is',
       '    settled (e.g. Reserved, Admitted). Blank = no rule. Statuses that grant a portal',
       '    login can never be reached automatically and are rejected.',
+      'S7a. EVERY structure must promote to BOTH Reserved and Admitted — on any fee, any',
+      '     instalment, in any combination (Reserved on instalment 1 of Tuition and Admitted',
+      '     on instalment 2, or on a different fee altogether). A structure on the sheet that',
+      '     is missing either one is rejected.',
       'S8. To SPLIT a fee that is currently one payment, replace its single blank-# row with',
       '    2+ numbered rows. To UN-split it, replace its numbered rows with one blank-# row.',
       '',

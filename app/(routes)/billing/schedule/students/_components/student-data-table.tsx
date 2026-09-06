@@ -7,7 +7,7 @@ import { QuickBillDialog } from './quick-bill-dialog';
 import type { StudentBillingSearchParams } from './student-data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, Users, FileText } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { StudentSearchService } from '@/lib/services/billing/schedule/student-search-service';
 import { StudentForBilling } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -20,6 +20,7 @@ interface StudentDataTableProps {
 
 export function StudentDataTable({ search }: StudentDataTableProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     canAccess,
     isSuperAdmin,
@@ -235,15 +236,25 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
     [router]
   );
 
+  // The search this table is currently showing, filters and page included.
+  // Threaded into each name link as `?returnTo=` so the detail page can send
+  // the operator back to these exact results — same contract as
+  // /billing/onboarding and /billing/transport.
+  const returnToUrl = React.useMemo(() => {
+    const qs = searchParams.toString();
+    return `/billing/schedule/students${qs ? `?${qs}` : ''}`;
+  }, [searchParams]);
+
   // Memoized so the table does not rebuild every column on each render (which
   // would reset column resizing and re-mount every cell).
   const tableColumns = React.useMemo(
     () =>
       getStudentColumns({
         onQuickBill: openStudentPopup,
-        canCreateBills
+        canCreateBills,
+        returnToUrl
       }),
-    [canCreateBills, openStudentPopup]
+    [canCreateBills, openStudentPopup, returnToUrl]
   );
 
   const getColumns = React.useCallback(() => tableColumns as any, [

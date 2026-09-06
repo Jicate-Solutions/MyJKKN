@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { HRLeaveTypeService } from '@/lib/services/hr/leave-type-service';
 import type {
@@ -14,6 +14,29 @@ const KEY = 'hr-leave-types';
 const ANALYTICS_KEY = 'hr-leave-balance-analytics';
 const STAFF_BALANCES_KEY = 'hr-leave-staff-balances';
 const CAN_APPROVE_KEY = 'hr-can-approve-leave';
+const STO_USAGE_KEY = 'hr-sto-usage';
+const LEAVE_PERIOD_USAGE_KEY = 'hr-leave-period-usage';
+
+/**
+ * Refresh the per-period allowance figures the apply drawers quote.
+ *
+ * BOTH RPCs behind these keys already count 'pending' and 'escalated' beside
+ * 'approved' — an undecided request is held against the allowance exactly as
+ * hr_trig_sto_enforce_limits and hr_leave_period_usage hold it, so the server
+ * has never been wrong here. The number on screen was, because nothing
+ * invalidated these keys: with staleTime 5 min and focus refetch off, the
+ * drawer re-served the answer it cached BEFORE the request existed. Applying
+ * did not reduce the remaining hours, and rejecting, cancelling or
+ * withdrawing did not give them back until the entry aged out.
+ *
+ * Every mutation that moves an application into or out of
+ * ('pending','approved','escalated') must call this.
+ */
+export function invalidateAllowanceViews(qc: QueryClient) {
+  for (const key of [STO_USAGE_KEY, LEAVE_PERIOD_USAGE_KEY]) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
 
 /**
  * Whether the Approvals tab should render. Mirrors the hla_update RLS policy
@@ -147,10 +170,26 @@ export function useHardDeleteHRLeaveType() {
   return useMutation({
     mutationFn: ({ id, dryRun }: { id: string; dryRun: boolean }) =>
       HRLeaveTypeService.hardDelete(supabase, id, dryRun),
-    onSuccess: (result) => {
-      // A dry run wrote nothing — invalidating on it would refetch the table
-      // every time someone merely opened the confirmation dialog.
-      if (result?.dry_run) return;
+    onSuccess: (result, variables) => {
+      // GUARD ON WHAT WAS REQUESTED, NOT ON WHAT CAME BACK.
+      //
+      // This read `result?.dry_run`, which is only present in the RPC's SUCCESS
+      // payloads. Every refusal — in_use, still_active, permission_denied, and
+      // the EXCEPTION catch — returns {ok:false, error:…} with NO dry_run key,
+      // so the check was undefined, the guard fell through, and merely OPENING
+      // the confirmation dialog on a leave type that cannot be deleted
+      // invalidated the table. useDataTableRefreshOnInvalidate turns that into a
+      // refetch, which reads on screen as the page reloading and takes the open
+      // dialog with it — reported as "it refreshes and I cannot delete it".
+      //
+      // It misfired only on types that ARE refused, which is exactly when
+      // somebody is trying hardest to delete one.
+      //
+      // `variables.dryRun` cannot lie: a dry run writes nothing whatever it
+      // returns. `!result.ok` covers the other half — a refused commit wrote
+      // nothing either, so there is nothing to invalidate. Same shape as
+      // useGenerateBalances below.
+      if (variables.dryRun || !result?.ok) return;
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
       qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
@@ -227,7 +266,7 @@ export function useStoUsage(
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+    queryKey: [STO_USAGE_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
     queryFn: () =>
       HRLeaveTypeService.getStoUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
@@ -250,7 +289,7 @@ export function useLeavePeriodUsage(
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: ['hr-leave-period-usage', employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+    queryKey: [LEAVE_PERIOD_USAGE_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
     queryFn: () =>
       HRLeaveTypeService.getLeavePeriodUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate

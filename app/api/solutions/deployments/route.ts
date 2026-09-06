@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/with-auth'
 import { DeploymentsService } from '@/lib/services/solutions/deployments-service'
-import { paginatedResponse, createdResponse, errorResponse } from '@/lib/api/response'
+import { RETIRED_DELIVERY_SURFACE_MESSAGE } from '@/lib/services/solutions/types'
+import { paginatedResponse, errorResponse } from '@/lib/api/response'
 import { getPaginationParams, getStringParam, getUuidParam } from '@/lib/api-keys/query-helpers'
 import { corsHeaders } from '@/lib/api-keys/cors'
 
@@ -29,24 +30,13 @@ export const GET = withAuth(async (request, auth) => {
   return paginatedResponse(result.data, result.metadata.total, page, limit)
 }, { requiredPermission: 'read' })
 
-export const POST = withAuth(async (request, auth) => {
-  const body = await request.json()
-
-  if (!body.phase_id || !body.environment || !body.deployed_date) {
-    return errorResponse('phase_id, environment, and deployed_date are required', 400)
-  }
-
-  const result = await DeploymentsService.createDeployment({
-    phase_id: body.phase_id,
-    environment: body.environment,
-    version: body.version,
-    vercel_url: body.vercel_url,
-    supabase_project_id: body.supabase_project_id,
-    custom_domain: body.custom_domain,
-    deployed_date: body.deployed_date,
-    deployed_by: body.deployed_by ?? auth.user.id,
-    notes: body.notes,
-  })
-
-  return createdResponse(result)
+/**
+ * Creating a deployment is retired (2026-08-14 boundary ruling): the Solutions
+ * Hub's own delivery tables are retired in place and delivery is tracked in the
+ * Projects module. This endpoint never actually worked — the insert referenced
+ * `version` and `deployed_date`, neither of which exists on the table, so every
+ * POST returned an opaque 500. It now refuses explicitly with 410 Gone.
+ */
+export const POST = withAuth(async () => {
+  return errorResponse(RETIRED_DELIVERY_SURFACE_MESSAGE, 410)
 })

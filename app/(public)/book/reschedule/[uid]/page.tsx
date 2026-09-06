@@ -12,7 +12,7 @@
 // Pattern: app/(public)/book/cancel/[uid]/page.tsx (token-gated server load
 // → client widget).
 
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { createClient } from '@supabase/supabase-js';
 import {
   isSwitchAllowedNow,
@@ -26,6 +26,22 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Reschedule booking · JKKN',
   robots: { index: false },
+};
+
+// Opened in a mobile browser from a calendar invite, so the browser chrome is
+// part of the page: themeColor tints Safari's bars to the same evergreen the
+// PWA uses (app/manifest.ts), and colorScheme makes the UA paint its own canvas
+// to match instead of leaving white behind a dark page. Matches the pattern in
+// app/(parent-portal)/layout.tsx.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#0b6d41' },
+    { media: '(prefers-color-scheme: dark)', color: '#0b1411' },
+  ],
+  colorScheme: 'light dark',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 interface ReschedulePageProps {

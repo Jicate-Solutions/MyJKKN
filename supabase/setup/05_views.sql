@@ -948,7 +948,15 @@ CREATE VIEW public.v_learner_hostelites AS
     -- Current room/mess categories (admin Category Upgrade tab —
     -- migration 20260617110000_v_learner_hostelites_add_categories.sql)
     lp.hostel_category_id, hc.name AS hostel_category_name, hc.type AS hostel_category_type,
-    lp.mess_category_id, mc.name AS mess_category_name
+    lp.mess_category_id, mc.name AS mess_category_name,
+    -- Contact numbers for the Residents roster export (migration
+    -- 20260902140000_v_learner_hostelites_add_contact_numbers.sql). Appended
+    -- LAST because CREATE OR REPLACE VIEW only permits adding columns at the
+    -- end. v_learner_hostelites_scoped is `SELECT v.*` but Postgres freezes
+    -- that star at creation time, so that view had to be re-created in the same
+    -- migration or it would have stayed at 42 columns while this one had 45 —
+    -- and the Residents list reads the SCOPED view.
+    lp.student_mobile, lp.father_mobile, lp.mother_mobile
    FROM learners_profiles lp
      LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
      LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
@@ -980,6 +988,15 @@ GRANT ALL ON public.v_learner_hostelites TO anon, authenticated, service_role;
 --   super admin → all; warden (has user_block_access grants) → their granted
 --   blocks only (cross-institution, excludes unassigned); else → accessible
 --   institutions. security_barrier prevents predicate-pushdown leaks.
+--
+-- TRAP: `SELECT v.*` below is NOT dynamic. Postgres expands the star into an
+-- explicit column list when the view is created and never re-expands it. Any
+-- migration that adds a column to v_learner_hostelites MUST re-run this
+-- CREATE OR REPLACE in the same migration, or this view silently stays at the
+-- old column count — and since the client list path reads THIS view, the new
+-- column arrives as permanently blank with no error anywhere. Hit on
+-- 2026-09-02 while adding the contact numbers (base went to 45, this was still
+-- frozen at 42).
 CREATE OR REPLACE VIEW public.v_learner_hostelites_scoped
 WITH (security_barrier = true) AS
 SELECT v.*
@@ -1728,3 +1745,144 @@ CREATE OR REPLACE VIEW public.v_hr_leave_balance AS
 
 COMMENT ON VIEW public.v_hr_leave_balance IS
   'Per-staff, per-type, per-year leave position, RLS-scoped to yourself or to an organization you approve for. Entitlement resolves through COALESCE(override, ledger literal, policy) and names the winner in entitlement_source. Carries the type''s whole document rule -- requires_documents plus document_required_after_days -- so the Apply Leave drawer can decide whether THIS request needs a certificate without a second round trip.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827210000 + 20260827220000 (views)
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_hr_staff
+WITH (security_invoker = true) AS
+  SELECT s.*
+    FROM public.staff s
+    JOIN public.employment_categories ec ON ec.id = s.category_id
+   WHERE ec.included_in_hr;
+
+COMMENT ON VIEW public.v_hr_staff IS
+  'Active-or-not staff whose employment category is included in HR. Same columns as staff; swap the table name in HR queries. Inherits staff RLS (security_invoker).';
+
+REVOKE ALL ON public.v_hr_staff FROM anon;
+GRANT SELECT ON public.v_hr_staff TO authenticated;
+
+CREATE OR REPLACE VIEW public.v_hr_leave_balance_src AS
+ SELECT s.id AS employee_id,
+    t.id AS leave_type_id,
+    y.id AS hr_academic_year_id,
+    t.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    COALESCE(b.used, 0::numeric) AS used,
+    COALESCE(b.carried_forward, 0::numeric) AS carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + COALESCE(b.carried_forward, 0::numeric) - COALESCE(b.used, 0::numeric) AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_academic_years y
+     CROSS JOIN hr_leave_types t
+     JOIN hr_organizations org ON org.id = t.hr_organization_id
+     JOIN staff s ON s.institution_id = org.institution_id AND s.is_active
+     JOIN employment_categories sec ON sec.id = s.category_id AND sec.included_in_hr
+     LEFT JOIN hr_staff_details d ON d.staff_id = s.id
+     LEFT JOIN hr_leave_balances b ON b.employee_id = s.id AND b.leave_type_id = t.id AND b.hr_academic_year_id = y.id
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = s.id AND o.leave_type_id = t.id AND o.hr_academic_year_id = y.id
+  WHERE y.frozen_at IS NULL AND t.is_active AND (t.applicable_gender::text = 'all'::text OR lower(COALESCE(s.gender, ''::text)) = t.applicable_gender::text) AND (t.applicable_cadre_ids IS NULL OR (d.cadre_id = ANY (t.applicable_cadre_ids))) AND (NOT (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active)) OR (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active AND (a.scope_kind::text = 'staff'::text AND a.staff_id = s.id OR a.scope_kind::text = 'department'::text AND a.department_id = s.department_id OR a.scope_kind::text = 'organization'::text))))
+UNION ALL
+ SELECT b.employee_id,
+    b.leave_type_id,
+    b.hr_academic_year_id,
+    b.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    b.used,
+    b.carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + b.carried_forward - b.used AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_leave_balances b
+     JOIN hr_academic_years y ON y.id = b.hr_academic_year_id AND y.frozen_at IS NOT NULL
+     JOIN hr_leave_types t ON t.id = b.leave_type_id
+     -- Frozen years too: an excluded category should disappear from HR
+     -- everywhere, not linger in history screens.
+     JOIN staff fs ON fs.id = b.employee_id
+     JOIN employment_categories fec ON fec.id = fs.category_id AND fec.included_in_hr
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = b.employee_id AND o.leave_type_id = b.leave_type_id AND o.hr_academic_year_id = b.hr_academic_year_id;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828130000_staff_id_backfill.sql (views)
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_staff_id_crosswalk
+WITH (security_invoker = true) AS
+SELECT full_name,
+       institution_name,
+       CASE WHEN is_teaching THEN 'Teaching' ELSE 'Non-teaching' END AS staff_type,
+       CASE WHEN is_active   THEN 'Active'   ELSE 'Inactive'     END AS status,
+       old_staff_id,
+       new_staff_id,
+       migrated_at
+FROM public.staff_id_crosswalk;
+
+COMMENT ON VIEW public.v_staff_id_crosswalk IS
+  'Readable old -> new staff ID mapping for HR to export and circulate.';
+
+-- Explicit, even though the view is security_invoker and the table beneath it is
+-- locked: a view does NOT inherit the underlying table's RLS, so if the
+-- security_invoker option is ever dropped this becomes an anon-readable dump of
+-- every staff member's name, institution and old/new ID.
+REVOKE ALL ON TABLE public.v_staff_id_crosswalk FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.v_staff_id_crosswalk TO authenticated;
+
+-- ===========================================================================
+-- v_hr_leave_balance / _src gained `accrued` and `pending` (2026-09-02)
+-- Source: 20260902160000_hr_leave_accrual_and_pending_reservation.sql
+--
+--   available = accrued + carried_forward - used - pending
+--
+-- `entitled` and `used` keep their old meanings -- the ledger is NOT rewritten,
+-- which is what keeps existing reports honest. New columns are appended because
+-- CREATE OR REPLACE VIEW can only add at the end, and BOTH views move together
+-- since the outer one lists its columns explicitly.
+--
+-- Pending arrives from ONE pre-aggregated LEFT JOIN over the unapproved rows,
+-- and accrual from the IMMUTABLE kernel called inline: a querying function per
+-- row would have turned a 12 ms view into thousands of queries.
+--
+-- The FROZEN-year branch does not accrue and takes no new requests, so its
+-- available stays the arithmetic it always was.
+--
+-- Full definitions in the migration.
+-- ===========================================================================
