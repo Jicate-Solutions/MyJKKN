@@ -80,7 +80,21 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *  keeps the runner honest when a job arrives from anywhere else. */
 export function parsePayload(raw: unknown): DraftJobPayload | null {
   if (!raw || typeof raw !== 'object') return null;
-  const p = raw as Record<string, unknown>;
+  const outer = raw as Record<string, unknown>;
+  // The estate's Max-lane convention is payload._ctx: every working job type on
+  // the lane (accreditation.naac_narrative_draft, ai_pulse.domain_starter,
+  // learner.360_verdict, loops.charter_draft, improvement.rank_ideas,
+  // induction.session_effectiveness) sends {_ctx: {...}, prompt: '...'} and the
+  // seat runner substitutes _ctx into the template's {{payload}} slot. Lane I
+  // originally sent its fields at the TOP level; the runner then rendered an
+  // EMPTY payload slot and the model replied "I don't see the actual input
+  // payload" (measured: ai_jobs 1096542b, 2026-09-06 06:09Z). Read _ctx when it
+  // is there, fall back to the flat shape so any job queued before the route
+  // change still files.
+  const p =
+    outer._ctx && typeof outer._ctx === 'object' && !Array.isArray(outer._ctx)
+      ? (outer._ctx as Record<string, unknown>)
+      : outer;
   const examDefinitionId = p.exam_definition_id;
   const examKey = p.exam_key;
   const topicId = p.topic_id ?? null;
