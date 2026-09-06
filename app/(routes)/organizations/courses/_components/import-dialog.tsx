@@ -246,9 +246,9 @@ export function ImportDialog({ open, onOpenChange, onImportComplete }: ImportDia
               {file && (
                 <div className='mt-4 p-3 bg-muted rounded-md'>
                   <div className='flex items-center justify-between'>
-                    <div className='flex items-center gap-2'>
-                      <FileSpreadsheet className='h-4 w-4 text-primary' />
-                      <span className='text-sm font-medium'>{file.name}</span>
+                    <div className='flex items-center gap-2 min-w-0'>
+                      <FileSpreadsheet className='h-4 w-4 text-primary shrink-0' />
+                      <span className='text-sm font-medium truncate min-w-0'>{file.name}</span>
                     </div>
                     <Button
                       variant='ghost'

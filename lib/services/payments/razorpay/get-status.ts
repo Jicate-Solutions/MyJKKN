@@ -38,6 +38,22 @@ export async function getPaymentStatus(paymentId: string, auth: RazorpayApiAuth)
   };
 }
 
+/**
+ * All payment attempts made against an order, newest-first as Razorpay returns them.
+ *
+ * Needed by the reconciliation sweep: when the browser never posts the callback we
+ * only ever learn the ORDER id, but a receipt has to carry the real `pay_…`
+ * reference. GET /orders/{id} alone cannot supply that.
+ */
+export async function getOrderPayments(orderId: string, auth: RazorpayApiAuth): Promise<RazorpayPayment[]> {
+  const res = await razorpayRequest<{ items?: RazorpayPayment[] }>(
+    'GET',
+    `/orders/${encodeURIComponent(orderId)}/payments`,
+    auth,
+  );
+  return res?.items ?? [];
+}
+
 export async function dualInquiry(orderId: string, paymentId: string | undefined, auth: RazorpayApiAuth): Promise<GetStatusResult> {
   // Per security audit checklist: dual inquiry means we check BOTH endpoints when possible
   const orderStatus = await getOrderStatus(orderId, auth);

@@ -1234,14 +1234,14 @@ function MarathonSettingsPageInner() {
       />
 
       <div className="space-y-4 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">{event.name}</h1>
             <p className="text-sm text-muted-foreground">
               Configure your marathon event settings.
             </p>
           </div>
-          <Badge variant="secondary" className="uppercase">
+          <Badge variant="secondary" className="uppercase self-start sm:self-auto">
             {event.status}
           </Badge>
         </div>

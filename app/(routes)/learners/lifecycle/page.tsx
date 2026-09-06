@@ -259,7 +259,7 @@ export default function LifecycleAnalyticsPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="modules">Module Usage</TabsTrigger>
             <TabsTrigger value="users">User Stats</TabsTrigger>

@@ -82,6 +82,16 @@ export function ParentAuthSettings({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  // Validate a redirect URI is well-formed (catches typos like "http:localhost" missing "//")
+  const isValidRedirectUri = (uri: string) => {
+    try {
+      new URL(uri);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // Watch app name for generating app ID
   const appName = form.watch('name');
   
@@ -107,9 +117,9 @@ export function ParentAuthSettings({
   return (
     <Card className="border-primary/20">
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
+            <Shield className="h-5 w-5 text-primary shrink-0" />
             <CardTitle>Parent App Authentication</CardTitle>
           </div>
           <FormField
@@ -265,8 +275,8 @@ export function ParentAuthSettings({
             name="allowed_redirect_uris"
             render={({ field }) => (
               <FormItem>
-                <div className="flex items-center justify-between mb-1">
-                  <div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-1">
+                  <div className="min-w-0">
                     <FormLabel>Allowed Redirect URIs</FormLabel>
                     <FormDescription>
                       Allowed callback URLs after authentication
@@ -276,6 +286,7 @@ export function ParentAuthSettings({
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="shrink-0"
                     onClick={() =>
                       field.onChange([...(field.value || []), ''])
                     }
@@ -290,33 +301,45 @@ export function ParentAuthSettings({
                       No redirect URIs added. Click &quot;Add URL&quot; to add one.
                     </p>
                   ) : (
-                    (field.value as string[]).map((uri, index) => (
-                      <div key={index} className="flex gap-2">
-                        <Input
-                          placeholder="https://yourapp.example.com/auth/callback"
-                          value={uri}
-                          onChange={(e) => {
-                            const updated = [...(field.value as string[])];
-                            updated[index] = e.target.value;
-                            field.onChange(updated);
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            const updated = (field.value as string[]).filter(
-                              (_, i) => i !== index
-                            );
-                            field.onChange(updated);
-                          }}
-                          className="text-muted-foreground hover:text-destructive shrink-0"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))
+                    (field.value as string[]).map((uri, index) => {
+                      const isInvalid = uri.length > 0 && !isValidRedirectUri(uri);
+                      return (
+                        <div key={index} className="space-y-1">
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="https://yourapp.example.com/auth/callback"
+                              value={uri}
+                              aria-invalid={isInvalid}
+                              className={isInvalid ? 'border-destructive' : undefined}
+                              onChange={(e) => {
+                                const updated = [...(field.value as string[])];
+                                updated[index] = e.target.value;
+                                field.onChange(updated);
+                              }}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                const updated = (field.value as string[]).filter(
+                                  (_, i) => i !== index
+                                );
+                                field.onChange(updated);
+                              }}
+                              className="text-muted-foreground hover:text-destructive shrink-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {isInvalid && (
+                            <p className="text-xs text-destructive">
+                              Invalid URL &mdash; did you mean &quot;http://&quot; or &quot;https://&quot; (with //)?
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
                 <FormMessage />
@@ -334,7 +357,7 @@ export function ParentAuthSettings({
                 <FormDescription>
                   Select the permissions this app can access
                 </FormDescription>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {availableScopes.map((scope) => (
                     <div
                       key={scope.value}
@@ -378,7 +401,7 @@ export function ParentAuthSettings({
           </Alert>
 
           {/* Rate Limiting */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField
               control={form.control}
               name="rate_limit_requests"

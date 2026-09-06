@@ -34,12 +34,24 @@ export interface ProposedRecommendation {
   week_start_date: string;
   recommended_count: number;
   demoted_count: number;
+  /** Full id arrays behind the counts — the board's detail expansion resolves these to dish names. */
+  recommended_item_ids: string[];
+  demoted_item_ids: string[];
   rationale: Record<string, unknown>;
   /** Last measured lift for this slot's prior cycle, if any (NULL until measured). */
   rating_lift: number | null;
   baseline_avg_rating: number | null;
   baseline_rating_n: number | null;
   created_at: string;
+}
+
+/** Minimal library row for showing WHICH dishes a proposal promotes/demotes. */
+export interface MenuLoopItemLite {
+  id: string;
+  name_tamil: string | null;
+  name_english: string;
+  category: string | null;
+  dietary_tags: string[];
 }
 
 /** One row of the causal-validity guard: lift distribution per verdict status. */
@@ -79,6 +91,8 @@ export class MessMenuLoopService {
         week_start_date: r.week_start_date,
         recommended_count: Array.isArray(r.recommended_item_ids) ? r.recommended_item_ids.length : 0,
         demoted_count: Array.isArray(r.demoted_item_ids) ? r.demoted_item_ids.length : 0,
+        recommended_item_ids: Array.isArray(r.recommended_item_ids) ? r.recommended_item_ids : [],
+        demoted_item_ids: Array.isArray(r.demoted_item_ids) ? r.demoted_item_ids : [],
         rationale: (r.rationale ?? {}) as Record<string, unknown>,
         rating_lift: r.rating_lift,
         baseline_avg_rating: r.baseline_avg_rating,
@@ -87,6 +101,38 @@ export class MessMenuLoopService {
       }));
     } catch (e) {
       logger.warn(MODULE, 'listProposed failed — rendering empty', e);
+      return [];
+    }
+  }
+
+  /**
+   * Resolve library item ids to names/tags for the board's detail expansion.
+   * `mess_menu_item_library` SELECT is open to any authenticated user (RLS
+   * qual = true), so this is a plain client read — no RPC, no migration.
+   * ItemLibraryService has no batch-by-ids read (only paged filters +
+   * single getItem), hence this narrow lookup here.
+   */
+  static async getItemsByIds(ids: string[]): Promise<MenuLoopItemLite[]> {
+    const unique = Array.from(new Set(ids.filter(Boolean)));
+    if (unique.length === 0) return [];
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('mess_menu_item_library')
+        .select('id, name_tamil, name_english, category, dietary_tags')
+        .in('id', unique);
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (data ?? []).map((r: any) => ({
+        id: r.id,
+        name_tamil: r.name_tamil ?? null,
+        name_english: r.name_english ?? '',
+        category: r.category ?? null,
+        dietary_tags: Array.isArray(r.dietary_tags) ? r.dietary_tags : [],
+      }));
+    } catch (e) {
+      logger.warn(MODULE, 'getItemsByIds failed — rendering ids without names', e);
       return [];
     }
   }

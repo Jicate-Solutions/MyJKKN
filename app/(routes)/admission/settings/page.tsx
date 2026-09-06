@@ -363,7 +363,7 @@ function AdmissionSettingsPageContent() {
       <ContentLayout title="Admission Settings">
         <div className="space-y-6">
           {/* Breadcrumb */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -376,7 +376,7 @@ function AdmissionSettingsPageContent() {
               </BreadcrumbList>
             </Breadcrumb>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={handleReset} disabled={!canEditSettings}>
                 Reset to Defaults
               </Button>
@@ -468,7 +468,7 @@ function AdmissionSettingsPageContent() {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="channels">Channel Settings</TabsTrigger>
               <TabsTrigger value="global">Global Rules</TabsTrigger>
               <TabsTrigger value="protection">Spam Protection</TabsTrigger>
@@ -544,7 +544,7 @@ function AdmissionSettingsPageContent() {
                   {/* Channel Summary */}
                   <div>
                     <Label className="mb-3 block">Channel Limits Summary</Label>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="p-4 rounded-lg border bg-muted/50">
                         <div className="flex items-center gap-2 mb-2">
                           <MessageCircle className="h-4 w-4 text-green-600" />

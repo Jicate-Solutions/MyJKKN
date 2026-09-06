@@ -266,7 +266,7 @@ function TidyDuplicatesContent() {
                       <Spelling name={s.toName} count={s.toCount} />
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
                       <Badge variant="outline" className="whitespace-nowrap">
                         {Math.round(s.similarity * 100)}% match
                       </Badge>

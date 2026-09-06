@@ -39,6 +39,14 @@ interface FeatureWithUsage extends AiModelConfigRow {
   // (provider/model_id are ''). The UI shows "Uses default model" and a "Set
   // model" button that governs the job for the first time.
   model_set: boolean;
+  // VISIBILITY (2026-07-25): the registry `enabled` flag, surfaced so the
+  // console can MARK dormant jobs. The service-role read below already returns
+  // disabled rows (enabled=false) — they were rendering identical to enabled
+  // ones because the payload only carried the conflated `runnable`. This is the
+  // raw gate: a disabled job is not claimed/enqueued by the drain. Distinct from
+  // `is_active` (ai_model_config's own display toggle) and from `runnable`
+  // (enabled AND has-prompt AND non-interactive).
+  enabled: boolean;
 }
 
 async function requireSuperAdmin() {
@@ -203,6 +211,9 @@ export async function GET(_request: NextRequest) {
         runnable:
           r.enabled === true && !!r.prompt_template && r.interactive === false,
         model_set: r.model_id != null,
+        // VISIBILITY (2026-07-25): surface the raw registry gate so the console
+        // can badge disabled jobs. Already fetched in the .select() above.
+        enabled: r.enabled === true,
         month_to_date_cost_inr: s?.mtd_cost ?? 0,
         month_to_date_invocations: s?.mtd_count ?? 0,
         month_to_date_success_rate: s && s.mtd_count > 0 ? s.mtd_success / s.mtd_count : 1,

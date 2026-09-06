@@ -643,13 +643,16 @@ export default function SponsorDetailPage() {
   const { data: event } = useMarathonEvent(eventId);
   const { data: sponsor, isLoading, error } = useMarathonSponsor(sponsorId);
 
-  // Block non-admin users
+  // The non-admin block lives BELOW the hooks — returning here made
+  // useMovePipelineStage and useDeleteSponsor conditional the moment access
+  // resolved from loading to denied.
+  const movePipeline = useMovePipelineStage();
+  const deleteSponsor = useDeleteSponsor();
+
+  // Every hook has run — safe to bail out from here down.
   if (!access.isLoading && !access.canManage) {
     return <MarathonAccessDenied title="Sponsor Details" eventId={eventId} />;
   }
-
-  const movePipeline = useMovePipelineStage();
-  const deleteSponsor = useDeleteSponsor();
 
   const handleDelete = () => {
     deleteSponsor.mutate(
@@ -703,15 +706,16 @@ export default function SponsorDetailPage() {
 
       <div className="space-y-4 mt-4">
         {/* Page header */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="ghost"
             size="icon"
+            className="shrink-0"
             onClick={() => router.push(`/events/marathon/${eventId}/sponsors`)}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{sponsor.company_name}</h1>
               <Badge variant="default" className="capitalize">
@@ -719,7 +723,7 @@ export default function SponsorDetailPage() {
               </Badge>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
               Edit
             </Button>

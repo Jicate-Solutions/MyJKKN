@@ -121,7 +121,7 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <Button variant="ghost" size="sm" onClick={() => router.push('/admission/gd-pi')}>
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
@@ -205,7 +205,7 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="candidates">
                 Candidates ({session.candidates?.length || 0})
               </TabsTrigger>

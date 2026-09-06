@@ -32,7 +32,7 @@ import {
   resolveProfileIdsForLearners
 } from '@/lib/services/id-cards/print-jobs-client';
 import {
-  NO_TEMPLATES_MESSAGE,
+  emptyTemplateMessage,
   TemplateSelect,
   useIdCardTemplates
 } from './print-card-button';
@@ -58,6 +58,19 @@ const EMPTY_RESULTS: BulkPrintResults = {
   failed: []
 };
 
+// Confirm-step printing estimate: the Evolis bridge prints ~1 card / 15 s,
+// and every card consumes one YMCKO ribbon panel (~300 per full ribbon).
+const SECONDS_PER_CARD = 15;
+const LARGE_BATCH_THRESHOLD = 50;
+
+function formatPrintDuration(cards: number): string {
+  const totalMinutes = Math.ceil((cards * SECONDS_PER_CARD) / 60);
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
+}
+
 interface BulkPrintDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -73,7 +86,7 @@ export function BulkPrintDialog({
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<BulkPrintResults>(EMPTY_RESULTS);
 
-  const { templates, selectedTemplateId, selectTemplate } =
+  const { templates, selectedTemplateId, selectTemplate, inactiveOnly } =
     useIdCardTemplates(open);
 
   // Fresh confirm view every time the dialog opens.
@@ -86,6 +99,7 @@ export function BulkPrintDialog({
   }, [open]);
 
   const noTemplates = templates !== null && templates.length === 0;
+  const emptyMessage = emptyTemplateMessage(templates, inactiveOnly);
 
   const runBulkPrint = async () => {
     if (!selectedTemplateId || learners.length === 0) return;
@@ -185,8 +199,8 @@ export function BulkPrintDialog({
                     onChange={selectTemplate}
                     className="h-9 w-full"
                   />
-                  {noTemplates && (
-                    <p className="text-sm text-destructive">{NO_TEMPLATES_MESSAGE}</p>
+                  {emptyMessage && (
+                    <p className="text-sm text-destructive">{emptyMessage}</p>
                   )}
                 </div>
 
@@ -207,6 +221,19 @@ export function BulkPrintDialog({
                     ))}
                   </ul>
                 </div>
+
+                <p className="text-xs text-muted-foreground">
+                  Uses {learners.length} ribbon panel
+                  {learners.length > 1 ? 's' : ''} · about{' '}
+                  {formatPrintDuration(learners.length)} of printing at ~15 s
+                  per card.
+                </p>
+                {learners.length >= LARGE_BATCH_THRESHOLD && (
+                  <p className="text-xs font-medium text-amber-600 dark:text-amber-500">
+                    Large batch: a full YMCKO ribbon prints about 300 cards.
+                    Check the ribbon has enough panels left before starting.
+                  </p>
+                )}
               </div>
             )}
 

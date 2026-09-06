@@ -33,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { Event } from '@/types/events';
+import type { Event, ParticipantOrgType } from '@/types/events';
 import { JKKN_SPORTS, SPORT_LEVELS } from '@/types/health-sports';
 import { TOURNAMENT_FORMATS, DIVISION_GENDERS } from '@/types/tournament';
 import type {
@@ -49,6 +49,7 @@ import {
   useCreateDivision,
 } from '@/hooks/events/use-tournaments';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
 const toDateInput = (v: string | null | undefined) => (v ? v.slice(0, 10) : '');
@@ -235,6 +236,12 @@ function EditTournamentForm({
     venue: tournament.venue ?? '',
     is_public: tournament.is_public ?? false,
     allow_external_registration: tournament.allow_external_registration ?? false,
+    participant_org_type: (tournament.participant_org_type === 'college'
+      ? 'college'
+      : 'school') as ParticipantOrgType,
+    // NAAC evidence tags — the writer for the events → evidence-spine
+    // emitter (naac_criteria text[] on events; empty array = untagged).
+    naac_criteria: tournament.naac_criteria ?? [],
   });
 
   // Which division is being edited + the touched-fields overlay for it.
@@ -273,6 +280,8 @@ function EditTournamentForm({
           venue: form.venue.trim() || undefined,
           is_public: form.is_public,
           allow_external_registration: form.allow_external_registration,
+          participant_org_type: form.participant_org_type,
+          naac_criteria: form.naac_criteria,
         },
       });
 
@@ -357,6 +366,27 @@ function EditTournamentForm({
               <SelectItem value="all_jkkn">All JKKN (Inter-College / District+)</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Participants come from</Label>
+          <Select
+            value={form.participant_org_type}
+            onValueChange={(v) => set('participant_org_type', v)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="school">Schools</SelectItem>
+              <SelectItem value="college">Colleges</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Sets what external entrants are asked on the public registration form:
+            Schools shows &ldquo;School / club&rdquo; with the school-directory picker;
+            Colleges shows &ldquo;College&rdquo; as free text.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -494,6 +524,14 @@ function EditTournamentForm({
             />
           </div>
         </div>
+
+        {/* NAAC evidence tags — writes events.naac_criteria; the evidence
+            emitter picks tagged events up once they complete. */}
+        <NaacCriteriaField
+          value={form.naac_criteria}
+          onChange={(next) => setForm((prev) => ({ ...prev, naac_criteria: next }))}
+          disabled={isPending}
+        />
 
         <div className="space-y-1.5">
           <Label htmlFor="t-desc">Description</Label>

@@ -73,7 +73,7 @@ export function GuideLauncher({
           onClick={() => setOpen(true)}
           aria-label={remaining > 0 ? `Help — ${remaining} setup steps left` : "Help"}
           className={cx(
-            "group fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full bg-primary px-3.5 py-3 text-primary-foreground shadow-lg",
+            "group fixed bottom-nav-safe lg:bottom-4 right-4 z-40 flex items-center gap-2 rounded-full bg-primary px-3.5 py-3 text-primary-foreground shadow-lg",
             "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             className
           )}

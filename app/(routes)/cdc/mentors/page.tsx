@@ -66,7 +66,7 @@ export default function MentorPairingsPage() {
                 Activity
               </Link>
             </Button>
-            <PermissionGuard module="cdc.mentors" action="create">
+            <PermissionGuard module="cdc.mentors" action="create" fallback={null}>
               <Button asChild>
                 <Link href="/cdc/mentors/new">
                   <Plus className="w-4 h-4 mr-1" />
@@ -133,7 +133,7 @@ export default function MentorPairingsPage() {
                     <Link key={p.id} href={`/cdc/mentors/${p.id}`}>
                       <Card className="hover:border-blue-300 transition-colors cursor-pointer">
                         <CardHeader className="pb-2">
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <CardTitle className="text-base">
                               {p.mentor?.name ?? 'Unknown'} → {p.mentee?.name ?? 'Unknown'}
                             </CardTitle>

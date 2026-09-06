@@ -33,7 +33,7 @@ export function ApiNav() {
   const pathname = usePathname();
 
   return (
-    <div className='mb-8 flex items-center space-x-4 lg:space-x-6'>
+    <div className='mb-8 flex items-center gap-2 overflow-x-auto pb-1 sm:space-x-4 sm:gap-0 sm:overflow-visible lg:space-x-6'>
       {navItems.map((item) => {
         const Icon = item.icon;
         const isActive = pathname === item.href;
@@ -43,6 +43,7 @@ export function ApiNav() {
             key={item.href}
             variant={isActive ? 'default' : 'ghost'}
             asChild
+            className='shrink-0'
           >
             <Link href={item.href}>
               <Icon className='mr-2 h-4 w-4' />

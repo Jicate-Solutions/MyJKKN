@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay — Tier Policy Data Table (Director-facing)
+// Premium Room — Tier Policy Data Table (Director-facing)
 // ============================================================================
 // Created: 2026-05-16
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
@@ -139,7 +139,7 @@ export function TierPolicyDataTable() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold">Tier Ladder</h2>
           <p className="text-xs text-muted-foreground">

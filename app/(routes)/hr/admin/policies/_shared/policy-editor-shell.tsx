@@ -481,7 +481,7 @@ export function PolicyEditorShell<V>(props: PolicyEditorShellProps<V>) {
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
               {canEditClassification ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Label className="text-xs">Classification:</Label>
                   <Select
                     value={row.classification}
@@ -505,7 +505,7 @@ export function PolicyEditorShell<V>(props: PolicyEditorShellProps<V>) {
                 </p>
               )}
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="ghost"

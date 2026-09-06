@@ -15,9 +15,33 @@ export type WorkflowType =
   | 'EXTRACTION' | 'SYNTHESIS' | 'PREDICTION' | 'RECOMMENDATION'
   | 'MONITORING' | 'ORCHESTRATION';
 export type ProblemBankStatus = 'open' | 'claimed' | 'in_progress' | 'solved' | 'archived';
-export type ProblemTheme =
-  | 'healthcare' | 'education' | 'agriculture' | 'environment'
-  | 'community' | 'operations' | 'productivity' | 'other';
+/**
+ * The `ss_problem_theme` enum, as a runtime value.
+ *
+ * ProblemTheme is DERIVED from this array rather than declared beside it, so a
+ * UI list built from PROBLEM_THEMES cannot drift out of sync with the type or
+ * the database. It drifted before: the problem-bank filter hardcoded its own
+ * list containing `fintech`, `logistics`, `social` and `energy` — none of
+ * which exist in the enum — so selecting any of them sent an invalid value to
+ * Postgres and the page returned HTTP 500 with "Failed to load problems.
+ * Please try refreshing the page." Refreshing could never have helped. The
+ * same list omitted `community`, `operations` and `productivity`, which do
+ * exist, making those problems unfilterable.
+ *
+ * Keep this array in step with migration 20260227185501's CREATE TYPE.
+ */
+export const PROBLEM_THEMES = [
+  'healthcare',
+  'education',
+  'agriculture',
+  'environment',
+  'community',
+  'operations',
+  'productivity',
+  'other',
+] as const;
+
+export type ProblemTheme = (typeof PROBLEM_THEMES)[number];
 export type AttemptOutcome = 'building' | 'deployed' | 'abandoned' | 'success' | 'partial';
 export type NifStage =
   | 'identified' | 'screened' | 'shortlisted' | 'incubating'

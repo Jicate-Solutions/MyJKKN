@@ -167,9 +167,9 @@ export default function AssessmentResultsPage({
                   const pct = total > 0 ? (earned / total) * 100 : 0;
                   return (
                     <div key={dim} className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>{FINKS_LABELS[dim] || dim.replace(/_/g, ' ')}</span>
-                        <span className="text-muted-foreground">{earned}/{total} pts ({Math.round(pct)}%)</span>
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="min-w-0 truncate">{FINKS_LABELS[dim] || dim.replace(/_/g, ' ')}</span>
+                        <span className="text-muted-foreground shrink-0">{earned}/{total} pts ({Math.round(pct)}%)</span>
                       </div>
                       <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
                         <div

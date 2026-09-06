@@ -14,6 +14,11 @@
 
 import type { ReactNode } from 'react';
 import { BadgeCheck } from 'lucide-react';
+import {
+  CountedAttendance,
+  ExcusedNote,
+  countedPresent,
+} from '@/components/attendance/counted-attendance';
 import type {
   ProofAttendance,
   ProofEngagement,
@@ -106,6 +111,15 @@ export function AttendanceSection({
   action?: ReactNode;
 }) {
   const { overall, courses } = attendance;
+  // The overall figure sums the SAME per-course numbers printed below it,
+  // protected days included — so the fraction an employer reads at the top of
+  // this section and the per-course rows underneath it obey one rule.
+  const overallCounted = {
+    attended: overall.present,
+    excused: overall.protected ?? 0,
+    total: overall.total,
+    pct: overall.pct,
+  };
   return (
     <SectionShell
       eyebrow="Evidence · session-by-session attendance record"
@@ -116,12 +130,14 @@ export function AttendanceSection({
       <div className="flex flex-wrap items-end gap-6">
         <div>
           <p className="text-3xl font-bold tabular-nums" style={{ color: BRAND_GREEN }}>
-            {overall.present}
+            {countedPresent(overallCounted)}
             <span className="text-lg font-medium text-muted-foreground"> / {overall.total}</span>
           </p>
           <p className="text-xs text-muted-foreground">
-            sessions present{overall.pct !== null ? ` · ${overall.pct}%` : ''}
+            {overallCounted.excused > 0 ? 'sessions counted' : 'sessions present'}
+            {overall.pct !== null ? ` · ${overall.pct}%` : ''}
           </p>
+          <ExcusedNote value={overallCounted} />
         </div>
         <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
           Each session was marked in-session by a Senior Learner and is
@@ -134,7 +150,7 @@ export function AttendanceSection({
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="py-1.5 pr-3 font-medium">Course</th>
-                <th className="py-1.5 pr-3 text-right font-medium">Present</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Counted</th>
                 <th className="py-1.5 pr-3 text-right font-medium">%</th>
                 <th className="py-1.5 text-right font-medium">First — last session</th>
               </tr>
@@ -149,7 +165,14 @@ export function AttendanceSection({
                     ) : null}
                   </td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">
-                    {c.present}/{c.total}
+                    <CountedAttendance
+                      value={{
+                        attended: c.present,
+                        excused: c.protected ?? 0,
+                        total: c.total,
+                        pct: null,
+                      }}
+                    />
                   </td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{c.pct ?? '—'}</td>
                   <td className="py-1.5 text-right text-xs tabular-nums text-muted-foreground">

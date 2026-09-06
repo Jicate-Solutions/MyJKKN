@@ -81,10 +81,10 @@ function MomentsCampaignsInner() {
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-6 space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Heart className="h-6 w-6 text-rose-500" />
+            <Heart className="h-6 w-6 text-rose-500 shrink-0" />
             Family Moments — Campaigns
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -96,6 +96,7 @@ function MomentsCampaignsInner() {
           variant="outline"
           size="sm"
           disabled={refreshing}
+          className="shrink-0"
           onClick={() => {
             setRefreshing(true);
             load();
@@ -126,9 +127,9 @@ function MomentsCampaignsInner() {
           <Card key={c.id}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-lg">{c.title}</CardTitle>
+                <CardTitle className="text-lg min-w-0 truncate">{c.title}</CardTitle>
                 <Badge
-                  className={`${STATUS_VARIANT[c.status] ?? 'bg-stone-500'} hover:${STATUS_VARIANT[c.status] ?? 'bg-stone-500'} capitalize`}
+                  className={`${STATUS_VARIANT[c.status] ?? 'bg-stone-500'} hover:${STATUS_VARIANT[c.status] ?? 'bg-stone-500'} capitalize shrink-0`}
                 >
                   {c.status}
                 </Badge>

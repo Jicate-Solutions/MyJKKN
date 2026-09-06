@@ -43,6 +43,7 @@
 // Updated: 2026-05-09 (multi-provider via ai_model_config).
 // Updated: 2026-05-22 (language-code normalization + Sarvam + orphan recovery).
 // Updated: 2026-07-12 (provider rate-limit cooldown gate — skip doomed probes).
+// Updated: 2026-07-30 (measured transcription ceiling; Groq quota-413 reclassified).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -65,23 +66,28 @@ import {
 } from '@/lib/services/platform/ai-clients/sentiment';
 import { getModel } from '@/lib/services/platform/ai-providers';
 import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
+import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 
 const BATCH_LIMIT = 20; // rate-limit transcription API calls per run
 const STORAGE_BUCKET = 'call-memos';
 
-// Per-row failure budget. Rows that fail for row-specific reasons (silent
-// audio → empty transcript, oversized/corrupt file → provider 4xx, missing
-// storage object) consume one unit per attempt; once exhausted the sweep
-// skips the row so it can't monopolize the batch. Transient provider-wide
-// failures (429 quota/rate-limit, 5xx) do NOT consume budget — see the
-// circuit breaker in the catch block below.
+// Per-row failure budget. Rows that fail for row-specific reasons (oversized or
+// corrupt file → provider 4xx, missing storage object) consume one unit per
+// attempt; once exhausted the sweep skips the row so it can't monopolize the
+// batch. Transient provider-wide failures (429 quota/rate-limit, 5xx) do NOT
+// consume budget — see the circuit breaker in the catch block below.
+//
+// Silent audio is NOT in that list any more. A recording that transcribes to
+// nothing is resolved on the first pass by the contentless guard below, so it
+// never enters this budget at all.
 //
 // Bug receipt (2026-07-03): 'failed' rows were re-swept forever with no cap.
 // ~20 rows with <5-char transcripts, sorted oldest-first, filled the entire
 // 20-row batch every 5 min — 162K wasted transcription calls in 6 weeks,
 // 2,454 pending memos starved (zero progress even while the API was healthy),
 // and enough call volume to burn through both the Groq free tier and the
-// OpenAI account quota.
+// OpenAI account quota. The cap stopped the bleeding; resolving those rows
+// instead of parking them (2026-08-02) removes the cause.
 const MAX_ANALYZE_ATTEMPTS = 5;
 
 // Slow persistent backstop for chronic rows whose failures always look
@@ -110,6 +116,47 @@ const TRANSIENT_CHARGE_THRESHOLD = 10;
 // min after quota frees). A provider/model flip in /admin/ai-models bypasses
 // the cooldown immediately — the ledger row no longer matches the config.
 const RATELIMIT_COOLDOWN_MS = 30 * 60 * 1000;
+
+// Per-call transcription ceiling. MEASURED, not guessed — ai_model_usage,
+// feature_key='voice_memo.transcribe', success=true, duration_ms NOT NULL,
+// read 2026-07-30:
+//
+//   provider/model            n       p50     p95     p99    p99.9    max
+//   groq/whisper-large-v3   4,863    191ms   291ms   438ms   852ms   1,287ms
+//   openai/whisper-1       39,717  1,114ms 2,177ms 5,419ms 19,989ms 40,685ms
+//   ── combined            44,580  1,035ms 2,108ms 4,935ms 19,149ms 40,685ms
+//
+// Successes above each candidate ceiling (all time, both providers):
+//   >5s: 437   >10s: 181   >15s: 85   >20s: 39   >25s: 24   >30s: 10   >35s: 5
+//
+// 20s covers p99.91 of every success ever recorded (39 of 44,580 = 0.09% would
+// have been cut) and 100% of the CURRENT provider — groq has never returned a
+// success slower than 1,287ms in 4,863 calls. The generous margin exists only
+// because /admin/ai-models can flip the provider back to openai/whisper-1
+// (p99.9 = 19,989ms) without a redeploy; sized against the slower of the two.
+//
+// WHY THIS IS A REDUCTION FROM 35s, NOT AN INCREASE. The 1,223 'transcription
+// timed out after 35000ms' failures are NOT slow inference:
+//   - 79 distinct rows have ever hit a transcription timeout on groq. ZERO of
+//     them has ever produced a success — a call that passes ~1.3s never returns.
+//   - Over the last 7 days every one of the 153 clock-hours containing a
+//     timeout ALSO contained a groq ASPD/ASPH quota error (415 of 415 timeout
+//     events). The hang tracks quota saturation, not audio length. (Hour-level
+//     co-occurrence — strong, but correlation, not proof of mechanism.)
+// Raising the ceiling would convert none of these into successes; it would only
+// spend more of the run's budget per doomed call.
+//
+// TRADE-OFF (wall-clock, both directions). The loop guard breaks before
+// STARTING a row once elapsed > 45s, and each call is additionally capped by
+// `Math.max(5000, 52000 - elapsed)`, so a run always lands near ~52s of the
+// 60s maxDuration regardless of this constant. What the constant changes is how
+// many rows a run gets to TOUCH when calls hang: at 35s a run stalls on ~2 rows
+// (35s + a 17s budget-capped remainder); at 20s it reaches ~3 (20 + 20 + a 12s
+// remainder). Lowering therefore rotates the queue faster and lets hung rows
+// accumulate their transient charges — and park — sooner. Raising would do the
+// reverse. Either way BATCH_LIMIT=20 is unreachable whenever calls hang: the
+// 45s wall-clock break, not the batch size, is the binding constraint.
+const TRANSCRIBE_TIMEOUT_MS = 20000;
 
 /**
  * Extracts the storage path-relative form from a memo_audio_url that may be
@@ -167,6 +214,19 @@ interface AnalysisResult {
   categories: string[];
 }
 
+// The one verdict for "transcription worked, but the audio holds no
+// conversation". TWO paths can reach that conclusion: the sentiment model (told
+// below to return exactly this) and the contentless guard in the run loop, which
+// short-circuits before the model is ever called. Both read this constant so the
+// two can never drift into disagreeing about what a no-content memo looks like.
+const NO_CONTENT_VERDICT: AnalysisResult = {
+  sentiment: 'neutral',
+  sentiment_score: 0.5,
+  summary:
+    'No usable content — the call was not answered or the memo captured no conversation.',
+  categories: ['other'],
+};
+
 const SENTIMENT_SYSTEM_PROMPT = `You analyze 30-second voice memos that admission counselors record after calling
 prospective students. Extract structured sentiment data.
 
@@ -183,7 +243,18 @@ Be calibrated:
 - neutral (0.4-0.7): exploring, no objection, no commitment
 - concerned (0.2-0.4): hesitant, has questions, fees/hostel/distance worries
 - anxious (0.1-0.3): family pressure, deadline stress, financial uncertainty
-- hostile (<0.2): rude, refusing, complaint about JKKN`;
+- hostile (<0.2): rude, refusing, complaint about JKKN
+
+NO-CONTENT CASE — this is a VALID result, not an error. A counselor often records
+a memo for a call that was never answered, so the transcript legitimately carries
+no conversation (e.g. "No response.", "The candidate not attend the call.", a
+placeholder line, or a few words with no exchange in them). When that happens do
+NOT ask for the transcript and do NOT explain that you cannot analyze it — that
+is not a usable answer to this request. Return exactly:
+${JSON.stringify(NO_CONTENT_VERDICT)}
+
+Return the JSON object and nothing else: no prose before or after it, no question
+back to the caller, no apology. Your entire reply must parse as JSON.`;
 
 // ============================================================================
 // SHAPE NORMALIZER — clamps + fills defaults regardless of provider
@@ -212,6 +283,74 @@ function normalizeAnalysis(raw: Record<string, unknown>): AnalysisResult {
 }
 
 // ============================================================================
+// MAX-LANE SENTIMENT (Stage 2c) — enqueue on max-sentiment + collect sweep
+// ============================================================================
+// When shouldDeferToMaxLane('voice-memo-sentiment') is true (the Director enabled
+// the maxlane:voice-memo-sentiment schedule row AND the runner heartbeat is
+// fresh), this run does NOT call paid Google for sentiment. It ENQUEUES a
+// voice_memo.sentiment job on the ₹0 `max-sentiment` sub-lane (dedupeKey =
+// call_log_id, so a row already in-flight is not re-enqueued) and leaves the row
+// 'analyzing'. The collect sweep (top of every run) reads finished jobs and
+// writes the SAME memo_* columns the direct path writes — byte-parity — flipping
+// the row to 'completed'. Direct and queue paths are mutually exclusive on
+// maxLaneDeferred, so a row is never scored twice.
+
+/** The fully-assembled prompt the max-sentiment job carries. The job type's
+ *  prompt_template is the glue '{{prompt}}', so the runner sees exactly this. */
+function buildSentimentPrompt(transcript: string): string {
+  return `${SENTIMENT_SYSTEM_PROMPT}\n\nTranscript:\n\n${transcript}`;
+}
+
+/** Parse the drain's raw sentiment text into the shape normalizeAnalysis expects.
+ *  The direct providers use JSON response modes (no fences); the Claude CLI drain
+ *  may wrap the JSON in a ```json fence or add stray prose — slice to the first
+ *  balanced {...}. Returns null on anything unparseable (caller leaves the row
+ *  'analyzing' to be re-enqueued). */
+function parseSentimentJson(text: string): Record<string, unknown> | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Enqueue ONE sentiment job on the ₹0 max-sentiment sub-lane. Best-effort:
+ *  ok/in_flight both mean "handled"; unknown_type (feature dark) / no_seat /
+ *  error leave the row 'analyzing' so the direct path resumes the moment
+ *  deferral drops. NEVER throws — a broken queue must not halt the cron. */
+async function enqueueSentimentJob(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  callLogId: string,
+  transcript: string,
+): Promise<void> {
+  try {
+    const res = await enqueueJobsLane(admin, {
+      jobType: 'voice_memo.sentiment',
+      prompt: buildSentimentPrompt(transcript),
+      context: { call_log_id: callLogId },
+      dedupeKey: callLogId,
+    });
+    // Under this project's tsconfig (strictNullChecks off) the discriminated
+    // union does not narrow after `if (res.ok)`, so read reason via a cast —
+    // matching how the rest of the codebase treats enqueueJobsLane results.
+    if (!res.ok) {
+      const reason = (res as { reason?: string }).reason;
+      // 'in_flight' = already queued/claimed — normal, not worth a warning.
+      if (reason !== 'in_flight') {
+        console.warn(
+          `[cron/analyze-voice-memos] max-sentiment enqueue ${callLogId}: ${reason ?? 'error'}`,
+        );
+      }
+    }
+  } catch (e) {
+    console.warn(`[cron/analyze-voice-memos] max-sentiment enqueue ${callLogId} threw (non-fatal):`, e);
+  }
+}
+
+// ============================================================================
 // FAILURE CLASSIFICATION — final design after 7 deep-review rounds
 // ============================================================================
 // Two classes only:
@@ -225,18 +364,34 @@ function normalizeAnalysis(raw: Record<string, unknown>): AnalysisResult {
 // WHY NO EVIDENCE-BASED CHARGING: rounds 1–7 oscillated between "charge
 // look-alikes or poison rows never park" and "charging under partial
 // degradation parks valid memos". Both poles are covered structurally now:
-//   - The ONLY immediate attempts charge in this route is the
-//     empty-transcript guard — it fires after a SUCCESSFUL transcription,
-//     which is unambiguous row-specific evidence (the provider processed
-//     this file and returned nothing). That is the exact 2026-07-03 poison
-//     receipt, still parked at full speed (5 runs).
+//   - NO path in this route charges attempts immediately any more. The one
+//     that used to — the empty-transcript guard — no longer needs to: a
+//     successful transcription that returns no speech now RESOLVES the row as
+//     'completed' with the no-content verdict, so it leaves the sweep after a
+//     single transcription instead of after five. That contains the 2026-07-03
+//     poison receipt strictly better than parking did, and at 1/5 the spend.
 //   - Every other pathology parks via the counter: a lone chronic row in a
 //     drained queue parks in ~4h; in a deep queue it costs ~1 wasted call
 //     per full rotation (~10h) until it parks. No storm of ANY class (5xx,
 //     404 model-retired, 400 bad flip, 413 oversize wave, bucket rename,
 //     network) can charge the backlog — all of them wait out or halt, and
 //     the backlog auto-recovers untouched when the cause is fixed.
-function classifyFailure(err: unknown): 'ratelimit' | 'transient' {
+// 'permanent' (2026-07-30) — a row-specific defect that RE-TRYING CANNOT FIX.
+// Today that means only 413 "Request too large": the recording exceeds the
+// provider's hard upload limit, so the same bytes will be rejected identically
+// on every future run. Before this, a 413 fell into 'transient' and the row
+// re-probed the same wall until the slow TRANSIENT_CHARGE_THRESHOLD backstop
+// finally parked it — 12 such rows in the last 3 days, each burning repeated
+// doomed calls out of a batch that healthy memos are waiting in.
+//
+// NOT compression. The Director asked for shrink-and-retry, and that is the
+// better product answer, but it cannot be done honestly in this runtime: the
+// route is Vercel serverless with no ffmpeg binary, and re-encoding webm/opus
+// in pure JS is not something to smuggle into a reliability fix. So this parks
+// the row immediately with a truthful reason instead of pretending to retry.
+// Shrink-and-retry needs a runtime/dependency decision (an ffmpeg layer, or
+// downsampling in the browser recorder before upload) — tracked separately.
+function classifyFailure(err: unknown): 'ratelimit' | 'transient' | 'permanent' {
   const anyErr = err as { status?: unknown; code?: unknown } | null;
   const msg = err instanceof Error ? err.message : String(err);
   let status = typeof anyErr?.status === 'number' ? (anyErr.status as number) : null;
@@ -252,6 +407,11 @@ function classifyFailure(err: unknown): 'ratelimit' | 'transient' {
     if (m) status = Number(m[1]);
   }
   if (status === 429 || /quota|rate.?limit/i.test(msg)) return 'ratelimit';
+  // 413 / "request too large" — the file itself is over the provider limit.
+  // Deliberately checked AFTER ratelimit so a 429 is never mistaken for it.
+  if (status === 413 || /request too large|file too large|payload too large/i.test(msg)) {
+    return 'permanent';
+  }
   return 'transient';
 }
 
@@ -316,6 +476,87 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createServiceRoleClient();
+
+  // --- Collect finished max-sentiment jobs (Stage 2c) --------------
+  // Runs every tick regardless of deferral so in-flight jobs from a prior
+  // (deferred) run are always drained. fn_ai_collect_claim is exactly-once
+  // (FOR UPDATE SKIP LOCKED + delivered_at), so a job is delivered here at most
+  // once; a parse/write miss CHARGES ONE ATTEMPT and leaves the row 'analyzing'
+  // so orphan-recovery re-enqueues a fresh job next tick (dedupeKey).
+  //
+  // POISON-ROW CAP (2026-07-29): the charge above is load-bearing. Without it a
+  // memo the model can never parse (bad audio, truncated recording) is
+  // re-enqueued every ~4 min FOREVER, quietly burning free-lane capacity — the
+  // exact shape of the 2026-07-03 incident that wasted 162K transcription calls.
+  // Charging an attempt here mirrors the direct path's MAX_ANALYZE_ATTEMPTS
+  // budget: at the cap the row is parked 'failed' and the candidate sweep's
+  // `.lt('memo_analyze_attempts', MAX_ANALYZE_ATTEMPTS)` filter stops re-picking
+  // it. Only UNUSABLE output is charged — a successful parse never is.
+  let collectedSentiment = 0;
+  let sentimentParkedFailed = 0;
+
+  /** Charge one attempt for unusable drain output; park the row at the cap. */
+  const chargeSentimentMiss = async (callLogId: string, why: string) => {
+    const { data: row } = await supabase
+      .from('admission_call_logs')
+      .select('memo_analyze_attempts')
+      .eq('id', callLogId)
+      .maybeSingle();
+    const next = ((row?.memo_analyze_attempts as number | null) ?? 0) + 1;
+    const parked = next >= MAX_ANALYZE_ATTEMPTS;
+    if (parked) sentimentParkedFailed++;
+    await supabase
+      .from('admission_call_logs')
+      .update({
+        memo_analyze_attempts: next,
+        // At the cap park as 'failed' (visible in the monitor, never re-swept).
+        // Below it stay 'analyzing' so orphan recovery re-enqueues after the
+        // 4-min guard.
+        memo_analyze_status: parked ? 'failed' : 'analyzing',
+        updated_at: nowIso(),
+      })
+      .eq('id', callLogId);
+    console.warn(
+      `[cron/analyze-voice-memos] max-sentiment miss ${callLogId} (${why}) attempt ${next}/${MAX_ANALYZE_ATTEMPTS}${parked ? ' — PARKED failed' : ''}`,
+    );
+  };
+
+  try {
+    const done = await collectJobsLane(supabase, ['voice_memo.sentiment']);
+    for (const item of done) {
+      const callLogId =
+        typeof item.context.call_log_id === 'string' ? item.context.call_log_id : null;
+      const block = item.message?.content?.[0];
+      const rawText = block && block.type === 'text' ? block.text : null;
+      // No call_log_id → nothing to charge or write against; skip.
+      if (!callLogId) continue;
+      if (!rawText) {
+        await chargeSentimentMiss(callLogId, 'empty drain output');
+        continue;
+      }
+      const parsed = parseSentimentJson(rawText);
+      if (!parsed) {
+        await chargeSentimentMiss(callLogId, 'unparseable JSON');
+        continue;
+      }
+      const analysis = normalizeAnalysis(parsed);
+      const { error: writeErr } = await supabase
+        .from('admission_call_logs')
+        .update({
+          memo_sentiment: analysis.sentiment,
+          memo_sentiment_score: analysis.sentiment_score,
+          memo_summary: analysis.summary,
+          memo_categories: analysis.categories,
+          memo_analyze_status: 'completed',
+          memo_analyzed_at: nowIso(),
+          updated_at: nowIso(),
+        })
+        .eq('id', callLogId);
+      if (!writeErr) collectedSentiment++;
+    }
+  } catch (e) {
+    console.warn('[cron/analyze-voice-memos] max-sentiment collect sweep failed (non-fatal):', e);
+  }
 
   // --- Find candidates ---------------------------------------------
   // memo_audio_url IS NOT NULL
@@ -392,6 +633,10 @@ export async function GET(request: NextRequest) {
   let completed = 0;
   let rejected = 0;
   let failed = 0;
+  // Resolved as "no conversation in the audio" without a sentiment call. Counted
+  // apart from `completed` so a spike in silent recordings stays visible instead
+  // of hiding inside the success number.
+  let contentless = 0;
   let halted: string | null = null;
   const errors: string[] = [];
 
@@ -472,7 +717,16 @@ export async function GET(request: NextRequest) {
       if (canResumeAtSentiment) {
         phase = 'sentiment';
         if (skipSentiment) {
-          // Sentiment provider is down this run. Do NOT touch the row —
+          if (maxLaneDeferred) {
+            // Queue path: enqueue on the ₹0 max-sentiment sub-lane and hide the
+            // row behind the orphan guard so the collect sweep completes it.
+            await enqueueSentimentJob(supabase, c.id, transcript);
+            await supabase
+              .from('admission_call_logs')
+              .update({ memo_analyze_status: 'analyzing', updated_at: nowIso() })
+              .eq('id', c.id);
+          }
+          // else: sentiment provider is down this run. Do NOT touch the row —
           // leaving updated_at unbumped keeps it immediately eligible for
           // the next run instead of hiding behind the 5-min orphan guard.
           sentimentDeferred++;
@@ -540,8 +794,11 @@ export async function GET(request: NextRequest) {
               mimeType: audioMime,
             }),
             // Capped by remaining run budget so tx + sentiment + overhead
-            // always fit under maxDuration=60s (round-6 MEDIUM).
-            Math.min(35000, Math.max(5000, 52000 - (Date.now() - started))),
+            // always fit under maxDuration=60s (round-6 MEDIUM). The ceiling is
+            // TRANSCRIBE_TIMEOUT_MS (measured — see its definition), not 35s:
+            // a call still running long past the slowest success ever recorded
+            // is hung, not slow, and waiting longer only spends run budget.
+            Math.min(TRANSCRIBE_TIMEOUT_MS, Math.max(5000, 52000 - (Date.now() - started))),
             'transcription',
           );
           transcript = result.text;
@@ -610,25 +867,44 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        // Empty transcript guard — Whisper sometimes returns nothing for silence.
-        // Row-specific failure: consume one unit of the retry budget so a
-        // silent/corrupt recording parks after MAX_ANALYZE_ATTEMPTS instead of
-        // being re-transcribed every 5 minutes forever (the 2026-07-03 poison
-        // loop: same ~17 rows transcribed ~280x/day each with zero progress).
+        // Contentless-transcript guard. Transcription SUCCEEDED here — the
+        // provider answered 200 and simply found no speech. A 1-second tap, a
+        // call nobody picked up, or silence that Whisper renders as "you" /
+        // "Bye.". That is a true finding ABOUT the recording, not a failure to
+        // process it, so the row is RESOLVED carrying the same verdict the
+        // sentiment model is instructed to return for the no-content case
+        // (#2737) — a verdict this path can never obtain from the model,
+        // because it short-circuits before sentiment runs.
+        //
+        // WHY THIS DOES NOT REOPEN THE 2026-07-03 POISON LOOP: that incident
+        // happened because these rows stayed 'failed', so the candidate sweep
+        // re-picked and re-transcribed them every 5 minutes forever. 'completed'
+        // drops them from the sweep permanently after exactly ONE transcription
+        // — strictly stronger than the attempts cap it replaces, which still
+        // paid for five transcriptions per row before parking. Nothing failed,
+        // so no attempt is charged.
+        //
+        // Receipt (2026-08-02): 80 rows sat parked at the cap under the old
+        // branch — every one a 0-9s recording, median 1s, transcribing to
+        // "you" x68 / "Bye." x9. Transcription had SUCCEEDED on 83 of 86. They
+        // were unrecoverable by any retry, because retrying was never the
+        // missing piece.
         if (!transcript || transcript.length < 5) {
           await supabase
             .from('admission_call_logs')
             .update({
               memo_transcript: transcript || null,
               memo_transcript_language: normalizedLanguage,
-              memo_analyze_status: 'failed',
-              memo_analyze_attempts: attempts + 1,
+              memo_sentiment: NO_CONTENT_VERDICT.sentiment,
+              memo_sentiment_score: NO_CONTENT_VERDICT.sentiment_score,
+              memo_summary: NO_CONTENT_VERDICT.summary,
+              memo_categories: NO_CONTENT_VERDICT.categories,
+              memo_analyze_status: 'completed',
               memo_analyzed_at: nowIso(),
               updated_at: nowIso(),
             })
             .eq('id', c.id);
-          failed++;
-          errors.push(`${c.id}: empty transcript`);
+          contentless++;
           continue;
         }
 
@@ -653,8 +929,14 @@ export async function GET(request: NextRequest) {
         }
 
         if (skipSentiment) {
+          if (maxLaneDeferred) {
+            // Queue path: enqueue on the ₹0 max-sentiment sub-lane. The row was
+            // just persisted 'analyzing' (updated_at=now) so it hides behind the
+            // orphan guard until the collect sweep completes it.
+            await enqueueSentimentJob(supabase, c.id, transcript);
+          }
           sentimentDeferred++;
-          continue; // transcript saved; sentiment resumes on a later run
+          continue; // transcript saved; sentiment resumes via the queue or a later run
         }
         phase = 'sentiment';
       }
@@ -768,6 +1050,30 @@ export async function GET(request: NextRequest) {
       }
 
       failed++;
+      if (cls === 'permanent') {
+        // Retrying cannot fix this row. Park it NOW by exhausting its budget so
+        // the candidate sweep's `.lt(memo_analyze_attempts, MAX)` filter stops
+        // re-picking it, instead of spending 5 attempts re-probing a hard limit.
+        // Deliberately does NOT touch txTransientStreak: this is one bad file,
+        // not evidence the provider is down, so it must never trip the
+        // two-strikes halt that would stop transcription for healthy memos.
+        try {
+          await supabase
+            .from('admission_call_logs')
+            .update({
+              memo_analyze_status: 'failed',
+              memo_analyze_attempts: MAX_ANALYZE_ATTEMPTS,
+              memo_transient_failures: 0,
+              memo_analyzed_at: nowIso(),
+              updated_at: nowIso(),
+            })
+            .eq('id', c.id);
+        } catch {
+          // best-effort — already in the error path
+        }
+        continue;
+      }
+
       txTransientStreak++;
       if (cls !== 'ratelimit') {
         const txTransientCount = (c.memo_transient_failures ?? 0) + 1;
@@ -840,12 +1146,15 @@ export async function GET(request: NextRequest) {
       duration_ms: durationMs,
       processed,
       completed,
+      contentless,
       rejected,
       failed,
       remaining,
       halted,
       max_lane_deferred: maxLaneDeferred,
       sentiment_deferred: sentimentDeferred,
+      collected_sentiment: collectedSentiment,
+      sentiment_parked_failed: sentimentParkedFailed,
       transcribe_skipped: transcribeSkipped,
       claim_missed: claimMissed,
       transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
@@ -859,6 +1168,8 @@ export async function GET(request: NextRequest) {
     duration_ms: durationMs,
     processed,
     completed,
+    // Transcribed fine, but the recording held no conversation — resolved, not failed.
+    contentless,
     rejected,
     failed,
     remaining,
@@ -870,6 +1181,8 @@ export async function GET(request: NextRequest) {
     // intentionally left for the Max brain (transcribe-only run).
     max_lane_deferred: maxLaneDeferred,
     sentiment_deferred: sentimentDeferred,
+    collected_sentiment: collectedSentiment,
+    sentiment_parked_failed: sentimentParkedFailed,
     transcribe_skipped: transcribeSkipped,
     claim_missed: claimMissed,
     transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,

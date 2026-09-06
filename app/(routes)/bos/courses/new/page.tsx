@@ -14,6 +14,7 @@ import { CourseForm } from '../_components/course-form';
 import { useCreateBosCourse } from '@/hooks/bos/use-bos-courses';
 import { useBosRegulationOptions } from '@/hooks/bos/use-bos-scheme-options';
 import { institutionSkipsPartLevel } from '@/lib/services/bos/courses-schemas';
+import { resolveAcademicModel } from '@/lib/services/bos/academic-model';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { useInstitutionContextsByIds } from '@/hooks/use-institution-context';
 
@@ -122,6 +123,17 @@ export default function NewCoursePage() {
     institutionCode.trim().length > 0 &&
     boardCode.trim().length > 0 &&
     regulationCode.trim().length > 0;
+
+  // Academic model for the selected board (COP hosts B.Pharm + Pharm.D as
+  // separate boards). Drives the year-based field relaxations in CourseForm and
+  // the COE payload (see toCoeCreatePayload). Defaults to 'anna_univ'.
+  const selectedBoard = boards?.find((b) => b.id === boardId);
+  const academicModel = resolveAcademicModel({
+    institutionCode,
+    boardId,
+    boardName: selectedBoard?.board_name,
+    boardCode: selectedBoard?.board_code,
+  });
 
   // Board membership IS the authorization for BoS write actions — mirrors
   // the list page's canCreate gate ([feedback_bos_membership_is_authorization]).
@@ -274,6 +286,7 @@ export default function NewCoursePage() {
               // drift apart at submit time.
               lockedBoardId={boardId}
               hidePartLevel={institutionSkipsPartLevel(institutionCode)}
+              academicModel={academicModel}
               onSubmit={async (form) => {
                 try {
                   // Resolve human-readable board_code from the picked board_id so
@@ -287,6 +300,7 @@ export default function NewCoursePage() {
                       regulation_code: regulationCode,
                       board_id: boardId,
                       board_code: boardCode,
+                      academic_model: academicModel,
                     },
                   });
                   toast.success('Course created');

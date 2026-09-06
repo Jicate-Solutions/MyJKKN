@@ -27,6 +27,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Button } from '@/components/ui/button';
 import { Loader2, Building2, Plus } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
@@ -55,7 +59,7 @@ export default function ProjectInstitutionsPage() {
   return (
     <ContentLayout title="Institutions">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -92,7 +96,7 @@ export default function ProjectInstitutionsPage() {
 
       <div className="mt-6 space-y-6">
         {/* Header row: scope badge + action */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex items-center gap-3">
             <Building2 className="h-5 w-5 text-muted-foreground" />
             <span className="text-sm text-muted-foreground">Scope:</span>
@@ -101,6 +105,7 @@ export default function ProjectInstitutionsPage() {
 
           <Button
             size="sm"
+            className={`shrink-0 self-start sm:self-auto ${TAP_TARGET}`}
             onClick={() => setAddOpen(true)}
             disabled={!projectId}
           >

@@ -217,22 +217,22 @@ export default function BugReportDetailPage() {
         <FixedForYouPrompts bugId={bugReport.id} />
 
         {/* Header */}
-        <div className='flex items-center justify-between'>
-          <div className='flex items-center gap-3'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+          <div className='flex min-w-0 items-center gap-3'>
             <Button variant='ghost' size='sm' asChild>
               <Link href='/my-bug-reports'>
                 <ArrowLeft className='w-4 h-4 mr-2' />
               </Link>
             </Button>
             <Separator orientation='vertical' className='h-6' />
-            <div>
-              <h1 className='text-2xl font-bold'>{bugReport.display_id}</h1>
+            <div className='min-w-0'>
+              <h1 className='text-2xl font-bold truncate'>{bugReport.display_id}</h1>
               <p className='text-muted-foreground'>
                 Submitted {new Date(bugReport.created_at).toLocaleDateString()}
               </p>
             </div>
           </div>
-          <div className='flex items-center gap-2'>
+          <div className='flex shrink-0 items-center gap-2'>
             <BugStatusBadge status={bugReport.status} />
             {canReopen && (
               <Button

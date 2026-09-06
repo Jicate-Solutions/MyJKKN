@@ -43,6 +43,23 @@ const VIEW_ALL_ROLES = new Set([
 // user is scoped to their own courses (like a faculty).
 const ADMIN_ROLES = new Set(['coe', 'coe_office']);
 
+/** Options that widen which staff_plans count as the user's. */
+export interface QpScopeOptions {
+  /**
+   * MARK ENTRY ONLY. Question papers are authored while teaching is live, so the
+   * default "plan is active TODAY" rule fits. CIA marks are keyed in AFTER
+   * teaching ends, so that rule locks a faculty out of the very subject they
+   * taught while the entry window is still open.
+   *
+   * Pass the CIA round's assessment period and a plan counts if it overlaps
+   * EITHER that period or today. Implemented as one widened overlap test
+   * ([min(from, today), max(to, today)]), which can also admit a plan sitting
+   * entirely between the two — acceptable, since plans are per-term and the user
+   * would hold the course in the same term anyway.
+   */
+  activeWithin?: { from?: string | null; to?: string | null };
+}
+
 /**
  * Resolve the caller's QP scope. `supabase` is a server client (service or RLS —
  * staff_plan_courses/staff reads must be visible to it).
@@ -51,7 +68,8 @@ export async function resolveQpScope(
   supabase: any,
   userId: string,
   isSuperAdmin: boolean,
-  profileRole: string | null
+  profileRole: string | null,
+  options: QpScopeOptions = {}
 ): Promise<QpScope> {
   if (isSuperAdmin) {
     return { level: 'all', staffId: null, programCodes: [], courseCodes: [] };
@@ -95,16 +113,25 @@ export async function resolveQpScope(
     .eq('staff_id', staffId);
   const allPlanIds = [...new Set((spc ?? []).map((r: any) => r.staff_plan_id).filter(Boolean))];
 
-  // Keep only CURRENTLY-ACTIVE plans: is_active AND today within [start_date, end_date].
+  // Keep only ACTIVE plans: is_active AND overlapping the qualifying window.
+  // Default window is a single day (today) — i.e. the plan must be running now.
+  // With options.activeWithin the window widens to also cover the CIA assessment
+  // period, so marks can still be entered after teaching has ended.
   const today = istToday();
+  const windowStart =
+    options.activeWithin?.from && options.activeWithin.from < today
+      ? options.activeWithin.from
+      : today;
+  const windowEnd =
+    options.activeWithin?.to && options.activeWithin.to > today ? options.activeWithin.to : today;
   const { data: activePlans } = allPlanIds.length
     ? await supabase
         .from('staff_plans')
         .select('id, program_id')
         .in('id', allPlanIds)
         .eq('is_active', true)
-        .lte('start_date', today)
-        .gte('end_date', today)
+        .lte('start_date', windowEnd)
+        .gte('end_date', windowStart)
     : { data: [] as any[] };
   const activePlanIds = new Set((activePlans ?? []).map((p: any) => p.id));
   const programIds = [...new Set((activePlans ?? []).map((p: any) => p.program_id).filter(Boolean))];

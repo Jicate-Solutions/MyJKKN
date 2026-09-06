@@ -199,9 +199,9 @@ function ProductDetailPageInner({ params }: ProductDetailPageProps) {
       />
       <div className="space-y-6 mt-4">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-bold">{product.title}</h1>
               <Badge
                 variant={
@@ -228,7 +228,7 @@ function ProductDetailPageInner({ params }: ProductDetailPageProps) {
               )}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Button variant="outline" asChild>
               <Link href="/solutions/products">
                 <ArrowLeft className="mr-2 h-4 w-4" />
@@ -247,7 +247,7 @@ function ProductDetailPageInner({ params }: ProductDetailPageProps) {
         {/* TRL Header Card */}
         <Card className="bg-gradient-to-r from-blue-50 to-green-50 border-2">
           <CardContent className="py-6">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
               <div>
                 <h2 className="text-lg font-semibold mb-1">Technology Readiness Level</h2>
                 <p className="text-sm text-muted-foreground">
@@ -280,7 +280,7 @@ function ProductDetailPageInner({ params }: ProductDetailPageProps) {
 
         {/* Main Content Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="validations">TRL Validations</TabsTrigger>
             <TabsTrigger value="ip">IP & Patents</TabsTrigger>
             <TabsTrigger value="solutions">Originating Solutions</TabsTrigger>
@@ -290,14 +290,14 @@ function ProductDetailPageInner({ params }: ProductDetailPageProps) {
 
           {/* TRL Validations Tab */}
           <TabsContent value="validations" className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-lg font-semibold">TRL Validation Evidence</h3>
                 <p className="text-sm text-muted-foreground">
                   Documentation proving technology readiness at each level
                 </p>
               </div>
-              <Button onClick={() => setShowAddValidation(true)}>
+              <Button className="shrink-0" onClick={() => setShowAddValidation(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Validation
               </Button>
@@ -721,7 +721,7 @@ function ProductDetailPageInner({ params }: ProductDetailPageProps) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="val-validated-by">Validated By</Label>
                 <Input

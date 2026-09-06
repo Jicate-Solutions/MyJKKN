@@ -520,7 +520,7 @@ export function UserInstitutionAccessManager() {
         <TabsContent value='users' className='space-y-4'>
           <Card>
             <CardHeader>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <CardTitle className='flex items-center gap-2'>
                   <Users className='h-5 w-5' />
                   User Institution Access Management
@@ -684,7 +684,7 @@ export function UserInstitutionAccessManager() {
             </CardHeader>
             <CardContent>
               {/* Filters */}
-              <div className='flex gap-4 mb-6'>
+              <div className='flex flex-col sm:flex-row gap-4 mb-6'>
                 <div className='flex-1'>
                   <Label htmlFor='search' className='sr-only'>
                     Search
@@ -701,7 +701,7 @@ export function UserInstitutionAccessManager() {
                   </div>
                 </div>
                 <Select value={selectedRole} onValueChange={setSelectedRole}>
-                  <SelectTrigger className='w-48'>
+                  <SelectTrigger className='w-full sm:w-48'>
                     <SelectValue placeholder='Filter by role' />
                   </SelectTrigger>
                   <SelectContent>

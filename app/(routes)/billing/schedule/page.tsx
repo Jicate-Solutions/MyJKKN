@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Settings2, Filter, Receipt, Pencil } from 'lucide-react';
+import { Settings2, Filter, ReceiptIndianRupee, Pencil } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BillingScheduleDataTable } from './_components/billing-schedule-data-table';
@@ -28,7 +28,14 @@ export default function BillingSchedulePage() {
   const searchParams = useSearchParams();
   const [useAdvancedFilters, setUseAdvancedFilters] = useState(false);
   const [bulkReceiptOpen, setBulkReceiptOpen] = useState(false);
-  const { isSuperAdmin, can } = usePermissions();
+  const { can } = usePermissions();
+
+  // Bulk receipt generation is delegable through Role Management rather than
+  // reserved for super admins. `can()` already returns true for super admins,
+  // so this single check covers both. The API routes behind the dialog
+  // re-check the same key and additionally bound the batch to the caller's
+  // accessible institutions — see lib/auth/bulk-receipt-access.ts.
+  const canBulkGenerateReceipts = can('billing.receipts.bulk_create');
 
   // Parse current search parameters
   const search = billingScheduleSearchParamsSchema.parse(
@@ -119,25 +126,25 @@ export default function BillingSchedulePage() {
           </Breadcrumb>
 
           {/* Header Section */}
-          <div className='flex items-center justify-between'>
-            <div>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div className='min-w-0'>
               <h1 className='text-2xl font-bold py-1'>Billing Schedule Management</h1>
               <p className='text-sm sm:text-base text-muted-foreground'>
                 Manage student bills, track payments, and schedule recurring billing
               </p>
             </div>
 
-            <div className='flex items-center gap-2'>
-              {/* Super-admin only: bulk receipt generation from current filters */}
-              {isSuperAdmin && (
+            <div className='flex flex-wrap items-center gap-2 shrink-0'>
+              {/* Bulk receipt generation from current filters */}
+              {canBulkGenerateReceipts && (
                 <Button
                   variant='default'
                   size='sm'
                   onClick={() => setBulkReceiptOpen(true)}
                   className='bg-emerald-600 hover:bg-emerald-700 flex items-center gap-2'
-                  title='Generate receipts in bulk for the currently filtered bills (super admin only)'
+                  title='Generate receipts in bulk for the currently filtered bills'
                 >
-                  <Receipt className='h-4 w-4' />
+                  <ReceiptIndianRupee className='h-4 w-4' />
                   Bulk Generate Receipts
                 </Button>
               )}
@@ -198,8 +205,8 @@ export default function BillingSchedulePage() {
           </Card>
         </div>
 
-        {/* Bulk Receipt Dialog — super admin only, gated above */}
-        {isSuperAdmin && (
+        {/* Bulk Receipt Dialog — gated on the same permission as the button */}
+        {canBulkGenerateReceipts && (
           <BulkReceiptDialog
             open={bulkReceiptOpen}
             onOpenChange={setBulkReceiptOpen}

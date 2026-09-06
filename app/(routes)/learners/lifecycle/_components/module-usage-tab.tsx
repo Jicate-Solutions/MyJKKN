@@ -110,7 +110,7 @@ export function ModuleUsageTab({
     <div className="space-y-4">
       {/* Module Data Table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pb-2">
           <CardTitle className="text-base">Module Breakdown</CardTitle>
           <div className="flex gap-1">
             {(['weighted_score', 'event_count', 'unique_users'] as const).map(

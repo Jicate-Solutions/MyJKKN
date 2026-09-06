@@ -298,7 +298,7 @@ export function RegulationForm({
           </CardContent>
         </Card>
 
-        <div className='flex justify-end space-x-4'>
+        <div className='flex flex-wrap justify-end gap-4'>
           <Button
             type='button'
             variant='outline'

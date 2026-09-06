@@ -7,6 +7,24 @@
  * for burnout), attendance consistency, and long-tenure retention.
  * Queries hr_leave_applications and staff for engagement proxies.
  * Full engagement surveys are a future feature.
+ *
+ * WHY THE BACKLOG IS SPLIT OUT AND NOT COUNTED AS ENGAGEMENT.
+ * A pending request whose start_date has already passed is not a person
+ * waiting on a decision — the time off was taken and no approval was ever
+ * recorded against it. That is an approval-control gap, not a wellbeing
+ * signal, so it is rendered in its own panel with its own wording rather
+ * than folded into the amber "pending" bar, where it read as neutral.
+ * Measured on production 2026-09-05: 892 pending, 885 of them already
+ * started.
+ *
+ * WHY EXACT COUNTS RATHER THAN COUNTING THE FETCHED ROWS.
+ * This tab used to derive every figure from one `.limit(500)` fetch. All
+ * 1,215 live applications fall inside the three-month window, so that cap
+ * truncated: the screen showed 387 pending against 892 actual, and the bar
+ * percentages were computed over 500 rows instead of 1,215. Status figures
+ * are now exact head-counts, which stay correct however large the table
+ * grows. Rows are still fetched — but only the approved ones, which are the
+ * only rows the per-employee burnout maths actually reads.
  */
 
 import { useMemo } from 'react';
@@ -23,6 +41,7 @@ import {
   Heart,
   MessageSquare,
   BarChart3,
+  ShieldAlert,
 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -36,22 +55,57 @@ interface LeaveApplicationRow {
   hr_organization_id: string;
 }
 
+/** Local calendar date as YYYY-MM-DD. Not toISOString(), which is UTC and
+ *  would misfile a request starting today as "already started" in IST. */
+function localISODate(d: Date): string {
+  const month = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+const APPROVED_SAMPLE_LIMIT = 1000;
+
 function useEngagementProxies() {
   return useQuery({
     queryKey: ['hr-intelligence', 'engagement-pulse'],
     queryFn: async () => {
       const supabase = createClientSupabaseClient();
 
-      // Fetch recent leave applications as engagement proxy
-      const threeMonthsAgo = new Date();
-      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      const today = localISODate(new Date());
+      const threeMonthsAgoDate = new Date();
+      threeMonthsAgoDate.setMonth(threeMonthsAgoDate.getMonth() - 3);
+      const windowStart = localISODate(threeMonthsAgoDate);
 
-      const { data: leaves, error: leaveErr } = await supabase
+      // Exact head-counts. These are the figures people quote, so they must not
+      // depend on how many rows a page-limited fetch happened to return.
+      const baseCount = () =>
+        supabase
+          .from('hr_leave_applications')
+          .select('id', { count: 'exact', head: true })
+          .gte('start_date', windowStart);
+
+      const [totalRes, pendingRes, approvedRes, rejectedRes, backlogRes] = await Promise.all([
+        baseCount(),
+        baseCount().eq('status', 'pending'),
+        baseCount().eq('status', 'approved'),
+        baseCount().eq('status', 'rejected'),
+        // Already started, still awaiting a decision — the control gap.
+        baseCount().eq('status', 'pending').lt('start_date', today),
+      ]);
+
+      for (const res of [totalRes, pendingRes, approvedRes, rejectedRes, backlogRes]) {
+        if (res.error) throw res.error;
+      }
+
+      // Only approved rows are read per-employee (leave utilization + burnout
+      // frequency), so only approved rows are fetched.
+      const { data: approvedLeaves, error: leaveErr } = await supabase
         .from('hr_leave_applications')
         .select('id, employee_id, leave_type_id, status, start_date, end_date, hr_organization_id')
-        .gte('start_date', threeMonthsAgo.toISOString().split('T')[0])
+        .eq('status', 'approved')
+        .gte('start_date', windowStart)
         .order('start_date', { ascending: false })
-        .limit(500);
+        .limit(APPROVED_SAMPLE_LIMIT);
 
       if (leaveErr) throw leaveErr;
 
@@ -63,8 +117,16 @@ function useEngagementProxies() {
 
       if (staffErr) throw staffErr;
 
+      const approvedRows = (approvedLeaves ?? []) as LeaveApplicationRow[];
+
       return {
-        leaves: (leaves ?? []) as LeaveApplicationRow[],
+        approvedRows,
+        approvedSampleTruncated: approvedRows.length >= APPROVED_SAMPLE_LIMIT,
+        totalCount: totalRes.count ?? 0,
+        pendingCount: pendingRes.count ?? 0,
+        approvedCount: approvedRes.count ?? 0,
+        rejectedCount: rejectedRes.count ?? 0,
+        backlogCount: backlogRes.count ?? 0,
         activeStaffCount: staffCount ?? 0,
       };
     },
@@ -79,28 +141,31 @@ export function EngagementPulseTab() {
   const metrics = useMemo(() => {
     if (!data || data.activeStaffCount === 0) return null;
 
-    const { leaves, activeStaffCount } = data;
-    const approvedLeaves = leaves.filter((l) => l.status === 'approved');
-    const pendingLeaves = leaves.filter((l) => l.status === 'pending');
-    const rejectedLeaves = leaves.filter((l) => l.status === 'rejected');
+    const { approvedRows, activeStaffCount } = data;
 
     // Unique employees who took leave in last 3 months
-    const uniqueLeaveEmployees = new Set(approvedLeaves.map((l) => l.employee_id)).size;
+    const uniqueLeaveEmployees = new Set(approvedRows.map((l) => l.employee_id)).size;
     const leaveUtilizationRate = (uniqueLeaveEmployees / activeStaffCount) * 100;
 
     // Leave frequency per employee (high frequency = potential burnout signal)
     const employeeLeaveCounts: Record<string, number> = {};
-    for (const l of approvedLeaves) {
+    for (const l of approvedRows) {
       employeeLeaveCounts[l.employee_id] = (employeeLeaveCounts[l.employee_id] ?? 0) + 1;
     }
     const frequentLeaveTakers = Object.values(employeeLeaveCounts).filter((c) => c >= 3).length;
 
+    // Pending requests split by whether the time off has already been taken.
+    const awaitingNotYetStarted = Math.max(0, data.pendingCount - data.backlogCount);
+
     return {
       activeStaffCount,
-      totalLeaves: leaves.length,
-      approvedCount: approvedLeaves.length,
-      pendingCount: pendingLeaves.length,
-      rejectedCount: rejectedLeaves.length,
+      totalLeaves: data.totalCount,
+      approvedCount: data.approvedCount,
+      pendingCount: data.pendingCount,
+      rejectedCount: data.rejectedCount,
+      backlogCount: data.backlogCount,
+      awaitingNotYetStarted,
+      approvedSampleTruncated: data.approvedSampleTruncated,
       uniqueLeaveEmployees,
       leaveUtilizationRate,
       frequentLeaveTakers,
@@ -164,6 +229,44 @@ export function EngagementPulseTab() {
 
   return (
     <div className="space-y-4">
+      {/* Approval control gap — deliberately outside the engagement stat row.
+          Time off that was taken with no approval recorded is a control
+          finding, not a wellbeing signal. */}
+      {metrics.backlogCount > 0 && (
+        <Card className="border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-amber-700 dark:text-amber-400" />
+              Taken Without Approval
+            </CardTitle>
+            <CardDescription>
+              Approval control gap — not an engagement measure.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-3xl font-bold text-amber-700 dark:text-amber-400">
+                {metrics.backlogCount}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                time-off requests from team members started before today and are still awaiting a decision.
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              The time off has already been taken; no approval is on record against it.
+              {metrics.awaitingNotYetStarted > 0 && (
+                <>
+                  {' '}A further {metrics.awaitingNotYetStarted} request
+                  {metrics.awaitingNotYetStarted === 1 ? '' : 's'} start
+                  {metrics.awaitingNotYetStarted === 1 ? 's' : ''} in the future and
+                  {metrics.awaitingNotYetStarted === 1 ? ' is' : ' are'} genuinely awaiting approval.
+                </>
+              )}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <Card>
@@ -190,6 +293,7 @@ export function EngagementPulseTab() {
             <div className="text-2xl font-bold">{metrics.leaveUtilizationRate.toFixed(0)}%</div>
             <p className="text-xs text-muted-foreground mt-1">
               {metrics.uniqueLeaveEmployees} of {metrics.activeStaffCount} took leave (3 mo)
+              {metrics.approvedSampleTruncated && ' — capped, read as a minimum'}
             </p>
           </CardContent>
         </Card>
@@ -203,7 +307,9 @@ export function EngagementPulseTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">{metrics.pendingCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">Awaiting approval</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {metrics.backlogCount} already taken, {metrics.awaitingNotYetStarted} not yet started
+            </p>
           </CardContent>
         </Card>
 
@@ -228,7 +334,10 @@ export function EngagementPulseTab() {
             <BarChart3 className="h-4 w-4" />
             Leave Application Summary (Last 3 Months)
           </CardTitle>
-          <CardDescription>Leave status distribution as an engagement proxy</CardDescription>
+          <CardDescription>
+            Status distribution across all {metrics.totalLeaves} requests in the window. Pending is a
+            processing state, not an engagement measure — see the approval control gap above.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">

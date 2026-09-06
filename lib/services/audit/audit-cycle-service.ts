@@ -68,6 +68,7 @@ export class AuditCycleService {
         lead_auditor_id: input.lead_auditor_id,
         institution_ids: input.institution_ids ?? null,
         cosigner_roles: input.cosigner_roles ?? ['cao', 'ceo'],
+        module_key: input.module_key ?? null,
         phase: 'draft',
       })
       .select('*')

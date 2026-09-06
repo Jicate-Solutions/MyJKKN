@@ -776,7 +776,7 @@ function CommitteeDialog({
 
       let query = supabase
         .from('staff')
-        .select('id, first_name, last_name, designation, email, institution_id, department_id, department:departments(department_name), institution:institutions(name)')
+        .select('id, first_name, last_name, designation, email, institution_id, department_id, department:departments(department_name), institution:institutions!staff_institution_id_fkey(name)')
         .eq('is_active', true);
 
       if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);

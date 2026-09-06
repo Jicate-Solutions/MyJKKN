@@ -84,6 +84,11 @@ export interface AuditCycle {
   /** The single standing "Whole Institution" audit that holds org-wide checks
    *  (loop health, exam integrity). Never closes; not a per-college cycle. */
   is_standing?: boolean;
+  /** Which module's audit this is. Free text on the DB (no CHECK/FK/enum);
+   *  live values include 'academic', 'campus-living', 'learners-council' and
+   *  'sustainability' (the yearly green audit, which emits NAAC 10.4 on close).
+   *  NULL = a general cycle not tied to one module. */
+  module_key?: string | null;
   phase: AuditCyclePhase;
   parameter_catalog_snapshot: Record<string, unknown> | null;
   created_by: string | null;
@@ -305,6 +310,10 @@ export interface CreateAuditCycleDto {
   lead_auditor_id: string;
   institution_ids?: string[] | null;
   cosigner_roles?: string[];
+  /** Discriminates the cycle's module. Pass 'sustainability' to create the
+   *  yearly green audit — closing it emits NAAC 10.4 via the existing
+   *  audit_cycles evidence trigger. */
+  module_key?: string | null;
 }
 
 export interface LogAuditFindingDto {

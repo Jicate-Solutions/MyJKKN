@@ -48,6 +48,11 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
   'caste': ['Caste', '* Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
+  // External identifiers. Aliases cover the bare acronyms people type by hand
+  // as well as the exact template headers.
+  'abc_id': ['ABC ID', 'abc_id', 'ABC', 'Academic Bank of Credits ID'],
+  'emis': ['EMIS Number', 'EMIS', 'emis', 'emis_number'],
+  'umis': ['UMIS Number', 'UMIS', 'umis', 'umis_number'],
   'admission_year': ['Admission Year', 'admission_year'],
 
   // SECTION 2: Parent/Guardian Information

@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
@@ -24,6 +23,7 @@ import {
   useOutstandingReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
+import { ReportPagination } from './report-pagination';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
 interface OutstandingReportTabProps {
@@ -35,11 +35,16 @@ export function OutstandingReportTab({
   filters,
   canExport
 }: OutstandingReportTabProps) {
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel' | 'csv'>(
-    'pdf'
-  );
-
-  const { report, loading, error, refetch } = useOutstandingReport(filters);
+  const {
+    report,
+    totalCount,
+    page,
+    setPage,
+    pageSize,
+    loading,
+    error,
+    refetch
+  } = useOutstandingReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -58,7 +63,7 @@ export function OutstandingReportTab({
   const handleExport = async () => {
     try {
       await exportReport('outstanding', filters, {
-        format: exportFormat,
+        format: 'csv',
         include_summary: true,
         include_charts: false
       });
@@ -75,7 +80,6 @@ export function OutstandingReportTab({
     (sum, student) => sum + student.overdue_amount,
     0
   );
-  const totalStudents = report.length;
 
   if (loading) {
     return (
@@ -114,14 +118,14 @@ export function OutstandingReportTab({
             <Users className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{totalStudents}</div>
+            <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>
-              Total Outstanding
+              Outstanding (this page)
             </CardTitle>
             <IndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
@@ -134,7 +138,7 @@ export function OutstandingReportTab({
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Total Overdue</CardTitle>
+            <CardTitle className='text-sm font-medium'>Overdue (this page)</CardTitle>
             <AlertCircle className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
@@ -148,21 +152,10 @@ export function OutstandingReportTab({
       {/* Report Table */}
       <Card>
         <CardHeader>
-          <div className='flex justify-between items-center'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
             <CardTitle>Outstanding Report</CardTitle>
             {canExport && (
               <div className='flex items-center gap-2'>
-                <select
-                  value={exportFormat}
-                  onChange={(e) =>
-                    setExportFormat(e.target.value as 'pdf' | 'excel' | 'csv')
-                  }
-                  className='px-3 py-1 border rounded text-sm'
-                >
-                  <option value='pdf'>PDF</option>
-                  <option value='excel'>Excel</option>
-                  <option value='csv'>CSV</option>
-                </select>
                 <Button
                   variant='outline'
                   size='sm'
@@ -290,6 +283,12 @@ export function OutstandingReportTab({
               ))}
             </div>
           )}
+          <ReportPagination
+            page={page}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
     </div>

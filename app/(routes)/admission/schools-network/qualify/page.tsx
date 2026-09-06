@@ -425,7 +425,7 @@ function RescueContent() {
             )}
           </CardContent>
           {selectedFeeder && candidateRows.length > 0 && (
-            <div className="flex items-center justify-between gap-3 border-t px-6 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t px-6 py-4">
               <p className="text-sm text-muted-foreground">
                 {selectedGroups.length > 0
                   ? `${selectedGroups.length} group${

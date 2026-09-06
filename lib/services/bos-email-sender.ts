@@ -8,6 +8,7 @@
  */
 
 import nodemailer, { type Transporter } from 'nodemailer';
+import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -135,13 +136,23 @@ export async function resolveBosSmtpConfig(
 export interface BosBoardSender {
   sender_email: string;
   sender_name: string | null;
+  // ── Model 3: optional per-board SMTP account (20260725) ────────────────────
+  // When smtp_user + smtp_password_encrypted are set, the board authenticates
+  // as its own mailbox. host/port/secure are optional overrides (NULL inherits
+  // the institution config).
+  smtp_host?: string | null;
+  smtp_port?: number | null;
+  smtp_secure?: boolean | null;
+  smtp_user?: string | null;
+  smtp_password_encrypted?: string | null;
 }
 
 /**
- * Resolve a per-board From override for (institutionsId, boardId). ECE and EEE
- * can each send from their own address while sharing the institution's
- * authenticated SMTP account. Returns null when no active override exists —
- * the caller then falls back to the institution's smtp_configuration default
+ * Resolve a per-board sender override for (institutionsId, boardId). ECE and
+ * EEE can each send from their own address — either as a From-only override on
+ * the shared institution account (Models 1/2), or, when smtp_user/password are
+ * set, by authenticating as their own mailbox (Model 3). Returns null when no
+ * active override exists → caller falls back to the institution default
  * (and, for Academic Council, its ac_sender_email).
  *
  * Never throws; a lookup failure degrades to null (institution default).
@@ -155,7 +166,9 @@ export async function resolveBosBoardSender(
 
   const { data, error } = await supabase
     .from('bos_board_senders')
-    .select('sender_email, sender_name')
+    .select(
+      'sender_email, sender_name, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted',
+    )
     .eq('institutions_id', institutionsId)
     .eq('board_id', boardId)
     .eq('is_active', true)
@@ -170,18 +183,77 @@ export async function resolveBosBoardSender(
   return row;
 }
 
+/**
+ * Build the effective SMTP config for a send, given the institution config and
+ * an optional per-board sender.
+ *
+ *   • Board has its own smtp_user + password → Model 3: authenticate AS the
+ *     board mailbox. host/port/secure override the institution's when set,
+ *     otherwise inherit. `usesBoardAuth` = true.
+ *   • Board has no credentials (or no board) → Model 1/2: return the
+ *     institution config unchanged; the caller applies the From-only override
+ *     via sendBosEmail's fromEmail/fromName. `usesBoardAuth` = false.
+ *
+ * The transporter cache keys on host:port:user, so each board account that
+ * authenticates as itself naturally gets its own connection pool.
+ */
+export function mergeBoardSmtpConfig(
+  base: BosSmtpConfig,
+  board: BosBoardSender | null,
+): { cfg: BosSmtpConfig; usesBoardAuth: boolean } {
+  const user = board?.smtp_user?.trim();
+  const pass = board?.smtp_password_encrypted?.trim();
+  if (!board || !user || !pass) {
+    return { cfg: base, usesBoardAuth: false };
+  }
+  return {
+    usesBoardAuth: true,
+    cfg: {
+      ...base,
+      smtp_host: board.smtp_host?.trim() || base.smtp_host,
+      smtp_port: board.smtp_port ?? base.smtp_port,
+      smtp_secure: board.smtp_secure ?? base.smtp_secure,
+      smtp_user: user,
+      smtp_password_encrypted: pass,
+    },
+  };
+}
+
 // ── Transporter cache ─────────────────────────────────────────────────────────
 // nodemailer's createTransport spins up a connection pool. Caching by
-// (host:port:user) so repeated sends in the same request lifecycle reuse the
-// same pool. Keys are local to the process, so they don't survive cold starts
-// — that's fine; each invocation rebuilds and drops the pool.
+// (host:port:user:password-fingerprint) so repeated sends in the same request
+// lifecycle reuse the same pool. Keys are local to the process, so they don't
+// survive cold starts — that's fine; each invocation rebuilds and drops the pool.
+//
+// The password fingerprint is part of the key on purpose. nodemailer bakes the
+// `auth` credentials into the transporter at createTransport time, so a key of
+// only (host:port:user) would pin the FIRST password this process ever saw for
+// that mailbox. An admin who fixes a wrong password at /bos/email-settings would
+// keep getting `535-5.7.8 Username and Password not accepted` from the cached
+// transporter until the server restarted — the DB row correct, every send still
+// failing. Fingerprinting the secret makes a credential change mint a new
+// transporter immediately.
 
 const transporterCache = new Map<string, Transporter>();
 
+/** Short, non-reversible fingerprint of a secret — safe to embed in a cache key. */
+function secretFingerprint(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex').slice(0, 12);
+}
+
 function getTransporter(cfg: BosSmtpConfig): Transporter {
-  const key = `${cfg.smtp_host}:${cfg.smtp_port}:${cfg.smtp_user}`;
+  const account = `${cfg.smtp_host}:${cfg.smtp_port}:${cfg.smtp_user}`;
+  const key = `${account}:${secretFingerprint(cfg.smtp_password_encrypted ?? '')}`;
   let t = transporterCache.get(key);
   if (!t) {
+    // Credentials for this mailbox changed — drop the transporter built on the
+    // old secret so we don't leak its (unpooled but still open-able) handle.
+    for (const staleKey of transporterCache.keys()) {
+      if (staleKey !== key && staleKey.startsWith(`${account}:`)) {
+        transporterCache.get(staleKey)?.close?.();
+        transporterCache.delete(staleKey);
+      }
+    }
     t = nodemailer.createTransport({
       host: cfg.smtp_host,
       port: cfg.smtp_port,

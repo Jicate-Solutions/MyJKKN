@@ -142,10 +142,10 @@ export function CastesDataTable() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-muted-foreground">Castes under</p>
           <Select value={selectedCommunity} onValueChange={setSelectedCommunity}>
-            <SelectTrigger className="w-[260px]">
+            <SelectTrigger className="w-full sm:w-[260px] max-w-full">
               <SelectValue placeholder="Select community" />
             </SelectTrigger>
             <SelectContent>

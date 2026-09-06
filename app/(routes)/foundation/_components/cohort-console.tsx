@@ -11,13 +11,17 @@ import {
   ArrowUpRight,
   BookOpenCheck,
   GraduationCap,
+  Loader2,
   ShieldCheck,
   ShieldAlert,
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth-provider';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -31,10 +35,13 @@ import {
   useAssessments,
   useCohorts,
   useRoster,
+  useSetCohortResourcePerson,
 } from '@/hooks/foundation/use-foundation';
 import type { FoundationCohort } from '@/lib/services/foundation/foundation-service';
 import { ItemAuthorDialog } from './item-author-dialog';
+import { EnrollLearnerDialog } from './enroll-learner-dialog';
 import { AssessmentBuilderDialog } from './assessment-builder-dialog';
+import { ItemReviewPanel } from './item-review-panel';
 
 const KIND_STYLES: Record<string, string> = {
   diagnostic: 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300',
@@ -56,7 +63,7 @@ export function CohortConsole() {
 
   if (isLoading) {
     return (
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
         <div className="space-y-2">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-24 w-full rounded-xl" />
@@ -93,8 +100,8 @@ export function CohortConsole() {
   const selected = cohorts.find((c) => c.id === selectedId) ?? cohorts[0];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-      <aside className="space-y-2">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+      <aside className="min-w-0 space-y-2">
         {cohorts.map((c) => (
           <CohortCard
             key={c.id}
@@ -105,7 +112,7 @@ export function CohortConsole() {
         ))}
       </aside>
 
-      <section>
+      <section className="min-w-0">
         <CohortDetail cohort={selected} />
       </section>
     </div>
@@ -159,6 +166,8 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
   const { canAccess } = usePermissions();
   const canAuthorItems = canAccess('foundation', 'items.manage');
   const canBuildAssessments = canAccess('foundation', 'assessments.manage');
+  const canManageStudents = canAccess('foundation', 'students.manage');
+  const canManageCohorts = canAccess('foundation', 'cohorts.manage');
   const examId = cohort.exam_definition_id;
   const examName = cohort.exam_definition?.display_name;
 
@@ -186,7 +195,7 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
             </span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           {canAuthorItems && (
             <ItemAuthorDialog examDefinitionId={examId} examName={examName} />
           )}
@@ -197,11 +206,71 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
               examName={examName}
             />
           )}
+          {canManageStudents && <EnrollLearnerDialog cohort={cohort} />}
         </div>
       </div>
 
+      {!cohort.resource_person_id && canManageCohorts && (
+        <UnassignedCohortNotice cohort={cohort} />
+      )}
       <AssessmentStrip cohortId={cohort.id} />
-      <RosterTable cohortId={cohort.id} />
+      <ItemReviewPanel examDefinitionId={examId} />
+      <RosterTable cohort={cohort} canManageStudents={canManageStudents} />
+    </div>
+  );
+}
+
+/**
+ * A cohort with no resource person is invisible to the people meant to run it.
+ * /api/foundation/practice/facilitate scopes its query to
+ * `resource_person_id = the caller`, so a NULL here means the cohort exists,
+ * is active, has a school and an exam — and can be opened by nobody. This says
+ * so plainly and offers the one-click fix, rather than leaving an empty screen
+ * that looks like there is simply no work to do.
+ */
+function UnassignedCohortNotice({ cohort }: { cohort: FoundationCohort }) {
+  const { profile } = useAuth();
+  const setResourcePerson = useSetCohortResourcePerson();
+
+  async function claim() {
+    if (!profile?.id) return;
+    try {
+      await setResourcePerson.mutateAsync({
+        cohortId: cohort.id,
+        resourcePersonId: profile.id,
+      });
+      toast.success('You are now the resource person for this cohort');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Could not assign the resource person');
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-900/60 dark:bg-amber-950/30 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-start gap-2.5">
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+        <div>
+          <p className="font-medium text-amber-900 dark:text-amber-200">
+            This cohort has no resource person
+          </p>
+          <p className="text-amber-800/90 dark:text-amber-300/90">
+            Nobody can open it from the facilitation screen until one is
+            assigned — that screen only ever shows a person their own cohorts.
+          </p>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        className="shrink-0"
+        onClick={claim}
+        disabled={!profile?.id || setResourcePerson.isPending}
+      >
+        {setResourcePerson.isPending && (
+          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+        )}
+        Assign me
+      </Button>
     </div>
   );
 }
@@ -222,20 +291,20 @@ function AssessmentStrip({ cohortId }: { cohortId: string }) {
         {assessments.map((a) => (
           <div
             key={a.id}
-            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+            className="flex max-w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
           >
             <span
               className={cn(
-                'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                 KIND_STYLES[a.kind] ?? 'bg-muted text-muted-foreground',
               )}
             >
               {a.kind}
             </span>
-            <span className="text-sm font-medium text-foreground">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
               {a.title}
             </span>
-            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
               {a.item_count ?? 0} Q
             </span>
           </div>
@@ -245,15 +314,22 @@ function AssessmentStrip({ cohortId }: { cohortId: string }) {
   );
 }
 
-function RosterTable({ cohortId }: { cohortId: string }) {
-  const { data: roster, isLoading } = useRoster(cohortId);
+function RosterTable({
+  cohort,
+  canManageStudents,
+}: {
+  cohort: FoundationCohort;
+  canManageStudents: boolean;
+}) {
+  const { data: roster, isLoading } = useRoster(cohort.id);
 
   if (isLoading) return <Skeleton className="h-64 w-full rounded-xl" />;
 
   if (!roster || roster.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        No students enrolled in this cohort yet.
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+        <p>No learners enrolled in this cohort yet.</p>
+        {canManageStudents && <EnrollLearnerDialog cohort={cohort} />}
       </div>
     );
   }

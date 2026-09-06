@@ -617,7 +617,11 @@ export function HousekeepingPolicyForm() {
               </CardTitle>
               <CardDescription>
                 0 means that tier cannot book slots (those residents keep the
-                regular block cleaning rounds).
+                regular block cleaning rounds). Which ROOM CATEGORY sits in
+                which tier is set per category under Settings &rarr; Categories
+                (&ldquo;Entitlement Tier&rdquo;) &mdash; today Premium Room and
+                Premium Room + AC are Premium, Premium Plus Room is Premium
+                Plus, and Classic / Deluxe are Standard.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -753,7 +757,7 @@ export function HousekeepingPolicyForm() {
       </div>
 
       {/* Save bar */}
-      <div className="flex items-center justify-end gap-2 border-t pt-4">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
         {dirty && (
           <span className="mr-auto text-sm text-muted-foreground">
             {dirtyKeys.length} unsaved change{dirtyKeys.length === 1 ? '' : 's'}

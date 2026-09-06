@@ -7,8 +7,9 @@ import {
   resolveCoeInstitutionId,
   guardCourseInstitutionWrite,
 } from '@/lib/utils/bos/bos-access';
-import { importRowSchema, toCoeCreatePayload } from '@/lib/services/bos/courses-schemas';
+import { makeImportRowSchema, toCoeCreatePayload } from '@/lib/services/bos/courses-schemas';
 import type { BosBulkImportResponse } from '@/types/bos-courses';
+import type { AcademicModel } from '@/types/bos';
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,8 +40,13 @@ export async function POST(request: NextRequest) {
         regulation_id?: string;
         board_id?: string;
         board_code?: string;
+        academic_model?: AcademicModel;
       };
     };
+    // Year-based pharmacy/AHS imports (mgr_pharmd, mgr_ahs) relax the strict
+    // Anna row schema (no credits/hours/category). Defaults to 'anna_univ'.
+    const academic_model: AcademicModel = context?.academic_model ?? 'anna_univ';
+    const rowSchema = makeImportRowSchema(academic_model);
 
     if (!Array.isArray(rows) || !context?.institution_id) {
       return NextResponse.json({ error: 'rows[] and context required' }, { status: 400 });
@@ -87,7 +93,7 @@ export async function POST(request: NextRequest) {
       // Prefer the client-sent sheet row number (the dialog skips blank and
       // invalid rows before upload, so positional idx+2 would drift).
       const clientRow = (raw as { __row?: number })?.__row;
-      const parsed = importRowSchema.safeParse({
+      const parsed = rowSchema.safeParse({
         ...(raw as object),
         __row: typeof clientRow === 'number' ? clientRow : idx + 2,
       });
@@ -111,6 +117,7 @@ export async function POST(request: NextRequest) {
           regulation_id: context.regulation_id,
           board_id: context.board_id,
           board_code: context.board_code,
+          academic_model,
         }),
       });
     });

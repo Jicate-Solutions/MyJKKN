@@ -37,7 +37,12 @@ export default function RcltpTeacherQuestionsPage() {
     );
   }
 
-  const allowed = isSuperAdmin || can('rcltp.question.approve');
+  // Mirrors the rcltp_pbq_update_review RLS policy, which admits
+  // rcltp.question.approve OR rcltp.config.manage. The guard previously accepted
+  // only the first, so holders of rcltp.config.manage had database-level write
+  // rights the page refused — leaving approval reachable by super admins alone.
+  const allowed =
+    isSuperAdmin || can('rcltp.question.approve') || can('rcltp.config.manage');
   if (!allowed) {
     return (
       <ContentLayout title='Question Review'>
@@ -49,7 +54,10 @@ export default function RcltpTeacherQuestionsPage() {
             <code className='rounded bg-muted px-1 py-0.5 text-xs'>
               rcltp.question.approve
             </code>{' '}
-            permission. Contact your administrator if you need access.
+            permission, which is granted per role under{' '}
+            <strong>Users &rarr; Role Management &rarr; RCLTP</strong>. Only a
+            super administrator can change role permissions, so ask whoever
+            manages roles for your institution to add it to your role.
           </AlertDescription>
         </Alert>
       </ContentLayout>

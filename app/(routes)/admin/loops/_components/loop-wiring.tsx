@@ -16,7 +16,7 @@
 // ../page.tsx and passed straight through.
 // ============================================================================
 
-import type { LoopRegistryRow, LoopEdgeRow, LoopAuditRow } from './types';
+import type { LoopRegistryRow, LoopEdgeRow, LoopAuditRow, LoopConflictRow } from './types';
 
 const MIN_VB_W = 1200;
 const VB_H = 760;
@@ -185,10 +185,12 @@ export function LoopWiring({
   registry,
   edges,
   audits,
+  conflicts = [],
 }: {
   registry: LoopRegistryRow[];
   edges: LoopEdgeRow[];
   audits: LoopAuditRow[];
+  conflicts?: LoopConflictRow[];
 }) {
   if (registry.length === 0) {
     return (
@@ -284,6 +286,10 @@ export function LoopWiring({
 
   const seamFromNames = [...new Set(darkEdges.map((e) => byKey.get(e.from_key)?.name ?? e.from_key))];
 
+  // Nodes named in an OPEN loop_conflicts row get a red dashed outline —
+  // drawn as an overlay so the node card itself stays untouched.
+  const conflictKeys = new Set(conflicts.flatMap((c) => c.loops));
+
   return (
     <section aria-label="Loop wiring — how the loops feed each other">
       <div className="mb-2">
@@ -372,6 +378,24 @@ export function LoopWiring({
                 <LoopNode key={r.loop_key} row={r} pos={positions.get(r.loop_key)!} dim={dimmed.has(r.loop_key)} />
               ),
           )}
+          {[...conflictKeys].map((k) => {
+            const p = positions.get(k);
+            if (!p) return null;
+            return (
+              <rect
+                key={`conflict-${k}`}
+                x={p.cx - NODE_W / 2 - 3}
+                y={p.cy - NODE_H / 2 - 3}
+                width={NODE_W + 6}
+                height={NODE_H + 6}
+                rx={12}
+                fill="none"
+                className="stroke-red-500"
+                strokeWidth={1.75}
+                strokeDasharray="5,3"
+              />
+            );
+          })}
         </svg>
       </div>
 
@@ -387,6 +411,10 @@ export function LoopWiring({
         <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
           <span className="inline-block h-0 w-4 border-t-2 border-dashed border-red-500" />
           ⚠ = measured-outcomes edge from a loop whose Measure gate isn&apos;t on — a dark seam
+        </span>
+        <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+          <span className="inline-block h-3 w-4 rounded border border-dashed border-red-500" />
+          red dashed outline = in an open conflict
         </span>
       </div>
 

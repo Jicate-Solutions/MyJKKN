@@ -78,6 +78,33 @@ Add your module to the index:
 | Child App Auth | registered_child_apps, child_app_sessions, ... | 5 | ✅ |
 ```
 
+### Step 5 (FINAL): If the migration is applied BY HAND, mark it APPLIED in `SQL_FILE_INDEX.md`
+
+Most SQL in this repo does **not** reach production through `supabase db push`. It ships as
+**FILE ONLY / NOT APPLIED**, waits on the Director, and is then applied by hand through the
+Supabase Management API. That path writes **no** row to `supabase_migrations.schema_migrations`,
+so the ledger can never tell you it ran — only the catalog can.
+
+The hand-apply path is **not** finished at catalog verification. It is finished when the index
+agrees with the database:
+
+- [ ] Rehearse inside `BEGIN … ROLLBACK`, then confirm residue is **0 in a separate call** — the
+      Management API wraps a whole batch in one transaction, so a same-batch check proves nothing.
+- [ ] Apply, with the Director's approval on record.
+- [ ] Verify by **catalog** — `pg_proc`, `pg_class`, `pg_policies`, `information_schema` — never by
+      the ledger. A ledger HIT is definitive; a ledger MISS proves nothing.
+- [ ] **FINAL STEP, same session: edit `supabase/SQL_FILE_INDEX.md`.** Change that migration's entry
+      from `FILE ONLY / NOT APPLIED` to `✅ APPLIED to production <date>`, and paste the catalog
+      evidence you actually read. If you are correcting a stale entry rather than recording a fresh
+      apply, say so in the entry.
+
+**Why this step is not optional.** An applied migration whose index entry still reads FILE ONLY
+looks pending to the next session. It gets re-applied or re-written, and every `DROP` + `CREATE`
+inside it is rolled back to whatever the file said the day it was written. This has already happened
+here: `20260809101500` sat mis-marked until 2026-08-05, and `20260809103100` / `103200` / `103300` /
+`103500` until 2026-08-06. Correcting the index later is a separate human act nobody remembers —
+doing it in the same session as the apply is the only version that works.
+
 ## ✅ Benefits of This Approach
 
 1. **Migration History**: Keep track of when changes were applied
@@ -92,6 +119,7 @@ Add your module to the index:
 2. **DON'T** forget to update setup files after migrations
 3. **DON'T** modify old migration files
 4. **DON'T** create duplicate definitions
+5. **DON'T** leave an applied migration marked `FILE ONLY / NOT APPLIED` in `SQL_FILE_INDEX.md` — see Step 5
 
 ## 📂 Example: Child App Authentication Module
 
@@ -122,6 +150,7 @@ supabase/setup/03_policies.sql - Added RLS policies
 - [ ] Update `04_triggers.sql` if needed
 - [ ] Update `05_views.sql` if needed
 - [ ] Update `SQL_FILE_INDEX.md`
+- [ ] **If applied BY HAND: mark that entry in `SQL_FILE_INDEX.md` `✅ APPLIED to production <date>` with the catalog proof — same session (Step 5)**
 - [ ] Commit all changes
 
 ## 📌 Important Notes
@@ -132,4 +161,4 @@ supabase/setup/03_policies.sql - Added RLS policies
 
 ---
 
-*Last Updated: 2025-01-17*
+*Last Updated: 2026-08-06 — added Step 5: the hand-apply path ends at `SQL_FILE_INDEX.md`, not at catalog verification.*

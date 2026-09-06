@@ -17,7 +17,7 @@ function TaxonomyPageInner() {
       <Card>
         <CardContent className='p-6'>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className='mb-6'>
+            <TabsList className='mb-6 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
               <TabsTrigger value='frameworks'>Taxonomy Frameworks</TabsTrigger>
               <TabsTrigger value='assignments'>Regulation Assignment</TabsTrigger>
             </TabsList>

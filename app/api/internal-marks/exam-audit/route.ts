@@ -32,11 +32,14 @@ import {
 import {
   ATTENDANCE_ELIGIBILITY,
   CONDONATION_FLOOR,
+  type EligibilityThresholds,
   aggregateAttendanceByStudent,
   computeExamAuditPrograms,
   computeExamAuditStudentDetail,
   eligibilityBucket,
 } from '@/lib/services/exam-audit/compute';
+import { getPolicyInt } from '@/lib/policies/get-policy';
+import { POLICY_KEYS } from '@/lib/policies/keys';
 import {
   resolveExamAuditScope,
   scopeAllowsInstitution,
@@ -55,6 +58,9 @@ interface AttendanceRow {
   present: number;
   total: number;
   pct: number | null;
+  /** Absences excused by an approved tournament permission or full-day on-duty
+   *  application (fn_attendance_protected_days). Counted into eligibility. */
+  protected: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -177,6 +183,23 @@ export async function GET(request: NextRequest) {
     const attendance = (attendanceRes.data ?? []) as AttendanceRow[];
     const attByStudent = aggregateAttendanceByStudent(attendance);
 
+    // Eligibility thresholds are configuration, not a constant (2026-07-26).
+    // Scoped to this institution so a college on a different affiliating-university
+    // norm gets its own row; falls back to the 75/65 compute.ts defaults when no
+    // row exists or the RPC fails.
+    const thresholds: EligibilityThresholds = {
+      eligibility: await getPolicyInt(
+        POLICY_KEYS.EXAM_ELIGIBILITY_ATTENDANCE_PCT,
+        ATTENDANCE_ELIGIBILITY,
+        institutionId,
+      ),
+      condonation: await getPolicyInt(
+        POLICY_KEYS.EXAM_ELIGIBILITY_CONDONATION_FLOOR_PCT,
+        CONDONATION_FLOOR,
+        institutionId,
+      ),
+    };
+
     // Verdicts come from the SHARED computation (also used by the weekly alert
     // cron — the alert fires on exactly what this page shows). This route adds
     // only the caller-scoped eligibility columns on top.
@@ -191,7 +214,7 @@ export async function GET(request: NextRequest) {
       let below65 = 0;
       let noAttendanceRecord = 0;
       for (const sid of studentIds) {
-        const bucket = eligibilityBucket(attByStudent.get(sid));
+        const bucket = eligibilityBucket(attByStudent.get(sid), thresholds);
         if (bucket === 'no_record') noAttendanceRecord += 1;
         else if (bucket === 'below_65') below65 += 1;
         else if (bucket === 'below_75') below75 += 1;
@@ -222,6 +245,7 @@ export async function GET(request: NextRequest) {
         provenance,
         programs,
         attendanceByStudent: attByStudent,
+        thresholds,
       });
       const detail: ExamAuditProgramDetailResponse = {
         institution: { id: institutionId, name: coeInst.name },
@@ -234,7 +258,7 @@ export async function GET(request: NextRequest) {
           auto_detected: autoDetected,
         },
         window,
-        thresholds: { eligibility: ATTENDANCE_ELIGIBILITY, condonation: CONDONATION_FLOOR },
+        thresholds,
         program: programRow,
         students,
       };
@@ -254,7 +278,7 @@ export async function GET(request: NextRequest) {
         auto_detected: autoDetected,
       },
       window,
-      thresholds: { eligibility: ATTENDANCE_ELIGIBILITY, condonation: CONDONATION_FLOOR },
+      thresholds,
       programs: rows,
       totals: {
         programs: rows.length,

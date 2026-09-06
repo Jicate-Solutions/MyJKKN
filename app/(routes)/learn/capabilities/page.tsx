@@ -577,16 +577,16 @@ function CapabilityTreePageInner() {
                 <TabsContent key={cat} value={cat} className="mt-4">
                   <Card>
                     <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-base flex items-center gap-2 min-w-0">
                           {(() => {
                             const Icon = getCategoryConfig(cat).icon;
-                            return <Icon className="h-4 w-4" />;
+                            return <Icon className="h-4 w-4 shrink-0" />;
                           })()}
                           {getCategoryConfig(cat).label} Capabilities
                         </CardTitle>
                         {categoryCounts[cat] && (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-muted-foreground shrink-0">
                             {categoryCounts[cat]!.demonstrated} of {categoryCounts[cat]!.total} demonstrated
                           </span>
                         )}

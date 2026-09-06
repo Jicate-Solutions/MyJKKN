@@ -76,7 +76,7 @@ export default function LearnerPromotionPage() {
 
       <div className="space-y-6 mt-4">
         {/* Page Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">Promote Learners</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
@@ -85,7 +85,7 @@ export default function LearnerPromotionPage() {
                 : 'Select learners from the profiles page to promote'}
             </p>
           </div>
-          <Button variant="outline" asChild>
+          <Button variant="outline" asChild className="shrink-0">
             <Link href="/learners/profiles">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Profiles
@@ -106,9 +106,9 @@ export default function LearnerPromotionPage() {
             </div>
           ) : (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="semester">Semester/Section Promotion</TabsTrigger>
-                <TabsTrigger value="status">Status Promotion</TabsTrigger>
+              <TabsList className="grid h-auto w-full grid-cols-2">
+                <TabsTrigger value="semester" className="h-auto whitespace-normal py-1.5 text-xs sm:text-sm">Semester/Section Promotion</TabsTrigger>
+                <TabsTrigger value="status" className="h-auto whitespace-normal py-1.5 text-xs sm:text-sm">Status Promotion</TabsTrigger>
               </TabsList>
 
               <TabsContent value="semester" className="space-y-4 mt-6">

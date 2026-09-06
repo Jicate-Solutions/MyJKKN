@@ -245,7 +245,7 @@ function NewCampaignWizard({
   return (
     <div className="space-y-6">
       {/* Step Indicator */}
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-sm flex-wrap">
         {[1, 2, 3].map(s => (
           <div key={s} className="flex items-center gap-2">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
@@ -424,7 +424,7 @@ function NewCampaignWizard({
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 bg-muted rounded-lg">
                 <p className="text-xs text-muted-foreground">Campaign</p>
                 <p className="font-medium">{campaignName || 'Untitled'}</p>
@@ -525,7 +525,7 @@ function WhatsAppBroadcastContent() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <StatsCard label="Total Campaigns" value={stats.totalCampaigns} icon={Megaphone} color="bg-blue-100 text-blue-800" />
             <StatsCard label="Messages Sent" value={stats.totalMessages} icon={Send} color="bg-green-100 text-green-800" />
             <StatsCard label="Delivered" value={stats.totalDelivered} icon={CheckCircle} color="bg-emerald-100 text-emerald-800" />
@@ -534,7 +534,7 @@ function WhatsAppBroadcastContent() {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="campaigns">
                 <BarChart3 className="h-4 w-4 mr-2" /> Campaigns
               </TabsTrigger>

@@ -261,7 +261,7 @@ function ClassificationsSection({
                 className="font-mono text-sm"
               />
             </div>
-            <div className="flex-1 min-w-[280px]">
+            <div className="flex-1 min-w-0 sm:min-w-[280px]">
               <Label className="text-xs">Description</Label>
               <Input
                 value={c.description}
@@ -300,7 +300,7 @@ function ClassificationsSection({
               className="font-mono"
             />
           </div>
-          <div className="flex-1 min-w-[260px]">
+          <div className="flex-1 min-w-0 sm:min-w-[260px]">
             <Label className="text-xs">Description</Label>
             <Input
               value={draftDesc}

@@ -17,6 +17,8 @@ import {
 } from '@/hooks/procurement/use-rfqs';
 import { RFQ_STATUS_CONFIG } from '@/types/procurement';
 import { downloadRequirementListPdf } from '@/lib/procurement/requirement-list-pdf';
+import { StatusBadge } from '@/components/procurement/status-badge';
+import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +49,7 @@ import {
 import { ArrowLeft, FileDown, Send, X, UserPlus, ClipboardList, ClipboardCheck, Check, Ban } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function RfqDetailPage() {
   const router = useRouter();
@@ -57,7 +60,7 @@ export default function RfqDetailPage() {
   const canManage = isSuperAdmin || canAccess('procurement', 'rfq_manage');
   const canApprove = isSuperAdmin || canAccess('procurement', 'rfq_approve');
 
-  const { data: rfq, isLoading } = useRfq(id);
+  const { data: rfq, isLoading, isError } = useRfq(id);
   const { data: allVendors = [] } = useVendorsForSelect(profile?.institution_id || undefined);
   const addVendors = useAddRfqVendors();
   const removeVendor = useRemoveRfqVendor();
@@ -74,6 +77,15 @@ export default function RfqDetailPage() {
       <ContentLayout title="RFQ">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
+        </div>
+      </ContentLayout>
+    );
+  }
+  if (isError) {
+    return (
+      <ContentLayout title="RFQ">
+        <div className="py-12">
+          <AlertBox type="error" message="Failed to load this RFQ. Please try again." />
         </div>
       </ContentLayout>
     );
@@ -98,16 +110,21 @@ export default function RfqDetailPage() {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 
   return (
     <ContentLayout title={rfq.rfq_number}>
-      <div className="space-y-6 max-w-4xl">
-        <div className="flex items-center justify-between gap-3">
+      <div className="space-y-6 max-w-5xl">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => router.push('/procurement/rfqs')}>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Back to RFQs"
+              onClick={() => router.push('/procurement/rfqs')}
+            >
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
@@ -119,9 +136,7 @@ export default function RfqDetailPage() {
               </p>
             </div>
           </div>
-          <Badge variant="outline" className="text-sm">
-            {RFQ_STATUS_CONFIG[rfq.status].label}
-          </Badge>
+          <StatusBadge status={rfq.status} config={RFQ_STATUS_CONFIG} className="text-sm" />
         </div>
 
         {/* Rejected: show the reviewer's reason and prompt a resubmit. */}
@@ -139,7 +154,7 @@ export default function RfqDetailPage() {
         <div className="flex flex-wrap gap-3">
           <Button onClick={() => router.push(`/procurement/rfqs/${rfq.id}/quotations`)}>
             <ClipboardList className="mr-2 h-4 w-4" />
-            Quotations &amp; Comparison
+            Quotations &amp; awards
           </Button>
           <Button variant="outline" onClick={() => downloadRequirementListPdf(rfq)}>
             <FileDown className="mr-2 h-4 w-4" />
@@ -171,7 +186,11 @@ export default function RfqDetailPage() {
                 <Check className="mr-2 h-4 w-4" />
                 Approve
               </Button>
-              <Button variant="destructive" onClick={() => setRejectOpen(true)}>
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive sm:ml-auto"
+                onClick={() => setRejectOpen(true)}
+              >
                 <Ban className="mr-2 h-4 w-4" />
                 Reject
               </Button>
@@ -221,10 +240,10 @@ export default function RfqDetailPage() {
 
         {/* Vendors */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-base">Vendors ({rfq.vendors.length})</CardTitle>
             {editable && availableVendors.length > 0 && (
-              <div className="w-[220px]">
+              <div className="w-full sm:w-[220px]">
                 <Select
                   value=""
                   onValueChange={(supplierId) =>
@@ -260,20 +279,21 @@ export default function RfqDetailPage() {
                 {rfq.vendors.map((v) => (
                   <div
                     key={v.id}
-                    className="flex items-center justify-between rounded-md border px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
                   >
-                    <div>
-                      <p className="text-sm font-medium">{v.supplier?.name ?? v.supplier_id}</p>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{v.supplier?.name ?? v.supplier_id}</p>
                       {v.supplier?.email && (
-                        <p className="text-xs text-muted-foreground">{v.supplier.email}</p>
+                        <p className="truncate text-xs text-muted-foreground">{v.supplier.email}</p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       {v.sent_at && <Badge variant="secondary">Sent</Badge>}
                       {editable && (
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`Remove vendor ${v.supplier?.name ?? v.supplier_id}`}
                           onClick={() =>
                             run(
                               () => removeVendor.mutateAsync({ rfqVendorId: v.id, rfqId: rfq.id }),

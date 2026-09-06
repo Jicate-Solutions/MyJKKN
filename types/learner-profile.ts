@@ -90,6 +90,11 @@ export interface LearnerProfile {
   // Personal Information
   first_name: string;
   last_name?: string;
+  // Tamil-script name (UTF-8 text columns, nullable). Captured on the
+  // /learners/profiles create + edit screens only; never derived from the
+  // English name, so an empty value means "not captured yet".
+  first_name_tamil?: string | null;
+  last_name_tamil?: string | null;
   date_of_birth: string;
   gender: string;
   religion: string;
@@ -97,6 +102,12 @@ export interface LearnerProfile {
   caste_id?: string | null;
   aadhar_number?: string;
   blood_group?: string;
+  // External identifiers issued outside this system (alphanumeric, nullable).
+  // abc_id keeps its _id suffix from the official name "Academic Bank of
+  // Credits ID" — it is NOT a foreign key, unlike every other *_id here.
+  abc_id?: string | null;
+  emis?: string | null;
+  umis?: string | null;
   // Legacy integer year (e.g. 2026). Kept for B2A endpoint back-compat —
   // 6 endpoints still expose `?admission_year=` and read this column.
   admission_year?: number;
@@ -294,12 +305,22 @@ export const learnerProfileSchema = z.object({
   // Personal Information (always required)
   first_name: z.string().min(2, 'First name is required'),
   last_name: z.string().optional(),
+  // Optional + nullable: the Tamil name columns are nullable and back-filled
+  // over time, so a blank field must never block a save.
+  first_name_tamil: z.string().nullable().optional(),
+  last_name_tamil: z.string().nullable().optional(),
   date_of_birth: z.string().min(1, 'Date of birth is required'),
   gender: z.string().min(1, 'Gender is required'),
   religion: z.string().min(1, 'Religion is required'),
   community_category_id: z.string().uuid('Community is required'),
   caste_id: z.string().uuid().optional().or(z.literal('')),
   blood_group: z.string().optional(),
+  // External identifiers — optional + nullable, never format-checked here.
+  // See the migration header: the issuing bodies have each changed format and
+  // legacy holders still carry the old one.
+  abc_id: z.string().nullable().optional(),
+  emis: z.string().nullable().optional(),
+  umis: z.string().nullable().optional(),
   admission_year: z.number().optional(),
   learner_type: z.enum(['regular', 'irregular', 'intern']).optional(),
 
@@ -417,6 +438,8 @@ export interface UpdateLearnerProfileDto {
   // Personal Information
   first_name?: string;
   last_name?: string | null;
+  first_name_tamil?: string | null;
+  last_name_tamil?: string | null;
   date_of_birth?: string;
   gender?: string;
   religion?: string;
@@ -424,6 +447,9 @@ export interface UpdateLearnerProfileDto {
   caste_id?: string | null;
   aadhar_number?: string | null;
   blood_group?: string | null;
+  abc_id?: string | null;
+  emis?: string | null;
+  umis?: string | null;
   admission_year?: number | null;
   learner_type?: 'regular' | 'irregular' | 'intern' | null;
 
@@ -554,6 +580,16 @@ export interface EnrollmentDto {
  */
 export interface LearnerProfileFilters {
   search?: string;
+  /**
+   * The advanced-search modifiers the Learners Profiles list puts in the URL.
+   * They belong beside `search` because the export dialog reuses this filter
+   * type to reproduce the table's result set — forwarding the term without its
+   * modifiers made a case-sensitive or exact-match search export more rows
+   * than the table displayed.
+   */
+  search_case_sensitive?: boolean;
+  search_exact_match?: boolean;
+  search_fields?: string[];
   first_name?: string;
   last_name?: string;
   application_id?: string;
@@ -573,6 +609,12 @@ export interface LearnerProfileFilters {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  /**
+   * Calendar admission year (e.g. 2026), NOT an admission_years row id.
+   * Resolved to the matching row ids by resolveAdmissionYearIds() so it spans
+   * every institution in scope — see lib/utils/admission-year-filter.ts.
+   */
+  admission_year?: number;
   regulation_id?: string;
   batch_id?: string;
 
@@ -581,7 +623,14 @@ export interface LearnerProfileFilters {
   religion?: string;
   community_category_id?: string | null;
   entry_type?: string;
+  /**
+   * @deprecated Names the RETIRED learners_profiles.accommodation_type TEXT
+   * column and is not read by getLearnerProfiles — setting it filters nothing.
+   * Use accommodation_type_id.
+   */
   accommodation_type?: string;
+  /** accommodation_types.id — the FK rows are actually stored against. */
+  accommodation_type_id?: string;
 
   // Date ranges
   created_from?: Date;

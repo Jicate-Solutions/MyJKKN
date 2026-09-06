@@ -163,7 +163,7 @@ export default function SchoolDefaultsTable({
         />
       )}
 
-      <div className="border rounded-lg overflow-hidden">
+      <div className="border rounded-lg overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
@@ -271,7 +271,7 @@ export default function SchoolDefaultsTable({
           {selectedIds.size} of {data.length} row(s) selected.
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-6">
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Rows per page</span>
             <Select value={rowsPerPage.toString()} onValueChange={(val) => {

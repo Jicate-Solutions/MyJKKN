@@ -88,3 +88,34 @@ Never put the PDF's CATEGORY into the template's Category column. This is the #1
 If a curriculum uses a CATEGORY code not in the lookup, stop and confirm the intended Type with
 the user, then add it to both `AICTE_TO_TYPE` in `scripts/convert_curriculum.py` and the table
 in `references/mapping.md`. Do not silently guess a mapping.
+
+## Pharmacy (COP) curricula — NOT AICTE/Anna
+
+College of Pharmacy has TWO models, neither AICTE. Detect by regulator/university text and
+course-table shape (no AICTE CATEGORY column, no L-T-P triple). See the tech spec
+`docs/plans/2026-07-24_bos_cop-pharmacy-course-syllabus-tech-spec.md`.
+
+### B.Pharm — PCI CBCS (semester, coded, credited)
+- Source table columns: `Course code | Name | No. of hours | Tutorial | Credit points`
+  (there is **no** AICTE CATEGORY and **no** separate L/T/P split).
+- **Codes carry the type in the suffix** — derive the template **Category** from the code, NOT
+  from an L-T-P split: `…T`→Theory, `…P`→Practical, `…PS`→Practice School (map to
+  `Non Academic`), `…PW`→Project, `…ET`→Theory (elective), `…RBT`/`…RMT`→Theory (remedial).
+- Credit rule (for reconciliation only): lecture & tutorial ×1, practical ×½. Reconcile the
+  program against **208** minimum credits.
+- Codes already satisfy the alnum course-code regex (`BP101T`) — pass them through unchanged.
+- No CO-PO-PSO, no Bloom's — this skill only makes the *courses* sheet; syllabus bodies go
+  through `bos-syllabus-convert` (pharmacy branch).
+
+### Pharm.D — Dr. MGR Medical University (year-based, code-less, no credits)
+- Source table columns: `Sl.No | Name of Subject | Hours Theory | Hours Practical | Hours Tutorial`.
+  Subjects are numbered `year.subject` (`1.1`, `2.5`) with **no course code and no credits**.
+- **Assign a deterministic alnum TEMP code** — the course-code regex forbids `.`/`-`, so use
+  `makePharmdTempCode` shape `TMPPD<year><seq2>` (e.g. `1.1`→`TMPPD101`, `2.5`→`TMPPD205`).
+  Flagged by the `TMP` prefix / COE `is_temp_code`; safe to replace with the official code later
+  because syllabi anchor on the stable `course_id`, not the code.
+- Leave Category / Credits / L-T-P blank (year-based model relaxes them to optional); set the
+  Academic Year (1–5). The import must be created under the **Pharm.D board** so the server
+  resolves `academic_model = mgr_pharmd`.
+- Year 6 is Internship (no subjects) — do NOT emit courses for it; the internship postings live
+  on the syllabus (`internship_postings`), authored via `bos-syllabus-convert`.

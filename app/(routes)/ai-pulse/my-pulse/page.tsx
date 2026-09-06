@@ -33,6 +33,9 @@ import { PulseImpactCard } from './_components/pulse-impact-card';
 import { PdeProgressCard } from './_components/pde-progress-card';
 import { DomainStarterCard } from './_components/domain-starter-card';
 import { PromptBuilderCard } from './_components/prompt-builder-card';
+import { SharedLibraryCard } from './_components/shared-library-card';
+import { ClassmatesPromptsCard } from './_components/classmates-prompts-card';
+import { NoPromptWeekCard } from './_components/no-prompt-week-card';
 import { WeekSwitcher, type SwitcherCycle } from './_components/week-switcher';
 
 // "Week of Jul 23" style label for the cycle switcher; falls back to the cycle
@@ -123,6 +126,15 @@ export default async function AiPulseLearnerPage({
   const isCurrentCycle =
     !!cycle && !!currentCycle && cycle.id === currentCycle.id;
 
+  // The switcher now returns every week the learner ATTENDED, including weeks
+  // with no starter for their programme (has_prompt=false) — those used to be
+  // dropped, which made real sessions invisible. Render an honest empty state
+  // for them instead. Strict `=== false`: a deep-linked cycle that isn't in the
+  // switcher list has no has_prompt, and "not known" must not print "no prompt".
+  const selectedHasNoPrompt =
+    !!cycle &&
+    cycles.find((c) => c.id === cycle.id)?.has_prompt === false;
+
   // Ensure the selected cycle is present in the switcher list even if it fell
   // outside the recent-N window (deep-linked older cycle).
   const switcherCycles: SwitcherCycle[] = (
@@ -205,13 +217,31 @@ export default async function AiPulseLearnerPage({
               switcher shows each week's own prompt. Renders nothing while the
               generation loop is dark (kill switch off) or no starter exists. */}
           <div className="md:col-span-2">
-            <DomainStarterCard cycleId={cycle?.id} />
+            {selectedHasNoPrompt ? (
+              <NoPromptWeekCard />
+            ) : (
+              <DomainStarterCard cycleId={cycle?.id} />
+            )}
           </div>
           {/* Build-a-prompt — learn prompt engineering by assembling a prompt
               from four parts, then get an AI grade. Renders nothing while dark
               (prompt_build_enabled off). */}
           <div className="md:col-span-2">
             <PromptBuilderCard cycleId={cycle?.id} />
+          </div>
+          {/* Prompt library — the best GRADUATED peer prompts on the learner's
+              topics, each with a learner "Report" control (champion disqualifies).
+              Renders nothing until prompt graduation is switched on (both feeds
+              dark today → empty → byte-identical to now). */}
+          <div className="md:col-span-2">
+            <SharedLibraryCard cycleId={cycle?.id} />
+          </div>
+          {/* Classmates' prompts — decent (score 60–79) NON-star peer prompts on
+              the learner's topics, matched by subject name across all colleges.
+              Copying one pings the distinct-copier counter (v2 popularity path).
+              Renders nothing until such prompts exist → byte-identical to now. */}
+          <div className="md:col-span-2">
+            <ClassmatesPromptsCard cycleId={cycle?.id} />
           </div>
           {/* Gold Standard — "this week" recognition; only on the current cycle. */}
           {isCurrentCycle && gold && (

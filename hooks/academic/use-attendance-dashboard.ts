@@ -266,6 +266,72 @@ export function useActiveInstitutions(enabled: boolean = true) {
 }
 
 /**
+ * Default trailing window (days) for the current-intake readiness check.
+ * A section that has not been marked once in three weeks is not "running late",
+ * it has never started — which is the distinction the panel is drawing.
+ */
+export const INTAKE_READINESS_DEFAULT_WINDOW_DAYS = 21;
+
+/**
+ * Hook for the current-intake attendance readiness check.
+ *
+ * Unlike usePendingAttendance, this is NOT date-scoped and NOT derived from
+ * timetables — it asks, for every section holding current-intake learners,
+ * whether attendance is even possible there. A section with no timetable is
+ * invisible to the pending surface and is exactly what this surfaces.
+ *
+ * Institution scoping mirrors the other dashboard hooks: an all-colleges viewer
+ * with no institution picked queries across all (the RPC bounds rows by
+ * role_has_institution_access); everyone else is pinned to their own.
+ */
+export function useIntakeReadiness(
+  institutionId?: string,
+  canViewAllInstitutions: boolean = false,
+  windowDays: number = INTAKE_READINESS_DEFAULT_WINDOW_DAYS,
+  departmentId?: string,
+  refreshTrigger: number = 0
+) {
+  const { profile } = useAuth();
+
+  const queryInstitutionId = canViewAllInstitutions
+    ? institutionId
+    : profile?.institution_id || undefined;
+
+  const queryAllInstitutions =
+    canViewAllInstitutions && institutionId === undefined;
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: [
+      'attendance-intake-readiness',
+      queryInstitutionId,
+      queryAllInstitutions,
+      windowDays,
+      departmentId,
+      refreshTrigger
+    ],
+    queryFn: () =>
+      AttendanceDashboardService.getIntakeReadiness(
+        windowDays,
+        queryAllInstitutions ? undefined : queryInstitutionId,
+        departmentId
+      ),
+    enabled: queryAllInstitutions || !!queryInstitutionId,
+    ...QUERY_CONFIG.DASHBOARD_DATA
+  });
+
+  const rows = data ?? [];
+
+  return {
+    rows,
+    summaries: AttendanceDashboardService.summariseIntakeReadiness(rows),
+    windowDays,
+    isLoading,
+    isError: !!error,
+    refetch
+  };
+}
+
+/**
  * Hook for attendance trend analysis
  */
 export function useAttendanceTrend(institutionId?: string, days: number = 7) {

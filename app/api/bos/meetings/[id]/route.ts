@@ -130,6 +130,23 @@ export async function GET(
       if (b) board = { board_code: b.board_code, board_name: b.board_name, board_type: b.board_type };
     }
 
+    // Roster order: PostgREST returns an embedded to-many in no guaranteed
+    // order, so the meeting's Members / Attendance tabs listed people
+    // arbitrarily while the notice PDF (which orders by sort_order) listed them
+    // by roster rank. Sorted here so both agree. Ties fall back to name.
+    const compForOrder = (data as unknown as {
+      bos_compositions?: {
+        bos_members?: { sort_order?: number | null; display_name?: string | null }[];
+      } | null;
+    }).bos_compositions;
+    if (compForOrder?.bos_members) {
+      compForOrder.bos_members.sort(
+        (a, b) =>
+          (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+          (a.display_name ?? '').localeCompare(b.display_name ?? '')
+      );
+    }
+
     const flattened = {
       ...data,
       agenda_item_count: meetingWithAgg.agenda_items_agg?.[0]?.count ?? 0,

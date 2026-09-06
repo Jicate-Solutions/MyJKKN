@@ -15,7 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import {
   AlertTriangle,
   Trash2,
-  Receipt,
+  ReceiptIndianRupee,
   Users,
   Clock,
   X
@@ -73,7 +73,7 @@ export function DeleteConfirmationModal({
     switch (itemType) {
       case 'bill':
       case 'bills':
-        return <Receipt className="h-5 w-5" />;
+        return <ReceiptIndianRupee className="h-5 w-5" />;
       case 'student':
       case 'students':
         return <Users className="h-5 w-5" />;

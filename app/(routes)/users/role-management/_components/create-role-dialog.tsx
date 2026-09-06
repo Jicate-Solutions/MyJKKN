@@ -409,7 +409,7 @@ export function CreateRoleDialog({
                             </div>
                           </AccordionTrigger>
                           <AccordionContent className='px-4 pb-3 pt-1'>
-                            <div className='flex justify-between items-center mb-3 px-1 pt-2'>
+                            <div className='flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center mb-3 px-1 pt-2'>
                               <div className='flex items-center gap-1'>
                                 <span className='text-sm font-medium'>
                                   All permissions in this category

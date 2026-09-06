@@ -10,6 +10,9 @@ import type {
   SourceAnalyticsRow,
   GeographyAnalyticsRow,
   InstitutionComparisonRow,
+  AdmittedSourceRow,
+  AdmittedSourceCount,
+  AdmittedSourcePage,
 } from '@/types/admission-workflow-config';
 
 const EMPTY_GROUP_DASHBOARD: GroupDashboardData = {
@@ -322,6 +325,118 @@ export class GroupDashboardService {
       lead_count: Number(r.lead_count),
       enrolled_count: Number(r.enrolled_count),
       conversion_rate: Number(r.conversion_rate),
+    }));
+  }
+
+  /**
+   * Resolve the institution scope for an analytics RPC.
+   *
+   * `undefined` means "super-admin, all institutions" — the caller has no
+   * explicit scope, so we list every institution the browser client can read
+   * and let the RPC's own role_has_institution_access() gate do the filtering.
+   * `[]` means "scoped user with no access" and short-circuits to no query.
+   */
+  private static async resolveInstitutionScope(
+    institutionIds: string[] | undefined,
+    label: string
+  ): Promise<string[]> {
+    if (institutionIds !== undefined) return institutionIds;
+    const { data, error } = await (this.supabase as any)
+      .from('institutions')
+      .select('id');
+    if (error) {
+      console.error(`[admission/group] Failed to resolve institutions for ${label}:`, error);
+      throw error;
+    }
+    return ((data ?? []) as Array<{ id: string }>).map((i) => i.id);
+  }
+
+  /**
+   * Admitted learners with the source they came from — the drill-down behind
+   * the "Admitted" KPI. Backed by fn_admitted_source_breakdown.
+   *
+   * Anchored on learners_profiles (NOT admission_leads), so the total here
+   * always equals the KPI that was clicked. Learners with no lead row come
+   * back with source === null and are filterable via DIRECT_SOURCE_KEY.
+   *
+   * Pagination is server-side: the RPC returns `total_count` as a window
+   * count on every row, so there is no second count query. (A `count: 'exact'`
+   * companion query over this shape is an unbounded scan paid twice and a
+   * known source of 57014 timeouts in this codebase.)
+   */
+  static async getAdmittedSourceBreakdown(
+    institutionIds: string[] | undefined,
+    admissionYear: number | null,
+    source: string | null,
+    limit: number,
+    offset: number
+  ): Promise<AdmittedSourcePage> {
+    const resolved = await this.resolveInstitutionScope(institutionIds, 'admitted-sources');
+    if (resolved.length === 0) return { rows: [], totalCount: 0 };
+
+    const { data, error } = await (this.supabase as any).rpc('fn_admitted_source_breakdown', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
+      p_source: source ?? null,
+      p_limit: limit,
+      p_offset: offset,
+    });
+    if (error) {
+      console.error('[admission/group] fn_admitted_source_breakdown failed:', error);
+      throw error;
+    }
+
+    const raw = (data ?? []) as any[];
+    return {
+      rows: raw.map((r): AdmittedSourceRow => ({
+        learner_id: r.learner_id,
+        full_name: r.full_name ?? null,
+        application_id: r.application_id ?? null,
+        roll_number: r.roll_number ?? null,
+        student_mobile: r.student_mobile ?? null,
+        father_mobile: r.father_mobile ?? null,
+        mother_mobile: r.mother_mobile ?? null,
+        institution_id: r.institution_id,
+        institution_name: r.institution_name,
+        program_name: r.program_name ?? null,
+        source: r.source ?? null,
+        referral_type: r.referral_type ?? null,
+        referred_by_name: r.referred_by_name ?? null,
+        admitted_at: r.admitted_at ?? null,
+        created_at: r.created_at ?? null,
+      })),
+      // Zero rows means zero matches — the window count only exists on a row.
+      totalCount: raw.length > 0 ? Number(raw[0].total_count) : 0,
+    };
+  }
+
+  /**
+   * Per-source admitted counts for the drill-down's filter chips and donut.
+   * Backed by fn_admitted_source_counts. Separate from the list RPC so the
+   * chips don't have to page the whole result set.
+   *
+   * The '__direct__' bucket (DIRECT_SOURCE_KEY) is a real, first-class value
+   * here — it is the count of admitted learners with no lead row, which for
+   * AY 2026 is 64% of the cohort.
+   */
+  static async getAdmittedSourceCounts(
+    institutionIds: string[] | undefined,
+    admissionYear: number | null
+  ): Promise<AdmittedSourceCount[]> {
+    const resolved = await this.resolveInstitutionScope(institutionIds, 'admitted-source-counts');
+    if (resolved.length === 0) return [];
+
+    const { data, error } = await (this.supabase as any).rpc('fn_admitted_source_counts', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
+    });
+    if (error) {
+      console.error('[admission/group] fn_admitted_source_counts failed:', error);
+      throw error;
+    }
+    return ((data ?? []) as any[]).map((r): AdmittedSourceCount => ({
+      source: r.source,
+      admits: Number(r.admits),
     }));
   }
 

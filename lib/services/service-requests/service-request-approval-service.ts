@@ -20,6 +20,7 @@ import type {
 } from '@/types/service-request';
 import { ServiceRequestTimelineService } from './service-request-timeline-service';
 import { notifyTmsWebhook } from './transport-webhook';
+import { normalizePagination } from './pagination';
 
 const getSupabase = async () => await createServerSupabaseClient() as any;
 
@@ -370,8 +371,7 @@ export class ServiceRequestApprovalService {
   ): Promise<ServiceRequestListResponse> {
     const supabase = await getSupabase();
 
-    const page = filters?.page || 1;
-    const limit = filters?.limit || 20;
+    const { page, limit } = normalizePagination(filters?.page, filters?.limit);
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
@@ -399,7 +399,7 @@ export class ServiceRequestApprovalService {
       return { data: [], metadata: { total: 0, page, limit, totalPages: 0 } };
     }
 
-    const { data, error, count } = await supabase
+    let query = supabase
       .from('service_requests')
       .select(
         `*,
@@ -409,7 +409,21 @@ export class ServiceRequestApprovalService {
         { count: 'exact' }
       )
       .in('status', ['submitted', 'in_review'])
-      .or(orFilter)
+      .or(orFilter);
+
+    // Narrow server-side. Filtering client-side would only ever search the
+    // current page, so a request on page 40 would look like it didn't exist.
+    if (filters?.service_type_id) {
+      query = query.eq('service_type_id', filters.service_type_id);
+    }
+    if (filters?.priority) {
+      query = query.eq('priority', filters.priority);
+    }
+    if (filters?.search) {
+      query = query.ilike('request_number', `%${filters.search}%`);
+    }
+
+    const { data, error, count } = await query
       .order('created_at', { ascending: false })
       .range(from, to);
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// Premium Stay Phase 1 — useHostelTierPolicy React Query hook
+// Premium Room Phase 1 — useHostelTierPolicy React Query hook
 // ============================================================================
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
 // Service: lib/services/campus-living/hostel-tier-service.ts

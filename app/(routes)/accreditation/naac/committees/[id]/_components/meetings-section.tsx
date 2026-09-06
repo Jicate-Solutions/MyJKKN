@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -63,6 +64,17 @@ import {
   useReviewedInMeeting,
   useReviewResolution,
 } from '@/hooks/accreditation/use-naac-committee-meetings';
+import {
+  useMeetingAiDrafts,
+  usePendingSittingProposal,
+} from '@/hooks/accreditation/use-naac-meeting-drafts';
+import type { MeetingAiDraft } from '@/lib/services/accreditation/committee-meeting-service';
+import {
+  AgendaDraftPanel,
+  MinutesPolishOffer,
+  SittingProposalCard,
+} from './ai-assistant-panels';
+import { MemberNotesPanel } from './member-notes-panel';
 import { toast } from 'sonner';
 
 // ----------------------------------------------------------------------------
@@ -157,6 +169,61 @@ function ownerDisplay(
   return 'Unassigned';
 }
 
+interface InstitutionLite {
+  id: string;
+  name: string;
+  iqac_code: string | null;
+  institution_type: string;
+}
+
+/**
+ * Same institutions list (and query key) the committees list page uses —
+ * shared react-query cache, no new fetch mechanism.
+ */
+function useJKKNInstitutions(enabled = true) {
+  return useQuery({
+    queryKey: ['institutions', 'jkkn-iqac'],
+    queryFn: async (): Promise<InstitutionLite[]> => {
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb
+        .from('institutions')
+        .select('id, name, iqac_code, institution_type')
+        .not('iqac_code', 'is', null)
+        .order('iqac_code');
+      if (error) throw error;
+      return (data ?? []) as InstitutionLite[];
+    },
+    enabled,
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+/**
+ * C7 chips: the colleges a (cluster) resolution touches. Renders nothing
+ * when the resolution carries no tags.
+ */
+function AffectedCollegesChips({
+  ids,
+}: {
+  ids: string[] | null | undefined;
+}) {
+  const tagIds = ids ?? [];
+  const { data: institutions } = useJKKNInstitutions(tagIds.length > 0);
+  if (tagIds.length === 0) return null;
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {tagIds.map((iid) => {
+        const inst = institutions?.find((i) => i.id === iid);
+        return (
+          <Badge key={iid} variant="outline" className="text-[10px]">
+            {inst?.iqac_code ?? inst?.name ?? 'College'}
+          </Badge>
+        );
+      })}
+    </span>
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Main section
 // ----------------------------------------------------------------------------
@@ -171,12 +238,23 @@ export function MeetingsSection({
   const { data: meetings, isLoading } = useCommitteeMeetings(committee.id);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // AI committee assistant (DARK until the Director flips the job types on, so
+  // both of these legitimately return nothing today).
+  const { data: aiDrafts, isLoading: draftsLoading } = useMeetingAiDrafts(committee.id);
+  const { data: proposal, isLoading: proposalLoading } = usePendingSittingProposal(committee.id);
+
+  /** The live AI draft of one kind for one meeting (discarded ones are ignored). */
+  const draftFor = (meetingId: string, kind: 'agenda' | 'minutes'): MeetingAiDraft | undefined =>
+    (aiDrafts ?? []).find(
+      (d) => d.meeting_id === meetingId && d.draft_kind === kind && d.status !== 'discarded',
+    );
+
   const canWrite = canManage && committee.is_active;
 
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
             <RefreshCcw className="h-5 w-5" />
             Meetings — Loop Review
@@ -188,6 +266,11 @@ export function MeetingsSection({
         </div>
       </CardHeader>
       <CardContent>
+        <SittingProposalCard
+          proposal={proposal}
+          isLoading={proposalLoading}
+          canManage={canWrite}
+        />
         {isLoading ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
@@ -214,6 +297,9 @@ export function MeetingsSection({
                 onToggle={() =>
                   setExpandedId((cur) => (cur === m.id ? null : m.id))
                 }
+                agendaDraft={draftFor(m.id, 'agenda')}
+                minutesDraft={draftFor(m.id, 'minutes')}
+                draftsLoading={draftsLoading}
               />
             ))}
           </div>
@@ -315,12 +401,18 @@ function MeetingRow({
   canManage,
   expanded,
   onToggle,
+  agendaDraft,
+  minutesDraft,
+  draftsLoading,
 }: {
   meeting: CommitteeMeeting;
   committee: AccreditationCommittee;
   canManage: boolean;
   expanded: boolean;
   onToggle: () => void;
+  agendaDraft?: MeetingAiDraft;
+  minutesDraft?: MeetingAiDraft;
+  draftsLoading: boolean;
 }) {
   return (
     <div className="rounded-lg border">
@@ -352,17 +444,29 @@ function MeetingRow({
       {expanded && (
         <div className="border-t px-3 py-3">
           {meeting.status === 'scheduled' && (
-            <ScheduledMeetingBody meeting={meeting} canManage={canManage} />
+            <ScheduledMeetingBody
+              meeting={meeting}
+              canManage={canManage}
+              agendaDraft={agendaDraft}
+              draftsLoading={draftsLoading}
+            />
           )}
           {meeting.status === 'held' && (
             <HeldMeetingWorkview
               meeting={meeting}
               committee={committee}
               canManage={canManage}
+              agendaDraft={agendaDraft}
+              minutesDraft={minutesDraft}
+              draftsLoading={draftsLoading}
             />
           )}
           {meeting.status === 'minuted' && (
-            <MinutedMeetingBody meeting={meeting} />
+            <MinutedMeetingBody
+              meeting={meeting}
+              committee={committee}
+              canManage={canManage}
+            />
           )}
           {meeting.status === 'cancelled' && (
             <p className="text-sm text-muted-foreground">
@@ -382,19 +486,31 @@ function MeetingRow({
 function ScheduledMeetingBody({
   meeting,
   canManage,
+  agendaDraft,
+  draftsLoading,
 }: {
   meeting: CommitteeMeeting;
   canManage: boolean;
+  agendaDraft?: MeetingAiDraft;
+  draftsLoading: boolean;
 }) {
   const markHeld = useMarkMeetingHeld();
   const cancel = useCancelMeeting();
 
   if (!canManage) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Scheduled{meeting.scheduled_for ? ` for ${meeting.scheduled_for}` : ''}
-        . The review opens once the meeting is held.
-      </p>
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Scheduled{meeting.scheduled_for ? ` for ${meeting.scheduled_for}` : ''}
+          . The review opens once the meeting is held.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Member accounts open at the same moment. If this sitting has already
+          taken place, ask the IQAC Coordinator to mark it held so everyone can
+          write their own account of it.
+        </p>
+        <AgendaDraftPanel draft={agendaDraft} isLoading={draftsLoading} canManage={false} />
+      </div>
     );
   }
 
@@ -409,42 +525,46 @@ function ScheduledMeetingBody({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        size="sm"
-        onClick={() =>
-          run(
-            () =>
-              markHeld.mutateAsync({
-                meetingId: meeting.id,
-                committeeId: meeting.committee_id,
-              }),
-            'Meeting marked held — review is open',
-          )
-        }
-        disabled={markHeld.isPending || cancel.isPending}
-      >
-        <CheckCircle2 className="mr-2 h-4 w-4" />
-        Mark held
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() =>
-          run(
-            () =>
-              cancel.mutateAsync({
-                meetingId: meeting.id,
-                committeeId: meeting.committee_id,
-              }),
-            'Meeting cancelled',
-          )
-        }
-        disabled={markHeld.isPending || cancel.isPending}
-      >
-        <XCircle className="mr-2 h-4 w-4" />
-        Cancel meeting
-      </Button>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          onClick={() =>
+            run(
+              () =>
+                markHeld.mutateAsync({
+                  meetingId: meeting.id,
+                  committeeId: meeting.committee_id,
+                }),
+              'Meeting marked held — review is open',
+            )
+          }
+          disabled={markHeld.isPending || cancel.isPending}
+        >
+          <CheckCircle2 className="mr-2 h-4 w-4" />
+          Mark held
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            run(
+              () =>
+                cancel.mutateAsync({
+                  meetingId: meeting.id,
+                  committeeId: meeting.committee_id,
+                }),
+              'Meeting cancelled',
+            )
+          }
+          disabled={markHeld.isPending || cancel.isPending}
+        >
+          <XCircle className="mr-2 h-4 w-4" />
+          Cancel meeting
+        </Button>
+      </div>
+      <Separator />
+      <AgendaDraftPanel draft={agendaDraft} isLoading={draftsLoading} canManage />
     </div>
   );
 }
@@ -457,10 +577,16 @@ function HeldMeetingWorkview({
   meeting,
   committee,
   canManage,
+  agendaDraft,
+  minutesDraft,
+  draftsLoading,
 }: {
   meeting: CommitteeMeeting;
   committee: AccreditationCommittee;
   canManage: boolean;
+  agendaDraft?: MeetingAiDraft;
+  minutesDraft?: MeetingAiDraft;
+  draftsLoading: boolean;
 }) {
   const { data: openResolutions, isLoading: openLoading } = useOpenResolutions(
     committee.id,
@@ -549,15 +675,39 @@ function HeldMeetingWorkview({
                 className="rounded-md border bg-card px-3 py-2 text-sm"
               >
                 <div>{r.resolution_text}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Owner: {ownerDisplay(r, profiles)}
-                  {r.due_date ? ` · due ${r.due_date}` : ''}
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>
+                    Owner: {ownerDisplay(r, profiles)}
+                    {r.due_date ? ` · due ${r.due_date}` : ''}
+                  </span>
+                  <AffectedCollegesChips ids={r.affected_institution_ids} />
                 </div>
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      <Separator />
+
+      {/* c. Each member's own account of the sitting — and the Chairman /
+             Coordinator's compile into the official minutes. */}
+      <MemberNotesPanel
+        meeting={meeting}
+        committee={committee}
+        canManage={canManage}
+      />
+
+      {agendaDraft && (
+        <>
+          <Separator />
+          <AgendaDraftPanel
+            draft={agendaDraft}
+            isLoading={draftsLoading}
+            canManage={canManage}
+          />
+        </>
+      )}
 
       {canManage && (
         <>
@@ -568,6 +718,7 @@ function HeldMeetingWorkview({
               reviewed={reviewedHere ?? []}
               passed={passedHere ?? []}
               profiles={profiles}
+              minutesDraft={minutesDraft}
             />
           </div>
         </>
@@ -640,6 +791,7 @@ function ReviewRow({
                 Escalate to Director
               </Badge>
             )}
+            <AffectedCollegesChips ids={resolution.affected_institution_ids} />
           </div>
         </div>
         {canManage && (
@@ -814,6 +966,18 @@ function PassResolutionForm({
   const [text, setText] = useState('');
   const [ownerLabel, setOwnerLabel] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [affectedIds, setAffectedIds] = useState<string[]>([]);
+
+  // C7: a cluster (CAC) resolution names the colleges it touches; those
+  // colleges' IQAC briefs pick it up. Per-college committees skip the field.
+  const isCluster = committee.committee_type === 'cluster';
+  const { data: institutions } = useJKKNInstitutions(isCluster);
+
+  const toggleAffected = (id: string, checked: boolean) => {
+    setAffectedIds((cur) =>
+      checked ? [...cur, id] : cur.filter((x) => x !== id),
+    );
+  };
 
   const submit = async () => {
     if (!text.trim()) {
@@ -835,11 +999,15 @@ function PassResolutionForm({
         resolution_text: text.trim(),
         owner_label: ownerLabel.trim(),
         due_date: dueDate || null,
+        ...(isCluster && affectedIds.length > 0
+          ? { affected_institution_ids: affectedIds }
+          : {}),
       });
       toast.success('Resolution passed');
       setText('');
       setOwnerLabel('');
       setDueDate('');
+      setAffectedIds([]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to pass resolution');
     }
@@ -870,6 +1038,29 @@ function PassResolutionForm({
           {pass.isPending ? 'Passing…' : 'Pass resolution'}
         </Button>
       </div>
+      {isCluster && (
+        <div className="space-y-1.5 pt-1">
+          <Label className="text-xs">Affected colleges (optional)</Label>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {(institutions ?? []).map((inst) => (
+              <label
+                key={inst.id}
+                className="flex cursor-pointer items-center gap-1.5 text-xs"
+              >
+                <Checkbox
+                  checked={affectedIds.includes(inst.id)}
+                  onCheckedChange={(v) => toggleAffected(inst.id, v === true)}
+                />
+                {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
+                {inst.name}
+              </label>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Tags route this cluster resolution to each college's IQAC brief.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -926,19 +1117,32 @@ function CloseMeetingDialog({
   reviewed,
   passed,
   profiles,
+  minutesDraft,
 }: {
   meeting: CommitteeMeeting;
   reviewed: CommitteeResolution[];
   passed: CommitteeResolution[];
   profiles: Record<string, ProfileLite> | undefined;
+  minutesDraft?: MeetingAiDraft;
 }) {
   const [open, setOpen] = useState(false);
   const [minutes, setMinutes] = useState('');
   const close = useCloseMeeting();
 
+  // Minutes text may already exist before close — the Chairman/Coordinator can
+  // compile the members' own accounts into minutes_summary while the sitting is
+  // still 'held'. Seeding the box from the structural builder in that case would
+  // silently discard their work the moment this dialog opened, which is the same
+  // hazard the compile dialog guards against from the other direction. Existing
+  // text wins; the structural prefill is the fallback for an empty minute.
   const handleOpenChange = (v: boolean) => {
     if (v) {
-      setMinutes(buildMinutesSummary(meeting, reviewed, passed, profiles));
+      const existing = (meeting.minutes_summary ?? '').trim();
+      setMinutes(
+        existing.length > 0
+          ? existing
+          : buildMinutesSummary(meeting, reviewed, passed, profiles),
+      );
     }
     setOpen(v);
   };
@@ -984,6 +1188,10 @@ function CloseMeetingDialog({
           rows={12}
           className="font-mono text-xs"
         />
+        {/* The AI write-up is an alternative offered BESIDE the structural
+            prefill, never an auto-overwrite: "Use this text" only fills the box
+            above, and closeMeeting stays the sole writer of minutes_summary. */}
+        <MinutesPolishOffer draft={minutesDraft} onUse={setMinutes} />
         <DialogFooter>
           <Button
             variant="outline"
@@ -1005,7 +1213,15 @@ function CloseMeetingDialog({
 // Minuted meeting — read-only record.
 // ----------------------------------------------------------------------------
 
-function MinutedMeetingBody({ meeting }: { meeting: CommitteeMeeting }) {
+function MinutedMeetingBody({
+  meeting,
+  committee,
+  canManage,
+}: {
+  meeting: CommitteeMeeting;
+  committee: AccreditationCommittee;
+  canManage: boolean;
+}) {
   const { data: passedHere } = useMeetingResolutions(meeting.id);
   const { data: reviewedHere } = useReviewedInMeeting(meeting.id);
 
@@ -1029,6 +1245,16 @@ function MinutedMeetingBody({ meeting }: { meeting: CommitteeMeeting }) {
           {meeting.minutes_summary ?? '—'}
         </pre>
       </div>
+
+      {/* A member may still write, and the Chairman/Coordinator may still
+          compile, after the sitting is minuted — an account written late is
+          worth more than one never written. */}
+      <Separator />
+      <MemberNotesPanel
+        meeting={meeting}
+        committee={committee}
+        canManage={canManage}
+      />
 
       {(reviewedHere ?? []).length > 0 && (
         <div>
@@ -1055,11 +1281,14 @@ function MinutedMeetingBody({ meeting }: { meeting: CommitteeMeeting }) {
                 className="rounded-md border bg-card px-3 py-2 text-sm"
               >
                 <div>{r.resolution_text}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Owner: {ownerDisplay(r, profiles)}
-                  {r.due_date ? ` · due ${r.due_date}` : ''}
-                  {' · '}
-                  {r.status === 'open' ? 'still open' : r.status}
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>
+                    Owner: {ownerDisplay(r, profiles)}
+                    {r.due_date ? ` · due ${r.due_date}` : ''}
+                    {' · '}
+                    {r.status === 'open' ? 'still open' : r.status}
+                  </span>
+                  <AffectedCollegesChips ids={r.affected_institution_ids} />
                 </div>
               </li>
             ))}

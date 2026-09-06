@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -250,6 +251,10 @@ export interface DashboardFilterState {
   programId?: string;
   semesterId?: string;
   sectionId?: string;
+  // Cross-cutting (NOT a hierarchy level): show only first-year learners — those
+  // admitted in the institution's current intake. Independent of degree/dept/etc.,
+  // so it is deliberately excluded from HIERARCHY_ORDER's cascade clearing.
+  firstYearOnly?: boolean;
 }
 
 /**
@@ -284,7 +289,8 @@ export function toHierarchyFilter(
     departmentId: filters?.departmentId,
     programId: filters?.programId,
     semesterId: filters?.semesterId,
-    sectionId: filters?.sectionId
+    sectionId: filters?.sectionId,
+    firstYearOnly: filters?.firstYearOnly
   };
 }
 
@@ -387,7 +393,10 @@ export function DashboardFilters({
       if (key === 'institutionId') {
         newFilters.academicYearId = undefined;
         HIERARCHY_ORDER.forEach((level) => {
-          newFilters[level] = undefined;
+          // cast: `level` widens to keyof DashboardFilterState, whose value
+          // union is now heterogeneous (a boolean field exists), so a bare
+          // computed-key write of `undefined` types the target as `never`.
+          (newFilters as Record<string, unknown>)[level] = undefined;
         });
       }
 
@@ -396,7 +405,10 @@ export function DashboardFilters({
       const changedLevel = HIERARCHY_ORDER.indexOf(key);
       if (changedLevel !== -1) {
         HIERARCHY_ORDER.slice(changedLevel + 1).forEach((level) => {
-          newFilters[level] = undefined;
+          // cast: `level` widens to keyof DashboardFilterState, whose value
+          // union is now heterogeneous (a boolean field exists), so a bare
+          // computed-key write of `undefined` types the target as `never`.
+          (newFilters as Record<string, unknown>)[level] = undefined;
         });
       }
 
@@ -456,7 +468,7 @@ export function DashboardFilters({
   return (
     <Card className='border-0 shadow-lg bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/20 dark:via-indigo-950/20 dark:to-purple-950/20'>
       <CardHeader className='pb-4'>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <CardTitle className='flex items-center gap-2 text-lg'>
             <Filter className='h-5 w-5 text-blue-600 dark:text-blue-400' />
             {title}
@@ -491,23 +503,23 @@ export function DashboardFilters({
 
       <CardContent className='space-y-4'>
         {/* Quick Info Bar */}
-        <div className='flex items-center justify-between p-3 bg-white/60 dark:bg-gray-800/60 rounded-lg border border-blue-200 dark:border-blue-800'>
-          <div className='flex items-center gap-4'>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-3 bg-white/60 dark:bg-gray-800/60 rounded-lg border border-blue-200 dark:border-blue-800'>
+          <div className='flex flex-wrap items-center gap-2 sm:gap-4 min-w-0'>
             <div className='flex items-center gap-2'>
               <Calendar className='h-4 w-4 text-blue-600 dark:text-blue-400' />
               <span className='text-sm font-medium'>
                 {format(filters.selectedDate, 'EEEE, MMM dd, yyyy')}
               </span>
             </div>
-            <div className='h-4 w-px bg-blue-300 dark:bg-blue-700'></div>
-            <div className='text-sm text-muted-foreground'>
+            <div className='hidden sm:block h-4 w-px bg-blue-300 dark:bg-blue-700'></div>
+            <div className='text-sm text-muted-foreground min-w-0'>
               {getFilterDisplayText()}
             </div>
           </div>
 
           <Badge
             variant='secondary'
-            className='bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+            className='shrink-0 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
           >
             {getActiveFiltersCount()} filter
             {getActiveFiltersCount() !== 1 ? 's' : ''} active
@@ -662,12 +674,34 @@ export function DashboardFilters({
             </Button>
 
             {effectiveInstitutionId ? (
-              <HierarchyFilterFields
-                filters={filters}
-                institutionId={effectiveInstitutionId}
-                expanded={isHierarchyOpen}
-                onChange={updateFilter}
-              />
+              <>
+                <HierarchyFilterFields
+                  filters={filters}
+                  institutionId={effectiveInstitutionId}
+                  expanded={isHierarchyOpen}
+                  onChange={updateFilter}
+                />
+                {isHierarchyOpen && (
+                  <div className='flex items-center gap-2 px-3 pb-3'>
+                    <Switch
+                      id='first-year-only'
+                      checked={!!filters.firstYearOnly}
+                      onCheckedChange={(checked) =>
+                        updateFilter('firstYearOnly', checked)
+                      }
+                    />
+                    <Label
+                      htmlFor='first-year-only'
+                      className='cursor-pointer text-sm font-normal'
+                    >
+                      First-year learners only
+                      <span className='ml-1 text-xs text-muted-foreground'>
+                        (admitted in the current intake — works per institution)
+                      </span>
+                    </Label>
+                  </div>
+                )}
+              </>
             ) : (
               isHierarchyOpen && (
                 <p className='px-3 pb-3 text-sm text-muted-foreground'>

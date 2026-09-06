@@ -187,7 +187,7 @@ export function MemberTypeDataTable({ search }: MemberTypeDataTableProps) {
     selectedRows: unknown[];
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canManage && (
         <Button
           onClick={() => {

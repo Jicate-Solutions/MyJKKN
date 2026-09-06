@@ -124,7 +124,7 @@ function HeldRollupRow({
             {whyHeld(row.metadata?.institution_match)}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Select value={picked} onValueChange={setPicked} disabled={assign.isPending}>
             <SelectTrigger className="w-[220px] bg-card">
               <SelectValue placeholder="Pick the college" />

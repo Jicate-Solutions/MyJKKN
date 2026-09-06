@@ -204,7 +204,7 @@ export function ScoringForm({
               <p className="text-xs text-muted-foreground">
                 {criterion.description}
               </p>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {[1, 2, 3, 4, 5].map((value) => {
                   const isSelected = scores[criterion.key] === value;
                   return (

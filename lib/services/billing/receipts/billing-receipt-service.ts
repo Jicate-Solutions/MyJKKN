@@ -20,44 +20,6 @@ export class BillingReceiptService {
     return providedClient || this.supabase;
   }
 
-  // Generate a unique receipt number using database function
-  private static async generateReceiptNumber(supabaseClient?: SupabaseClient): Promise<string> {
-    const client = this.getClient(supabaseClient);
-    try {
-      // Use the database function for generating receipt numbers
-      const { data, error } = await client.rpc(
-        'generate_receipt_number'
-      );
-
-      if (error) {
-        logger.error('billing/receipts', 'Error calling generate_receipt_number function', error);
-        throw error;
-      }
-
-      if (!data) {
-        throw new Error('Database function returned null receipt number');
-      }
-
-      logger.info('billing/receipts', 'Generated receipt number from database', { receiptNumber: data });
-      return data;
-    } catch (error) {
-      logger.error('billing/receipts', 'Error in generateReceiptNumber', error);
-      // Fallback to timestamp-based approach if database function fails
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = (now.getMonth() + 1).toString().padStart(2, '0');
-      const day = now.getDate().toString().padStart(2, '0');
-      const hours = now.getHours().toString().padStart(2, '0');
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-      const seconds = now.getSeconds().toString().padStart(2, '0');
-
-      // Format: RCP-YYYY-MMDD-HHMMSS
-      const fallbackNumber = `RCP-${year}-${month}${day}-${hours}${minutes}${seconds}`;
-      logger.warn('billing/receipts', 'Using fallback receipt number', { fallbackNumber });
-      return fallbackNumber;
-    }
-  }
-
   /**
    * Creates a billing receipt with automatic bill status updates.
    *
@@ -83,82 +45,64 @@ export class BillingReceiptService {
         logger.dev('billing/receipts', 'No user context available (likely server-side execution)');
       }
 
-      // Generate receipt number
-      const receiptNumber = await this.generateReceiptNumber(client);
-
-      if (!receiptNumber) {
-        throw new Error('Failed to generate receipt number');
-      }
-
-      logger.info('billing/receipts', 'Creating receipt', { receiptNumber });
-
-      // Start a transaction to create receipt and receipt items
-      const { data: receipt, error: receiptError } = await client
-        .from('billing_receipts')
-        .insert({
-          receipt_number: receiptNumber,
-          receipt_date: new Date().toISOString().split('T')[0], // Current date for receipt generation
-          student_id: receiptData.student_id,
-          institution_id: receiptData.institution_id,
-          payment_mode: receiptData.payment_mode,
-          payment_reference_number: receiptData.payment_reference_number,
-          payment_amount: receiptData.payment_amount,
-          payment_paid_date: receiptData.payment_paid_date,
-          payer_name: receiptData.payer_name,
-          payer_contact: receiptData.payer_contact,
-          accountant_id: receiptData.accountant_id,
-          payment_remarks: receiptData.payment_remarks,
-          created_by: currentUserId
-        })
-        .select(
-          `
-          *,
-          student:learners_profiles (
-            id,
-            first_name,
-            last_name,
-            roll_number,
-            college_email
-          ),
-          institution:institutions (
-            id,
-            name,
-            counselling_code
-          )
-        `
-        )
-        .single();
-
-      if (receiptError) {
-        logger.error('billing/receipts', 'Receipt creation error', receiptError);
-        throw receiptError;
-      }
-
-      logger.info('billing/receipts', 'Receipt created successfully', { receiptId: receipt.id });
-
-      // Create receipt items
-      if (receiptData.receipt_items && receiptData.receipt_items.length > 0) {
-        const receiptItems = receiptData.receipt_items.map((item) => ({
-          receipt_id: receipt.id,
-          bill_id: item.bill_id,
-          amount_paid: item.amount_paid
-        }));
-
-        const { error: itemsError } = await client
-          .from('billing_receipt_items')
-          .insert(receiptItems);
-
-        if (itemsError) {
-          logger.error('billing/receipts', 'Receipt items creation error', itemsError);
-          // Rollback: delete the orphaned receipt header to prevent ghost receipts
-          await client.from('billing_receipts').delete().eq('id', receipt.id);
-          logger.warn('billing/receipts', 'Rolled back receipt header after items failure', { receiptId: receipt.id });
-          throw itemsError;
+      // Header + items are written by fn_create_billing_receipt, which puts both
+      // INSERTs in one transaction.
+      //
+      // This used to be: insert the header, insert the items, and if the items
+      // failed, issue a compensating delete() on the header. PostgREST gives
+      // each of those statements its own transaction, so that "rollback" was
+      // application code — and it was itself gated by billing.receipts.delete.
+      // A role holding create-but-not-delete got a silent no-op DELETE (an
+      // RLS-filtered write affects zero rows without raising) and the header
+      // stayed behind, settling nothing. There were 8 such orphans in
+      // production, spanning 2026-05-28 to 2026-08-08.
+      //
+      // The RPC is SECURITY INVOKER, so RLS still decides who may write and no
+      // role gains anything; only durability changed. It also generates the
+      // receipt number inside the same transaction.
+      const { data: created, error: rpcError } = await client.rpc(
+        'fn_create_billing_receipt',
+        {
+          p_receipt: {
+            receipt_date: new Date().toISOString().split('T')[0], // Current date for receipt generation
+            student_id: receiptData.student_id,
+            institution_id: receiptData.institution_id,
+            payment_mode: receiptData.payment_mode,
+            payment_reference_number: receiptData.payment_reference_number,
+            payment_amount: receiptData.payment_amount,
+            payment_paid_date: receiptData.payment_paid_date,
+            payer_name: receiptData.payer_name,
+            payer_contact: receiptData.payer_contact,
+            accountant_id: receiptData.accountant_id,
+            payment_remarks: receiptData.payment_remarks,
+            created_by: currentUserId ?? null
+          },
+          p_items: (receiptData.receipt_items || []).map((item) => ({
+            bill_id: item.bill_id,
+            amount_paid: item.amount_paid
+          }))
         }
+      );
 
-        logger.info('billing/receipts', 'Receipt items created successfully');
+      if (rpcError) {
+        logger.error('billing/receipts', 'Receipt creation error', rpcError);
+        throw rpcError;
+      }
+      if (!created?.id) {
+        throw new Error('Receipt creation returned no receipt');
+      }
 
-        // Manual validation and update as fallback in case trigger fails
+      const receiptNumber: string = created.receipt_number;
+
+      logger.info('billing/receipts', 'Receipt created successfully', {
+        receiptId: created.id,
+        receiptNumber
+      });
+
+      // The bill-status trigger on billing_receipt_items has already run inside
+      // that transaction; these remain as the belt-and-braces fallback and to
+      // raise an invoice once a bill is fully settled.
+      if (receiptData.receipt_items && receiptData.receipt_items.length > 0) {
         for (const item of receiptData.receipt_items) {
           await this.validateAndUpdateBillStatus(item.bill_id, client);
 
@@ -166,6 +110,35 @@ export class BillingReceiptService {
           await this.checkAndGenerateInvoice(item.bill_id, client);
         }
       }
+
+      // Callers use id and receipt_number; the rest is echoed from the input so
+      // the shape stays familiar. The header is deliberately NOT read back:
+      // billing_receipts SELECT is gated on billing.receipts.view, so a
+      // read-back would fail for exactly the collection-only roles this path
+      // now supports.
+      const receipt = {
+        id: created.id,
+        receipt_number: receiptNumber,
+        receipt_date: created.receipt_date,
+        student_id: receiptData.student_id,
+        institution_id: receiptData.institution_id,
+        payment_mode: receiptData.payment_mode,
+        payment_reference_number: receiptData.payment_reference_number,
+        payment_amount: receiptData.payment_amount,
+        payment_paid_date: receiptData.payment_paid_date,
+        payer_name: receiptData.payer_name,
+        payer_contact: receiptData.payer_contact,
+        accountant_id: receiptData.accountant_id,
+        payment_remarks: receiptData.payment_remarks,
+        created_by: currentUserId,
+        student: created.student_first_name
+          ? {
+              id: receiptData.student_id,
+              first_name: created.student_first_name,
+              last_name: created.student_last_name
+            }
+          : undefined
+      } as unknown as BillingReceipt;
 
       trackUsage({ module: 'billing/receipts', feature: 'create_receipt', eventType: 'create' });
 
@@ -266,6 +239,52 @@ export class BillingReceiptService {
         error instanceof Error ? error.message : 'Failed to delete receipt'
       );
     }
+  }
+
+  /**
+   * Void a mistakenly-issued receipt. Prefer this over deleteBillingReceipt:
+   * the row is archived to billing_receipts_voided (with its receipt_items
+   * snapshotted and a reason recorded) rather than destroyed, so the receipt
+   * number stays accounted for and an auditor can still see what happened.
+   *
+   * The bill is reverted by the SAME path a delete uses — removing the receipt
+   * cascades to billing_receipt_items, whose AFTER DELETE trigger recomputes
+   * status and balance_amount — so there is one definition of "paid".
+   *
+   * The RPC refuses to void a receipt that has refunds, is attached to an
+   * invoice, or settles a captured online payment (that last one would simply
+   * be re-created by the next webhook or late-auth sweep — refund it instead).
+   */
+  static async voidBillingReceipt(
+    id: string,
+    reason: string
+  ): Promise<{ receiptNumber: string; billIds: string[] }> {
+    const { data, error } = await (this.supabase as any).rpc('fn_void_billing_receipt', {
+      p_receipt_id: id,
+      p_reason: reason,
+    });
+
+    if (error) {
+      logger.error('billing/receipts', 'Failed to void receipt', { id, error });
+      // Supabase errors are plain objects, not Error instances — reading
+      // `.message` directly is what surfaces the RPC's RAISE EXCEPTION text
+      // (e.g. "Cannot void: this receipt has refunds…") to the operator.
+      throw new Error(error.message || 'Failed to void receipt');
+    }
+
+    const row = (data as Array<Record<string, any>> | null)?.[0];
+
+    const template = BillingActivityTemplates.receiptDeleted(id);
+    logActivityForCurrentUser({
+      ...template,
+      resourceId: id,
+      metadata: { sub_type: template.sub_type, action: 'void', reason },
+    });
+
+    return {
+      receiptNumber: row?.receipt_number ?? '',
+      billIds: (row?.bill_ids ?? []) as string[],
+    };
   }
 
   static async getBillingReceipts(
@@ -556,6 +575,15 @@ export class BillingReceiptService {
   }
 
   // Method to get multiple bills by their IDs for receipt generation
+  /**
+   * The `institution:institutions(...)` embed is what keeps the receipt form's
+   * locked Institution field populated. That field is derived from the bill and
+   * cannot be edited, but it used to resolve its LABEL by looking the bill's
+   * institution_id up in a separately-fetched dropdown list — so any gap in
+   * that list (fetch failure, `is_active = false`, RLS) rendered the locked
+   * field as a bare "Select institution" placeholder the operator had no way to
+   * correct. Carrying the name on the bill removes that second dependency.
+   */
   static async getBillsByIds(billIds: string[]): Promise<any[]> {
     try {
       const { data, error } = await this.supabase
@@ -575,7 +603,15 @@ export class BillingReceiptService {
             last_name,
             roll_number,
             college_email,
-            institution_id
+            institution_id,
+            student_mobile,
+            father_mobile,
+            mother_mobile
+          ),
+          institution:institutions (
+            id,
+            name,
+            counselling_code
           )
         `
         )
@@ -832,6 +868,13 @@ export class BillingReceiptService {
   static async getOutstandingBillsForBulk(
     filters: {
       institution_id?: string;
+      /**
+       * Tenant boundary for callers that reach this method through the
+       * service-role client (the bulk-template API routes), where RLS is not
+       * in the path. Restricts the result to these institutions regardless of
+       * `institution_id`. Omit ONLY for super admins.
+       */
+      institution_ids?: string[];
       item_category_id?: string;
       degree_id?: string;
       department_id?: string;
@@ -893,6 +936,12 @@ export class BillingReceiptService {
       )
       .in('status', ['unpaid', 'partially_paid']);
 
+    // Applied BEFORE the caller's own institution filter and independently of
+    // it: institution_id narrows what the user asked for, institution_ids
+    // bounds what they are allowed to see. Both may be present.
+    if (filters.institution_ids && filters.institution_ids.length > 0) {
+      query = query.in('institution_id', filters.institution_ids);
+    }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -921,8 +970,18 @@ export class BillingReceiptService {
     if (filters.section_id) {
       query = query.eq('student.section_id', filters.section_id);
     }
-    if (filters.academic_year_id) {
-      query = query.eq('student.academic_year_id', filters.academic_year_id);
+    // Academic year lives ON the bill, not on the learner — bills are created
+    // per academic year, and a learner's current year runs ahead of the years
+    // their older unpaid bills belong to. Measured 2026-07-31: 1,774 of 6,598
+    // outstanding bills (26.9%) carry a bill-year that differs from their
+    // learner's current year, so binding this to student.academic_year_id
+    // silently returned the wrong set. Matches student-bill-service.ts, where
+    // the same-named schedule-page filter already targets the bill's column.
+    // 'unspecified' is the schedule page's magic value for "no year set".
+    if (filters.academic_year_id === 'unspecified') {
+      query = query.is('academic_year_id', null);
+    } else if (filters.academic_year_id) {
+      query = query.eq('academic_year_id', filters.academic_year_id);
     }
 
     // Cap result size — a single Excel sheet over 5000 rows becomes unwieldy
@@ -973,6 +1032,8 @@ export class BillingReceiptService {
   static async countOutstandingBillsForBulk(
     filters: {
       institution_id?: string;
+      /** See getOutstandingBillsForBulk — same tenant boundary, kept in lock-step. */
+      institution_ids?: string[];
       item_category_id?: string;
       degree_id?: string;
       department_id?: string;
@@ -992,13 +1053,15 @@ export class BillingReceiptService {
     // even for "give me the system-wide total" requests, which can blow
     // past the 15s client deadline on a large bills table for no reason —
     // every bill has a learner, so the join doesn't filter anything.
+    // academic_year_id is deliberately NOT in this list — it filters the
+    // bill's own column (see getOutstandingBillsForBulk), so it needs no
+    // learner join.
     const needsLearnerJoin = !!(
       filters.degree_id ||
       filters.department_id ||
       filters.program_id ||
       filters.semester_id ||
-      filters.section_id ||
-      filters.academic_year_id
+      filters.section_id
     );
 
     let query = needsLearnerJoin
@@ -1014,6 +1077,12 @@ export class BillingReceiptService {
 
     query = query.in('status', ['unpaid', 'partially_paid']);
 
+    // Mirrors getOutstandingBillsForBulk — the live preview count must reflect
+    // the same tenant boundary as the file the user will actually download,
+    // otherwise a scoped user sees "1,200 bills match" and receives 40.
+    if (filters.institution_ids && filters.institution_ids.length > 0) {
+      query = query.in('institution_id', filters.institution_ids);
+    }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -1025,6 +1094,12 @@ export class BillingReceiptService {
     }
     if (filters.due_date_to) {
       query = query.lte('due_date', filters.due_date_to);
+    }
+    // Bill-level column — applies with or without the learner join.
+    if (filters.academic_year_id === 'unspecified') {
+      query = query.is('academic_year_id', null);
+    } else if (filters.academic_year_id) {
+      query = query.eq('academic_year_id', filters.academic_year_id);
     }
     // Hierarchy filters only apply when the join is part of the SELECT.
     // The `needsLearnerJoin` flag above guarantees that branch.
@@ -1043,9 +1118,6 @@ export class BillingReceiptService {
       }
       if (filters.section_id) {
         query = query.eq('student.section_id', filters.section_id);
-      }
-      if (filters.academic_year_id) {
-        query = query.eq('student.academic_year_id', filters.academic_year_id);
       }
     }
 

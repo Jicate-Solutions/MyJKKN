@@ -81,6 +81,29 @@ export interface LoopRegistryRow {
   gates: Record<'g' | 'a' | 'm' | 'f', GateState>;
   routine_id?: string | null;
   is_active?: boolean;
+  owner_email?: string | null;
+  counter_metric?: string | null;
+  // ── Charter legs (Director-adopted rule, 2026-07-26) ───────────────────────
+  // Five nullable columns landing in a sibling migration. A leg is written
+  // ONLY with a receipt that it actually runs; any NULL leg means the row is
+  // honestly a METER, not a loop. All optional here because the columns may
+  // not exist in prod until that migration applies — a missing/undefined leg
+  // must read exactly like NULL (= Meter), never crash the page.
+  outcome_metric?: string | null;
+  baseline_window?: string | null;
+  intervention?: string | null;
+  verdict_owner?: string | null;
+  remeasure_window?: string | null;
+}
+
+export interface LoopConflictRow {
+  conflict_key: string;
+  title: string;
+  loops: string[];
+  description: string;
+  arbiter_email: string;
+  status: 'open' | 'ruled' | 'resolved';
+  ruling?: string | null;
 }
 
 export interface LoopEdgeRow {
@@ -96,4 +119,40 @@ export interface LoopAuditRow {
   audited_at: string;
   layer: 'sim' | 'walk' | 'full';
   verdict: string | null;
+}
+
+// ── Cluster lens (C4, 2026-07-26) ────────────────────────────────────────────
+// The CAC's horizontal slice: a hand-picked set of institutions (a discipline
+// cluster) whose loop signals are aggregated and compared against the SAME
+// aggregate one window earlier — the cluster's OWN baseline, never another
+// cluster. There is no cluster→college mapping table; the URL query string IS
+// the cluster (Phase 1), with committee rows surfacing only as picker presets.
+export interface ClusterInstitutionOption {
+  id: string;
+  name: string;
+  /** institutions.display_name — the live table's short label column (there is
+   *  no short_name column; selecting one 400s the whole read, CFT 2026-07-26). */
+  display_name?: string | null;
+}
+
+/** A picker preset read from accreditation_committees committee_type='cluster'
+ *  rows (C1 lands that type value — zero rows today, and the picker renders no
+ *  preset strip at all until they exist). */
+export interface ClusterPreset {
+  id: string;
+  name: string;
+  institutionIds: string[];
+}
+
+/** One aggregated cluster signal: the SAME count over two adjacent windows —
+ *  `current` (the last N days) vs `baseline` (the N days before that). null =
+ *  that count query failed and the cell renders hollow, never zero — the same
+ *  swallow-to-null contract as the Tower's cnt(). */
+export interface ClusterSignal {
+  key: string;
+  label: string;
+  /** Plain-words line under the number — what one unit is. */
+  plain: string;
+  current: number | null;
+  baseline: number | null;
 }

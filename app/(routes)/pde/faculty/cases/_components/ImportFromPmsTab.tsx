@@ -111,8 +111,9 @@ export function ImportFromPmsTab({ onApply }: Props) {
             onKeyDown={(e) => e.key === 'Enter' && runSearch()}
             placeholder="e.g. lichen planus, periapical abscess, OSMF…"
             disabled={busy}
+            className="min-w-0 flex-1"
           />
-          <Button onClick={runSearch} disabled={searching || busy || query.trim().length < 2} variant="secondary">
+          <Button onClick={runSearch} disabled={searching || busy || query.trim().length < 2} variant="secondary" className="shrink-0">
             {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             <span className="ml-1">Search</span>
           </Button>
@@ -142,7 +143,7 @@ export function ImportFromPmsTab({ onApply }: Props) {
                   ) : null}
                 </div>
               </div>
-              <Button size="sm" onClick={() => draft(h.casesheet_id)} disabled={busy}>
+              <Button size="sm" onClick={() => draft(h.casesheet_id)} disabled={busy} className="shrink-0">
                 {draftingId === h.casesheet_id ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-1" /> Drafting…
@@ -166,13 +167,14 @@ export function ImportFromPmsTab({ onApply }: Props) {
             value={manualId}
             onChange={(e) => setManualId(e.target.value)}
             placeholder="00000000-0000-0000-0000-000000000000"
-            className="font-mono text-xs"
+            className="font-mono text-xs min-w-0 flex-1"
             disabled={busy}
           />
           <Button
             onClick={() => draft(manualId.trim())}
             disabled={busy || !UUID_RE.test(manualId.trim())}
             variant="secondary"
+            className="shrink-0"
           >
             {draftingId === manualId.trim() ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             <span className="ml-1">Draft with AI</span>

@@ -143,7 +143,7 @@ export function AdmissionYearsDataTable({
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <Button
           onClick={() => router.push('/admission/settings/years/new')}

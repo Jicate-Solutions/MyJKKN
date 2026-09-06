@@ -8,6 +8,7 @@
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { AlertTriangle, ShieldAlert } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -17,9 +18,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PendingAttendanceClient } from './_components/pending-attendance-client';
 import { createClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
@@ -33,10 +36,21 @@ export default async function PendingAttendancePage() {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    redirect('/auth/login');
+    // The login page renders a persistent explanation for this param instead of
+    // bouncing straight back (app/auth/login/page.tsx). Without it the jump is
+    // instant and invisible, which is what made this page undiagnosable.
+    redirect('/auth/login?error=profile_load_failed');
   }
 
   // ── Profile (with department join for department_name) ──────────────────────
+  // The departments embed MUST name its constraint. Two foreign keys join these
+  // two tables in opposite directions — fk_profiles_department_id
+  // (profiles.department_id -> departments.id) and
+  // departments_head_of_department_id_fkey (departments.head_of_department_id ->
+  // profiles.id) — so a bare `departments (...)` embed returns PostgREST
+  // PGRST201 "more than one relationship was found" on EVERY load for EVERY
+  // user, before any permission code runs. That made profileError always truthy
+  // and bounced the whole page to the dashboard, since the initial commit.
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select(
@@ -46,7 +60,7 @@ export default async function PendingAttendancePage() {
       institution_id,
       department_id,
       is_super_admin,
-      departments (
+      departments!fk_profiles_department_id (
         id,
         department_name
       )
@@ -56,7 +70,33 @@ export default async function PendingAttendancePage() {
     .single();
 
   if (profileError || !profile) {
-    redirect('/auth/login');
+    // Never redirect silently on a load failure — surface it (engineering rule
+    // #27). A silent bounce here is exactly the bug this page shipped with.
+    logger.error(
+      'academic/attendance',
+      'Pending Attendance: profile lookup failed',
+      profileError
+    );
+
+    return (
+      <ContentLayout title="Pending Attendance">
+        <Alert variant="destructive" className="max-w-2xl">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>We could not load your profile</AlertTitle>
+          <AlertDescription>
+            <p>
+              Pending Attendance needs your profile to work out which
+              institution and department you are allowed to see, and that
+              lookup came back empty.
+            </p>
+            <p className="mt-2">
+              Please reload the page. If it keeps happening, contact your system
+              administrator and mention the time you saw this message.
+            </p>
+          </AlertDescription>
+        </Alert>
+      </ContentLayout>
+    );
   }
 
   // ── Role flags ──────────────────────────────────────────────────────────────
@@ -84,7 +124,9 @@ export default async function PendingAttendancePage() {
   const userInstitutionId = profile?.institution_id ?? undefined;
   const userDepartmentId = profile?.department_id ?? undefined;
 
-  // Department name from joined relation (Supabase returns join as array)
+  // Department name from the joined relation. The constraint-named many-to-one
+  // embed above returns a single object (verified against production
+  // PostgREST), not an array — read it directly.
   const deptRelation = (profile?.departments as unknown) as
     | { id: string; department_name: string }
     | null
@@ -107,7 +149,30 @@ export default async function PendingAttendancePage() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <PermissionGuard module="academic.attendance" action="view">
+    <PermissionGuard
+      module="academic.attendance"
+      action="view"
+      fallback={
+        // PermissionGuard defaults `fallback` to null, which renders a blank
+        // page on a permission miss — another silent failure (rule #27).
+        <ContentLayout title="Pending Attendance">
+          <Alert variant="destructive" className="max-w-2xl">
+            <ShieldAlert className="h-4 w-4" />
+            <AlertTitle>You do not have access to Pending Attendance</AlertTitle>
+            <AlertDescription>
+              <p>
+                This page needs the Academic Attendance view permission, and
+                none of your roles currently include it.
+              </p>
+              <p className="mt-2">
+                Ask your system administrator to grant it under Users, then Role
+                Management.
+              </p>
+            </AlertDescription>
+          </Alert>
+        </ContentLayout>
+      }
+    >
       <ContentLayout title="Pending Attendance">
         <div className="space-y-6">
           {/* Breadcrumb */}

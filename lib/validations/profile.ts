@@ -10,7 +10,7 @@ export const profileFormSchema = z.object({
     .regex(/^[0-9+][0-9\s-]{9,14}$/, 'Invalid phone number format')
     .optional()
     .or(z.literal('')),
-  gender: z.enum(['male', 'female', 'other', 'prefer_not_to_say']).optional(),
+  gender: z.enum(['Male', 'Female', 'Other']).optional(),
   designation: z.string().optional(),
   bio: z.string().optional()
 });

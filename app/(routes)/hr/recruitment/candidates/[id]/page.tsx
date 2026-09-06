@@ -65,7 +65,9 @@ const PACKAGE_STATUS_COLORS: Record<HRRecruitmentCandidatePackage['status'], str
   rejected:  'bg-red-100 text-red-900 dark:bg-red-900/20 dark:text-red-200',
 };
 
-function formatSalary(amount: number): string {
+// Salary is optional on a package — show the fallback when it wasn't decided yet.
+function formatSalary(amount: number | null | undefined, fallback = '—'): string {
+  if (amount === null || amount === undefined) return fallback;
   return `₹${amount.toLocaleString('en-IN')}`;
 }
 
@@ -232,9 +234,11 @@ export default function CandidateDetailPage() {
 
   const onPropose = async (e: React.FormEvent) => {
     e.preventDefault();
-    const monthlySalary = parseFloat(proposeSalary);
-    if (isNaN(monthlySalary) || monthlySalary <= 0) {
-      toast.error('Enter a valid Monthly Salary');
+    // Salary is optional — blank means "not decided yet" and is stored as NULL.
+    const rawSalary = proposeSalary.trim();
+    const monthlySalary = rawSalary ? parseFloat(rawSalary) : null;
+    if (monthlySalary !== null && (isNaN(monthlySalary) || monthlySalary <= 0)) {
+      toast.error('Enter a valid Monthly Salary, or leave it blank');
       return;
     }
 
@@ -272,9 +276,11 @@ export default function CandidateDetailPage() {
   const onCounter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!counterPackageId) return;
-    const monthlySalary = parseFloat(counterCtc);
-    if (isNaN(monthlySalary) || monthlySalary <= 0) {
-      toast.error('Enter a valid Monthly Salary');
+    // Salary is optional — blank means "not decided yet" and is stored as NULL.
+    const rawSalary = counterCtc.trim();
+    const monthlySalary = rawSalary ? parseFloat(rawSalary) : null;
+    if (monthlySalary !== null && (isNaN(monthlySalary) || monthlySalary <= 0)) {
+      toast.error('Enter a valid Monthly Salary, or leave it blank');
       return;
     }
 
@@ -900,7 +906,7 @@ export default function CandidateDetailPage() {
         {/* 5. Package negotiation history */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-sm">Salary Negotiation</CardTitle>
               <Button size="sm" onClick={() => setProposeOpen(true)}>
                 Propose Package
@@ -996,16 +1002,21 @@ export default function CandidateDetailPage() {
           </DialogHeader>
           <form onSubmit={onPropose} className="space-y-3">
             <div>
-              <Label htmlFor="proposeSalary">Monthly Salary (₹) <span className="text-destructive">*</span></Label>
+              <Label htmlFor="proposeSalary">
+                Monthly Salary (₹){' '}
+                <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+              </Label>
               <Input
                 id="proposeSalary"
                 type="number"
                 value={proposeSalary}
                 onChange={(e) => setProposeCtc(e.target.value)}
-                required
-                placeholder="e.g. 600000"
+                placeholder="e.g. 50000"
                 min="1"
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Leave blank if the figure isn&apos;t decided yet.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Salary Breakdown (optional)</Label>
@@ -1067,7 +1078,7 @@ export default function CandidateDetailPage() {
                   <option value="">Select parent package…</option>
                   {packages.map((pkg) => (
                     <option key={pkg.id} value={pkg.id}>
-                      {formatSalary(pkg.proposed_monthly_salary)} — {pkg.status}
+                      {formatSalary(pkg.proposed_monthly_salary, 'Amount not set')} — {pkg.status}
                     </option>
                   ))}
                 </select>
@@ -1091,16 +1102,21 @@ export default function CandidateDetailPage() {
           </DialogHeader>
           <form onSubmit={onCounter} className="space-y-3">
             <div>
-              <Label htmlFor="counterCtc">Counter Monthly Salary Amount (₹) <span className="text-destructive">*</span></Label>
+              <Label htmlFor="counterCtc">
+                Counter Monthly Salary Amount (₹){' '}
+                <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+              </Label>
               <Input
                 id="counterCtc"
                 type="number"
                 value={counterCtc}
                 onChange={(e) => setCounterCtc(e.target.value)}
-                required
-                placeholder="e.g. 550000"
+                placeholder="e.g. 45000"
                 min="1"
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Leave blank if the figure isn&apos;t decided yet.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Salary Breakdown (optional)</Label>

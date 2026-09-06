@@ -268,7 +268,7 @@ export default function PromotionApplyPage() {
                       pts)
                     </span>
                   </label>
-                  <div className="grid grid-cols-3 gap-3 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
                     <div>
                       <Label htmlFor="training">Training days</Label>
                       <Input
@@ -340,7 +340,7 @@ export default function PromotionApplyPage() {
                 </CardContent>
               </Card>
 
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <Button type="submit" disabled={submitting || !staffCtx || !policy}>
                   {submitting ? 'Submitting…' : 'Submit Application'}
                   <ArrowRight className="ml-2 h-4 w-4" />

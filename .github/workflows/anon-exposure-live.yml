@@ -1,0 +1,121 @@
+name: Live anon-exposure sweep
+
+# Asks PRODUCTION, on a timer: which relations can the public `anon` key reach,
+# and did anybody approve them?
+#
+# WHY A SCHEDULED SWEEP AND NOT JUST THE PR GATE
+#   .github/workflows/table-anon-revoke.yml inspects migrations in a PR diff and
+#   is the right place to catch most of these. It cannot catch what never appears
+#   in a PR diff. On 2026-07-29 a migration added a backup table holding 21
+#   learners' names, roll numbers and college emails, readable AND deletable by
+#   anon. The commit that added it (900eb7148c) belongs to ZERO pull requests — it
+#   reached main via a local `Merge branch 'main' of …` pushed straight up. The PR
+#   gate had no diff to inspect and correctly reported nothing.
+#
+#   Three leaks in four days all reached production. Two were found by a sweep
+#   somebody happened to run by hand; the third sat open about eleven hours. A
+#   manual sweep only ever sees the past. This one runs on a timer.
+#
+# IT NEVER WRITES. Catalog reads plus one COUNT(*) per exposed relation. It does
+# not revoke, drop or alter anything — locking a relation stays a human decision,
+# so a false positive costs a red run and never a broken login.
+#
+# The allow-list (scripts/ci/anon-exposure-allowlist.json) is a tripwire, not a
+# pardon: relations grandfathered while empty ESCALATE to a hard failure if they
+# ever gain rows while carrying an identity column. pde_certificates,
+# pde_learner_badges and pde_reputation each carry learner_id and hold 0 rows
+# today — the first certificate issued should break this build, loudly.
+
+on:
+  schedule:
+    # Every 6 hours at :37. Off the hour on purpose — :00 is when every scheduled
+    # job on the platform fires at once and runners queue.
+    - cron: '37 */6 * * *'
+  workflow_dispatch:
+  # Also on PRs that touch the sweep itself, so a change to the gate is exercised
+  # by its own tests before it can silently stop gating.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/check-anon-exposure-live.mjs'
+      - 'scripts/ci/anon-exposure-allowlist.json'
+      - '__tests__/ci/check-anon-exposure-live.test.ts'
+      - '.github/workflows/anon-exposure-live.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anon-exposure-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    name: No unapproved anon exposure
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # The gate's own tests run on every invocation. A security gate that is not
+      # itself tested is a gate that quietly stops gating, and this one has no
+      # other coverage.
+      - name: Test the gate
+        run: npx vitest run __tests__/ci/check-anon-exposure-live.test.ts
+
+      # Skipped on pull_request: forks and PR contexts do not get the secret, and
+      # a credential-less run must never be mistaken for a clean sweep. The tests
+      # above are what a PR proves.
+      # Two ways in, either is sufficient. check-anon-exposure-live.mjs has
+      # supported both since it was written (see its header): SUPABASE_DB_URL
+      # for a direct Postgres connection, or SUPABASE_ACCESS_TOKEN +
+      # SUPABASE_PROJECT_REF through the Supabase Management API. Only the first
+      # was ever wired up here, so when that one secret went missing the job
+      # failed every run from 18 Aug 2026 — a security gate inspecting nothing
+      # for four days — even though the script could have used the other route.
+      #
+      # A token is also the narrower credential: it can be revoked on its own
+      # without rotating the database password.
+      - name: Sweep production
+        if: github.event_name != 'pull_request'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ] \
+             && { [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${SUPABASE_PROJECT_REF:-}" ]; }; then
+            echo "::error::No route to the database — the sweep cannot run."
+            echo "Set EITHER SUPABASE_DB_URL (direct Postgres),"
+            echo "OR both SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF (Management API)."
+            echo "Failing rather than passing: a sweep that inspects nothing and reports"
+            echo "success is the precise failure mode this job exists to prevent."
+            exit 1
+          fi
+          if [ -n "${SUPABASE_DB_URL:-}" ]; then
+            echo "Route: direct Postgres (SUPABASE_DB_URL)."
+          else
+            echo "Route: Supabase Management API (SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF)."
+          fi
+          node scripts/ci/check-anon-exposure-live.mjs
+
+      - name: Explain a failure
+        if: failure() && github.event_name != 'pull_request'
+        run: |
+          echo "::error::Something the public anon key can read was not approved."
+          echo "Fix in a migration — REVOKE ALL ON TABLE public.<t> FROM anon, PUBLIC;"
+          echo "plus ALTER TABLE public.<t> ENABLE ROW LEVEL SECURITY;"
+          echo "If RLS is already on, hunt a PERMISSIVE policy granted TO public with"
+          echo "USING (true) — that makes RLS a no-op however reassuring its name is."
+          echo "If it is public on purpose, add it to"
+          echo "scripts/ci/anon-exposure-allowlist.json with status approved and a reason."

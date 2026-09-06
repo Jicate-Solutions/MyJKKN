@@ -428,7 +428,7 @@ export default function AssessmentCreatePage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-6 pt-2">
+            <div className="flex flex-wrap items-center gap-6 pt-2">
               <div className="flex items-center gap-2">
                 <Switch
                   id="shuffle"
@@ -451,9 +451,9 @@ export default function AssessmentCreatePage() {
 
         {/* Questions */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Questions ({questions.length})</CardTitle>
-            <Button variant="outline" size="sm" onClick={addBlankQuestion}>
+            <Button variant="outline" size="sm" onClick={addBlankQuestion} className="shrink-0">
               <Plus className="h-4 w-4 mr-1" />
               Add Question
             </Button>

@@ -1,0 +1,78 @@
+{
+  "_comment": [
+    "Fixtures for __tests__/lib/ci/terminology-quote-boundary.test.ts.",
+    "",
+    "They live in JSON, not in the .test.ts file, because every `line` below is",
+    "deliberately written in the vocabulary the gate exists to reject. The gate",
+    "scans .tsx/.jsx/.ts/.md/.mdx, so putting these strings in the harness would",
+    "make the test fail the very check it asserts over — and blocking the repo to",
+    "test the blocker is not a trade worth making. A data file is also the right",
+    "home for adversarial fixtures: the table grows without touching the harness.",
+    "",
+    "`caught`  — copy the gate MUST report. `term` is matched case-insensitively.",
+    "`skipped` — identifier/exempt shapes the gate must stay silent about; the",
+    "            harness asserts the report is completely empty for each."
+  ],
+
+  "caught": [
+    {
+      "name": "first word of a single-quoted string — real escape, commit 39cc7a76",
+      "line": "  label: 'Faculty & tutor hires awaiting your signature',",
+      "term": "faculty"
+    },
+    {
+      "name": "last word of a template literal — real escape, commit 39cc7a76",
+      "line": "  cost: `₹${formatInr(overdue)} overdue · ${students} students`,",
+      "term": "students"
+    },
+    {
+      "name": "leading word of a double-quoted string",
+      "line": "  const msg = \"Students awaiting approval\";",
+      "term": "students"
+    },
+    {
+      "name": "trailing word against a closing backtick",
+      "line": "  const msg = `Total ${n} teachers`;",
+      "term": "teachers"
+    }
+  ],
+
+  "skipped": [
+    {
+      "name": "quoted identifier in an array literal",
+      "line": "  const keys = ['student'];"
+    },
+    {
+      "name": "backtick-wrapped identifier",
+      "line": "  const col = `student`;"
+    },
+    {
+      "name": "double-quoted identifier",
+      "line": "  const col = \"student\";"
+    },
+    {
+      "name": "API path segment",
+      "line": "  const url = '/api/v1/student-cia-view';"
+    },
+    {
+      "name": "property access after a dot",
+      "line": "  const v = row.student ?? '';"
+    },
+    {
+      "name": "optional property declaration",
+      "line": "  type T = { student?: 'a' | 'b' };"
+    },
+    {
+      "name": "React children interpolation",
+      "line": "  return <div>{children}</div>;"
+    },
+    {
+      "name": "assessment-domain words against a closing quote",
+      "line": "  const t = 'Enter marks for the grade';"
+    },
+    {
+      "name": "assessment-domain words after an opening quote",
+      "line": "  const t = 'grades and grading are exempt';"
+    }
+  ]
+}

@@ -231,6 +231,64 @@ class RouteMatcher {
   }
 
   /**
+   * Do two paths denote the SAME route, as THIS matcher understands routes?
+   *
+   * Exists for the Director's Desk fifth layer, which has to compare a stored
+   * `director_handovers.route` against the path being requested. Writing that
+   * comparison as `a === b` — or as a fresh regex over `[id]` — would be a
+   * SECOND matcher, free to disagree with the one `hasAccess()` just consulted.
+   * This walks the very same permission trie, so a segment is dynamic here if
+   * and only if the trie already treats it as dynamic.
+   *
+   * Rules, in one sentence: same depth, literal segments must match literally,
+   * and two different segments are equal only where the trie itself routes both
+   * of them through a `[id]`-style wildcard node.
+   *
+   *   sameRoute('/x/9f2c/budget', '/x/aa11/budget')  -> true  iff the trie has
+   *                                                     `/x/[id]/budget`
+   *   sameRoute('/accreditation/manage/metrics',
+   *             '/accreditation/manage/collaborations') -> false — neither
+   *             segment is dynamic, so these stay two different routes even
+   *             though they resolve to the same MENU_PERMISSIONS key.
+   *
+   * Beyond the depth the trie knows about there is no notion of "dynamic", so
+   * the remaining segments must match literally. That is the fail-closed side.
+   */
+  sameRoute(a: string, b: string): boolean {
+    const segsA = a.split('/').filter(Boolean);
+    const segsB = b.split('/').filter(Boolean);
+    if (segsA.length !== segsB.length) return false;
+
+    let node: RouteNode | null = this.permissionTrie;
+
+    for (let i = 0; i < segsA.length; i++) {
+      const segA = segsA[i];
+      const segB = segsB[i];
+
+      if (segA === segB) {
+        // Identical segment. Keep descending while the trie still has a branch
+        // for it; once it does not, node goes null and every later segment is
+        // compared literally.
+        node = node
+          ? (node.children.get(segA) ?? node.children.get('*') ?? null)
+          : null;
+        continue;
+      }
+
+      // Different segments. They are the same route ONLY where this trie routes
+      // both through the same wildcard node — i.e. the route really is
+      // `.../[id]/...` and the two values are two ids of one page.
+      if (!node) return false;
+      const dynamicA = !node.children.has(segA) && node.children.has('*');
+      const dynamicB = !node.children.has(segB) && node.children.has('*');
+      if (!dynamicA || !dynamicB) return false;
+      node = node.children.get('*') ?? null;
+    }
+
+    return true;
+  }
+
+  /**
    * Check if a user has access to a path (enhanced with dynamic permissions)
    * @param path - Request path
    * @param userRole - User's role (for static checks)

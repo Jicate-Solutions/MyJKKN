@@ -217,13 +217,13 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
         </div>
         <div className="flex gap-2">
           <Link href={`/admission/schools-network/${schoolId}/sessions/log`}>
-            <PermissionGuard module="schools_network.sessions" action="create">
+            <PermissionGuard module="schools_network.sessions" action="create" fallback={null}>
               <Button>
                 <CalendarIcon className="h-4 w-4 mr-2" /> Log Session
               </Button>
             </PermissionGuard>
           </Link>
-          <PermissionGuard module="schools_network.schools" action="edit">
+          <PermissionGuard module="schools_network.schools" action="edit" fallback={null}>
             <Link href={`/admission/schools-network/${schoolId}/edit`}>
               <Button variant="outline">
                 <Edit className="h-4 w-4 mr-2" /> Edit
@@ -293,7 +293,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="sessions">
             Sessions ({sessionsQuery.data?.rows.length ?? recentSessions.length})
@@ -378,7 +378,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
                 <CardTitle className="text-base">All sessions</CardTitle>
                 <CardDescription>Visits, orientations, training and informal contact</CardDescription>
               </div>
-              <PermissionGuard module="schools_network.sessions" action="create">
+              <PermissionGuard module="schools_network.sessions" action="create" fallback={null}>
                 <Link href={`/admission/schools-network/${schoolId}/sessions/log`}>
                   <Button size="sm">
                     <Plus className="h-4 w-4 mr-2" /> Log session
@@ -441,13 +441,13 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
         {/* CONTRIBUTIONS */}
         <TabsContent value="contributions">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-base">Contributions delivered</CardTitle>
                 <CardDescription>Devices, branding, funds, training kits, etc.</CardDescription>
               </div>
-              <PermissionGuard module="schools_network.contributions" action="create">
-                <Link href={`/admission/schools-network/${schoolId}/contributions/new`}>
+              <PermissionGuard module="schools_network.contributions" action="create" fallback={null}>
+                <Link href={`/admission/schools-network/${schoolId}/contributions/new`} className="shrink-0">
                   <Button size="sm">
                     <Plus className="h-4 w-4 mr-2" /> Log contribution
                   </Button>
@@ -522,7 +522,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
                 <CardTitle className="text-base">School contacts</CardTitle>
                 <CardDescription>HM, principal, teachers and alternates</CardDescription>
               </div>
-              <PermissionGuard module="schools_network.contacts" action="create">
+              <PermissionGuard module="schools_network.contacts" action="create" fallback={null}>
                 <Link href={`/admission/schools-network/${schoolId}/contacts/new`}>
                   <Button size="sm">
                     <Plus className="h-4 w-4 mr-2" /> Add contact
@@ -601,7 +601,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
                   Outreach coordinators and program leads assigned to this school
                 </CardDescription>
               </div>
-              <PermissionGuard module="schools_network.owners" action="manage">
+              <PermissionGuard module="schools_network.owners" action="manage" fallback={null}>
                 <Link href={`/admission/schools-network/${schoolId}/owners/assign`}>
                   <Button size="sm">
                     <Plus className="h-4 w-4 mr-2" /> Assign

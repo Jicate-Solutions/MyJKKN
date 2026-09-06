@@ -13,12 +13,15 @@ import {
   FileText,
   TrendingUp,
   AlertCircle,
-  Receipt,
+  ReceiptIndianRupee,
   CreditCard,
   RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useBillingDashboardMetrics } from '@/hooks/billing/use-billing-reports';
+import {
+  useBillingDashboardMetrics,
+  useStudentYearBreakdown
+} from '@/hooks/billing/use-billing-reports';
 import { useCollectionSplit } from '@/hooks/billing/use-billing-analytics';
 import { ReportFilters } from './_components/report-filters';
 import type { BillingReportFilters } from '@/types/billing-schedule';
@@ -57,17 +60,23 @@ function BillingReportsPageInner() {
     loading: metricsLoading,
     error: metricsError,
     refetch: refetchMetrics
-  } = useBillingDashboardMetrics(
-    filters.institution_id,
-    filters.date_from,
-    filters.date_to
-  );
+  } = useBillingDashboardMetrics(filters);
+
+  // Year-wise split of the Total Students / amount cards. Separate query: the
+  // dashboard RPC returns grand totals only.
+  const { breakdown: yearWiseStudents } = useStudentYearBreakdown(filters);
 
   // Management vs Government split — served by the analytics RPC rather than
   // re-aggregated client-side here, since the attribution walks
   // receipt_items -> bills -> categories and belongs in Postgres.
   // Gated on billing.analytics.view inside the RPC, so a reports-only user
   // simply gets no split section (the query errors and `data` stays undefined).
+  //
+  // This RPC belongs to the separate billing analytics feature and its
+  // filter type (BillingAnalyticsFilters) only accepts institution_ids and a
+  // date range — no degree/department/program/scheme hierarchy. So unlike
+  // useBillingDashboardMetrics above, it is deliberately left institution+date
+  // scoped here rather than extended as a side effect of this change.
   const collectionSplit = useCollectionSplit({
     institution_ids: filters.institution_id ? [filters.institution_id] : undefined,
     date_from: filters.date_from,
@@ -170,7 +179,7 @@ function BillingReportsPageInner() {
               Invoices
             </TabsTrigger>
             <TabsTrigger value='discounts' className='flex items-center gap-2'>
-              <Receipt className='h-4 w-4' />
+              <ReceiptIndianRupee className='h-4 w-4' />
               Discounts
             </TabsTrigger>
             <TabsTrigger value='refunds' className='flex items-center gap-2'>
@@ -201,6 +210,7 @@ function BillingReportsPageInner() {
                 loading={metricsLoading}
                 canExport={canExportReports}
                 split={collectionSplit.data}
+                yearWiseStudents={yearWiseStudents}
               />
             )}
           </TabsContent>

@@ -167,7 +167,7 @@ export function SchoolMasterDataTable({
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <Button onClick={onAdd} size='sm' className='h-8'>
           <Plus className='mr-2 h-4 w-4' />

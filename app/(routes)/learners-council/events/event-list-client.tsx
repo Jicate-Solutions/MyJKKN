@@ -213,7 +213,7 @@ export function EventListClient({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="w-full justify-start overflow-x-auto md:w-auto md:justify-center">
+        <TabsList className="w-full max-w-full justify-start overflow-x-auto md:w-auto md:justify-center [&>button]:shrink-0">
           <TabsTrigger value="upcoming" className="flex items-center gap-2">
             <CalendarCheck className="h-4 w-4" />
             Upcoming

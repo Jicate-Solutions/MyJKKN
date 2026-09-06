@@ -40,6 +40,14 @@ import {
   CommandItem,
   CommandList
 } from '@/components/ui/command';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -58,7 +66,8 @@ import { CounselorDailyViewService } from '@/lib/services/admission/counselor-da
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { ArrowLeft, Save, Loader2, ChevronsUpDown, X } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, ChevronsUpDown, X, Plus } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { indianStates, getDistrictsByState } from '@/lib/data/locations';
@@ -145,6 +154,18 @@ function NewLeadPageContent() {
   const [referralType, setReferralType] = useState<ReferralType | ''>('');
   const [selectedReferrerId, setSelectedReferrerId] = useState<string>('');
 
+  // Fallback for a staff/student referrer with no record in the system. Mutually
+  // exclusive with selectedReferrerId — whichever the operator sets last wins,
+  // so a lead can never carry a picked person AND a contradicting typed name.
+  const [manualReferrerName, setManualReferrerName] = useState<string>('');
+
+  // Inline consultant creation. A consultant is never left as free text: if the
+  // agency is missing it is created here and the new id is selected immediately.
+  const [createConsultantOpen, setCreateConsultantOpen] = useState(false);
+  const [newConsultantName, setNewConsultantName] = useState('');
+  const [newConsultantPhone, setNewConsultantPhone] = useState('');
+  const [creatingConsultant, setCreatingConsultant] = useState(false);
+
   // Referrer hierarchy filters — INDEPENDENT of the lead's institution.
   // A student at Institution A may refer a lead for Institution B, so we let
   // the user browse any institution/department when picking a referrer.
@@ -200,6 +221,47 @@ function NewLeadPageContent() {
     referrerInstitutionId || undefined,
     referrerDepartmentId || undefined
   );
+
+  const queryClient = useQueryClient();
+
+  /**
+   * Create the missing consultant, then select it — so the lead is attributed to
+   * a real education_consultants row rather than an unjoinable string. Only
+   * `name` is required; consultant_type / status / tier carry DB defaults.
+   */
+  const handleCreateConsultant = async () => {
+    const name = newConsultantName.trim();
+    if (!name) {
+      toast.error('Consultant name is required');
+      return;
+    }
+    setCreatingConsultant(true);
+    try {
+      const created = await ConsultantService.createConsultant({
+        name,
+        phone: newConsultantPhone.trim() || null,
+        consultant_type: 'external',
+      } as any);
+
+      // Seed the cache so the picker shows the new name immediately; the
+      // invalidate then reconciles with the server copy.
+      queryClient.setQueryData(
+        ['consultants-dropdown', 'all'],
+        (old: any[] = []) => [...old, { id: created.id, name: created.name, value: created.id, label: created.name }]
+      );
+      queryClient.invalidateQueries({ queryKey: ['consultants-dropdown'] });
+
+      setSelectedConsultantId(created.id);
+      setCreateConsultantOpen(false);
+      setNewConsultantName('');
+      setNewConsultantPhone('');
+      toast.success(`Consultant "${created.name}" created and selected`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create consultant');
+    } finally {
+      setCreatingConsultant(false);
+    }
+  };
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
@@ -410,6 +472,14 @@ function NewLeadPageContent() {
       newErrors.institution = 'Institution is required';
     }
 
+    // Required since 2026-07-25 — a lead with no cohort cannot be matched to a
+    // fee structure, seat plan or admission-year report downstream. The picker
+    // pre-fills the institution's current cohort, so this only fires when the
+    // institution has no admission years configured or the user cleared it.
+    if (!formData.admission_year_id) {
+      newErrors.admission_year_id = 'Admission year is required';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -508,13 +578,19 @@ function NewLeadPageContent() {
           const c = consultants.find((x) => x.id === selectedConsultantId);
           return c?.name || null;
         }
+        // Staff and learners are owned by HR / Admissions — we cannot mint a
+        // record for a referrer who has none. A typed name with a NULL
+        // referred_by_id is the honest representation and is explicitly
+        // supported by the schema (referred_by_id is nullable). Consultants
+        // never reach here: they are created first, then linked.
+        const manual = manualReferrerName.trim();
         if (referralType === 'student') {
           const s = studentsDropdown.find((x) => x.id === selectedReferrerId);
-          return s?.name || null;
+          return s?.name || manual || null;
         }
         if (referralType === 'faculty') {
           const f = facultyDropdown.find((x) => x.id === selectedReferrerId);
-          return f?.name || null;
+          return f?.name || manual || null;
         }
         return null;
       })(),
@@ -933,6 +1009,8 @@ function NewLeadPageContent() {
                       value={formData.admission_year_id}
                       onChange={(value) => handleChange('admission_year_id', value)}
                       autoSelectCurrent
+                      required
+                      error={errors.admission_year_id}
                     />
                   </CardContent>
                 </Card>
@@ -1174,6 +1252,7 @@ function NewLeadPageContent() {
                             setReferralType(value as ReferralType);
                             setSelectedConsultantId('');
                             setSelectedReferrerId('');
+                            setManualReferrerName('');
                           }}
                         >
                           <SelectTrigger>
@@ -1216,8 +1295,32 @@ function NewLeadPageContent() {
                               <Command>
                                 <CommandInput placeholder="Type to search consultants..." />
                                 <CommandList>
-                                  <CommandEmpty>No consultants found.</CommandEmpty>
+                                  <CommandEmpty>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center justify-center gap-1.5 px-2 py-3 text-sm font-medium text-primary hover:underline"
+                                      onClick={() => {
+                                        setConsultantPickerOpen(false);
+                                        setCreateConsultantOpen(true);
+                                      }}
+                                    >
+                                      <Plus className="h-4 w-4" />
+                                      Add this consultant
+                                    </button>
+                                  </CommandEmpty>
                                   <CommandGroup>
+                                    <CommandItem
+                                      value="__add-new-consultant"
+                                      onSelect={() => {
+                                        setConsultantPickerOpen(false);
+                                        setCreateConsultantOpen(true);
+                                      }}
+                                    >
+                                      <Plus className="mr-2 h-4 w-4 text-primary" />
+                                      <span className="font-medium text-primary">
+                                        Add new consultant
+                                      </span>
+                                    </CommandItem>
                                     <CommandItem
                                       value="no-consultant"
                                       onSelect={() => {
@@ -1369,6 +1472,7 @@ function NewLeadPageContent() {
                                         value={s.name}
                                         onSelect={() => {
                                           setSelectedReferrerId(s.id);
+                                          setManualReferrerName('');
                                           setStudentPickerOpen(false);
                                         }}
                                       >
@@ -1436,6 +1540,7 @@ function NewLeadPageContent() {
                                         value={f.name}
                                         onSelect={() => {
                                           setSelectedReferrerId(f.id);
+                                          setManualReferrerName('');
                                           setFacultyPickerOpen(false);
                                         }}
                                       >
@@ -1447,6 +1552,39 @@ function NewLeadPageContent() {
                               </Command>
                             </PopoverContent>
                           </Popover>
+                        </div>
+                      )}
+
+                      {/* Plain-text fallback — staff and learners only.
+                        * These records belong to HR and Admissions; we cannot
+                        * create one from here, so a name with no id is the
+                        * truthful record. Consultants are excluded on purpose:
+                        * they get created above and always carry a real id. */}
+                      {(referralType === 'student' || referralType === 'faculty') && (
+                        <div className="space-y-2 rounded-md border border-dashed p-3">
+                          <Label htmlFor="manual-referrer">
+                            Not in the list?{' '}
+                            <span className="font-normal text-muted-foreground">
+                              Type the {referralType === 'student' ? 'student' : 'staff'} name
+                            </span>
+                          </Label>
+                          <Input
+                            id="manual-referrer"
+                            placeholder="e.g. M.KRISHNAVENI / AP / Nursing"
+                            value={manualReferrerName}
+                            onChange={(e) => {
+                              setManualReferrerName(e.target.value);
+                              // A typed name and a picked person would contradict
+                              // each other — keep exactly one of them set.
+                              if (e.target.value.trim()) setSelectedReferrerId('');
+                            }}
+                            disabled={!!selectedReferrerId && selectedReferrerId !== '_none'}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {selectedReferrerId && selectedReferrerId !== '_none'
+                              ? 'Clear the selection above to type a name instead.'
+                              : 'Saved as a name only — no linked record, so this referral will not appear in referrer reports.'}
+                          </p>
                         </div>
                       )}
                     </CardContent>
@@ -1521,6 +1659,78 @@ function NewLeadPageContent() {
             </div>
           </form>
         </div>
+
+        {/* Inline consultant creation — keeps the operator on the lead form.
+          * Minimal on purpose: name is the only required column, everything
+          * else (type / status / tier) carries a DB default and can be
+          * enriched later in the Consultants module. */}
+        <Dialog open={createConsultantOpen} onOpenChange={setCreateConsultantOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add new consultant</DialogTitle>
+              <DialogDescription>
+                Creates a record in the Consultants module and selects it for this lead,
+                so the referral is properly attributed.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-1">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-consultant-name">
+                  Consultant / agency name<span className="ml-0.5 text-destructive">*</span>
+                </Label>
+                <Input
+                  id="new-consultant-name"
+                  value={newConsultantName}
+                  onChange={(e) => setNewConsultantName(e.target.value)}
+                  placeholder="e.g. SMET"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-consultant-phone">
+                  Phone <span className="text-xs text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="new-consultant-phone"
+                  value={newConsultantPhone}
+                  onChange={(e) => setNewConsultantPhone(e.target.value)}
+                  placeholder="10-digit mobile"
+                  inputMode="numeric"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Recommended — the phone number is what tells two consultants with the
+                  same name apart later.
+                </p>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateConsultantOpen(false)}
+                disabled={creatingConsultant}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCreateConsultant}
+                disabled={creatingConsultant || !newConsultantName.trim()}
+              >
+                {creatingConsultant ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  'Create & select'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </ContentLayout>
     </PermissionGuard>
   );

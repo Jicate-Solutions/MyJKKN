@@ -1398,6 +1398,14 @@ export interface AdmissionYear {
   admission_year_name: string;
   year: number;
   is_active: boolean;
+  /**
+   * The cohort new leads/enquiries default to. Exactly one per institution —
+   * enforced in Postgres by a partial unique index plus a BEFORE trigger that
+   * demotes the previous holder (see 20260725_admission_years_is_current_flag).
+   * Distinct from `is_active`, which only controls dropdown visibility and
+   * stays true for historical cohorts so legacy imports can still resolve them.
+   */
+  is_current: boolean;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
@@ -1409,6 +1417,7 @@ export interface CreateAdmissionYearDto {
   admission_year_name: string;
   year: number;
   is_active?: boolean;
+  is_current?: boolean;
 }
 
 export type UpdateAdmissionYearDto = Partial<Omit<CreateAdmissionYearDto, 'institution_id'>>;
@@ -1586,6 +1595,14 @@ export type UpsertAdmissionFeeAdmissionSettingsInput = Partial<
 
 export type AdmissionFeeStructureStatus = 'draft' | 'active' | 'archived';
 
+/**
+ * How a fee structure quotes its cost.
+ *   'package'     — one consolidated, all-inclusive amount
+ *   'non_package' — each fee head itemised separately
+ * null (on the row) means unclassified / "Any".
+ */
+export type FeeStructurePackageType = 'package' | 'non_package';
+
 export interface AdmissionFeeStructure {
   id: string;
   institution_id: string;
@@ -1605,6 +1622,12 @@ export interface AdmissionFeeStructure {
   gender: string | null;
   name: string;
   status: AdmissionFeeStructureStatus;
+  /**
+   * Classification only — NOT a matching dimension. Deliberately absent from
+   * FeeStructureMatrixDimensions: fee resolution and the junction overlap
+   * guard both ignore it. null = unclassified / "Any".
+   */
+  package_type: FeeStructurePackageType | null;
   notes: string | null;
   // Date-bounded applicability within an admission year. NULL on either
   // side means "no specific bound" (always applicable from start / until
@@ -1612,6 +1635,30 @@ export interface AdmissionFeeStructure {
   // today's date when multiple structures overlap.
   effective_from: string | null;
   effective_to: string | null;
+  /**
+   * Days after the bill-generation date that a fee item with no due date of
+   * its own falls due (2026-08-21). DEFAULT 30 reproduces the `now() + 30
+   * days` that both bill-generation paths used to hardcode, so an untouched
+   * structure bills exactly as it always has.
+   */
+  default_due_offset_days: number;
+  /**
+   * Declared hostel ROOM / MESS category for this package (migration
+   * 20260910110000). Only meaningful when `accommodation_type_id` resolves to
+   * accommodation_types.code === 'hostel' — a DB trigger rejects them on any
+   * other structure, and requires BOTH to activate a hostel structure.
+   *
+   * The referenced row's gender `type` (boys/girls) is NOT meaningful: it is a
+   * canonical handle. hostel_categories / mess_categories are gender-
+   * partitioned ("Classic Room" exists twice), while fee structures normally
+   * leave `gender` NULL because they cover both — so readers remap by `name`
+   * to the learner's own gender variant, the same way
+   * fn_apply_hostel_fee_categories already does.
+   *
+   * Declaration layer only for now: no DB function reads these yet.
+   */
+  hostel_category_id: string | null;
+  mess_category_id: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -1632,6 +1679,42 @@ export interface AdmissionFeeStructure {
  */
 export type FeeItemAppliesTo = 'first_year_only' | 'every_year' | 'specific_year';
 
+/** 'single' = one bill for this item. 'split' = expand into schedule lines. */
+export type FeeItemScheduleMode = 'single' | 'split';
+
+/**
+ * What a `due_offset_days` counts from, for the item and every schedule line
+ * under it. One anchor per item, deliberately: a per-line anchor could disagree
+ * between instalments of the same fee.
+ */
+export type FeeItemDueAnchor = 'generation_date' | 'academic_year_start' | 'fixed_date';
+
+/**
+ * One instalment of a split fee item (mirrors
+ * admission_fee_structure_item_schedules).
+ *
+ * Size by exactly one of share_percent / fixed_amount; date by exactly one of
+ * due_offset_days / due_date. The LAST line's amount is not taken literally at
+ * generation time — the engine sizes it as the item total minus the earlier
+ * lines, so instalments always sum EXACTLY to the item amount.
+ */
+export interface AdmissionFeeStructureItemSchedule {
+  id?: string;
+  fee_structure_item_id?: string;
+  sequence_no: number;
+  share_percent: number | null;
+  fixed_amount: number | null;
+  due_offset_days: number | null;
+  due_date: string | null;
+  /**
+   * Lifecycle status the learner reaches once THIS instalment is settled.
+   * null = no rule. Statuses with gates_login = true (i.e. 'active') are
+   * rejected by the database: granting a portal login stays a human decision.
+   */
+  promotes_to_status_code: string | null;
+  label: string | null;
+}
+
 export interface AdmissionFeeStructureItem {
   id: string;
   fee_structure_id: string;
@@ -1643,6 +1726,17 @@ export interface AdmissionFeeStructureItem {
   applies_to: FeeItemAppliesTo;
   /** Required (1..10) only when applies_to === 'specific_year', else null. */
   applies_year_of_study: number | null;
+  /** Added 2026-08-21 — per-item due dates and instalment splitting. */
+  schedule_mode?: FeeItemScheduleMode;
+  due_anchor?: FeeItemDueAnchor;
+  /** null falls back to the structure's default_due_offset_days (itself 30). */
+  due_offset_days?: number | null;
+  /** Absolute date, used when due_anchor === 'fixed_date'. */
+  due_date?: string | null;
+  /** Status rule for an UNSPLIT item. Ignored when schedule_mode === 'split'. */
+  promotes_to_status_code?: string | null;
+  /** Present only when schedule_mode === 'split'. */
+  schedules?: AdmissionFeeStructureItemSchedule[];
 }
 
 export interface AdmissionFeeStructureWithItems extends AdmissionFeeStructure {
@@ -1660,23 +1754,35 @@ export type CreateAdmissionFeeStructureInput =
     | 'admission_year_id'
     | 'name'
   > &
-  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender' | 'accommodation_type_id'>> & {
+  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender' | 'accommodation_type_id' | 'package_type' | 'hostel_category_id' | 'mess_category_id'>> & {
     /** N communities this structure applies to. Must contain at least one. */
     community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
-      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order' | 'applies_to' | 'applies_year_of_study'>>>;
+      Partial<Pick<AdmissionFeeStructureItem,
+        | 'is_optional' | 'sort_order' | 'applies_to' | 'applies_year_of_study'
+        | 'schedule_mode' | 'due_anchor' | 'due_offset_days' | 'due_date'
+        | 'promotes_to_status_code' | 'schedules'
+      >>>;
   };
 
 export type UpdateAdmissionFeeStructureInput =
   Partial<Pick<
     AdmissionFeeStructure,
     | 'name' | 'status' | 'notes' | 'effective_from' | 'effective_to'
+    // Classification, not a dimension — safe to edit freely, no overlap risk.
+    | 'package_type'
     // 7 matrix dimensions — editing them is supported but risky. The
     // overlap-prevention trigger on the junction will reject conflicting
     // moves; the UI layer warns the admin before submit.
     | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
     | 'quota_id' | 'admission_year_id'
     | 'gender' | 'accommodation_type_id'
+    // Hostel tier declaration. Gated by trg_fee_structure_hostel_categories_
+    // guard: rejected on a non-hostel structure, required to activate a hostel
+    // one. Move accommodation_type_id and these together.
+    | 'hostel_category_id' | 'mess_category_id'
+    // Fallback due-date offset for items that name no date of their own.
+    | 'default_due_offset_days'
   >> & {
     /** When provided, replaces the community set for this structure. */
     community_category_ids?: string[];
@@ -1694,6 +1800,13 @@ export interface FeeStructureMatrixDimensions {
   department_id: string;
   programme_id: string;
   quota_id: string;
+  /** Optional matching dimension. The junction `admission_fee_structure_communities`
+   *  is keyed by it, so FeeStructureService.findByDimensions filters it server-side
+   *  as a SEPARATE argument rather than through the dims object. Declared here
+   *  because FeeResolutionService reads it off dims (isValidDimensions,
+   *  previewMatchByDimensions) — the field was load-bearing at runtime but missing
+   *  from this interface, which `typescript.ignoreBuildErrors` masked. */
+  community_category_id?: string;
   /** Optional matching dimension (NULL/undefined = "Any"). Resolution prefers
    *  an accommodation-specific structure, then falls back to an "Any" one. */
   accommodation_type_id?: string;

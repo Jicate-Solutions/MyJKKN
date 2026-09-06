@@ -7,10 +7,12 @@ import { useAuth } from '@/hooks/use-auth';
 import { useGrns } from '@/hooks/procurement/use-grns';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { StatusBadge } from '@/components/procurement/status-badge';
+import { EmptyState } from '@/components/empty-state';
+import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { GRN_STATUS_CONFIG, type GrnStatus, type GrnFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -47,7 +49,7 @@ export default function GrnListPage() {
     institution_id: effectiveInstitution,
   };
 
-  const { data: response, isLoading } = useGrns(filters);
+  const { data: response, isLoading, isError } = useGrns(filters);
   const grns = response?.data ?? [];
 
   return (
@@ -74,7 +76,7 @@ export default function GrnListPage() {
                 />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[220px]">
+                <SelectTrigger className="w-full sm:w-[200px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -90,7 +92,7 @@ export default function GrnListPage() {
                 value={effectiveInstitution}
                 onChange={setInstitutionId}
                 label={null}
-                className="w-full sm:w-[220px]"
+                className="w-full sm:w-[200px]"
               />
             </div>
           </CardContent>
@@ -102,11 +104,15 @@ export default function GrnListPage() {
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
-            ) : grns.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <p>No goods receipt notes found</p>
-                <p className="text-sm">Open an approved PO to receive a delivery.</p>
+            ) : isError ? (
+              <div className="p-6">
+                <AlertBox type="error" message="Failed to load goods receipt notes. Please try again." />
               </div>
+            ) : grns.length === 0 ? (
+              <EmptyState
+                title="No goods receipt notes found"
+                description="Open an approved PO to receive a delivery."
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -131,12 +137,13 @@ export default function GrnListPage() {
                       <TableCell>{grn.invoice_number || '-'}</TableCell>
                       <TableCell>{grn.item_count ?? '-'}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{GRN_STATUS_CONFIG[grn.status].label}</Badge>
+                        <StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`View ${grn.grn_number}`}
                           onClick={() => router.push(`/procurement/grn/${grn.id}`)}
                         >
                           <Eye className="h-4 w-4" />

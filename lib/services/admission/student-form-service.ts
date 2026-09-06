@@ -191,7 +191,7 @@ export class StudentFormService {
       'hostel_category_id', 'mess_category_id', 'community_category_id',
       'caste_id', 'quota_id', 'accommodation_type_id',
       'institution_id', 'degree_id', 'department_id', 'program_id',
-      'semester_id', 'admission_year_id',
+      'semester_id', 'section_id', 'admission_year_id', 'academic_year_id',
       'transport_route_id', 'transport_stop_id',
     ]) {
       if (allowedFields[uuidCol] === '') allowedFields[uuidCol] = null;

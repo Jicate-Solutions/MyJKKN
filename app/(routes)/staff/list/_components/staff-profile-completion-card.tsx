@@ -40,8 +40,8 @@ export function StaffProfileCompletionCard({
   return (
     <Card className="mb-6" id="staff-profile-completion-card">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <CardTitle className="flex items-center gap-2">
               Profile Completion Status
               {overallPercentage === 100 && <CheckCircle2 className="h-5 w-5 text-green-600" />}

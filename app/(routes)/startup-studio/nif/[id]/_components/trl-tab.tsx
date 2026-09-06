@@ -187,7 +187,7 @@ export function TrlTab({ candidateId }: TrlTabProps) {
 
       {/* Current TRL Progress */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="flex items-center gap-2">
             <FlaskConical className="h-5 w-5 text-indigo-600" />
             Technology Readiness Level

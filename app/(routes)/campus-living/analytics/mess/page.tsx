@@ -22,6 +22,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useMessAnalytics } from '@/hooks/campus-living/use-campus-living-analytics';
 import { PreviewBanner } from '../../_components/preview-banner';
 
@@ -43,6 +44,7 @@ const formatINR = (amount: number) =>
 export default function MessAnalyticsPage() {
   const [period, setPeriod] = useState('30d');
   const { profile } = useAuth();
+  const { isLoading: permsLoading } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
 
   const { from, to } = useMemo(() => periodToDateRange(period), [period]);
@@ -63,7 +65,9 @@ export default function MessAnalyticsPage() {
     return Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
   }, [from, to]);
 
-  if (isLoading) {
+  // permsLoading: the query stays disabled until the viewer's scope resolves, and
+  // a disabled query reports isLoading:false (BUG-005831 — see useCampusLivingScope).
+  if (isLoading || permsLoading) {
     return (
       <ContentLayout title="Mess Analytics">
         <div className="flex items-center justify-center min-h-[400px]">

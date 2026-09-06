@@ -14,8 +14,10 @@ import {
   useCancelPurchaseRequest,
 } from '@/hooks/procurement/use-purchase-requests';
 import { PR_STATUS_CONFIG } from '@/types/procurement';
+import { StatusBadge } from '@/components/procurement/status-badge';
+import { formatDateDMY } from '@/lib/utils/date-format';
+import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,6 +40,7 @@ import {
 import { ArrowLeft, Send, Check, X, Pencil } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function PurchaseRequestDetailPage() {
   const router = useRouter();
@@ -46,7 +49,7 @@ export default function PurchaseRequestDetailPage() {
   const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
 
-  const { data: pr, isLoading } = usePurchaseRequest(id);
+  const { data: pr, isLoading, isError } = usePurchaseRequest(id);
   const submitPR = useSubmitPurchaseRequest();
   const approvePR = useApprovePurchaseRequest();
   const approveWithMods = useApproveWithModifications();
@@ -70,6 +73,15 @@ export default function PurchaseRequestDetailPage() {
       </ContentLayout>
     );
   }
+  if (isError) {
+    return (
+      <ContentLayout title="Purchase Request">
+        <div className="py-12">
+          <AlertBox type="error" message="Failed to load this purchase request. Please try again." />
+        </div>
+      </ContentLayout>
+    );
+  }
   if (!pr) {
     return (
       <ContentLayout title="Purchase Request">
@@ -78,50 +90,72 @@ export default function PurchaseRequestDetailPage() {
     );
   }
 
-  const statusConfig = PR_STATUS_CONFIG[pr.status];
   // Show the Reason column whenever any line is a new item, regardless of the
   // header's request_type summary (a 'mixed' request still has reasons to show).
   const hasNewItemLine = pr.items.some((it) => !it.domain_item_id);
+
+  // "Draft" tells you the state but not that the request is inert until submitted,
+  // nor where it goes next. Rejection already has its own card, so it is skipped.
+  const STATUS_HINT: Record<string, string> = {
+    draft: 'Only you can see this. Submitting sends it to a Super Admin for approval.',
+    submitted: 'Waiting for a Super Admin. They may reduce quantities when approving.',
+    approved: 'Approved. The next step is an RFQ to collect vendor quotations.',
+    converted: 'Rolled into an RFQ — vendor quotations are being collected.',
+    cancelled: 'Cancelled. This request will not go any further.',
+  };
+  const statusHint = STATUS_HINT[pr.status];
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 
   return (
     <ContentLayout title={pr.request_number}>
-      <div className="space-y-6 max-w-4xl">
-        <div className="flex items-center justify-between gap-3">
+      <div className="space-y-6 max-w-5xl">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => router.push('/procurement/requests')}>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Back to requests"
+              onClick={() => router.push('/procurement/requests')}
+            >
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
               <h2 className="text-2xl font-bold tracking-tight">{pr.request_number}</h2>
-              <p className="text-muted-foreground capitalize">
-                {pr.request_type.replace('_', ' ')} · requested by{' '}
+              <p className="text-muted-foreground">
+                <span className="capitalize">{pr.request_type.replace('_', ' ')}</span>
+                {' · requested by '}
                 {pr.requested_by_profile?.full_name || '—'}
+                {pr.created_at ? ` · raised ${formatDateDMY(pr.created_at)}` : ''}
               </p>
             </div>
           </div>
-          <Badge variant="outline" className="text-sm">
-            {statusConfig.label}
-          </Badge>
+          <StatusBadge status={pr.status} config={PR_STATUS_CONFIG} className="text-sm" />
         </div>
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-3">
-          {pr.status === 'draft' && isOwner && (
-            <Button onClick={() => run(() => submitPR.mutateAsync(id), 'Submitted for approval')}>
-              <Send className="mr-2 h-4 w-4" />
-              Submit for approval
-            </Button>
-          )}
-          {editingQty ? (
-            <>
+        {statusHint && (
+          <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            {statusHint}
+          </p>
+        )}
+
+        {/* Actions — affirmative on the left, declining or abandoning on the right,
+            so Reject never sits shoulder-to-shoulder with Approve. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex flex-wrap items-center gap-2">
+            {pr.status === 'draft' && isOwner && (
+              <Button onClick={() => run(() => submitPR.mutateAsync(id), 'Submitted for approval')}>
+                <Send className="mr-2 h-4 w-4" />
+                Submit for approval
+              </Button>
+            )}
+            {editingQty && (
               <Button
                 disabled={pr.items.some((it) => !(Number(qtyEdits[it.id]) > 0))}
                 onClick={() =>
@@ -137,19 +171,12 @@ export default function PurchaseRequestDetailPage() {
                 <Check className="mr-2 h-4 w-4" />
                 Save &amp; Approve
               </Button>
-              <Button variant="ghost" onClick={() => setEditingQty(false)}>
-                Cancel edit
-              </Button>
-            </>
-          ) : (
-            pr.status === 'submitted' && canApprove && (
+            )}
+            {!editingQty && pr.status === 'submitted' && canApprove && (
               <>
                 <Button
                   onClick={() =>
-                    run(
-                      () => approvePR.mutateAsync({ id, userId: profile!.id }),
-                      'Request approved'
-                    )
+                    run(() => approvePR.mutateAsync({ id, userId: profile!.id }), 'Request approved')
                   }
                 >
                   <Check className="mr-2 h-4 w-4" />
@@ -169,21 +196,35 @@ export default function PurchaseRequestDetailPage() {
                   <Pencil className="mr-2 h-4 w-4" />
                   Modify &amp; Approve
                 </Button>
-                <Button variant="outline" onClick={() => setRejectOpen(true)}>
-                  <X className="mr-2 h-4 w-4" />
-                  Reject
-                </Button>
               </>
-            )
-          )}
-          {(pr.status === 'draft' || pr.status === 'submitted') && isOwner && (
-            <Button
-              variant="ghost"
-              onClick={() => run(() => cancelPR.mutateAsync(id), 'Request cancelled')}
-            >
-              Cancel request
-            </Button>
-          )}
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            {editingQty && (
+              <Button variant="ghost" onClick={() => setEditingQty(false)}>
+                Cancel edit
+              </Button>
+            )}
+            {!editingQty && pr.status === 'submitted' && canApprove && (
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setRejectOpen(true)}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Reject
+              </Button>
+            )}
+            {(pr.status === 'draft' || pr.status === 'submitted') && isOwner && (
+              <Button
+                variant="ghost"
+                onClick={() => run(() => cancelPR.mutateAsync(id), 'Request cancelled')}
+              >
+                Cancel request
+              </Button>
+            )}
+          </div>
         </div>
 
         {pr.status === 'rejected' && pr.rejection_reason && (
@@ -199,7 +240,10 @@ export default function PurchaseRequestDetailPage() {
 
         {pr.notes && (
           <Card>
-            <CardContent className="pt-6">
+            <CardHeader>
+              <CardTitle className="text-base">Notes for the approver</CardTitle>
+            </CardHeader>
+            <CardContent>
               <p className="text-sm text-muted-foreground">{pr.notes}</p>
             </CardContent>
           </Card>
@@ -207,7 +251,7 @@ export default function PurchaseRequestDetailPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Items</CardTitle>
+            <CardTitle className="text-base">Items ({pr.items.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>

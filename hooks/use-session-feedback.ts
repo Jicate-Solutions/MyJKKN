@@ -5,7 +5,11 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
-import type { SubmitFeedbackInput } from '@/types/session-feedback';
+import type {
+  SubmitFeedbackInput,
+  PostSessionResourceInput,
+  ClarificationOutcome,
+} from '@/types/session-feedback';
 
 export const scfQueryKeys = {
   all: ['session-feedback'] as const,
@@ -42,6 +46,10 @@ export const scfQueryKeys = {
   pulseTotals: (pulseId: string) => [...scfQueryKeys.all, 'pulse-totals', pulseId] as const,
   myConfirmedAttendance: () => [...scfQueryKeys.all, 'my-confirmed-attendance'] as const,
   windowHours: () => [...scfQueryKeys.all, 'window-hours'] as const,
+  resourcesForSession: (timetableId: string, attendanceDate: string, periodId: string) =>
+    [...scfQueryKeys.all, 'resources-for-session', timetableId, attendanceDate, periodId] as const,
+  clarification: (attendanceDate: string, periodId: string) =>
+    [...scfQueryKeys.all, 'clarification', attendanceDate, periodId] as const,
 };
 
 /** Shared feedback-window length (hours) — the session_feedback.window_hours
@@ -67,7 +75,10 @@ export function usePendingSessions(lookbackDays = 30) {
   return useQuery({
     queryKey: scfQueryKeys.pending(lookbackDays),
     queryFn: () => SessionFeedbackService.getPending(lookbackDays),
-    staleTime: 30 * 1000,
+    // 2026-07-31: 30s staleTime re-fired this heavy RPC on every tab refocus,
+    // multiplying peak-hour load (52k+ calls). Submit paths invalidate the
+    // query explicitly, so a longer staleTime costs no post-submit freshness.
+    staleTime: 120 * 1000,
   });
 }
 
@@ -76,7 +87,8 @@ export function useCarryforward(lookbackDays = 30) {
   return useQuery({
     queryKey: scfQueryKeys.carryforward(lookbackDays),
     queryFn: () => SessionFeedbackService.getCarryforward(lookbackDays),
-    staleTime: 30 * 1000,
+    staleTime: 120 * 1000, // 2026-07-31: see usePendingSessions
+
   });
 }
 
@@ -85,7 +97,8 @@ export function useConfirmationStatus(from: string, to: string) {
     queryKey: scfQueryKeys.confirmation(from, to),
     queryFn: () => SessionFeedbackService.getConfirmationStatus(from, to),
     enabled: !!from && !!to,
-    staleTime: 30 * 1000,
+    staleTime: 120 * 1000, // 2026-07-31: see usePendingSessions
+
   });
 }
 
@@ -222,6 +235,58 @@ export function useSubmitFeedback() {
   });
 }
 
+// ── Clarification requests (Lane C) — ask → self-reported outcome ────────────
+
+/** The caller's own clarification request for one session (null when none). */
+export function useClarification(attendanceDate: string, periodId: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.clarification(attendanceDate, periodId),
+    queryFn: () => SessionFeedbackService.getClarification(attendanceDate, periodId),
+    enabled: !!attendanceDate && !!periodId,
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Record "I asked for a re-explanation of this session". */
+export function useAskClarification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { attendanceDate: string; timetableId: string; periodId: string }) =>
+      SessionFeedbackService.askClarification(
+        input.attendanceDate,
+        input.timetableId,
+        input.periodId,
+      ),
+    onSuccess: (_data, input) => {
+      qc.invalidateQueries({
+        queryKey: scfQueryKeys.clarification(input.attendanceDate, input.periodId),
+      });
+    },
+  });
+}
+
+/** The same learner self-reports what happened after their ask. */
+export function useReportClarificationOutcome() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      attendanceDate: string;
+      periodId: string;
+      outcome: Exclude<ClarificationOutcome, 'pending'>;
+    }) =>
+      SessionFeedbackService.reportClarificationOutcome(
+        input.attendanceDate,
+        input.periodId,
+        input.outcome,
+      ),
+    onSuccess: (_data, input) => {
+      qc.invalidateQueries({
+        queryKey: scfQueryKeys.clarification(input.attendanceDate, input.periodId),
+      });
+    },
+  });
+}
+
 /** Faculty-triggered per-session "notify pending" nudge (PR-B). Refreshes the
  *  completion + pending-roster views so the drawer reflects any change. */
 export function useNotifySessionPending() {
@@ -280,5 +345,62 @@ export function useMyConfirmedAttendance() {
     queryKey: scfQueryKeys.myConfirmedAttendance(),
     queryFn: () => SessionFeedbackService.getMyConfirmedAttendance(),
     staleTime: 60 * 1000,
+  });
+}
+
+// ── Pre-session materials (Rank 3a) ──────────────────────────────────────────
+
+/** Active materials for a session + the caller's own `opened` flag + the aggregate
+ *  `open_count`. Decorative: the service returns [] on any failure, so callers can
+ *  render nothing when a session has no materials (or the RPC isn't applied yet). */
+export function useSessionResources(
+  timetableId: string,
+  attendanceDate: string,
+  periodId: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: scfQueryKeys.resourcesForSession(timetableId, attendanceDate, periodId),
+    queryFn: () =>
+      SessionFeedbackService.getResourcesForSession(timetableId, attendanceDate, periodId),
+    enabled: enabled && !!timetableId && !!attendanceDate && !!periodId,
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Post a material for a session (Senior Learner / HOD-admin). Refreshes the module
+ *  views so the new material + its count appear on both surfaces. */
+export function usePostSessionResource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PostSessionResourceInput) =>
+      SessionFeedbackService.postSessionResource(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
+/** Learner logs an open. Refreshes so the caller's own `opened` flag + the aggregate
+ *  count update. */
+export function useLogResourceOpen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (resourceId: string) => SessionFeedbackService.logResourceOpen(resourceId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
+/** Deactivate a mis-posted material (manage authority). */
+export function useDeactivateSessionResource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (resourceId: string) =>
+      SessionFeedbackService.deactivateSessionResource(resourceId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
   });
 }

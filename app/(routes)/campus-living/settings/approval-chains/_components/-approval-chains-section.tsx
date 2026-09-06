@@ -178,7 +178,7 @@ export function ApprovalChainsSection() {
                       <div className='flex items-start gap-3'>
                         <GitBranch className='h-5 w-5 text-muted-foreground mt-0.5' />
                         <div>
-                          <CardTitle className='text-base flex items-center gap-2'>
+                          <CardTitle className='text-base flex flex-wrap items-center gap-2'>
                             {rule.rule_name}
                             <Badge variant={rule.is_active ? 'success' : 'secondary'}>
                               {rule.is_active ? 'Active' : 'Inactive'}

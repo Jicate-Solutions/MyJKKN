@@ -22,11 +22,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // RLS) so the UI PermissionGuard alone is not a security boundary — every
   // authenticated user could otherwise POST here directly. user_has_permission
   // honors super_admin bypass internally; we just call it with the catalog key.
-  const { data: canConvert } = await (supabase as any)
+  //
+  // Use the ONE-ARG overload user_has_permission(permission_name text). It
+  // resolves auth.uid() internally, and `supabase` here is the cookie-scoped
+  // client, so it answers about exactly this caller — identical to passing
+  // user.id explicitly, which is all this route ever did.
+  //
+  // Do NOT switch back to user_has_permission(user_id uuid, permission_key text).
+  // Migration 20260811100100 deliberately REVOKED EXECUTE on that overload from
+  // `authenticated` because it is SECURITY DEFINER, accepts a caller-supplied
+  // uuid, and never compares it to auth.uid() — a signed-in user could ask
+  // "does <anyone> hold <any key>" and harvest the whole role map, handover
+  // delegations included. Calling it from a cookie-scoped client now yields
+  // 42501 and the button dies for everyone. (The service-role callers in
+  // /api/admission/leads/program-counts and lib/auth/bulk-receipt-access.ts
+  // still use the 2-arg form legitimately — service_role kept its grant.)
+  const { data: canConvert, error: permError } = await (supabase as any)
     .rpc('user_has_permission', {
-      user_id: user.id,
-      permission_key: 'admission.leads.convert_to_admitted',
+      permission_name: 'admission.leads.convert_to_admitted',
     });
+  // A check that could not RUN is not a denial. Reading `data` alone conflates
+  // the two — both arrive falsy — and that conflation is what shipped: when the
+  // (uuid, text) overload lost its EXECUTE grant to `authenticated`, PostgREST
+  // returned 42501 and every caller was told "Forbidden", including admission
+  // officers whose role plainly carried the key. Wrong AND unactionable: it
+  // points the reader at the permissions catalog, where nothing is broken.
+  // This branch is what makes the next occurrence legible instead of silent.
+  if (permError) {
+    console.error(
+      '[bridge/convert] Permission check could not run:',
+      permError.code,
+      permError.message,
+    );
+    return NextResponse.json(
+      { error: 'Permission check failed. Please report this to support.' },
+      { status: 500 },
+    );
+  }
   if (!canConvert) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
@@ -123,6 +155,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .maybeSingle();
   const accommodationTypeId: string | null = accRow?.id ?? null;
 
+  // ── 5b. Resolve the institution's ACTIVE academic year (BUG-005352) ─────────
+  // Profiles created by this bridge never carried academic_year_id, so every
+  // downstream year-keyed read found nothing: fn_learner_current_year_academic_fee
+  // matches bills on academic_year_id = learners_profiles.academic_year_id, and
+  // trg_billing_bill_default_academic_year copies the year FROM this profile
+  // column onto new bills. NULL here → unstamped bills → fee lookup empty →
+  // fresher reads as "not eligible" for hostel allocation. Same active-AY
+  // resolution the campus-living RPCs use (~8 migrations share the idiom).
+  const { data: activeAy } = await (svc as any)
+    .from('academic_years')
+    .select('id')
+    .eq('institution_id', lead.institution_id)
+    .eq('is_active', true)
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const academicYearId: string | null = activeAy?.id ?? null;
+  if (!academicYearId) {
+    console.warn(
+      '[bridge/convert] No active academic year for institution',
+      lead.institution_id,
+      '— academic_year_id left NULL (fee-eligibility lookups will not resolve until stamped)'
+    );
+  }
+
   // ── 5. Map fields ────────────────────────────────────────────────────────────
   const profileData = {
     // Name
@@ -149,6 +206,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Excel export) to derive the legacy integer from the FK in their
     // response shape, so external consumers see no change.
     admission_year_id: resolvedAdmissionYearId,
+    // BUG-005352: stamp the institution's active academic year at creation so
+    // the billing default-AY trigger and fee-eligibility functions can resolve.
+    academic_year_id: academicYearId,
     // Parent (best-effort)
     father_name: lead.parent_name || '',
     father_mobile: lead.parent_phone || '',

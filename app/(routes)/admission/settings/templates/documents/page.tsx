@@ -279,7 +279,7 @@ function DocumentCatalogContent() {
           {/* Filters */}
           <Card>
             <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                 <div className="relative flex-1 max-w-sm">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -289,7 +289,7 @@ function DocumentCatalogContent() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
                 </div>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                   {CATEGORIES.map(cat => (
                     <Button
                       key={cat.value}

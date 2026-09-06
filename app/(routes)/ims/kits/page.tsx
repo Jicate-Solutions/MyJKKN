@@ -54,11 +54,11 @@ function KitRulesInner() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
           Who gets which kit. One rulebook for all colleges — handovers happen at the central store.
         </p>
-        <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
+        <Button className="shrink-0" onClick={() => { setEditing(null); setDialogOpen(true); }}>
           <Plus className="h-4 w-4 mr-2" /> New Rule
         </Button>
       </div>
@@ -370,7 +370,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
           <div className="space-y-2 border-t pt-3">
             <Input placeholder="Search store items…" value={itemTerm} onChange={(e) => searchItems(e.target.value)} />
             {itemResults.map((r) => (
-              <div key={r.id} className="flex items-center justify-between text-sm">
+              <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>{r.name}{r.code ? ` (${r.code})` : ''}</span>
                 <span className="flex items-center gap-2">
                   <Input className="w-16 h-8" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />

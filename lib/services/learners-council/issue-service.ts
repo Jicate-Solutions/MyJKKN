@@ -4,6 +4,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { LCNotificationService } from './notification-service';
+import { describeCheckConstraintViolation } from '@/lib/validations/grievance-ticket';
 import type {
   GrievanceTicket,
   GrievanceComment,
@@ -234,6 +235,15 @@ export class LCIssueService {
 
     if (error) {
       console.error('[lc/issues] Error creating issue:', error);
+
+      // BUG-01: a CHECK violation (SQLSTATE 23514) is something the person can
+      // fix themselves — refuse explicitly with wording they can act on instead
+      // of leaking the raw constraint text.
+      const refusal = describeCheckConstraintViolation(error, { description: data.description });
+      if (refusal) {
+        throw new Error(refusal.error);
+      }
+
       throw new Error(`Failed to create issue: ${error.message}`);
     }
 

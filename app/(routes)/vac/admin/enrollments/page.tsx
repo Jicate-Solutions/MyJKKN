@@ -206,7 +206,7 @@ export default function EnrollmentManagementPage() {
 
       <div className="space-y-4 mt-4">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">Enrollment Management</h1>
             <p className="text-sm text-muted-foreground">
@@ -262,7 +262,7 @@ export default function EnrollmentManagementPage() {
 
         {/* Bulk Actions */}
         {selected.size > 0 && (
-          <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+          <div className="flex flex-wrap items-center gap-3 p-3 bg-muted rounded-lg">
             <span className="text-sm font-medium">
               {selected.size} selected
             </span>

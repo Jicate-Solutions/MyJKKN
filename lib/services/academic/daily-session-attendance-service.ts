@@ -214,7 +214,22 @@ export class DailySessionAttendanceService {
     const email = userData.user?.email;
     if (!email) return false;
 
-    const staffId = await FacultyAttendanceService.getStaffIdByEmail(email);
+    // getStaffIdByEmail now THROWS on a real failure rather than returning null
+    // (BUG-005820). This is an AUTHORISATION gate, so a failure must deny —
+    // never fall through to "allowed" — but it is logged distinctly so a run of
+    // denials caused by timeouts is not mistaken for people genuinely lacking
+    // incharge rights.
+    let staffId: string | null;
+    try {
+      staffId = await FacultyAttendanceService.getStaffIdByEmail(email);
+    } catch (error) {
+      logger.error(
+        'academic/daily-session-attendance',
+        'Staff lookup failed while authorising day-wise marking — denying',
+        error
+      );
+      return false;
+    }
     if (!staffId) return false;
 
     // timetable-level incharge

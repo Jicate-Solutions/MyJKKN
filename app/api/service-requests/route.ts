@@ -4,6 +4,7 @@ import { NextResponse , connection } from 'next/server';
 import { z } from 'zod';
 import { getAuthSession, createServerSupabaseClient } from '@/lib/supabase/server';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';
+import { paginationFromSearchParams } from '@/lib/services/service-requests/pagination';
 import { createServiceRequestSchema, type CreateServiceRequestDto } from '@/types/service-request';
 import type { ServiceRequestFilters } from '@/types/service-request';
 
@@ -47,8 +48,7 @@ export async function GET(request: Request) {
       search: searchParams.get('search') || undefined,
       submitted_from: searchParams.get('submitted_from') || undefined,
       submitted_to: searchParams.get('submitted_to') || undefined,
-      page: searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1,
-      limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 20,
+      ...paginationFromSearchParams(searchParams),
       sortBy: searchParams.get('sortBy') || 'created_at',
       sortOrder: (searchParams.get('sortOrder') as 'asc' | 'desc') || 'desc',
     };

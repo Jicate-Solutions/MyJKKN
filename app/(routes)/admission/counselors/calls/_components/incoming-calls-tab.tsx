@@ -515,7 +515,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
       {/* Call Log Table */}
       <Card id="call-history">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Incoming Call History</CardTitle>
               <CardDescription>
@@ -525,7 +525,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                 }
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {/* View Mode Toggle */}
               <div className="flex rounded-md border">
                 <Button

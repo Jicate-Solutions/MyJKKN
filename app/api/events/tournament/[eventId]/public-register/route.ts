@@ -18,17 +18,34 @@ import { checkEligibility, type EligibilitySubject } from '@/lib/services/events
 import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
 import type { EligibilityRules, CreateTeamMemberDto } from '@/types/tournament';
 
+// Unambiguous alphabet for the login-free access code: no O/0/I/1.
+const ACCESS_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function generateAccessCode(len = 6): string {
+  let out = '';
+  for (let i = 0; i < len; i++) {
+    out += ACCESS_CODE_ALPHABET[Math.floor(Math.random() * ACCESS_CODE_ALPHABET.length)];
+  }
+  return out;
+}
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 interface PublicRegisterBody {
   division_id: string;
   entry_name: string;
   entry_type: 'individual' | 'team';
   is_external?: boolean;
   institution_name?: string | null;
+  /** School Master directory row id, set when an external registrant PICKS a
+   *  listed school (rather than free-typing). Persisted to
+   *  tournament_entries.institution_school_id; institution_name keeps the label. */
+  institution_school_id?: string | null;
   participant_phone?: string | null;
   participant_email?: string | null;
   participant_gender?: string | null;
   participant_age?: number | null;
   members?: CreateTeamMemberDto[];
+  /** Which registration form on this event the answers below came from. */
+  form_id?: string | null;
   custom_fields?: Record<string, unknown> | null;
 }
 
@@ -135,16 +152,54 @@ export async function POST(
     // Skip validation entirely when the form exists but is explicitly disabled —
     // matches the guest page (Task 9), which renders no custom fields in that case,
     // so a registrant should never be 422'd for a field they were never shown.
-    const { data: formRow } = await (svc as any)
-      .from('event_registration_forms')
-      .select('is_enabled')
-      .eq('event_id', eventId)
-      .maybeSingle();
-    if (!formRow || formRow.is_enabled !== false) {
+    // An event holds many forms. Resolve the one the client submitted; never
+    // trust it blindly — it must belong to THIS event, or a caller could point a
+    // submission at another event's form and be validated against the wrong
+    // questions. Without a form_id (an old client), fall back to the first open
+    // form, which is what the public page would have rendered.
+    let formRow: { id: string; is_enabled: boolean } | null = null;
+    if (dto.form_id) {
+      const { data } = await (svc as any)
+        .from('event_registration_forms')
+        .select('id, is_enabled')
+        .eq('id', dto.form_id)
+        .eq('event_id', eventId)
+        .maybeSingle();
+      if (!data) {
+        return NextResponse.json(
+          { error: 'That registration form does not belong to this event.' },
+          { status: 422 },
+        );
+      }
+      formRow = data;
+    } else {
+      const { data } = await (svc as any)
+        .from('event_registration_forms')
+        .select('id, is_enabled')
+        .eq('event_id', eventId)
+        .eq('is_enabled', true)
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(1);
+      formRow = data?.[0] ?? null;
+    }
+
+    // A closed form must not accept entries — last month's link stays dead
+    // rather than quietly collecting this month's registrations.
+    if (formRow && formRow.is_enabled === false) {
+      return NextResponse.json(
+        { error: 'This registration form is closed.' },
+        { status: 422 },
+      );
+    }
+
+    if (formRow) {
+      // By form_id, NOT event_id: validating against every field on the event
+      // would demand answers to other months' questions.
       const { data: customFieldDefs } = await (svc as any)
         .from('event_registration_form_fields')
         .select('*')
-        .eq('event_id', eventId);
+        .eq('form_id', formRow.id);
       const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
       if (customFieldsError) {
         return NextResponse.json({ error: customFieldsError }, { status: 422 });
@@ -160,6 +215,9 @@ export async function POST(
       .from('events_registrations')
       .insert({
         event_id: eventId,
+        // Which form asked these questions — without it custom_fields becomes
+        // uninterpretable as soon as two forms use the same field_key.
+        form_id: formRow?.id ?? null,
         category_id: null,
         participant_type: dto.is_external ? 'external' : 'internal',
         participant_name: dto.entry_name.trim(),
@@ -183,23 +241,62 @@ export async function POST(
       return NextResponse.json({ error: regErr?.message || 'Failed to register' }, { status: 500 });
     }
 
-    // ---- tournament_entries ----
-    const { data: entry, error: entryErr } = await (svc as any)
-      .from('tournament_entries')
-      .insert({
-        event_id: eventId,
-        division_id: dto.division_id,
-        registration_id: reg.id,
-        entry_type: dto.entry_type,
-        entry_name: dto.entry_name.trim(),
-        institution_id: dto.is_external ? null : (selfInstitutionId ?? null),
-        institution_name: dto.institution_name ?? null,
-        is_external: !!dto.is_external,
-        captain_learner_id: dto.entry_type === 'team' ? selfLearnerId : null,
-        status: 'registered',
-      })
-      .select('id')
-      .single();
+    // ---- tournament_entries (with a unique, login-free access code) ----
+    // The code is generated server-side and retried on the unique-index
+    // collision (23505 on uq_tournament_entries_access_code). If the migration
+    // that adds access_code / institution_school_id has not been applied yet
+    // (42703 undefined_column), we fall back to a plain insert so registration
+    // still succeeds — the code is simply absent until the column exists.
+    const entryBase = {
+      event_id: eventId,
+      division_id: dto.division_id,
+      registration_id: reg.id,
+      entry_type: dto.entry_type,
+      entry_name: dto.entry_name.trim(),
+      institution_id: dto.is_external ? null : (selfInstitutionId ?? null),
+      institution_name: dto.institution_name ?? null,
+      is_external: !!dto.is_external,
+      captain_learner_id: dto.entry_type === 'team' ? selfLearnerId : null,
+      status: 'registered',
+    };
+    const institutionSchoolId =
+      dto.is_external && typeof dto.institution_school_id === 'string' && UUID_RE.test(dto.institution_school_id)
+        ? dto.institution_school_id
+        : null;
+
+    let entry: { id: string } | null = null;
+    let entryErr: { code?: string; message?: string; details?: string } | null = null;
+    let accessCode: string | null = null;
+    let extendedCols = true; // access_code + institution_school_id columns present?
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const candidate = generateAccessCode();
+      const payload = extendedCols
+        ? { ...entryBase, access_code: candidate, institution_school_id: institutionSchoolId }
+        : { ...entryBase };
+      const ins = await (svc as any)
+        .from('tournament_entries')
+        .insert(payload)
+        .select('id')
+        .single();
+      if (!ins.error && ins.data) {
+        entry = ins.data as { id: string };
+        entryErr = null;
+        accessCode = extendedCols ? candidate : null;
+        break;
+      }
+      entryErr = ins.error;
+      const blob = `${ins.error?.code ?? ''} ${ins.error?.message ?? ''} ${ins.error?.details ?? ''}`;
+      if (ins.error?.code === '23505' && /access_code/i.test(blob)) {
+        continue; // code already taken — regenerate and retry
+      }
+      if (ins.error?.code === '42703' && /(access_code|institution_school_id)/i.test(blob) && extendedCols) {
+        extendedCols = false; // migration not applied yet — retry without the new columns
+        continue;
+      }
+      break; // a genuinely different failure — stop retrying
+    }
+
     if (entryErr || !entry) {
       await (svc as any).from('events_registrations').delete().eq('id', reg.id);
       return NextResponse.json({ error: entryErr?.message || 'Failed to create entry' }, { status: 500 });
@@ -238,7 +335,7 @@ export async function POST(
         });
       } catch {
         return NextResponse.json(
-          { entry_id: entry.id, warning: 'Registered (unpaid) — payment link could not be created, please retry.' },
+          { entry_id: entry.id, access_code: accessCode, warning: 'Registered (unpaid) — payment link could not be created, please retry.' },
           { status: 207 }
         );
       }
@@ -247,6 +344,7 @@ export async function POST(
     return NextResponse.json(
       {
         entry_id: entry.id,
+        access_code: accessCode,
         paid_required: fee > 0,
         razorpay_order_id: paymentResult?.razorpay_order_id ?? null,
         razorpay_key_id: paymentResult?.razorpay_key_id ?? null,

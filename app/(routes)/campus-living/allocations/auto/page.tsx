@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -18,17 +18,11 @@ import { Switch } from '@/components/ui/switch';
 import { Loader2, Wand2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
-const ALL_BLOCKS = '__all_blocks__';
-const ALL_FLOORS = '__all_floors__';
-const floorLabel = (f: number) => (f === 0 ? 'Ground floor' : `Floor ${f}`);
 import { usePermissions } from '@/hooks/use-permissions';
 import { CandidateValidationTable } from './_components/candidate-validation-table';
 import type { AllocationCandidate } from '@/types/allocation-batch';
 import {
-  useAutoBlocks,
-  useBlockFloors,
-  useBlockInstitutions,
-  useHostelYears,
+  useHostelTypeInstitutions,
   useAllocationBatchActions,
 } from '@/hooks/campus-living/use-allocation-batches';
 import { AllocationBatchService } from '@/lib/services/campus-living/allocation-batch-service';
@@ -40,29 +34,27 @@ export const navMeta = { invokedFrom: '/campus-living/allocations' } as const;
 export default function AutoAllocatePage() {
   const router = useRouter();
   const { can, isSuperAdmin } = usePermissions();
-  const { blocks } = useAutoBlocks();
 
+  // Block and floor are NOT chosen here. The physical-room rules already decide
+  // which block/room a cohort may enter (fn_learner_strictly_eligible_for_room),
+  // so the engine sweeps every block of the selected type. Hostel year is not
+  // chosen either — the RPC defaults to hostel_years.is_current.
   const [genderType, setGenderType] = useState('');
-  const [blockId, setBlockId] = useState('');
-  const [floor, setFloor] = useState(ALL_FLOORS);
-  const [yearId, setYearId] = useState('');
   // Strict physical rules: only allocate cohorts that match a physical-room rule (default
   // on). Physical condition first, then category. Off = today's fail-open catch-all.
   const [strict, setStrict] = useState(true);
-  const { years } = useHostelYears();
+  // Overflow: when every room RESERVED for a learner's cohort in their eligible
+  // category is full, fall back to rooms of that SAME category that no rule
+  // reserves. Default on — it is the behaviour operators expect, and off
+  // reproduces the pre-2026-08-10 engine exactly for comparison.
+  const [allowOverflow, setAllowOverflow] = useState(true);
 
-  // Floors of the chosen block (single-block only — floor is ambiguous across "All blocks").
-  const { floors } = useBlockFloors(blockId && blockId !== ALL_BLOCKS ? blockId : '');
-  const floorParam = floor === ALL_FLOORS ? null : Number(floor);
-
-  // ── Cohort filters (which learners get placed). Single-block only, like the
-  // floor scope — the institution/program lists are per-block-ambiguous across
-  // "All blocks". Cascade: institution → program → semester. Blank = no filter.
-  const isSpecificBlock = !!blockId && blockId !== ALL_BLOCKS;
+  // ── Cohort filters (which learners get placed).
+  // Cascade: institution → program → semester. Blank = no filter.
   const [institutionId, setInstitutionId] = useState('');
   const [programId, setProgramId] = useState('');
   const [semesterId, setSemesterId] = useState('');
-  const { institutions: blockInstitutions } = useBlockInstitutions(isSpecificBlock ? blockId : '');
+  const { institutions: typeInstitutions } = useHostelTypeInstitutions(genderType);
   const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
   const [semesters, setSemesters] = useState<{ id: string; semester_name: string }[]>([]);
 
@@ -80,13 +72,9 @@ export default function AutoAllocatePage() {
       .catch(() => setSemesters([]));
   }, [programId]);
 
-  // Only applied for a specific block; null = no filter.
-  const instParam = isSpecificBlock && institutionId ? institutionId : null;
-  const progParam = isSpecificBlock && programId ? programId : null;
-  const semParam = isSpecificBlock && semesterId ? semesterId : null;
-
-  // Block list is per-gender — pick a type first to narrow it.
-  const typedBlocks = genderType ? blocks.filter((b) => b.type === genderType) : [];
+  const instParam = institutionId || null;
+  const progParam = programId || null;
+  const semParam = semesterId || null;
 
   const [candidates, setCandidates] = useState<AllocationCandidate[] | null>(null);
   const [availableBeds, setAvailableBeds] = useState(0);
@@ -96,15 +84,28 @@ export default function AutoAllocatePage() {
 
   const canGenerate = isSuperAdmin || can('campus_living.allocations.create');
 
+  // Cohort selection in words, for the preview export header. Safe to read from
+  // live state: every one of these selects clears `candidates`, so the table
+  // (and its export) only exists while the selection still matches the preview.
+  const scopeLabels = useMemo(() => {
+    const out: string[] = [];
+    const inst = typeInstitutions.find((i) => i.id === institutionId)?.name;
+    const prog = programs.find((p) => p.id === programId)?.program_name;
+    const sem = semesters.find((s) => s.id === semesterId)?.semester_name;
+    if (inst) out.push(`Institution: ${inst}`);
+    if (prog) out.push(`Program: ${prog}`);
+    if (sem) out.push(`Semester: ${sem}`);
+    return out;
+  }, [typeInstitutions, institutionId, programs, programId, semesters, semesterId]);
+
   const runPreview = async () => {
-    // Preview is per-block (the candidate table is one block's cohort).
-    if (!blockId || blockId === ALL_BLOCKS) return;
+    if (!genderType) return;
     setPreviewing(true);
     setCandidates(null);
     try {
       const [cands, agg] = await Promise.all([
-        AllocationBatchService.previewCandidates(blockId, strict, floorParam, instParam, progParam, semParam),
-        AllocationBatchService.preview(blockId, floorParam),
+        AllocationBatchService.previewCandidates(genderType, strict, instParam, progParam, semParam, allowOverflow),
+        AllocationBatchService.preview(genderType, instParam, progParam, semParam),
       ]);
       setCandidates(cands);
       setAvailableBeds(agg.available_beds);
@@ -115,25 +116,16 @@ export default function AutoAllocatePage() {
     }
   };
 
+  // One batch spanning every block of the type — the rules place each learner.
   const runGenerate = async () => {
-    if (!blockId || !yearId) return;
+    if (!genderType) return;
     setGenerating(true);
     try {
-      if (blockId === ALL_BLOCKS) {
-        // One proposed batch per block of the selected gender. Floor scope is single-block
-        // only, so "All blocks" always runs across all floors (floorParam is null here).
-        let made = 0;
-        for (const b of typedBlocks) {
-          await generate(b.id, yearId, strict, null);
-          made += 1;
-        }
-        toast.success(`Generated a proposed batch for ${made} block${made === 1 ? '' : 's'} — awaiting warden approval`);
-        router.push('/campus-living/allocations/batches');
-      } else {
-        const batchId = await generate(blockId, yearId, strict, floorParam, instParam, progParam, semParam);
-        toast.success('Proposed allocation generated — awaiting warden approval');
-        router.push(`/campus-living/allocations/batches/${batchId}`);
-      }
+      // Same allowOverflow the preview ran with — otherwise Generate places a
+      // different set than the operator just approved on screen.
+      const batchId = await generate(genderType, strict, instParam, progParam, semParam, allowOverflow);
+      toast.success('Proposed allocation generated — awaiting warden approval');
+      router.push(`/campus-living/allocations/batches/${batchId}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to generate');
     } finally {
@@ -156,12 +148,17 @@ export default function AutoAllocatePage() {
         <div>
           <h1 className="text-2xl font-bold py-1">Auto-Allocate</h1>
           <p className="text-sm text-muted-foreground">
-            Fills the block&apos;s eligible rooms with unallocated hostelites, placing each into
-            the room category the Category Eligibility rules resolve for them (and assigning their
-            mess category). Rooms reserved by a physical-room rule go to that rule&apos;s cohort;
-            rooms with no rule are open to any eligible student of the block&apos;s institutions,
-            filled primary-institution first. Students with no rule-resolved category — e.g. no
-            current-year bill — are skipped. The result is a proposed batch a warden approves.
+            Fills the block&apos;s eligible rooms with unallocated <strong>active</strong>{' '}
+            hostelites, placing each into the room category the Category Eligibility rules resolve
+            for them (and assigning their mess category). Only learners whose status is Active are
+            candidates — enquiry, reserved, admitted, account, graduated, inactive and rejected
+            learners are never allocated a bed (Residents still lists every status). Rooms reserved
+            by a physical-room rule go to that rule&apos;s cohort; rooms with no rule are open to any
+            eligible student of the block&apos;s institutions, filled primary-institution first.
+            Fee bands are matched against the fee billed for the academic year the student was
+            admitted in (falling back to their earliest billed year). Students with no
+            rule-resolved category — e.g. no academic bill, or bills totalling ₹0 — are skipped.
+            The result is a proposed batch a warden approves.
           </p>
         </div>
 
@@ -169,14 +166,15 @@ export default function AutoAllocatePage() {
           <CardHeader>
             <CardTitle className="text-base">Selection</CardTitle>
             <CardDescription>
-              Type, block, floor, and hostel year. Optionally narrow to a specific
-              institution / program / semester (a selected block only) to auto-allocate just those learners.
+              Pick the hostel type, then optionally narrow to an institution / program /
+              semester. Block, floor and room are decided by the Physical Rooms rules —
+              you don&apos;t choose them here. The batch is stamped with the current hostel year.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setBlockId(''); setFloor(ALL_FLOORS); setInstitutionId(''); setProgramId(''); setSemesterId(''); setCandidates(null); }}>
+              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setInstitutionId(''); setProgramId(''); setSemesterId(''); setCandidates(null); }}>
                 <SelectTrigger><SelectValue placeholder="Boys / Girls" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="boys">Boys</SelectItem>
@@ -185,48 +183,16 @@ export default function AutoAllocatePage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Block</Label>
-              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setFloor(ALL_FLOORS); setInstitutionId(''); setProgramId(''); setSemesterId(''); setCandidates(null); }} disabled={!genderType}>
-                <SelectTrigger><SelectValue placeholder={genderType ? 'Select block' : 'Pick a type first'} /></SelectTrigger>
-                <SelectContent>
-                  {typedBlocks.length > 1 && (
-                    <SelectItem value={ALL_BLOCKS}>
-                      All blocks ({genderType === 'boys' ? 'Boys' : 'Girls'})
-                    </SelectItem>
-                  )}
-                  {typedBlocks.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Floor</Label>
-              <Select
-                value={floor}
-                onValueChange={(v) => { setFloor(v); setCandidates(null); }}
-                disabled={!blockId || blockId === ALL_BLOCKS}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All floors" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FLOORS}>All floors</SelectItem>
-                  {floors.map((f) => (
-                    <SelectItem key={f} value={String(f)}>{floorLabel(f)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
               <Label>Institution</Label>
               <Select
                 value={institutionId || 'all'}
                 onValueChange={(v) => { setInstitutionId(v === 'all' ? '' : v); setProgramId(''); setSemesterId(''); setCandidates(null); }}
-                disabled={!isSpecificBlock}
+                disabled={!genderType}
               >
-                <SelectTrigger><SelectValue placeholder="All institutions" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={genderType ? 'All institutions' : 'Pick a type first'} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All institutions</SelectItem>
-                  {blockInstitutions.map((i) => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
+                  {typeInstitutions.map((i) => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -235,7 +201,7 @@ export default function AutoAllocatePage() {
               <Select
                 value={programId || 'all'}
                 onValueChange={(v) => { setProgramId(v === 'all' ? '' : v); setSemesterId(''); setCandidates(null); }}
-                disabled={!isSpecificBlock || !institutionId}
+                disabled={!institutionId}
               >
                 <SelectTrigger><SelectValue placeholder={institutionId ? 'All programs' : 'Pick an institution first'} /></SelectTrigger>
                 <SelectContent>
@@ -249,21 +215,12 @@ export default function AutoAllocatePage() {
               <Select
                 value={semesterId || 'all'}
                 onValueChange={(v) => { setSemesterId(v === 'all' ? '' : v); setCandidates(null); }}
-                disabled={!isSpecificBlock || !programId}
+                disabled={!programId}
               >
                 <SelectTrigger><SelectValue placeholder={programId ? 'All semesters' : 'Pick a program first'} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All semesters</SelectItem>
                   {semesters.map((s) => <SelectItem key={s.id} value={s.id}>{s.semester_name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Hostel Year</Label>
-              <Select value={yearId} onValueChange={setYearId}>
-                <SelectTrigger><SelectValue placeholder="Select hostel year" /></SelectTrigger>
-                <SelectContent>
-                  {years.map((y) => <SelectItem key={y.id} value={y.id}>{y.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -282,19 +239,28 @@ export default function AutoAllocatePage() {
           <Switch checked={strict} onCheckedChange={(v) => { setStrict(v); setCandidates(null); }} />
         </div>
 
-        <div className="flex gap-3">
-          <Button
-            variant="outline"
-            onClick={runPreview}
-            disabled={!blockId || blockId === ALL_BLOCKS || previewing}
-          >
+        <div className="flex items-center justify-between rounded-lg border p-3 sm:max-w-xl">
+          <div className="space-y-0.5 pr-3">
+            <Label className="text-sm">Allow overflow when reserved rooms are full</Label>
+            <p className="text-xs text-muted-foreground">
+              If every room a physical rule reserves for a learner&apos;s cohort is full, place
+              them in a room of the <strong>same category</strong> that no rule reserves. Their
+              category is never changed, and a room reserved for another cohort is never used.
+              Turn off to reproduce the engine&apos;s previous behaviour exactly.
+            </p>
+          </div>
+          <Switch
+            checked={allowOverflow}
+            onCheckedChange={(v) => { setAllowOverflow(v); setCandidates(null); }}
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <Button variant="outline" onClick={runPreview} disabled={!genderType || previewing}>
             {previewing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Preview
           </Button>
           {canGenerate && (
-            <Button
-              onClick={runGenerate}
-              disabled={!blockId || !yearId || generating}
-            >
+            <Button onClick={runGenerate} disabled={!genderType || generating}>
               {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
               Generate proposed batch
             </Button>
@@ -302,7 +268,14 @@ export default function AutoAllocatePage() {
         </div>
 
         {candidates && (
-          <CandidateValidationTable candidates={candidates} availableBeds={availableBeds} />
+          <CandidateValidationTable
+            candidates={candidates}
+            availableBeds={availableBeds}
+            hostelType={genderType}
+            strict={strict}
+            allowOverflow={allowOverflow}
+            scope={scopeLabels}
+          />
         )}
       </div>
     </ContentLayout>

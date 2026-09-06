@@ -55,7 +55,6 @@ function MetricFormDialog({
   const [metricName, setMetricName] = useState(entity?.metric_name ?? '');
   const [category, setCategory] = useState(entity?.category ?? '');
   const [maxScore, setMaxScore] = useState(entity?.max_score?.toString() ?? '');
-  const [weightage, setWeightage] = useState(entity?.weightage?.toString() ?? '');
   const [calc, setCalc] = useState(entity?.calculation_method ?? '');
   const [notes, setNotes] = useState(entity?.notes ?? '');
   const [submitting, setSubmitting] = useState(false);
@@ -70,8 +69,13 @@ function MetricFormDialog({
       metric_code: metricCode.trim(),
       metric_name: metricName.trim(),
       category: category.trim() || null,
+      // No `weightage` here on purpose. The column exists on
+      // sh_accreditation_metrics but nothing reads it: no function, no view, no
+      // scoring code — verified against production, where all 107 metrics have it
+      // NULL. Scoring is driven by max_score alone (the 900-mark Binary deck).
+      // Sending a weightage would write a number that changes nothing, which is
+      // what the removed input invited. Wire a real consumer before re-adding it.
       max_score: maxScore ? parseFloat(maxScore) : null,
-      weightage: weightage ? parseFloat(weightage) : null,
       calculation_method: calc.trim() || null,
       notes: notes.trim() || null,
     };
@@ -129,15 +133,9 @@ function MetricFormDialog({
             <Label>Category</Label>
             <Input value={category} onChange={e => setCategory(e.target.value)} placeholder="e.g. Curricular Aspects" />
           </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <Label>Max score</Label>
-              <Input type="number" step="0.1" value={maxScore} onChange={e => setMaxScore(e.target.value)} />
-            </div>
-            <div>
-              <Label>Weightage</Label>
-              <Input type="number" step="0.01" value={weightage} onChange={e => setWeightage(e.target.value)} />
-            </div>
+          <div>
+            <Label>Max score</Label>
+            <Input type="number" step="0.1" value={maxScore} onChange={e => setMaxScore(e.target.value)} />
           </div>
           <div>
             <Label>Calculation method</Label>
@@ -240,7 +238,7 @@ export default function MetricsPage() {
         />
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-lg">Metrics Catalog</CardTitle>
                 <p className="text-sm text-muted-foreground">
@@ -248,7 +246,7 @@ export default function MetricsPage() {
                   Add local/supplementary metrics (e.g. JKKN-specific benchmarks) as needed.
                 </p>
               </div>
-              <div className="flex items-end gap-2">
+              <div className="flex flex-wrap items-end gap-2">
                 <div className="w-40">
                   <Label className="text-xs">Filter body</Label>
                   <Select value={bodyFilter} onValueChange={setBodyFilter}>

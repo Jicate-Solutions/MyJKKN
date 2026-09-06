@@ -9,10 +9,24 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
-import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
-import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
-import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
-import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-type-resolver';
+import {
+  getLearnerFkResolvers,
+  resolveLearnerFkFields,
+  fkLabel,
+  FK_FIELD_SPECS,
+  FK_CONSUMED_KEYS,
+} from './bulk-learner-fk-fields';
+import {
+  getReferenceResolvers,
+  resolveLearnerReference,
+  buildReferenceTypoHints,
+  referenceHintKey,
+  REFERENCE_CONSUMED_KEYS,
+  REFERENCE_TYPE_EXCEL_LABEL,
+  type ReferenceOutcome,
+  type ReferenceResolvers,
+  type ReferenceTypeKey,
+} from './bulk-learner-reference-fields';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(
@@ -48,6 +62,16 @@ export interface BulkEditResult {
     id?: string;
     error: string;
   }>;
+  /** What the reference columns actually did, so the result step can say so. */
+  reference_summary: {
+    linked: number;
+    name_only: number;
+    type_only: number;
+    attributions_created: number;
+    attributions_replaced: number;
+    /** Lead rows written instead of the profile. Zero today — see processBulkEdit. */
+    leads_updated: number;
+  };
 }
 
 /**
@@ -75,6 +99,12 @@ interface FieldChange {
 interface PreviewResult {
   exists: boolean;
   isActive: boolean;
+  /**
+   * Cells that carried a value but matched no lookup row (e.g. a quota label
+   * that isn't in `quotas`). The field is skipped on write, so the reviewer has
+   * to be told — silently dropping it is how the previous version hid problems.
+   */
+  warnings?: string[];
   // 2026-06-29: eligibility under the requested lifecycle scope. Active flow
   // requires active; the enquiry (non-active) flow requires NOT active. The
   // active routes ignore this field and keep reading `isActive`.
@@ -82,6 +112,20 @@ interface PreviewResult {
   hasAccess: boolean;
   learnerName?: string;
   changes: FieldChange[];
+  /**
+   * Present only when the row carried reference cells. Drives the validate
+   * step's "linked vs name-only" buckets and the consultant-commission banner.
+   */
+  reference?: {
+    outcome: ReferenceOutcome;
+    /** Tier 3 — a real name with no record behind it (old staff, old learner). */
+    nameOnly?: { type: ReferenceTypeKey; name: string };
+    /**
+     * What trg_sync_learner_referral_to_attribution will do. Only ever set for
+     * consultants — the trigger's EXISTS guard ignores staff and student ids.
+     */
+    attribution?: 'create' | 'replace';
+  };
 }
 
 /**
@@ -90,6 +134,8 @@ interface PreviewResult {
 const FIELD_LABELS: Record<string, string> = {
   first_name: 'First Name',
   last_name: 'Last Name',
+  first_name_tamil: 'First Name (Tamil)',
+  last_name_tamil: 'Last Name (Tamil)',
   date_of_birth: 'Date of Birth',
   gender: 'Gender',
   religion: 'Religion',
@@ -97,6 +143,9 @@ const FIELD_LABELS: Record<string, string> = {
   caste: 'Caste',
   aadhar_number: 'Aadhar Number',
   blood_group: 'Blood Group',
+  abc_id: 'ABC ID',
+  emis: 'EMIS Number',
+  umis: 'UMIS Number',
   admission_year: 'Admission Year',
   father_name: 'Father Name',
   father_occupation: 'Father Occupation',
@@ -134,6 +183,12 @@ const FIELD_LABELS: Record<string, string> = {
   reference_type: 'Reference Type',
   reference_name: 'Reference Name',
   reference_contact: 'Reference Contact',
+  // The typed reference. reference_type / reference_name are written as legacy
+  // mirrors of these two and are deliberately NOT surfaced as separate preview
+  // rows — one logical edit would otherwise render as six.
+  referral_type: 'Reference Type',
+  referred_by_name: 'Reference Person',
+  referred_by_id: 'Reference Person',
   medical_cutoff_marks: 'Medical Cutoff Marks',
   engineering_cutoff_marks: 'Engineering Cutoff Marks',
   neet_roll_number: 'NEET Roll Number',
@@ -141,6 +196,51 @@ const FIELD_LABELS: Record<string, string> = {
   counseling_applied: 'Counseling Applied',
   counseling_number: 'Counseling Number'
 };
+
+/**
+ * Reference columns that actually differ from what is stored.
+ *
+ * Returning only the diff is what keeps a re-uploaded, unedited template at
+ * "no changes". Merging all six columns unconditionally would bump updated_at
+ * on every row and report the whole sheet as updated — the same phantom-changes
+ * failure bulk-learner-fk-fields.ts was written to fix, one field group over.
+ */
+function diffReferenceValues(
+  values: Record<string, any>,
+  existing: Record<string, any> | null | undefined
+): Record<string, any> {
+  const diff: Record<string, any> = {};
+  for (const [key, value] of Object.entries(values)) {
+    const stored = existing?.[key];
+    const a = stored === null || stored === undefined ? '' : String(stored);
+    const b = value === null || value === undefined ? '' : String(value);
+    if (a !== b) diff[key] = value;
+  }
+  return diff;
+}
+
+/**
+ * What trg_sync_learner_referral_to_attribution will do for this row.
+ *
+ * The trigger inserts a consultant_lead_attributions row at 100% primary only
+ * when the new referred_by_id EXISTS in education_consultants, so staff and
+ * student references have no commission effect at all.
+ */
+function classifyAttribution(
+  values: Record<string, any>,
+  existing: Record<string, any> | null | undefined,
+  resolvers: ReferenceResolvers
+): 'create' | 'replace' | undefined {
+  const newId = values.referred_by_id;
+  if (!newId) return undefined;
+  const oldId = existing?.referred_by_id ?? null;
+  if (oldId === newId) return undefined;
+  if (resolvers.byId.get(String(newId).toLowerCase())?.type !== 'consultant') return undefined;
+  return oldId ? 'replace' : 'create';
+}
+
+const referenceTypeLabel = (value: unknown): string =>
+  REFERENCE_TYPE_EXCEL_LABEL[value as ReferenceTypeKey] ?? String(value ?? '');
 
 /**
  * Bulk Edit Learner Service
@@ -219,12 +319,42 @@ export class BulkLearnerEditService {
 
     const learnerName = `${existingLearner.first_name} ${existingLearner.last_name || ''}`.trim();
 
+    // FK-backed fields (Community / Caste / Quota / Accommodation Type /
+    // Admission Year) store a uuid but travel through Excel as a readable
+    // label. Resolve label -> id and compare id-to-id below.
+    //
+    // The previous version compared the uploaded label against
+    // existingLearner['community'] etc. — TEXT columns dropped by the FK-only
+    // migrations. Reading a missing column yields `undefined`, which rendered as
+    // "(empty)" and differed from every populated cell, so a freshly downloaded
+    // template round-tripped as thousands of phantom changes.
+    const [resolvers, referenceResolvers] = await Promise.all([
+      getLearnerFkResolvers(supabaseAdmin),
+      getReferenceResolvers(supabaseAdmin),
+    ]);
+    const fk = resolveLearnerFkFields(uploadedData, resolvers, {
+      institutionId: existingLearner.institution_id,
+      existing: existingLearner,
+    });
+
     // Compare fields and detect changes
     const changes: FieldChange[] = [];
 
     Object.entries(uploadedData).forEach(([key, newValue]) => {
       // Skip ID and protected fields
       if (key === 'id' || PROTECTED_FIELDS.has(key)) {
+        return;
+      }
+
+      // Handled by the FK pass below — never by raw string comparison.
+      if (FK_CONSUMED_KEYS.has(key)) {
+        return;
+      }
+
+      // Same for the reference cells: (Type, ID, Person, Contact) resolve
+      // together into six columns, so comparing them one-by-one against the
+      // stored value would both miss the link and print raw uuids.
+      if (REFERENCE_CONSUMED_KEYS.has(key)) {
         return;
       }
 
@@ -258,14 +388,125 @@ export class BulkLearnerEditService {
       }
     });
 
+    // FK pass — compare stored id against resolved id, but SHOW the labels so
+    // the preview table stays readable rather than printing uuids.
+    for (const spec of FK_FIELD_SPECS) {
+      const newId = fk.ids[spec.idColumn];
+      if (!newId) continue;
+
+      const oldId = existingLearner[spec.idColumn] ?? null;
+      if (oldId === newId) continue;
+
+      changes.push({
+        field: spec.idColumn,
+        fieldLabel: spec.fieldLabel,
+        oldValue: fkLabel(resolvers, spec, oldId) ?? '(empty)',
+        newValue: fkLabel(resolvers, spec, newId) ?? newId
+      });
+    }
+
+    // Reference pass — (Type, ID, Person, Contact) resolve together into the
+    // typed triple plus its legacy mirror. Only two rows are surfaced here:
+    // rendering all six would turn one logical edit into six preview lines.
+    const reference = resolveLearnerReference(uploadedData, referenceResolvers, {
+      existing: existingLearner,
+    });
+    const referenceDiff = diffReferenceValues(reference.values, existingLearner);
+
+    if (referenceDiff.referral_type !== undefined) {
+      changes.push({
+        field: 'referral_type',
+        fieldLabel: 'Reference Type',
+        oldValue: existingLearner.referral_type
+          ? referenceTypeLabel(existingLearner.referral_type)
+          : '(empty)',
+        newValue: referenceTypeLabel(referenceDiff.referral_type)
+      });
+    }
+
+    if (
+      referenceDiff.referred_by_name !== undefined ||
+      referenceDiff.referred_by_id !== undefined
+    ) {
+      changes.push({
+        field: 'referred_by_name',
+        fieldLabel:
+          reference.outcome === 'name_only' ? 'Reference Person (name only)' : 'Reference Person',
+        oldValue: existingLearner.referred_by_name || '(empty)',
+        newValue: reference.matched
+          ? reference.matched.candidate.label
+          : reference.values.referred_by_name || '(cleared)'
+      });
+    }
+
+    if (referenceDiff.reference_contact !== undefined) {
+      changes.push({
+        field: 'reference_contact',
+        fieldLabel: 'Reference Contact',
+        oldValue: existingLearner.reference_contact || '(empty)',
+        newValue: referenceDiff.reference_contact
+      });
+    }
+
+    const warnings = [
+      ...fk.unresolved.map(
+        (u) => `${u.fieldLabel}: "${u.value}" matched no record — this field will be skipped.`
+      ),
+      ...reference.warnings
+    ];
+
     return {
       exists: true,
       isActive: learnerCheck.isActive,
       eligible: true,
       hasAccess: true,
       learnerName,
-      changes
+      changes,
+      reference:
+        reference.outcome && Object.keys(referenceDiff).length > 0
+          ? {
+              outcome: reference.outcome,
+              nameOnly: reference.nameOnly,
+              attribution: classifyAttribution(referenceDiff, existingLearner, referenceResolvers)
+            }
+          : undefined,
+      warnings: warnings.length > 0 ? warnings : undefined
     };
+  }
+
+  /**
+   * Candidate lists + id lookup for the export template's reference dropdowns.
+   * Routed through the service so the export keeps using one admin client and
+   * the SAME lists the importer will match against — a dropdown offering an
+   * option the importer can't resolve is worse than no dropdown.
+   */
+  static getReferenceLookups(): Promise<ReferenceResolvers> {
+    return getReferenceResolvers(supabaseAdmin);
+  }
+
+  /**
+   * Attach a "did you mean …?" suggestion to each name-only reference.
+   *
+   * This is what lets the reviewer tell a typo ("SURESH KUMR") from a genuinely
+   * departed referrer ("K. BALAN, retired 2019") — both look identical
+   * otherwise, and only one of them should be stored without a link.
+   */
+  static async buildReferenceHints(
+    nameOnly: Array<{ type: ReferenceTypeKey; name: string }>
+  ): Promise<Array<{ type: ReferenceTypeKey; name: string; hint: string | null }>> {
+    if (nameOnly.length === 0) return [];
+    const resolvers = await getReferenceResolvers(supabaseAdmin);
+    const hints = buildReferenceTypoHints(nameOnly, resolvers);
+
+    const seen = new Set<string>();
+    const out: Array<{ type: ReferenceTypeKey; name: string; hint: string | null }> = [];
+    for (const entry of nameOnly) {
+      const key = referenceHintKey(entry.type, entry.name);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ type: entry.type, name: entry.name, hint: hints.get(key) ?? null });
+    }
+    return out;
   }
 
   /**
@@ -286,17 +527,51 @@ export class BulkLearnerEditService {
       skipped: 0,
       failed: 0,
       updated_learners: [],
-      errors: []
+      errors: [],
+      reference_summary: {
+        linked: 0,
+        name_only: 0,
+        type_only: 0,
+        attributions_created: 0,
+        attributions_replaced: 0,
+        leads_updated: 0
+      }
     };
 
-    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK)
-    // before each update. Storage is quota_id only; the `quota` TEXT column is
-    // being retired.
-    const resolveQuota = await buildQuotaResolver(supabaseAdmin);
-    const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
-    const resolveCaste = await buildCasteResolver(supabaseAdmin);
-    // accommodation_type TEXT retired — resolve the label → institution-scoped FK.
-    const resolveAccommodation = await buildAccommodationTypeResolverMulti(supabaseAdmin);
+    // Community / Caste / Quota / Accommodation Type / Admission Year arrive as
+    // readable labels (or as "<Field> ID" uuids); storage is the FK column only.
+    // Resolved through the SAME helper the preview used, so what the reviewer
+    // approved is exactly what gets written.
+    const [resolvers, referenceResolvers] = await Promise.all([
+      getLearnerFkResolvers(supabaseAdmin),
+      getReferenceResolvers(supabaseAdmin)
+    ]);
+
+    // Lead guard. admission_leads is the authority for referral attribution:
+    // trg_sync_lead_referral_to_learner_profile mirrors a lead onto its linked
+    // profile, so a reference written to the profile alone would be silently
+    // reverted the next time that lead is edited. No ACTIVE learner is
+    // lead-linked today — all 1,470 links sit on pre-conversion lifecycle
+    // stages — so this map comes back empty; it exists so that the day one IS
+    // back-linked, the authority gets written instead of drifting.
+    //
+    // Chunked because a single .in() over thousands of uuids builds a URL long
+    // enough for PostgREST to reject with a 400.
+    const leadByProfileId = new Map<string, string>();
+    const learnerIds = [...new Set(rows.map((r) => r.data?.id).filter(Boolean))];
+    for (let i = 0; i < learnerIds.length; i += 200) {
+      const { data: leadRows, error: leadError } = await supabaseAdmin
+        .from('admission_leads')
+        .select('id, learner_profile_id')
+        .in('learner_profile_id', learnerIds.slice(i, i + 200));
+      if (leadError) {
+        console.warn('[bulk-edit] Lead lookup failed, writing profiles only:', leadError.message);
+        break;
+      }
+      for (const lead of (leadRows ?? []) as any[]) {
+        if (lead.learner_profile_id) leadByProfileId.set(lead.learner_profile_id, lead.id);
+      }
+    }
 
     for (const row of rows) {
       try {
@@ -364,6 +639,20 @@ export class BulkLearnerEditService {
             return;
           }
 
+          // FK-backed fields are resolved below — never written raw. The label
+          // columns they arrive in (community, caste, quota, …) no longer exist
+          // on learners_profiles, so letting one through would fail the update.
+          if (FK_CONSUMED_KEYS.has(key)) {
+            return;
+          }
+
+          // Reference cells resolve together into six columns below. Letting
+          // reference_type through raw would write the Excel label ('Consultant')
+          // into a column whose CHECK only accepts the lowercase DB values.
+          if (REFERENCE_CONSUMED_KEYS.has(key)) {
+            return;
+          }
+
           // Only update if value is provided (not empty)
           if (value !== undefined && value !== null && value !== '') {
             updateData[key] = value;
@@ -371,61 +660,28 @@ export class BulkLearnerEditService {
           }
         });
 
-        // Quota arrives as a readable label; persist the FK (quota_id), not the
-        // legacy TEXT column. Drop the text key either way so it never reaches
-        // the (retired) column; only set quota_id when the label resolves.
-        if (updateData.quota !== undefined) {
-          const qid = resolveQuota(updateData.quota);
-          delete updateData.quota;
-          const qi = fieldsUpdated.indexOf('quota');
-          if (qi !== -1) fieldsUpdated.splice(qi, 1);
-          if (qid) {
-            updateData.quota_id = qid;
-            fieldsUpdated.push('quota_id');
-          }
+        // Label (or "<Field> ID" uuid) -> FK column. Unresolvable labels are
+        // left out entirely, preserving whatever the DB already holds; the
+        // preview surfaced them as a warning before the user confirmed.
+        const fk = resolveLearnerFkFields(row.data, resolvers, {
+          institutionId: learnerCheck.learner.institution_id,
+          existing: learnerCheck.learner,
+        });
+        for (const [column, id] of Object.entries(fk.ids)) {
+          updateData[column] = id;
+          fieldsUpdated.push(column);
         }
 
-        // Community arrives as a readable label; persist the FK
-        // (community_category_id), not the legacy TEXT column.
-        if (updateData.community !== undefined) {
-          const cid = resolveCommunity(updateData.community);
-          delete updateData.community;
-          const ci = fieldsUpdated.indexOf('community');
-          if (ci !== -1) fieldsUpdated.splice(ci, 1);
-          if (cid) {
-            updateData.community_category_id = cid;
-            fieldsUpdated.push('community_category_id');
-          }
-        }
-
-        // Caste arrives as a readable label; persist the FK (caste_id), not the
-        // legacy TEXT column. Resolution is community-scoped (ambiguous names).
-        if (updateData.caste !== undefined) {
-          const cstId = resolveCaste(updateData.caste, updateData.community_category_id);
-          delete updateData.caste;
-          const xi = fieldsUpdated.indexOf('caste');
-          if (xi !== -1) fieldsUpdated.splice(xi, 1);
-          if (cstId) {
-            updateData.caste_id = cstId;
-            fieldsUpdated.push('caste_id');
-          }
-        }
-
-        // Accommodation arrives as a readable label; persist the FK
-        // (accommodation_type_id), not the legacy TEXT column. Resolution is
-        // scoped to the learner's institution.
-        if (updateData.accommodation_type !== undefined) {
-          const aid = resolveAccommodation(
-            updateData.accommodation_type,
-            learnerCheck.learner.institution_id,
-          );
-          delete updateData.accommodation_type;
-          const ai = fieldsUpdated.indexOf('accommodation_type');
-          if (ai !== -1) fieldsUpdated.splice(ai, 1);
-          if (aid) {
-            updateData.accommodation_type_id = aid;
-            fieldsUpdated.push('accommodation_type_id');
-          }
+        // Reference pass — same resolver the preview ran, so what the reviewer
+        // approved is what gets written. Only the columns that actually differ
+        // are merged; re-uploading an unedited template must stay a no-op.
+        const reference = resolveLearnerReference(row.data, referenceResolvers, {
+          existing: learnerCheck.learner
+        });
+        const referenceDiff = diffReferenceValues(reference.values, learnerCheck.learner);
+        for (const [column, value] of Object.entries(referenceDiff)) {
+          updateData[column] = value;
+          fieldsUpdated.push(column);
         }
 
         // Skip if no fields to update
@@ -467,6 +723,39 @@ export class BulkLearnerEditService {
           name: `${updatedLearner.first_name} ${updatedLearner.last_name || ''}`.trim(),
           fields_updated: fieldsUpdated
         });
+
+        if (reference.outcome && Object.keys(referenceDiff).length > 0) {
+          result.reference_summary[reference.outcome]++;
+          const attribution = classifyAttribution(
+            referenceDiff,
+            learnerCheck.learner,
+            referenceResolvers
+          );
+          if (attribution === 'create') result.reference_summary.attributions_created++;
+          if (attribution === 'replace') result.reference_summary.attributions_replaced++;
+
+          // Keep the lead in step when one exists, so its mirror trigger can't
+          // revert what we just wrote. Empty map today — see the lookup above.
+          const leadId = leadByProfileId.get(learnerId);
+          if (leadId) {
+            const { error: leadUpdateError } = await supabaseAdmin
+              .from('admission_leads')
+              .update({
+                referral_type: reference.values.referral_type ?? null,
+                referred_by_id: reference.values.referred_by_id ?? null,
+                referred_by_name: reference.values.referred_by_name ?? null
+              })
+              .eq('id', leadId);
+
+            if (leadUpdateError) {
+              console.warn(
+                `[bulk-edit] Profile ${learnerId} updated but its lead ${leadId} did not: ${leadUpdateError.message}`
+              );
+            } else {
+              result.reference_summary.leads_updated++;
+            }
+          }
+        }
 
       } catch (error) {
         console.error('[bulk-edit] Error processing row:', error);

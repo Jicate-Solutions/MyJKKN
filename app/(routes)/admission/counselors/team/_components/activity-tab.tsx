@@ -264,7 +264,7 @@ export function ActivityTab({ institutionId }: ActivityTabProps) {
     <div className="space-y-6">
       {/* Date selector + Export */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button variant="outline" size="icon" onClick={goPrev} aria-label="Previous day">
             <ChevronLeft className="h-4 w-4" />
           </Button>

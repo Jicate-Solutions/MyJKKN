@@ -45,6 +45,8 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "cronExpr": "47 2 * * *",
     "triggerPath": "/api/cron/scf-measure-outcomes",
     "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based outcome measurement through SQL RPCs; the route imports no AI client.",
     "whatItDoes": "For each past AI suggestion whose next class has since happened, records whether the next session's understanding score rose or fell (the 'lift') so future suggestions can learn if the last advice worked. Also measures the induction feedback loop's outcomes.",
     "configKnobs": "min_age_days default=1 (session verifier), induction_min_age_days default=300. No model/Claude constants.",
     "sideEffects": "DB writes only: sets outcome/outcome_lift on scf_ai_suggestions rows via fn_scf_measure_suggestion_outcomes, and induction outcomes via fn_induction_measure_loop_outcomes. Idempotent — only rows with outcome_lift IS NULL are touched. No human messaging.",
@@ -77,6 +79,8 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "cronExpr": "13 7 * * *",
     "triggerPath": "/api/cron/session-feedback-nudge",
     "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based nudge through fn_scf_nudge_pending_learners; the route imports no AI client.",
     "whatItDoes": "Daily, finds students who were marked Present in a class in the last 14 days but have not yet confirmed their 10-second post-class feedback, and drops one in-app bell notification reminding them to confirm.",
     "configKnobs": "p_lookback_days=14. No Claude/model constants.",
     "sideEffects": "Creates in-app bell notifications plus the user_notifications fan-out for learners via fn_scf_nudge_pending_learners. This delivers messages to humans. In-app only (no email/WhatsApp). Idempotency-keyed per learner per day.",
@@ -97,5 +101,22 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "sideEffects": "Records the generated suggestion + its input state into scf_ai_suggestions via fn_scf_record_suggestion (best-effort; failure does not break the response). Returns the suggestion to the caller. Anonymized free-text comments are sent to the model only and are NEVER returned. No human messaging.",
     "safeToManualTrigger": true,
     "notes": "This is a POST endpoint gated by a logged-in USER SESSION (supabase.auth.getUser), NOT by CRON_SECRET — an operator cannot fire it with just the cron secret; it needs an authenticated session and a JSON body { course_code, from?, to? }. Scope is self-limiting: super-admin=all, leadership=own institution, plain faculty=own taught sessions (by email). Requires CLAUDE_API_KEY or ANTHROPIC_API_KEY (returns 503 if missing). Idempotent recording (upsert), no outbound messages, so safe to re-run. This is the human-triggered version of the improve step that scf-generate-suggestions later automated."
+  },
+  {
+    "id": "scf-freetext-carry",
+    "name": "SCF free-text carry-forward",
+    "category": "scf-session-feedback",
+    "type": "cron",
+    "schedule": "Daily · 03:30 IST (editable via dispatcher)",
+    "cronExpr": "7 22 * * * (retired from vercel.json 2026-08-13)",
+    "triggerPath": "/api/cron/scf-freetext-carry",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Born on the ₹0 jobs lane — no direct Anthropic path in this route; if the lane is congested, items simply classify a night later.",
+    "whatItDoes": "Nightly classify+summarize of substantive learner free-texts: COLLECTs prior runs' completed classifications from the ai_jobs Max lane and persists them via fn_scf_record_freetext_carry, then ENQUEUEs this run's junk-filtered candidates from the last 7 days.",
+    "configKnobs": "Candidate window (7 days) via fn_scf_freetext_carry_candidates; sanitization + caps live inside the recording fn. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "Enqueues ai_jobs; records carry-forward rows. PRIVACY: a learner's text is summarized back ONLY to that learner (self-scoped RPC); Senior Learners see counts-only under a >=3-learner floor; the recorder strips [ ] so crafted text cannot spoof answer markers.",
+    "safeToManualTrigger": true,
+    "notes": "Auth: Bearer or ?secret=. IST math: 22:07 UTC = 03:37 IST next day → slot 03:30 (minute_of_day 217, every day)."
   }
 ];

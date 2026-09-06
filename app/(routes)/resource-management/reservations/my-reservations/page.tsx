@@ -432,7 +432,7 @@ export default function MyReservationsPage() {
       </Breadcrumb>
 
       {/* Header */}
-      <div className='flex items-center justify-between mb-6'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6'>
         <div>
           <h1 className='text-3xl font-bold'>My Reservations</h1>
           <p className='text-muted-foreground'>
@@ -440,6 +440,7 @@ export default function MyReservationsPage() {
           </p>
         </div>
         <Button
+          className='shrink-0'
           onClick={() => router.push('/resource-management/reservations/new')}
         >
           <Plus className='mr-2 h-4 w-4' />

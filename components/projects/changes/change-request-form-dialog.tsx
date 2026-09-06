@@ -1,22 +1,19 @@
 'use client';
 
 /**
- * Change Request Form Dialog
+ * Change Request Form Dialog — create OR edit.
  *
- * Creates a new project change request. Fields: change_type (select),
- * title, description, impact_summary, is_major (toggle).
- * requested_by is resolved from the current session by ChangeService
- * (omitted here so the service fills it with the acting user's id).
+ * Create: raises a new change request (fn_create_change_request). The server
+ * resolves attribution and starts it at 'submitted'.
+ * Edit (pass `existing`): updates an in-flight request the current user raised,
+ * while it is still 'submitted' (fn_update_change_request). is_major is frozen
+ * after creation, so the "Major change" toggle is hidden in edit mode.
  *
- * change_type / status values must match the DB CHECK constraints:
- *   change_type ∈ {scope, timeline, budget, other}
- *   status starts at 'submitted' (∈ {submitted, under_review, approved,
- *   rejected, implemented}).
- *
+ * change_type values must match the DB CHECK: {scope, timeline, budget, other}.
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F14.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -38,7 +35,11 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Loader2 } from 'lucide-react';
-import { useCreateChangeRequest } from '@/hooks/projects/use-changes';
+import {
+  useCreateChangeRequest,
+  useUpdateChangeRequest,
+} from '@/hooks/projects/use-changes';
+import type { ProjectChangeRequest } from '@/types/projects';
 
 // Values MUST match the project_change_requests.change_type CHECK constraint.
 const CHANGE_TYPES = [
@@ -52,14 +53,20 @@ interface ChangeRequestFormDialogProps {
   projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set, the dialog edits this request instead of creating a new one. */
+  existing?: ProjectChangeRequest | null;
 }
 
 export function ChangeRequestFormDialog({
   projectId,
   open,
   onOpenChange,
+  existing = null,
 }: ChangeRequestFormDialogProps) {
+  const isEdit = !!existing;
   const createChangeRequest = useCreateChangeRequest();
+  const updateChangeRequest = useUpdateChangeRequest();
+  const pending = createChangeRequest.isPending || updateChangeRequest.isPending;
 
   const [changeType, setChangeType] = useState('scope');
   const [title, setTitle] = useState('');
@@ -67,22 +74,45 @@ export function ChangeRequestFormDialog({
   const [impactSummary, setImpactSummary] = useState('');
   const [isMajor, setIsMajor] = useState(false);
 
-  function resetForm() {
-    setChangeType('scope');
-    setTitle('');
-    setDescription('');
-    setImpactSummary('');
-    setIsMajor(false);
-  }
+  // Sync form state whenever the dialog opens (prefill for edit, blank for create).
+  useEffect(() => {
+    if (!open) return;
+    setChangeType(existing?.change_type ?? 'scope');
+    setTitle(existing?.title ?? '');
+    setDescription(existing?.description ?? '');
+    setImpactSummary(existing?.impact_summary ?? '');
+    setIsMajor(existing?.is_major ?? false);
+  }, [open, existing]);
 
   function handleClose() {
-    resetForm();
     onOpenChange(false);
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
+
+    if (isEdit && existing) {
+      updateChangeRequest.mutate(
+        {
+          id: existing.id,
+          input: {
+            change_type: changeType,
+            title: title.trim(),
+            description: description.trim() || null,
+            impact_summary: impactSummary.trim() || null,
+          },
+        },
+        {
+          onSuccess: () => {
+            toast.success('Change request updated');
+            handleClose();
+          },
+          onError: (err) => toast.error(`Failed to update: ${err.message}`),
+        }
+      );
+      return;
+    }
 
     createChangeRequest.mutate(
       {
@@ -92,17 +122,13 @@ export function ChangeRequestFormDialog({
         description: description.trim() || null,
         impact_summary: impactSummary.trim() || null,
         is_major: isMajor,
-        status: 'submitted',
-        // requested_by omitted → ChangeService resolves it to the session actor.
       },
       {
         onSuccess: () => {
           toast.success('Change request created');
           handleClose();
         },
-        onError: (err) => {
-          toast.error(`Failed to create: ${err.message}`);
-        },
+        onError: (err) => toast.error(`Failed to create: ${err.message}`),
       }
     );
   }
@@ -111,7 +137,9 @@ export function ChangeRequestFormDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New Change Request</DialogTitle>
+          <DialogTitle>
+            {isEdit ? 'Edit Change Request' : 'New Change Request'}
+          </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -168,36 +196,37 @@ export function ChangeRequestFormDialog({
             />
           </div>
 
-          {/* Is major toggle */}
-          <div className="flex items-center gap-3 rounded-md border p-3">
-            <Switch
-              id="cr-major"
-              checked={isMajor}
-              onCheckedChange={setIsMajor}
-            />
-            <div>
-              <Label htmlFor="cr-major" className="cursor-pointer">
-                Major change
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Major changes require escalated approval.
-              </p>
+          {/* Is major toggle — only at creation (frozen afterwards) */}
+          {!isEdit && (
+            <div className="flex items-center gap-3 rounded-md border p-3">
+              <Switch
+                id="cr-major"
+                checked={isMajor}
+                onCheckedChange={setIsMajor}
+              />
+              <div>
+                <Label htmlFor="cr-major" className="cursor-pointer">
+                  Major change
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Major changes require an admin&apos;s approval.
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={handleClose}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={!title.trim() || createChangeRequest.isPending}
-            >
-              {createChangeRequest.isPending ? (
+            <Button type="submit" disabled={!title.trim() || pending}>
+              {pending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Creating…
+                  {isEdit ? 'Saving…' : 'Creating…'}
                 </>
+              ) : isEdit ? (
+                'Save Changes'
               ) : (
                 'Create Request'
               )}

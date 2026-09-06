@@ -23,7 +23,7 @@ function MatlabDashboardInner() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">MATLAB Adoption Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -31,7 +31,7 @@ function MatlabDashboardInner() {
           </p>
         </div>
         {stats?.last_snapshot_date && (
-          <Badge variant="outline" className="flex items-center gap-1">
+          <Badge variant="outline" className="flex items-center gap-1 shrink-0">
             <Calendar className="h-3 w-3" />
             Last import: {format(new Date(stats.last_snapshot_date), 'MMM d, yyyy')}
           </Badge>
@@ -43,7 +43,7 @@ function MatlabDashboardInner() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="startup-studio">Startup Studio</TabsTrigger>
           <TabsTrigger value="solution-hub">Solution Hub</TabsTrigger>
@@ -148,7 +148,7 @@ function MatlabDashboardInner() {
               <CardTitle>License ROI</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 border rounded-lg">
                   <p className="text-sm text-muted-foreground">License Cost</p>
                   <p className="text-2xl font-bold">₹11,80,350</p>

@@ -57,8 +57,8 @@ export function ReservationInfo({ reservation }: ReservationInfoProps) {
   return (
     <div className='space-y-6'>
       {/* Header */}
-      <div className='flex items-start justify-between'>
-        <div>
+      <div className='flex items-start justify-between gap-3'>
+        <div className='min-w-0'>
           <h2 className='text-2xl font-bold'>{reservation.resource?.name}</h2>
           <p className='text-muted-foreground mt-1'>
             {reservation.resource?.description}
@@ -66,7 +66,7 @@ export function ReservationInfo({ reservation }: ReservationInfoProps) {
         </div>
         <Badge
           variant={getStatusBadgeVariant(reservation.status)}
-          className='text-sm px-3 py-1'
+          className='text-sm px-3 py-1 shrink-0'
         >
           {reservation.status.charAt(0).toUpperCase() +
             reservation.status.slice(1)}

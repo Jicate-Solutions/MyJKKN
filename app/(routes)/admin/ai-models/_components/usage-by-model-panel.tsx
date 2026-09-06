@@ -6,10 +6,11 @@
 // Sits above the AI Models table so the Director sees WHICH models actually
 // burn calls / cost, independent of the per-feature config rows.
 //
-// Honest free-lane label: calls served by the subscription (Max) worker are
+// Honest free-lane label: calls served by the subscription (Max) worker WERE
 // logged under provider 'claude_code' / model 'max-subscription'. We do NOT
-// pretend that is a specific Claude model — the exact model is only known once
-// the drain update lands.
+// pretend that is a specific Claude model. The drain update has since landed,
+// so free-lane calls now record the real model id (claude-sonnet-5,
+// claude-opus-5, ...); only historical rows still carry the placeholder.
 //
 // GET /api/admin/ai-models/usage-summary?period=hour|day|week
 // ============================================================================
@@ -56,8 +57,9 @@ function formatInr(n: number): string {
   return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
-// The subscription (Max) worker logs its calls under this synthetic
-// provider/model pair; the specific Claude model is not yet captured.
+// The subscription (Max) worker used to log its calls under this synthetic
+// provider/model pair, before per-model tracking landed. Rows matching it are
+// historical; current free-lane calls carry the real Claude model id.
 const FREE_LANE_PROVIDER = 'claude_code';
 const FREE_LANE_MODEL = 'max-subscription';
 
@@ -67,7 +69,7 @@ function isFreeLaneRow(r: UsageRow): boolean {
 
 function modelLabel(r: UsageRow): string {
   if (isFreeLaneRow(r)) {
-    return 'Claude — Max subscription (exact model tracked after the drain update)';
+    return 'Claude — Max subscription (historical rows; exact model was not recorded then)';
   }
   return getModelLabel(r.provider, r.model_id);
 }
@@ -208,9 +210,9 @@ export function UsageByModelPanel() {
             {hasFreeLane && (
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Max subscription rows are calls the free (Max) worker served under one
-                Anthropic subscription seat; the exact Claude model is captured once the
-                drain update lands.
+                Max rows are earlier calls the free (Max) worker served at ₹0, logged
+                before per-model tracking; newer free-lane calls record the exact
+                Claude model.
               </p>
             )}
           </>

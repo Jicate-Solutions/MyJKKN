@@ -117,6 +117,27 @@ function useMyBuilds(cycleId?: string | null) {
   });
 }
 
+// The learner's own topics (their course(s) + programme), self-scoped. Returned
+// finest-first (course over programme), so [0] is the finest topic they have. We
+// stamp each build with this so a high-scoring prompt can graduate into that
+// topic's shared library — a topicless build has no shelf to land on and can
+// never surface. (The submit RPC also resolves this server-side as a fallback;
+// passing it here keeps the learner-visible "files under" label honest.)
+type Topic = { topic_type: string; topic_id: string; topic_label: string };
+
+function useMyTopics() {
+  const supabase = createClientSupabaseClient() as any;
+  return useQuery<Topic[], Error>({
+    queryKey: ['ai-pulse', 'my-topics'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('fn_ai_pulse_my_topics');
+      if (error) throw error;
+      return (data as Topic[]) ?? [];
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
 // ── grade readout (the four checks + score + tips) ──────────────────────────
 
 function GradeView({ grade, status }: { grade: Grade; status: string }) {
@@ -170,6 +191,8 @@ export function PromptBuilderCard({ cycleId }: { cycleId?: string | null }) {
   const [parts, setParts] = useState<Record<PartKey, string>>({ ...EMPTY });
   const qc = useQueryClient();
   const builds = useMyBuilds(cycleId);
+  const { data: topics } = useMyTopics();
+  const topic = topics?.[0] ?? null; // finest first (course over programme)
 
   const preview = useMemo(() => assemble(parts), [parts]);
   const filledCount = PARTS.filter((p) => parts[p.key].trim()).length;
@@ -178,7 +201,13 @@ export function PromptBuilderCard({ cycleId }: { cycleId?: string | null }) {
     mutationFn: async () => {
       const supabase = createClientSupabaseClient() as any;
       const { error } = await supabase.rpc('fn_ai_pulse_submit_prompt_build', {
-        p_payload: { cycle_id: cycleId ?? null, parts, assembled_prompt: preview },
+        p_payload: {
+          cycle_id: cycleId ?? null,
+          topic_type: topic?.topic_type ?? null,
+          topic_id: topic?.topic_id ?? null,
+          parts,
+          assembled_prompt: preview,
+        },
       });
       if (error) throw error;
     },
@@ -243,6 +272,11 @@ export function PromptBuilderCard({ cycleId }: { cycleId?: string | null }) {
             <p className="text-sm leading-relaxed">{preview}</p>
           ) : (
             <p className="text-sm text-muted-foreground">Fill in the parts above and your prompt takes shape here.</p>
+          )}
+          {topic && preview && (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Files under <span className="font-medium text-foreground">{topic.topic_label}</span> — a top-scoring prompt can graduate here for other learners to reuse.
+            </p>
           )}
         </div>
 

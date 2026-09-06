@@ -14,6 +14,7 @@
 // across sessions produces a second harmless notification.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 export class PDEAppreciationService {
   private static supabase = createClientSupabaseClient();
@@ -32,35 +33,26 @@ export class PDEAppreciationService {
       throw new Error('No validators recorded on this demonstration yet.');
     }
 
-    const { data: notification, error: insertError } = await (this.supabase as any)
-      .from('notifications')
-      .insert({
-        type: 'pde_appreciation',
-        title: 'A learner thanked you for your validation',
-        message: params.skillName
-          ? `Your feedback on the "${params.skillName}" demonstration was appreciated by the learner.`
-          : 'Your feedback on a PDE demonstration was appreciated by the learner.',
-        metadata: {
-          source: 'pde_thanks',
-          demonstration_id: params.demonstrationId,
-        },
-      })
-      .select('id')
-      .single();
+    // created_by must be a valid, NOT-NULL profiles.id. The caller is the
+    // learner (browser session); fall back to the first validator recipient.
+    const { data: { user: authUser } } = await this.supabase.auth.getUser();
+    const createdBy = authUser?.id ?? validatorIds[0];
 
-    if (insertError || !notification) {
-      throw insertError ?? new Error('Notification insert returned no data');
-    }
-
-    const links = validatorIds.map((userId) => ({
-      notification_id: notification.id,
-      user_id: userId,
-    }));
-
-    const { error: linkError } = await (this.supabase as any)
-      .from('user_notifications')
-      .insert(links);
-
-    if (linkError) throw linkError;
+    // One notifications row + one user_notifications link per validator
+    // (canonical helper builds the correct columns + fan-out).
+    await fanoutNotification(this.supabase as any, {
+      title: 'A learner thanked you for your validation',
+      body: params.skillName
+        ? `Your feedback on the "${params.skillName}" demonstration was appreciated by the learner.`
+        : 'Your feedback on a PDE demonstration was appreciated by the learner.',
+      category: 'pde',
+      userIds: validatorIds,
+      createdBy,
+      targeting: { type: 'user', user_ids: validatorIds },
+      metadata: {
+        source: 'pde_thanks',
+        demonstration_id: params.demonstrationId,
+      },
+    });
   }
 }

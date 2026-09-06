@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, FieldErrors } from 'react-hook-form';
+import { useForm, FieldErrors, type Resolver } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Form } from '@/components/ui/form';
@@ -65,6 +65,7 @@ import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import { IncompleteFeeBanner, getMissingFeeDimensions } from './incomplete-fee-banner';
 import { getErrorMessage } from '@/lib/utils';
+import { errorMessage } from '@/lib/utils/supabase-error';
 import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
@@ -94,8 +95,18 @@ export const enquiryFormSchema = z.object({
   enquiry_date: z.string().nullable().optional(),
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
+  // Tamil-script name — rendered only when showTamilNames is set (Learner
+  // Profiles create + edit). Optional everywhere: the columns are nullable and
+  // the fields are absent from the other flows that share this schema.
+  first_name_tamil: z.string().optional(),
+  last_name_tamil: z.string().optional(),
+  // External identifiers — rendered only when showLearnerIdentifiers is set.
+  // Never format-validated: see the migration header for why.
+  abc_id: z.string().optional(),
+  emis: z.string().optional(),
+  umis: z.string().optional(),
   date_of_birth: z.string().min(1, 'Date of birth is required'),
-  gender: z.enum(['MALE', 'FEMALE', 'OTHER'], { required_error: 'Gender is required' }),
+  gender: z.enum(['Male', 'Female', 'Other'], { required_error: 'Gender is required' }),
   religion: z.string().min(1, 'Religion is required'),
   // FK source of truth (DB-backed community_categories / castes).
   community_category_id: z.string().uuid('Community is required'),
@@ -111,7 +122,9 @@ export const enquiryFormSchema = z.object({
   // 2026-04-23: new source of truth — FK to admission_years (cascading
   // institution + program scoped). Picked via <AdmissionYearSelect/> in
   // the Course Selection tab.
-  admission_year_id: z.string().uuid().nullable().optional().or(z.literal('')),
+  // 2026-07-27: promoted optional → required (see the academic_year_id /
+  // section_id note below for why this is safe for early capture).
+  admission_year_id: z.string().uuid('Admission year is required'),
   learner_type: z.enum(['regular', 'irregular', 'intern']).nullable().optional(),
 
   // Family Information
@@ -175,14 +188,18 @@ export const enquiryFormSchema = z.object({
   degree_id: z.string().nullable().optional(),
   department_id: z.string().nullable().optional(),
   program_id: z.string().min(1, 'Program is required'),
-  // 2026-05-21: academic_year_id and section_id relaxed from required → optional
-  // on the enquiry form. Most enquiries are captured before the student is
-  // placed in an academic-year cohort / section; counsellors set those fields
-  // later during onboarding. Keeping them required was blocking save on the
-  // entry-point form.
-  academic_year_id: z.string().nullable().optional(),
+  // 2026-05-21: academic_year_id and section_id were relaxed required → optional
+  // because most enquiries are captured before the student is placed in an
+  // academic-year cohort / section, and keeping them required blocked save on
+  // the entry-point form.
+  // 2026-07-27: promoted back to required (with admission_year_id above). The
+  // 2026-05-21 concern is covered by "Save Draft" / "Save & Next", which call
+  // form.getValues() and bypass validation entirely — a counsellor can still
+  // capture an enquiry before the cohort/section is known. Only the final
+  // Submit now demands all three.
+  academic_year_id: z.string().min(1, 'Academic year is required'),
   semester_id: z.string().min(1, 'Semester is required'),
-  section_id: z.string().nullable().optional(),
+  section_id: z.string().min(1, 'Section is required'),
   roll_number: z.string().nullable().optional(),
   register_number: z.string().nullable().optional(),
   college_email: z.string().nullable().optional(),
@@ -250,6 +267,21 @@ const requiredFieldsSchema = enquiryFormSchema.extend({
   program_id: z.string().uuid('Program is required'),
 });
 
+// 2026-07-27: the three fields promoted to required above all live on the
+// Course Selection tab. Surfaces that HIDE that tab (learners/my-profile passes
+// visibleTabs without 'course-selection') must keep them optional — a required
+// field on a tab the user cannot open is an unfixable submit block, and
+// onInvalid would try to switch to a tab that isn't rendered. Those surfaces
+// swap in the relaxed pair below; every other caller renders the tab and gets
+// the strict schemas.
+const COURSE_TAB_OPTIONAL = {
+  admission_year_id: z.string().uuid().nullable().optional().or(z.literal('')),
+  academic_year_id: z.string().nullable().optional(),
+  section_id: z.string().nullable().optional(),
+};
+const relaxedFormSchema = enquiryFormSchema.extend(COURSE_TAB_OPTIONAL);
+const relaxedRequiredFieldsSchema = requiredFieldsSchema.extend(COURSE_TAB_OPTIONAL);
+
 export type EnquiryFormValues = z.infer<typeof enquiryFormSchema>;
 
 interface EnquiryFormProps {
@@ -260,6 +292,72 @@ interface EnquiryFormProps {
   submitLabel?: string;
   hideDraft?: boolean;
   isStudentView?: boolean;
+  /**
+   * Apply admission-capture policy on the Course Selection tab (first-year =>
+   * Science & Humanities department only, semester locked to Freshers/section
+   * A). Defaults to true for the enquiry/admission flow.
+   *
+   * Learner Profiles create + edit pass false: those screens serve the entire
+   * existing population, whose entry_type records how they joined years ago,
+   * not a decision being made now.
+   */
+  enforceAdmissionRules?: boolean;
+  /**
+   * Show the final submit button on every step instead of only the last one,
+   * so a step form can be finalised from wherever the user happens to be.
+   * "Save & Next" keeps advancing step by step; the submit button validates
+   * every tab, saves, and hands off to onSuccess (which redirects).
+   *
+   * Learner Profiles edit passes true: an officer correcting one field on the
+   * first tab should not have to walk through four more tabs to commit it.
+   */
+  allowSubmitFromAnyTab?: boolean;
+  /**
+   * Collapse the create-wizard's step controls into a single "Update" button
+   * that saves from whatever tab the user is on. Hides "Previous", "Save &
+   * Next" and the separate final-submit button; the tab headers stay as the
+   * navigation.
+   *
+   * /learners/enquiries/[id]/edit passes true. Two separate defects made an
+   * edit there look like it never happened:
+   *
+   *  1. The button labelled "Update" on a middle tab was the SAVE DRAFT
+   *     button, and handleSaveDraft never called onSuccess. onSuccess is the
+   *     only hook that invalidates learnerProfileKeys.detail/lists and calls
+   *     router.refresh(), so with staleTime 5min + refetchOnWindowFocus off
+   *     the row was written but the detail page and a re-opened edit form both
+   *     kept serving the pre-edit snapshot. Same class of bug the Profiles
+   *     edit page fixed with hideDraft.
+   *  2. Three save-ish buttons ("Update", "Save & Next", and the final submit
+   *     on the last tab) were indistinguishable at a glance.
+   *
+   * Deliberately NOT the allowSubmitFromAnyTab + hideDraft pair that Profiles
+   * edit uses: that routes every save through requiredFieldsSchema, which
+   * requires section_id — and 390 of 456 open enquiries (86%, measured
+   * 2026-09-02) have none, because an enquiry is captured early and completed
+   * later. Making the only save button refuse those records would be worse
+   * than the bug. Enquiry edits therefore keep the non-blocking save and rely
+   * on the DB guards (trg_validate_learner_semester_year_scope refuses
+   * genuinely inconsistent course dimensions; trg_detect_fee_dimension_change
+   * re-runs admission_resolve_fee_items_for_lead when a fee dimension moves).
+   */
+  singleSaveButton?: boolean;
+  /**
+   * Render the Tamil-script name inputs (first_name_tamil / last_name_tamil)
+   * on the Basic Details tab. Defaults to false.
+   *
+   * Only Learner Profiles create + edit pass true. This form is also mounted by
+   * /learners/enquiries and the student self-fill form, and those flows were
+   * explicitly left unchanged — the flag keeps the new fields off screens that
+   * did not ask for them, the same way isStudentView gates section content.
+   */
+  showTamilNames?: boolean;
+  /**
+   * Render the external-identifier inputs (ABC ID / EMIS / UMIS) on the Basic
+   * Details tab. Defaults to false; only Learner Profiles create + edit pass
+   * true, for the same reason as showTamilNames.
+   */
+  showLearnerIdentifiers?: boolean;
 }
 
   const ALL_TABS = [
@@ -332,7 +430,7 @@ function normalizeReferenceType(referenceType: string | undefined): string {
  * Helper function to convert location name back to ID for editing
  * Database stores names, but form needs IDs for dropdowns
  */
-function getLocationIdByName(
+function findKnownLocationId(
   name: string | undefined,
   type: 'state' | 'district' | 'taluk',
   stateId?: string
@@ -417,6 +515,26 @@ function getLocationIdByName(
 }
 
 /**
+ * Name/ID -> picker ID, preserving values the picker has never heard of.
+ *
+ * lib/data/locations.ts is a fixed dataset; production rows predate it and hold
+ * free-text that isn't in it (e.g. taluk 'KANAGAGRI' under SALEM, whose taluk
+ * list is Salem/Attur/Edappadi/…). Returning '' for those blanked a REQUIRED
+ * field, so opening the edit form showed missing data and the only way to save
+ * was to pick a different taluk — overwriting the real value. Passing the raw
+ * value through keeps it visible, valid and re-savable; getLocationNameById
+ * round-trips it back out unchanged.
+ */
+function getLocationIdByName(
+  name: string | undefined,
+  type: 'state' | 'district' | 'taluk',
+  stateId?: string
+): string | undefined {
+  if (!name) return '';
+  return findKnownLocationId(name, type, stateId) || name;
+}
+
+/**
  * Mapping of form fields to their respective tabs
  * Used for auto-switching tabs on validation errors
  */
@@ -472,7 +590,7 @@ const fieldToTabMap: Record<string, string> = {
   academic_year_id: 'course-selection',
   semester_id: 'course-selection',
   section_id: 'course-selection',
-  college_email: 'course-selection',
+  college_email: 'contact-details',
   regulation_id: 'course-selection',
   batch_id: 'course-selection',
 
@@ -529,6 +647,7 @@ const FIELD_LABELS: Record<string, string> = {
   degree_id:                  'Degree',
   department_id:              'Department',
   program_id:                 'Program',
+  admission_year_id:          'Admission Year',
   academic_year_id:           'Academic Year',
   semester_id:                'Semester',
   section_id:                 'Section',
@@ -609,7 +728,12 @@ export function EnquiryForm({
   onSubmit: onSubmitProp,
   submitLabel,
   hideDraft = false,
-  isStudentView = false
+  isStudentView = false,
+  enforceAdmissionRules = true,
+  allowSubmitFromAnyTab = false,
+  singleSaveButton = false,
+  showTamilNames = false,
+  showLearnerIdentifiers = false
 }: EnquiryFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -701,6 +825,10 @@ export function EnquiryForm({
     ? ALL_TABS.filter(tab => visibleTabs.includes(tab.id))
     : ALL_TABS;
 
+  // Admission Year / Academic Year / Section are required only when the tab
+  // that renders them is actually reachable (see COURSE_TAB_OPTIONAL above).
+  const showsCourseTab = !visibleTabs || visibleTabs.includes('course-selection');
+
   // Finance tab permission check.
   // BUG-003147/003148/003155/003262: admission_staff had learners.admissions.edit
   // but not learners.finance.edit, so the finance section rendered read-only and
@@ -731,7 +859,9 @@ export function EnquiryForm({
 
   // Initialize form with all fields
   const form = useForm<EnquiryFormValues>({
-    resolver: zodResolver(enquiryFormSchema),
+    resolver: zodResolver(
+      showsCourseTab ? enquiryFormSchema : relaxedFormSchema,
+    ) as Resolver<EnquiryFormValues>,
     defaultValues: learner
       ? (() => {
           console.log('[enquiry-form] Loading learner data:', {
@@ -753,8 +883,15 @@ export function EnquiryForm({
           enquiry_date: learner.enquiry_date || new Date().toISOString().split('T')[0],
           first_name: learner.first_name || '',
           last_name: learner.last_name || '',
+          // NULL is the normal state for these columns — coerce to '' so the
+          // controlled Input never flips to uncontrolled on an un-backfilled row.
+          first_name_tamil: learner.first_name_tamil || '',
+          last_name_tamil: learner.last_name_tamil || '',
+          abc_id: learner.abc_id || '',
+          emis: learner.emis || '',
+          umis: learner.umis || '',
           date_of_birth: learner.date_of_birth || '',
-          gender: learner.gender?.toUpperCase() as 'MALE' | 'FEMALE' | 'OTHER' | undefined,
+          gender: (learner.gender || undefined) as 'Male' | 'Female' | 'Other' | undefined,
           religion: learner.religion || '',
           community_category_id: learner.community_category_id || '',
           caste_id: learner.caste_id || '',
@@ -912,6 +1049,11 @@ export function EnquiryForm({
           enquiry_date: new Date().toISOString().split('T')[0], // Auto-populate with today's date
           first_name: '',
           last_name: '',
+          first_name_tamil: '',
+          last_name_tamil: '',
+          abc_id: '',
+          emis: '',
+          umis: '',
           date_of_birth: '',
           gender: undefined,
           religion: '',
@@ -1080,17 +1222,21 @@ export function EnquiryForm({
         // Use already imported location data
         name = indianStates.find((s: any) => s.id === id)?.name;
       } else if (type === 'district') {
-        if (!stateId) return undefined;
-        const districts = getDistrictsByState(stateId);
-        name = districts.find((d: any) => d.id === id)?.name;
+        if (stateId) {
+          const districts = getDistrictsByState(stateId);
+          name = districts.find((d: any) => d.id === id)?.name;
+        }
       } else if (type === 'taluk') {
-        if (!stateId || !districtId) return undefined;
-        const taluks = getTaluksByDistrict(stateId, districtId);
-        name = taluks.find((t: any) => t.id === id)?.name;
+        if (stateId && districtId) {
+          const taluks = getTaluksByDistrict(stateId, districtId);
+          name = taluks.find((t: any) => t.id === id)?.name;
+        }
       }
 
-      // Convert location names to uppercase for consistency
-      return name ? name.toUpperCase() : undefined;
+      // No match means the form is carrying a raw stored value the picker
+      // doesn't know (see getLocationIdByName). Write it back as-is instead of
+      // undefined, which would blank the column on every unrelated edit.
+      return (name || id).toUpperCase();
     };
 
     // accommodation_type TEXT is retired — resolve the HOSTEL/DAY SCHOLAR choice
@@ -1113,8 +1259,35 @@ export function EnquiryForm({
       // Basic Details (string fields - NOT NULL) - Convert to UPPERCASE
       first_name: toUpperCaseField(values.first_name) || '',
       last_name: toUpperCaseField(values.last_name),
+      // Tamil names are written ONLY by the screens that render the inputs.
+      // Two deliberate differences from the fields above:
+      //  1. No toUpperCaseField — Tamil script is caseless, and .toUpperCase()
+      //     on a grapheme cluster risks mangling combining vowel signs.
+      //  2. Spread-gated on showTamilNames, so a flow that never shows the
+      //     inputs (enquiries, student self-fill) omits the keys entirely and
+      //     cannot blank a Tamil name captured elsewhere. When the inputs ARE
+      //     shown, a cleared box sends null so it can genuinely be erased.
+      ...(showTamilNames
+        ? {
+            first_name_tamil: values.first_name_tamil?.trim() || null,
+            last_name_tamil: values.last_name_tamil?.trim() || null,
+          }
+        : {}),
+      // Same spread-gate as the Tamil names: a flow that never renders these
+      // inputs omits the keys entirely and so cannot blank an identifier
+      // captured elsewhere. Upper-cased + whitespace-stripped to match what
+      // IdentifierField normalises to on blur, in case a value reached form
+      // state some other way (autofill, restored draft).
+      ...(showLearnerIdentifiers
+        ? {
+            abc_id: values.abc_id?.replace(/\s+/g, '').toUpperCase() || null,
+            emis: values.emis?.replace(/\s+/g, '').toUpperCase() || null,
+            umis: values.umis?.replace(/\s+/g, '').toUpperCase() || null,
+          }
+        : {}),
       date_of_birth: values.date_of_birth || '',
-      gender: toUpperCaseField(values.gender) || '',
+      // NOT toUpperCaseField: gender is Title Case per learners_profiles_gender_check.
+      gender: values.gender || '',
       religion: toUpperCaseField(values.religion) || '',
       // FK source of truth; community/caste TEXT are auto-filled by the DB
       // shadow trigger (sync_learner_community_caste_text) from these ids.
@@ -1251,9 +1424,16 @@ export function EnquiryForm({
             }))
         : [],
 
-      // System fields - Preserve existing values when editing, default to 'enquiry' when creating
+      // System fields. On CREATE, seed the entry-point status.
       // 2026-05-20: Updated default from 'admitted' (old entry-point) to 'enquiry'.
-      lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),
+      // On EDIT, never resend it: this function builds a FULL-ROW payload, so
+      // shipping lifecycle_status made every routine field edit rewrite the
+      // learner's status, and `|| 'enquiry'` would silently demote any learner
+      // whose status failed to load. Status transitions belong to the explicit
+      // status actions (row-actions / enquiry-status-update), not to a field
+      // edit. Auto-activation is unaffected — the service reads the status back
+      // off the updated row, not off this DTO.
+      ...(learner ? {} : { lifecycle_status: 'enquiry' as const }),
       is_profile_complete: learner?.is_profile_complete ?? false,
     };
   };
@@ -1290,13 +1470,15 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving progress:', error);
-      toast.error('Failed to save progress');
+      toast.error(errorMessage(error, 'Failed to save progress'));
     } finally {
       setIsSavingDraft(false);
     }
   };
 
-  // Save draft (without validation) and stay on current page
+  // Save draft (without validation). On the create wizard this stays on the
+  // current page; when editing an existing record it is the "Update" button and
+  // must complete the save (see the onSuccess hand-off at the end).
   const handleSaveDraft = async () => {
     // Prevent double-click
     if (isSavingDraft || isSubmitting) {
@@ -1306,6 +1488,24 @@ export function EnquiryForm({
     setIsSavingDraft(true);
     try {
       const values = form.getValues();
+
+      // A queued photo has to be uploaded here too, not just on the final
+      // submit path. On an edit surface this IS the save button, so leaving the
+      // upload out meant picking a new photo and pressing Update discarded it
+      // with no error. Non-blocking, exactly as commitSubmit treats it: a
+      // failed upload must not throw away every other field the user changed.
+      if (pendingImageFile) {
+        try {
+          const imageUrl = await uploadProfileImage(pendingImageFile);
+          values.student_photo_url = imageUrl;
+          form.setValue('student_photo_url', imageUrl);
+          setPendingImageFile(null);
+        } catch (err) {
+          console.error('[enquiry-form] Image upload failed during save:', err);
+          toast.error('Photo could not be uploaded — saving the other changes without it.');
+        }
+      }
+
       const data = await formatFormDataForAPI(values);
 
       let result: LearnerProfile;
@@ -1313,16 +1513,31 @@ export function EnquiryForm({
       if (savedEnquiryId) {
         // Update existing draft
         result = await LearnerProfileService.updateLearnerProfile(savedEnquiryId, data);
-        toast.success('Progress saved successfully');
+        toast.success(learner ? 'Enquiry updated successfully' : 'Progress saved successfully');
       } else {
         // Create new draft
         result = await LearnerProfileService.createLearnerProfile(data as any);
         setSavedEnquiryId(result.id);
         toast.success('Progress saved successfully');
       }
+
+      // Editing an existing record: hand off to onSuccess. It is the ONLY hook
+      // that invalidates learnerProfileKeys.detail/lists and calls
+      // router.refresh(), and the row is already written by the time we get
+      // here — but with staleTime 5min and refetchOnWindowFocus off, skipping
+      // it left the detail page and a re-opened edit form showing the pre-edit
+      // course/program, so a successful save looked like it did nothing. This
+      // was the reported "I click Update and it still doesn't update".
+      //
+      // Gated on `learner`, NOT on savedEnquiryId: mid-wizard the create flow
+      // also has a savedEnquiryId, and onSuccess redirects — firing it there
+      // would throw the operator out of the form on the first "Save Draft".
+      if (learner && onSuccess) {
+        onSuccess(result);
+      }
     } catch (error) {
       console.error('[enquiry-form] Error saving draft:', error);
-      toast.error('Failed to save progress');
+      toast.error(errorMessage(error, 'Failed to save progress'));
     } finally {
       setIsSavingDraft(false);
     }
@@ -1421,7 +1636,11 @@ export function EnquiryForm({
   const commitSubmit = async (values: EnquiryFormValues) => {
     setIsSubmitting(true);
     try {
-      // Upload pending image file first (if exists)
+      // Upload pending image file first (if exists). Non-blocking: a failed
+      // photo upload previously aborted the whole submit via an early return,
+      // which silently discarded every other field the user had filled in —
+      // the reported "can't add learner manually" bug. Now it just proceeds
+      // without a photo; the learner can add one later from Edit.
       if (pendingImageFile) {
         console.log('[enquiry-form] Uploading pending image file...');
         try {
@@ -1431,9 +1650,7 @@ export function EnquiryForm({
           toast.success('Image uploaded successfully');
         } catch (error) {
           console.error('[enquiry-form] Image upload failed:', error);
-          toast.error('Failed to upload image. Please try again.');
-          setIsSubmitting(false);
-          return; // Don't proceed if image upload fails
+          toast.error('Photo could not be uploaded — saving without it. You can add a photo later from Edit.');
         }
       }
 
@@ -1537,7 +1754,7 @@ export function EnquiryForm({
               toast.error('Profile saved, but fee structure could not be applied.');
             }
           }
-        } else if (isLegacy && isAdmitted) {
+        } else if (isLegacy && isAtEntry) {
           // Saved but still incomplete — explicit "we know, here's why" toast
           toast(
             `Profile saved. Fee structure will be applied once the following ${missingFeeDims.length === 1 ? 'field is' : 'fields are'} filled.`,
@@ -1640,7 +1857,12 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving enquiry:', error);
-      toast.error('Failed to save enquiry');
+      // Surface the real reason. The service throws actionable messages here
+      // (duplicate college_email, email already in use by another user), and a
+      // bare 'Failed to save enquiry' makes every one of them look identical.
+      // errorMessage() also translates the raw postgrest codes that reach this
+      // path on create — 23505 unique violations and 42501 RLS refusals.
+      toast.error(errorMessage(error, 'Failed to save enquiry'));
     } finally {
       setIsSubmitting(false);
     }
@@ -1654,7 +1876,9 @@ export function EnquiryForm({
     }
 
     // Validate required fields
-    const validation = requiredFieldsSchema.safeParse(values);
+    const validation = (
+      showsCourseTab ? requiredFieldsSchema : relaxedRequiredFieldsSchema
+    ).safeParse(values);
     if (!validation.success) {
       const errors = validation.error.flatten().fieldErrors;
       const errorKeys = Object.keys(errors);
@@ -1802,7 +2026,7 @@ export function EnquiryForm({
           community_category_id: resolvedCommunityId,
           accommodation_type_id: resolvedAccommodationId,
           admission_year_id: values.admission_year_id ?? undefined,
-          gender: (values as { gender?: string }).gender?.toUpperCase() || undefined,
+          gender: (values as { gender?: string }).gender || undefined,
         };
         const allDimsPresent = !!(
           dims.institution_id &&
@@ -1990,6 +2214,8 @@ export function EnquiryForm({
                 form={form}
                 onImageFileChange={setPendingImageFile}
                 isStudentView={isStudentView}
+                showTamilNames={showTamilNames}
+                showLearnerIdentifiers={showLearnerIdentifiers}
               />
             </Card>
           </TabsContent>
@@ -2008,13 +2234,17 @@ export function EnquiryForm({
               </div>
             )}
             <Card className="p-3 sm:p-4 md:p-6">
-              <ContactDetailsSection form={form} />
+              <ContactDetailsSection form={form} showCollegeEmail={!isStudentView} />
             </Card>
           </TabsContent>
 
           <TabsContent value="course-selection" className="space-y-4 mt-4">
             <Card className="p-3 sm:p-4 md:p-6">
-              <CourseSelectionSection form={form} showLearnerType={!!learner && !isStudentView} />
+              <CourseSelectionSection
+                form={form}
+                showLearnerType={!!learner && !isStudentView}
+                enforceAdmissionRules={enforceAdmissionRules}
+              />
             </Card>
           </TabsContent>
 
@@ -2091,8 +2321,11 @@ export function EnquiryForm({
 
           {/* Right side - Navigation and Action buttons */}
           <div className="flex flex-col-reverse items-stretch gap-2 w-full sm:flex-row sm:w-auto sm:items-center">
-            {/* Previous Button - Show on all tabs except first */}
-            {!isFirstTab && (
+            {/* Previous Button - Show on all tabs except first.
+                singleSaveButton drops it: "Previous" with no "Save & Next"
+                beside it is a half a wizard, and the tab headers already
+                navigate. */}
+            {!isFirstTab && !singleSaveButton && (
               <Button
                 type="button"
                 variant="outline"
@@ -2105,11 +2338,14 @@ export function EnquiryForm({
               </Button>
             )}
 
-            {/* Save Draft Button - Always visible unless hidden */}
+            {/* Save Draft Button - Always visible unless hidden.
+                Under singleSaveButton this is the ONE action button, so it
+                takes the primary variant instead of reading as a secondary
+                option next to nothing. */}
             {!hideDraft && (
               <Button
                 type="button"
-                variant="outline"
+                variant={singleSaveButton ? 'default' : 'outline'}
                 onClick={handleSaveDraft}
                 disabled={isSubmitting || isSavingDraft}
                 className="w-full sm:w-auto text-sm sm:text-base py-2"
@@ -2122,7 +2358,7 @@ export function EnquiryForm({
             )}
 
             {/* Save & Next Button - Show on all tabs except last */}
-            {!isLastTab && (
+            {!isLastTab && !singleSaveButton && (
               <Button
                 type="button"
                 onClick={handleSaveAndNext}
@@ -2137,9 +2373,31 @@ export function EnquiryForm({
               </Button>
             )}
 
-            {/* Submit Button - Show only on last tab */}
-            {isLastTab && (
-              <Button type="submit" disabled={isSubmitting || isSavingDraft} className="w-full sm:w-auto text-sm sm:text-base py-2">
+            {/* Final submit. Last tab only by default; allowSubmitFromAnyTab
+                puts it next to "Save & Next" on every step so the form can be
+                finalised without walking to the end.
+
+                In that mode the button is type="button" with an explicit
+                handleSubmit call rather than type="submit". A submit button
+                present on every tab switches on the browser's implicit
+                submission, and Enter in any of this form's ~70 inputs would
+                then finalise and redirect mid-typing. Validation is identical
+                either way — handleSubmit runs the same resolver and routes to
+                onInvalid, which jumps to the first tab holding an error.
+
+                singleSaveButton suppresses it entirely: on an edit surface
+                there is no "final submission" left to make — the record exists
+                and lifecycle transitions belong to the explicit status actions
+                (row-actions / enquiry-status-update), not to a field edit. Its
+                only effect here would be a second, stricter save button that
+                refuses the 86% of enquiries with no section_id. */}
+            {(isLastTab || allowSubmitFromAnyTab) && !singleSaveButton && (
+              <Button
+                type={allowSubmitFromAnyTab ? 'button' : 'submit'}
+                onClick={allowSubmitFromAnyTab ? form.handleSubmit(onSubmit, onInvalid) : undefined}
+                disabled={isSubmitting || isSavingDraft}
+                className="w-full sm:w-auto text-sm sm:text-base py-2"
+              >
                 {isSubmitting && <Loader2 className="mr-1 sm:mr-2 h-4 w-4 animate-spin" />}
                 {!isSubmitting && <Send className="mr-1 sm:mr-2 h-4 w-4" />}
                 {submitLabel || (learner

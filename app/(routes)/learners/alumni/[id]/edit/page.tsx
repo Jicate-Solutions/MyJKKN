@@ -132,9 +132,9 @@ export default function AlumniEditPage({ params }: AlumniEditPageProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <Select value={currentStatus} onValueChange={setSelectedStatus}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-full sm:w-[200px]">
                   <SelectValue placeholder="Select status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -154,6 +154,7 @@ export default function AlumniEditPage({ params }: AlumniEditPageProps) {
                 }
                 variant="outline"
                 size="sm"
+                className="w-full sm:w-auto shrink-0"
               >
                 {updateMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -171,6 +172,10 @@ export default function AlumniEditPage({ params }: AlumniEditPageProps) {
             onSuccess={(updatedLearner) => {
               router.push(`/learners/alumni/${updatedLearner.id}`);
             }}
+            // Alumni have already graduated: their entry_type is history, so the
+            // admission-capture rules must not hide their department or reset
+            // their semester. Same reasoning as /learners/profiles/[id]/edit.
+            enforceAdmissionRules={false}
           />
         </Card>
       </div>

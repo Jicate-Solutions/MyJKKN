@@ -320,7 +320,7 @@ export default function ReservationCalendarPage() {
       </Breadcrumb>
 
       {/* Header */}
-      <div className='flex items-center justify-between mb-6'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6'>
         <div>
           <h1 className='text-3xl font-bold'>Reservation Calendar</h1>
           <p className='text-muted-foreground'>
@@ -328,6 +328,7 @@ export default function ReservationCalendarPage() {
           </p>
         </div>
         <Button
+          className='shrink-0'
           onClick={() => router.push('/resource-management/reservations/new')}
         >
           <CalendarIcon className='mr-2 h-4 w-4' />
@@ -397,7 +398,7 @@ export default function ReservationCalendarPage() {
                     )}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className='w-[320px] p-0' align='start'>
+                <PopoverContent className='w-[calc(100vw-2rem)] max-w-[320px] sm:w-[320px] p-0' align='start'>
                   <Command>
                     <CommandInput placeholder='Search resources...' />
                     <CommandList>
@@ -621,8 +622,8 @@ export default function ReservationCalendarPage() {
       <Card>
         <CardContent className='p-4'>
           {/* Navigation toolbar */}
-          <div className='flex items-center justify-between mb-4'>
-            <div className='flex items-center gap-2'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4'>
+            <div className='flex items-center gap-2 flex-wrap'>
               <Button
                 variant='outline'
                 size='sm'
@@ -679,7 +680,7 @@ export default function ReservationCalendarPage() {
               </h2>
             </div>
 
-            <div className='flex items-center gap-1'>
+            <div className='flex items-center gap-1 flex-wrap'>
               {[
                 { view: Views.MONTH, label: 'Month' },
                 { view: Views.WEEK, label: 'Week' },

@@ -900,7 +900,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
   return (
     <ContentLayout title={`Edit: ${form.name}`}>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -912,7 +912,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => router.push('/admission/settings/forms')}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back

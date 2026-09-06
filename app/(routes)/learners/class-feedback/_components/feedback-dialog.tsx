@@ -23,6 +23,13 @@ import {
 } from '@/hooks/use-session-feedback';
 import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
 import type { PendingSession } from '@/types/session-feedback';
+import {
+  NOTEBOOKLM_FEATURES,
+  NBLM_NONE_KEY,
+} from '@/lib/session-feedback/notebooklm-features';
+import { ClarificationTouchpoint } from './clarification-touchpoint';
+import { ClarificationFollowupCard } from './clarification-followup-card';
+import { ClassroomPracticeMicro } from './classroom-practice-micro';
 
 const BRAND = '#0b6d41';
 
@@ -116,6 +123,11 @@ export function FeedbackDialog({
   const [attnPassed, setAttnPassed] = useState(true);
   const [attnWrong, setAttnWrong] = useState<string | null>(null);
 
+  // Post-feedback confirmation moment (Lane C): after a successful submit the
+  // dialog swaps to a small "attendance confirmed" step carrying the
+  // clarification-request touchpoint, instead of closing immediately.
+  const [postSubmit, setPostSubmit] = useState(false);
+
   // Decoy pool via a latest-ref (skeptic review HIGH, 2026-07-09): the reset
   // effect below must fire ONLY on session identity. With pendingSessions in
   // its deps, a background refetch that changes the pending list (e.g. a
@@ -137,6 +149,7 @@ export function FeedbackDialog({
       setFreeText('');
       setCfChoice(null);
       setConcernAnswers({});
+      setPostSubmit(false);
 
       // Roll the occasional attention check for this open. Re-rolls on every
       // open by design — deliberately stateless (no storage, no punishment).
@@ -159,7 +172,13 @@ export function FeedbackDialog({
     }
   }, [session]);
 
-  const items = useMemo(() => checklistConfig ?? [], [checklistConfig]);
+  // Rank 2 (2026-07-24): the saturated `notebooklm_used` yes/no is retired — hidden here
+  // client-side (so it disappears even before the deactivation migration applies) and
+  // replaced by the NotebookLM feature multi-select below. Historical rows keep the key.
+  const items = useMemo(
+    () => (checklistConfig ?? []).filter((i) => i.item_key !== 'notebooklm_used'),
+    [checklistConfig],
+  );
 
   // The carry-forward re-ask for THIS session: a prior same-course session the
   // learner flagged. Match by timetable_id + period_id + course_code.
@@ -176,10 +195,14 @@ export function FeedbackDialog({
   }, [carryforward, session]);
 
   // Map prior unmet checklist item_keys to their human labels (fall back to key).
+  // Drop `notebooklm_used` — it's retired (Rank 2). Until the deactivation migration
+  // applies, the carry-forward RPC may still return it as "unmet"; we never show it.
   const carryItemLabels = useMemo(() => {
     if (!carry) return [];
     const byKey = new Map(items.map((i) => [i.item_key, i.label]));
-    return carry.prior_unmet_items.map((k) => byKey.get(k) ?? k);
+    return carry.prior_unmet_items
+      .filter((k) => k !== 'notebooklm_used')
+      .map((k) => byKey.get(k) ?? k);
   }, [carry, items]);
 
   // The learner's OWN prior rating + when, for the personalised re-ask. (#2)
@@ -199,6 +222,24 @@ export function FeedbackDialog({
   const courseLabel =
     session?.course_name || session?.course_code || 'Class session';
   const periodLabel = session?.period_name || session?.start_time || null;
+
+  // NotebookLM feature multi-select (Rank 2). "None" and the features are mutually
+  // exclusive: ticking a feature clears "None"; ticking "None" clears every feature.
+  // All ride in the existing `checklist` state under reserved `nblm:*` keys.
+  function toggleNblmFeature(key: string, on: boolean) {
+    setChecklist((prev) => ({
+      ...prev,
+      [key]: on,
+      ...(on ? { [NBLM_NONE_KEY]: false } : {}),
+    }));
+  }
+  function toggleNblmNone(on: boolean) {
+    setChecklist((prev) => {
+      const next: Record<string, boolean> = { ...prev, [NBLM_NONE_KEY]: on };
+      if (on) for (const f of NOTEBOOKLM_FEATURES) next[f.key] = false;
+      return next;
+    });
+  }
 
   async function handleSubmit() {
     if (!session) return;
@@ -255,7 +296,9 @@ export function FeedbackDialog({
         });
       }
       toast.success('Thanks! Your attendance for this class is now confirmed.');
-      onOpenChange(false);
+      // Stay open on the confirmation step (Lane C): the one moment the learner
+      // can record "I asked for a re-explanation" + what happened. Done closes.
+      setPostSubmit(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not submit feedback.');
     }
@@ -282,10 +325,43 @@ export function FeedbackDialog({
             where the full form is taller than the viewport. The -mx-1/px-1
             pair keeps focus rings from being clipped by overflow. */}
         <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1">
-        {/* Attention check gate — the form stays hidden until the correct tap.
-            Wrong taps only mark the option and invite another try; Cancel below
-            always works (no punishment). */}
-        {!attnPassed && attnOptions ? (
+        {/* Post-feedback confirmation moment (Lane C): attendance is confirmed;
+            the ONLY extra affordance is the clarification-request touchpoint. */}
+        {postSubmit && session ? (
+          <div className="space-y-4 py-2">
+            <p className="flex items-start gap-2 text-sm">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
+              <span>
+                <span className="font-medium">Feedback received</span> — your attendance for
+                this class is confirmed.
+              </span>
+            </p>
+            <ClarificationTouchpoint
+              attendanceDate={session.attendance_date}
+              timetableId={session.timetable_id}
+              periodId={session.period_id}
+            />
+            {/* Two-sided close — the learner's own "did it help?" follow-up,
+                due only when a lead recorded an act on one of THEIR pending
+                asks. ⚠️ ONE-TAP INVARIANT AS AMENDED (Director, 2026-07-30,
+                deliberate — do not "fix" back): when both this follow-up AND
+                the practice question below are due, the learner sees BOTH,
+                follow-up FIRST. The cap is one rotation question + (when due)
+                the learner's own follow-up. */}
+            <ClarificationFollowupCard />
+            {/* Classroom Practice L2 — at most ONE sealed micro-item, and only
+                when the server has one to give. Renders nothing otherwise, and
+                cannot affect the submit or close flow above. */}
+            <ClassroomPracticeMicro
+              attendanceDate={session.attendance_date}
+              timetableId={session.timetable_id}
+              periodId={session.period_id}
+            />
+          </div>
+        ) : !attnPassed && attnOptions ? (
+          /* Attention check gate — the form stays hidden until the correct tap.
+             Wrong taps only mark the option and invite another try; Cancel below
+             always works (no punishment). */
           <div className="space-y-3 py-2">
             <p className="text-sm font-medium">
               Quick check — which class are you giving feedback for?
@@ -509,6 +585,50 @@ export function FeedbackDialog({
             </div>
           ) : null}
 
+          {/* NotebookLM materials used (Rank 2) — replaces the saturated yes/no.
+              Stored under reserved nblm:* checklist keys; never a config/unmet item. */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">
+              Which NotebookLM materials did you use this session?{' '}
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+              {NOTEBOOKLM_FEATURES.map((f) => {
+                const checked = !!checklist[f.key];
+                return (
+                  <div key={f.key} className="flex items-start gap-2.5">
+                    <Checkbox
+                      id={`scf-${f.key}`}
+                      checked={checked}
+                      onCheckedChange={(v) => toggleNblmFeature(f.key, v === true)}
+                      className="mt-0.5"
+                    />
+                    <Label
+                      htmlFor={`scf-${f.key}`}
+                      className="cursor-pointer text-sm font-normal leading-snug"
+                    >
+                      {f.label}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-start gap-2.5 border-t pt-2.5">
+              <Checkbox
+                id="scf-nblm-none"
+                checked={!!checklist[NBLM_NONE_KEY]}
+                onCheckedChange={(v) => toggleNblmNone(v === true)}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="scf-nblm-none"
+                className="cursor-pointer text-sm font-normal leading-snug text-muted-foreground"
+              >
+                No NotebookLM this session
+              </Label>
+            </div>
+          </div>
+
           {/* Free text */}
           <div className="space-y-2">
             <Label htmlFor="scf-free-text" className="text-sm font-medium">
@@ -533,29 +653,41 @@ export function FeedbackDialog({
         </div>
 
         <DialogFooter className="shrink-0 gap-2 sm:gap-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={submit.isPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submit.isPending || !attnPassed}
-            className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
-          >
-            {submit.isPending ? (
-              <BeatLoader color="#ffffff" size={8} />
-            ) : (
-              <>
-                <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                Confirm & submit
-              </>
-            )}
-          </Button>
+          {postSubmit ? (
+            <Button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+            >
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={submit.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                disabled={submit.isPending || !attnPassed}
+                className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+              >
+                {submit.isPending ? (
+                  <BeatLoader color="#ffffff" size={8} />
+                ) : (
+                  <>
+                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                    Confirm & submit
+                  </>
+                )}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

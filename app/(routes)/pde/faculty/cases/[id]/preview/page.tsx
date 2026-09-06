@@ -70,8 +70,8 @@ export default function PreviewClinicalCasePage() {
           </AlertDescription>
         </Alert>
 
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
             <Button variant="outline" size="sm" asChild>
               <Link href={`/pde/faculty/cases/${c.id}/edit`}>
                 <ArrowLeft className="mr-1 h-4 w-4" />
@@ -162,7 +162,7 @@ export default function PreviewClinicalCasePage() {
             <h3 className="text-lg font-semibold">Questions ({c.questions.length})</h3>
             {c.questions.map((q: ClinicalCaseQuestion) => (
               <div key={q.id} className="border rounded p-3 bg-card">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <Badge variant="outline">Q{q.metadata.q_number || q.order_index}</Badge>
                   <Badge variant="secondary" className="text-[10px]">
                     {q.question_type}

@@ -989,12 +989,20 @@ export class AttendanceService {
       // (so it can prefer the variant this staff actually teaches — see periodSlotMap).
       let staffIdForFiltering: string | null = null;
       let isHODUser = false;
+      // Added: 2026-07-22 - Direct profile-ID assignment fallback (mirrors STEP 7/8 of
+      // validateStaffAssignment, which already authorizes marking via profile_ids/
+      // primary_profile_id). Without this, a faculty whose profiles.email has no
+      // matching staff row (e.g. assigned only by profile, or email drift) got
+      // getCurrentUserStaffId() = null and saw zero periods here even though the
+      // save-time check would have authorized them.
+      let userProfileIdForFiltering: string | null = null;
       if (options.filterByStaffAssignment && !options.isSuperAdmin) {
         staffIdForFiltering = await this.getCurrentUserStaffId();
         if (!staffIdForFiltering) {
           // HOD users have no staff record but should see their own department's periods.
           const { data: userData } = await (this.supabase as any).auth.getUser();
           if (userData?.user) {
+            userProfileIdForFiltering = userData.user.id;
             const { data: profile } = await this.supabase
               .from('profiles')
               .select('role, department_id')
@@ -1424,15 +1432,16 @@ export class AttendanceService {
           options.filterByStaffAssignment &&
           !options.isSuperAdmin &&
           !staffIdForFiltering &&
-          !isHODUser
+          !isHODUser &&
+          !userProfileIdForFiltering
         ) {
-          continue; // No staff record and not an HOD for this department → skip
+          continue; // No staff record, not an HOD, and not signed in → skip
         }
 
         if (slots && slots.length > 0) {
           // Filter slots by staff assignment if needed (but not for super admin or HOD users)
           let filteredSlots = slots;
-          if (staffIdForFiltering && !options.isSuperAdmin && !isHODUser) {
+          if ((staffIdForFiltering || userProfileIdForFiltering) && !options.isSuperAdmin && !isHODUser) {
 
             filteredSlots = slots.filter((slot: any) => {
               // Check if staff is assigned to the main slot
@@ -1494,6 +1503,35 @@ export class AttendanceService {
                   }
                 );
                 if (inPracticalBatch) return true;
+              }
+
+              // Direct profile-ID assignment fallback (STEP 7/8 of validateStaffAssignment) —
+              // covers faculty assigned via profile_ids/primary_profile_id with no matching staff row.
+              if (userProfileIdForFiltering) {
+                if (
+                  slot.profile_ids &&
+                  Array.isArray(slot.profile_ids) &&
+                  slot.profile_ids.includes(userProfileIdForFiltering)
+                ) {
+                  return true;
+                }
+                if (slot.primary_profile_id === userProfileIdForFiltering) {
+                  return true;
+                }
+                if (slot.sub_slots && Array.isArray(slot.sub_slots)) {
+                  for (const subSlot of slot.sub_slots) {
+                    if (
+                      subSlot.profile_ids &&
+                      Array.isArray(subSlot.profile_ids) &&
+                      subSlot.profile_ids.includes(userProfileIdForFiltering)
+                    ) {
+                      return true;
+                    }
+                    if (subSlot.primary_profile_id === userProfileIdForFiltering) {
+                      return true;
+                    }
+                  }
+                }
               }
 
               return false;

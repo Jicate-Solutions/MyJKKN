@@ -200,13 +200,13 @@ function ParentPortalAdminPageInner() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${canUserData ? 'grid-cols-5' : 'grid-cols-4'}`}>
-            <TabsTrigger value="announcements" className="gap-1.5 data-[state=active]:text-[#0b6d41]"><Megaphone className="h-4 w-4" /> Announcements</TabsTrigger>
-            <TabsTrigger value="homework" className="gap-1.5 data-[state=active]:text-[#0b6d41]"><BookOpenCheck className="h-4 w-4" /> Homework</TabsTrigger>
-            <TabsTrigger value="achievements" className="gap-1.5 data-[state=active]:text-[#0b6d41]"><Trophy className="h-4 w-4" /> Achievements</TabsTrigger>
-            <TabsTrigger value="events" className="gap-1.5 data-[state=active]:text-[#0b6d41]"><CalendarDays className="h-4 w-4" /> Events</TabsTrigger>
+          <TabsList className={`flex w-full justify-start overflow-x-auto md:grid ${canUserData ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
+            <TabsTrigger value="announcements" className="shrink-0 gap-1.5 whitespace-nowrap data-[state=active]:text-[#0b6d41]"><Megaphone className="h-4 w-4" /> Announcements</TabsTrigger>
+            <TabsTrigger value="homework" className="shrink-0 gap-1.5 whitespace-nowrap data-[state=active]:text-[#0b6d41]"><BookOpenCheck className="h-4 w-4" /> Homework</TabsTrigger>
+            <TabsTrigger value="achievements" className="shrink-0 gap-1.5 whitespace-nowrap data-[state=active]:text-[#0b6d41]"><Trophy className="h-4 w-4" /> Achievements</TabsTrigger>
+            <TabsTrigger value="events" className="shrink-0 gap-1.5 whitespace-nowrap data-[state=active]:text-[#0b6d41]"><CalendarDays className="h-4 w-4" /> Events</TabsTrigger>
             {canUserData && (
-              <TabsTrigger value="users" className="gap-1.5 data-[state=active]:text-[#0b6d41]"><Users className="h-4 w-4" /> Parent User Data</TabsTrigger>
+              <TabsTrigger value="users" className="shrink-0 gap-1.5 whitespace-nowrap data-[state=active]:text-[#0b6d41]"><Users className="h-4 w-4" /> Parent User Data</TabsTrigger>
             )}
           </TabsList>
 

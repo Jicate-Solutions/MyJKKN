@@ -28,6 +28,14 @@ interface Props {
   description?: string;
   /** Relative path (with leading /) Razorpay sends the user back to on cancel. */
   cancelPath: string;
+  /**
+   * Relative path (with leading /) Razorpay POSTs the signed result to.
+   * Defaults to the tournament callback so the original caller is unchanged.
+   * General events pass their own route — both verify identically (the settle
+   * step looks the transaction up by razorpay_order_id), but each redirects the
+   * payer back into its own public flow afterwards.
+   */
+  callbackPath?: string;
 }
 
 export function EventRazorpayHostedRedirect(props: Props) {
@@ -38,7 +46,9 @@ export function EventRazorpayHostedRedirect(props: Props) {
     process.env.NEXT_PUBLIC_APP_URL ||
     (typeof window !== 'undefined' ? window.location.origin : '');
 
-  const callbackUrl = `${appOrigin}/api/events/tournament/${props.eventId}/payment/callback`;
+  const callbackUrl = `${appOrigin}${
+    props.callbackPath ?? `/api/events/tournament/${props.eventId}/payment/callback`
+  }`;
   const cancelUrl = `${appOrigin}${props.cancelPath}`;
 
   useEffect(() => {

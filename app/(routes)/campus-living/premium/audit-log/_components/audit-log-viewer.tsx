@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay Phase 2 — Audit Log Viewer
+// Premium Room Phase 2 — Audit Log Viewer
 // ============================================================================
 // Filterable list of hostel_premium_audit_log rows. Filters: event_type,
 // tier, institution, date range, free-text search. Click a row to view
@@ -343,7 +343,7 @@ export function AuditLogViewer() {
             </Table>
           </div>
 
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <div>
               Showing {(page - 1) * PAGE_SIZE + 1}–
               {Math.min(page * PAGE_SIZE, data?.total ?? 0)} of {data?.total ?? 0}

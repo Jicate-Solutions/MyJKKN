@@ -15,10 +15,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -34,7 +34,8 @@ import {
   Search,
   Building2,
   ArrowLeft,
-  Loader2
+  Loader2,
+  IndianRupee
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -196,6 +197,31 @@ function PostingsBoard() {
     [refreshPostings]
   );
 
+  const handleToggleFinancial = useCallback(
+    async (posting: MbaAssociatePostingView, next: boolean) => {
+      setBusyFor(posting.associate_user_id, true);
+      try {
+        await MbaAnalystService.setPostingFinancial(posting.id, next);
+        await refreshPostings();
+        const label = posting.area_label ?? 'department';
+        toast.success(
+          next
+            ? `Financial views on for ${label}`
+            : `Financial views off for ${label}`
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : 'Could not update financial access.'
+        );
+      } finally {
+        setBusyFor(posting.associate_user_id, false);
+      }
+    },
+    [refreshPostings]
+  );
+
   // area_id -> label for chip rendering when a posting hasn't been enriched.
   const areaLabelById = useMemo(
     () => new Map(areas.map((a) => [a.id, a.label])),
@@ -328,26 +354,54 @@ function PostingsBoard() {
                         No department assigned yet
                       </p>
                     ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {held.map((p) => (
-                          <Badge
-                            key={p.id}
-                            variant="secondary"
-                            className="gap-1 pr-1"
-                          >
-                            <Building2 className="h-3 w-3" />
-                            {p.area_label ?? areaLabelById.get(p.area_id) ?? 'Department'}
-                            <button
-                              type="button"
-                              onClick={() => handleRemove(p)}
-                              disabled={isBusy}
-                              aria-label={`Remove ${p.area_label ?? 'department'}`}
-                              className="hover:bg-muted-foreground/20 ml-0.5 rounded-full p-0.5 disabled:opacity-50"
+                      <div className="space-y-1.5">
+                        {held.map((p) => {
+                          const label =
+                            p.area_label ??
+                            areaLabelById.get(p.area_id) ??
+                            'Department';
+                          return (
+                            <div
+                              key={p.id}
+                              className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-2.5 py-1.5"
                             >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </Badge>
-                        ))}
+                              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                                <Building2 className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate text-sm font-medium">
+                                  {label}
+                                </span>
+                              </span>
+                              {/* Per-assignment money gate. Default off — the
+                                  associate only sees this department's financial
+                                  views while this is on. */}
+                              <label className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
+                                <IndianRupee
+                                  className={`h-3.5 w-3.5 ${
+                                    p.include_financial ? 'text-primary' : ''
+                                  }`}
+                                />
+                                Show financial views
+                                <Switch
+                                  checked={p.include_financial}
+                                  disabled={isBusy}
+                                  onCheckedChange={(next) =>
+                                    handleToggleFinancial(p, next)
+                                  }
+                                  aria-label={`Show financial views for ${label}`}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => handleRemove(p)}
+                                disabled={isBusy}
+                                aria-label={`Remove ${label}`}
+                                className="hover:bg-muted-foreground/20 shrink-0 rounded-full p-1 disabled:opacity-50"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

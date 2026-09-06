@@ -1,5 +1,5 @@
 // ============================================================================
-// Premium Stay Phase 2 — Audit Log Service + Chief-Warden Override
+// Premium Room Phase 2 — Audit Log Service + Chief-Warden Override
 // ============================================================================
 // Companion migration: supabase/migrations/20260519101705_create_hostel_premium_audit_log.sql
 // Companion UIs:

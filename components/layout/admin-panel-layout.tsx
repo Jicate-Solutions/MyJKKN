@@ -31,6 +31,7 @@ export default function AdminPanelLayout({
       <main
         className={cn(
           'min-h-[calc(100vh_-_56px)] bg-background transition-[margin-left] ease-in-out duration-300',
+          'overflow-x-clip',
           isOpen === false ? 'lg:ml-[90px]' : 'lg:ml-72',
           // Bottom padding on mobile to clear the bottom-nav strip (~76px:
           // icons + label + safe-area). The AttentionBar pill that used to

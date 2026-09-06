@@ -56,7 +56,7 @@ export function PipelineAnalytics() {
   const currentMonthWinRate = analytics?.monthlyWinRate?.[analytics.monthlyWinRate.length - 1]?.winRate ?? 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 md:px-8">
       <div>
         <h1 className="text-2xl font-bold">Pipeline Analytics</h1>
         <p className="text-sm text-muted-foreground mt-1">

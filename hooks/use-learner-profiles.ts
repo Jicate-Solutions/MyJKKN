@@ -12,7 +12,11 @@ import type {
   LearnerLifecycleFunnel,
   LifecycleStatus,
 } from '@/types/learner-profile';
-import type { IncompleteProfilesResponse, LearnerDashboardFilters } from '@/types/learner-dashboard';
+import type {
+  IncompleteProfileFilterOptions,
+  IncompleteProfilesFilters,
+  IncompleteProfilesResponse,
+} from '@/types/learner-dashboard';
 
 // ============================================
 // REACT QUERY HOOKS - LEARNER PROFILES
@@ -126,7 +130,14 @@ export function useCreateLearnerProfile() {
   const queryClient = useQueryClient();
 
   return useMutation<LearnerProfile, Error, CreateLearnerProfileDto>({
-    mutationFn: (dto) => LearnerProfileService.createLearnerProfile(dto),
+    // This hook is only used by the /learners/profiles/create page — a
+    // manually-verified, single-shot admit flow — so it force-activates the
+    // record instead of leaving it at createLearnerProfile's 'enquiry'
+    // default, which the Learners Management Active/Inactive/Exited tabs
+    // never surface. Other callers of createLearnerProfile (general Enquiry
+    // form, bulk upload) go through their own hooks and keep the default.
+    mutationFn: (dto) =>
+      LearnerProfileService.createLearnerProfile({ ...dto, lifecycle_status: 'active' }),
     onSuccess: () => {
       // Invalidate all lists and analytics
       queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
@@ -147,6 +158,35 @@ export function useUpdateLearnerProfile() {
       // Update specific profile cache
       queryClient.setQueryData(learnerProfileKeys.detail(variables.id), data);
       // Invalidate lists and analytics
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.analytics() });
+    },
+  });
+}
+
+/**
+ * Activate an onboarded learner (admitted → active) and provision their login.
+ * 2026-08-10 — powers the "Ready to Activate" tier on /learners/onboarding.
+ *
+ * Deliberately does NOT reject when the login fails: `activated: true` with
+ * `loginCreated: false` means the status change already committed in Postgres,
+ * so throwing would push the caller to retry work that is already done. The
+ * caller inspects both flags and reports the partial outcome.
+ */
+export function useActivateLearner() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    Awaited<ReturnType<typeof LearnerProfileService.activateIfReady>>,
+    Error,
+    string
+  >({
+    mutationFn: (id) => LearnerProfileService.activateIfReady(id),
+    onSuccess: (result, id) => {
+      // Only invalidate when something actually changed — a refused activation
+      // (wrong status, missing field) leaves the cache correct as it is.
+      if (!result.activated) return;
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
       queryClient.invalidateQueries({ queryKey: learnerProfileKeys.analytics() });
     },
@@ -479,30 +519,96 @@ export function useBulkUpdateStatus() {
 // ============================================
 
 /**
+ * Serialise drill-down filters into the API's query string.
+ *
+ * Exported because the Profile Completion table drives the shared DataTable,
+ * which owns page/search/sort itself and calls a plain fetch function rather
+ * than a hook — both paths must build the identical query string.
+ */
+export function buildIncompleteProfilesQuery(
+  filters: IncompleteProfilesFilters
+): string {
+  const params = new URLSearchParams();
+
+  if (filters.institutionIds?.length) {
+    params.set('institutionIds', filters.institutionIds.join(','));
+  }
+  if (filters.page) params.set('page', String(filters.page));
+  if (filters.limit) params.set('limit', String(filters.limit));
+  if (filters.search) params.set('search', filters.search);
+  if (filters.sortBy) params.set('sortBy', filters.sortBy);
+  if (filters.sortOrder) params.set('sortOrder', filters.sortOrder);
+  if (filters.completion) params.set('completion', filters.completion);
+  if (filters.missingField) params.set('missingField', filters.missingField);
+  if (filters.collegeEmail) params.set('collegeEmail', filters.collegeEmail);
+  if (filters.academicYearId) params.set('academicYearId', filters.academicYearId);
+  if (filters.admissionYearId) params.set('admissionYearId', filters.admissionYearId);
+  if (filters.departmentId) params.set('departmentId', filters.departmentId);
+  if (filters.programId) params.set('programId', filters.programId);
+  if (filters.semesterId) params.set('semesterId', filters.semesterId);
+  if (filters.sectionId) params.set('sectionId', filters.sectionId);
+
+  return params.toString();
+}
+
+/**
+ * Fetch a page of profile-completion drill-down rows.
+ * Shared by the hook below and the DataTable's fetch function.
+ */
+export async function fetchIncompleteProfiles(
+  filters: IncompleteProfilesFilters
+): Promise<IncompleteProfilesResponse> {
+  const res = await fetch(
+    `/api/learners/analytics/incomplete-profiles?${buildIncompleteProfilesQuery(filters)}`
+  );
+  if (!res.ok) {
+    throw new Error('Failed to fetch incomplete profiles');
+  }
+  return res.json();
+}
+
+/**
  * Fetch detailed incomplete profiles for drill-down table
  * Used by Profile Completion Tab to show WHO has incomplete profiles
  */
 export function useIncompleteProfiles(
-  filters: Pick<LearnerDashboardFilters, 'institutionIds'> & { limit?: number },
+  filters: IncompleteProfilesFilters,
   options?: Omit<UseQueryOptions<IncompleteProfilesResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
   return useQuery<IncompleteProfilesResponse, Error>({
     queryKey: ['learners', 'analytics', 'incomplete-profiles', filters],
+    queryFn: () => fetchIncompleteProfiles(filters),
+    staleTime: 5 * 60 * 1000,
+    ...options,
+  });
+}
+
+/**
+ * Dropdown options for the drill-down filter bar (academic year, admission
+ * year, semester, section). Keyed on institution only, so paging and filtering
+ * the table never refetches them.
+ */
+export function useIncompleteProfileFilterOptions(
+  institutionIds: string[] | undefined,
+  options?: Omit<UseQueryOptions<IncompleteProfileFilterOptions, Error>, 'queryKey' | 'queryFn'>
+) {
+  const institutionKey = institutionIds?.length ? [...institutionIds].sort().join(',') : '';
+
+  return useQuery<IncompleteProfileFilterOptions, Error>({
+    queryKey: ['learners', 'analytics', 'incomplete-profiles', 'options', institutionKey],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (filters.institutionIds?.length) {
-        params.set('institutionIds', filters.institutionIds.join(','));
-      }
-      if (filters.limit) {
-        params.set('limit', String(filters.limit));
-      }
-      const res = await fetch(`/api/learners/analytics/incomplete-profiles?${params.toString()}`);
+      if (institutionKey) params.set('institutionIds', institutionKey);
+
+      const res = await fetch(
+        `/api/learners/analytics/incomplete-profiles/options?${params.toString()}`
+      );
       if (!res.ok) {
-        throw new Error('Failed to fetch incomplete profiles');
+        throw new Error('Failed to fetch profile filter options');
       }
       return res.json();
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
     ...options,
   });
 }

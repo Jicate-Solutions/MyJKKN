@@ -48,6 +48,15 @@ export interface AiPulseCycle {
   end_date: string | null;
   status: string | null;
   config: AiPulseCycleConfig | null;
+  /**
+   * Whether this cycle has an AI starter the reader will actually see — it
+   * mirrors fn_ai_pulse_my_domain_starters (own course/programme topic, else
+   * the cycle-wide 'general' fallback), so it never contradicts the card.
+   *
+   * Only listCyclesServer() populates this; the single-cycle fetchers leave it
+   * undefined, which reads as "not known" rather than "no prompt".
+   */
+  has_prompt?: boolean;
 }
 
 export interface AiPulseGoldWeek {
@@ -203,11 +212,13 @@ export class AiPulseLearnerService {
    * List recent AI Pulse cycles (newest first) — backs the learner "week
    * switcher" on My AI Pulse. Read-only browse of any past cycle.
    *
-   * Only surfaces cycles the learner actually has a Domain Starter in.
-   * fn_ai_pulse_switchable_cycles mirrors the read-fn's kill-switch gate and
-   * topic-join, so an "empty week" (no prompt for THIS learner) never appears
-   * in the switcher — previously the switcher listed every ai_pulse cycle, so
-   * a learner could browse back into weeks with nothing to show.
+   * Surfaces every cycle the learner ATTENDED, plus every cycle that has a
+   * starter for them (the union — the current week normally has starters but
+   * no attendance yet, so attendance alone would drop the live week).
+   *
+   * A week the learner sat through but which has no prompt for their programme
+   * is no longer hidden: it comes back with has_prompt=false so the page can
+   * say so plainly instead of making the session invisible.
    */
   static async listCyclesServer(limit = 12): Promise<AiPulseCycle[]> {
     try {
@@ -227,6 +238,7 @@ export class AiPulseLearnerService {
         end_date: (r.end_date as string | null) ?? null,
         status: (r.status as string | null) ?? null,
         config: null,
+        has_prompt: r.has_prompt === true,
       })) as AiPulseCycle[];
     } catch (e) {
       console.error('[ai-pulse/learner] listCyclesServer threw:', e);

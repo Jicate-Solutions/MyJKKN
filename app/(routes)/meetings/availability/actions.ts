@@ -86,6 +86,22 @@ function rowsToAvailability(
   });
 }
 
+/**
+ * The working hours a host gets when they have none yet: Mon–Fri 09:00–17:00.
+ * Shared by first-visit creation (getMySchedule) and by createSchedule's
+ * fallback, so "a new set copies your normal hours" and "your first set" can
+ * never drift apart.
+ */
+const DEFAULT_WEEKDAY_WINDOWS: ReadonlyArray<{
+  weekday: number;
+  start_minute: number;
+  end_minute: number;
+}> = [1, 2, 3, 4, 5].map((weekday) => ({
+  weekday,
+  start_minute: 9 * 60,
+  end_minute: 17 * 60,
+}));
+
 async function getCurrentUserId(): Promise<string> {
   const supabase = await untypedClient();
   const { data: { user }, error } = await supabase.auth.getUser();
@@ -101,20 +117,44 @@ async function getCurrentUserId(): Promise<string> {
 // ──────────────────────────────────────────────────────────────────────────
 
 /**
- * Fetch the host's default schedule (creating Mon–Fri 09:00–17:00 IST on
+ * Fetch one of the host's schedules (creating Mon–Fri 09:00–17:00 IST on
  * first visit so the editor is never blank).
+ *
+ * `scheduleId` picks WHICH set of working hours the editor edits — a host may
+ * keep more than one (see listMySchedules below). Omitted, or naming a
+ * schedule this host does not own, it returns the host's own default, exactly
+ * as it always has. That fall-back is not a silent permission bounce: the
+ * schedules card renders which set is selected, so the host sees they are on
+ * their normal hours.
  */
-export async function getMySchedule(): Promise<ActionResult<MyScheduleData>> {
+export async function getMySchedule(scheduleId?: string): Promise<ActionResult<MyScheduleData>> {
   try {
     const userId = await getCurrentUserId();
     const supabase = await untypedClient();
 
-    let { data: schedule } = await supabase
-      .from('meeting_host_schedules')
-      .select('id, name, timezone')
-      .eq('host_profile_id', userId)
-      .eq('is_default', true)
-      .maybeSingle();
+    let schedule: { id: string; name: string; timezone: string } | null = null;
+
+    if (scheduleId) {
+      // host_profile_id is filtered HERE, not left to RLS — mhs_host_all also
+      // admits is_admin(), which would otherwise expose another host's hours.
+      const { data: picked } = await supabase
+        .from('meeting_host_schedules')
+        .select('id, name, timezone')
+        .eq('id', scheduleId)
+        .eq('host_profile_id', userId)
+        .maybeSingle();
+      schedule = picked ?? null;
+    }
+
+    if (!schedule) {
+      const { data: fallbackDefault } = await supabase
+        .from('meeting_host_schedules')
+        .select('id, name, timezone')
+        .eq('host_profile_id', userId)
+        .eq('is_default', true)
+        .maybeSingle();
+      schedule = fallbackDefault ?? null;
+    }
 
     if (!schedule) {
       // fall back to any schedule before creating one
@@ -141,11 +181,11 @@ export async function getMySchedule(): Promise<ActionResult<MyScheduleData>> {
       if (cErr) throw new Error('Could not create your default schedule. Please try again.');
       schedule = created;
 
-      const weekdayRows = [1, 2, 3, 4, 5].map((weekday) => ({
+      const weekdayRows = DEFAULT_WEEKDAY_WINDOWS.map((w) => ({
         schedule_id: created.id,
-        weekday,
-        start_minute: 9 * 60,
-        end_minute: 17 * 60,
+        weekday: w.weekday,
+        start_minute: w.start_minute,
+        end_minute: w.end_minute,
       }));
       await supabase.from('meeting_schedule_windows').insert(weekdayRows);
     }
@@ -261,6 +301,339 @@ export async function saveMySchedule(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to save your availability.',
+    };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// MORE THAN ONE SET OF WORKING HOURS (2026-08-21)
+//
+// The database and the slot engine have always supported this: meeting_types
+// .schedule_id FKs to meeting_host_schedules and native-scheduling-service
+// resolves "the meeting kind's own schedule_id, else the host's default".
+// Only the UI was missing — getMySchedule() was hard-wired to is_default and
+// nothing could create a second schedule, so on 2026-08-21 exactly ONE of 313
+// hosts had more than one, and those rows were made outside the app.
+//
+// Director rulings implemented here:
+//   1. EVERY host may keep extra sets of hours — not a privileged subset.
+//   2. A new set starts as a COPY of the host's normal hours, so they trim
+//      rather than face a blank week (and never create an empty set by
+//      accident).
+//   3. Deleting a set that meeting kinds use WARNS FIRST, naming the count.
+//      The database already does the safe thing — schedule_id is ON DELETE
+//      SET NULL, windows and overrides CASCADE — so the count exists purely
+//      so the host is not surprised.
+//
+// AUTHORIZATION: every action below filters host_profile_id = auth.uid()
+// ITSELF. RLS is not sufficient here — mhs_host_all reads
+// `is_super_admin() OR is_admin() OR host_profile_id = auth.uid()`, so relying
+// on the policy alone would let any admin read, rename or delete ANY host's
+// working hours.
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface HostScheduleSummary {
+  id: string;
+  name: string;
+  timeZone: string;
+  /** The host's normal hours. Exactly one per host (uq_mhs_default_per_host). */
+  isDefault: boolean;
+  /** Weekly windows on this set — 0 means it offers no bookable time at all. */
+  windowCount: number;
+  /** How many of the host's meeting kinds point at this set. */
+  meetingTypeCount: number;
+}
+
+const MAX_SCHEDULE_NAME_LENGTH = 60;
+
+/** Trim + cap a set's name; null when the host left it blank. */
+function cleanScheduleName(raw: string): string | null {
+  const name = (raw ?? '').trim();
+  return name ? name.slice(0, MAX_SCHEDULE_NAME_LENGTH) : null;
+}
+
+/** Every set of working hours this host keeps, normal hours first. */
+export async function listMySchedules(): Promise<ActionResult<HostScheduleSummary[]>> {
+  try {
+    const userId = await getCurrentUserId();
+    const supabase = await untypedClient();
+
+    const { data: schedules, error } = await supabase
+      .from('meeting_host_schedules')
+      .select('id, name, timezone, is_default, created_at')
+      .eq('host_profile_id', userId)
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[meetings/availability] schedule list failed:', error.message);
+      return { success: false, error: 'Could not load your sets of working hours.' };
+    }
+
+    const ids = (schedules ?? []).map((s) => s.id as string);
+    if (ids.length === 0) return { success: true, data: [] };
+
+    // Two extra reads total, not one per schedule — tally in memory.
+    const [{ data: windows }, { data: types }] = await Promise.all([
+      supabase.from('meeting_schedule_windows').select('schedule_id').in('schedule_id', ids),
+      supabase.from('meeting_types').select('schedule_id').eq('host_profile_id', userId),
+    ]);
+
+    const windowCounts = new Map<string, number>();
+    for (const w of windows ?? []) {
+      windowCounts.set(w.schedule_id, (windowCounts.get(w.schedule_id) ?? 0) + 1);
+    }
+    const typeCounts = new Map<string, number>();
+    for (const t of types ?? []) {
+      if (!t.schedule_id) continue; // null = uses the host's normal hours
+      typeCounts.set(t.schedule_id, (typeCounts.get(t.schedule_id) ?? 0) + 1);
+    }
+
+    return {
+      success: true,
+      data: (schedules ?? []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        timeZone: s.timezone,
+        isDefault: Boolean(s.is_default),
+        windowCount: windowCounts.get(s.id) ?? 0,
+        meetingTypeCount: typeCounts.get(s.id) ?? 0,
+      })),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not load your sets of working hours.',
+    };
+  }
+}
+
+/**
+ * Add a set of working hours as a COPY of the host's normal hours (ruling 2).
+ * With no normal hours yet it falls back to Mon–Fri 09:00–17:00 IST, the same
+ * shape getMySchedule() creates on first visit.
+ */
+export async function createSchedule(name: string): Promise<ActionResult<HostScheduleSummary>> {
+  try {
+    const cleanName = cleanScheduleName(name);
+    if (!cleanName) {
+      return { success: false, error: 'Please give this set of working hours a name.' };
+    }
+
+    const userId = await getCurrentUserId();
+    const supabase = await untypedClient();
+
+    const { data: source } = await supabase
+      .from('meeting_host_schedules')
+      .select('id, timezone, institution_id')
+      .eq('host_profile_id', userId)
+      .eq('is_default', true)
+      .maybeSingle();
+
+    let sourceWindows: ReadonlyArray<{
+      weekday: number;
+      start_minute: number;
+      end_minute: number;
+    }> = [];
+    if (source) {
+      const { data: rows } = await supabase
+        .from('meeting_schedule_windows')
+        .select('weekday, start_minute, end_minute')
+        .eq('schedule_id', source.id);
+      sourceWindows = rows ?? [];
+    }
+    if (sourceWindows.length === 0) sourceWindows = DEFAULT_WEEKDAY_WINDOWS;
+
+    const { data: created, error: cErr } = await supabase
+      .from('meeting_host_schedules')
+      .insert({
+        host_profile_id: userId,
+        institution_id: source?.institution_id ?? null,
+        name: cleanName,
+        timezone: source?.timezone ?? 'Asia/Kolkata',
+        // Never a second default — uq_mhs_default_per_host allows exactly one.
+        is_default: false,
+      })
+      .select('id, name, timezone')
+      .single();
+    if (cErr || !created) {
+      console.error('[meetings/availability] schedule create failed:', cErr?.message);
+      return { success: false, error: 'Could not add that set of working hours. Please try again.' };
+    }
+
+    const { error: wErr } = await supabase.from('meeting_schedule_windows').insert(
+      sourceWindows.map((w) => ({
+        schedule_id: created.id,
+        weekday: w.weekday,
+        start_minute: w.start_minute,
+        end_minute: w.end_minute,
+      })),
+    );
+    if (wErr) {
+      // The set exists but is empty — say so rather than claim it was copied.
+      console.error('[meetings/availability] schedule window copy failed:', wErr.message);
+      return {
+        success: false,
+        error:
+          'The new set was added but its hours could not be copied across. Open it and set the hours.',
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        id: created.id,
+        name: created.name,
+        timeZone: created.timezone,
+        isDefault: false,
+        windowCount: sourceWindows.length,
+        meetingTypeCount: 0,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not add that set of working hours.',
+    };
+  }
+}
+
+/** Rename one of the host's OWN sets of working hours. */
+export async function renameSchedule(
+  scheduleId: string,
+  name: string,
+): Promise<ActionResult<{ id: string; name: string }>> {
+  try {
+    if (!scheduleId || typeof scheduleId !== 'string') {
+      return { success: false, error: 'Invalid schedule reference. Please reload the page.' };
+    }
+    const cleanName = cleanScheduleName(name);
+    if (!cleanName) {
+      return { success: false, error: 'Please give this set of working hours a name.' };
+    }
+
+    const userId = await getCurrentUserId();
+    const supabase = await untypedClient();
+
+    const { data: updated, error } = await supabase
+      .from('meeting_host_schedules')
+      .update({ name: cleanName })
+      .eq('id', scheduleId)
+      .eq('host_profile_id', userId) // ownership in the action, not only in RLS
+      .select('id, name')
+      .single();
+    if (error || !updated) {
+      return {
+        success: false,
+        error: 'That set of working hours was not found. Please reload the page.',
+      };
+    }
+
+    return { success: true, data: { id: updated.id, name: updated.name } };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not rename that set of working hours.',
+    };
+  }
+}
+
+/**
+ * How many of the host's meeting kinds point at this set — the number the
+ * delete dialog names before the host confirms (ruling 3).
+ */
+export async function countTypesUsingSchedule(scheduleId: string): Promise<ActionResult<number>> {
+  try {
+    if (!scheduleId || typeof scheduleId !== 'string') {
+      return { success: false, error: 'Invalid schedule reference. Please reload the page.' };
+    }
+    const userId = await getCurrentUserId();
+    const supabase = await untypedClient();
+
+    if (!(await ownedSchedule(supabase, scheduleId, userId))) {
+      return {
+        success: false,
+        error: 'That set of working hours was not found. Please reload the page.',
+      };
+    }
+
+    const { count, error } = await supabase
+      .from('meeting_types')
+      .select('id', { count: 'exact', head: true })
+      .eq('host_profile_id', userId)
+      .eq('schedule_id', scheduleId);
+    if (error) {
+      console.error('[meetings/availability] schedule usage count failed:', error.message);
+      return { success: false, error: 'Could not check which meeting kinds use these hours.' };
+    }
+
+    return { success: true, data: count ?? 0 };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not check these working hours.',
+    };
+  }
+}
+
+/**
+ * Delete one of the host's OWN non-default sets of working hours.
+ *
+ * The default set is REFUSED — every meeting kind with no schedule_id falls
+ * back to it, so a host must always keep one. Meeting kinds pointing at the
+ * deleted set move to the host's normal hours (schedule_id is ON DELETE SET
+ * NULL); the returned count is what the dialog warned about.
+ */
+export async function deleteSchedule(
+  scheduleId: string,
+): Promise<ActionResult<{ affectedMeetingTypes: number }>> {
+  try {
+    if (!scheduleId || typeof scheduleId !== 'string') {
+      return { success: false, error: 'Invalid schedule reference. Please reload the page.' };
+    }
+    const userId = await getCurrentUserId();
+    const supabase = await untypedClient();
+
+    const { data: schedule } = await supabase
+      .from('meeting_host_schedules')
+      .select('id, is_default')
+      .eq('id', scheduleId)
+      .eq('host_profile_id', userId) // ownership in the action, not only in RLS
+      .maybeSingle();
+    if (!schedule) {
+      return {
+        success: false,
+        error: 'That set of working hours was not found. Please reload the page.',
+      };
+    }
+    if (schedule.is_default) {
+      return {
+        success: false,
+        error:
+          'These are your normal working hours, so they cannot be deleted — every meeting kind falls back to them.',
+      };
+    }
+
+    const { count } = await supabase
+      .from('meeting_types')
+      .select('id', { count: 'exact', head: true })
+      .eq('host_profile_id', userId)
+      .eq('schedule_id', scheduleId);
+
+    const { error } = await supabase
+      .from('meeting_host_schedules')
+      .delete()
+      .eq('id', scheduleId)
+      .eq('host_profile_id', userId);
+    if (error) {
+      console.error('[meetings/availability] schedule delete failed:', error.message);
+      return { success: false, error: 'Could not remove that set of working hours. Please try again.' };
+    }
+
+    return { success: true, data: { affectedMeetingTypes: count ?? 0 } };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not remove that set of working hours.',
     };
   }
 }
@@ -469,7 +842,18 @@ export async function deleteScheduleOverrideDate(
 export interface BookingPageState {
   /** null = integration env not provisioned yet (connect button disabled). */
   googleConfigured: boolean;
-  connection: { status: 'active' | 'broken' | 'revoked'; googleEmail: string } | null;
+  connection: {
+    status: 'active' | 'broken' | 'revoked';
+    googleEmail: string;
+    /**
+     * Is every calendar this host owns checked for busy time, or only 'primary'?
+     * null = not yet probed, false = primary only (they must reconnect to grant
+     * the calendar-list scope). Connections made before 2026-08-05 cannot list
+     * calendars at all, so a meeting kept on a second calendar is invisible to
+     * the slot engine and that slot is still offered to strangers.
+     */
+    allCalendarsChecked: boolean | null;
+  } | null;
   page: {
     handle: string;
     isPublic: boolean;
@@ -521,7 +905,7 @@ export async function getBookingPageState(): Promise<ActionResult<BookingPageSta
     const [{ data: conn }, { data: page }, { data: profile }] = await Promise.all([
       supabase
         .from('meeting_host_google_connections')
-        .select('status, google_email')
+        .select('status, google_email, calendar_list_scope')
         .eq('host_profile_id', user.id)
         .maybeSingle(),
       supabase
@@ -553,7 +937,11 @@ export async function getBookingPageState(): Promise<ActionResult<BookingPageSta
       data: {
         googleConfigured: isGoogleCalConfigured(),
         connection: conn
-          ? { status: conn.status, googleEmail: conn.google_email }
+          ? {
+            status: conn.status,
+            googleEmail: conn.google_email,
+            allCalendarsChecked: (conn as { calendar_list_scope?: boolean | null }).calendar_list_scope ?? null,
+          }
           : null,
         page: page
           ? {

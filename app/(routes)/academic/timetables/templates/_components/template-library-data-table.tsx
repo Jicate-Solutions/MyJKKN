@@ -306,7 +306,7 @@ export function TemplateLibraryDataTable({
     <div className='space-y-4'>
       {/* Table Controls */}
       <div className='flex items-center justify-between'>
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-1 items-center gap-2 min-w-0'>
           <Input
             placeholder='Search templates...'
             value={
@@ -323,7 +323,7 @@ export function TemplateLibraryDataTable({
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant='outline' size='sm' className='gap-1'>
+            <Button variant='outline' size='sm' className='gap-1 shrink-0'>
               <Settings2 className='h-4 w-4' />
               View
             </Button>

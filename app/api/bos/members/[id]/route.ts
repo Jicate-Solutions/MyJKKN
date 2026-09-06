@@ -100,7 +100,10 @@ export async function PUT(
 
     // AC roster writes bypass the board-keyed RLS (route-level authz is the
     // source of truth). BoS writes stay on the user-context client.
-    const writeDb = parent.isAcademicCouncil ? createServiceRoleClient() : supabase;
+    // `parent.isCouncil` — the field was renamed when Governing Body joined
+    // Academic Council on this gate; the old name silently resolved to
+    // undefined, so council writes fell back to the user-context client.
+    const writeDb = parent.isCouncil ? createServiceRoleClient() : supabase;
 
     const { data, error } = await writeDb
       .from('bos_members')
@@ -110,6 +113,17 @@ export async function PUT(
       .single();
 
     if (error) throw error;
+
+    // A PUT can move a member to another committee or member type, which
+    // changes which group it belongs to — so both ranks have to be rebuilt.
+    // Idempotent, so it's harmless when the patch touched neither.
+    const { error: renumberErr } = await createServiceRoleClient().rpc(
+      'bos_renumber_member_order',
+      { p_composition_id: parent.compositionId },
+    );
+    if (renumberErr) {
+      console.warn('[bos/members/:id] renumber after update failed:', renumberErr);
+    }
 
     return NextResponse.json(data);
   } catch (error) {
@@ -165,10 +179,23 @@ export async function DELETE(
 
     // AC roster writes bypass the board-keyed RLS (route-level authz is the
     // source of truth). BoS writes stay on the user-context client.
-    const writeDb = parent.isAcademicCouncil ? createServiceRoleClient() : supabase;
+    // `parent.isCouncil` — the field was renamed when Governing Body joined
+    // Academic Council on this gate; the old name silently resolved to
+    // undefined, so council writes fell back to the user-context client.
+    const writeDb = parent.isCouncil ? createServiceRoleClient() : supabase;
 
     const { error } = await writeDb.from('bos_members').delete().eq('id', id);
     if (error) throw error;
+
+    // Close the hole the delete left in the sequence (…7, 9, 10…) and rebuild
+    // group_position. Non-fatal: the member is already gone either way.
+    const { error: renumberErr } = await createServiceRoleClient().rpc(
+      'bos_renumber_member_order',
+      { p_composition_id: parent.compositionId },
+    );
+    if (renumberErr) {
+      console.warn('[bos/members/:id] renumber after delete failed:', renumberErr);
+    }
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {

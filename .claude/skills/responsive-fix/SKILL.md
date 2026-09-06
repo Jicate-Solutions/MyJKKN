@@ -41,6 +41,14 @@ A screen passes when ALL of these hold from 320px up to desktop:
 
 - **No horizontal scroll** on the document at any width.
 - **No overlapping or cut-off content** — including fixed/floating elements.
+- **Nothing overflows its own section/box** — texts and buttons must stay
+  inside their containing card/section/container at every width (320px up).
+  No label, button, or child element may spill past its parent's border. Cure
+  per element: buttons in a row → `flex-wrap` (or stack `flex-col` then
+  `sm:flex-row`); long text → `min-w-0` + `truncate`/`break-words`; the button
+  that must not shrink → `shrink-0`; genuinely wide content (tables, tab
+  strips) → wrap the container in `overflow-x-auto` so the box scrolls, not the
+  page.
 - **Readable text** — nothing below ~10px; long text truncates with ellipsis
   (`truncate` + `min-w-0`) instead of clipping or forcing overflow.
 - **Touch-friendly targets** — interactive elements keep ≥ ~44px effective tap

@@ -187,7 +187,7 @@ export async function PATCH(
         `
         *,
         category:employment_categories(id, category_name, is_teaching, shows_extended_profile),
-        institution:institutions(id, name, counselling_code),
+        institution:institutions!staff_institution_id_fkey(id, name, counselling_code),
         department:departments(id, department_name),
         role:custom_roles!role_key(id, role_key, role_name, description, is_system_role)
       `
@@ -222,6 +222,154 @@ export async function PATCH(
     return NextResponse.json(updatedStaff);
   } catch (error) {
     console.error('[/api/staff/[id]] Error in PATCH:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE endpoint for removing a staff record. The client first attempts a
+// direct RLS-scoped delete (see StaffService.deleteStaff); when RLS silently
+// deletes 0 rows (no error, just an empty result — the same "staff_delete_scope_aware"
+// policy PostgREST can't always resolve in one round trip), it falls back to
+// this route, which duplicates the policy's permission + scope check explicitly
+// so the caller gets a real 403 instead of a false "deleted successfully".
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  await connection();
+  try {
+    const { id } = await params;
+
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+          set(name: string, value: string, options: CookieOptions) {
+            try {
+              cookieStore.set(name, value, options);
+            } catch (error) {
+              // Handle cookie errors in server context
+            }
+          },
+          remove(name: string, options: CookieOptions) {
+            try {
+              cookieStore.set(name, '', { ...options, maxAge: 0 });
+            } catch (error) {
+              // Handle cookie errors in server context
+            }
+          }
+        }
+      }
+    );
+
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { data: userProfile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('is_super_admin, role')
+      .eq('id', session.user.id)
+      .single();
+
+    if (profileError || !userProfile) {
+      return NextResponse.json(
+        { error: 'Failed to check user permissions' },
+        { status: 500 }
+      );
+    }
+
+    const isSuperAdmin =
+      userProfile.is_super_admin || userProfile.role === 'super_admin';
+
+    const scope = isSuperAdmin
+      ? ('all_institutions' as const)
+      : await getStaffScope(supabase, session.user.id);
+
+    if (scope === 'none') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const { data: staffRecord, error: staffFetchError } = await supabaseAdmin
+      .from('staff')
+      .select('id, institution_id')
+      .eq('id', id)
+      .single();
+
+    if (staffFetchError || !staffRecord) {
+      return NextResponse.json(
+        { error: 'Staff record not found' },
+        { status: 404 }
+      );
+    }
+
+    let hasDeletePermission = isSuperAdmin;
+    if (!hasDeletePermission) {
+      const { data: permResult } = await supabase.rpc('user_has_permission', {
+        permission_name: 'staff.delete'
+      });
+      hasDeletePermission = !!permResult;
+    }
+
+    if (!hasDeletePermission) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions to delete staff' },
+        { status: 403 }
+      );
+    }
+
+    // Mirrors the "staff_delete_scope_aware" RLS policy: own_records scope
+    // never deletes, own_institution requires institution access to the
+    // target row, all_institutions (incl. super admin) is unrestricted.
+    if (scope === 'own_records') {
+      return NextResponse.json(
+        { error: 'Forbidden', code: 'STAFF_OWN_RECORD_VIOLATION' },
+        { status: 403 }
+      );
+    } else if (scope === 'own_institution' && staffRecord.institution_id) {
+      const { data: hasAccess } = await supabase.rpc(
+        'role_has_institution_access',
+        { check_institution_id: staffRecord.institution_id }
+      );
+      if (!hasAccess) {
+        return NextResponse.json(
+          { error: 'Forbidden', code: 'STAFF_INSTITUTION_VIOLATION' },
+          { status: 403 }
+        );
+      }
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from('staff')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('[/api/staff/[id]] Error deleting staff:', deleteError);
+      return NextResponse.json(
+        { error: 'Failed to delete staff record', details: deleteError.message },
+        { status: 500 }
+      );
+    }
+
+    console.log('[/api/staff/[id]] Staff deleted successfully:', id);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[/api/staff/[id]] Error in DELETE:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

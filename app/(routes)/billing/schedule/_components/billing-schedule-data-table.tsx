@@ -16,7 +16,11 @@ import { format } from 'date-fns';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DeleteConfirmationModal } from '@/components/billing/delete-confirmation-modal';
-import { CancelConfirmationModal } from '@/components/billing/cancel-confirmation-modal';
+import { BillCancelDialog } from '@/components/billing/bill-cancel-dialog';
+import type {
+  BillCancelReasonCode,
+  BillCancellationAttachment
+} from '@/types/billing-bill-cancellation';
 
 interface BillingScheduleDataTableProps {
   search: BillingScheduleSearchParams;
@@ -94,10 +98,16 @@ export function BillingScheduleDataTable({
 
   const isReady = !permissionsLoading && !!userProfile;
 
+  // Bulk create needs BOTH keys: bulk_create opens the flow, create is what the
+  // RLS INSERT policy on billing_student_bills actually checks. Requiring only
+  // bulk_create would show the button and fail every insert with an RLS denial.
   const canCreateBills =
-    isSuperAdmin || canAccess('billing.schedule', 'create');
+    isSuperAdmin ||
+    (canAccess('billing.schedule', 'create') &&
+      canAccess('billing.schedule', 'bulk_create'));
+  // Its own key, not billing.schedule.update: cancelling writes off money.
   const canCancelBills =
-    isSuperAdmin || canAccess('billing.schedule', 'update');
+    isSuperAdmin || canAccess('billing.schedule', 'cancel');
 
   // Dimension filters shared by the paged fetch AND the cross-page "select all"
   // fetch, so both honour the exact same URL filters. Search/sort come per-call
@@ -128,7 +138,8 @@ export function BillingScheduleDataTable({
       program_id: search.program_id || undefined,
       semester_id: search.semester_id || undefined,
       section_id: search.section_id || undefined,
-      accommodation_type: search.accommodation_type || undefined
+      accommodation_type: search.accommodation_type || undefined,
+      admission_year: search.admission_year || undefined
     }),
     [
       search.institution_id,
@@ -148,7 +159,8 @@ export function BillingScheduleDataTable({
       search.program_id,
       search.semester_id,
       search.section_id,
-      search.accommodation_type
+      search.accommodation_type,
+      search.admission_year
     ]
   );
 
@@ -161,6 +173,11 @@ export function BillingScheduleDataTable({
           search: params.search || undefined,
           sortBy: params.sort_by || undefined,
           sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
+          // College-only, unconditionally. The institution dropdown lists
+          // entity_type='institution' only, but "All Institutions" sends no
+          // institution_id at all — without this the default view still
+          // returned school-fee bills. Same contract as the students list.
+          institution_entity_type: 'institution' as const,
           ...dimensionFilters
         });
 
@@ -193,6 +210,9 @@ export function BillingScheduleDataTable({
         search: params.search || undefined,
         sortBy: params.sort_by || undefined,
         sortDirection: (params.sort_order as 'asc' | 'desc') || undefined,
+        // Must match fetchData exactly — "Select all across pages" feeds bulk
+        // cancel/delete, so a wider set here would act on school-fee bills.
+        institution_entity_type: 'institution' as const,
         ...dimensionFilters
       });
       return data || [];
@@ -307,7 +327,11 @@ export function BillingScheduleDataTable({
   );
 
   const handleConfirmCancel = React.useCallback(
-    async (reason?: string) => {
+    async (payload: {
+      reasonCode: BillCancelReasonCode;
+      reason: string;
+      attachments: BillCancellationAttachment[];
+    }) => {
       const { selectedBills, resetSelection } = cancelModal;
       if (selectedBills.length === 0) return;
 
@@ -329,7 +353,9 @@ export function BillingScheduleDataTable({
 
         const result = await StudentBillService.bulkCancelStudentBills(
           cancellable.map((b) => b.id),
-          reason
+          payload.reasonCode,
+          payload.reason,
+          payload.attachments
         );
 
         const skipped = selectedBills.length - cancellable.length;
@@ -391,7 +417,7 @@ export function BillingScheduleDataTable({
       ).length;
 
       return (
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           {canCreateBills && (
             <Button
               onClick={() => router.push('/billing/schedule/bulk-create')}
@@ -516,6 +542,13 @@ export function BillingScheduleDataTable({
           enableExport: true,
           enableRowSelection: true,
           enableSearch: true,
+          // Spelled out because the search spans the bill AND the learner:
+          // bill_description on the bill itself, plus name / roll number /
+          // college email resolved against learners_profiles first (PostgREST
+          // .or() cannot reach embedded-resource columns — see
+          // StudentBillService.getStudentBills).
+          searchPlaceholder:
+            'Search by student name, roll number, college email or bill description...',
           enableColumnFilters: false,
           enableColumnVisibility: true,
           enableColumnResizing: true,
@@ -553,13 +586,25 @@ export function BillingScheduleDataTable({
         warningMessage='This will permanently remove all payment history, discounts, and related financial records.'
       />
 
-      {/* Cancel Confirmation Modal */}
-      <CancelConfirmationModal
-        isOpen={cancelModal.isOpen}
-        onClose={handleCloseCancelModal}
+      {/* One reason and one document set covers the whole selection — the
+          "these twelve rows are the same duplicate" case. Each bill still
+          goes through the RPC on its own, so an ineligible one fails alone. */}
+      <BillCancelDialog
+        open={cancelModal.isOpen}
+        onOpenChange={(next) => {
+          if (!next) handleCloseCancelModal();
+        }}
+        bills={cancelModal.selectedBills.map((b) => ({
+          id: b.id,
+          bill_description: b.bill_description,
+          final_amount: b.final_amount,
+          status: b.status
+        }))}
+        institutionName={
+          cancelModal.selectedBills[0]?.institution?.name || 'Unknown Institution'
+        }
+        isPending={cancelModal.isLoading}
         onConfirm={handleConfirmCancel}
-        bills={cancelModal.selectedBills}
-        isLoading={cancelModal.isLoading}
       />
     </>
   );

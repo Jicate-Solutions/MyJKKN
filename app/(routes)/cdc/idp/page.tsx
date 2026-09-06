@@ -178,7 +178,7 @@ export default function IdpListPage() {
           </h1>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Bulk reminder — nudge every pending learner in the current view. */}
-            <PermissionGuard module="cdc.idp" action="edit">
+            <PermissionGuard module="cdc.idp" action="edit" fallback={null}>
               <Button
                 variant="outline"
                 onClick={remindAllPending}
@@ -193,7 +193,7 @@ export default function IdpListPage() {
                 Remind All Pending{(stats?.pending ?? 0) > 0 ? ` (${stats?.pending})` : ''}
               </Button>
             </PermissionGuard>
-            <PermissionGuard module="cdc.idp" action="create">
+            <PermissionGuard module="cdc.idp" action="create" fallback={null}>
               <Button asChild>
                 <Link href="/cdc/idp/new">
                   <Plus className="w-4 h-4 mr-1" />
@@ -298,11 +298,11 @@ export default function IdpListPage() {
                   <Link key={r.id} href={`/cdc/idp/${r.id}`}>
                     <Card className="hover:border-blue-300 transition-colors cursor-pointer">
                       <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <CardTitle className="text-base font-medium">
                             {(r.learner as { name?: string } | null)?.name ?? 'Unknown learner'}
                           </CardTitle>
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-wrap items-center gap-2">
                             {(() => {
                               const meta = IDP_STATUS_META[r.submission_status ?? 'draft'];
                               return meta ? (
@@ -318,7 +318,7 @@ export default function IdpListPage() {
                               {r.source === 'google_form_migration' ? 'Imported' : 'Native'}
                             </Badge>
                             {isIdpPending(r) && (
-                              <PermissionGuard module="cdc.idp" action="edit">
+                              <PermissionGuard module="cdc.idp" action="edit" fallback={null}>
                                 <Button
                                   variant="ghost"
                                   size="sm"

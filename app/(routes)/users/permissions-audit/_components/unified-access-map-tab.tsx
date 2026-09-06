@@ -132,7 +132,7 @@ function ModuleCard({
       >
         <CollapsibleTrigger asChild>
           <CardHeader className="cursor-pointer py-3 px-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 {isExpanded ? (
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -438,7 +438,7 @@ export function UnifiedAccessMapTab() {
           <div className="flex flex-wrap items-center gap-3">
             {/* Role Selector */}
             <Select value={selectedRole} onValueChange={setSelectedRole}>
-              <SelectTrigger className="w-[280px]">
+              <SelectTrigger className="w-full sm:w-[280px]">
                 <SelectValue placeholder="Select a role..." />
               </SelectTrigger>
               <SelectContent>

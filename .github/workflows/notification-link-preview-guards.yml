@@ -1,0 +1,111 @@
+name: Notification link-preview guards
+
+# One check: the YouTube link-preview must keep refusing to fetch anything that
+# is not YouTube, and the shared parser must keep behaving as Health expects.
+#
+# WHY THIS EXISTS — the tests were written, and nothing ran them.
+#   This PR ships three suites (96 tests), the most important of which asserts
+#   that app/api/notifications/link-preview never passes a caller-supplied string
+#   to fetch(). Checked before merge: no workflow in this repo referenced any of
+#   them. package.json has no `test` script, and every vitest workflow names its
+#   files by explicit path — nothing globs __tests__/**. So all three would have
+#   sat in the tree looking like coverage while never executing on a single PR.
+#
+#   That is not hypothetical here. notification-ttl-guards.yml exists ONLY
+#   because PR #2971 shipped a guard under __tests__/ci/ with a PR body claiming
+#   "a later CREATE OR REPLACE landing without the stamp fails CI" — it had never
+#   run. A guard that never executes is worse than an absent one: the written
+#   record says the regression is covered, so nobody looks again.
+#
+# WHAT IS AT STAKE — this one is security, not tidiness.
+#   app/api/notifications/link-preview/route.ts is a server endpoint that makes an
+#   outbound fetch on behalf of a logged-in caller. That is the textbook shape of
+#   an SSRF. It is safe today for exactly one reason: the route parses the input
+#   to an 11-character video id FIRST and then fetches a RECONSTRUCTED
+#   youtube.com/oembed URL, so the caller's string never reaches fetch(). One
+#   future refactor to `fetch(raw)` re-opens it — and with no CI gate, that
+#   refactor is green.
+#
+#   The mutation test run before merge is the measure of what this protects:
+#   weakening the guard failed 22 of 29 assertions, including AWS and GCP
+#   instance-metadata endpoints (169.254.169.254), loopback, IPv6 loopback and
+#   RFC1918 addresses.
+#
+# ALSO GUARDED: lib/media/youtube.ts is the promoted home of parseYouTubeId,
+# which lib/health/youtube.ts now re-exports. Health's Wellness Programs depend
+# on that parser. The identity test is what makes the move safe to keep.
+#
+# SCOPE. Runs three vitest suites and nothing else — no database, no secrets, no
+# network. Kept as its own workflow so it reports as its own status check and
+# cannot change the meaning of an existing one.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity that
+# branch protection matches on. Renaming either silently orphans a rule pointing
+# at the old name — and note the check name shares no keyword with the filenames,
+# so look it up rather than grepping `gh pr checks` for a guessed word.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      # The guards themselves.
+      - '__tests__/api/notifications-link-preview-ssrf.test.ts'
+      - '__tests__/components/notifications/youtube-preview-card.test.tsx'
+      - '__tests__/lib/media/youtube.test.ts'
+      - '.github/workflows/notification-link-preview-guards.yml'
+      # The code they assert over.
+      - 'app/api/notifications/link-preview/**'
+      - 'lib/media/youtube.ts'
+      - 'lib/health/youtube.ts'
+      - 'components/notifications/youtube-preview-card.tsx'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notification-link-preview-guards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    name: Link preview refuses non-YouTube fetches
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Run the link-preview guards
+        run: |
+          npx vitest run \
+            __tests__/api/notifications-link-preview-ssrf.test.ts \
+            __tests__/components/notifications/youtube-preview-card.test.tsx \
+            __tests__/lib/media/youtube.test.ts
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::The link-preview SSRF guard, the shared YouTube parser, or the preview card regressed."
+          echo ""
+          echo "The SSRF guard is the one that matters. app/api/notifications/link-preview"
+          echo "must parse the caller's input to an 11-character video id FIRST and then"
+          echo "fetch a RECONSTRUCTED youtube.com/oembed URL. The caller's raw string must"
+          echo "NEVER be handed to fetch(), directly or via a fallback such as"
+          echo "fetch(parsed ?? raw). Weakening it re-opens requests to cloud instance"
+          echo "metadata (169.254.169.254), loopback and RFC1918 addresses."
+          echo ""
+          echo "If lib/media/youtube.ts changed: lib/health/youtube.ts re-exports it and"
+          echo "Health's Wellness Programs parse video links through it. Keep the public"
+          echo "API (parseYouTubeId, isYouTubeUrl, toYouTubeEmbed) behaviour-identical."
+          echo ""
+          echo "Do NOT fix a failure by deleting the assertion. If a change is genuinely"
+          echo "intended, change the test deliberately and say why in the PR body."

@@ -75,14 +75,14 @@ function RulesInner() {
         ]}
       />
       <div className='space-y-6 mt-4'>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
             <h1 className='text-2xl font-bold py-1'>Default Rules</h1>
             <p className='text-sm text-muted-foreground'>
               Per-package defaults. Only approved + active rules can be applied to bills.
             </p>
           </div>
-          <Button variant='outline' asChild>
+          <Button variant='outline' asChild className='shrink-0'>
             <Link href='/billing/apportionment'>
               <ArrowLeft className='mr-2 h-4 w-4' /> Back
             </Link>

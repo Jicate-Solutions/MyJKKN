@@ -267,11 +267,11 @@ export default function PromotionDetailPage({
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>
+              <CardTitle className="flex items-center justify-between gap-2">
+                <span className="min-w-0">
                   {application.from_designation_name} → {application.to_designation_name}
                 </span>
-                <Badge>{STATUS_LABELS[application.status]}</Badge>
+                <Badge className="shrink-0">{STATUS_LABELS[application.status]}</Badge>
               </CardTitle>
               <p className="text-sm text-muted-foreground">
                 Submitted {formatDateTime(application.submitted_at)}

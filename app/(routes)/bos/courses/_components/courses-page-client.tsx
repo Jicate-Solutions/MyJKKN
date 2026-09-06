@@ -70,7 +70,7 @@ export function CoursesPageClient() {
       {/* Action bar — kept on its own row so the filter grid below stays a
           rigid 4-column matrix at every zoom level (grid columns share the
           row width as 1fr, so they never overflow into wraps). */}
-      <div className='flex justify-end gap-2'>
+      <div className='flex flex-wrap justify-end gap-2'>
         <CoursesExportButton
           institutionId={institutionId}
           institutionCode={institutionCode}

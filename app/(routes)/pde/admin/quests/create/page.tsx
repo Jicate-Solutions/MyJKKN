@@ -267,7 +267,7 @@ export default function CreateQuestPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Quest Type *</Label>
                 <Select value={questType} onValueChange={(v) => setQuestType(v as QuestType)}>
@@ -301,7 +301,7 @@ export default function CreateQuestPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Estimated Hours</Label>
                 <Input
@@ -362,7 +362,7 @@ export default function CreateQuestPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Department</Label>
                 <Input

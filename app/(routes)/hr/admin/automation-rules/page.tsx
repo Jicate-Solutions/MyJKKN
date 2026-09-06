@@ -360,14 +360,14 @@ function HRAutomationRulesContent() {
         </AlertDescription>
       </Alert>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
           Policy key: <code className="text-xs">{row.policy_key}</code>{' '}
           &middot; Last updated:{' '}
           {row.updated_at ? format(new Date(row.updated_at), 'MMM d, HH:mm') : '—'}
         </p>
         {isSuperAdmin && (
-          <Button type="button" size="sm" variant="outline" onClick={addRule} disabled={saving}>
+          <Button type="button" size="sm" variant="outline" onClick={addRule} disabled={saving} className="shrink-0">
             <Plus className="h-3.5 w-3.5 mr-1" />
             Add rule
           </Button>

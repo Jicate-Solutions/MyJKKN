@@ -113,6 +113,10 @@ export interface CourseSyllabusDOCXData {
 	contact_hours?: number | null
 	credits?: number | null
 
+	/** PCI/pharmacy "Scope" paragraph, printed above Course Objectives. */
+	scope?: string
+	/** Hide the Course Designer / BoS Chairman signature block (COP temporary). */
+	hideSignature?: boolean
 	objectives?: BosCourseObjective[]
 	clos?: BosCourseLearnOutcome[]
 	k_values?: Record<string, string>
@@ -359,6 +363,19 @@ function rowsCodeHoursCredits(data: CourseSyllabusDOCXData): TableRow[] {
 	]
 }
 
+function rowsScope(data: CourseSyllabusDOCXData): TableRow[] {
+	// PCI/pharmacy "Scope" paragraph, above Course Objectives. Only when present.
+	if (!data.scope || !data.scope.trim()) return []
+	return [
+		new TableRow({
+			children: [
+				tc([p('Scope', { bold: true })]),
+				tc([p(data.scope.trim())], { columnSpan: 4 }),
+			],
+		}),
+	]
+}
+
 function rowsObjectives(data: CourseSyllabusDOCXData): TableRow[] {
 	if (!data.objectives || data.objectives.length === 0) return []
 	return [
@@ -488,10 +505,26 @@ function rowsCourseContent(data: CourseSyllabusDOCXData): TableRow[] {
 
 		if (paragraphs.length === 0) paragraphs.push(new Paragraph({ spacing: COMPACT_SPACING }))
 
+		// Per-unit period marker (BosUnit.hours) — "9" or an Anna-University
+		// "9 + 3" theory+tutorial split. The CET PDF prints it right-aligned on
+		// the unit heading; this table has no second content column to spare, so
+		// it sits under the unit numeral in the narrow label column. Word's
+		// paragraph tab stops are avoided deliberately — `run()` collapses all
+		// whitespace, so an embedded tab would not survive.
+		const unitCellParagraphs: Paragraph[] = [
+			p(unit.unit_id, { bold: true, alignment: AlignmentType.CENTER }),
+		]
+		const hoursLabel = (unit.hours ?? '').trim()
+		if (hoursLabel) {
+			unitCellParagraphs.push(
+				p(`${hoursLabel} Hrs`, { bold: true, size: SUB_SIZE, alignment: AlignmentType.CENTER }),
+			)
+		}
+
 		rows.push(
 			new TableRow({
 				children: [
-					tc([p(unit.unit_id, { bold: true, alignment: AlignmentType.CENTER })], {
+					tc(unitCellParagraphs, {
 						valign: VerticalAlign.TOP,
 					}),
 					tc(paragraphs, { columnSpan: 4, valign: VerticalAlign.TOP }),
@@ -1001,6 +1034,7 @@ function buildMasterTable(data: CourseSyllabusDOCXData): Table {
 	const rows: TableRow[] = [
 		...rowsCoursePart(data),
 		...rowsCodeHoursCredits(data),
+		...rowsScope(data),
 		...rowsObjectives(data),
 		...rowsCLOs(data),
 		...rowsCourseContent(data),
@@ -1032,8 +1066,11 @@ export async function generateCourseSyllabusDOCX(data: CourseSyllabusDOCXData): 
 	// BoS Chairman sign off below the full assessment spec (after the LLC
 	// block). The empty paragraph keeps it structurally separate from the
 	// preceding table (two adjacent tables would merge in Word).
-	body.push(new Paragraph({ spacing: { line: LINE_276, lineRule: LineRuleType.AUTO, before: 0, after: 0 } }))
-	body.push(buildSignatureTable())
+	// Signature hidden for COP (pharmacy) syllabi on request (temporary).
+	if (!data.hideSignature) {
+		body.push(new Paragraph({ spacing: { line: LINE_276, lineRule: LineRuleType.AUTO, before: 0, after: 0 } }))
+		body.push(buildSignatureTable())
+	}
 
 	const doc = new Document({
 		styles: {

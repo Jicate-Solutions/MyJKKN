@@ -6,7 +6,9 @@
  * attempt is submitted. Computes the OSCE score across all rubric domains and
  * writes the four downstream effects:
  *
- *   1. UPDATE pde_submissions.metadata.osce_score (and domain_scores)
+ *   1. UPDATE pde_submissions (auto_score / final_score / passed / osce_score)
+ *      — via the SERVICE-ROLE client: the table has no RLS UPDATE policy, so a
+ *      session-scoped update silently matches zero rows and raises nothing.
  *   2. UPSERT pde_learner_capabilities (keeping max score — "best score wins")
  *   3. INSERT pde_engagement_events (event_type='clinical_case_completed')
  *   4. If score ≥ clinical_reasoning.evidence_threshold_pct (default 60):
@@ -16,11 +18,18 @@
  * Anyone can score their own attempt (RLS on pde_submissions limits visibility
  * to the learner themselves + faculty + admin).
  *
- * Body shape:
- *   { submissionId: string }   (the only required input — everything else
- *                                resolved from the submission row)
+ * Scoring is idempotent by default: a submission that already carries a rubric
+ * score is returned untouched (`already_scored: true`). Pass `rescore: true` to
+ * deliberately score it again. Without that guard a repeat POST overwrote a
+ * committed pass with 0.
  *
- * Response: { osce_score: OsceScore, evidence_created: boolean }
+ * Body shape:
+ *   { submissionId: string, rescore?: boolean }
+ *     (submissionId is the only required input — everything else is resolved
+ *      from the submission row)
+ *
+ * Response: { osce_score: OsceScore, passed: boolean, evidence_created: boolean,
+ *             already_scored: boolean, warnings: {...} }
  *
  * Spec: specs/aicbl-as-pde-clinical-reasoning-2026-05-21.md (Agent E, step 3-6)
  */
@@ -35,14 +44,19 @@ import {
 import {
   scoreAttempt,
   parseRubricFromAssessment,
-  loadFallbackRubric,
+  deriveFallbackRubric,
+  readStoredAnswers,
   type PdeQuestion,
-  type PdeAnswer,
   type OsceScore,
 } from '@/lib/services/pde-osce-scoring';
 
 interface RequestBody {
   submissionId: string;
+  /**
+   * Deliberately score an already-scored submission again. Without it a repeat
+   * POST is a no-op that returns the stored score — see unwrapStoredAnswers.
+   */
+  rescore?: boolean;
 }
 
 // ----------------------------------------------------------------------------
@@ -89,6 +103,17 @@ async function getPassingThresholdPct(
   }
 }
 
+/**
+ * Plain-English note when the authored rubric does not claim every question.
+ * Those questions are scored by nothing, which is a rubric-authoring gap the
+ * caller must be able to see rather than infer from a suspiciously low total.
+ */
+function coverageWarning(uncovered: number[] | undefined): string | null {
+  if (!uncovered || uncovered.length === 0) return null;
+  const list = uncovered.map((n) => `Q${n}`).join(', ');
+  return `${list} ${uncovered.length === 1 ? 'is' : 'are'} claimed by no rubric domain and contributed nothing to this score. Fix the rubric on the assessment.`;
+}
+
 // ----------------------------------------------------------------------------
 // POST
 // ----------------------------------------------------------------------------
@@ -123,7 +148,7 @@ export async function POST(request: NextRequest) {
   const { data: submission, error: subErr } = await supabase
     .from('pde_submissions')
     .select(
-      'id, assessment_id, learner_id, attempt_number, answers, final_score',
+      'id, assessment_id, learner_id, attempt_number, answers, final_score, passed',
     )
     .eq('id', body.submissionId)
     .maybeSingle();
@@ -132,6 +157,27 @@ export async function POST(request: NextRequest) {
       { error: 'Submission not found' },
       { status: 404 },
     );
+  }
+
+  // ---- Re-entry guard ------------------------------------------------------
+  // Scoring is destructive: it overwrites final_score / passed. A repeat POST
+  // (double click, client retry, StrictMode double-invoke) must not silently
+  // replace a committed pass. Default is an idempotent no-op returning the
+  // stored score; `rescore: true` is the deliberate opt-in to score again.
+  const stored = readStoredAnswers(submission.answers);
+  if (stored.osceScore && !body.rescore) {
+    return NextResponse.json({
+      osce_score: stored.osceScore,
+      passed: submission.passed === true,
+      evidence_created: false,
+      already_scored: true,
+      warnings: {
+        learner_capability_error: null,
+        evidence_error: null,
+        uncovered_q_numbers: stored.osceScore.uncovered_q_numbers ?? [],
+        rubric_coverage: coverageWarning(stored.osceScore.uncovered_q_numbers),
+      },
+    });
   }
 
   const { data: assessment, error: aErr } = await supabase
@@ -181,36 +227,23 @@ export async function POST(request: NextRequest) {
       question_text: q.question_text,
       ground_truth: q.correct_answer ?? '',
       key_concepts: keyConcepts,
+      // Drives the derived rubric when the assessment has no authored one.
+      osce_domain:
+        typeof meta.osce_domain === 'string' ? meta.osce_domain : null,
     };
   });
 
-  // Parse answers from submission.answers — supports two shapes:
-  //   (1) [{ q_number, student_answer }, ...]
-  //   (2) [{ question_id, answer_text }, ...] (legacy)
-  const answersRaw = (submission.answers ?? []) as unknown;
-  const answers: PdeAnswer[] = Array.isArray(answersRaw)
-    ? answersRaw
-        .map((a, idx) => {
-          if (!a || typeof a !== 'object') return null;
-          const o = a as Record<string, unknown>;
-          const qNumber =
-            typeof o.q_number === 'number' ? o.q_number : idx + 1;
-          const studentAnswer =
-            typeof o.student_answer === 'string'
-              ? o.student_answer
-              : typeof o.answer_text === 'string'
-                ? o.answer_text
-                : typeof o.answer === 'string'
-                  ? o.answer
-                  : '';
-          return { q_number: qNumber, student_answer: studentAnswer };
-        })
-        .filter((x): x is PdeAnswer => x !== null)
-    : [];
+  // Answers were normalised out of both stored shapes above (readStoredAnswers).
+  const answerItems = stored.items;
+  const answers = stored.answers;
 
-  // ---- Rubric: from assessment.rubric or fallback -------------------------
+  // ---- Rubric: from assessment.rubric or derived from the questions -------
+  // Every production assessment has rubric = NULL, so the derived path is the
+  // one that actually runs. It covers every question the case asks; the old
+  // hard-coded fallback stopped at Q4 while every case asks 7 or 8.
   const parsed = parseRubricFromAssessment(assessment.rubric);
-  const rubricDomains = parsed.length > 0 ? parsed : loadFallbackRubric();
+  const rubricDomains =
+    parsed.length > 0 ? parsed : deriveFallbackRubric(questions);
 
   // ---- Score --------------------------------------------------------------
   let osce: OsceScore;
@@ -240,23 +273,50 @@ export async function POST(request: NextRequest) {
   const passingPct = await getPassingThresholdPct(supabase);
   const passed = osce.percentage >= passingPct;
 
-  const { error: updSubErr } = await supabase
+  // This write MUST go through the service-role client. pde_submissions has RLS
+  // enabled with only INSERT + SELECT policies — there is no UPDATE policy and
+  // no ALL policy. Under RLS a missing UPDATE policy matches zero rows and
+  // raises NOTHING, so the session-scoped update this used to run reported
+  // success while the honest score never landed: the naive client-computed
+  // score stayed in pde_submissions forever, and one attempt could show 100%
+  // here while the rubric score written to pde_learner_capabilities was a fail.
+  // Adding an RLS UPDATE policy would be worse — USING (learner_id = auth.uid())
+  // would let a learner forge their own final_score straight through the REST
+  // API with the public anon key. Server-side service-role is the trust
+  // boundary; ownership was already proven by the session-scoped read above,
+  // which 404s for a submission that is not the caller's.
+  const { data: updatedRows, error: updSubErr } = await svc
     .from('pde_submissions')
     .update({
       auto_score: osce.percentage,
       final_score: osce.percentage,
       passed,
       completed_at: new Date().toISOString(),
+      // Always the NORMALISED envelope list, never whatever shape was read.
+      // Writing the previous wrapper back in here is what nested `items` one
+      // level deeper on every repeat POST.
       answers: {
-        items: answersRaw,
+        items: answerItems,
         osce_score: osce,
       } as unknown,
     })
-    .eq('id', submission.id);
+    .eq('id', submission.id)
+    .select('id');
   if (updSubErr) {
     return NextResponse.json(
       {
         error: `Failed to write submission score: ${updSubErr.message}`,
+      },
+      { status: 500 },
+    );
+  }
+  // A zero-row update is the exact failure this fix exists to kill — it is never
+  // success. Fail loudly rather than returning a score that was not stored.
+  if (!updatedRows || updatedRows.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          'Failed to write submission score: the update affected 0 rows. The score was NOT stored.',
       },
       { status: 500 },
     );
@@ -414,13 +474,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // A question no rubric domain claims is scored by nothing. Surface it on the
+  // response AND in the server log — it is an authoring gap on the assessment,
+  // invisible in the score itself.
+  const rubricCoverage = coverageWarning(osce.uncovered_q_numbers);
+  if (rubricCoverage) {
+    console.warn(
+      `[pde/clinical-reasoning] assessment ${submission.assessment_id}: ${rubricCoverage}`,
+    );
+  }
+
   return NextResponse.json({
     osce_score: osce,
     passed,
     evidence_created: evidenceCreated,
+    already_scored: false,
     warnings: {
       learner_capability_error: learnerCapErrorMsg,
       evidence_error: evidenceErrorMsg,
+      uncovered_q_numbers: osce.uncovered_q_numbers ?? [],
+      rubric_coverage: rubricCoverage,
     },
   });
 }

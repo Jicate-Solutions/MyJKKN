@@ -66,8 +66,11 @@ const JOB_TYPE = FEATURE_KEY;
 const GENERATION_LANE_KEY = 'loops.curriculum_lesson_spine_generate.generation_lane';
 
 /** Read the generation-lane switch (config-table pattern) as a cron: fn_get_policy
- *  at global scope resolves with no auth.uid(). Fail-safe to 'direct' (the proven
- *  paid path) on any read error, so a policy hiccup never silently drops work. */
+ *  at global scope resolves with no auth.uid(). Fail-safe to 'jobs' (the free ₹0
+ *  Max lane) on any read error or unexpected value — the paid 'direct' path fires
+ *  ONLY when the policy row EXPLICITLY says 'direct'. This upholds the "no silent
+ *  paid spend" rule (Director 2026-07-28): a policy hiccup can never silently bill
+ *  Anthropic; the worst case is work runs free instead of paid. */
 async function readGenerationLane(
   admin: ReturnType<typeof createServiceRoleClient>,
 ): Promise<'jobs' | 'direct'> {
@@ -76,14 +79,18 @@ async function readGenerationLane(
       p_key: GENERATION_LANE_KEY,
       p_scope_id: null,
     });
-    if (error) return 'direct';
-    return data === 'jobs' ? 'jobs' : 'direct';
+    if (error) return 'jobs';
+    return data === 'direct' ? 'direct' : 'jobs';
   } catch {
-    return 'direct';
+    return 'jobs';
   }
 }
 const DEFAULT_BATCH_CAP = 25;
 const DEFAULT_EMIT_BRIEFS = true;
+// Dry-out guard (2026-07-26): after this many delivered refusals for a course
+// whose BoS syllabus is EMPTY (no units, no CLOs), stop re-enqueueing it until
+// the syllabus content actually changes. Config row: curriculum_ai.dryout_threshold.
+const DEFAULT_DRYOUT_THRESHOLD = 3;
 // Sized so a full multi-unit lesson spine fits without truncation → unparseable output.
 // A truncated (unparseable) response yields no drafts, so the course stays a candidate and
 // is re-submitted next run; a larger budget minimises that wasted-resubmit loop. The brief
@@ -164,7 +171,7 @@ Keep both brief kinds SHORT (2-4 sentences of "text") — they are prompts for t
 // A course's BoS-fixed taxonomy (bos_regulation_taxonomies.taxonomy_type). The generator
 // branches on this: 'finks' → Fink-primary prompt; 'blooms' → Bloom-primary prompt. A course
 // whose regulation has NO taxonomy fixed is skipped-and-flagged, never defaulted to Fink.
-type Taxonomy = 'finks' | 'blooms';
+type Taxonomy = 'finks' | 'blooms' | 'jkkn_advanced';
 
 type CourseRow = {
   course_id: string;
@@ -183,6 +190,12 @@ type GenContext = {
   bos_syllabus_id: string;
   emit_briefs: boolean;
   taxonomy: Taxonomy;
+  /** Cheap length+hash fingerprint of the syllabus substance this generation was
+   *  grounded in (see syllabusFingerprint). Stamped on every enqueue so the
+   *  dry-out guard can scope refusal counts to UNCHANGED content — a course
+   *  re-qualifies the moment its content differs. Optional: legacy in-flight
+   *  jobs predate the stamp (same tolerance as ctxTaxonomy). */
+  content_fp?: string;
 };
 
 type LessonOut = {
@@ -197,7 +210,9 @@ type LessonOut = {
 /** Resolve a batch-context's taxonomy, defaulting legacy in-flight jobs (submitted before
  *  this change carried no taxonomy) to 'finks' — the behaviour they were generated under. */
 function ctxTaxonomy(ctx: { taxonomy?: unknown }): Taxonomy {
-  return ctx?.taxonomy === 'blooms' ? 'blooms' : 'finks';
+  if (ctx?.taxonomy === 'blooms') return 'blooms';
+  if (ctx?.taxonomy === 'jkkn_advanced') return 'jkkn_advanced';
+  return 'finks';
 }
 type BriefOut = { unit_label?: string; title?: string; text?: string; co_ref?: string[] };
 type ParsedSpine = { lessons?: LessonOut[]; concept_briefs?: BriefOut[]; capstone_brief?: BriefOut | null };
@@ -205,6 +220,47 @@ type ParsedSpine = { lessons?: LessonOut[]; concept_briefs?: BriefOut[]; capston
 // ── helpers ──────────────────────────────────────────────────────────────────
 function dedupeKey(courseId: string): string {
   return `${FEATURE_KEY}|generate|${courseId}`;
+}
+
+// ── dry-out guard helpers (2026-07-26) ──────────────────────────────────────
+// An EMPTY BoS syllabus ({"units":[]} + {"clos":[]}) can never ground a spine:
+// the model refuses honestly every time, the parse yields no drafts, the course
+// stays a candidate, and every submit run re-enqueues it — an infinite refusal
+// loop (prod receipts 2026-07-16→07-26: four course targets cycled 3-5
+// delivered refusals each, e.g. 24UZOGE01 / 26PCHC04). These helpers give the
+// guard its two signals: "is the content still empty?" and "has it changed?".
+
+/** djb2-xor hash, base36 — cheap and stable; content COMPARISON, never a timestamp. */
+function djb2(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/** True if a JSON value carries any teachable substance: a non-blank string or
+ *  a non-empty array anywhere in it. `{"units":[]}` / `{"clos":[]}` → false.
+ *  Numbers/booleans alone (e.g. an hours count) are not substance. Deliberately
+ *  conservative: a non-empty array counts as substance even if its entries are
+ *  thin, so the guard only ever parks the clear-cut empty-BoS case. */
+function hasSubstance(v: unknown): boolean {
+  if (typeof v === 'string') return v.trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (v && typeof v === 'object') return Object.values(v).some(hasSubstance);
+  return false;
+}
+
+/** The dry-out guard's target: a syllabus with NO units and NO CLOs. */
+function syllabusIsEmpty(course: CourseRow): boolean {
+  return !hasSubstance(course.course_content) && !hasSubstance(course.course_learning_outcomes);
+}
+
+/** Cheap count+hash fingerprint of exactly the substance the prompt is built
+ *  from (course_content + CLOs). Stamped into GenContext at enqueue; compared
+ *  at submit so refusal counts only accrue while the content is UNCHANGED. */
+function syllabusFingerprint(course: CourseRow): string {
+  const content = JSON.stringify(course.course_content ?? {});
+  const clos = JSON.stringify(course.course_learning_outcomes ?? {});
+  return `${content.length}.${djb2(content)}-${clos.length}.${djb2(clos)}`;
 }
 
 function hasCapstoneData(assessmentStructure: unknown): boolean {
@@ -234,11 +290,17 @@ Generate the lesson-spine JSON for this course now.`;
   return prompt;
 }
 
-// Pick the system prompt for a course's BoS-fixed taxonomy: 'blooms' → Bloom-primary,
-// otherwise Fink-primary. Kept as a helper so the app cron and the Mac twin select
-// the prompt identically (PROMPT/PARSE LOCKSTEP).
+// Pick the system prompt for a course's BoS-fixed taxonomy: 'blooms' and
+// 'jkkn_advanced' → Bloom-primary, 'finks' → Fink-primary. Kept as a helper so the
+// app cron and the Mac twin select the prompt identically (PROMPT/PARSE LOCKSTEP).
+//
+// JABT routes to the Bloom prompt because its primary tag lives in
+// `primary_bloom_level`. That yields K1-K6 only — the added half (A1-A5) is authored
+// by faculty, not generated, so a generated spine can never satisfy the coverage rule
+// on its own. Without this arm, a JABT course silently got Fink dimensions instead.
 function systemForTaxonomy(taxonomy: Taxonomy, emitBriefs: boolean): string {
-  const base = taxonomy === 'blooms' ? BLOOM_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const base =
+    taxonomy === 'blooms' || taxonomy === 'jkkn_advanced' ? BLOOM_SYSTEM_PROMPT : SYSTEM_PROMPT;
   return emitBriefs ? `${base}\n${BRIEFS_ADDENDUM}` : base;
 }
 
@@ -434,6 +496,7 @@ export async function GET(request: NextRequest) {
   // Config-table pattern (decisions #24-26): read at runtime, never hardcoded.
   let batchCap = DEFAULT_BATCH_CAP;
   let emitBriefsPolicy = DEFAULT_EMIT_BRIEFS;
+  let dryoutThreshold = DEFAULT_DRYOUT_THRESHOLD;
   try {
     const { data: capData } = await admin.rpc('fn_get_policy_int', {
       p_key: 'curriculum_ai.batch_cap',
@@ -441,6 +504,12 @@ export async function GET(request: NextRequest) {
       p_scope_id: null,
     });
     if (typeof capData === 'number') batchCap = capData;
+    const { data: dryData } = await admin.rpc('fn_get_policy_int', {
+      p_key: 'curriculum_ai.dryout_threshold',
+      p_default: DEFAULT_DRYOUT_THRESHOLD,
+      p_scope_id: null,
+    });
+    if (typeof dryData === 'number' && dryData > 0) dryoutThreshold = dryData;
     const { data: briefsData } = await admin.rpc('fn_get_policy_bool', {
       p_key: 'curriculum_ai.emit_assessment_briefs',
       p_default: DEFAULT_EMIT_BRIEFS,
@@ -458,6 +527,8 @@ export async function GET(request: NextRequest) {
   let recorded = 0;
   let enqueued = 0; // jobs-lane: candidates enqueued on the ₹0 Max lane this run
   let skippedNoTaxonomy = 0; // SUBMIT: candidates whose regulation has NO BoS taxonomy fixed — skipped, never defaulted to Fink (surfaced on /tracker)
+  let skippedDriedOut = 0; // SUBMIT: empty-syllabus courses parked by the dry-out guard this run (re-qualify when content changes)
+  const driedOutCourses: Array<{ course_code: string; refusals: number }> = []; // the WHY, surfaced honestly in the response
 
   // =====================================================================
   // COLLECT PHASE — drains ENDED batches, records each course's spine.
@@ -730,20 +801,82 @@ export async function GET(request: NextRequest) {
     }
 
     const allCandidates = tenantMatched.filter((c) => !alreadyHasSpine.has(c.course_id));
-    coursesCount = allCandidates.length;
-    let courses = allCandidates;
-    if (allCandidates.length > batchCap) {
-      cappedCount = allCandidates.length - batchCap;
-      courses = allCandidates.slice(0, batchCap);
+
+    // ── DRY-OUT GUARD (2026-07-26) — stop the empty-BoS refusal loop ─────────
+    // Every delivered ('done' + delivered_at) job for a course that is STILL a
+    // candidate was by definition a refusal — a success would have minted rows
+    // and the initial-mint guard above would have excluded the course. So the
+    // same-content delivered count IS the consecutive-refusal count. A course is
+    // parked only when BOTH hold: (a) its syllabus is empty RIGHT NOW, and
+    // (b) it has >= dryoutThreshold delivered attempts against unchanged content
+    // (fingerprint match; unstamped legacy attempts count only under (a), since
+    // still-empty content is exactly the state they refused on — a course whose
+    // content was filled after old refusals is never blocked by them). Release
+    // is automatic: (a)/(b) are recomputed from LIVE content each run, so any
+    // real content change re-qualifies the course with zero manual steps.
+    // Transient refusals on courses WITH substance (e.g. truncation → unparseable,
+    // as 24PCAED5 showed before minting 26 lessons) keep retrying — the guard
+    // never touches them. Fail-open on lookup error: one wasted cycle beats
+    // silently freezing a mintable course. Counts read ai_jobs (the live 'jobs'
+    // generation lane); on the legacy 'direct' flip-back the guard still stamps
+    // fingerprints but accrues no new counts there (emergency-fallback tolerance).
+    const driedOutIds = new Set<string>();
+    const emptyCands = allCandidates.filter((c) => syllabusIsEmpty(c));
+    if (emptyCands.length > 0) {
+      const candByKey = new Map(emptyCands.map((c) => [dedupeKey(c.course_id), c] as const));
+      const fpByKey = new Map([...candByKey].map(([k, c]) => [k, syllabusFingerprint(c)] as const));
+      const { data: pastJobs, error: pastErr } = await admin
+        .from('ai_jobs')
+        .select('dedupe:payload->>_dedupe, fp:payload->_ctx->>content_fp')
+        .eq('job_type', JOB_TYPE)
+        .eq('status', 'done')
+        .not('delivered_at', 'is', null)
+        .in('payload->>_dedupe', [...candByKey.keys()]);
+      if (pastErr) {
+        console.warn(
+          '[cron/curriculum-lesson-spine-generate] dry-out lookup failed — guard stands down this run:',
+          pastErr,
+        );
+      } else {
+        const refusals = new Map<string, number>();
+        for (const row of (pastJobs ?? []) as Array<{ dedupe: string | null; fp: string | null }>) {
+          if (!row.dedupe || !candByKey.has(row.dedupe)) continue;
+          if (row.fp !== null && row.fp !== fpByKey.get(row.dedupe)) continue; // content changed since → doesn't count
+          refusals.set(row.dedupe, (refusals.get(row.dedupe) ?? 0) + 1);
+        }
+        for (const [key, cand] of candByKey) {
+          const n = refusals.get(key) ?? 0;
+          if (n >= dryoutThreshold) {
+            driedOutIds.add(cand.course_id);
+            driedOutCourses.push({ course_code: cand.course_code, refusals: n });
+          }
+        }
+        if (driedOutCourses.length > 0) {
+          skippedDriedOut = driedOutCourses.length;
+          console.warn(
+            `[cron/curriculum-lesson-spine-generate] dry-out guard: ${skippedDriedOut} empty-syllabus course(s) parked until content changes: ${driedOutCourses
+              .map((d) => `${d.course_code} (${d.refusals} refusals)`)
+              .join(', ')}`,
+          );
+        }
+      }
+    }
+
+    const liveCandidates = allCandidates.filter((c) => !driedOutIds.has(c.course_id));
+    coursesCount = liveCandidates.length;
+    let courses = liveCandidates;
+    if (liveCandidates.length > batchCap) {
+      cappedCount = liveCandidates.length - batchCap;
+      courses = liveCandidates.slice(0, batchCap);
       console.warn(
-        `[cron/curriculum-lesson-spine-generate] batch cap hit: ${allCandidates.length} courses, processing ${batchCap}, skipping ${cappedCount}`,
+        `[cron/curriculum-lesson-spine-generate] batch cap hit: ${liveCandidates.length} courses, processing ${batchCap}, skipping ${cappedCount}`,
       );
     }
 
     const requests: SubmitBatchRequest[] = [];
     for (const course of courses) {
       const emitBriefs = emitBriefsPolicy && hasCapstoneData(course.assessment_structure);
-      const gctx: GenContext = { course_id: course.course_id, bos_syllabus_id: course.bos_syllabus_id, emit_briefs: emitBriefs, taxonomy: course.taxonomy };
+      const gctx: GenContext = { course_id: course.course_id, bos_syllabus_id: course.bos_syllabus_id, emit_briefs: emitBriefs, taxonomy: course.taxonomy, content_fp: syllabusFingerprint(course) };
       requests.push({
         customId: `gen-${requests.length}`,
         params: buildGenParams(modelId, course, emitBriefs),
@@ -772,12 +905,17 @@ export async function GET(request: NextRequest) {
           dedupeKey: req.dedupeKey ?? dedupeKey(gctx.course_id),
         });
         if (r.ok) enqueued++;
-        else if (r.reason === 'in_flight') skipped++;
         else {
-          console.warn(
-            `[cron/curriculum-lesson-spine-generate] jobs-lane enqueue failed (${r.reason}): ${r.error ?? ''}`,
-          );
-          skipped++;
+          // r is the failure branch here; name it explicitly (project tsconfig does
+          // not narrow the union's else-branch, so read the reason off a typed alias).
+          const fail = r as { ok: false; reason: string; error?: string };
+          if (fail.reason === 'in_flight') skipped++;
+          else {
+            console.warn(
+              `[cron/curriculum-lesson-spine-generate] jobs-lane enqueue failed (${fail.reason}): ${fail.error ?? ''}`,
+            );
+            skipped++;
+          }
         }
       }
     } else if (aiAvailable && requests.length > 0) {
@@ -810,6 +948,8 @@ export async function GET(request: NextRequest) {
     enqueued,
     skipped,
     skipped_no_taxonomy: skippedNoTaxonomy,
+    skipped_dried_out: skippedDriedOut,
+    dried_out: driedOutCourses,
     ai_available: aiAvailable,
     submitted,
     collected: { jobs: collectedJobs, recorded },

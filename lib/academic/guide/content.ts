@@ -8,6 +8,14 @@
  * error, not a silent fail-open lane).
  */
 import type { GuideBook } from "./types";
+// Exam-eligibility thresholds are configuration (2026-07-26). This guide is static
+// prose compiled at build time, so it renders the DEFAULT pair rather than a
+// per-institution override — enough to keep the numbers from drifting out of sync
+// with the code, which is what four hand-typed copies used to do.
+import {
+  ATTENDANCE_ELIGIBILITY,
+  CONDONATION_FLOOR,
+} from "@/lib/services/exam-audit/compute";
 
 /** Permission keys that gate each staff lane. ONE source of truth — content.ts
  *  sets `requires`, detect-lane.ts checks the same key. Keys are the real
@@ -388,9 +396,8 @@ export const GUIDES: GuideBook = {
           title: "Check eligibility risk before the visit",
           steps: [
             {
-              action: "Read the **<75% / <65% / No record** columns — they count the exam-registered students against JKKN's own day-one attendance.",
-              detail:
-                "Below 75% needs condonation; below 65% risks ineligibility; 'No record' means the student is registered for the university exam but absent from JKKN attendance entirely — the university got their attendance from a manual register with nothing in our system behind it.",
+              action: `Read the **<${ATTENDANCE_ELIGIBILITY}% / <${CONDONATION_FLOOR}% / No record** columns — they count the exam-registered learners against JKKN's own day-one attendance.`,
+              detail: `Below ${ATTENDANCE_ELIGIBILITY}% needs condonation; below ${CONDONATION_FLOOR}% risks ineligibility; 'No record' means the learner is registered for the university exam but absent from JKKN attendance entirely — the university got their attendance from a manual register with nothing in our system behind it.`,
               prerequisite:
                 "Audit 'No record' programs FIRST — those are the ones where the manual register is the only evidence that exists.",
             },

@@ -25,6 +25,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+  TAP_TARGET_TABS_LIST,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FolderOpen, Gavel, Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
@@ -49,7 +54,7 @@ function ProjectDocumentsPageInner() {
   return (
     <ContentLayout title="Documents & Decisions">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -91,12 +96,12 @@ function ProjectDocumentsPageInner() {
 
       <div className="mt-6">
         <Tabs value={tab} onValueChange={(v) => setTab(v as DocsTab)}>
-          <TabsList>
-            <TabsTrigger value="documents" className="gap-1.5">
+          <TabsList className={TAP_TARGET_TABS_LIST}>
+            <TabsTrigger value="documents" className={`gap-1.5 ${TAP_TARGET}`}>
               <FolderOpen className="h-4 w-4" />
               Documents
             </TabsTrigger>
-            <TabsTrigger value="decisions" className="gap-1.5">
+            <TabsTrigger value="decisions" className={`gap-1.5 ${TAP_TARGET}`}>
               <Gavel className="h-4 w-4" />
               Decisions
             </TabsTrigger>

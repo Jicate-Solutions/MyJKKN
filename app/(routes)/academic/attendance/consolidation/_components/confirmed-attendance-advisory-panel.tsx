@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AttendanceConsolidationService } from '@/lib/services/academic/attendance-consolidation-service';
 import type { EffectiveAttendanceRow } from '@/types/session-feedback';
+import { useEligibilityThresholds } from '@/hooks/academic/use-eligibility-thresholds';
 
 const BRAND = '#0b6d41';
 
@@ -20,15 +21,21 @@ export function ConfirmedAttendanceAdvisoryPanel({
   institutionId,
   dateFrom,
   dateTo,
-  passLine = 75,
+  passLine: passLineProp,
   minMarks = 10,
 }: {
   institutionId: string | null;
   dateFrom: string;
   dateTo: string;
+  /** Explicit override. When omitted, the configured eligibility threshold is used. */
   passLine?: number;
   minMarks?: number;
 }) {
+  // The pass line is configuration, not a literal (2026-07-26). Scoped to the
+  // report's institution; falls back to 75 while loading or if the RPC fails.
+  const { thresholds } = useEligibilityThresholds(institutionId);
+  const passLine = passLineProp ?? thresholds.eligibility;
+
   const { data, isLoading } = useQuery({
     queryKey: ['confirmed-attendance-advisory', institutionId, dateFrom, dateTo],
     queryFn: () =>

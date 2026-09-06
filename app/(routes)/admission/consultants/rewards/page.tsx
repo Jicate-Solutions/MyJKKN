@@ -438,7 +438,7 @@ function RewardsManagementPageInner() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'configs' | 'rewards')}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="configs" className="gap-2">
               <Settings className="h-4 w-4" />
               Reward Configurations

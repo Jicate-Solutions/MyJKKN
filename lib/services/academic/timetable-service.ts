@@ -151,7 +151,42 @@ export class TimetableService {
     }
   }
 
-  // Check if a timetable already exists for the given semester and section with overlapping date periods
+  /**
+   * ONE ACTIVE TIMETABLE PER SECTION, PER ACADEMIC YEAR.
+   *
+   * The rule is the seven-key scope, NOT the date range:
+   *   institution + academic_year + degree + program + department + semester + section
+   *
+   * Two or more timetables may share an academic year freely — that is the
+   * normal case, one per section. What is refused is a SECOND timetable for a
+   * section that already has one.
+   *
+   * WHY THIS NO LONGER REQUIRES THE DATES TO OVERLAP
+   * The previous rule only fired when the new range overlapped an existing one,
+   * which left two holes wide open:
+   *   1. Different dates, same section → allowed. A section could accumulate any
+   *      number of timetables just by shifting the range.
+   *   2. Either date missing → the function returned `{exists:false}` before it
+   *      queried anything at all.
+   * Hole 2 is not hypothetical. Measured on production 2026-08-12, the ONLY
+   * duplicate scope in 178 active timetables is academic year 2026-2027,
+   * "NEW CRRI ZENFORIANZ SECTION - A", holding both "CRRI 2026 - 2027 ZEN A"
+   * (2026-03-09 → 2027-03-09) and a dateless "CRRI" that walked straight past
+   * the early return. There were zero legitimate same-section-different-date
+   * pairs, so keying on the scope alone costs nothing and closes both holes.
+   *
+   * REPLACING A SECTION'S TIMETABLE IS STILL POSSIBLE
+   * This only considers `is_active = true`, so deactivating the old timetable
+   * frees the section immediately. Timetables also auto-deactivate once their
+   * end_date passes (20260623180000_timetable_auto_deactivate_on_end_date.sql),
+   * so a next-year timetable never collides with a spent one.
+   *
+   * THIS FUNCTION *IS* THE CONSTRAINT. `timetables` carries no unique or
+   * exclusion index — only the `id` primary key — and there is no API route for
+   * timetable writes, so every save goes browser → PostgREST through here.
+   * Anything that writes the table by another path is unguarded. (That is also
+   * why the 23505 handlers in createTimetable/updateTimetable can never fire.)
+   */
   static async checkExistingTimetable(data: {
     institution_id: string;
     academic_year_id: string;
@@ -162,21 +197,23 @@ export class TimetableService {
     section_id?: string; // UUID
     start_date?: string;
     end_date?: string;
+    /** The timetable being edited — it must never conflict with itself. */
+    exclude_timetable_id?: string;
   }): Promise<{
     exists: boolean;
     existingTimetable?: Timetable;
     message?: string;
   }> {
     try {
-      // If no dates provided, skip date overlap validation
-      if (!data.start_date || !data.end_date) {
-        return { exists: false };
-      }
-
-      // Get all active timetables for the same semester and section
+      // The names are EMBEDDED, not selected with '*'. The old code read
+      // `existing.semesters?.semester_name` off a `select('*')` result, where
+      // that key can never exist — so every message said "Unknown Semester" and
+      // silently dropped the section name, the one detail this rule is about.
       let query: any = this.supabase
         .from('timetables')
-        .select('*')
+        .select(
+          'id, timetable_name, start_date, end_date, semesters(semester_name), sections(section_name)'
+        )
         .eq('institution_id', data.institution_id)
         .eq('academic_year_id', data.academic_year_id)
         .eq('degree_id', data.degree_id)
@@ -192,62 +229,59 @@ export class TimetableService {
         query = query.is('section_id', null);
       }
 
+      // Excluded in the QUERY, not filtered out of the result. The caller used
+      // to compare only the FIRST match's id against its own, so a scope already
+      // holding two rows could return the row being edited and wave the genuine
+      // duplicate through.
+      if (data.exclude_timetable_id) {
+        query = query.neq('id', data.exclude_timetable_id);
+      }
+
       const { data: existingTimetables, error } = (await query) as {
         data: Array<{
           id: string;
-          start_date: string;
-          end_date: string;
+          start_date: string | null;
+          end_date: string | null;
           timetable_name: string;
-          semesters?: { semester_name: string };
-          sections?: { section_name: string };
+          semesters?: { semester_name: string } | { semester_name: string }[];
+          sections?: { section_name: string } | { section_name: string }[];
         }> | null;
         error: any;
       };
 
       if (error) throw error;
 
-      if (existingTimetables && existingTimetables.length > 0) {
-        // Check for date period overlaps
-        for (const existing of existingTimetables) {
-          // Skip if existing timetable doesn't have dates
-          if (!existing.start_date || !existing.end_date) continue;
-
-          // Check for overlap: two periods overlap if one starts before the other ends
-          const newStart = new Date(data.start_date);
-          const newEnd = new Date(data.end_date);
-          const existingStart = new Date(existing.start_date);
-          const existingEnd = new Date(existing.end_date);
-
-          // Overlap condition: (newStart <= existingEnd) && (newEnd >= existingStart)
-          const hasOverlap = newStart <= existingEnd && newEnd >= existingStart;
-
-          if (hasOverlap) {
-            const formatDate = (dateStr: string) =>
-              new Date(dateStr).toLocaleDateString();
-
-            const semesterName =
-              existing.semesters?.semester_name || 'Unknown Semester';
-            const sectionName = existing.sections?.section_name || null;
-
-            return {
-              exists: true,
-              existingTimetable: existing as any,
-              message: `A timetable already exists for ${semesterName}${
-                sectionName ? ` - Section ${sectionName}` : ''
-              } with overlapping date period.
-
-Existing: "${existing.timetable_name}" (${formatDate(
-                existing.start_date
-              )} to ${formatDate(existing.end_date)})
-New: ${formatDate(data.start_date)} to ${formatDate(data.end_date)}
-
-Please select a different date period that doesn't overlap.`
-            };
-          }
-        }
+      if (!existingTimetables || existingTimetables.length === 0) {
+        return { exists: false };
       }
 
-      return { exists: false };
+      const existing = existingTimetables[0];
+
+      // PostgREST returns a many-to-one embed as an object, but returns an array
+      // when it cannot prove the relationship is to-one. Normalise both.
+      const one = <T,>(v: T | T[] | undefined): T | undefined =>
+        Array.isArray(v) ? v[0] : v;
+
+      const semesterName =
+        one(existing.semesters)?.semester_name || 'this semester';
+      const sectionName = one(existing.sections)?.section_name || null;
+
+      const formatDate = (dateStr: string | null) =>
+        dateStr ? new Date(dateStr).toLocaleDateString() : 'no date set';
+
+      return {
+        exists: true,
+        existingTimetable: existing as any,
+        message: `${semesterName}${
+          sectionName ? ` — Section ${sectionName}` : ''
+        } already has an active timetable for this academic year.
+
+Existing: "${existing.timetable_name}" (${formatDate(
+          existing.start_date
+        )} to ${formatDate(existing.end_date)})
+
+A section may hold only one active timetable per academic year. Edit that timetable, or deactivate it first if you are replacing it.`
+      };
     } catch (error) {
       logger.error('academic/timetables', 'Error checking existing timetable', error);
       throw error;
@@ -256,7 +290,9 @@ Please select a different date period that doesn't overlap.`
 
   static async createTimetable(data: CreateTimetableDto): Promise<Timetable> {
     try {
-      // Use the new date-based validation method
+      // One active timetable per section per academic year — see
+      // checkExistingTimetable. Dates are passed for the message only; they no
+      // longer decide whether this is a conflict.
       const existingCheck = await this.checkExistingTimetable({
         institution_id: data.institution_id,
         academic_year_id: data.academic_year_id,
@@ -270,9 +306,8 @@ Please select a different date period that doesn't overlap.`
       });
 
       if (existingCheck.exists) {
-        // Show detailed error toast for date overlap
         toast.error(
-          `⚠️ Date Period Conflict Detected!\n\n${existingCheck.message}`,
+          `⚠️ Section Already Has a Timetable\n\n${existingCheck.message}`,
           {
             duration: 8000,
             position: 'top-center',
@@ -287,7 +322,7 @@ Please select a different date period that doesn't overlap.`
         );
         throw new Error(
           existingCheck.message ||
-            'Timetable with overlapping date period already exists.'
+            'This section already has an active timetable for this academic year.'
         );
       }
 
@@ -523,41 +558,39 @@ Please select a different date period that doesn't overlap.`
         end_date: data.end_date || currentTimetable.end_date
       };
 
-      // Check for conflicts only if both dates are provided
-      if (updatedTimetableData.start_date && updatedTimetableData.end_date) {
-        try {
-          const existingCheck = await this.checkExistingTimetable(
-            updatedTimetableData
-          );
+      // Always checked, dates or not. The scope is the rule now, so an edit that
+      // moves this timetable onto a section that already has one must be caught
+      // even when neither date is set.
+      try {
+        const existingCheck = await this.checkExistingTimetable({
+          ...updatedTimetableData,
+          // Self-exclusion happens inside the query — see checkExistingTimetable.
+          exclude_timetable_id: id
+        });
 
-          // Filter out the current timetable from conflicts
-          if (
-            existingCheck.exists &&
-            (existingCheck.existingTimetable as any)?.id !== id
-          ) {
-            toast.error(
-              `⚠️ Date Period Conflict Detected!\n\n${existingCheck.message}`,
-              {
-                duration: 8000,
-                position: 'top-center',
-                style: {
-                  background: '#FEF2F2',
-                  color: '#991B1B',
-                  border: '1px solid #FCA5A5',
-                  maxWidth: '500px',
-                  whiteSpace: 'pre-line'
-                }
+        if (existingCheck.exists) {
+          toast.error(
+            `⚠️ Section Already Has a Timetable\n\n${existingCheck.message}`,
+            {
+              duration: 8000,
+              position: 'top-center',
+              style: {
+                background: '#FEF2F2',
+                color: '#991B1B',
+                border: '1px solid #FCA5A5',
+                maxWidth: '500px',
+                whiteSpace: 'pre-line'
               }
-            );
-            throw new Error(
-              existingCheck.message ||
-                'Date period overlaps with existing timetable.'
-            );
-          }
-        } catch (conflictError) {
-          logger.error('academic/timetables', 'Error during conflict checking', conflictError);
-          throw conflictError;
+            }
+          );
+          throw new Error(
+            existingCheck.message ||
+              'This section already has an active timetable for this academic year.'
+          );
         }
+      } catch (conflictError) {
+        logger.error('academic/timetables', 'Error during conflict checking', conflictError);
+        throw conflictError;
       }
 
       // Filter out undefined values and constraint-related fields
@@ -1129,10 +1162,22 @@ Please select a different date period that doesn't overlap.`
       if (!timetable) throw new Error('Timetable not found');
 
       // Updated: 2025-10-08 - For semester-level timetables, fetch all available sections
+      // Updated: 2026-08-17 - This used to embed `student_count:students(count)`.
+      // There is no `students` table in this database — learners live in
+      // `learners_profiles` (FK fk_learners_profiles_section) — so PostgREST
+      // could not resolve the embed and failed the ENTIRE sections query. The
+      // error was then dropped by `if (!sectionsError && ...)` with no log,
+      // leaving available_sections undefined, and the header's
+      // `available_sections?.length || 0` reported a confident "0 section(s)"
+      // for I B.SC CHEMISTRY — which has a section holding 19 active learners.
+      //
+      // The headcount is now a SEPARATE query. A decoration must not be able to
+      // erase what it decorates: a section whose count failed to load is still a
+      // section, and a wrong zero reads as a real answer nobody investigates.
       if (timetable && timetable.timetable_type === 'semester' && timetable.semester_id) {
         const { data: semesterSections, error: sectionsError } = (await this.supabase
           .from('sections')
-          .select('id, section_name, student_count:students(count)')
+          .select('id, section_name')
           .eq('semester_id', timetable.semester_id)
           .eq('is_active', true)
           .order('section_name')) as {
@@ -1140,10 +1185,50 @@ Please select a different date period that doesn't overlap.`
           error: any;
         };
 
-        if (!sectionsError && semesterSections) {
+        if (sectionsError) {
+          logger.warn(
+            'academic/timetables',
+            'Could not load available sections for this semester - the header will show 0',
+            {
+              timetableId: timetable.id,
+              semesterId: timetable.semester_id,
+              error: sectionsError
+            }
+          );
+        } else if (semesterSections) {
+          const sectionIds = semesterSections.map((s: any) => s.id);
+          const counts = new Map<string, number>();
+
+          if (sectionIds.length > 0) {
+            const { data: learnerRows, error: countError } = (await this.supabase
+              .from('learners_profiles')
+              .select('section_id')
+              .in('section_id', sectionIds)
+              // Graduated and exited learners keep their section_id, so an
+              // unfiltered count overstates a live class by the whole history
+              // of everyone who ever sat in it.
+              .eq('lifecycle_status', 'active')) as {
+              data: any[] | null;
+              error: any;
+            };
+
+            if (countError) {
+              logger.warn(
+                'academic/timetables',
+                'Section headcounts unavailable - listing sections without them',
+                { timetableId: timetable.id, error: countError }
+              );
+            } else {
+              for (const row of learnerRows || []) {
+                if (!row?.section_id) continue;
+                counts.set(row.section_id, (counts.get(row.section_id) || 0) + 1);
+              }
+            }
+          }
+
           timetable.available_sections = semesterSections.map((s: any) => ({
             ...s,
-            student_count: s.student_count?.[0]?.count || 0
+            student_count: counts.get(s.id) || 0
           }));
         }
       }
@@ -2297,40 +2382,41 @@ Please select a different date period that doesn't overlap.`
         throw new Error('Template not found or is not a valid template');
       }
 
-      // Check for date overlap if dates are provided
-      if (timetableData.start_date && timetableData.end_date) {
-        const existingCheck = await this.checkExistingTimetable({
-          institution_id: timetableData.institution_id,
-          academic_year_id: timetableData.academic_year_id,
-          degree_id: timetableData.degree_id,
-          program_id: timetableData.program_id,
-          department_id: timetableData.department_id,
-          semester_id: timetableData.semester_id!,
-          section_id: timetableData.section_id || undefined,
-          start_date: timetableData.start_date,
-          end_date: timetableData.end_date
-        });
+      // Unconditional. This used to run only `if (start_date && end_date)`,
+      // which meant instantiating a template without dates bypassed the rule
+      // entirely — a second way into the same duplicate the dateless early
+      // return produced.
+      const existingCheck = await this.checkExistingTimetable({
+        institution_id: timetableData.institution_id,
+        academic_year_id: timetableData.academic_year_id,
+        degree_id: timetableData.degree_id,
+        program_id: timetableData.program_id,
+        department_id: timetableData.department_id,
+        semester_id: timetableData.semester_id!,
+        section_id: timetableData.section_id || undefined,
+        start_date: timetableData.start_date,
+        end_date: timetableData.end_date
+      });
 
-        if (existingCheck.exists) {
-          toast.error(
-            `⚠️ Date Period Conflict Detected!\n\n${existingCheck.message}`,
-            {
-              duration: 8000,
-              position: 'top-center',
-              style: {
-                background: '#FEF2F2',
-                color: '#991B1B',
-                border: '1px solid #FCA5A5',
-                maxWidth: '500px',
-                whiteSpace: 'pre-line'
-              }
+      if (existingCheck.exists) {
+        toast.error(
+          `⚠️ Section Already Has a Timetable\n\n${existingCheck.message}`,
+          {
+            duration: 8000,
+            position: 'top-center',
+            style: {
+              background: '#FEF2F2',
+              color: '#991B1B',
+              border: '1px solid #FCA5A5',
+              maxWidth: '500px',
+              whiteSpace: 'pre-line'
             }
-          );
-          throw new Error(
-            existingCheck.message ||
-              'Date period conflicts with existing timetable.'
-          );
-        }
+          }
+        );
+        throw new Error(
+          existingCheck.message ||
+            'This section already has an active timetable for this academic year.'
+        );
       }
 
       // Create new timetable based on template

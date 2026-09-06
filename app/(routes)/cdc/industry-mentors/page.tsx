@@ -60,7 +60,7 @@ function MentorCard({ mentor }: { mentor: IndustryMentor }) {
           </Avatar>
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <Link
                   href={`/cdc/industry-mentors/${mentor.id}`}
                   className="font-medium text-sm hover:underline"
@@ -181,7 +181,7 @@ export default function IndustryMentorsPage() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <Users className="h-6 w-6" />
@@ -191,7 +191,7 @@ export default function IndustryMentorsPage() {
               {total} mentor{total !== 1 ? 's' : ''} in the directory
             </p>
           </div>
-          <PermissionGuard module="cdc.industry_mentors" action="create">
+          <PermissionGuard module="cdc.industry_mentors" action="create" fallback={null}>
             <Button asChild>
               <Link href="/cdc/industry-mentors/new">
                 <Plus className="h-4 w-4 mr-2" />
@@ -215,7 +215,7 @@ export default function IndustryMentorsPage() {
             />
           </div>
           <Select value={status} onValueChange={(v) => { setStatus(v as typeof status); setPage(1); }}>
-            <SelectTrigger className="w-36">
+            <SelectTrigger className="w-full sm:w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -228,7 +228,7 @@ export default function IndustryMentorsPage() {
             placeholder="Filter by sector…"
             value={sector}
             onChange={(e) => { setSector(e.target.value); setPage(1); }}
-            className="w-48"
+            className="w-full sm:w-48"
           />
         </div>
 
@@ -250,7 +250,7 @@ export default function IndustryMentorsPage() {
           <div className="text-center py-12 text-muted-foreground">
             <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p>No mentors found.</p>
-            <PermissionGuard module="cdc.industry_mentors" action="create">
+            <PermissionGuard module="cdc.industry_mentors" action="create" fallback={null}>
               <Button asChild variant="outline" className="mt-4">
                 <Link href="/cdc/industry-mentors/new">Add the first mentor</Link>
               </Button>

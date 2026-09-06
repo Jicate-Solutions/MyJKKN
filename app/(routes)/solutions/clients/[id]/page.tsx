@@ -34,6 +34,8 @@ import { useSolutions } from '@/hooks/solutions/use-solutions';
 import { useProspectsByClientId } from '@/hooks/solutions/use-prospects';
 import { ClientForm } from '@/components/solutions/clients/client-form';
 import { ProspectOriginCard } from '@/components/solutions/clients/prospect-origin-card';
+import { ClientProjectsCard } from '@/components/solutions/clients/client-projects-card';
+import { ProposalsCard } from '@/components/solutions/clients/proposals-card';
 import type { PartnerStatus } from '@/hooks/solutions/use-clients';
 
 interface ClientDetailPageProps {
@@ -95,15 +97,15 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
           ]}
         />
         <div className="space-y-6 mt-4">
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-center gap-4">
-              <Skeleton className="h-10 w-10" />
+              <Skeleton className="h-10 w-10 shrink-0" />
               <div>
                 <Skeleton className="h-6 w-32 mb-2" />
                 <Skeleton className="h-8 w-48" />
               </div>
             </div>
-            <Skeleton className="h-10 w-28" />
+            <Skeleton className="h-10 w-28 shrink-0" />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <Skeleton className="h-64" />
@@ -174,7 +176,7 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
       />
       <div className="space-y-6 mt-4">
         {/* Header */}
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" asChild>
               <Link href="/solutions/clients">
@@ -195,7 +197,7 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
               )}
             </div>
           </div>
-          <Button onClick={() => setIsEditOpen(true)}>
+          <Button className="shrink-0" onClick={() => setIsEditOpen(true)}>
             <PenSquare className="mr-2 h-4 w-4" />
             Edit Client
           </Button>
@@ -292,7 +294,7 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
 
         {/* Solutions */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
@@ -304,7 +306,7 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
                   : `${solutions.length} solution${solutions.length !== 1 ? 's' : ''} for this client`}
               </CardDescription>
             </div>
-            <Button size="sm" asChild>
+            <Button size="sm" asChild className="shrink-0">
               <Link href={`/solutions/new?client=${client.id}`}>
                 <Plus className="mr-2 h-4 w-4" />
                 New Solution
@@ -358,6 +360,15 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* Proposals — drafted, sent, approved, signed, with amounts */}
+        <ProposalsCard clientId={id} />
+
+        {/* Projects & Tasks — PM projects delivering for this client */}
+        <ClientProjectsCard
+          clientId={id}
+          solutionIds={solutions.map((s: any) => s.id)}
+        />
 
         {/* Pipeline History - shows all related prospects */}
         {(prospectsLoading || (relatedProspects && relatedProspects.length > 0)) && (

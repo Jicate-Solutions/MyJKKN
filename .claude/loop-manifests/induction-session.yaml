@@ -46,6 +46,15 @@ tables:
   #     (verified in 20260627200000_induction_phase2b_feedback.sql)
 
 sim:
+  # 2026-08-13: this recipe is now carried by fn_loops_regress_induction
+  # (20260813113100, weekly via /api/cron/loops-regress LOOP_FNS) with ONE
+  # deliberate deviation — the runner's sentinel prefix is ZZREGRESS, not
+  # ZZISE: the ZZISE slug belongs to the COMMITTED walk recipe below and
+  # events.slug is UNIQUE, so a walk artifact left mid-flight must never
+  # collide with the weekly sim. The runner also seeds NO induction_programs
+  # row (the measurer never reads it, and its absence no-ops the completion
+  # trigger), and asserts net_effect 0.00 / 2.00 with the +2 delta produced by
+  # raising the treated run2 from 2s to 4s.
   sentinel: ZZISE                         # topic keys are lowercased by fn_induction_norm_topic -> 'zzise-…'
   # event_session_feedback FKs are REAL (pg_constraint verified — unlike scf's session_feedback):
   #   learner_id -> learners_profiles(id), session_id -> event_sessions(id),

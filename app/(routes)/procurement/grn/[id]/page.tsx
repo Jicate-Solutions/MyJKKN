@@ -16,15 +16,9 @@ import {
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
 import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
-
-// Match-badge accent by GRN_MATCH_CONFIG.color.
-const MATCH_COLOR: Record<string, string> = {
-  green: 'border-green-500 text-green-700',
-  amber: 'border-amber-500 text-amber-700',
-  blue: 'border-blue-400 text-blue-700',
-  orange: 'border-orange-500 text-orange-700',
-  red: 'border-red-500 text-red-700',
-};
+import { StatusBadge } from '@/components/procurement/status-badge';
+import { EmptyState } from '@/components/empty-state';
+import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,6 +42,7 @@ import {
 import { ArrowLeft, CheckCircle2, AlertTriangle, PackagePlus } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function GrnDetailPage() {
   const router = useRouter();
@@ -57,7 +52,7 @@ export default function GrnDetailPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canVerify = isSuperAdmin || canAccess('procurement', 'grn_verify');
 
-  const { data: grn, isLoading } = useGrn(id);
+  const { data: grn, isLoading, isError } = useGrn(id);
   const { data: replacements = [] } = useReplacements(id);
   const verifyGrn = useVerifyGrn();
   const cancelGrn = useCancelGrn();
@@ -101,10 +96,19 @@ export default function GrnDetailPage() {
       </ContentLayout>
     );
   }
+  if (isError) {
+    return (
+      <ContentLayout title="Goods Receipt">
+        <div className="py-6">
+          <AlertBox type="error" message="Failed to load this GRN. Please try again." />
+        </div>
+      </ContentLayout>
+    );
+  }
   if (!grn) {
     return (
       <ContentLayout title="Goods Receipt">
-        <p className="text-muted-foreground py-12 text-center">GRN not found.</p>
+        <EmptyState title="GRN not found" description="This goods receipt note may have been removed." />
       </ContentLayout>
     );
   }
@@ -114,11 +118,27 @@ export default function GrnDetailPage() {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 
   const pending = grn.status === 'pending_verification';
+
+  // Whether stock has actually moved is the question a receiver has on this page,
+  // and only the badge answered it — in one word, ambiguously.
+  const STATUS_HINT: Record<string, string> = {
+    draft: 'Not yet submitted for verification.',
+    pending_verification:
+      'Nothing has reached inventory yet. Verifying checks this against the order and the invoice, then posts the accepted quantities.',
+    partially_accepted:
+      'Accepted quantities are in inventory. Rejected lines were excluded and are not stock.',
+    replacement_requested:
+      'Accepted quantities are in inventory. Rejected goods are awaiting a replacement delivery.',
+    accepted: 'Verified. Accepted quantities have been posted to inventory.',
+    completed: 'Verified and complete. Accepted quantities are in inventory.',
+    cancelled: 'Cancelled. Nothing from this receipt reached inventory.',
+  };
+  const statusHint = STATUS_HINT[grn.status];
   const hasMismatch = grn.items.some((i) => i.mismatch_flag);
 
   // Chemical lines still missing batch/expiry (using the effective, possibly-edited values)
@@ -136,9 +156,9 @@ export default function GrnDetailPage() {
   return (
     <ContentLayout title={grn.grn_number}>
       <div className="space-y-6 max-w-5xl">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => router.push('/procurement/grn')}>
+            <Button variant="ghost" size="sm" aria-label="Back to goods receipts" onClick={() => router.push('/procurement/grn')}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
@@ -148,14 +168,12 @@ export default function GrnDetailPage() {
               </p>
             </div>
           </div>
-          <Badge variant="outline" className="text-sm">
-            {GRN_STATUS_CONFIG[grn.status].label}
-          </Badge>
+          <StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} className="text-sm" />
         </div>
 
         {/* Invoice + receipt meta */}
         <Card>
-          <CardContent className="grid gap-4 pt-6 sm:grid-cols-4 text-sm">
+          <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-4 text-sm">
             <div>
               <p className="text-muted-foreground">Invoice #</p>
               <p className="font-medium">{grn.invoice_number || '—'}</p>
@@ -179,6 +197,12 @@ export default function GrnDetailPage() {
           </CardContent>
         </Card>
 
+        {statusHint && (
+          <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            {statusHint}
+          </p>
+        )}
+
         {/* Actions */}
         {pending && (
           <div className="space-y-2">
@@ -199,6 +223,7 @@ export default function GrnDetailPage() {
               )}
               <Button
                 variant="ghost"
+                className="sm:ml-auto"
                 onClick={() => run(() => cancelGrn.mutateAsync({ id }), 'GRN cancelled')}
               >
                 Cancel GRN
@@ -225,7 +250,11 @@ export default function GrnDetailPage() {
         {/* Three-way match table */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Three-way match</CardTitle>
+            <CardTitle className="text-base">Three-way match ({grn.items.length} lines)</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Each line reconciles three numbers: what the order still expects, what the supplier
+              invoiced, and what was physically counted. Only the accepted quantity becomes stock.
+            </p>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
             <Table>
@@ -244,7 +273,6 @@ export default function GrnDetailPage() {
               </TableHeader>
               <TableBody>
                 {grn.items.map((it) => {
-                  const cfg = GRN_MATCH_CONFIG[it.match_status];
                   return (
                     <TableRow key={it.id}>
                       <TableCell className="font-medium">
@@ -307,9 +335,7 @@ export default function GrnDetailPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={MATCH_COLOR[cfg.color]}>
-                          {cfg.label}
-                        </Badge>
+                        <StatusBadge status={it.match_status} config={GRN_MATCH_CONFIG} />
                         {it.mismatch_remarks && (
                           <span className="block text-[11px] text-muted-foreground max-w-[180px]">
                             {it.mismatch_remarks}

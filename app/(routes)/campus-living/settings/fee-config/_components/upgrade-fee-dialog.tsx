@@ -28,8 +28,11 @@ import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categori
 import {
   UPGRADE_FEE_KIND_LABELS,
   UPGRADE_FEE_GENDER_LABELS,
+  UPGRADE_DISCOUNT_TYPE_LABELS,
+  computeUpgradeNetAmount,
   type UpgradeFeeKind,
   type UpgradeFeeGender,
+  type UpgradeDiscountType,
   type UpgradeFeeRow,
 } from '@/types/hostel-category-upgrade-fees';
 
@@ -57,6 +60,8 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
   const [toId, setToId] = useState('');
   const [amount, setAmount] = useState<number>(0);
   const [amountTouched, setAmountTouched] = useState(false);
+  const [discountType, setDiscountType] = useState<UpgradeDiscountType>('amount');
+  const [discountValue, setDiscountValue] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
 
   // Base (full) per-category fee maps for this year — drive the auto-fill suggestion.
@@ -81,6 +86,8 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
       setToId((row.kind === 'room' ? row.to_hostel_category_id : row.to_mess_category_id) ?? '');
       setAmount(row.amount);
       setAmountTouched(true);
+      setDiscountType(row.discount_type ?? 'amount');
+      setDiscountValue(row.discount_value ?? 0);
     } else {
       setKind('room');
       setGender('');
@@ -88,6 +95,8 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
       setToId('');
       setAmount(0);
       setAmountTouched(false);
+      setDiscountType('amount');
+      setDiscountValue(0);
     }
   }, [open, isEdit, row]);
 
@@ -127,15 +136,37 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
     if (from != null && to != null) setAmount(Math.max(0, to - from));
   }, [fromId, toId, baseMap, amountTouched]);
 
+  // Mirrors the Postgres net_amount generated column — what the resident actually pays.
+  const netAmount = useMemo(
+    () => computeUpgradeNetAmount(amount, discountType, discountValue),
+    [amount, discountType, discountValue]
+  );
+  const discountOff = Math.max(0, amount - netAmount);
+  // Matches chk_upgrade_discount_bounds, so a bad value is caught here rather than
+  // coming back as a raw 23514 from the database.
+  const discountInvalid =
+    !Number.isFinite(discountValue) ||
+    discountValue < 0 ||
+    (discountType === 'percent' ? discountValue > 100 : discountValue > amount);
+
   const canSave =
-    !!fromId && !!toId && fromId !== toId && Number.isFinite(amount) && amount >= 0;
+    !!fromId &&
+    !!toId &&
+    fromId !== toId &&
+    Number.isFinite(amount) &&
+    amount >= 0 &&
+    !discountInvalid;
 
   const handleSave = async () => {
     if (!canSave) return;
     try {
       setSubmitting(true);
       if (isEdit && row) {
-        await updateFee(row.id, { amount });
+        await updateFee(row.id, {
+          amount,
+          discount_type: discountType,
+          discount_value: discountValue,
+        });
         toast.success('Upgrade fee updated');
       } else {
         await createFee({
@@ -145,6 +176,8 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
           from_mess_category_id: kind === 'mess' ? fromId : null,
           to_mess_category_id: kind === 'mess' ? toId : null,
           amount,
+          discount_type: discountType,
+          discount_value: discountValue,
         });
         toast.success('Upgrade fee added');
       }
@@ -273,7 +306,7 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
           </div>
 
           <div className="space-y-2">
-            <Label>Upgrade payment (INR)</Label>
+            <Label>Upgrade fee (INR)</Label>
             <Input
               type="number"
               min="0"
@@ -286,6 +319,70 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
             {!isEdit && fromId && toId && baseMap.get(fromId) != null && baseMap.get(toId) != null && (
               <p className="text-xs text-muted-foreground">
                 Suggested (difference): {inr(Math.max(0, baseMap.get(toId)! - baseMap.get(fromId)!))}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Discount (optional)</Label>
+            <div className="grid grid-cols-[minmax(0,9rem)_1fr] gap-2">
+              <Select
+                value={discountType}
+                onValueChange={(v) => {
+                  setDiscountType(v as UpgradeDiscountType);
+                  setDiscountValue(0);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(['amount', 'percent'] as UpgradeDiscountType[]).map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {UPGRADE_DISCOUNT_TYPE_LABELS[d]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                type="number"
+                min="0"
+                max={discountType === 'percent' ? 100 : undefined}
+                value={discountValue}
+                onChange={(e) => setDiscountValue(Number(e.target.value))}
+                placeholder={discountType === 'percent' ? '0 – 100' : '0'}
+              />
+            </div>
+            {discountInvalid ? (
+              <p className="text-xs font-medium text-destructive">
+                {discountType === 'percent'
+                  ? 'Percentage discount must be between 0 and 100.'
+                  : `Flat discount cannot exceed the upgrade fee of ${inr(amount)}.`}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Leave at 0 for no discount. A 100% (or full-amount) discount makes the upgrade
+                free — the resident is moved instantly with no bill raised.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-md border bg-muted/40 p-3">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm text-muted-foreground">Resident pays</span>
+              <span className="flex items-baseline gap-2">
+                {discountOff > 0 && (
+                  <span className="text-sm text-muted-foreground line-through">{inr(amount)}</span>
+                )}
+                <span className="text-lg font-semibold">
+                  {netAmount === 0 ? 'Free' : inr(netAmount)}
+                </span>
+              </span>
+            </div>
+            {discountOff > 0 && (
+              <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                Discount applied: {inr(discountOff)}
+                {discountType === 'percent' ? ` (${discountValue}% off)` : ''}
               </p>
             )}
           </div>

@@ -219,6 +219,10 @@ export async function PUT(
         course_name: body.course_name,
         course_credits: body.course_credits,
         stream: body.stream,
+        // NAAC-2024 coverage tags (metrics 1.4 / 1.6). undefined keys are
+        // dropped by supabase-js, so requests that omit them leave the row as-is.
+        is_skill_based: body.is_skill_based,
+        is_iks: body.is_iks,
         course_objectives: body.course_objectives,
         course_learning_outcomes: body.course_learning_outcomes,
         course_content: body.course_content,
@@ -232,6 +236,21 @@ export async function PUT(
         capstone_project: body.capstone_project,
         capstone_rubric: body.capstone_rubric,
         llc_conference: body.llc_conference,
+        // Pharmacy / AHS academic-model fields (types/bos.ts AcademicModel).
+        // academic_model is set at creation and normally unchanged, but the form
+        // round-trips it so it stays consistent; the rest are model-specific.
+        academic_model: body.academic_model,
+        semester: body.semester,
+        academic_year: body.academic_year,
+        scope: body.scope,
+        exam_scheme: body.exam_scheme,
+        internship_postings: body.internship_postings,
+        ahs_content: body.ahs_content,
+        // Nursing (inc_nursing) fields.
+        course_description: body.course_description,
+        nursing_workload: body.nursing_workload,
+        clinical_outline: body.clinical_outline,
+        competency_mappings: body.competency_mappings,
         notes: body.notes,
         last_modified_by: user.id,
         last_modified_at: new Date().toISOString(),

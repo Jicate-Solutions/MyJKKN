@@ -66,6 +66,14 @@ interface Prefill {
   effective_from: string;
   effective_to: string;
   community_category_ids: string[];
+  /**
+   * Source's declared hostel tier. Only surfaces once the operator picks the
+   * Hostel accommodation in the dimension selector — the clone deliberately
+   * leaves accommodation unset, and NewStructureForm clears these when the
+   * chosen accommodation isn't hostel.
+   */
+  hostel_category_id: string | null;
+  mess_category_id: string | null;
   items: FormItem[];
 }
 
@@ -157,6 +165,8 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           effective_from: source.effective_from ?? '',
           effective_to: source.effective_to ?? '',
           community_category_ids: sourceCommunities,
+          hostel_category_id: source.hostel_category_id ?? null,
+          mess_category_id: source.mess_category_id ?? null,
           items: sourceItems
             .slice()
             .sort((a, b) => a.sort_order - b.sort_order)

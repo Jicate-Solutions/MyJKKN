@@ -84,9 +84,9 @@ export function GDPIDataTable() {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:items-center">
           <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); triggerRefresh(); }}>
-            <SelectTrigger className="w-[160px] h-9">
+            <SelectTrigger className="w-full sm:w-[160px] h-9">
               <SelectValue placeholder="Filter status" />
             </SelectTrigger>
             <SelectContent>
@@ -96,7 +96,7 @@ export function GDPIDataTable() {
             </SelectContent>
           </Select>
           <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); triggerRefresh(); }}>
-            <SelectTrigger className="w-[180px] h-9">
+            <SelectTrigger className="w-full sm:w-[180px] h-9">
               <SelectValue placeholder="Filter type" />
             </SelectTrigger>
             <SelectContent>

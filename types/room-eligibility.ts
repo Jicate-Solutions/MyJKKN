@@ -3,9 +3,9 @@
  *
  * A rule reserves a set of rooms (block + optional floor + optional explicit
  * room set) for learners matching an academic predicate (institution required;
- * degree/department/program/semester each nullable = "any"). Fail-closed: a room
- * covered by >=1 rule admits only matching learners; uncovered rooms stay open.
- * Enforced by fn_learner_eligible_for_room(learner_id, room_id).
+ * degree/department/program nullable = "any"; semester_ids empty = "any").
+ * Fail-closed: a room covered by >=1 rule admits only matching learners;
+ * uncovered rooms stay open. Enforced by fn_learner_eligible_for_room.
  */
 
 export interface RoomEligibilityRule {
@@ -16,7 +16,12 @@ export interface RoomEligibilityRule {
   degree_id: string | null;
   department_id: string | null;
   program_id: string | null;
-  semester_id: string | null;
+  /**
+   * Eligible semesters, IN FILL-PRIORITY ORDER. Empty = any semester.
+   * fn_auto_allocate_classic places element 1's learners before element 2's,
+   * so the array's order is load-bearing — never sort it for display.
+   */
+  semester_ids: string[];
   rule_name: string | null;
   is_active: boolean;
   created_at: string;
@@ -30,7 +35,8 @@ export interface RoomEligibilityRuleRow extends RoomEligibilityRule {
   degree_name: string | null;
   department_name: string | null;
   program_name: string | null;
-  semester_name: string | null;
+  /** Resolved names, index-aligned with semester_ids (same fill order). */
+  semester_names: string[];
   room_ids: string[];
   room_count: number;
 }
@@ -42,7 +48,8 @@ export interface CreateRoomEligibilityRuleDto {
   degree_id?: string | null;
   department_id?: string | null;
   program_id?: string | null;
-  semester_id?: string | null;
+  /** Ordered; empty/omitted = any semester. */
+  semester_ids?: string[];
   rule_name?: string | null;
   is_active?: boolean;
   /** Explicit room targeting (optional). Empty = whole block/floor. */
@@ -54,7 +61,7 @@ export interface UpdateRoomEligibilityRuleDto {
   degree_id?: string | null;
   department_id?: string | null;
   program_id?: string | null;
-  semester_id?: string | null;
+  semester_ids?: string[];
   rule_name?: string | null;
   is_active?: boolean;
   room_ids?: string[];

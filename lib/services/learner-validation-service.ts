@@ -423,7 +423,17 @@ export class LearnerValidationService {
     // Use admin client for server-side validation
     const { data: learner, error } = await supabaseAdmin
       .from('learners_profiles')
-      .select('id, lifecycle_status, institution_id')
+      // community_category_id is carried so bulk-edit can scope caste
+      // resolution to the learner's existing community (caste names repeat
+      // across communities) when the upload doesn't set a new one.
+      // The six reference columns are carried for the same reason: bulk-edit
+      // needs the stored referral_type when the sheet's Type cell is blank, and
+      // needs the stored values to tell a real edit from a re-uploaded template
+      // (writing them back unchanged would bump updated_at on every row).
+      // Must stay ONE string literal: Supabase parses the selection at the type
+      // level, and a concatenated string degrades the row type to
+      // GenericStringError (TS2339 on every field below).
+      .select('id, lifecycle_status, institution_id, community_category_id, referral_type, referred_by_id, referred_by_name, reference_type, reference_name, reference_contact')
       .eq('id', learnerId)
       .maybeSingle();
 

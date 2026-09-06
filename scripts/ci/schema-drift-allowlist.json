@@ -1,0 +1,11 @@
+[
+  { "token": "deployment_url", "reason": "GRANDFATHERED pre-existing drift (exists in NO prod table): ai-solution-compliance-service selects it on an sh_ segment — latent runtime failure, tracked in PR #-schema-drift-family body. Remove from this list when the column ships or the code path is fixed." },
+  { "token": "criteria_type", "reason": "GRANDFATHERED pre-existing drift: exists only on ss_graduation_criteria (non-sh); department-tracker-service filters it on an sh_ segment. Latent failure, tracked." },
+  { "token": "deployed_date", "reason": "GRANDFATHERED pre-existing drift (exists in NO prod table): deployments/phases services reference it. Latent failure, tracked." },
+  { "token": "beneficiaries_count", "reason": "GRANDFATHERED pre-existing drift (exists in NO prod table): paradigm-shift-service. Latent failure, tracked." },
+  { "token": "sdg_goals", "reason": "GRANDFATHERED pre-existing drift (exists in NO prod table): paradigm-shift-service. Latent failure, tracked." },
+  { "token": "is_pro_bono", "reason": "GRANDFATHERED pre-existing drift (exists in NO prod table): paradigm-shift-service. Latent failure, tracked." },
+  { "token": "hours_spent", "reason": "GRANDFATHERED pre-existing drift (exists in NO prod table): paradigm-shift-service. Latent failure, tracked." },
+  { "token": "engagement_date", "reason": "GRANDFATHERED pre-existing drift (exists in NO prod table): paradigm-shift-service. Latent failure, tracked." },
+  { "token": "hod_discount", "reason": "GRANDFATHERED pre-existing drift (exists in NO prod table): revenue-split-service. Latent failure, tracked." }
+]

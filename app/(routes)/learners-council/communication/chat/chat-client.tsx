@@ -115,8 +115,8 @@ export function ChatClient({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <MessageSquare className="h-6 w-6 text-blue-600" />
             Chat
@@ -128,7 +128,7 @@ export function ChatClient({
         {canCreateChannel && (
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
-              <Button variant="outline" className="gap-2">
+              <Button variant="outline" className="gap-2 shrink-0">
                 <Plus className="h-4 w-4" />
                 New Channel
               </Button>

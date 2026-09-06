@@ -24,6 +24,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+  TAP_TARGET_TABS_LIST,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,6 +40,7 @@ import { BoardView } from '@/components/projects/board/board-view';
 import { ProjectFormDialog } from '../_components/project-form-dialog';
 import { ProjectDetailNav } from './_components/project-detail-nav';
 import { ProjectDetailSkeleton } from './_components/project-detail-skeleton';
+import { ProjectClientChip } from './_components/project-client-chip';
 import type { RagStatus } from '@/types/projects';
 
 const RAG_BADGE: Record<RagStatus, { label: string; className: string }> = {
@@ -65,7 +71,7 @@ function ProjectDetailPageInner({
   return (
     <ContentLayout title={project?.title ?? 'Project'}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -85,7 +91,7 @@ function ProjectDetailPageInner({
           </BreadcrumbList>
         </Breadcrumb>
 
-        <Button variant="outline" size="sm" asChild>
+        <Button variant="outline" size="sm" asChild className={TAP_TARGET}>
           <Link href="/projects">
             <ArrowLeft className="mr-1 h-4 w-4" />
             Back to projects
@@ -105,7 +111,7 @@ function ProjectDetailPageInner({
             <p className="text-sm text-muted-foreground">
               This project does not exist or you do not have access to it.
             </p>
-            <Button variant="outline" className="mt-4" asChild>
+            <Button variant="outline" className={`mt-4 ${TAP_TARGET}`} asChild>
               <Link href="/projects">Back to projects</Link>
             </Button>
           </CardContent>
@@ -114,7 +120,7 @@ function ProjectDetailPageInner({
         <>
           {/* Header card */}
           <Card className="mt-6">
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <CardTitle className="text-xl">{project.title}</CardTitle>
@@ -129,6 +135,10 @@ function ProjectDetailPageInner({
                     <Badge variant="outline">{project.project_type.name}</Badge>
                   )}
                   {project.priority && <Badge variant="outline">{project.priority.name}</Badge>}
+                  <ProjectClientChip
+                    clientId={project.client_id ?? null}
+                    solutionId={project.solution_id ?? null}
+                  />
                 </div>
                 {project.code && (
                   <p className="text-xs text-muted-foreground">{project.code}</p>
@@ -139,7 +149,7 @@ function ProjectDetailPageInner({
                   <span>{project.percent_complete ?? 0}% complete</span>
                 </div>
               </div>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)}>
+              <Button variant="outline" size="sm" className={`shrink-0 gap-1.5 ${TAP_TARGET}`} onClick={() => setEditOpen(true)}>
                 <Pencil className="h-4 w-4" />
                 Edit
               </Button>
@@ -157,9 +167,13 @@ function ProjectDetailPageInner({
           {/* Tabs */}
           <div className="mt-6">
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList>
-                <TabsTrigger value="tasks">Tasks</TabsTrigger>
-                <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsList className={TAP_TARGET_TABS_LIST}>
+                <TabsTrigger value="tasks" className={TAP_TARGET}>
+                  Tasks
+                </TabsTrigger>
+                <TabsTrigger value="overview" className={TAP_TARGET}>
+                  Overview
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="tasks" className="mt-6">

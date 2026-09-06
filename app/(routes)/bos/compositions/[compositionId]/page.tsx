@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   XCircle,
   Building2,
   Mail,
@@ -18,6 +19,9 @@ import {
   Plus,
   Trash2,
   GraduationCap,
+  LayoutGrid,
+  List,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useQuery } from '@tanstack/react-query';
@@ -38,7 +42,12 @@ import {
 import { useBosComposition } from '@/hooks/bos/use-bos-compositions';
 import { useBosCommitteesByComposition } from '@/hooks/bos/use-bos-committees';
 import { useBosMemberTypes } from '@/hooks/bos/use-bos-member-types';
-import { useBosMembersByComposition, useRemoveBosMember } from '@/hooks/bos/use-bos-members';
+import {
+  useBosMembersByComposition,
+  useRefreshBosMembers,
+  useRemoveBosMember,
+  useReorderBosMembers,
+} from '@/hooks/bos/use-bos-members';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   useBosBoardScope,
@@ -81,63 +90,238 @@ const MEMBER_GROUPS: { type: BosMemberType; label: string }[] = [
   { type: 'startup',            label: 'Startup Members' },
 ];
 
+// ── Roster model ─────────────────────────────────────────────────────────────
+// The roster renders committee → member-type group → member, and that exact
+// sequence is what gets written to bos_members.sort_order when the user
+// reorders. So the UI and the reorder payload both read ONE precomputed
+// structure (buildRoster) — if they grouped independently they could disagree,
+// and the saved order wouldn't match what the screen shows.
+
+const GENERAL_ROW = '__general__';
+/** Sentinel for "refresh the entire composition", used by the header button. */
+const ALL_SECTIONS = '__all__';
+
+interface RosterGroup {
+  key: string;
+  label: string;
+  items: BosMember[];
+}
+
+interface RosterSection {
+  value: string;
+  committee: BosCommittee | null;
+  groups: RosterGroup[];
+  count: number;
+}
+
+/** sort_order asc — 0 means "never ordered", so those sort first — then name. */
+function byRosterOrder(a: BosMember, b: BosMember) {
+  const ao = a.sort_order ?? 0;
+  const bo = b.sort_order ?? 0;
+  if (ao !== bo) return ao - bo;
+  return (a.display_name ?? '').localeCompare(b.display_name ?? '');
+}
+
+function buildRoster(
+  committees: BosCommittee[],
+  members: BosMember[],
+  /** Institution's bos_member_types rows (already ordered by sort_order). */
+  memberTypes: BosMemberTypeRecord[]
+): RosterSection[] {
+  const knownTypeIds = new Set(memberTypes.map((t) => t.id));
+  const knownCommitteeIds = new Set(committees.map((c) => c.id));
+
+  const groupsFor = (items: BosMember[]): RosterGroup[] => {
+    // Primary grouping: table-driven member types (member_type_id). Rows whose
+    // member_type_id is null (or points at a deleted type) fall back to the
+    // legacy enum groups, and anything still unmatched lands in "Other Members"
+    // rather than silently disappearing from the roster.
+    const leftovers = items.filter(
+      (m) => !m.member_type_id || !knownTypeIds.has(m.member_type_id)
+    );
+    const legacyTypes = new Set(MEMBER_GROUPS.map((g) => g.type as string));
+    return [
+      ...memberTypes.map((t) => ({
+        key: t.id,
+        label: t.name,
+        items: items.filter((m) => m.member_type_id === t.id).sort(byRosterOrder),
+      })),
+      ...MEMBER_GROUPS.map(({ type, label }) => ({
+        key: `legacy:${type}`,
+        label,
+        items: leftovers.filter((m) => m.member_type === type).sort(byRosterOrder),
+      })),
+      {
+        key: 'legacy:__other__',
+        label: 'Other Members',
+        items: leftovers
+          .filter((m) => !legacyTypes.has(m.member_type))
+          .sort(byRosterOrder),
+      },
+    ].filter((g) => g.items.length > 0);
+  };
+
+  const general = members.filter(
+    (m) => !m.committee_id || !knownCommitteeIds.has(m.committee_id)
+  );
+
+  return [
+    ...committees.map((c) => {
+      const items = members.filter((m) => m.committee_id === c.id);
+      return {
+        value: c.id,
+        committee: c as BosCommittee | null,
+        groups: groupsFor(items),
+        count: items.length,
+      };
+    }),
+    ...(general.length > 0
+      ? [
+          {
+            value: GENERAL_ROW,
+            committee: null,
+            groups: groupsFor(general),
+            count: general.length,
+          },
+        ]
+      : []),
+  ];
+}
+
+/** Flat render order — exactly what POST /api/bos/members/reorder persists. */
+function flattenRoster(sections: RosterSection[]): string[] {
+  return sections.flatMap((s) => s.groups.flatMap((g) => g.items.map((m) => m.id)));
+}
+
+/** "Dr. Ramya B" → "RB". Titles are stripped so initials stay meaningful. */
+function initialsOf(name: string | null | undefined): string {
+  const cleaned = (name ?? '')
+    .replace(/\b(dr|prof|mr|mrs|ms|shri|smt)\.?\s*/gi, '')
+    .replace(/[^A-Za-z\s]/g, ' ')
+    .trim();
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+type MemberView = 'grid' | 'list';
+
 // ── Member type groups (within one committee section) ───────────────────────
 
 function MemberTypeGroups({
-  members,
-  memberTypes,
+  groups,
+  view,
   canManage,
   onRemove,
+  onMove,
 }: {
-  members: BosMember[];
-  /** Institution's bos_member_types rows (already ordered by sort_order). */
-  memberTypes: BosMemberTypeRecord[];
+  groups: RosterGroup[];
+  view: MemberView;
   canManage: boolean;
   onRemove: (id: string) => void;
+  /** Move a member one slot up/down inside its own group. */
+  onMove: (groupKey: string, memberId: string, direction: -1 | 1) => void;
 }) {
-  // Primary grouping: table-driven member types (member_type_id). Old rows
-  // whose member_type_id is null (or points at a deleted type) fall back to
-  // the legacy enum groups so nothing disappears.
-  const knownTypeIds = new Set(memberTypes.map((t) => t.id));
-  const leftovers = members.filter(
-    (m) => !m.member_type_id || !knownTypeIds.has(m.member_type_id)
-  );
-
-  const sections: { key: string; label: string; items: BosMember[] }[] = [
-    ...memberTypes.map((t) => ({
-      key: t.id,
-      label: t.name,
-      items: members.filter((m) => m.member_type_id === t.id),
-    })),
-    ...MEMBER_GROUPS.map(({ type, label }) => ({
-      key: `legacy:${type}`,
-      label,
-      items: leftovers.filter((m) => m.member_type === type),
-    })),
-  ];
-
   return (
-    <div className='space-y-4'>
-      {sections.map(({ key, label, items }) => {
-        if (items.length === 0) return null;
-        return (
-          <div key={key}>
-            <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>
-              {label} ({items.length})
-            </h4>
+    <div className='space-y-5'>
+      {groups.map(({ key, label, items }) => (
+        <div key={key}>
+          <h4 className='mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+            {label}
+            <Badge variant='secondary' className='px-1.5 py-0 text-[10px] font-semibold'>
+              {items.length}
+            </Badge>
+          </h4>
+
+          {view === 'grid' ? (
             <div className='grid gap-2 sm:grid-cols-2'>
-              {items.map((member) => (
+              {items.map((member, idx) => (
                 <MemberCard
                   key={member.id}
                   member={member}
+                  position={idx + 1}
+                  canMoveUp={canManage && idx > 0}
+                  canMoveDown={canManage && idx < items.length - 1}
                   canEdit={canManage}
                   onRemove={onRemove}
+                  onMove={(dir) => onMove(key, member.id, dir)}
                 />
               ))}
             </div>
-          </div>
-        );
-      })}
+          ) : (
+            <div className='overflow-x-auto rounded-md border bg-background'>
+              <table className='w-full text-sm'>
+                <thead>
+                  <tr className='border-b bg-muted/40 text-left text-xs text-muted-foreground'>
+                    <th className='w-12 px-3 py-2 font-medium'>#</th>
+                    <th className='px-3 py-2 font-medium'>Member</th>
+                    <th className='hidden px-3 py-2 font-medium sm:table-cell'>
+                      Designation
+                    </th>
+                    <th className='hidden px-3 py-2 font-medium lg:table-cell'>
+                      Department / Institution
+                    </th>
+                    <th className='hidden px-3 py-2 font-medium md:table-cell'>Contact</th>
+                    {canManage && <th className='w-24 px-3 py-2' />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((member, idx) => (
+                    <MemberListRow
+                      key={member.id}
+                      member={member}
+                      position={idx + 1}
+                      canMoveUp={canManage && idx > 0}
+                      canMoveDown={canManage && idx < items.length - 1}
+                      canEdit={canManage}
+                      onRemove={onRemove}
+                      onMove={(dir) => onMove(key, member.id, dir)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Reorder arrows (shared by both views) ────────────────────────────────────
+
+function ReorderButtons({
+  canMoveUp,
+  canMoveDown,
+  onMove,
+}: {
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMove: (direction: -1 | 1) => void;
+}) {
+  return (
+    <div className='flex flex-col'>
+      <Button
+        variant='ghost'
+        size='icon'
+        className='h-4 w-6 rounded-sm text-muted-foreground hover:text-foreground'
+        disabled={!canMoveUp}
+        title='Move up'
+        onClick={() => onMove(-1)}
+      >
+        <ChevronUp className='h-3.5 w-3.5' />
+      </Button>
+      <Button
+        variant='ghost'
+        size='icon'
+        className='h-4 w-6 rounded-sm text-muted-foreground hover:text-foreground'
+        disabled={!canMoveDown}
+        title='Move down'
+        onClick={() => onMove(1)}
+      >
+        <ChevronDown className='h-3.5 w-3.5' />
+      </Button>
     </div>
   );
 }
@@ -149,41 +333,28 @@ function MemberTypeGroups({
 // reveals that committee's members grouped by type. A virtual "General" row
 // collects members with no committee (or whose committee was deleted).
 
-const GENERAL_ROW = '__general__';
-
 function CommitteeTable({
-  committees,
-  members,
-  memberTypes,
+  rows,
+  view,
   canManage,
   onRemove,
+  onMove,
   onAddMember,
+  onRefreshCommittee,
+  refreshingCommittee,
 }: {
-  committees: BosCommittee[];
-  /** membersForGrouping — member_type_id already collapsed to canonical rows. */
-  members: BosMember[];
-  memberTypes: BosMemberTypeRecord[];
+  /** Precomputed roster sections — see buildRoster. */
+  rows: RosterSection[];
+  view: MemberView;
   canManage: boolean;
   onRemove: (id: string) => void;
+  onMove: (groupKey: string, memberId: string, direction: -1 | 1) => void;
   onAddMember: () => void;
+  /** Re-pull staff / expert details for just this committee's members. */
+  onRefreshCommittee: (sectionValue: string, memberIds: string[]) => void;
+  /** Section value currently being refreshed, so only its button spins. */
+  refreshingCommittee: string | null;
 }) {
-  const rows = useMemo(() => {
-    const knownIds = new Set(committees.map((c) => c.id));
-    const general = members.filter(
-      (m) => !m.committee_id || !knownIds.has(m.committee_id)
-    );
-    return [
-      ...committees.map((c) => ({
-        value: c.id,
-        committee: c as BosCommittee | null,
-        items: members.filter((m) => m.committee_id === c.id),
-      })),
-      ...(general.length > 0
-        ? [{ value: GENERAL_ROW, committee: null, items: general }]
-        : []),
-    ];
-  }, [committees, members]);
-
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // Open the first committee once data arrives, so the card isn't a wall of
@@ -240,7 +411,7 @@ function CommitteeTable({
                     {r.committee?.short_code ?? '—'}
                   </TableCell>
                   <TableCell className='text-right tabular-nums'>
-                    {r.items.length}
+                    {r.count}
                   </TableCell>
                   <TableCell>
                     {!r.committee ? (
@@ -262,7 +433,7 @@ function CommitteeTable({
                 {isOpen && (
                   <TableRow className='hover:bg-transparent'>
                     <TableCell colSpan={5} className='bg-muted/30 p-4'>
-                      {r.items.length === 0 ? (
+                      {r.count === 0 ? (
                         <div className='flex flex-col items-start gap-2'>
                           <p className='text-xs text-muted-foreground'>
                             No members in this committee yet.
@@ -282,12 +453,55 @@ function CommitteeTable({
                           )}
                         </div>
                       ) : (
-                        <MemberTypeGroups
-                          members={r.items}
-                          memberTypes={memberTypes}
-                          canManage={canManage}
-                          onRemove={onRemove}
-                        />
+                        <div className='space-y-3'>
+                          {canManage && (
+                            <div className='flex items-center justify-end gap-2'>
+                              {/* Committee-wise refresh: pulls the CURRENT staff /
+                                  expert details into just these member rows. Kept
+                                  per-committee so one board can adopt a promotion
+                                  without touching the rest of the composition. */}
+                              <Button
+                                size='sm'
+                                variant='ghost'
+                                className='h-7 text-xs'
+                                disabled={refreshingCommittee !== null}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onRefreshCommittee(
+                                    r.value,
+                                    r.groups.flatMap((g) => g.items.map((m) => m.id))
+                                  );
+                                }}
+                              >
+                                <RefreshCw
+                                  className={`mr-1.5 h-3.5 w-3.5 ${
+                                    refreshingCommittee === r.value ? 'animate-spin' : ''
+                                  }`}
+                                />
+                                Refresh details
+                              </Button>
+                              <Button
+                                size='sm'
+                                variant='outline'
+                                className='h-7 text-xs'
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onAddMember();
+                                }}
+                              >
+                                <Plus className='mr-1.5 h-3.5 w-3.5' />
+                                Add Member
+                              </Button>
+                            </div>
+                          )}
+                          <MemberTypeGroups
+                            groups={r.groups}
+                            view={view}
+                            canManage={canManage}
+                            onRemove={onRemove}
+                            onMove={onMove}
+                          />
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>
@@ -305,58 +519,222 @@ function CommitteeTable({
 
 function MemberCard({
   member,
+  position,
   canEdit,
+  canMoveUp,
+  canMoveDown,
   onRemove,
+  onMove,
 }: {
   member: BosMember;
+  /** 1-based rank inside its member-type group — the number reports print. */
+  position: number;
   canEdit: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   onRemove: (id: string) => void;
+  onMove: (direction: -1 | 1) => void;
 }) {
+  const isExternal = !!member.expert_id;
   return (
-    <div className='flex items-start gap-3 rounded-lg border p-3'>
-      <div className='flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted'>
-        <Users className='h-4 w-4 text-muted-foreground' />
+    <div
+      className={`group relative flex items-start gap-3 rounded-lg border bg-background p-3 transition-colors hover:border-primary/40 hover:bg-accent/30 ${
+        member.is_active ? '' : 'opacity-60'
+      }`}
+    >
+      {/* Order badge doubles as the avatar ring — the rank is the first thing
+          you need when checking a roster against a printed notice. */}
+      <div className='relative shrink-0'>
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold ${
+            isExternal
+              ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
+              : 'bg-primary/10 text-primary'
+          }`}
+          title={isExternal ? 'External expert' : 'Internal (staff)'}
+        >
+          {initialsOf(member.display_name)}
+        </div>
+        {/* The badge is bos_members.group_position — the stored per-group serial
+            number. It falls back to the rendered index during the optimistic
+            window right after an add, before the server's number arrives. */}
+        <span
+          className='absolute -left-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border bg-background px-1 text-[10px] font-semibold tabular-nums text-muted-foreground'
+          title={`group_position ${member.group_position || position} · sort_order ${member.sort_order ?? 0}`}
+        >
+          {member.group_position || position}
+        </span>
       </div>
-      <div className='flex-1 min-w-0'>
-        <p className='font-medium text-sm truncate'>{member.display_name}</p>
+
+      <div className='min-w-0 flex-1'>
+        <div className='flex items-start gap-2'>
+          <p className='min-w-0 flex-1 truncate text-sm font-medium'>
+            {member.display_name}
+          </p>
+          {!member.is_active && (
+            <Badge variant='secondary' className='shrink-0 text-[10px]'>
+              Inactive
+            </Badge>
+          )}
+        </div>
         {member.display_designation && (
-          <p className='text-xs text-muted-foreground truncate'>{member.display_designation}</p>
-        )}
-        {member.display_institution && (
-          <p className='flex items-center gap-1 text-xs text-muted-foreground mt-0.5'>
-            <Building2 className='h-3 w-3 shrink-0' />
-            <span className='truncate'>{member.display_institution}</span>
+          <p className='truncate text-xs text-muted-foreground'>
+            {member.display_designation}
           </p>
         )}
-        <div className='flex flex-wrap gap-3 mt-1'>
+        {(member.display_department || member.display_institution) && (
+          <p className='mt-0.5 flex items-center gap-1 text-xs text-muted-foreground'>
+            <Building2 className='h-3 w-3 shrink-0' />
+            <span className='truncate'>
+              {[member.display_department, member.display_institution]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </p>
+        )}
+        <div className='mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1'>
           {member.email && (
-            <a href={`mailto:${member.email}`} className='flex items-center gap-1 text-xs text-primary hover:underline'>
-              <Mail className='h-3 w-3' />{member.email}
+            <a
+              href={`mailto:${member.email}`}
+              className='flex max-w-full items-center gap-1 truncate text-xs text-primary hover:underline'
+            >
+              <Mail className='h-3 w-3 shrink-0' />
+              <span className='truncate'>{member.email}</span>
             </a>
           )}
           {member.contact_no && (
             <span className='flex items-center gap-1 text-xs text-muted-foreground'>
-              <Phone className='h-3 w-3' />{member.contact_no}
+              <Phone className='h-3 w-3 shrink-0' />
+              {member.contact_no}
             </span>
           )}
         </div>
       </div>
-      <div className='flex items-center gap-1 shrink-0'>
-        {!member.is_active && (
-          <Badge variant='secondary' className='text-xs'>Inactive</Badge>
-        )}
-        {canEdit && (
+
+      {canEdit && (
+        // Controls stay invisible until hover/focus so a read-through of the
+        // roster isn't a wall of buttons; focus-within keeps them keyboard-usable.
+        <div className='flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100'>
+          <ReorderButtons
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            onMove={onMove}
+          />
           <Button
             variant='ghost'
             size='icon'
             className='h-7 w-7 text-muted-foreground hover:text-destructive'
+            title='Remove member'
             onClick={() => onRemove(member.id)}
           >
             <Trash2 className='h-3.5 w-3.5' />
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+// ── Member list row (compact table view) ─────────────────────────────────────
+// The list view is the one to read against a printed notice or minutes: one
+// line per member, rank first, in exactly the saved order.
+
+function MemberListRow({
+  member,
+  position,
+  canEdit,
+  canMoveUp,
+  canMoveDown,
+  onRemove,
+  onMove,
+}: {
+  member: BosMember;
+  position: number;
+  canEdit: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onRemove: (id: string) => void;
+  onMove: (direction: -1 | 1) => void;
+}) {
+  return (
+    <tr
+      className={`border-b last:border-0 hover:bg-accent/30 ${
+        member.is_active ? '' : 'opacity-60'
+      }`}
+    >
+      <td
+        className='px-3 py-2 text-xs tabular-nums text-muted-foreground'
+        title={`group_position ${member.group_position || position} · sort_order ${member.sort_order ?? 0}`}
+      >
+        {member.group_position || position}
+      </td>
+      <td className='px-3 py-2'>
+        <div className='flex items-center gap-2'>
+          <span className='truncate font-medium'>{member.display_name}</span>
+          {member.expert_id && (
+            <Badge variant='outline' className='shrink-0 text-[10px]'>
+              External
+            </Badge>
+          )}
+          {!member.is_active && (
+            <Badge variant='secondary' className='shrink-0 text-[10px]'>
+              Inactive
+            </Badge>
+          )}
+        </div>
+        {/* Everything hidden by the responsive columns collapses under the
+            name on small screens, so nothing is unreachable on mobile. */}
+        <div className='text-xs text-muted-foreground sm:hidden'>
+          {[member.display_designation, member.display_department]
+            .filter(Boolean)
+            .join(' · ')}
+        </div>
+      </td>
+      <td className='hidden px-3 py-2 text-xs text-muted-foreground sm:table-cell'>
+        {member.display_designation ?? '—'}
+      </td>
+      <td className='hidden px-3 py-2 text-xs text-muted-foreground lg:table-cell'>
+        {[member.display_department, member.display_institution]
+          .filter(Boolean)
+          .join(' · ') || '—'}
+      </td>
+      <td className='hidden px-3 py-2 text-xs md:table-cell'>
+        {member.email && (
+          <a
+            href={`mailto:${member.email}`}
+            className='block truncate text-primary hover:underline'
+          >
+            {member.email}
+          </a>
+        )}
+        {member.contact_no && (
+          <span className='text-muted-foreground'>{member.contact_no}</span>
+        )}
+        {!member.email && !member.contact_no && (
+          <span className='text-muted-foreground'>—</span>
+        )}
+      </td>
+      {canEdit && (
+        <td className='px-3 py-2'>
+          <div className='flex items-center justify-end gap-0.5'>
+            <ReorderButtons
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
+              onMove={onMove}
+            />
+            <Button
+              variant='ghost'
+              size='icon'
+              className='h-7 w-7 text-muted-foreground hover:text-destructive'
+              title='Remove member'
+              onClick={() => onRemove(member.id)}
+            >
+              <Trash2 className='h-3.5 w-3.5' />
+            </Button>
+          </div>
+        </td>
+      )}
+    </tr>
   );
 }
 
@@ -378,8 +756,13 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
   const { data: composition, isLoading: loadingComposition } = useBosComposition(compositionId);
   const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
   const removeMember = useRemoveBosMember();
+  const refreshMembers = useRefreshBosMembers();
+  const reorderMembers = useReorderBosMembers();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addCommitteeOpen, setAddCommitteeOpen] = useState(false);
+  const [memberView, setMemberView] = useState<MemberView>('grid');
+  /** Which section's Refresh is in flight — ALL_SECTIONS for the whole roster. */
+  const [refreshingSection, setRefreshingSection] = useState<string | null>(null);
 
   // Bootstrap case: the user who created this row keeps edit + member-roster
   // access until a chairman is appointed. Without it the creator can't
@@ -466,7 +849,12 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
     [members, canonicalTypeId]
   );
 
-  // Regulations for this institution (all CAS siblings)
+  // Regulations + taxonomy assignments feed the Outcomes (PO/PSO) tab ONLY, so
+  // they stay unfetched until that tab is opened. They used to fire on every
+  // visit to the page — two extra requests (one of them a COE-backed taxonomy
+  // lookup) that nobody landing on the default Members tab ever consumed.
+  const outcomesTabActive = activeTab === 'outcomes';
+
   const { data: regulations = [], isLoading: loadingRegs } = useQuery<Regulation[]>({
     queryKey: ['bos', 'regulations', institutionIdsCsv],
     queryFn: async () => {
@@ -475,7 +863,7 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
       const json = await res.json();
       return json.data ?? [];
     },
-    enabled: allInstitutionIds.length > 0,
+    enabled: outcomesTabActive && allInstitutionIds.length > 0,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -488,12 +876,100 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
       const json = await res.json();
       return json.data ?? [];
     },
-    enabled: allInstitutionIds.length > 0,
+    enabled: outcomesTabActive && allInstitutionIds.length > 0,
     staleTime: 5 * 60 * 1000,
   });
 
   const assignedRegIds = new Set(taxonomyAssignments.map((a) => a.regulation_id));
   const regulationsWithTaxonomy = regulations.filter((r) => assignedRegIds.has(r.id));
+
+  // Roster sections drive BOTH the rendering and the reorder payload — see
+  // buildRoster. Committees are the outer level, member types the inner one.
+  const roster = useMemo(
+    () => buildRoster(committees, membersForGrouping, memberTypeRows),
+    [committees, membersForGrouping, memberTypeRows]
+  );
+
+  /**
+   * Move one member up/down inside its own member-type group, then persist the
+   * WHOLE composition's order. sort_order is a composition-wide rank, so a
+   * local swap still has to be saved as a full 1..n renumbering — otherwise
+   * flat consumers (notices, minutes, attendance) would interleave groups.
+   */
+  const handleMoveMember = (
+    groupKey: string,
+    memberId: string,
+    direction: -1 | 1
+  ) => {
+    let moved = false;
+    const next = roster.map((section) => ({
+      ...section,
+      groups: section.groups.map((group) => {
+        const idx = group.items.findIndex((m) => m.id === memberId);
+        // The same group key repeats across committees, so the member's own
+        // index is what identifies the right group — not the key alone.
+        if (group.key !== groupKey || idx === -1) return group;
+        const target = idx + direction;
+        if (target < 0 || target >= group.items.length) return group;
+        const items = [...group.items];
+        [items[idx], items[target]] = [items[target], items[idx]];
+        moved = true;
+        return { ...group, items };
+      }),
+    }));
+    if (!moved) return;
+
+    reorderMembers.mutate(
+      { compositionId, orderedIds: flattenRoster(next) },
+      {
+        onError: (err) => {
+          logger.error('academic/bos', 'Failed to reorder members', err);
+          toast.error((err as Error).message || 'Failed to save member order');
+        },
+      }
+    );
+  };
+
+  /**
+   * Manual pull of the latest staff / external-expert details into the roster
+   * snapshot. Manual on purpose: display_designation is what past meeting
+   * notices and minutes printed, so an Assistant Professor promoted to
+   * Associate Professor should only change on the rosters an operator chooses.
+   */
+  const handleRefreshDetails = (sectionValue: string, memberIds?: string[]) => {
+    if (refreshingSection) return;
+    setRefreshingSection(sectionValue);
+    refreshMembers.mutate(
+      { compositionId, ...(memberIds ? { memberIds } : {}) },
+      {
+        onSuccess: (result) => {
+          if (result.updated === 0) {
+            toast.success('All member details are already up to date');
+          } else {
+            const names = result.changes
+              .slice(0, 3)
+              .map((c) => c.display_name)
+              .filter(Boolean)
+              .join(', ');
+            toast.success(
+              `Updated ${result.updated} member${result.updated === 1 ? '' : 's'}` +
+                (names ? ` — ${names}${result.updated > 3 ? '…' : ''}` : '')
+            );
+          }
+          if (result.failed > 0) {
+            toast.error(
+              `${result.failed} member${result.failed === 1 ? '' : 's'} could not be updated`
+            );
+          }
+        },
+        onError: (err) => {
+          logger.error('academic/bos', 'Failed to refresh member details', err);
+          toast.error((err as Error).message || 'Failed to refresh member details');
+        },
+        onSettled: () => setRefreshingSection(null),
+      }
+    );
+  };
 
   const handleRemoveMember = async (memberId: string) => {
     try {
@@ -608,25 +1084,63 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
         <TabsContent value='members'>
           <Card>
             <CardHeader className='pb-3'>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
                 <CardTitle className='text-base'>
                   Members
                   <span className='ml-2 text-sm font-normal text-muted-foreground'>
                     ({activeMembers.length} active)
                   </span>
                 </CardTitle>
-                {canManage && (
-                  <div className='flex items-center gap-2'>
-                    <Button size='sm' variant='ghost' onClick={() => setAddCommitteeOpen(true)}>
-                      <Plus className='mr-2 h-4 w-4' />
-                      Add Committee
+                <div className='flex flex-wrap items-center gap-2'>
+                  {/* View switch — grid for scanning, list for checking the
+                      roster line-by-line against a printed notice. */}
+                  <div className='flex items-center rounded-md border p-0.5'>
+                    <Button
+                      size='icon'
+                      variant={memberView === 'grid' ? 'secondary' : 'ghost'}
+                      className='h-7 w-7'
+                      title='Grid view'
+                      onClick={() => setMemberView('grid')}
+                    >
+                      <LayoutGrid className='h-3.5 w-3.5' />
                     </Button>
-                    <Button size='sm' variant='outline' onClick={() => setAddDialogOpen(true)}>
-                      <Plus className='mr-2 h-4 w-4' />
-                      Add Member
+                    <Button
+                      size='icon'
+                      variant={memberView === 'list' ? 'secondary' : 'ghost'}
+                      className='h-7 w-7'
+                      title='List view'
+                      onClick={() => setMemberView('list')}
+                    >
+                      <List className='h-3.5 w-3.5' />
                     </Button>
                   </div>
-                )}
+                  {canManage && (
+                    <>
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        disabled={refreshingSection !== null || members.length === 0}
+                        title='Pull the latest designation / department / contact from each member’s staff or expert record'
+                        onClick={() => handleRefreshDetails(ALL_SECTIONS)}
+                      >
+                        <RefreshCw
+                          className={`mr-2 h-4 w-4 ${
+                            refreshingSection === ALL_SECTIONS ? 'animate-spin' : ''
+                          }`}
+                        />
+                        Refresh Details
+                      </Button>
+                      <Button size='sm' variant='ghost' onClick={() => setAddCommitteeOpen(true)}>
+                        <Plus className='mr-2 h-4 w-4' />
+                        Add Committee
+                      </Button>
+                      <Button size='sm' variant='outline' onClick={() => setAddDialogOpen(true)}>
+                        <Plus className='mr-2 h-4 w-4' />
+                        Add Member
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent className='space-y-6'>
@@ -642,12 +1156,14 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
                 </div>
               ) : (
                 <CommitteeTable
-                  committees={committees}
-                  members={membersForGrouping}
-                  memberTypes={memberTypeRows}
+                  rows={roster}
+                  view={memberView}
                   canManage={canManage}
                   onRemove={handleRemoveMember}
+                  onMove={handleMoveMember}
                   onAddMember={() => setAddDialogOpen(true)}
+                  onRefreshCommittee={handleRefreshDetails}
+                  refreshingCommittee={refreshingSection}
                 />
               )}
             </CardContent>
@@ -689,7 +1205,7 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
               <div className='flex items-center gap-3'>
                 <span className='text-sm font-medium shrink-0'>Regulation</span>
                 <Select value={selectedRegulationId} onValueChange={setSelectedRegulationId}>
-                  <SelectTrigger className='w-[260px]'>
+                  <SelectTrigger className='w-full sm:w-[260px]'>
                     <SelectValue placeholder='Select regulation…' />
                   </SelectTrigger>
                   <SelectContent>

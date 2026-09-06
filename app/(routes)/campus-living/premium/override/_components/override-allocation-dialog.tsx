@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay Phase 2 — Override Allocation Dialog
+// Premium Room Phase 2 — Override Allocation Dialog
 // ============================================================================
 // Modal for a chief warden to forcibly re-tier or re-bed a premium allocation.
 // Override reason is mandatory (enforced server-side by RLS + client-side

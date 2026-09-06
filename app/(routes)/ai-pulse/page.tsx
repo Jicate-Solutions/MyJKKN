@@ -58,6 +58,21 @@ export default async function AiPulseLandingPage() {
 
   const isSuperAdmin = profile?.role === 'super_admin';
 
+  // My Pulse (/ai-pulse/my-pulse) server-side gates on aiPulse:view.self and
+  // redirects non-learners to /unauthorized — only show the button to users
+  // who can actually land there, mirroring the Champion Console gate below.
+  let canViewMyPulse = isSuperAdmin;
+  if (!canViewMyPulse) {
+    try {
+      const { data, error } = await supabase.rpc('user_has_permission', {
+        permission_name: 'aiPulse:view.self',
+      });
+      canViewMyPulse = !error && data === true;
+    } catch {
+      canViewMyPulse = false;
+    }
+  }
+
   // Defensive query — if the AI Pulse substrate isn't merged, this returns []
   // gracefully rather than throwing.
   let cycles: AiPulseCycle[] = [];
@@ -98,12 +113,14 @@ export default async function AiPulseLandingPage() {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/ai-pulse/my-pulse">
-                <User className="h-4 w-4 mr-1.5" />
-                My Pulse
-              </Link>
-            </Button>
+            {canViewMyPulse && (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/ai-pulse/my-pulse">
+                  <User className="h-4 w-4 mr-1.5" />
+                  My Pulse
+                </Link>
+              </Button>
+            )}
             {isSuperAdmin && (
               <Button asChild size="sm">
                 <Link href="/ai-pulse/admin/cycles">

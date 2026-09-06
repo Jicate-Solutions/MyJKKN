@@ -110,7 +110,7 @@ function ProposalCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <CardTitle className="text-base flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
             {describeChanges(p.proposed_changes)}
@@ -225,7 +225,7 @@ export function SF100AdjustmentsPanel({ programId }: SF100AdjustmentsPanelProps)
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <TrendingUp className="h-5 w-5" /> Program Adjustments
@@ -235,7 +235,7 @@ export function SF100AdjustmentsPanel({ programId }: SF100AdjustmentsPanelProps)
               causal lift and your approval before anything changes.
             </p>
           </div>
-          <Button size="sm" variant="outline" disabled={generate.isPending} onClick={handleGenerate}>
+          <Button size="sm" variant="outline" disabled={generate.isPending} onClick={handleGenerate} className="shrink-0">
             {generate.isPending
               ? <Loader2 className="h-4 w-4 animate-spin" />
               : <><RefreshCw className="h-4 w-4 mr-1.5" /> Check for adjustments</>}

@@ -24,6 +24,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { HRLeaveTypeService } from '@/lib/services/hr/leave-type-service';
 import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
+import { useLeaveApprovalFlowCoverage } from '@/hooks/hr/use-leave-approval-flows';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 import {
   REQUEST_CATEGORY_LABELS,
@@ -33,6 +34,7 @@ import {
 
 import { getLeaveTypeColumns } from './leave-type-columns';
 import { LeaveTypeRowActions } from './leave-type-row-actions';
+import type { HRLeaveTypeDeleteResult } from '@/lib/services/hr/leave-type-service';
 import type { LeaveTypeFilterState, TriState } from './leave-type-filters';
 
 interface LeaveTypesDataTableProps {
@@ -42,7 +44,13 @@ interface LeaveTypesDataTableProps {
   onView: (t: HRLeaveType) => void;
   onEdit: (t: HRLeaveType) => void;
   onAssign: (t: HRLeaveType) => void;
-  onArchive: (t: HRLeaveType) => Promise<void> | void;
+  /** Opens the approval-chain editor for this type. */
+  onApprovalFlow: (t: HRLeaveType) => void;
+  /** Asks the page to open its archive confirmation. */
+  onArchive: (t: HRLeaveType) => void;
+  onActivate: (t: HRLeaveType) => Promise<void> | void;
+  /** Asks the page to open its delete confirmation. */
+  onDelete: (t: HRLeaveType) => void;
   /**
    * Bumped by the page after a save or archive. Needed in addition to the
    * invalidate bridge below: that bridge listens for cache events, which only
@@ -66,10 +74,17 @@ export function LeaveTypesDataTable({
   onView,
   onEdit,
   onAssign,
+  onApprovalFlow,
   onArchive,
+  onActivate,
+  onDelete,
   refreshToken,
 }: LeaveTypesDataTableProps) {
   // Both counters only ever increase, so their sum is a valid monotonic key.
+  // One fetch for the Approval column — 22 flows group-wide, versus a query
+  // per visible row if the cell resolved it itself.
+  const { data: flowCoverage } = useLeaveApprovalFlowCoverage();
+
   const invalidateKey = useDataTableRefreshOnInvalidate(['hr-leave-types']);
   const refetchKey = invalidateKey + refreshToken;
 
@@ -78,8 +93,8 @@ export function LeaveTypesDataTable({
   const { orgNameById } = useHrOrgMappings();
 
   const columns = useMemo(
-    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onArchive, orgNameById }),
-    [canManage, onView, onAssign, onEdit, onArchive, orgNameById]
+    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, onActivate, onDelete, orgNameById, flowCoverage }),
+    [canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, onActivate, onDelete, orgNameById, flowCoverage]
   );
 
   const fetchData = useCallback(
@@ -196,7 +211,10 @@ export function LeaveTypesDataTable({
                 onView={onView}
                 onAssign={onAssign}
                 onEdit={onEdit}
+                onApprovalFlow={onApprovalFlow}
                 onArchive={onArchive}
+                onActivate={onActivate}
+                onDelete={onDelete}
               />
             )}
           </div>
@@ -227,7 +245,7 @@ export function LeaveTypesDataTable({
         </div>
       </div>
     ),
-    [canManage, onView, onAssign, onEdit, onArchive, orgNameById]
+    [canManage, onView, onAssign, onEdit, onArchive, onActivate, onDelete, orgNameById, flowCoverage]
   );
 
   const renderToolbarContent = useCallback(

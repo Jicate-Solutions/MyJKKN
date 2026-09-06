@@ -6,8 +6,9 @@
 // departments to, shown to the student continuously instead of surfacing as
 // a surprise at university-submission time.
 //
-// Bands mirror the audit thresholds: >=75% eligible · 65–75% condonation
-// band · <65% at risk. SELF-SCOPED server-side (fn_my_running_attendance
+// Bands mirror the audit thresholds (eligible · condonation band · at risk),
+// read from platform_policies via useEligibilityThresholds() — defaults 75/65,
+// configurable per institution. SELF-SCOPED server-side (fn_my_running_attendance
 // reads only the caller's own learner rows) — no props, no ids.
 //
 // Self-hides on error/empty: this card is additive to the attendance page,
@@ -31,19 +32,38 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { ExcusedNote, countedPresent } from '@/components/attendance/counted-attendance';
 import type { MyRunningAttendanceRow } from '@/types/exam-audit';
+import { useEligibilityThresholds } from '@/hooks/academic/use-eligibility-thresholds';
+import type { EligibilityThresholds } from '@/lib/services/exam-audit/compute';
 
-const ELIGIBILITY = 75;
-const CONDONATION = 65;
+// One-time explanation of the 2026-07-26 correction (Director decision, 2026-07-27).
+// Practical sessions were recorded but invisible to this score for eight months;
+// counting them moved 487 learners' percentages — 290 up and 197 DOWN. A learner
+// whose number fell has no way to tell a correction from a mistake, so the card
+// says so itself rather than leaving them to ask.
+//
+// SELF-EXPIRING BY DESIGN: it disappears after the date below with no follow-up
+// change to ship. Anyone reading this after that date can delete this block.
+const PRACTICALS_NOTICE_UNTIL = new Date('2026-09-30T23:59:59+05:30');
 
-function band(pct: number | null): { label: string; cls: string } {
+function band(
+  pct: number | null,
+  t: EligibilityThresholds,
+): { label: string; cls: string } {
   if (pct === null) return { label: '—', cls: 'text-muted-foreground' };
-  if (pct >= ELIGIBILITY) return { label: 'Eligible', cls: 'text-green-600' };
-  if (pct >= CONDONATION) return { label: 'Condonation band', cls: 'text-amber-600' };
+  if (pct >= t.eligibility) return { label: 'Eligible', cls: 'text-green-600' };
+  if (pct >= t.condonation) return { label: 'Condonation band', cls: 'text-amber-600' };
   return { label: 'At risk', cls: 'text-red-600' };
 }
 
 export function MyRunningScoreCard() {
+  // Thresholds are configuration, not constants (2026-07-26). Self-scoped card, so
+  // no institution id is passed — fn_get_policy resolves the caller's own scope.
+  const { thresholds } = useEligibilityThresholds();
+  const ELIGIBILITY = thresholds.eligibility;
+  const CONDONATION = thresholds.condonation;
+
   const { data } = useQuery<{ courses: MyRunningAttendanceRow[] }>({
     queryKey: ['my-running-attendance'],
     queryFn: async () => {
@@ -61,6 +81,7 @@ export function MyRunningScoreCard() {
   if (rows.length === 0) return null;
 
   const atRisk = rows.filter((r) => r.pct !== null && r.pct < CONDONATION).length;
+  const showPracticalsNotice = new Date() <= PRACTICALS_NOTICE_UNTIL;
 
   return (
     <Card className="mb-6">
@@ -82,6 +103,13 @@ export function MyRunningScoreCard() {
               </span>
             </>
           ) : null}
+          {showPracticalsNotice ? (
+            <span className="mt-2 block rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Practical sessions are now counted in this score. They were always
+              recorded, but were not being included here — so if your percentage
+              moved recently, that is why.
+            </span>
+          ) : null}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -91,14 +119,23 @@ export function MyRunningScoreCard() {
               <TableRow>
                 <TableHead>Course</TableHead>
                 <TableHead className="text-right">Sessions</TableHead>
-                <TableHead className="text-right">Present</TableHead>
+                <TableHead className="text-right">Counted</TableHead>
                 <TableHead className="w-[30%]">Score</TableHead>
                 <TableHead className="text-right">Standing</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((r) => {
-                const b = band(r.pct);
+                const b = band(r.pct, thresholds);
+                // The score credits approved on-duty days, so the number this
+                // row counts is not always the number of days attended. Both
+                // are shown rather than one silently standing in for the other.
+                const att = {
+                  attended: r.present,
+                  excused: r.protected,
+                  total: r.total,
+                  pct: r.pct,
+                };
                 return (
                   <TableRow key={r.course_id ?? r.course_code ?? 'unknown'}>
                     <TableCell className="font-medium">
@@ -110,7 +147,10 @@ export function MyRunningScoreCard() {
                       ) : null}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{r.total}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.present}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <span className="block">{countedPresent(att)}</span>
+                      <ExcusedNote value={att} />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="h-2 flex-1 rounded-full bg-muted">

@@ -171,6 +171,39 @@ export function useDeleteBillingReceipt() {
   });
 }
 
+/**
+ * Void a receipt (archive + revert the bill). Preferred over
+ * useDeleteBillingReceipt, which destroys the row and leaves a gap in the
+ * receipt-number sequence.
+ *
+ * Invalidates the bill/student caches as well as the receipt list — voiding
+ * moves a bill back to unpaid, so a stale student-bills table would keep
+ * showing it as settled.
+ */
+export function useVoidBillingReceipt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      BillingReceiptService.voidBillingReceipt(id, reason),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['billing-receipts'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-student-bills'] });
+      queryClient.invalidateQueries({ queryKey: studentSearchKeys.all });
+      toast.success(
+        result.receiptNumber
+          ? `Receipt ${result.receiptNumber} voided — the bill has been reverted`
+          : 'Receipt voided — the bill has been reverted'
+      );
+    },
+    onError: (error: Error) => {
+      // The RPC's guard messages are actionable ("Issue a refund instead…"),
+      // so surface them verbatim rather than a generic failure string.
+      toast.error(error.message || 'Failed to void receipt');
+    },
+  });
+}
+
 export function usePrintReceipt() {
   return useMutation({
     mutationFn: (id: string) => BillingReceiptService.printReceipt(id),

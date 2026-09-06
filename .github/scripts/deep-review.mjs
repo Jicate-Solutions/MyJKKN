@@ -24,17 +24,35 @@
 //  - Per-lens timeout: a hung agent degrades to an explicit error, not a stall.
 //  - Empty and truncated diffs are detected and surfaced.
 //
+// EXIT-CODE CONTRACT (added 2026-07-28 — see the honesty fix below):
+//   0 → a complete review was produced.
+//   1 → INCONCLUSIVE: no review was produced (crash, empty diff, every lens
+//       down, unusable judge output). The CI job turns RED.
+//   Previously EVERY path exited 0, so the check reported a green tick while
+//   posting "Inconclusive — treat as NOT reviewed". A green tick that can never
+//   go red is not a gate; it manufactures false confidence. Findings themselves
+//   stay advisory and never change the exit code — only a MISSING review does.
+//
 // Inputs (env): DIFF_FILE, PR_TITLE, PR_BODY, APP_CONTEXT.
-// Output: writes /tmp/claude-review.md (workflow handles posting).
+// Output: writes /tmp/claude-review.md (workflow handles posting) and sets the
+//         process exit code per the contract above.
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { writeFileSync, readFileSync } from "node:fs";
 
-const MODEL = process.env.REVIEW_MODEL || "claude-opus-4-8";
+// Family alias, not a dated id — the reviewer should always run on the CURRENT
+// Opus, the same way ai_job_types names models ('sonnet' x43, 'opus' x11 on
+// production, zero dated ids). Pinning "claude-opus-4-8" here meant this job
+// kept reviewing on 4.8 long after Opus 5 shipped, and every future release
+// would need a PR to this line.
+const MODEL = process.env.REVIEW_MODEL || "opus";
 const DIFF_CAP_BYTES = 200_000;
 const LENS_TIMEOUT_MS = 8 * 60_000;
 const OUT = "/tmp/claude-review.md";
 const MARKER = "<!-- claude-deep-review-sdk -->";
+// Machine-readable marker the workflow greps for, so the job can go red even
+// when it is still running an older base-ref copy of this script.
+const INCONCLUSIVE_MARKER = "<!-- claude-deep-review-sdk:inconclusive -->";
 
 function writeReview(body) {
   let out = body.trim();
@@ -42,11 +60,22 @@ function writeReview(body) {
   writeFileSync(OUT, out);
 }
 function inconclusive(reason) {
-  writeReview(`## 🤖 Claude Deep Review (true multi-agent)\n\n⚠️ **Inconclusive — treat as NOT reviewed, not as a clean pass.**\n\n${reason}\n\n_Advisory: merge not blocked, but this PR did not receive a complete review._`);
+  writeReview(`${INCONCLUSIVE_MARKER}\n## 🤖 Claude Deep Review (true multi-agent)\n\n⚠️ **Inconclusive — treat as NOT reviewed, not as a clean pass.**\n\n${reason}\n\n_Merge is not blocked by this job, but this PR did not receive a complete review — the CI check is red to say so out loud._`);
+  // THE HONESTY FIX: an inconclusive run must not exit 0. Set the code rather
+  // than exiting now, so the caller still returns normally and the workflow
+  // still posts the explanation comment before the job turns red.
+  process.exitCode = 1;
 }
 
 async function main() {
-  if (!MODEL || !/^claude-/.test(MODEL)) throw new Error(`Invalid REVIEW_MODEL: ${JSON.stringify(MODEL)}`);
+  // Accept either a family alias (opus / sonnet / haiku — always-latest, the
+  // house convention) or a fully-qualified dated id (claude-*), so REVIEW_MODEL
+  // can still pin an exact build when a run needs to be reproducible.
+  // NOTE: this guard used to demand /^claude-/, which would have REJECTED the
+  // bare "opus" default above and thrown on every run.
+  if (!MODEL || !/^(opus|sonnet|haiku|claude-[a-z0-9.-]+)$/.test(MODEL)) {
+    throw new Error(`Invalid REVIEW_MODEL: ${JSON.stringify(MODEL)} — use a family alias (opus/sonnet/haiku) or a claude-* id`);
+  }
 
   const rawDiff = readFileSync(process.env.DIFF_FILE, "utf8");
   const rawBytes = Buffer.byteLength(rawDiff, "utf8");
@@ -96,7 +125,11 @@ If you find nothing real, return {"findings":[],"note":"..."}. Do NOT invent fin
   }
 
   async function runAgent(prompt, label) {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("lens timeout")), LENS_TIMEOUT_MS));
+    // The timer MUST be cleared: an uncleared 8-minute setTimeout keeps the Node
+    // event loop alive long after the race settles. Observed on run 30357083151
+    // — all three lenses errored at 12:01:31, the job idled until 12:09:30.
+    let timer;
+    const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("lens timeout")), LENS_TIMEOUT_MS); });
     const work = (async () => {
       let r = "";
       for await (const msg of query({ prompt, options: { model: MODEL, allowedTools: [], permissionMode: "default" } })) {
@@ -104,9 +137,13 @@ If you find nothing real, return {"findings":[],"note":"..."}. Do NOT invent fin
       }
       return r;
     })();
-    const text = await Promise.race([work, timeout]);
-    console.log(`[${label}] ${text.length} chars`);
-    return text;
+    try {
+      const text = await Promise.race([work, timeout]);
+      console.log(`[${label}] ${text.length} chars`);
+      return text;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   console.log(`Spawning ${LENSES.length} independent lens agents in parallel on ${MODEL}…`);
@@ -116,16 +153,31 @@ If you find nothing real, return {"findings":[],"note":"..."}. Do NOT invent fin
 
   const lensResults = LENSES.map((l, i) => {
     const s = settled[i];
-    if (s.status === "rejected") { console.error(`[${l.key}] FAILED: ${s.reason?.message || s.reason}`); return { lens: l.title, findings: [], failed: true }; }
+    if (s.status === "rejected") {
+      // Keep the REAL reason. "(model/network/parse)" hid a six-day outage whose
+      // actual cause was an account-level quota message the SDK had reported
+      // verbatim all along.
+      const why = (s.reason?.message || String(s.reason)).replace(/\s+/g, " ").trim().slice(0, 300);
+      console.error(`[${l.key}] FAILED: ${why}`);
+      return { lens: l.title, findings: [], failed: true, error: why };
+    }
     const p = extractJson(s.value);
-    return { lens: l.title, findings: p.findings, note: p.note, failed: !!p.parseError };
+    return { lens: l.title, findings: p.findings, note: p.note, failed: !!p.parseError, error: p.parseError ? "agent returned no parseable JSON" : undefined };
   });
 
   const failed = lensResults.filter((r) => r.failed).map((r) => r.lens);
   console.log(`Lens findings: ${lensResults.map((r) => `${r.lens}=${r.failed ? "ERR" : r.findings.length}`).join(", ")}`);
 
   // If ALL lenses failed there is nothing to judge — inconclusive.
-  if (failed.length === LENSES.length) { inconclusive("All three lens agents failed (model/network/parse). No review was produced."); return; }
+  if (failed.length === LENSES.length) {
+    const reasons = [...new Set(lensResults.map((r) => r.error).filter(Boolean))];
+    inconclusive(
+      `All ${LENSES.length} lens agents failed, so **no review was produced at all**.\n\n` +
+      (reasons.length ? `Reported by the Agent SDK:\n\n\`\`\`\n${reasons.join("\n")}\n\`\`\`\n\n` : "") +
+      `If that reason mentions a quota, a weekly limit, or subscription access, this is an account-level problem: the repository owner must refresh \`CLAUDE_CODE_OAUTH_TOKEN\` or restore the Claude Max Agent SDK allowance. No code change in this PR can fix it.`
+    );
+    return;
+  }
 
   const judgePrompt = `You are the JUDGE over three independent adversarial reviews of the same PR.
 Each lens reviewed the diff in its OWN context. Raw findings (JSON):
@@ -159,9 +211,12 @@ If nothing survived, say so in one line — do not pad.`;
 }
 
 // Whole flow guarded: ANY error becomes an explicit inconclusive review, never a
-// silent green pass.
+// silent green pass — and, since 2026-07-28, never a silent green EXIT CODE
+// either. The exit code is set first so a failure inside inconclusive() (e.g. a
+// read-only /tmp) still leaves the process non-zero.
 main().catch((e) => {
   console.error(`FATAL: ${e?.stack || e}`);
+  process.exitCode = 1;
   try { inconclusive(`The reviewer crashed before completing: \`${(e?.message || e).toString().slice(0, 200)}\`.`); }
   catch { /* if even this fails, the workflow's empty-file guard handles it */ }
 });

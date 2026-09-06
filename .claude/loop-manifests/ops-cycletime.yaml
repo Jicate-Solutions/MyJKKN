@@ -1,0 +1,57 @@
+# Ops cycle-time loop family manifest — METER (measurement-only, Wave 2).
+# Registered 2026-08-26 (loop-program master spec 2026-08-13, Wave 2 row
+# "Ops cycle-time family": ONE shared loop service over three queues — Q2 twin
+# rule, shared component not three copies). Gates: g=off a=off m=off f=off —
+# nothing is live until migrations 20261002010000 + 20261002020000 are applied
+# (Director-gated) and a dispatcher routine exists (Wave-3 follow-up, together
+# with the return edge: nudge slow queues → re-measure the delta).
+loop_key: ops-cycletime
+name: Ops Cycle-Time Family
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input:                       # three queues, ONE measurer
+    - service_requests         # open = COALESCE(submitted_at, created_at), drafts excluded; close = LEAST(fulfilled_at, closed_at) while status in (fulfilled, closed); rejected/cancelled = exits, not resolutions
+    - hr_attendance_exceptions # open = created_at; close = resolved_at while resolution_status in (resolved, ignored)
+    - resource_approvals       # open = created_at; close = LEAST(approved_at, rejected_at); escalation does not close
+  config: ops_cycletime_queues        # the switchboard: is_active gates which queues run
+  action: ops_cycletime_measurements  # the family's memory: one row per (queue, window)
+
+measure:
+  fn: fn_loops_measure_ops_cycletime(p_queue_key text, p_window_start timestamptz, p_window_end timestamptz)
+  # 20261002010000; RETURNS jsonb {success, queue_key, window_start, window_end,
+  # resolved_n, open_backlog_n, median_seconds, p90_seconds}. Resolution-cohort
+  # semantics: an item belongs to the window its RESOLUTION landed in. NULL
+  # median when resolved_n = 0 — never 0-as-fake-number. service_role-only.
+  service: lib/services/loops/ops-cycle-time.ts   # window choice + switchboard walk; the fn is the single measurer
+  drift_guard: the fn REFUSES a queue_key that has a config row but no extraction branch (confident-liar class)
+
+sim:
+  sentinel: ZZREGRESS            # identity lives in raw_payload {"zzregress": true}, never a reportable column
+  runner: fn_loops_regress_ops_cycletime   # 20261002020000; weekly via /api/cron/loops-regress LOOP_FNS
+  # Seeds (all inside the runner's rolled-back subtransaction): 3 sentinel
+  # hr_attendance_exceptions in a far-past window (Jan 1997 — HR module shipped
+  # 2026, no real row can be there), resolved after exactly 1h / 2h / 10h.
+  # hr_attendance_exceptions is the seeded queue because every FK on it is
+  # NULLABLE — the sim borrows nothing real.
+  verifier: "public.fn_loops_measure_ops_cycletime('hr_attendance_exceptions', '1997-01-06', '1997-01-13')"
+  asserts:
+    no_change: "resolved_n = 0 AND median_seconds IS NULL (empty cohort reports no number)"
+    known_delta: { seed: "3 exceptions with cycle times 3600/7200/36000s", expect: "resolved_n = 3, median = 7200.00, p90 = 30240.00" }
+    dispatch: "service_requests and resource_approvals branches measure the same window to resolved_n = 0 without error"
+    vocabulary: "an unknown queue_key must RAISE (drift guard armed)"
+  notes:
+    - no reset between deltas — the measurer upserts the (queue, window) row on
+      every call (ON CONFLICT UPDATE), so B's re-measure overwrites A's row.
+    - the measurer has no auth gate (SECURITY DEFINER, body verified) — no
+      impersonation GUC needed.
+    - p90 derivation for [3600, 7200, 36000]: percentile_cont ⇒ 7200 + 0.8 ×
+      (36000 − 7200) = 30240.00 — derived from THIS loop's seed values, never
+      another loop's magic number.
+
+feed_forward:
+  status: NOT BUILT — Wave-3 scope. The return edge (intervention on slow
+    queues + delta re-measure vs the queue's own baseline) does not exist;
+    until it does the Tower must call this family a meter.
+
+registry_gates_hint: '{"g":"off","a":"off","m":"off","f":"off"}'

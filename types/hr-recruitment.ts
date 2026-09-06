@@ -178,7 +178,7 @@ export interface HRRecruitmentCandidatePackage {
   hr_organization_id: string | null;
 
   proposed_by: string;
-  proposed_monthly_salary: number;
+  proposed_monthly_salary: number | null;   // optional — package may be proposed without a figure
   proposed_monthly_salary_breakdown: MonthlySalaryBreakdown | null;
   currency: string;
 
@@ -197,7 +197,7 @@ export interface HRRecruitmentCandidatePackageInsert {
   candidate_id: string;
   hr_organization_id?: string | null;
   proposed_by: string;
-  proposed_monthly_salary: number;
+  proposed_monthly_salary?: number | null;
   proposed_monthly_salary_breakdown?: MonthlySalaryBreakdown | null;
   currency?: string;
   is_counter_offer?: boolean;
@@ -730,6 +730,34 @@ export interface HRJobApplicationInsert {
   resume_filename: string;
   resume_size_bytes?: number | null;
   drive_file_id?: string | null;
+}
+
+// -------------------------------------------------------------------------------------
+// Purging a rejected applicant (super-admin only, 2026-08-05)
+// -------------------------------------------------------------------------------------
+
+/** Which rejection the purged record was sitting in when it was erased. */
+export type PurgeStage = 'screening_rejected' | 'pipeline_rejected';
+
+/**
+ * Result of fn_purge_rejected_recruitment_applicant. `drive_files` lists the resumes
+ * the API route still has to delete from Google Drive; each carries the
+ * hr_recruitment_purge_log row to clear once the file is confirmed gone.
+ */
+export interface PurgeRejectedApplicantResult {
+  applications_deleted: number;
+  candidate_deleted: boolean;
+  candidate_id: string | null;
+  drive_files: Array<{ log_id: string; drive_file_id: string }>;
+  stage: PurgeStage;
+}
+
+/** What the DELETE routes report back to the UI after a purge. */
+export interface PurgeRejectedApplicantResponse extends PurgeRejectedApplicantResult {
+  /** Resume files confirmed deleted from Drive. */
+  resumes_deleted: number;
+  /** Resume files Drive refused to delete — logged for a later sweep. */
+  resumes_failed: number;
 }
 
 // =====================================================================================

@@ -1,0 +1,69 @@
+name: New-table anon-lock
+
+# Two independent checks, one status:
+#
+#   1. ANON LOCK — every NEW table, VIEW or MATERIALIZED VIEW added in a migration
+#      must explicitly lock anon (REVOKE ALL ... FROM anon, or an explicit
+#      GRANT ... TO anon for an intentionally-public relation). Enforces the
+#      CLAUDE.md rule "Every new table needs explicit REVOKE ALL ... FROM anon".
+#   2. RLS ENABLED — every NEW table must also ENABLE ROW LEVEL SECURITY.
+#
+# WHY this is a CI guard and not a database default: Supabase ships
+# ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, and on
+# hosted Supabase that default cannot be reliably suppressed (the supabase_admin
+# owner default cannot be altered). So every new public-schema table is born with
+# SELECT/INSERT/UPDATE/DELETE granted to the anon key that ships in every page of
+# https://www.jkkn.ai. The same default reaches views and materialised views.
+#
+# The two checks are NOT redundant. The revoke shuts the public anon key; RLS is
+# what keeps one signed-in college out of another's rows. CREATE TABLE AS never
+# enables RLS, and an RLS policy written TO PUBLIC still applies to anon — so each
+# defends a door the other leaves open, and they report as separate failures.
+# See scripts/ci/check-table-anon-revoke.mjs header.
+#
+# NOTE the workflow `name:` and the job `name:` are deliberately unchanged even
+# though the guard now covers more. Those two strings ARE the status-check
+# identity that branch protection matches on; renaming them silently orphans any
+# required-check rule pointing at the old name.
+#
+# Sibling of .github/workflows/secdef-anon-revoke.yml, which enforces the same
+# rule for SECURITY DEFINER functions. Kept as a SEPARATE workflow on purpose so
+# it reports as its own status check and cannot change the pass/fail meaning of
+# the existing one.
+#
+# PR-scoped: inspects only migration files added/modified relative to the PR base,
+# so the large backlog of pre-existing unlocked tables does not fail every PR.
+# Static SQL-text scan (like the Radix empty-value gate) — see script for limits.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/ci/check-table-anon-revoke.mjs'
+      # The parser lives in its own module so it can be unit-tested. Without this
+      # path the guard would not re-run on a change to its own parsing layer —
+      # i.e. the half where a mistake turns the gate blind rather than noisy.
+      - 'scripts/ci/lib/sql-relation-parser.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: New tables lock anon
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run guard
+        run: node scripts/ci/check-table-anon-revoke.mjs --base "origin/${{ github.base_ref }}"

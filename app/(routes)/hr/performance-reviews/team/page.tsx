@@ -321,6 +321,7 @@ function ReviewTable({
       {rows.length === 0 ? (
         <p className="text-xs text-muted-foreground py-2">{emptyMsg}</p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-b text-left text-xs uppercase text-muted-foreground">
             <tr>
@@ -349,6 +350,7 @@ function ReviewTable({
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

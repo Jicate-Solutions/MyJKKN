@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useNotifications } from '@/hooks/use-notifications';
 import type { NotificationEventRollup } from '@/hooks/use-notifications';
+import { collapseDuplicates } from '@/lib/notifications/collapse-duplicates';
 import { useMutation } from '@tanstack/react-query';
 import {
   Bell,
@@ -38,6 +39,7 @@ import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { NotificationBriefing } from '@/components/notifications/notification-briefing';
+import { YouTubePreviewCard } from '@/components/notifications/youtube-preview-card';
 
 // ─── Category config ────────────────────────────────────────
 // Stored category values are messy: some are plain ('Alert'), some are
@@ -587,6 +589,7 @@ export function NotificationCenter() {
               const priority = notif.priority || 'normal';
               const category = notif.category || 'General';
               const attachments = notif.metadata?.attachments || [];
+              const linkPreview = notif.metadata?.link_preview || null;
 
               return (
                 <div
@@ -812,6 +815,17 @@ export function NotificationCenter() {
                           </div>
                         )}
 
+                        {/* YouTube link preview */}
+                        {linkPreview?.videoId && (
+                          <div className="mb-3">
+                            <YouTubePreviewCard
+                              preview={linkPreview}
+                              stopPropagation
+                              className="max-w-sm"
+                            />
+                          </div>
+                        )}
+
                         {/* Action buttons */}
                         <div className="flex flex-wrap gap-2">
                           {requiresAck && (
@@ -845,7 +859,7 @@ export function NotificationCenter() {
                   </div>
 
                   {/* Expand indicator */}
-                  {!isExpanded && (isStack || bodyOf(notif).length > 100 || attachments.length > 0 || requiresAck) && (
+                  {!isExpanded && (isStack || bodyOf(notif).length > 100 || attachments.length > 0 || !!linkPreview?.videoId || requiresAck) && (
                     <div className="px-4 pb-2 flex justify-center">
                       <ChevronDown className="h-4 w-4 text-muted-foreground/40" />
                     </div>
@@ -883,97 +897,6 @@ export function NotificationCenter() {
 // (onEdit/onReuse/onDelete) and can't be reused on the read-only inbox — so the
 // inbox re-uses its *grouping key* rather than its UI.
 
-/** Minimum repeats before a group collapses. Below this, showing the cards
- *  individually is clearer than showing a stack of 2. Matches the admin grid. */
-const MIN_STACK = 3;
-
-/** Strip digit sequences to derive a stable grouping key, so
- *  "HR brief — 4 active recruitment" and "HR brief — 2 active recruitment"
- *  collapse together. Mirrors the admin grid's stripDigits exactly. */
-function stripDigits(title: string): string {
-  return title.replace(/\d+/g, '').replace(/\s{2,}/g, ' ').trim();
-}
-
-/** Prettified pattern for a collapsed stack: digits become "#". */
-function prettifyPattern(title: string): string {
-  return title.replace(/\d+/g, '#');
-}
-
-/** The emitter-assigned event id for a notification, if it has one. */
-function eventOf(item: any): string | null {
-  const notif = item?.notification || item || {};
-  const event = notif?.metadata?.event;
-  return typeof event === 'string' && event ? event : null;
-}
-
-/**
- * Grouping key for near-duplicate collapsing.
- *
- * Prefers `metadata.event` — the identity the emitter actually assigned.
- * A title is not an identity: the 140 Instagram-silence rows stack today only
- * because their titles happen to be byte-identical, and the pending title change
- * that names each department would shatter that single rollup into 35 rows.
- * stripDigits() is the mirror hazard — it would fuse genuinely distinct handles
- * (jkkn_bba2, jkkn_bba3) into one stack.
- *
- * The title key stays as the MANDATORY fallback: 170 of 311 rows (55%) carry no
- * metadata.event at all. Keying on the event also lets old and new rows of the
- * same event co-group regardless of how their titles were worded at the time.
- */
-function stackKeyOf(item: any): string {
-  const event = eventOf(item);
-  if (event) return `event|${event}`;
-  const notif = item.notification || item;
-  return `title|${(notif.category || 'uncategorized').toLowerCase()}|${stripDigits(
-    notif.title || ''
-  )}`;
-}
-
-/**
- * Collapse runs of near-duplicates into a single representative item carrying
- * __stackCount/__stackItems. Groups smaller than MIN_STACK pass through
- * untouched, so normal mail is unaffected.
- *
- * Input order is preserved (feed is already newest-first), and the newest item
- * of each group becomes the representative.
- *
- * Runs across the WHOLE filtered feed, before date grouping. Collapsing inside
- * each date bucket instead produced one stack per day — four "Instagram" cards
- * for four alert days — when the whole point of a rollup is that it is one card.
- */
-function collapseDuplicates(items: any[]): any[] {
-  const map = new Map<string, any[]>();
-  const order: string[] = [];
-
-  for (const item of items) {
-    const key = stackKeyOf(item);
-    if (!map.has(key)) {
-      map.set(key, []);
-      order.push(key);
-    }
-    map.get(key)!.push(item);
-  }
-
-  const out: any[] = [];
-  for (const key of order) {
-    const group = map.get(key)!;
-    if (group.length >= MIN_STACK) {
-      out.push({
-        ...group[0],
-        // LOADED occurrences only. Used to decide "is this a stack" and whether
-        // every occurrence is read — NEVER rendered as a total. See the rollup
-        // block below for why.
-        __stackCount: group.length,
-        __stackItems: group,
-        __stackEvent: eventOf(group[0]),
-        __stackPattern: prettifyPattern((group[0].notification || group[0]).title || '')
-      });
-    } else {
-      out.push(...group);
-    }
-  }
-  return out;
-}
 
 // ─── Event rollups ──────────────────────────────────────────
 // A collapsed stack must never print a figure derived from the rows that happen

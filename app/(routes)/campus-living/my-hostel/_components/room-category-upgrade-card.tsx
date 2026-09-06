@@ -18,9 +18,20 @@ interface Props {
   currentCategoryName: string | null;
   /** 'book' = learner has no allocation yet (first booking); 'upgrade' = move. */
   mode?: 'book' | 'upgrade';
+  /**
+   * No room allocated yet: upgrade the CATEGORY only, never a room. Picking a room
+   * without an allocation runs _cl_execute_first_booking, which seats the learner with
+   * NO upgrade bill and NO category change; _cl_upgrade_category_only bills the ladder
+   * fee and lets the hostel office allocate the room in the new category afterwards.
+   */
+  categoryOnly?: boolean;
 }
 
-export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' }: Props) {
+export function RoomCategoryUpgradeCard({
+  currentCategoryName,
+  mode = 'upgrade',
+  categoryOnly = false,
+}: Props) {
   const isBook = mode === 'book';
   const { data: options = [], isLoading } = useUpgradeRoomCategories();
   const { data: myWaitlist = [] } = useMyUpgradeWaitlist();
@@ -46,8 +57,8 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
         </CardTitle>
         <CardDescription>
           {isBook
-            ? 'Pick a room to move into. It books once your academic-year fee payment meets the required level — otherwise the room is reserved for you while you pay.'
-            : 'Move up to a higher room category. The room is reserved and an upgrade bill is generated — the upgrade confirms once the bill is fully paid.'}
+            ? 'Pick a room to move into. It books instantly once your academic-year fee payment meets the required level — reserve earlier and the room is still yours while you pay; any unpaid amount joins your fee dues.'
+            : 'Move up to a higher room category. The room is yours from reservation — the upgrade amount is billed, and any unpaid amount joins your fee dues under the institution’s overdue-fee policy.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -96,6 +107,25 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                       )}
                       <span className="text-base">{opt.name}</span>
                     </p>
+                    {!isBook && (
+                      <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-sm">
+                        {(opt.upgrade_discount ?? 0) > 0 && (
+                          <span className="text-xs text-muted-foreground line-through">
+                            ₹{(opt.upgrade_fee_original ?? 0).toLocaleString('en-IN')}
+                          </span>
+                        )}
+                        <span className="font-semibold">
+                          {opt.upgrade_fee <= 0
+                            ? 'Free upgrade'
+                            : `₹${opt.upgrade_fee.toLocaleString('en-IN')}`}
+                        </span>
+                        {(opt.upgrade_discount ?? 0) > 0 && (
+                          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                            ₹{(opt.upgrade_discount ?? 0).toLocaleString('en-IN')} off
+                          </span>
+                        )}
+                      </p>
+                    )}
                   </div>
                   {locked ? (
                     <Badge variant="outline" className="w-fit text-muted-foreground">
@@ -112,7 +142,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                   ) : held ? (
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
-                        <CalendarClock className="mr-1 h-3 w-3" /> Room reserved
+                        <CalendarClock className="mr-1 h-3 w-3" /> Room booked
                       </Badge>
                       <Button
                         size="sm"
@@ -142,7 +172,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                   ) : hasRooms ? (
                     <Button size="sm" onClick={() => setPicked(opt)}>
                       <ArrowUpCircle className="mr-1.5 h-4 w-4" />
-                      {opt.allocation_mode === 'auto'
+                      {opt.allocation_mode === 'auto' || categoryOnly
                         ? 'Upgrade'
                         : opt.meets_threshold
                           ? opt.upgrade_fee > 0 ? 'Reserve & pay' : 'Upgrade now'
@@ -187,38 +217,46 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                 {pendingBill && (
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     Room {pendingBill.held_room_number}
-                    {pendingBill.held_block_name ? ` (${pendingBill.held_block_name})` : ''} is held for you
-                    {pendingBill.hold_expires_at
-                      ? ` until ${new Date(pendingBill.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                      : ''}
-                    . Pay the upgrade fee of{' '}
+                    {pendingBill.held_block_name ? ` (${pendingBill.held_block_name})` : ''} is yours.
+                    Pay the upgrade fee of{' '}
                     <span className="font-semibold">
                       ₹{(pendingBill.upgrade_fee_amount ?? 0).toLocaleString('en-IN')}
                     </span>
                     {(pendingBill.upgrade_fee_paid ?? 0) > 0
                       ? ` (₹${(pendingBill.upgrade_fee_paid ?? 0).toLocaleString('en-IN')} paid so far)`
+                      : ''}
+                    {pendingBill.hold_expires_at
+                      ? ` by ${new Date(pendingBill.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
                       : ''}{' '}
-                    to confirm — the reservation is cancelled after the deadline.
+                    — any unpaid amount joins your fee dues and follows the institution&apos;s
+                    overdue-fee policy.
                   </p>
                 )}
                 {held && !pendingBill && (
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     Room {held.held_room_number}
-                    {held.held_block_name ? ` (${held.held_block_name})` : ''} is held for you
-                    {held.hold_expires_at
-                      ? ` until ${new Date(held.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                      : ''}
-                    . You&apos;ve paid {held.paid_pct ?? 0}% of this year&apos;s fees — it moves ahead
+                    {held.held_block_name ? ` (${held.held_block_name})` : ''} is yours.
+                    You&apos;ve paid {held.paid_pct ?? 0}% of this year&apos;s fees — it moves ahead
                     automatically at {held.threshold_pct}%
-                    {isBook ? '' : ' (the upgrade fee is then billed and must be fully paid to confirm)'};
-                    the reservation is cancelled after the deadline.
+                    {isBook ? '' : ' (the upgrade fee is then billed)'}.
+                    {held.hold_expires_at
+                      ? ` Pay by ${new Date(held.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}.`
+                      : ''}{' '}
+                    Any unpaid amount joins your fee dues under the institution&apos;s overdue-fee
+                    policy.
                   </p>
                 )}
-                {!isBook && !locked && !held && hasRooms && !opt.meets_threshold && (
+                {!isBook && !categoryOnly && !locked && !held && hasRooms && !opt.meets_threshold && (
                   <p className="text-xs text-muted-foreground">
                     You&apos;ve paid {opt.paid_pct ?? 0}% of this year&apos;s fees; {opt.threshold_pct}% is
-                    needed for an instant upgrade — you can still reserve a room for {opt.hold_days} day
-                    {opt.hold_days === 1 ? '' : 's'} while you pay.
+                    needed for an instant upgrade — you can still reserve a room now (it&apos;s yours
+                    from reservation) with {opt.hold_days} day{opt.hold_days === 1 ? '' : 's'} to pay.
+                  </p>
+                )}
+                {categoryOnly && !locked && !held && !categoryPending && (
+                  <p className="text-xs text-muted-foreground">
+                    You don&apos;t have a room yet — this upgrades your category, so the hostel
+                    office allocates you a {opt.name} directly. The upgrade fee is billed now.
                   </p>
                 )}
                 {categoryPending && (
@@ -260,12 +298,14 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
           categoryName={picked.name}
           currentCategoryName={currentCategoryName}
           upgradeFee={picked.upgrade_fee}
+          upgradeFeeOriginal={picked.upgrade_fee_original}
+          upgradeDiscount={picked.upgrade_discount}
           thresholdPct={picked.threshold_pct}
           paidPct={picked.paid_pct}
           meetsThreshold={picked.meets_threshold}
           holdDays={picked.hold_days}
           mode={mode}
-          autoPick={picked.allocation_mode === 'auto'}
+          autoPick={categoryOnly || picked.allocation_mode === 'auto'}
         />
       )}
     </Card>

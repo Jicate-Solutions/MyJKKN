@@ -4,10 +4,15 @@
 // Data-dense dashboard layout: identity header (status lifecycle control, publish
 // toggle, share actions), KPI stat-tile row, two small charts (entries per
 // division — single-hue bars; payment mix — stacked status bar, palette
-// CVD-validated for light+dark), then per-division entry management with
-// organizer actions (mark paid, payment link, withdraw), fixtures and shared
-// event logistics. Reachable from the tournament list (dynamic [id] route —
-// reachability-exempt by design).
+// CVD-validated for light+dark), then shared event logistics. Reachable from the
+// tournament list (dynamic [id] route — reachability-exempt by design).
+//
+// 2026-07-28: the per-division cards were removed at the organizer's request.
+// Entry rows and their actions (mark paid, payment link, withdraw) plus the entry
+// fee moved to the Event Logistics "Registrations" tab. The FIXTURES/bracket UI
+// went with the cards and now has no entry point — _components/fixtures-section
+// .tsx and mobile-score-sheet.tsx are intact but unreferenced, so a future
+// "Fixtures" tab can mount DivisionFixtures again without rewriting it.
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -31,7 +36,6 @@ import {
   Calendar,
   MapPin,
   Users,
-  User,
   CheckCircle2,
   CreditCard,
   XCircle,
@@ -59,49 +63,22 @@ import {
   isTournamentActive,
   tournamentStatusLabel,
 } from '@/types/tournament';
-import {
-  useTournamentEntries,
-  useMarkEntryPaid,
-  useWithdrawEntry,
-  useGeneratePaymentLink,
-} from '@/hooks/events/use-tournament-registrations';
+import { useTournamentEntries } from '@/hooks/events/use-tournament-registrations';
 import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
-import { TEAM_SPORTS } from '@/types/health-sports';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
-import { DivisionFixtures } from './_components/fixtures-section';
 import { InchargePanel } from './_components/incharge-panel';
 import { RegistrationFormCard } from './_components/registration-form-card';
-import { DivisionFeeBadge } from './_components/division-fee-badge';
+import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 // Reuses the list page's dialog — one editor, so the two entry points can't drift.
 import { EditTournamentDialog } from '../_components/edit-tournament-dialog';
+import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
-import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 
 function divisionLabel(d: TournamentDivision): string {
   return [d.sport, d.age_band, d.gender && d.gender !== 'open' ? d.gender : null]
     .filter(Boolean)
     .join(' · ');
-}
-
-function PaymentBadge({ entry }: { entry: TournamentEntry }) {
-  const s = entry.payment_status;
-  if (s === 'paid') return <Badge className="bg-emerald-100 text-emerald-700">Paid</Badge>;
-  if (s === 'refunded') return <Badge className="bg-gray-100 text-gray-600">Refunded</Badge>;
-  if (s === 'pending') return <Badge className="bg-red-100 text-red-700">Unpaid</Badge>;
-  if (s === 'not_required') return <Badge variant="outline" className="text-muted-foreground">No fee</Badge>;
-  if (s === 'waived') return <Badge className="bg-blue-50 text-blue-700">Waived</Badge>;
-  return <Badge variant="outline">—</Badge>;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    registered: 'bg-blue-50 text-blue-700',
-    confirmed: 'bg-emerald-50 text-emerald-700',
-    withdrawn: 'bg-gray-100 text-gray-500',
-    disqualified: 'bg-red-50 text-red-700',
-  };
-  return <Badge className={map[status] ?? 'bg-gray-100 text-gray-600'}>{status}</Badge>;
 }
 
 /**
@@ -306,19 +283,14 @@ export default function TournamentManagePage() {
   const access = useTournamentAccess(id, tournament);
   const canManage = access.canManage;
   const updateTournament = useUpdateTournament();
-  const { data: entries = [], isLoading: loadingE } = useTournamentEntries(id);
+  // `entries` still feeds the per-division entry COUNT and the fixtures'
+  // entryCount. The per-entry rows — and the mark-paid / payment-link / withdraw
+  // actions that hung off them — moved to the Event Logistics Registrations tab,
+  // which listed the same people from events_registrations.
+  const { data: entries = [] } = useTournamentEntries(id);
   const { data: matches = [] } = useTournamentMatches(id);
-  const markPaid = useMarkEntryPaid(id);
-  const withdraw = useWithdrawEntry(id);
-  const payLink = useGeneratePaymentLink(id);
 
   const [editOpen, setEditOpen] = useState(false);
-  const [rzp, setRzp] = useState<{
-    orderId: string;
-    keyId: string;
-    amountPaise: number;
-    customer: { name?: string; email?: string; phone?: string };
-  } | null>(null);
 
   // Surface gateway callback outcome (?payment=success|failed|error). Read from
   // window.location (client-only) to avoid the useSearchParams Suspense requirement.
@@ -342,15 +314,6 @@ export default function TournamentManagePage() {
     }
     return m;
   }, [entries]);
-  const matchesByDivision = useMemo(() => {
-    const m = new Map<string, TournamentMatch[]>();
-    for (const x of matches) {
-      const arr = m.get(x.division_id) ?? [];
-      arr.push(x);
-      m.set(x.division_id, arr);
-    }
-    return m;
-  }, [matches]);
 
   // KPI + chart data — computed over ACTIVE (non-withdrawn) entries so the
   // headline numbers match who is actually competing.
@@ -418,20 +381,6 @@ export default function TournamentManagePage() {
 
   const publicOn = !!(tournament.config as Record<string, unknown>)?.public_scoreboard;
 
-  if (rzp) {
-    return (
-      <EventRazorpayHostedRedirect
-        eventId={id}
-        razorpayKeyId={rzp.keyId}
-        razorpayOrderId={rzp.orderId}
-        amountPaise={rzp.amountPaise}
-        currency="INR"
-        customer={rzp.customer}
-        description="Tournament entry fee"
-        cancelPath={`/events/tournament/${id}`}
-      />
-    );
-  }
 
   return (
     <ContentLayout title={tournament.name}>
@@ -504,6 +453,10 @@ export default function TournamentManagePage() {
                       Committee member — view only, tasks editable
                     </Badge>
                   )}
+                  {/* NAAC evidence tags (events.naac_criteria) — set via the
+                      Edit dialog; the evidence emitter picks these up once the
+                      tournament completes. */}
+                  <NaacCriteriaChips codes={tournament.naac_criteria ?? []} />
                 </div>
               </div>
             </div>
@@ -585,6 +538,14 @@ export default function TournamentManagePage() {
       {/* ── Registration form (builder lives on its own page) ─────────────── */}
       <RegistrationFormCard eventId={id} canManage={canManage} />
 
+      {/* ── Post-tournament feedback ──────────────────────────────────────
+          Links to /events/<id>/feedback, the one feedback console shared by
+          every event type — a tournament's feedback is not shaped differently
+          from a seminar's, so it gets no console of its own. */}
+      <div className="mb-4">
+        <EventFeedbackLinkCard eventId={id} />
+      </div>
+
       {/* ── KPI row ─────────────────────────────────────────────────────── */}
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile icon={Layers} label="Divisions" value={String(divisions.length)} />
@@ -636,137 +597,6 @@ export default function TournamentManagePage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* ── Divisions + entries ─────────────────────────────────────────── */}
-      {divisions.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            No divisions yet. Divisions are set up when a tournament is created; use Edit above to
-            change one. Learners then register themselves through the public registration link.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {divisions.map((d) => {
-            const isTeam = (TEAM_SPORTS as readonly string[]).includes(d.sport);
-            const list = entriesByDivision.get(d.id) ?? [];
-            return (
-              <Card key={d.id}>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="flex min-w-0 items-center gap-2 text-base">
-                    <span className="rounded-md bg-emerald-50 p-1.5 dark:bg-emerald-950/50">
-                      {isTeam ? (
-                        <Users className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      ) : (
-                        <User className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      )}
-                    </span>
-                    <span className="truncate">{divisionLabel(d)}</span>
-                    <Badge variant="secondary" className="shrink-0 text-[10px] font-normal tabular-nums">
-                      {list.length} {list.length === 1 ? 'entry' : 'entries'}
-                    </Badge>
-                    <Badge variant="outline" className="hidden shrink-0 text-[10px] uppercase sm:inline-flex">
-                      {d.format.replace('_', ' ')}
-                    </Badge>
-                  </CardTitle>
-                  {/* Entry fee lives on the division, not the registration form —
-                      surfaced here so pricing is visible/editable where organizers work. */}
-                  <DivisionFeeBadge division={d} eventId={id} canManage={canManage} />
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {loadingE ? (
-                    <div className="py-6 text-center">
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : list.length === 0 ? (
-                    <p className="py-4 text-sm text-muted-foreground">No entries yet.</p>
-                  ) : (
-                    <div className="divide-y">
-                      {list.map((e) => (
-                        <div key={e.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate font-medium">{e.entry_name}</span>
-                              {e.is_external && (
-                                <Badge variant="outline" className="text-[10px]">External</Badge>
-                              )}
-                            </div>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                              {e.institution_name && <span>{e.institution_name}</span>}
-                              {typeof e.seed === 'number' && <span>Seed {e.seed}</span>}
-                            </div>
-                          </div>
-                          <StatusBadge status={e.status} />
-                          <PaymentBadge entry={e} />
-                          <div className="flex items-center gap-1">
-                            {canManage && e.payment_status === 'pending' && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    payLink.mutateAsync(e.id).then((res) => {
-                                      if (res.razorpay_order_id && res.razorpay_key_id) {
-                                        setRzp({
-                                          orderId: res.razorpay_order_id,
-                                          keyId: res.razorpay_key_id,
-                                          amountPaise: res.amount_paise ?? 0,
-                                          customer: res.customer ?? {},
-                                        });
-                                      } else {
-                                        toast.error('No payment link returned');
-                                      }
-                                    })
-                                  }
-                                  disabled={payLink.isPending}
-                                  title="Generate online payment link"
-                                >
-                                  <CreditCard className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => markPaid.mutate({ entryId: e.id })}
-                                  disabled={markPaid.isPending}
-                                  title="Mark paid (offline)"
-                                >
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </>
-                            )}
-                            {canManage && e.status !== 'withdrawn' && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => withdraw.mutate(e.id)}
-                                disabled={withdraw.isPending}
-                                title="Withdraw entry"
-                              >
-                                <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* PR3: fixtures/bracket for this division. Read-only for
-                      committee members — the API rejects their writes anyway. */}
-                  <DivisionFixtures
-                    eventId={id}
-                    divisionId={d.id}
-                    matches={matchesByDivision.get(d.id) ?? []}
-                    entryCount={list.filter((e) => e.status !== 'withdrawn').length}
-                    divisionFormat={d.format}
-                    canManage={canManage}
-                  />
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
 
       {/* Shared event logistics (sponsors, …) — promoted from Marathon so tournaments inherit them.
           Committee members see every board read-only; task checkboxes stay live for them

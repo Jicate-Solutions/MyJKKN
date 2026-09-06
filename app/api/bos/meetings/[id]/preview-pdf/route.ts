@@ -1,9 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { format } from 'date-fns';
 import { createClient } from '@/lib/supabase/server';
 import { resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
 import { generateBosCallLetterPdf } from '@/lib/pdf/bos-meeting-notice';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
-import { bosCallLetterFilename } from '@/types/bos';
+import { bosCallLetterFilename, bosMemberTypeLabel } from '@/types/bos';
+import {
+  resolveMeetingBodyType,
+  resolveBosEmailTemplateForBody,
+  meetingOrdinalWord,
+} from '@/lib/services/bos-email-templates';
+import {
+  fetchBosLetterheadAssets,
+  withLetterheadAssets,
+} from '@/lib/utils/bos/letterhead-assets';
+import {
+  buildBosLetterRef,
+  resolveBosCommitteeShortCode,
+  resolveBosMemberSerials,
+} from '@/lib/utils/bos/call-letter-ref';
+
+// "1" → "1st" — matches the notify-members {{meeting_ordinal}} placeholder.
+function ordinalSuffix(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n < 1) return '';
+  const r100 = n % 100, r10 = n % 10;
+  const s = r100 >= 11 && r100 <= 13 ? 'th' : r10 === 1 ? 'st' : r10 === 2 ? 'nd' : r10 === 3 ? 'rd' : 'th';
+  return `${n}${s}`;
+}
 
 // Vercel runtime config — same reasoning as notify-members/route.ts. Puppeteer
 // needs the Node runtime and well beyond the default 10s budget for cold-start
@@ -52,7 +75,7 @@ export async function GET(
     const { data: meeting, error: meetingErr } = await supabase
       .from('bos_meetings')
       .select(
-        'id, composition_id, institutions_id, status, meeting_type, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type'
+        'id, composition_id, institutions_id, status, meeting_type, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type, committee_id'
       )
       .eq('id', meetingId)
       .single();
@@ -76,7 +99,7 @@ export async function GET(
     // tampered memberId from another composition can't be previewed.
     const { data: member, error: memberErr } = await supabase
       .from('bos_members')
-      .select('id, display_name, email, display_designation, display_department, display_institution, address, contact_no, member_type, expert_id')
+      .select('id, display_name, email, display_designation, display_department, display_institution, address, contact_no, member_type, expert_id, member_type_rec:bos_member_types ( name )')
       .eq('composition_id', meeting.composition_id)
       .eq('id', memberId)
       .eq('is_active', true)
@@ -115,7 +138,12 @@ export async function GET(
     ]);
 
     const agendaItems = agendaItemsRaw ?? [];
-    const instHeader = getInstitutionHeader(instRow?.name ?? null);
+    // Static per-institution branding, overlaid with the seal + signature the
+    // institution uploaded at /bos/email-settings (bos_letterhead_assets).
+    const instHeader = withLetterheadAssets(
+      getInstitutionHeader(instRow?.name ?? null),
+      await fetchBosLetterheadAssets(meeting.institutions_id),
+    );
 
     // Resolve board metadata. COE is the authoritative source — bos_boards is
     // only a partial local seed (9 UUIDs from the 20260510 migration), so any
@@ -166,6 +194,88 @@ export async function GET(
       coeBoard?.board_type ??
       null;
 
+    // Resolve the per-committee format (body-type → dated template), same as
+    // notify-members, so the preview matches exactly what will be sent —
+    // including the CET call-letter overrides.
+    const memberRole =
+      (member.member_type_rec as { name?: string } | null)?.name ??
+      bosMemberTypeLabel(member.member_type);
+    const boardCode =
+      (coeBoard as { board_code?: string | null } | undefined)?.board_code ?? null;
+
+    const bodyTypeCode = await resolveMeetingBodyType(supabase, meeting);
+
+    // ── Reference number ────────────────────────────────────────────────────
+    // JKKNCET/BoS/ECE/2026-2027/01 — the trailing serial is THIS recipient's
+    // rank in the meeting's roster (chairman 01, then members in member-type
+    // catalog order), so every letter of a meeting carries a distinct ref.
+    const [committeeShortCode, memberSerials] = await Promise.all([
+      resolveBosCommitteeShortCode(supabase, {
+        committeeId: (meeting as { committee_id?: string | null }).committee_id ?? null,
+        bodyTypeCode,
+      }),
+      resolveBosMemberSerials(supabase, {
+        compositionId: meeting.composition_id,
+        committeeId: (meeting as { committee_id?: string | null }).committee_id ?? null,
+      }),
+    ]);
+    const refNo = buildBosLetterRef({
+      prefix: instHeader.ref_prefix ?? 'JKKNCET',
+      committeeCode: committeeShortCode,
+      boardCode: boardCode || boardName,
+      academicYear: meeting.academic_year,
+      serial: memberSerials.get(member.id) ?? null,
+    });
+
+    const template = await resolveBosEmailTemplateForBody(supabase, {
+      templateCode: 'meeting_invitation',
+      institutionsId: meeting.institutions_id,
+      bodyTypeCode,
+      onDate: meeting.scheduled_date ?? null,
+    });
+
+    const values: Record<string, string> = {
+      member_name: member.display_name,
+      member_designation: member.display_designation ?? '',
+      member_role: memberRole,
+      meeting_title: meeting.meeting_title ?? 'Board of Studies Meeting',
+      meeting_date: meeting.scheduled_date
+        ? format(new Date(meeting.scheduled_date), 'EEEE, dd MMMM yyyy')
+        : 'TBA',
+      meeting_time: meeting.scheduled_time ?? '',
+      meeting_venue: meeting.venue ?? '',
+      venue: meeting.venue?.trim() || 'department',
+      academic_year: meeting.academic_year ?? '',
+      institution_name: instRow?.name ?? '',
+      board_name: boardName,
+      board_type: boardType ?? '',
+      meeting_number:
+        (meeting as { meeting_number?: number | null }).meeting_number != null
+          ? String((meeting as { meeting_number?: number | null }).meeting_number)
+          : '',
+      meeting_ordinal: ordinalSuffix(
+        (meeting as { meeting_number?: number | null }).meeting_number,
+      ),
+      // Spelled-out form ("First") — matches the call letter's "Sub:" line and
+      // the invitation email. Must stay in sync with notify-members.
+      meeting_ordinal_word: meetingOrdinalWord(
+        (meeting as { meeting_number?: number | null }).meeting_number,
+      ),
+    };
+    const fillTokens = (s: string | null | undefined): string =>
+      (s ?? '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, k: string) => {
+        const v = values[k];
+        return v == null || v === '' ? `{{${k}}}` : String(v);
+      });
+    const pdfBodyFormat = template
+      ? {
+          pdf_heading: fillTokens(template.pdf_heading),
+          pdf_intro_html: fillTokens(template.pdf_intro_html),
+          pdf_closing_html: fillTokens(template.pdf_closing_html),
+          signoff_html: fillTokens(template.signoff_html),
+        }
+      : null;
+
     // Single render — no batch, so we go through generateBosCallLetterPdf
     // which opens + closes its own browser. For one PDF this is fine; the
     // overhead is just one cold-start versus the persistent renderer.
@@ -184,7 +294,11 @@ export async function GET(
       },
       boardName,
       boardType,
+      boardCode,
+      memberRole,
+      refNo,
       header: instHeader,
+      bodyFormat: pdfBodyFormat,
     });
 
     const filename = bosCallLetterFilename(

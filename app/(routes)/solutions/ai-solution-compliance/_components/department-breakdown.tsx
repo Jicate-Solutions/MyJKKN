@@ -113,7 +113,7 @@ export function DepartmentBreakdown({ data, isLoading }: DepartmentBreakdownProp
           <Card>
             <CardContent className='pt-6'>
               <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3'>
-                <div className='flex items-center gap-2'>
+                <div className='flex flex-wrap items-center gap-2 min-w-0'>
                   <Building2 className='h-4 w-4 text-muted-foreground' />
                   <span className='font-semibold'>{dept.departmentName}</span>
                   <span className='text-xs text-muted-foreground'>
@@ -162,7 +162,7 @@ export function DepartmentBreakdown({ data, isLoading }: DepartmentBreakdownProp
               </div>
 
               {/* Legend */}
-              <div className='flex gap-4 mt-2 text-xs text-muted-foreground'>
+              <div className='flex flex-wrap gap-4 mt-2 text-xs text-muted-foreground'>
                 <span className='flex items-center gap-1'>
                   <span className='w-2 h-2 rounded-full bg-green-500' />
                   Cleared: {dept.cleared}

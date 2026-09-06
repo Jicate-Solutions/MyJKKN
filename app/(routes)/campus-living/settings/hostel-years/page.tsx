@@ -67,7 +67,7 @@ export default function HostelYearsPage() {
         <Card>
           <CardContent className='p-6'>
             <div className='space-y-6'>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <div>
                   <h2 className='text-lg font-semibold'>Hostel Years</h2>
                   <p className='text-sm text-muted-foreground'>
@@ -75,7 +75,7 @@ export default function HostelYearsPage() {
                     Hostel fee configuration is scoped by these years. Shared across all institutions.
                   </p>
                 </div>
-                <Button onClick={() => setShowCreateDialog(true)}>
+                <Button className='shrink-0' onClick={() => setShowCreateDialog(true)}>
                   <Plus className='h-4 w-4 mr-2' />
                   Add Hostel Year
                 </Button>

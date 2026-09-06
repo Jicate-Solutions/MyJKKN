@@ -175,20 +175,20 @@ function ParentCard({ parent, onCall, onMessage, onEmail }: {
 }) {
   return (
     <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-      <div className="flex items-center gap-3">
-        <Avatar className="h-10 w-10">
+      <div className="flex items-center gap-3 min-w-0">
+        <Avatar className="h-10 w-10 shrink-0">
           <AvatarFallback>
             {parent.name.split(' ').map(n => n[0]).join('').toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium">{parent.name}</span>
+            <span className="font-medium truncate">{parent.name}</span>
             {parent.isPrimary && (
-              <Badge variant="outline" className="text-xs">Primary</Badge>
+              <Badge variant="outline" className="text-xs shrink-0">Primary</Badge>
             )}
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             {getRelationshipIcon(parent.relationship)}
             <span className="capitalize">{parent.relationship}</span>
             {parent.occupation && (
@@ -198,10 +198,10 @@ function ParentCard({ parent, onCall, onMessage, onEmail }: {
               </>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">{parent.phone}</p>
+          <p className="text-xs text-muted-foreground truncate">{parent.phone}</p>
         </div>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 shrink-0">
         <Button size="sm" variant="outline" onClick={onCall}>
           <Phone className="h-4 w-4" />
         </Button>
@@ -475,7 +475,7 @@ function ParentCommunicationPageContent() {
       <ContentLayout title="Parent Communication">
         <div className="space-y-6">
           {/* Breadcrumb */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -488,7 +488,7 @@ function ParentCommunicationPageContent() {
               </BreadcrumbList>
             </Breadcrumb>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 shrink-0">
               <Button variant="outline" onClick={handleRefresh}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
@@ -569,7 +569,7 @@ function ParentCommunicationPageContent() {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="leads">Leads & Parents</TabsTrigger>
               <TabsTrigger value="logs">Communication Log</TabsTrigger>
               <TabsTrigger value="missing">Missing Parent Info</TabsTrigger>
@@ -600,22 +600,22 @@ function ParentCommunicationPageContent() {
                   {filteredLeads.filter(l => l.parents.length > 0).map((lead) => (
                     <Card key={lead.id}>
                       <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-12 w-12">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Avatar className="h-12 w-12 shrink-0">
                               <AvatarFallback className="bg-primary/10">
                                 <GraduationCap className="h-6 w-6" />
                               </AvatarFallback>
                             </Avatar>
-                            <div>
-                              <CardTitle className="text-lg">{lead.studentName}</CardTitle>
-                              <div className="text-sm text-muted-foreground flex items-center gap-2">
+                            <div className="min-w-0">
+                              <CardTitle className="text-lg truncate">{lead.studentName}</CardTitle>
+                              <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
                                 <Badge variant="outline">{lead.stage}</Badge>
                                 <span>{lead.program}</span>
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 shrink-0">
                             <Badge className={cn("text-xs", getEngagementColor(lead.parentEngagementScore))}>
                               {lead.parentEngagementScore}% engagement
                             </Badge>
@@ -624,7 +624,7 @@ function ParentCommunicationPageContent() {
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-sm text-muted-foreground">
                           <span>{lead.parents.length} parent contact(s)</span>
                           {lead.lastParentContact && (
                             <span className="flex items-center gap-1">
@@ -744,21 +744,21 @@ function ParentCommunicationPageContent() {
                           key={lead.id}
                           className="flex items-center justify-between p-4 rounded-lg border bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800"
                         >
-                          <div className="flex items-center gap-3">
-                            <Avatar>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Avatar className="shrink-0">
                               <AvatarFallback>
                                 {lead.studentName.split(' ').map(n => n[0]).join('').toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
-                            <div>
-                              <p className="font-medium">{lead.studentName}</p>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{lead.studentName}</p>
+                              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                                 <Badge variant="outline">{lead.stage}</Badge>
                                 <span>{lead.program}</span>
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 shrink-0">
                             <AddParentInfoDialog lead={lead} />
                           </div>
                         </div>

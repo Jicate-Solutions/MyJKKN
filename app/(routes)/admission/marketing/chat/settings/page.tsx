@@ -108,7 +108,7 @@ function QuickReplyManager() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Zap className="h-5 w-5" />
@@ -120,7 +120,7 @@ function QuickReplyManager() {
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" onClick={openCreateDialog}>
+              <Button size="sm" onClick={openCreateDialog} className="shrink-0">
                 <Plus className="h-4 w-4 mr-1" />
                 Add Quick Reply
               </Button>
@@ -415,7 +415,7 @@ function ChatSettingsContent() {
       <ContentLayout title="Chat Settings">
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -436,7 +436,7 @@ function ChatSettingsContent() {
               </BreadcrumbList>
             </Breadcrumb>
 
-            <Button variant="outline" size="sm" asChild>
+            <Button variant="outline" size="sm" asChild className="shrink-0">
               <Link href="/admission/marketing/chat">
                 <ArrowLeft className="h-4 w-4 mr-1" />
                 Back to Chat
@@ -458,11 +458,11 @@ function ChatSettingsContent() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="flex items-center justify-between flex-wrap gap-2 p-3 border rounded-lg">
                   <span className="text-sm font-medium">Monday - Saturday</span>
                   <Badge variant="secondary">8:00 AM - 8:00 PM IST</Badge>
                 </div>
-                <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="flex items-center justify-between flex-wrap gap-2 p-3 border rounded-lg">
                   <span className="text-sm font-medium">Sunday</span>
                   <Badge variant="outline" className="text-muted-foreground">Closed</Badge>
                 </div>

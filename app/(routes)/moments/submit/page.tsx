@@ -145,7 +145,7 @@ function MomentsSubmitInner() {
     <div className="container mx-auto max-w-3xl px-4 py-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Heart className="h-6 w-6 text-rose-500" />
+          <Heart className="h-6 w-6 text-rose-500 shrink-0" />
           Family Moments
         </h1>
         <p className="text-muted-foreground text-sm mt-1">

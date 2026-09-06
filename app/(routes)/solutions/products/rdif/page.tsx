@@ -96,14 +96,14 @@ export default function RDIFDashboardPage() {
       />
       <div className="space-y-6 mt-4">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <h1 className="text-2xl font-bold">RDIF Readiness Dashboard</h1>
             <p className="text-muted-foreground">
               Track progress toward Research & Development Infrastructure Fund eligibility
             </p>
           </div>
-          <Button variant="outline" asChild>
+          <Button variant="outline" asChild className="shrink-0">
             <Link href="/solutions/products">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Products
@@ -114,8 +114,8 @@ export default function RDIFDashboardPage() {
         {/* Overall Score */}
         <Card className="bg-gradient-to-r from-[#fbfbee] to-green-50 border-2 border-[#0b6d41]">
           <CardContent className="py-8">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-6">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col items-center gap-6 sm:flex-row">
                 {/* Progress Circle */}
                 <div className="relative w-32 h-32">
                   <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">

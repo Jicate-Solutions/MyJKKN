@@ -361,7 +361,7 @@ function FinancialOverviewPageInner() {
                   {preset.label}
                 </Button>
               ))}
-              <div className='flex items-center gap-2 ml-auto'>
+              <div className='flex w-full items-center gap-2 sm:ml-auto sm:w-auto'>
                 <Input
                   type='date'
                   value={dateFrom}
@@ -369,7 +369,7 @@ function FinancialOverviewPageInner() {
                     setDateFrom(e.target.value);
                     handleCustomDate();
                   }}
-                  className='w-40'
+                  className='w-full sm:w-40'
                 />
                 <span className='text-muted-foreground'>to</span>
                 <Input
@@ -379,7 +379,7 @@ function FinancialOverviewPageInner() {
                     setDateTo(e.target.value);
                     handleCustomDate();
                   }}
-                  className='w-40'
+                  className='w-full sm:w-40'
                 />
               </div>
             </div>
@@ -540,7 +540,7 @@ function FinancialOverviewPageInner() {
           onValueChange={setActiveTab}
           className='space-y-4'
         >
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='transactions'>Transactions</TabsTrigger>
             <TabsTrigger value='department-costs'>Department Costs</TabsTrigger>
             <TabsTrigger value='item-profit'>Item Profit</TabsTrigger>

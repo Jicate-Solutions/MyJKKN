@@ -25,12 +25,13 @@ import {
   Download,
   CreditCard,
   IndianRupee,
-  Receipt
+  ReceiptIndianRupee
 } from 'lucide-react';
 import {
   useRefundReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
+import { ReportPagination } from './report-pagination';
 import { RefundWorkflowService } from '@/lib/services/billing/refunds/refund-workflow-service';
 import type { RefundRequest } from '@/types/billing-refund-workflow';
 import type { BillingReportFilters } from '@/types/billing-schedule';
@@ -41,9 +42,6 @@ interface RefundReportTabProps {
 }
 
 export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel' | 'csv'>(
-    'pdf'
-  );
   const [legacyOpen, setLegacyOpen] = useState(false);
 
   const [requests, setRequests] = useState<RefundRequest[]>([]);
@@ -80,7 +78,16 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
     };
   }, [filters.institution_id, filters.date_from, filters.date_to]);
 
-  const { report, loading, error, refetch } = useRefundReport(filters);
+  const {
+    report,
+    totalCount,
+    page,
+    setPage,
+    pageSize,
+    loading,
+    error,
+    refetch
+  } = useRefundReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -207,7 +214,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
   const handleExport = async () => {
     try {
       await exportReport('refund', filters, {
-        format: exportFormat,
+        format: 'csv',
         include_summary: true,
         include_charts: false
       });
@@ -216,7 +223,9 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
     }
   };
 
-  const totalRefunds = report.length;
+  // Derived from the fetched PAGE only — the RPC does not return true
+  // cross-page totals for the amount or the processed subset, so those
+  // cards below are labelled "(this page)".
   const totalRefundAmount = report.reduce(
     (sum, refund) => sum + refund.refund_amount,
     0
@@ -337,7 +346,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                 className='flex w-full items-center justify-between text-left'
               >
                 <CardTitle className='flex items-center gap-2 text-base'>
-                  <Receipt className='h-4 w-4' />
+                  <ReceiptIndianRupee className='h-4 w-4' />
                   Legacy Refunds (Receipt-based)
                 </CardTitle>
                 {legacyOpen ? (
@@ -377,16 +386,16 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                         <CreditCard className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>
                       <CardContent>
-                        <div className='text-2xl font-bold'>{totalRefunds}</div>
+                        <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
                       </CardContent>
                     </Card>
 
                     <Card>
                       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
                         <CardTitle className='text-sm font-medium'>
-                          Processed Refunds
+                          Processed Refunds (this page)
                         </CardTitle>
-                        <Receipt className='h-4 w-4 text-muted-foreground' />
+                        <ReceiptIndianRupee className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>
                       <CardContent>
                         <div className='text-2xl font-bold text-green-600'>
@@ -398,7 +407,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                     <Card>
                       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
                         <CardTitle className='text-sm font-medium'>
-                          Total Refund Amount
+                          Total Refund Amount (this page)
                         </CardTitle>
                         <IndianRupee className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>
@@ -412,7 +421,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                     <Card>
                       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
                         <CardTitle className='text-sm font-medium'>
-                          Net Refund Amount
+                          Net Refund Amount (this page)
                         </CardTitle>
                         <IndianRupee className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>
@@ -427,24 +436,13 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                   {/* Refund Report Table */}
                   <Card>
                     <CardHeader>
-                      <div className='flex justify-between items-center'>
+                      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                         <CardTitle className='flex items-center gap-2'>
                           <CreditCard className='h-5 w-5' />
                           Refund Report
                         </CardTitle>
                         {canExport && (
                           <div className='flex items-center gap-2'>
-                            <select
-                              value={exportFormat}
-                              onChange={(e) =>
-                                setExportFormat(e.target.value as 'pdf' | 'excel' | 'csv')
-                              }
-                              className='px-3 py-1 border rounded text-sm'
-                            >
-                              <option value='pdf'>PDF</option>
-                              <option value='excel'>Excel</option>
-                              <option value='csv'>CSV</option>
-                            </select>
                             <Button
                               variant='outline'
                               size='sm'
@@ -536,6 +534,12 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                           </Table>
                         </div>
                       )}
+                      <ReportPagination
+                        page={page}
+                        pageSize={pageSize}
+                        totalCount={totalCount}
+                        onPageChange={setPage}
+                      />
                     </CardContent>
                   </Card>
                 </div>

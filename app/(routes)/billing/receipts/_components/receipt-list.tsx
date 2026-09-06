@@ -6,11 +6,12 @@ import Link from 'next/link';
 import {
   MoreVertical,
   Edit,
+  Ban,
   Trash2,
   RefreshCw,
   CheckSquare,
   Square,
-  Receipt,
+  ReceiptIndianRupee,
   Mail,
   Printer,
   Download,
@@ -23,8 +24,13 @@ import { usePermissions } from '@/hooks/use-permissions';
 import {
   usePrintReceipt,
   useEmailReceipt,
-  useDownloadReceiptPDF
+  useDownloadReceiptPDF,
+  useVoidBillingReceipt
 } from '@/hooks/billing/use-billing-receipts';
+import {
+  useRequestReceiptCancellation,
+  usePendingCancellations
+} from '@/hooks/billing/use-receipt-cancellations';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -56,6 +62,8 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger
@@ -81,6 +89,9 @@ export function ReceiptList({
   onPageChange,
   onRefresh
 }: ReceiptListProps) {
+  const [receiptToVoid, setReceiptToVoid] = useState<BillingReceipt | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const voidReceipt = useVoidBillingReceipt();
   const [isLoading, setIsLoading] = useState(false);
   const [receiptToDelete, setReceiptToDelete] = useState<BillingReceipt | null>(
     null
@@ -105,6 +116,17 @@ export function ReceiptList({
   const canEditReceipts = isSuperAdmin || canAccess('billing.receipts', 'edit');
   const canDeleteReceipts =
     isSuperAdmin || canAccess('billing.receipts', 'delete');
+  // Accounts staff who cannot void directly raise a request instead; an
+  // approver decides it. Roles holding both see both actions.
+  const canRequestCancel =
+    isSuperAdmin || canAccess('billing.receipts', 'cancel.request');
+
+  const [receiptToCancel, setReceiptToCancel] = useState<BillingReceipt | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const requestCancellation = useRequestReceiptCancellation();
+  const { data: pendingCancellations = {} } = usePendingCancellations(
+    receipts.map((r) => r.id)
+  );
 
   const handleDelete = async () => {
     if (!receiptToDelete) return;
@@ -305,7 +327,7 @@ export function ReceiptList({
                   className='text-center py-8'
                 >
                   <div className='flex flex-col items-center space-y-3'>
-                    <Receipt className='h-8 w-8 text-muted-foreground' />
+                    <ReceiptIndianRupee className='h-8 w-8 text-muted-foreground' />
                     <p className='text-muted-foreground'>No receipts found</p>
                   </div>
                 </TableCell>
@@ -328,7 +350,16 @@ export function ReceiptList({
                     </TableCell>
                   )}
                   <TableCell className='font-medium'>
-                    {receipt.receipt_number}
+                    <div className='flex flex-col gap-1'>
+                      <span>{receipt.receipt_number}</span>
+                      {/* The receipt is still fully valid while this shows —
+                          it only means an approver has yet to decide. */}
+                      {pendingCancellations[receipt.id] && (
+                        <Badge variant='outline' className='w-fit text-[10px]'>
+                          Cancellation pending
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className='flex flex-col'>
@@ -472,13 +503,37 @@ export function ReceiptList({
                           </DropdownMenuItem>
                         )}
 
+                        {canRequestCancel && !pendingCancellations[receipt.id] && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setCancelReason('');
+                              setReceiptToCancel(receipt);
+                            }}
+                          >
+                            <Ban className='mr-2 h-4 w-4' />
+                            Request cancellation
+                          </DropdownMenuItem>
+                        )}
+
+                        {canDeleteReceipts && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setVoidReason('');
+                              setReceiptToVoid(receipt);
+                            }}
+                          >
+                            <Ban className='mr-2 h-4 w-4' />
+                            Void receipt (no approval)
+                          </DropdownMenuItem>
+                        )}
+
                         {canDeleteReceipts && (
                           <DropdownMenuItem
                             className='text-destructive'
                             onClick={() => setReceiptToDelete(receipt)}
                           >
                             <Trash2 className='mr-2 h-4 w-4' />
-                            Delete
+                            Delete permanently
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
@@ -493,7 +548,7 @@ export function ReceiptList({
 
       {/* Pagination */}
       {metadata.totalPages > 1 && (
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-wrap items-center justify-between gap-3'>
           <p className='text-sm text-muted-foreground'>
             Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
             {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
@@ -523,6 +578,151 @@ export function ReceiptList({
         </div>
       )}
 
+      {/* Request cancellation — what accounts staff use. Nothing is reversed
+          here: the receipt stays valid and the bill stays paid until an
+          approver acts, so collections keep reflecting reality meanwhile. */}
+      <Dialog
+        open={!!receiptToCancel}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReceiptToCancel(null);
+            setCancelReason('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Request cancellation of {receiptToCancel?.receipt_number}
+            </DialogTitle>
+            <DialogDescription>
+              This sends the receipt to a <strong>super admin</strong> for
+              approval. It stays valid and the bill stays paid until they
+              approve — only then is the receipt cancelled and the bill
+              reverted.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='space-y-2'>
+            <Label htmlFor='cancel-reason'>Reason (required)</Label>
+            <Input
+              id='cancel-reason'
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder='e.g. same payment receipted twice'
+              autoComplete='off'
+            />
+            <p className='text-xs text-muted-foreground'>
+              Receipts with refunds, an attached invoice, or a captured online
+              payment cannot be cancelled — those need a refund instead.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setReceiptToCancel(null)}
+              disabled={requestCancellation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!receiptToCancel) return;
+                requestCancellation.mutate(
+                  { receiptId: receiptToCancel.id, reason: cancelReason.trim() },
+                  {
+                    onSuccess: () => {
+                      setReceiptToCancel(null);
+                      setCancelReason('');
+                      onRefresh();
+                    },
+                  }
+                );
+              }}
+              // The RPC enforces >= 5 chars too; mirroring it turns a
+              // round-trip error into an inert button.
+              disabled={
+                requestCancellation.isPending || cancelReason.trim().length < 5
+              }
+            >
+              {requestCancellation.isPending ? 'Sending...' : 'Send for approval'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Void dialog — the preferred way to reverse a mistaken receipt. Keeps
+          the receipt number accounted for and reverts the bill; a reason is
+          mandatory because the archive row is what an auditor reads later. */}
+      <Dialog
+        open={!!receiptToVoid}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReceiptToVoid(null);
+            setVoidReason('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Void receipt {receiptToVoid?.receipt_number}
+            </DialogTitle>
+            <DialogDescription>
+              The bill this receipt settled will go back to unpaid and its
+              balance will be restored. The receipt is archived with your reason
+              rather than deleted, so the number stays accounted for.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='space-y-2'>
+            <Label htmlFor='void-reason'>Reason (required)</Label>
+            <Input
+              id='void-reason'
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              placeholder='e.g. entered against the wrong learner'
+              autoComplete='off'
+            />
+            <p className='text-xs text-muted-foreground'>
+              Receipts with refunds, an attached invoice, or a captured online
+              payment cannot be voided — refund those instead.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setReceiptToVoid(null)}
+              disabled={voidReceipt.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!receiptToVoid) return;
+                voidReceipt.mutate(
+                  { id: receiptToVoid.id, reason: voidReason.trim() },
+                  {
+                    onSuccess: () => {
+                      setReceiptToVoid(null);
+                      setVoidReason('');
+                      onRefresh();
+                    },
+                  }
+                );
+              }}
+              // The RPC also enforces >= 5 chars; mirroring it here turns a
+              // round-trip error into an inert button.
+              disabled={voidReceipt.isPending || voidReason.trim().length < 5}
+            >
+              {voidReceipt.isPending ? 'Voiding...' : 'Void receipt'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete confirmation dialog */}
       <AlertDialog
         open={!!receiptToDelete}
@@ -532,8 +732,11 @@ export function ReceiptList({
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete receipt
-              &quot;{receiptToDelete?.receipt_number}&quot;.
+              This permanently deletes receipt &quot;
+              {receiptToDelete?.receipt_number}&quot;, leaving a gap in the
+              receipt-number sequence and no record that it ever existed. The
+              bill will be reverted either way — prefer <strong>Void
+              receipt</strong>, which keeps the audit trail.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

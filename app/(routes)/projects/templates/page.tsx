@@ -27,6 +27,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { TAP_TARGET_BREADCRUMB } from '@/app/(routes)/projects/_lib/tap-targets';
 import { TemplateGallery } from '@/components/projects/templates/template-gallery';
 
 export default function ProjectTemplatesPage() {
@@ -34,7 +35,7 @@ export default function ProjectTemplatesPage() {
     <ContentLayout title="Project Templates">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>

@@ -228,7 +228,7 @@ function AIQueryToolsContent() {
 
         {/* View Mode Tabs */}
         <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'categories' | 'all' | 'capability-gaps')}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="categories">By Category</TabsTrigger>
             <TabsTrigger value="all">All Tools</TabsTrigger>
             <TabsTrigger value="capability-gaps">Capability Gaps</TabsTrigger>

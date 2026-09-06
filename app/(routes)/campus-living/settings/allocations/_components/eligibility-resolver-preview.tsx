@@ -93,7 +93,7 @@ export function EligibilityResolverPreview({
           <select
             value={institutionId}
             onChange={(e) => setInstitutionId(e.target.value)}
-            className='h-9 rounded-md border bg-background px-3 text-sm'
+            className='h-9 w-full max-w-full rounded-md border bg-background px-3 text-sm sm:w-auto'
           >
             <option value=''>All institutions</option>
             {institutions.map((i) => (

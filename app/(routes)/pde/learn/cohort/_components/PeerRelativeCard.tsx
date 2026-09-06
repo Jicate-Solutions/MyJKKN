@@ -249,7 +249,7 @@ export function PeerRelativeCard({ data }: PeerRelativeCardProps) {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-blue-500" />
@@ -286,7 +286,7 @@ export function PeerRelativeCard({ data }: PeerRelativeCardProps) {
               </Link>
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {PDE_CATEGORY_KEYS.map((key) => (
                 <CategoryRow
                   key={key}

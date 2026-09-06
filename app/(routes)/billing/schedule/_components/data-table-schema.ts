@@ -36,6 +36,11 @@ export const billingScheduleSearchParamsSchema = z.object({
   // Accommodation-type filter (accommodation_types.code)
   accommodation_type: z.string().optional(),
 
+  // Admission-year filter — carries the year NAME ('2025-2026'), not an id,
+  // because admission_years has one row per year PER INSTITUTION. The service
+  // fans the name back out to every matching id.
+  admission_year: z.string().optional(),
+
   // Date range filter for due_date
   dueDateRange: z
     .string()

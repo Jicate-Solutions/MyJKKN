@@ -473,8 +473,8 @@ export function DepartmentTrackerSummary() {
   return (
     <div className="space-y-4">
       {/* Section Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
           <Activity className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-semibold">Department Tracker</h2>
           {!summaryLoading && summary && (
@@ -496,7 +496,7 @@ export function DepartmentTrackerSummary() {
             </SelectContent>
           </Select>
         </div>
-        <Button variant="outline" size="sm" asChild>
+        <Button variant="outline" size="sm" asChild className="shrink-0">
           <Link href="/solutions/departments">
             <Building2 className="mr-2 h-3.5 w-3.5" />
             All Departments

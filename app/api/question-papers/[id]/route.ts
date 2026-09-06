@@ -103,8 +103,21 @@ export async function PUT(
     return NextResponse.json({ data: coe?.data });
   } catch (error) {
     if (error instanceof CoeApiError) {
+      // COE's save route answers coded rejections as
+      //   { error: "WOULD_CLEAR" | "CONFLICT" | "SUB_MARKS" | "INCOMPLETE" | "AUTHORED",
+      //     message: "<the sentence to show the author>" }
+      // CoeApiError.message resolves to `error` first, which for those is the bare
+      // code — forward BOTH so the client can branch on the code and still print a
+      // sentence. Uncoded failures keep the plain shape.
+      const body = error.body ?? {};
+      const code = typeof body.error === 'string' ? body.error : undefined;
+      const readable = typeof body.message === 'string' ? body.message : undefined;
       return NextResponse.json(
-        { error: error.message, details: error.details },
+        {
+          error: code ?? error.message,
+          ...(readable ? { message: readable } : {}),
+          details: error.details,
+        },
         { status: error.status }
       );
     }

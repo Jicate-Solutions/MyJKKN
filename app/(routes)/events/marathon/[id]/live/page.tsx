@@ -50,7 +50,7 @@ function PreRaceView({ eventId, eventName }: { eventId: string; eventName: strin
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center">
             <Clock className="h-5 w-5 text-yellow-600" />
@@ -330,7 +330,7 @@ export default function MarathonLiveOpsPage() {
       />
 
       <div className="space-y-4 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1 flex items-center gap-3">
               <Radio className="h-5 w-5" />
@@ -342,7 +342,7 @@ export default function MarathonLiveOpsPage() {
           </div>
           <Badge
             variant={isLive ? 'destructive' : isPostRace ? 'default' : 'secondary'}
-            className="text-sm px-3 py-1"
+            className="text-sm px-3 py-1 self-start sm:self-auto"
           >
             {isLive
               ? 'LIVE'

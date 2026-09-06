@@ -78,7 +78,10 @@ export interface CategorySyncPreviewRow {
   semester_name: string | null;
   quota_name: string | null;
   gender: string | null;
-  current_year_fee: number | null;
+  /** Admission-year anchored academic fee the band was matched against. */
+  band_fee: number | null;
+  /** Which academic year that fee was read from. */
+  band_academic_year_name: string | null;
   has_academic_bill: boolean;
   is_allocated: boolean;
   reason:

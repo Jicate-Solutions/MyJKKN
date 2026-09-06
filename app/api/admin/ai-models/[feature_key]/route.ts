@@ -245,6 +245,30 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     // Invalidate the in-memory cache so next consumer call sees new selection
     invalidateModelCache(feature_key);
 
+    // The ai_model_config write above already committed — we do NOT undo it
+    // (there is nothing to roll back to that would be more correct) and the
+    // response below still carries the saved row. But ai_job_types is the
+    // resolver's actual source of truth (see CONFIG MERGE comment above), so
+    // a plain 200 here would tell the admin "saved" while the two tables
+    // silently drift apart — exactly the failure mode this route exists to
+    // prevent. 502 (Bad Gateway), not 200-with-a-warning-field: the only
+    // caller today (ai-model-edit-dialog.tsx) treats any 2xx as full success
+    // via `if (!res.ok)`, so a 200 would be swallowed and shown as a plain
+    // success toast regardless of what extra fields we added to the body. A
+    // non-2xx status makes the existing caller surface `error` verbatim with
+    // zero client-side changes.
+    if (mirrorErr) {
+      return NextResponse.json(
+        {
+          error: `Model config saved, but the ai_job_types registry mirror failed — the resolver may keep using the old model until this is retried: ${mirrorErr.message}`,
+          data: updated,
+          mirrored: false,
+          mirrorError: mirrorErr.message,
+        },
+        { status: 502 },
+      );
+    }
+
     return NextResponse.json({ data: updated });
   } catch (error) {
     console.error('[ai-models/[feature_key]] PATCH error:', error);

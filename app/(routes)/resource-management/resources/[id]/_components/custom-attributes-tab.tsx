@@ -100,8 +100,8 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
       {attributeDefinitions.map((attr: any, index: number) => (
         <Card key={attr.id || index}>
           <CardHeader>
-            <div className='flex items-start justify-between'>
-              <div>
+            <div className='flex items-start justify-between gap-2'>
+              <div className='min-w-0'>
                 <CardTitle className='text-base'>
                   {attr.label}
                 </CardTitle>
@@ -111,7 +111,7 @@ export function CustomAttributesTab({ resource }: CustomAttributesTabProps) {
                   </p>
                 )}
               </div>
-              <div className='flex gap-2'>
+              <div className='flex gap-2 shrink-0'>
                 {attr.is_required && (
                   <Badge variant='destructive' className='text-xs'>
                     Required

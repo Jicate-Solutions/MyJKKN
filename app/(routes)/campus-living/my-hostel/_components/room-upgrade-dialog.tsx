@@ -16,7 +16,11 @@ interface Props {
   categoryId: string;
   categoryName: string;
   currentCategoryName: string | null;
+  /** PAYABLE after any configured discount. */
   upgradeFee: number;
+  /** Pre-discount list price — struck through when it exceeds upgradeFee. */
+  upgradeFeeOriginal?: number;
+  upgradeDiscount?: number;
   thresholdPct: number | null;
   paidPct: number | null;
   meetsThreshold: boolean;
@@ -34,9 +38,29 @@ const floorLabel = (floor: number) => (floor === 0 ? 'Ground floor' : `Floor ${f
 
 export function RoomUpgradeDialog({
   open, onOpenChange, categoryId, categoryName, currentCategoryName, upgradeFee,
+  upgradeFeeOriginal, upgradeDiscount,
   thresholdPct, paidPct, meetsThreshold, holdDays, mode = 'upgrade', autoPick = false,
 }: Props) {
   const isBook = mode === 'book';
+  const discountOff = upgradeDiscount ?? 0;
+  const feeRow = (
+    <div className="flex items-center justify-between gap-3 px-3 py-2">
+      <span className="text-muted-foreground">Upgrade fee</span>
+      <span className="flex items-baseline gap-2">
+        {discountOff > 0 && (
+          <span className="text-xs text-muted-foreground line-through">
+            {inr(upgradeFeeOriginal ?? upgradeFee)}
+          </span>
+        )}
+        <span className="font-semibold">{upgradeFee <= 0 ? 'Free' : inr(upgradeFee)}</span>
+        {discountOff > 0 && (
+          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+            {inr(discountOff)} off
+          </span>
+        )}
+      </span>
+    </div>
+  );
   // Move-now: on confirm the learner is moved into the room immediately and the
   // upgrade fee (if any) is billed — no reserve-and-pay-to-confirm.
   const { data: rooms = [], isLoading } = useUpgradeRooms(open && !autoPick ? categoryId : null);
@@ -94,12 +118,7 @@ export function RoomUpgradeDialog({
                 {currentCategoryName ? `${currentCategoryName} → ` : ''}{categoryName}
               </span>
             </div>
-            {!isBook && (
-              <div className="flex items-center justify-between gap-3 px-3 py-2">
-                <span className="text-muted-foreground">Upgrade fee</span>
-                <span className="font-semibold">{inr(upgradeFee)}</span>
-              </div>
-            )}
+            {!isBook && feeRow}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={categoryOnly.isPending}>
@@ -206,12 +225,7 @@ export function RoomUpgradeDialog({
                       {selected.capacity} beds · {selected.available_beds} free
                     </span>
                   </div>
-                  {!isBook && (
-                    <div className="flex items-center justify-between gap-3 px-3 py-2">
-                      <span className="text-muted-foreground">Upgrade fee</span>
-                      <span className="font-semibold">{inr(upgradeFee)}</span>
-                    </div>
-                  )}
+                  {!isBook && feeRow}
                 </div>
                 <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
                   On confirm, this room is assigned to you immediately

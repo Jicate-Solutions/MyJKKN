@@ -16,10 +16,12 @@ import type {
   ProjectTaskAssignee,
   ProjectTaskAssigneeWithStaff,
   ProjectTaskComment,
+  ProjectTaskCommentWithAuthor,
   ProjectTaskSubtask,
   TaskFilters,
   TaskStatusKey,
 } from '@/types/projects';
+import { getCurrentActorId } from './_actor';
 
 export class TaskService {
   // ─── Tasks ──────────────────────────────────────────────────────────────────
@@ -163,6 +165,15 @@ export class TaskService {
    * Enforces two RACI invariants the meeting engine relies on:
    *  - one role per person per task (re-assigning replaces the person's prior role);
    *  - exactly one Accountable per task (a new Accountable clears the previous one).
+   *
+   * The delete-then-insert below is the friendly-UX path (it silently replaces
+   * rather than erroring on the happy path). As of migration
+   * 20260726121724_project_task_assignees_raci_db_constraints.sql, both
+   * invariants are ALSO backstopped at the DB layer — uq_project_task_assignees
+   * UNIQUE (task_id, staff_id) for one-role-per-person and the partial unique
+   * index ix_pta_one_accountable for one-Accountable-per-task — so a concurrent
+   * assign that races this delete-then-insert raises 23505 instead of leaving
+   * two Accountables. The DB is defense-in-depth; the logic here is unchanged.
    */
   static async assign(
     supabase: SupabaseClient,
@@ -218,31 +229,45 @@ export class TaskService {
 
   // ─── Comments ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Comments oldest-first, each with its author's profile joined.
+   *
+   * author_id FKs profiles(id); the embed is named so PostgREST resolves the
+   * right relationship (created_by also FKs profiles, so an unnamed embed is
+   * ambiguous).
+   */
   static async listComments(
     supabase: SupabaseClient,
     taskId: string
-  ): Promise<ProjectTaskComment[]> {
+  ): Promise<ProjectTaskCommentWithAuthor[]> {
     const { data, error } = await supabase
       .from('project_task_comments')
-      .select('*')
+      .select('*, author:profiles!project_task_comments_author_id_fkey(id, full_name, email, avatar_url)')
       .eq('task_id', taskId)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
-    return (data ?? []) as ProjectTaskComment[];
+    return (data ?? []) as ProjectTaskCommentWithAuthor[];
   }
 
+  /**
+   * author_id has no DB default and no trigger, so it must be set here or every
+   * comment is written with a null author.
+   */
   static async addComment(
     supabase: SupabaseClient,
     taskId: string,
     body: string,
     parentCommentId?: string | null
   ): Promise<ProjectTaskComment> {
+    const actorId = await getCurrentActorId(supabase);
     const { data, error } = await supabase
       .from('project_task_comments')
       .insert({
         task_id: taskId,
         body,
+        author_id: actorId,
+        created_by: actorId,
         ...(parentCommentId ? { parent_comment_id: parentCommentId } : {}),
       })
       .select('*')

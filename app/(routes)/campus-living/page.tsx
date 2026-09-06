@@ -43,7 +43,11 @@ export default function CampusLivingDashboardPage() {
   }, [permsLoading, isSuperAdmin, can, router]);
   const { data: dashboardData, isLoading, error } = useCampusLivingOverview(institutionId);
 
-  if (isLoading) {
+  // permsLoading keeps the spinner up while the viewer's scope resolves — the
+  // overview query is deliberately disabled until then (useCampusLivingScope),
+  // and a disabled React Query reports isLoading:false, so without this gate the
+  // page renders its blank/zero stats before the first fetch starts (BUG-005831).
+  if (isLoading || permsLoading) {
     return (
       <ContentLayout title="Campus Living">
         <div className="flex items-center justify-center min-h-[400px]">
@@ -95,7 +99,7 @@ export default function CampusLivingDashboardPage() {
               Hostel management, attendance, leave, and facility overview
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/campus-living/attendance/mark">
                 <ClipboardCheck className="mr-2 h-4 w-4" />

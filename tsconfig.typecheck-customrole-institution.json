@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "next-env.d.ts",
+    "types/auth.ts",
+    "lib/services/users/user-roles-service.ts",
+    "lib/services/roles/role-service.ts",
+    "app/(routes)/users/role-management/page.tsx"
+  ]
+}

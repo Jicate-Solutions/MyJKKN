@@ -158,7 +158,7 @@ export function LeadsDatabaseDataTable() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
             <Database className="h-5 w-5 text-primary" />
@@ -170,7 +170,7 @@ export function LeadsDatabaseDataTable() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button
             type="button"
             size="sm"
@@ -345,18 +345,21 @@ export function LeadsDatabaseDataTable() {
             address: 'Address',
             pincode: 'Pincode',
           },
+          // DATA KEYS (MarketingLeadDatabase fields), not the labels above —
+          // the export resolves these against each row; columnMapping supplies
+          // the heading. Labels here matched nothing and downloaded a blank file.
           headers: [
-            "Student's Name",
-            'Father Name',
-            'Gender',
-            'Mobile Number',
-            'District',
-            'Sub District',
-            'Community',
-            'Group Detail',
-            'School Name',
-            'Address',
-            'Pincode',
+            'student_name',
+            'father_name',
+            'gender',
+            'mobile_number',
+            'district',
+            'sub_district',
+            'community',
+            'group_detail',
+            'school_name',
+            'address',
+            'pincode',
           ],
           columnWidths: [
             { wch: 30 }, { wch: 25 }, { wch: 12 }, { wch: 18 },

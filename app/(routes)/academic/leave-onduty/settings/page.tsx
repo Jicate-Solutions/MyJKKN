@@ -288,20 +288,34 @@ const SETTINGS_TABS = ['workflows', 'sub-categories'] as const;
 
 function FlowSettingsPageInner() {
   const { profile } = useAuth();
-  const { isSuperAdmin, can, canAccess } = usePermissions();
+  const { isSuperAdmin, can, canAccess, isLoading: permissionsLoading } = usePermissions();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingFlowId, setEditingFlowId] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [flowToDelete, setFlowToDelete] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useTabParam('workflows', SETTINGS_TABS);
 
-  // Check permissions - super admin, principal, HOD, or users with specific permission
+  // Check permissions - super admin, principal, HOD, or users granted the
+  // workflow-management permission.
+  //
+  // PERMISSION KEY (fixed 2026-08-07): the catalog key is
+  // 'academic.leave_onduty.manage' (lib/constants/permissions.ts, "Manage
+  // Workflow Settings (Academic)"). This checked 'leave_onduty.manage' —
+  // without the module prefix — a key that exists in no role and in no catalog,
+  // so the permission arm was dead and GRANTING the real permission had no
+  // effect whatsoever. Access silently collapsed to the two hardcoded role names
+  // below, which is why it looked like it worked: 'hod' and 'principal' both
+  // hold the permission AND are named here. 'school_principal' holds it and is
+  // NOT named, so it was locked out of a page it had been explicitly granted.
+  //
+  // The literal role checks are kept as a safety net so an existing HOD or
+  // Principal cannot lose access if their role row is missing the permission.
   const canManageFlows =
     isSuperAdmin ||
+    can('academic.leave_onduty.manage') ||
+    canAccess('academic.leave_onduty', 'manage') ||
     profile?.role === 'principal' ||
-    profile?.role === 'hod' ||
-    can('leave_onduty.manage') ||
-    canAccess('leave_onduty', 'manage');
+    profile?.role === 'hod';
 
   // Form state
   const [selectedInstitutionId, setSelectedInstitutionId] = useState('');
@@ -548,7 +562,27 @@ function FlowSettingsPageInner() {
     );
   }
 
-  // Check permissions
+  // Check permissions.
+  //
+  // `can()` and `canAccess()` both return false while the permission query is
+  // in flight, so denying here before it settles renders "You do not have
+  // permission" at a user who does — the transient-failure-looks-permanent
+  // pattern this codebase has been bitten by before. Wait for the answer.
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title="Workflow Settings">
+        <div className="space-y-6">
+          <Skeleton className="h-8 w-64 mb-6" />
+          <Card>
+            <CardContent className="p-6">
+              <Skeleton className="h-32 w-full" />
+            </CardContent>
+          </Card>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   if (!canManageFlows) {
     return (
       <ContentLayout title="Workflow Settings">
@@ -607,7 +641,7 @@ function FlowSettingsPageInner() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               Approval Workflow Settings
@@ -617,7 +651,7 @@ function FlowSettingsPageInner() {
             </p>
           </div>
           {isSuperAdmin && institutions && (
-            <div className="w-64">
+            <div className="w-full sm:w-64">
               <Select value={viewInstitutionId || 'all'} onValueChange={(v) => setViewInstitutionId(v === 'all' ? null : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Filter by Institution" />
@@ -637,7 +671,7 @@ function FlowSettingsPageInner() {
 
       {/* Tabs: Approval Workflows | Sub-Categories */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-md">
+        <TabsList className="flex w-full max-w-md justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-2 sm:gap-0 sm:overflow-visible [&>button]:shrink-0 sm:[&>button]:shrink">
           <TabsTrigger value="workflows">Approval Workflows</TabsTrigger>
           <TabsTrigger value="sub-categories">Sub-Categories</TabsTrigger>
         </TabsList>

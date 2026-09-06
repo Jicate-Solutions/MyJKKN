@@ -10,6 +10,14 @@
  * `fn_improvement_set_status`, which enforces the legal transition graph and
  * writes the activity row. This service exposes it through `setStatus()`.
  *
+ * The same doctrine covers the resolution columns (`resolution_ref`,
+ * `resolved_by`, `resolved_at`). The base UPDATE policy does NOT permit a
+ * build-mode learner to write them — a direct UPDATE matches zero rows and
+ * silently succeeds — so `setResolution()` goes through
+ * `fn_improvement_set_resolution`, and `canRecordResolution()` asks
+ * `fn_improvement_can_resolve()` whether to offer the control at all (the
+ * cohort config table backing that answer is not readable by learners).
+ *
  * The `improvement_*` tables are live in prod but not yet in the generated
  * `types/supabase.ts`, so queries cast through `(supabase as any)` — the same
  * pattern the bug-reports service uses for un-typed tables. Row shapes are
@@ -87,6 +95,12 @@ export interface ImprovementIdea {
   verified_by: string | null;
   verified_at: string | null;
   rejection_reason: string | null;
+  /** Where the shipped fix lives — an http(s) URL, normally a merged PR link. */
+  resolution_ref: string | null;
+  /** The FIXER: the learner who shipped the change. Distinct from `author_id`
+   *  (the FINDER) and from `applied_by` (whoever moved the status). */
+  resolved_by: string | null;
+  resolved_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -108,6 +122,8 @@ export interface ImprovementIdeaEnriched extends ImprovementIdea {
   area_label: string | null;
   area_key: string | null;
   author_name: string | null;
+  /** Display name of the fixer (`resolved_by`), null until a fix is recorded. */
+  resolver_name: string | null;
   // Latest AI ranking (PR-2) — null until a ranking run has scored the idea.
   ai_rank: number | null;
   ai_rank_reason: string | null;
@@ -133,12 +149,24 @@ export interface ImprovementIdeaActivityEnriched extends ImprovementIdeaActivity
   actor_name: string | null;
 }
 
-/** One ranked contributor for the impact leaderboard. */
+/** One ranked FINDER for the impact leaderboard — a learner whose filed ideas
+ *  carry score. This is the original leaderboard and is unchanged. */
 export interface ImprovementLeaderboardEntry {
   author_id: string;
   author_name: string;
   total_score: number;
   idea_count: number;
+  rank: number;
+}
+
+/** One ranked FIXER — a learner who shipped the change that resolved an idea.
+ *  Credited separately from the finder: same board, different contribution. */
+export interface ImprovementFixerEntry {
+  resolver_id: string;
+  resolver_name: string;
+  /** Summed score of the ideas this learner resolved (the impact they shipped). */
+  total_score: number;
+  resolved_count: number;
   rank: number;
 }
 
@@ -232,13 +260,17 @@ export class ImprovementService {
       const ideas = data || [];
       if (ideas.length === 0) return [];
 
-      const [areaMap, authorMap, rankMap] = await Promise.all([
+      // Authors and resolvers resolve in ONE batched profile lookup.
+      const [areaMap, personMap, rankMap] = await Promise.all([
         this.areaLabelMap(ideas.map((i) => i.area_id)),
-        this.fetchProfileNames(ideas.map((i) => i.author_id)),
+        this.fetchProfileNames([
+          ...ideas.map((i) => i.author_id),
+          ...ideas.map((i) => i.resolved_by)
+        ]),
         this.fetchLatestRankings(ideas.map((i) => i.id))
       ]);
 
-      return ideas.map((i) => this.enrichIdea(i, areaMap, authorMap, rankMap));
+      return ideas.map((i) => this.enrichIdea(i, areaMap, personMap, rankMap));
     } catch (error) {
       logger.error(MODULE, 'Error fetching ideas', error);
       return [];
@@ -257,12 +289,12 @@ export class ImprovementService {
       if (error) throw error;
       if (!data) return null;
 
-      const [areaMap, authorMap, rankMap] = await Promise.all([
+      const [areaMap, personMap, rankMap] = await Promise.all([
         this.areaLabelMap([data.area_id]),
-        this.fetchProfileNames([data.author_id]),
+        this.fetchProfileNames([data.author_id, data.resolved_by]),
         this.fetchLatestRankings([data.id])
       ]);
-      return this.enrichIdea(data, areaMap, authorMap, rankMap);
+      return this.enrichIdea(data, areaMap, personMap, rankMap);
     } catch (error) {
       logger.error(MODULE, `Error fetching idea ${id}`, error);
       return null;
@@ -375,6 +407,51 @@ export class ImprovementService {
   }
 
   /**
+   * May the current viewer record a fix on an idea? Answered by the SECURITY
+   * DEFINER probe `fn_improvement_can_resolve()` — the cohort config row that
+   * grants a build-mode learner this right is NOT readable by that learner, so
+   * this cannot be computed client-side.
+   *
+   * Returns false on any error so a broken probe hides the control rather than
+   * offering a write that will be refused.
+   */
+  static async canRecordResolution(): Promise<boolean> {
+    const supabase = this.getSupabase();
+    const { data, error } = await (supabase as any).rpc(
+      'fn_improvement_can_resolve'
+    );
+    if (error) {
+      logger.warn(MODULE, 'Resolution capability probe failed', error);
+      return false;
+    }
+    return data === true;
+  }
+
+  /**
+   * Record the shipped fix for an idea and claim FIXER credit for the caller.
+   *
+   * Goes through `fn_improvement_set_resolution` (SECURITY DEFINER) because the
+   * base UPDATE policy does not permit a build-mode learner to write these
+   * columns — a direct table UPDATE would match zero rows and silently succeed.
+   * The RPC records the caller as `resolved_by`, validates the URL shape,
+   * advances an `approved` idea to `applied`, and writes the activity row.
+   */
+  static async setResolution(
+    ideaId: string,
+    resolutionRef: string
+  ): Promise<void> {
+    const supabase = this.getSupabase();
+    const { error } = await (supabase as any).rpc(
+      'fn_improvement_set_resolution',
+      { p_idea_id: ideaId, p_resolution_ref: resolutionRef.trim() }
+    );
+    if (error) {
+      logger.error(MODULE, 'Error recording resolution', error);
+      throw new Error(error.message || 'Failed to record the fix.');
+    }
+  }
+
+  /**
    * Author edit of an idea's business-case text while it is still `logged`.
    * Only the editable content columns are accepted; status/score/value fields
    * are never touched here. RLS enforces author-only + pre-approval at the row.
@@ -420,9 +497,10 @@ export class ImprovementService {
   }
 
   /**
-   * Top contributors by summed combined score across the ideas the viewer can
-   * see. Aggregated client-side then joined to profiles for names, ranked
-   * highest-first. Callers decide how many rows to show (never a "worst" list).
+   * FINDER board — top learners by summed combined score of the ideas they
+   * FILED, across the ideas the viewer can see. Aggregated client-side then
+   * joined to profiles for names, ranked highest-first. Callers decide how many
+   * rows to show (never a "worst" list).
    */
   static async leaderboard(): Promise<ImprovementLeaderboardEntry[]> {
     const supabase = this.getSupabase();
@@ -464,6 +542,58 @@ export class ImprovementService {
       return ranked;
     } catch (error) {
       logger.error(MODULE, 'Error building leaderboard', error);
+      return [];
+    }
+  }
+
+  /**
+   * FIXER board — top learners by the impact they SHIPPED: every idea whose
+   * `resolved_by` is them, and the summed score of those ideas. Same shape and
+   * same doctrine as the finder board (top-N + own rank, never a "worst" list);
+   * only the credited column differs.
+   *
+   * Reads the same RLS-scoped `improvement_ideas` rows, so a viewer never sees
+   * credit derived from an idea they could not open.
+   */
+  static async fixerLeaderboard(): Promise<ImprovementFixerEntry[]> {
+    const supabase = this.getSupabase();
+    try {
+      const { data, error } = (await (supabase as any)
+        .from('improvement_ideas')
+        .select('resolved_by, score')
+        .not('resolved_by', 'is', null)) as {
+        data: { resolved_by: string | null; score: number | null }[] | null;
+        error: any;
+      };
+      if (error) throw error;
+
+      const rows = data || [];
+      const agg = new Map<string, { total: number; count: number }>();
+      for (const r of rows) {
+        if (!r.resolved_by) continue;
+        const cur = agg.get(r.resolved_by) || { total: 0, count: 0 };
+        cur.total += Number(r.score) || 0;
+        cur.count += 1;
+        agg.set(r.resolved_by, cur);
+      }
+      if (agg.size === 0) return [];
+
+      const nameMap = await this.fetchProfileNames(Array.from(agg.keys()));
+
+      return Array.from(agg.entries())
+        .map(([resolver_id, v]) => ({
+          resolver_id,
+          resolver_name: nameMap.get(resolver_id) || 'Unknown',
+          total_score: Math.round(v.total * 100) / 100,
+          resolved_count: v.count
+        }))
+        .sort(
+          (a, b) =>
+            b.resolved_count - a.resolved_count || b.total_score - a.total_score
+        )
+        .map((row, i) => ({ ...row, rank: i + 1 }));
+    } catch (error) {
+      logger.error(MODULE, 'Error building fixer leaderboard', error);
       return [];
     }
   }
@@ -524,7 +654,7 @@ export class ImprovementService {
   private static enrichIdea(
     idea: ImprovementIdea,
     areaMap: Map<string, { label: string | null; key: string | null }>,
-    authorMap: Map<string, string | null>,
+    personMap: Map<string, string | null>,
     rankMap: Map<string, ImprovementIdeaRanking>
   ): ImprovementIdeaEnriched {
     const area = idea.area_id ? areaMap.get(idea.area_id) : undefined;
@@ -533,7 +663,10 @@ export class ImprovementService {
       ...idea,
       area_label: area?.label ?? null,
       area_key: area?.key ?? null,
-      author_name: idea.author_id ? authorMap.get(idea.author_id) ?? null : null,
+      author_name: idea.author_id ? personMap.get(idea.author_id) ?? null : null,
+      resolver_name: idea.resolved_by
+        ? personMap.get(idea.resolved_by) ?? null
+        : null,
       ai_rank: ranking?.rank ?? null,
       ai_rank_reason: ranking?.reason ?? null,
       ai_impact: ranking?.impact ?? null,

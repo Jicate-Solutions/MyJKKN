@@ -183,6 +183,10 @@ export type UpdateUserRequest = Partial<CreateUserRequest> & {
   department_id?: string | null;
   // IMS store allocation — profiles.assigned_store_id. Null clears the assignment.
   assigned_store_id?: string | null;
+  // Cross-institution IMS store access (ims_user_store_grants). The full desired
+  // set: stores omitted from the array are revoked. Super-admin only. Omit the
+  // field entirely to leave existing grants untouched.
+  ims_store_grant_ids?: string[];
   // Multi-role support
   role_ids?: string[];              // Array of role IDs to assign
   primary_role_id?: string;         // Which role_id should be primary

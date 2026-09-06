@@ -3,6 +3,15 @@ export const dynamic = 'force-dynamic';
 // app/api/admission/analytics/counselor-funnel/route.ts
 // GET /api/admission/analytics/counselor-funnel?institution_id=X
 // Returns per-counselor lead conversion funnel: assigned → contacted → qualified → applied → enrolled
+//
+// FIX (2026-08-02): the aggregation now runs in SQL via the
+// get_admission_counselor_funnel_agg RPC (SECURITY INVOKER, EXECUTE locked to
+// service_role — see the migration of the same name). Previously this route
+// fetched EVERY counselor-assigned admission_leads row and counted in JS;
+// PostgREST caps un-ranged selects at 10,000 rows with HTTP 200, and prod
+// holds 20,039 assigned leads — so every count and the conversion-rate
+// ranking were computed over HALF the data (enrolled showed 4 of 6).
+// Same disease and fix shape as PR #2762.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
@@ -35,53 +44,21 @@ export interface CounselorFunnelResponse {
 
 // ============================================================================
 // STAGE BUCKETS
+// The contacted / qualified / applied / enrolled stage buckets are encoded
+// inside the get_admission_counselor_funnel_agg RPC (see the migration of the
+// same name) with the exact stage lists this route previously applied in JS.
 // See types/admission.ts for the full FunnelStage union.
 // ============================================================================
 
-// Anything beyond 'new' counts as contacted
-const CONTACTED_EXCLUDE = new Set(['new']);
-
-// Stages where the lead is clearly progressing toward application
-const QUALIFIED_STAGES = new Set([
-  'interested',
-  'follow_up_scheduled',
-  'engaged',
-  'qualified',
-  'application_started',
-  'application_submitted',
-  'documents_pending',
-  'documents_verified',
-  'interview_scheduled',
-  'interview_completed',
-  'offer_sent',
-  'offer_accepted',
-  'token_paid',
-  'applied',
-  'interviewed',
-  'offered',
-  'enrolled',
-  'confirmed',
-]);
-
-// Stages where the lead has submitted an application
-// NOTE: enrolled/confirmed are NOT included here — they belong in ENROLLED_STAGES only
-const APPLIED_STAGES = new Set([
-  'application_started',
-  'application_submitted',
-  'documents_pending',
-  'documents_verified',
-  'interview_scheduled',
-  'interview_completed',
-  'offer_sent',
-  'offer_accepted',
-  'token_paid',
-  'applied',
-  'interviewed',
-  'offered',
-]);
-
-// Stages that count as enrolled / converted
-const ENROLLED_STAGES = new Set(['enrolled', 'confirmed']);
+// Per-counselor aggregate row returned by the RPC.
+interface CounselorAggRpcRow {
+  counselor_id: string;
+  assigned: number;
+  contacted: number;
+  qualified: number;
+  applied: number;
+  enrolled: number;
+}
 
 // ============================================================================
 // HANDLER
@@ -116,19 +93,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ counselors: [] } satisfies CounselorFunnelResponse);
     }
 
-    // 2. Fetch all leads that have a counselor assigned
-    let leadsQuery = supabase
-      .from('admission_leads')
-      .select('counselor_id, funnel_stage')
-      .not('counselor_id', 'is', null);
-    if (institution_id) leadsQuery = leadsQuery.eq('institution_id', institution_id);
+    // 2. Aggregate per counselor in SQL — one round-trip over the FULL table.
+    //    The previous row fetch was capped at 10,000 of 20,039 prod rows by
+    //    PostgREST.
+    const { data: aggRows, error: leadsError } = await supabase.rpc(
+      'get_admission_counselor_funnel_agg',
+      { p_institution_id: institution_id ?? null }
+    );
+    if (leadsError) throw new Error(`Failed to aggregate leads: ${leadsError.message}`);
 
-    const { data: leads, error: leadsError } = await leadsQuery;
-    if (leadsError) throw new Error(`Failed to fetch leads: ${leadsError.message}`);
-
-    const allLeads = leads || [];
-
-    // 3. Aggregate counts per counselor
+    // 3. Merge aggregates into the counselor list
     const countsMap = new Map<string, {
       assigned: number;
       contacted: number;
@@ -142,17 +116,15 @@ export async function GET(request: NextRequest) {
       countsMap.set(c.id, { assigned: 0, contacted: 0, qualified: 0, applied: 0, enrolled: 0 });
     }
 
-    for (const lead of allLeads) {
-      const entry = countsMap.get(lead.counselor_id);
-      if (!entry) continue; // lead assigned to inactive/other-institution counselor
+    for (const row of (aggRows || []) as CounselorAggRpcRow[]) {
+      const entry = countsMap.get(row.counselor_id);
+      if (!entry) continue; // leads assigned to inactive/other-institution counselor
 
-      const stage: string = lead.funnel_stage ?? 'new';
-
-      entry.assigned++;
-      if (!CONTACTED_EXCLUDE.has(stage)) entry.contacted++;
-      if (QUALIFIED_STAGES.has(stage)) entry.qualified++;
-      if (APPLIED_STAGES.has(stage)) entry.applied++;
-      if (ENROLLED_STAGES.has(stage)) entry.enrolled++;
+      entry.assigned += row.assigned;
+      entry.contacted += row.contacted;
+      entry.qualified += row.qualified;
+      entry.applied += row.applied;
+      entry.enrolled += row.enrolled;
     }
 
     // 4. Build response rows — sort by conversion rate descending (best first)

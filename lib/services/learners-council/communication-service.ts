@@ -1414,7 +1414,57 @@ export class LCCommunicationService {
       // Don't fail - channel is created
     }
 
+    // A scoped channel must reach its whole group, not just whoever made it.
+    await this.seedScopeMembers((channel as { id: string }).id, data.type);
+
     return channel as LCChatChannel;
+  }
+
+  /**
+   * Turn a channel's SCOPE into real lc_chat_members rows (BUG-04).
+   *
+   * Channel visibility is membership-based (lc_chat_channels_select resolves
+   * through fn_is_lc_chat_member), so a channel whose only member is its creator
+   * is visible to exactly one person -- which is what an 'executive' / 'chapter' /
+   * 'vertical' / 'portfolio' channel used to be. The scope was stored and never
+   * resolved into people.
+   *
+   * The resolution runs server-side (createServiceRoleClient) because a council
+   * office bearer may hold learners-council.* without learners.* / yuva.*: the
+   * browser client returns 0 rows for those reads -- silently, error === null --
+   * and cannot insert membership rows for anyone but itself. The route re-imposes
+   * the caller's institution scope, so nothing cross-tenant can be pulled in.
+   *
+   * 'custom' and 'direct' are unchanged: their membership is exactly the explicit
+   * member_ids above.
+   *
+   * Never throws -- mirroring notifyMembersOfAnnouncement, a seeding failure must
+   * not destroy the channel that was just created successfully.
+   */
+  private static async seedScopeMembers(
+    channelId: string,
+    type: CreateChatChannelDto['type']
+  ): Promise<void> {
+    if (type === 'custom' || type === 'direct') return;
+
+    try {
+      const response = await fetch('/api/learners-council/chat/seed-scope-members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_id: channelId }),
+      });
+
+      if (!response.ok) {
+        console.warn(
+          '[lc/communication] Scope member seeding returned',
+          response.status,
+          'for channel',
+          channelId
+        );
+      }
+    } catch (seedErr) {
+      console.warn('[lc/communication] Failed to seed scope members:', seedErr);
+    }
   }
 
   /**

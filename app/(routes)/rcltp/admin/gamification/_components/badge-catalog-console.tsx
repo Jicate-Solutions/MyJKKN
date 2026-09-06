@@ -202,7 +202,7 @@ function BadgeDialog({
         <div className='space-y-4'>
           <ValidationBanner draftCount={1} />
 
-          <div className='grid grid-cols-2 gap-3'>
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
             <div>
               <Label htmlFor='b-slug'>Slug</Label>
               <Input
@@ -416,9 +416,9 @@ export function BadgeCatalogConsole() {
             is — earned badges are awarded server-side, never here.
           </p>
         </div>
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
           <Select value={instFilter} onValueChange={setInstFilter}>
-            <SelectTrigger className='w-56'>
+            <SelectTrigger className='w-full sm:w-56'>
               <SelectValue placeholder='Filter by school' />
             </SelectTrigger>
             <SelectContent>

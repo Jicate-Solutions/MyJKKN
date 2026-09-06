@@ -14,6 +14,11 @@ export function useInstitutionType() {
   const { data: institutionType = 'institution', isLoading, error } = useQuery<InstitutionType>({
     queryKey: ['institutionType', profile?.institution_id],
     enabled: !!profile?.institution_id,
+    // An institution's entity_type effectively never changes — 15 min
+    // freshness so navbar + sidebar + bottom-nav consumers share one fetch
+    // instead of refetching on every stale remount (2026-08-02 shell dedupe).
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     queryFn: async () => {
       if (!profile?.institution_id) {
         return 'institution';

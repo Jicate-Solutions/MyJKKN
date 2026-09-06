@@ -18,6 +18,25 @@ export class ImsIndentService {
   }
 
   /**
+   * Store/institution joins for supply requests (inter_ and intra_institution).
+   *
+   * The columns are INVERTED relative to physical goods flow — `source_store_id`
+   * is the store that RAISED the request (goods end there) and
+   * `destination_store_id` is the store that SUPPLIES it. Aliasing them to
+   * `requesting_store` / `supplying_store` un-inverts the semantics at the read
+   * layer so the UI can be written the way a human reads it, with no migration.
+   *
+   * There are THREE foreign keys from ims_indent_requests to ims_stores
+   * (store_id, source_store_id, destination_store_id), so every embed must name
+   * its constraint — a bare `ims_stores(...)` hint is ambiguous and errors.
+   */
+  private static readonly SUPPLY_STORE_JOINS = `
+    requesting_store:ims_stores!ims_indent_requests_source_store_id_fkey(id,name,code,is_central_supply_store),
+    supplying_store:ims_stores!ims_indent_requests_destination_store_id_fkey(id,name,code,is_central_supply_store),
+    counterpart_institution:institutions!ims_indent_requests_destination_institution_id_fkey(id,name)
+  `;
+
+  /**
    * List indents with department, requested_by joins, search, and pagination.
    */
   static async getIndents(filters: ImsIndentFilters = {}): Promise<{
@@ -31,7 +50,8 @@ export class ImsIndentService {
           `*,
            department:departments(id,department_name),
            requested_by_profile:profiles!requested_by(full_name),
-           approved_by_profile:profiles!approved_by(full_name)`,
+           approved_by_profile:profiles!approved_by(full_name),
+           ${ImsIndentService.SUPPLY_STORE_JOINS}`,
           { count: 'exact' }
         );
 
@@ -69,8 +89,11 @@ export class ImsIndentService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
-      // Cross-store scope filter
-      if (filters.request_scope) {
+      // Cross-store scope filter. `request_scopes` (plural) matches several at
+      // once — the transfers screen shows intra_ and inter_institution together.
+      if (filters.request_scopes?.length) {
+        query = query.in('request_scope', filters.request_scopes);
+      } else if (filters.request_scope) {
         query = query.eq('request_scope', filters.request_scope);
       }
 
@@ -131,7 +154,8 @@ export class ImsIndentService {
           `*,
            department:departments(id,department_name),
            requested_by_profile:profiles!requested_by(full_name),
-           approved_by_profile:profiles!approved_by(full_name)`
+           approved_by_profile:profiles!approved_by(full_name),
+           ${ImsIndentService.SUPPLY_STORE_JOINS}`
         )
         .eq('id', id);
 
@@ -578,9 +602,40 @@ export class ImsIndentService {
 
   /**
    * Mark an indent as fully issued.
+   *
+   * STATUS ONLY — this moves no stock and writes no audit row. It is the final
+   * step after every line has already been issued through issueItem(), which is
+   * what actually decrements ims_stock_summary.
+   *
+   * The UI only offers "Mark All Issued" once every line is fully issued, but
+   * that gate lives in the page. Re-check it here so the invariant is real: a
+   * caller that reached this another way must not be able to stamp an indent
+   * 'issued' while its stock is still on the shelf. That would look exactly like
+   * the "issued but stock never decreased" bug this module keeps being reported
+   * for, while leaving no audit trail to explain it.
    */
   static async markAsIssued(id: string): Promise<ImsIndentRequest> {
     try {
+      const { data: items, error: itemsError } = await this.supabase
+        .from('ims_indent_request_items')
+        .select('quantity, issued_quantity')
+        .eq('indent_id', id);
+
+      if (itemsError) throw itemsError;
+      if (!items || items.length === 0) {
+        throw new Error('Cannot mark as issued: this indent has no items');
+      }
+
+      const outstanding = (items as any[]).filter(
+        (i) => Number(i.issued_quantity || 0) < Number(i.quantity)
+      );
+      if (outstanding.length > 0) {
+        throw new Error(
+          `Cannot mark as issued: ${outstanding.length} item(s) have not been fully issued yet. ` +
+            'Issue them first so store stock is decremented.'
+        );
+      }
+
       const { data, error } = await this.supabase
         .from('ims_indent_requests')
         .update({

@@ -49,6 +49,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 
 import { useAddBosMember } from '@/hooks/bos/use-bos-members';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useInstitutionContextById } from '@/hooks/use-institution-context';
 import {
   BosCommittee,
@@ -77,6 +78,11 @@ const EXTERNAL_EXPERT_BASE_TYPES: ReadonlySet<BosMemberType> = new Set<BosMember
   'alumni',
   'startup',
   'student',
+  // Faculty / Chairman are usually internal, but can be brought in from the
+  // external-expert directory (e.g. a chairman or faculty member from another
+  // institution) — so they stay selectable under Source = External Expert.
+  'faculty_member',
+  'chairman',
 ]);
 
 type MemberSource = 'staff' | 'expert';
@@ -328,13 +334,15 @@ export function AddMemberDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGbNominee, effectiveMemberTypeId, legacyMemberType]);
 
-  // Switching Internal/External clears the current pick. It also resets the
-  // Member Type selection: External Expert filters the list to expert types,
-  // so a previously chosen internal type (or vice-versa) must not linger as a
-  // now-hidden id — null lets effectiveMemberTypeId re-default to the first
-  // visible type.
+  // Switching Internal/External clears the current person, but PRESERVES the
+  // Member Type selection. Chairman / Faculty Member are valid under both
+  // sources, so flipping to External Expert must keep that pick rather than
+  // snapping back to the first type. `effectiveMemberTypeId` already ignores a
+  // stored id that isn't in the (source-filtered) visible list and falls back
+  // to the first visible type, so a now-hidden internal-only type (e.g.
+  // Department Autonomous Coordinator) is handled without nulling here — and
+  // toggling back to Staff restores it.
   useEffect(() => {
-    setMemberTypeId(null);
     setSelectedFacilitator(null);
     setSelectedExpert(null);
     setSelectedGbMember(null);
@@ -449,7 +457,9 @@ export function AddMemberDialog({
         email: email.trim() || undefined,
         contact_no: contactNo.trim() || undefined,
         is_active: true,
-        sort_order: 0,
+        // sort_order deliberately omitted — the API appends the member at the
+        // end of the roster (count + 1). Sending 0 pinned every new member to
+        // the top and left the whole table unordered.
       },
       {
         onSuccess: () => toast.success('Member added'),
@@ -680,6 +690,10 @@ export function FacilitatorPicker({
   excludeIds?: ReadonlySet<string>;
 }) {
   const [search, setSearch] = useState('');
+  // The lookup hits COE + Supabase per request, so firing it on every keystroke
+  // put ~8 requests on the wire for a 8-letter name and made the list flicker
+  // as out-of-order responses landed. 300ms collapses that to one.
+  const debouncedSearch = useDebounceValue(search, 300);
   const [rows, setRows] = useState<FacilitatorRow[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -715,14 +729,14 @@ export function FacilitatorPicker({
     } else {
       params.set('institutionsId', institutionsId);
     }
-    if (search) params.set('search', search);
+    if (debouncedSearch) params.set('search', debouncedSearch);
     fetch(`/api/bos/lookup/facilitators?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((json) => { if (!cancelled) setRows(json.data ?? []); })
       .catch((err) => { if (!cancelled) logger.error('academic/bos', 'Facilitator fetch failed', err); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [search, institutionsId, idsCsv, selected, institutionCtx.isLoading]);
+  }, [debouncedSearch, institutionsId, idsCsv, selected, institutionCtx.isLoading]);
 
   // Hide staff that are already on this composition. Filtering on the client
   // is sufficient because the lookup endpoint returns a capped page (limit
@@ -815,6 +829,9 @@ export function ExpertPicker({
   excludeIds?: ReadonlySet<string>;
 }) {
   const [search, setSearch] = useState('');
+  // Debounced for the same reason as FacilitatorPicker — one request per pause
+  // instead of one per keystroke.
+  const debouncedSearch = useDebounceValue(search, 300);
   const [rows, setRows] = useState<BosExternalExpert[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -827,14 +844,14 @@ export function ExpertPicker({
       limit: '200',
       isActive: 'true',
     });
-    if (search) params.set('search', search);
+    if (debouncedSearch) params.set('search', debouncedSearch);
     fetch(`/api/bos/experts?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((json) => { if (!cancelled) setRows(json.data ?? []); })
       .catch((err) => { if (!cancelled) logger.error('academic/bos', 'Expert fetch failed', err); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [search, selected]);
+  }, [debouncedSearch, selected]);
 
   // Hide experts already on this composition. Same approach as
   // FacilitatorPicker — see the comment there.

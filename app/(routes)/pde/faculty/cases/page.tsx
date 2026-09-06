@@ -160,7 +160,7 @@ export default function FacultyClinicalCasesPage() {
 
         {/* Result count + clear filters */}
         {!isLoading && (
-          <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-1 text-sm text-muted-foreground">
             <span>
               Showing <span className="font-medium text-foreground">{filtered.length}</span> of{' '}
               <span className="font-medium text-foreground">{cases.length}</span>{' '}
@@ -168,7 +168,7 @@ export default function FacultyClinicalCasesPage() {
               {filtersActive ? ' (filtered)' : ''}
             </span>
             {filtersActive && (
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7">
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 shrink-0">
                 Clear filters
               </Button>
             )}

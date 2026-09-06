@@ -175,7 +175,7 @@ export default function LessonManagementPage({
                   {lessonsByWeek[week].map((lesson) => (
                     <div
                       key={lesson.id}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors"
+                      className="flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors"
                     >
                       <GripVertical className="h-4 w-4 text-muted-foreground/50 shrink-0 cursor-grab" />
                       <div className="flex items-center justify-center h-8 w-8 rounded-full bg-muted text-xs font-bold shrink-0">

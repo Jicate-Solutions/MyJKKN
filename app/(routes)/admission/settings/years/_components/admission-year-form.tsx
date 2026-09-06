@@ -47,7 +47,8 @@ const admissionYearSchema = z.object({
     .int()
     .min(2000)
     .max(2100),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  is_current: z.boolean().default(false)
 });
 
 type FormValues = z.infer<typeof admissionYearSchema>;
@@ -82,12 +83,14 @@ export function AdmissionYearForm({
       institution_id: admissionYear?.institution_id || '',
       admission_year_name: admissionYear?.admission_year_name || '',
       year: admissionYear?.year ?? new Date().getFullYear(),
-      is_active: admissionYear?.is_active ?? true
+      is_active: admissionYear?.is_active ?? true,
+      is_current: admissionYear?.is_current ?? false
     }
   });
 
   const watchedYear = form.watch('year');
   const watchedName = form.watch('admission_year_name');
+  const watchedIsActive = form.watch('is_active');
 
   // Reset form with entity on edit
   useEffect(() => {
@@ -96,7 +99,8 @@ export function AdmissionYearForm({
         institution_id: admissionYear.institution_id,
         admission_year_name: admissionYear.admission_year_name,
         year: admissionYear.year,
-        is_active: admissionYear.is_active
+        is_active: admissionYear.is_active,
+        is_current: admissionYear.is_current
       });
     } else if (!isEditing) {
       // Only auto-fill institution if the user has access to exactly one.
@@ -152,7 +156,10 @@ export function AdmissionYearForm({
           values.institution_id || userProfile?.institution_id || '',
         admission_year_name: values.admission_year_name,
         year: values.year,
-        is_active: values.is_active
+        is_active: values.is_active,
+        // Postgres demotes the institution's previous current cohort in a BEFORE
+        // trigger, so promoting here never needs a second call or a 23505 retry.
+        is_current: values.is_active && values.is_current
       };
 
       if (!submitValues.institution_id) {
@@ -338,7 +345,37 @@ export function AdmissionYearForm({
                   <FormControl>
                     <Switch
                       checked={field.value}
+                      onCheckedChange={(checked) => {
+                        field.onChange(checked);
+                        // An inactive cohort cannot be the current one — the DB
+                        // trigger enforces this; mirror it so the UI never shows
+                        // a state the save would silently rewrite.
+                        if (!checked) form.setValue('is_current', false);
+                      }}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='is_current'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                  <div className='space-y-0.5'>
+                    <FormLabel>Current Admission Year</FormLabel>
+                    <div className='text-sm text-muted-foreground'>
+                      New leads and enquiries for this institution default to
+                      this cohort. Turning it on moves the marker off whichever
+                      year currently holds it.
+                    </div>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
                       onCheckedChange={field.onChange}
+                      disabled={!watchedIsActive}
                     />
                   </FormControl>
                 </FormItem>

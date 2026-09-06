@@ -2,7 +2,11 @@ export const dynamic = 'force-dynamic';
 
 // app/api/billing/receipts/bulk-import/route.ts
 //
-// Super-admin only. Accepts the filled bulk-receipts template, validates
+// Requires super admin, or a role holding billing.receipts.bulk_create — in
+// which case every bill is re-checked against that user's accessible
+// institutions before it is receipted (the Bill ID column is user-editable,
+// so the template is not a trustworthy scope statement).
+// Accepts the filled bulk-receipts template, validates
 // per-row (including per-row payment metadata), groups by
 // (student + paid_date + payment_mode), and creates one billing_receipt
 // per group with N billing_receipt_items.
@@ -19,6 +23,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import * as XLSX from 'xlsx';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveBulkReceiptAccess } from '@/lib/auth/bulk-receipt-access';
 import {
   groupRowsByStudentAndPayment,
   createReceiptForStudentGroup,
@@ -91,18 +96,6 @@ const UUID_RE =
 
 const ALLOWED_PAYMENT_MODES = new Set<string>(BULK_RECEIPT_PAYMENT_MODES);
 
-async function assertSuperAdmin(userId: string): Promise<boolean> {
-  const supabase = createServiceRoleClient();
-  const { data: profile } = await (supabase as any)
-    .from('profiles')
-    .select('role, is_super_admin')
-    .eq('id', userId)
-    .single();
-  return (
-    profile?.is_super_admin === true || profile?.role === 'super_admin'
-  );
-}
-
 // ----------------------------------------------------------------------
 // Route
 // ----------------------------------------------------------------------
@@ -115,12 +108,13 @@ export async function POST(request: NextRequest) {
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (!(await assertSuperAdmin(user.id))) {
-    return NextResponse.json(
-      { error: 'Forbidden — super-admin only' },
-      { status: 403 }
-    );
+  const access = await resolveBulkReceiptAccess(user.id);
+  if (!access.allowed) {
+    return NextResponse.json({ error: access.reason }, { status: 403 });
   }
+  // Set membership, not array scan — the validation loop below runs once per
+  // row and a batch can carry 5000 of them.
+  const allowedInstitutionIds = new Set(access.institutionIds);
 
   const isDryRun = request.nextUrl.searchParams.get('dry_run') === 'true';
 
@@ -474,6 +468,25 @@ export async function POST(request: NextRequest) {
           field: 'Bill ID',
           message:
             'Bill not found. It may have been deleted since the template was generated.'
+        });
+        continue;
+      }
+
+      // Tenant boundary. The bills query above runs on the service-role client
+      // and selects purely by the Bill IDs found in the uploaded file, so a
+      // hand-edited (or pasted) Bill ID would otherwise reach any institution's
+      // bill. Checked FIRST, before the roll-number and balance validations, so
+      // an out-of-scope row cannot echo another institution's learner details
+      // back through an error message.
+      if (
+        !access.isSuperAdmin &&
+        !allowedInstitutionIds.has(bill.institution_id)
+      ) {
+        errors.push({
+          row: rowNumber,
+          field: 'Bill ID',
+          message:
+            'This bill belongs to an institution you do not have access to. Re-download the template instead of editing Bill IDs.'
         });
         continue;
       }

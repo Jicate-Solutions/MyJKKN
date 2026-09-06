@@ -41,6 +41,17 @@ MyJKKN (cloud)                 Office computer (Windows)         Printer (office
 
 The bridge polls outward (office → cloud), so no inbound firewall holes are needed at the office. If the office computer is off, jobs simply wait in the queue and print when it comes back.
 
+### Batch printing by cohort (added 2026-07-24)
+
+**Admin → ID Cards → Batch Print** queues cards for a whole cohort in one go — no per-page checkbox selection:
+
+- **Freshers batch** — pick institution + admission year (newest pre-selected). Selects **all matching** learners, not just a visible page.
+- **Class / section** — pick institution + class/program (+ optional section). School classes (LKG, GRADE 3, … at Nattraja Vidhyalya CBSE / JKKN Matric HSS) are program rows, so class-wise school printing uses the same picker.
+- A **"Which learners?"** choice controls lifecycle statuses (default: active only; admission-week option includes admitted/account-created).
+- Learners **without an activated account are excluded up front** and reported — the confirm step's card count and ribbon estimate reflect real printable cards.
+- The confirm dialog shows **ribbon panels used + estimated print time** (~15 s/card); batches of 50+ get a ribbon-stock warning (a full YMCKO ribbon ≈ 300 cards).
+- Jobs enqueue **grouped by class/program in roll-number order**, so the printed stack comes out ready to hand out. Progress is visible on the Print Queue page.
+
 ---
 
 ## Job statuses — and how failures surface to the registrar
@@ -121,6 +132,53 @@ File Evolis's reply alongside this doc when it arrives.
 | **Empowerment** | Can the registrar fix problems without escalating — retry failed jobs, cancel pending ones, adjust the photo fallback chain themselves? Evidence: Retry/Cancel controls on the queue, self-service policy + template pages, vs. which situations still require calling the ops team member or a developer. |
 
 When the audit runs, use the `/carre-audit` scaffolder so evidence is collected item-by-item into the `care_audits` system of record.
+
+---
+
+## Back side — designed and rendering; printing still front-only
+
+<!-- Updated: 2026-07-25 — back-side rendering shipped DARK. -->
+<!-- Updated: 2026-08-14 — no longer dark: two production templates now
+     carry a back, and a back has been rendered and eyeballed. -->
+
+The render engine composites a card **back**. It shipped dark on 2026-07-25 (no template had one), but **that is no longer true**: as of 2026-08-14 both active production templates carry a designed `back_layout_json`, and a back has been rendered and checked by eye for the first time — it composes correctly, with the portrait card rotated into the 1014x638 landscape canvas. What is still missing is the printing leg (see the gap note at the end of this section).
+
+Read live from `id_card_templates` on 2026-08-14 — 3 rows, all of production:
+
+```
+active  back_layout_json       template
+------  ---------------------  --------------------------------------------
+yes     11 elements, portrait  Engineering Learner - Tall (2026)
+yes     11 elements, portrait  Engineering Senior Learner (Facilitator)
+                               - Tall (2026)
+no      NULL                   DO NOT USE - E2E Test Template (2026-07-23)
+```
+
+While `back_layout_json` is `NULL` the back endpoint still answers **404 `back_not_configured`** — which is now only the inactive E2E row. Nothing about front rendering or printing changed because a template opted in.
+
+**How it works**
+
+- `GET /api/id-cards/templates/:id/render?profile_id=…&side=back[&format=png]` renders the back (same auth as the front). `side=front` (or omitting `side`) is the unchanged front path.
+- The default back design prints, from the learner record (team members: from their team-member record): blood group, date of birth, guardian (father, else mother) with phone, permanent address, the person's own contact number, a centred **Code 39 barcode** of the learner's roll number (team members: their id code) with the number beneath, and a full-width green footer band reading `TAMIL NADU, INDIA` (overridable). Missing data simply omits that block — nothing is invented.
+- The barcode is generated in-house (`lib/id-cards/barcode.ts`, dependency-free Code 39: A–Z, 0–9, dash, dot, space; 1:3 narrow/wide; start/stop asterisks).
+- **What the two live backs actually use (2026-08-14):** neither of them uses that default design. Both switch every default block OFF — `show_blood_group`, `show_dob`, `show_guardian`, `show_address`, `show_contact` and `show_barcode` are all `false` — and draw the whole back from their 11 positioned `elements`: four label+value pairs (BLOOD GROUP, DATE OF BIRTH, ADDRESS, CONTACT) plus three fixed lines (the office phone numbers, `engg@jkkn.ac.in`, `www.engg.jkkn.ac.in`), over the `TAMIL NADU, INDIA` footer band. **So there is no barcode on the printed back today**, and no guardian line either. Both backs are `orientation: portrait`, matching their fronts.
+- ⚠️ **Known defect — the address is cut short.** Element text is hard-truncated at 80 characters (`truncateForCard(value, 80)` in `lib/id-cards/render-card.tsx`). Learner addresses join five columns (street, taluk, district, state, PIN); measured live on 2026-08-14, **402 of the 787 active Engineering learners (51.1%)** exceed 80 characters and lose district, state and PIN off the end. A separate lane is fixing this. Until it ships, do not run a cohort batch on the back — see §3.5 of the ops runbooks.
+
+**`back_layout_json` schema** (every key optional; `{}` = enabled with defaults):
+
+| Key | Meaning |
+|---|---|
+| `background_color` | Hex background (default white) |
+| `background_image` | Back artwork URL — must live in the `id-card-assets` bucket (same allowlist as the front); full-bleed artwork suppresses the footer band |
+| `show_blood_group` `show_dob` `show_guardian` `show_address` `show_barcode` `show_contact` | Toggle the default blocks (all default `true`) |
+| `footer_text` | Footer band text override |
+| `elements` | Positioned extras (same element schema as the front, plus back fields `blood_group` `date_of_birth` `guardian` `address` `contact_phone` `barcode`). On the back, elements **overlay** the default design — this is how a template supplies its institution's contact / email / website lines; the code hardcodes no institution's contacts |
+
+**Enabling it for a template**
+
+Set `back_layout_json` to `{}` (or a fuller object) on that template — the back-design tab (`components/admin/id-cards/id-card-back-design-tab.tsx`: enable switch, back-artwork upload to `id-card-assets/back-backgrounds/…`, preview-with-my-data) is built but **not yet wired into the template page**; until it is, enabling is a deliberate data change.
+
+**Explicit gap — printing is still front-only, and the bridge is the only thing left.** The Windows print bridge (`evolis_bridge.py`, still v0.3.1) downloads and prints **one front PNG per job**; it never requests `side=back`. Everything around it is ready: the printer has the dual-side module installed, the policy already says `id_card.printer.sides = 2`, and the pickup response `POST /api/id-cards/jobs/:id/pickup` already tells the bridge `has_back: boolean` (fail-soft to `false`) so it knows when a back exists. The remaining work is the bridge change plus a ribbon decision and one on-plastic flip-direction check — all three written up as a paste-and-run runbook in **§3 of `docs/modules/id-cards/2026-07-25-OPS-idcard-runbooks.md`**, executed by the Director at the Windows box.
 
 ---
 

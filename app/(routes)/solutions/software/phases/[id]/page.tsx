@@ -138,13 +138,13 @@ export default function PhaseDetailPage({ params }: PhaseDetailPageProps) {
       <div className="space-y-6 mt-4">
         {/* Header */}
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 items-center gap-4">
             <Button variant="ghost" size="icon" asChild>
               <Link href="/solutions/software/phases">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <GitBranch className="h-5 w-5 text-blue-600" />
                 <Badge className={status.color}>{status.label}</Badge>
@@ -277,7 +277,7 @@ export default function PhaseDetailPage({ params }: PhaseDetailPageProps) {
                     key={iteration.id}
                     className="flex items-center justify-between p-4 rounded-lg border"
                   >
-                    <div className="flex-1">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="font-medium">Version {iteration.version}</p>
                         {iteration.demo_date && (
@@ -291,10 +291,10 @@ export default function PhaseDetailPage({ params }: PhaseDetailPageProps) {
                           href={iteration.prototype_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline flex items-center gap-1 mt-1"
+                          className="text-sm text-primary hover:underline flex items-center gap-1 mt-1 break-all"
                         >
                           {iteration.prototype_url}
-                          <ExternalLink className="h-3 w-3" />
+                          <ExternalLink className="h-3 w-3 shrink-0" />
                         </a>
                       )}
                       {iteration.changes_made && (
@@ -306,7 +306,7 @@ export default function PhaseDetailPage({ params }: PhaseDetailPageProps) {
                         </p>
                       )}
                     </div>
-                    <Badge variant={iteration.client_approved ? 'default' : 'secondary'}>
+                    <Badge variant={iteration.client_approved ? 'default' : 'secondary'} className="shrink-0">
                       {iteration.client_approved ? 'Approved' : 'Pending Review'}
                     </Badge>
                   </div>
@@ -378,23 +378,23 @@ export default function PhaseDetailPage({ params }: PhaseDetailPageProps) {
                     key={deployment.id}
                     className="flex items-center justify-between p-4 rounded-lg border"
                   >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline" className="capitalize">
                           {deployment.environment}
                         </Badge>
-                        {deployment.version && (
-                          <span className="text-sm font-medium">v{deployment.version}</span>
+                        {deployment.deployment_number && (
+                          <span className="text-sm font-medium">#{deployment.deployment_number}</span>
                         )}
                         <Badge className={deploymentStatusColors[deployment.status] || 'bg-gray-100'}>
                           {deployment.status}
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                        {deployment.deployed_date && (
+                        {deployment.deployed_at && (
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {format(new Date(deployment.deployed_date), 'dd MMM yyyy')}
+                            {format(new Date(deployment.deployed_at), 'dd MMM yyyy')}
                           </span>
                         )}
                         {deployment.deployed_by && (
@@ -406,10 +406,10 @@ export default function PhaseDetailPage({ params }: PhaseDetailPageProps) {
                           href={deployment.custom_domain || deployment.vercel_url || '#'}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline flex items-center gap-1 mt-1"
+                          className="text-sm text-primary hover:underline flex items-center gap-1 mt-1 break-all"
                         >
                           {deployment.custom_domain || deployment.vercel_url}
-                          <ExternalLink className="h-3 w-3" />
+                          <ExternalLink className="h-3 w-3 shrink-0" />
                         </a>
                       )}
                     </div>

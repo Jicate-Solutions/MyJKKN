@@ -333,7 +333,7 @@ function EmailBuilderPageContent() {
             </TabsList>
 
             <TabsContent value="editor">
-              <div className="grid grid-cols-12 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Block Palette */}
                 <div className="col-span-2">
                   <Card>
@@ -432,8 +432,8 @@ function EmailBuilderPageContent() {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent className="flex justify-center p-6 bg-muted/30">
-                  <div style={{ width: previewMode === 'mobile' ? '375px' : '600px' }} className="bg-white shadow-lg rounded overflow-hidden">
+                <CardContent className="flex justify-center p-6 bg-muted/30 overflow-x-auto">
+                  <div style={{ width: previewMode === 'mobile' ? '375px' : '600px' }} className="bg-white shadow-lg rounded overflow-hidden shrink-0">
                     <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
                   </div>
                 </CardContent>

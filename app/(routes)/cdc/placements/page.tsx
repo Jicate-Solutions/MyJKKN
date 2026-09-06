@@ -65,7 +65,7 @@ export default function CdcPlacementsListPage() {
         </Breadcrumb>
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Placements</h1>
             {metadata && (
@@ -74,7 +74,7 @@ export default function CdcPlacementsListPage() {
               </p>
             )}
           </div>
-          <PermissionGuard module="cdc.placements" action="create">
+          <PermissionGuard module="cdc.placements" action="create" fallback={null}>
             <Button asChild>
               <Link href="/cdc/placements/new">
                 <Plus className="mr-2 h-4 w-4" />
@@ -126,7 +126,7 @@ export default function CdcPlacementsListPage() {
             <CardContent className="flex flex-col items-center justify-center py-12 gap-3">
               <Briefcase className="h-10 w-10 text-muted-foreground/40" />
               <p className="text-muted-foreground">No placements found.</p>
-              <PermissionGuard module="cdc.placements" action="create">
+              <PermissionGuard module="cdc.placements" action="create" fallback={null}>
                 <Button asChild size="sm" variant="outline">
                   <Link href="/cdc/placements/new">Record first placement</Link>
                 </Button>

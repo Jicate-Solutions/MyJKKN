@@ -329,13 +329,23 @@ export async function GET(req: NextRequest) {
           .filter(Boolean);
 
         if (passerIds.length > 0) {
+          // notifications real columns: title/body/created_by/targeting/kind
+          // are NOT NULL — there is NO type/message column. The prior insert
+          // used {type, message} (both non-existent) so it threw at runtime and
+          // the ack notification was never delivered. body carries the message
+          // text; created_by anchors to the first passer (all are valid
+          // profiles.id); targeting + the existing user_notifications fan-out
+          // below deliver it to every passer's bell.
           const { data: notification, error: notifErr } = await (supabase as any)
             .from('notifications')
             .insert({
-              type: 'ai_pulse',
               title: `Engaged — ${cycle.name ?? 'AI Pulse cycle'}`,
-              message:
+              body:
                 'You passed all engagement gates this week — joined on time, stayed to the end, and passed the quiz. That counts toward your streak. Well done.',
+              created_by: passerIds[0],
+              targeting: { type: 'user', user_ids: passerIds },
+              category: 'dashboard:ai_pulse',
+              kind: 'work_item',
               metadata: {
                 source: 'ai_pulse_engagement_acknowledgment',
                 cycle_id: cycle.id,

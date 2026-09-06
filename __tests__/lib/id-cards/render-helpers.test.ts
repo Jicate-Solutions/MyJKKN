@@ -5,6 +5,12 @@ import { describe, it, expect } from 'vitest';
 import {
   initialsFromName,
   defaultValidUntilLabel,
+  yearlyValidUntilLabel,
+  parseYearEndMmdd,
+  parseValidityPolicy,
+  resolveValidUntilLabel,
+  svgCoverImageDataUrl,
+  DEFAULT_VALIDITY_POLICY,
   truncateForCard,
   parseFieldMappings,
   resolveMappedValue
@@ -167,5 +173,241 @@ describe('parseFrontLayout', () => {
     expect(photo.x).toBe(0); // clamped into canvas
     expect(photo.y).toBe(CARD_HEIGHT);
     expect(photo.width).toBeLessThanOrEqual(CARD_WIDTH);
+  });
+});
+
+describe('parseFrontLayout — background_image (Canva-background workflow)', () => {
+  it('accepts an https URL and keeps other keys', () => {
+    const layout = parseFrontLayout({
+      background_image: ' https://example.supabase.co/storage/v1/object/public/id-card-assets/backgrounds/t1/a.png ',
+      background_color: '#ffffff'
+    });
+    expect(layout?.background_image).toBe(
+      'https://example.supabase.co/storage/v1/object/public/id-card-assets/backgrounds/t1/a.png'
+    );
+    expect(layout?.background_color).toBe('#ffffff');
+  });
+
+  it('background_image alone counts as content (layout is not null)', () => {
+    const layout = parseFrontLayout({
+      background_image: 'https://example.supabase.co/storage/v1/object/public/id-card-assets/x.png'
+    });
+    expect(layout).not.toBeNull();
+  });
+
+  it('rejects non-https, non-string and whitespace-embedded values', () => {
+    expect(parseFrontLayout({ background_image: 'http://insecure.example/x.png' })).toBeNull();
+    expect(parseFrontLayout({ background_image: 'javascript:alert(1)' })).toBeNull();
+    expect(parseFrontLayout({ background_image: 'https://a b/x.png' })).toBeNull();
+    expect(parseFrontLayout({ background_image: 42 })).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// programs.card_short_name (2026-09-01) — the card's narrow COURSE line.
+// The card prints "BTECH IT"; the DB holds "B.Tech. Information Technology".
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('card_short_name resolution via field mappings', () => {
+  const bag = (short: string) => ({
+    'learners_profiles.program_id': 'B.Tech. Information Technology',
+    'programs.card_short_name': short
+  });
+
+  it('prints the short form when the programme has one', () => {
+    expect(
+      resolveMappedValue(
+        'course',
+        [{ card_field: 'course', db_column: 'programs.card_short_name' }],
+        bag('BTECH IT'),
+        'B.Tech. Information Technology'
+      )
+    ).toBe('BTECH IT');
+  });
+
+  it('falls back to the full programme name when the short form is empty', () => {
+    // A programme with no short form must never print a blank COURSE line.
+    expect(
+      resolveMappedValue(
+        'course',
+        [{ card_field: 'course', db_column: 'programs.card_short_name' }],
+        bag(''),
+        'B.Tech. Information Technology'
+      )
+    ).toBe('B.Tech. Information Technology');
+  });
+
+  it('unmapped templates are unaffected — still the full name', () => {
+    expect(
+      resolveMappedValue('course', [], bag('BTECH IT'), 'B.Tech. Information Technology')
+    ).toBe('B.Tech. Information Technology');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card validity (2026-09-02) — the Director's rules, held in platform_policies.
+//   • a learner's card lasts their whole course (batches.end_date)
+//   • a team member's card lasts the academic year
+//   • a learner with no batch falls back to the yearly rule
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NOW = new Date('2026-09-02T10:00:00');
+
+describe('parseYearEndMmdd', () => {
+  it('reads a MM-DD string', () => {
+    expect(parseYearEndMmdd('05-31')).toEqual({ month: 5, day: 31 });
+    expect(parseYearEndMmdd(' 06-30 ')).toEqual({ month: 6, day: 30 });
+  });
+
+  it('falls back to 31 May for anything malformed — a card always carries a date', () => {
+    expect(parseYearEndMmdd('')).toEqual({ month: 5, day: 31 });
+    expect(parseYearEndMmdd(null)).toEqual({ month: 5, day: 31 });
+    expect(parseYearEndMmdd('rubbish')).toEqual({ month: 5, day: 31 });
+    expect(parseYearEndMmdd('13-01')).toEqual({ month: 5, day: 31 });
+    expect(parseYearEndMmdd('00-00')).toEqual({ month: 5, day: 31 });
+  });
+});
+
+describe('yearlyValidUntilLabel', () => {
+  it('at the built-in 31 May year end it reproduces the historic label exactly', () => {
+    expect(yearlyValidUntilLabel(new Date('2026-09-02T10:00:00'))).toBe(
+      defaultValidUntilLabel(new Date('2026-09-02T10:00:00'))
+    );
+    expect(yearlyValidUntilLabel(new Date('2026-07-24T10:00:00'))).toBe('31 May 2027');
+    expect(yearlyValidUntilLabel(new Date('2027-02-10T10:00:00'))).toBe('31 May 2027');
+  });
+
+  it('honours a different academic-year end from policy', () => {
+    // Year end 30 June: in September the next occurrence is June of next year.
+    expect(yearlyValidUntilLabel(new Date('2026-09-02T10:00:00'), '06-30')).toBe('30 Jun 2027');
+    // In April the next occurrence is still this June.
+    expect(yearlyValidUntilLabel(new Date('2027-04-02T10:00:00'), '06-30')).toBe('30 Jun 2027');
+  });
+});
+
+describe('parseValidityPolicy', () => {
+  it('reads the validity block out of the policy JSONB', () => {
+    expect(
+      parseValidityPolicy({
+        validity: { learner_mode: 'yearly', team_member_mode: 'yearly', year_end_mmdd: '06-30' }
+      })
+    ).toEqual({ learnerMode: 'yearly', teamMemberMode: 'yearly', yearEndMmdd: '06-30' });
+  });
+
+  it('fails soft to the Director rules when the block is absent or junk', () => {
+    // A database that predates migration 20260902010000 returns no validity key.
+    expect(parseValidityPolicy({ ribbon_type: 'YMCKO' })).toEqual(DEFAULT_VALIDITY_POLICY);
+    expect(parseValidityPolicy(null)).toEqual(DEFAULT_VALIDITY_POLICY);
+    expect(parseValidityPolicy('not an object')).toEqual(DEFAULT_VALIDITY_POLICY);
+    expect(parseValidityPolicy({ validity: { learner_mode: 'nonsense' } })).toEqual(
+      DEFAULT_VALIDITY_POLICY
+    );
+  });
+});
+
+describe('resolveValidUntilLabel', () => {
+  it('a learner with a batch gets their course end date, not one year', () => {
+    expect(
+      resolveValidUntilLabel({ kind: 'learner', courseEndDate: '2028-05-31', now: NOW })
+    ).toBe('31 May 2028');
+    // The card prints the real end date, whatever day it falls on.
+    expect(
+      resolveValidUntilLabel({ kind: 'learner', courseEndDate: '2029-06-30', now: NOW })
+    ).toBe('30 Jun 2029');
+    // …and that is NOT what the yearly rule would have said.
+    expect(
+      resolveValidUntilLabel({ kind: 'learner', courseEndDate: '2028-05-31', now: NOW })
+    ).not.toBe(defaultValidUntilLabel(NOW));
+  });
+
+  it('a learner with no batch falls back to the yearly rule', () => {
+    expect(resolveValidUntilLabel({ kind: 'learner', courseEndDate: null, now: NOW })).toBe(
+      defaultValidUntilLabel(NOW)
+    );
+    expect(resolveValidUntilLabel({ kind: 'learner', courseEndDate: '  ', now: NOW })).toBe(
+      defaultValidUntilLabel(NOW)
+    );
+  });
+
+  it('a team member always gets the yearly rule, even carrying a course end date', () => {
+    expect(resolveValidUntilLabel({ kind: 'employee', courseEndDate: null, now: NOW })).toBe(
+      defaultValidUntilLabel(NOW)
+    );
+    expect(
+      resolveValidUntilLabel({ kind: 'employee', courseEndDate: '2028-05-31', now: NOW })
+    ).toBe(defaultValidUntilLabel(NOW));
+  });
+
+  it('a college moved back to yearly learner cards gets the yearly rule again', () => {
+    expect(
+      resolveValidUntilLabel({
+        kind: 'learner',
+        courseEndDate: '2028-05-31',
+        policy: { learnerMode: 'yearly', teamMemberMode: 'yearly', yearEndMmdd: '05-31' },
+        now: NOW
+      })
+    ).toBe('31 May 2027');
+  });
+
+  it('uses the policy year end for every fallback, learner and team member alike', () => {
+    const policy = {
+      learnerMode: 'course_end' as const,
+      teamMemberMode: 'yearly' as const,
+      yearEndMmdd: '06-30'
+    };
+    expect(resolveValidUntilLabel({ kind: 'learner', courseEndDate: null, policy, now: NOW })).toBe(
+      '30 Jun 2027'
+    );
+    expect(
+      resolveValidUntilLabel({ kind: 'employee', courseEndDate: null, policy, now: NOW })
+    ).toBe('30 Jun 2027');
+  });
+
+  it('never prints a junk end date — a non-ISO value degrades to the yearly rule', () => {
+    expect(
+      resolveValidUntilLabel({ kind: 'learner', courseEndDate: 'sometime in 2028', now: NOW })
+    ).toBe(defaultValidUntilLabel(NOW));
+    expect(resolveValidUntilLabel({ kind: 'learner', courseEndDate: '2028', now: NOW })).toBe(
+      defaultValidUntilLabel(NOW)
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-08-13 — the inlined bitmap must be named ONCE.
+// Naming it on both `href` and `xlink:href` doubled the payload: a 3.6 MB photo
+// became ~10.2 MB of XML, the rasteriser refused it ("Buffer size limit
+// exceeded") and the whole card 500-ed. 467 learner photos are over 2 MB.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('svgCoverImageDataUrl payload size', () => {
+  // A real 1x1 PNG — the helper parses the header for dimensions and returns
+  // null for anything it cannot read, so a synthetic payload will not do.
+  const PNG_1x1 =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+  function decode(dataUrl: string | null): string {
+    expect(dataUrl).not.toBeNull();
+    return Buffer.from(
+      (dataUrl as string).replace('data:image/svg+xml;base64,', ''),
+      'base64'
+    ).toString('utf8');
+  }
+
+  it('inlines the bitmap exactly once, not twice', () => {
+    const svg = decode(svgCoverImageDataUrl(PNG_1x1, 300, 380));
+    expect(svg.split(PNG_1x1).length - 1).toBe(1);
+  });
+
+  it('never emits a bare href alongside xlink:href for the same bitmap', () => {
+    const svg = decode(svgCoverImageDataUrl(PNG_1x1, 300, 380));
+    expect(svg).toContain(`xlink:href="${PNG_1x1}"`);
+    expect(svg).not.toContain(` href="${PNG_1x1}"`);
+    expect(svg).toContain('xmlns:xlink=');
+  });
+
+  it('rounded variant also inlines the bitmap once', () => {
+    const svg = decode(svgCoverImageDataUrl(PNG_1x1, 300, 380, 12));
+    expect(svg.split(PNG_1x1).length - 1).toBe(1);
+    expect(svg).toContain('clipPath');
   });
 });

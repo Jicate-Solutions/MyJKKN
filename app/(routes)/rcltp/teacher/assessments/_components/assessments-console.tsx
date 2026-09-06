@@ -603,7 +603,7 @@ function ScheduleDialog({
             </Select>
           </div>
 
-          <div className='grid grid-cols-2 gap-3'>
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
             <div>
               <Label htmlFor='w-start'>Window start</Label>
               <Input
@@ -703,7 +703,7 @@ export function AssessmentsConsole() {
           </p>
         </div>
         <Select value={instFilter} onValueChange={setInstFilter}>
-          <SelectTrigger className='w-64'>
+          <SelectTrigger className='w-full sm:w-64'>
             <SelectValue placeholder='Select school' />
           </SelectTrigger>
           <SelectContent>

@@ -29,6 +29,10 @@ import {
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { useHasAnyTournamentRole } from '@/hooks/events/use-has-any-tournament-role';
+import {
+  useIsSoiCoordinator,
+  withSoiCoordinatorNavAccess,
+} from '@/hooks/school-of-influence/use-soi-coordinator-nav-access';
 import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import { useIsInductionOnly } from '@/hooks/use-my-lifecycle-status';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
@@ -95,6 +99,13 @@ export function Menu({ isOpen }: MenuProps) {
   const hasTournamentViewKey = isSuperAdmin || permissions['sports.tournaments.view'] === true;
   const hasTournamentRole = useHasAnyTournamentRole(!permissionsLoading && !hasTournamentViewKey);
 
+  // School of Influence coordinators are appointed in cohort_coordinators, not
+  // granted a key, so filterByPermissions could never see them and the sidebar
+  // hid the programme from the one person whose job it is (BUG-005799 /
+  // BUG-005800). Same shape as the tournament seam above; the hook skips the
+  // lookup entirely for super admins and for anyone already holding the key.
+  const isSoiCoordinator = useIsSoiCoordinator();
+
   // Students: the My Hostel sidebar entry is shown only for actual hostel
   // residents (learners_profiles accommodation = hostel), not every student.
   const isStudentRole = userProfile?.role === 'student';
@@ -128,7 +139,9 @@ export function Menu({ isOpen }: MenuProps) {
     // its 16 submenus (`/admission/marketing/expos`) becomes accessible. The
     // expo_counselor role legitimately needs expo access and gets it through
     // its own `custom_roles.permissions`, so it is intentionally NOT skipped.
-    const enrichedPermissions = { ...permissions };
+    const enrichedPermissions = {
+      ...withSoiCoordinatorNavAccess(permissions, isSoiCoordinator),
+    };
     const EXPO_ENRICHMENT_SKIP_ROLES = new Set([
       'admission_counselor',
       'learner_counselor',
@@ -168,7 +181,7 @@ export function Menu({ isOpen }: MenuProps) {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember, hasTournamentRole, isStudentRole, isHosteler]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember, hasTournamentRole, isSoiCoordinator, isStudentRole, isHosteler]);
 
   // Debug: Log permission state for troubleshooting
   if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {

@@ -467,7 +467,13 @@ export async function sendPDENotification(
 ) {
   const supabase = getSupabase();
 
-  // Insert into notifications table
+  // created_by must be a valid, NOT-NULL profiles.id. This runs on the browser
+  // client, so it is the authenticated user; fall back to the recipient.
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  const createdBy = authUser?.id ?? userId;
+
+  // Insert into notifications table (targeting is NOT NULL with no default,
+  // and created_by is NOT NULL — both required or the insert throws).
   const { data: notification, error: nErr } = await supabase
     .from('notifications')
     .insert({
@@ -476,6 +482,8 @@ export async function sendPDENotification(
       url: url || null,
       category: 'pde',
       priority: 'normal',
+      created_by: createdBy,
+      targeting: { type: 'user', user_ids: [userId] },
       metadata: { pde_type: type },
     })
     .select()

@@ -30,13 +30,23 @@ import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
  * primary committee (NAAC → IQAC, NIRF → NIRF-Coordination, NBA → NBA-Cell,
  * DCI → Local-Inspection-Panel, etc.). "main" is the default per-body primary;
  * sub-committees use "sub". Ad-hoc inspections use "inspection".
+ * "cluster" is the cross-college Cluster Academic Council (CAC).
  */
+// Mirrors the LIVE accreditation_committees_committee_type_check constraint,
+// verified against prod 2026-07-26. The previous list drifted: it offered
+// 'sub' | 'ad_hoc' | 'review' (which the CHECK rejects, so creating one threw)
+// and omitted 'icc' | 'anti_ragging' | 'grievance' | 'coordinator' | 'statutory'
+// (real types the UI could therefore never create — including the ICC and
+// anti-ragging cells NAAC metric 7.7 asks for).
 export type CommitteeType =
   | 'main'
-  | 'sub'
+  | 'icc'
+  | 'anti_ragging'
+  | 'grievance'
+  | 'coordinator'
   | 'inspection'
-  | 'ad_hoc'
-  | 'review';
+  | 'statutory'
+  | 'cluster';
 
 /**
  * Member roles. NAAC IQAC mandates chairman/coordinator/member/secretary;
@@ -56,6 +66,8 @@ export interface AccreditationCommittee {
   body_code: AccreditationBodyCode;
   committee_name: string;
   committee_type: CommitteeType;
+  /** Standing roster for committees that span institutions (cluster councils). */
+  member_institution_ids?: string[];
   chair_user_id: string | null;
   formed_at: string; // date
   term_end: string | null; // date
@@ -87,7 +99,10 @@ export interface CommitteeListFilters {
 }
 
 export interface CreateCommitteePayload {
+  /** Filing location. For a cluster council this is the umbrella row, NOT ownership. */
   institution_id: string;
+  /** Cluster roster — every institution the council spans. Required for committee_type 'cluster'. */
+  member_institution_ids?: string[];
   body_code: AccreditationBodyCode;
   committee_name: string;
   committee_type: CommitteeType;
@@ -98,6 +113,7 @@ export interface CreateCommitteePayload {
 }
 
 export interface UpdateCommitteePayload {
+  member_institution_ids?: string[];
   committee_name?: string;
   committee_type?: CommitteeType;
   chair_user_id?: string | null;
@@ -106,12 +122,19 @@ export interface UpdateCommitteePayload {
   metadata?: Record<string, unknown> | null;
 }
 
+/**
+ * Director decision 7 (2026-08-05): a term end date is REQUIRED when adding a
+ * member, because committee access is cut off automatically on that date. It
+ * is `string`, not `string | null` — omitting it is a compile error rather
+ * than a seat that quietly never expires. The date is the LAST day of the
+ * term, inclusive, as `YYYY-MM-DD`.
+ */
 export interface AddInternalMemberPayload {
   committee_id: string;
   user_id: string;
   role: CommitteeMemberRole;
   joined_at?: string;
-  term_end?: string | null;
+  term_end: string;
 }
 
 export interface AddExternalMemberPayload {
@@ -121,7 +144,7 @@ export interface AddExternalMemberPayload {
   external_org?: string | null;
   external_email?: string | null;
   joined_at?: string;
-  term_end?: string | null;
+  term_end: string;
 }
 
 // ----------------------------------------------------------------------------
@@ -181,6 +204,7 @@ export class AccreditationCommitteeService {
         body_code: payload.body_code,
         committee_name: payload.committee_name,
         committee_type: payload.committee_type,
+        member_institution_ids: payload.member_institution_ids ?? [],
         chair_user_id: payload.chair_user_id ?? null,
         formed_at: payload.formed_at,
         term_end: payload.term_end ?? null,
@@ -251,7 +275,10 @@ export class AccreditationCommitteeService {
         user_id: payload.user_id,
         role: payload.role,
         joined_at: payload.joined_at ?? new Date().toISOString().split('T')[0],
-        term_end: payload.term_end ?? null,
+        // Required — see AddInternalMemberPayload. Sent verbatim so a caller
+        // that somehow supplies an empty string is refused by the column's
+        // NOT NULL rather than silently given an endless term.
+        term_end: payload.term_end,
         is_active: true,
         is_external: false,
       })
@@ -271,7 +298,9 @@ export class AccreditationCommitteeService {
         user_id: null,
         role: payload.role,
         joined_at: payload.joined_at ?? new Date().toISOString().split('T')[0],
-        term_end: payload.term_end ?? null,
+        // Required — see AddExternalMemberPayload. An external expert's term
+        // ends on a date too; is_external only decides how they are named.
+        term_end: payload.term_end,
         is_active: true,
         is_external: true,
         external_name: payload.external_name,

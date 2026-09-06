@@ -102,7 +102,7 @@ function TimeSelector({ value, onChange, placeholder }: TimeSelectorProps) {
 
   return (
     <div className='space-y-2'>
-      <div className='flex gap-2 items-center'>
+      <div className='flex flex-wrap gap-2 items-center'>
         <Select
           value={currentTime.hour || ''}
           onValueChange={(hour) =>
@@ -473,7 +473,7 @@ export function PeriodForm({
           </CardContent>
         </Card>
 
-        <div className='flex justify-end space-x-4'>
+        <div className='flex flex-wrap justify-end gap-4'>
           <Button
             type='button'
             variant='outline'

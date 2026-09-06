@@ -89,10 +89,10 @@ export function ExposDataTable({ isTeamMemberView = false }: ExposDataTableProps
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setRefreshKey(k => k + 1); }}>
-            <SelectTrigger className="w-[160px] h-9">
+            <SelectTrigger className="w-full sm:w-[160px] h-9">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent>

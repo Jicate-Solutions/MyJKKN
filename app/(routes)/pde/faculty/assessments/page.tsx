@@ -84,10 +84,10 @@ export default function FacultyAssessmentsPage() {
         {/* Filter by Course */}
         <Card className="bg-[#fbfbee]/30 dark:bg-card">
           <CardContent className="p-4">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
               <span className="text-sm font-medium text-muted-foreground">Filter by course:</span>
               <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
-                <SelectTrigger className="w-[300px]">
+                <SelectTrigger className="w-full sm:w-[300px]">
                   <SelectValue placeholder="Select a course..." />
                 </SelectTrigger>
                 <SelectContent>

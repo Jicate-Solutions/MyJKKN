@@ -160,7 +160,7 @@ export default function AIInsightsPage() {
         </Breadcrumb>
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-purple-100">
               <Brain className="h-6 w-6 text-purple-600" />
@@ -172,7 +172,7 @@ export default function AIInsightsPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <Button
               variant="outline"
               size="sm"

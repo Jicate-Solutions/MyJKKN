@@ -8,6 +8,8 @@ import { AccountTransitionService } from '@/lib/services/admission/account-trans
 import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
 import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
 import { getErrorMessage } from '@/lib/utils';
+import { describeOncePerLearnerError } from '@/lib/utils/billing-duplicate-error';
+import { attachInstalmentSchedules } from '@/lib/services/billing/instalments/instalment-plan-service';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -332,20 +334,27 @@ export class OnboardingService {
 
   /**
    * Creates billing_student_bills rows from learner.fee_items (or legacy fields).
-   * Returns the number of bills inserted (0 if learner already has bills,
-   * 0 if no fee data exists, or 0 for hostellers — see below). Idempotent —
-   * calling twice is a no-op the second time because the bill-existence guard
-   * skips already-billed learners.
+   * Returns the number of bills inserted (0 if learner already has bills, or if
+   * no billable fee data exists). Idempotent — calling twice is a no-op the
+   * second time because the bill-existence guard skips already-billed learners.
    *
-   * CUTOVER (hostel billing → Campus Living): hostellers
-   * (accommodation_types.code='hostel') are billed via the Campus Living
-   * generation run (campus_living_generate_hostel_year_bills, hostel_year-
-   * stamped). This method returns 0 for them WITHOUT inserting academic bills,
-   * mirroring the `admission_account_transition_with_bills` RPC guard — otherwise
-   * the academic portion double-bills (the dedup index can't bridge a NULL
-   * hostel_year here vs a set one there). A returned 0 is counted as `skipped`
-   * by the bulk-generate caller (hooks/billing/use-onboarding.ts), exactly like
-   * an already-billed or no-fee learner. Day scholars are unaffected.
+   * CUTOVER HISTORY — read before re-adding an accommodation check here.
+   * 2026-06-06 this method skipped hostellers entirely, mirroring the same guard
+   * in `admission_account_transition_with_bills`, because Campus Living
+   * (campus_living_generate_hostel_year_bills) also emitted academic bills and
+   * the two would double-bill: the Campus Living dedup keys on hostel_year_id
+   * and cannot bridge a NULL one written from here.
+   * 2026-06-21 that academic branch was REMOVED from Campus Living — core
+   * academic fees now come from admission_fee_structures for EVERYONE.
+   * 2026-07-25 the paired skip here was retired. Leaving it in place had
+   * stranded 17 hostellers (Rs 27,36,500) with resolved fee_items and zero
+   * bills — silent, because every admission screen showed a complete structure.
+   *
+   * What replaces it: hostel / mess / transport CATEGORIES are skipped for
+   * every learner, hosteller or day scholar, since Campus Living owns
+   * hostel+mess and TMS owns transport. Only a POSITIVE kind match is skipped,
+   * so a fee with an unmapped or inactive category is still billed rather than
+   * silently dropped.
    */
   static async createBillsFromProfile(learnerId: string): Promise<number> {
     try {
@@ -360,23 +369,6 @@ export class OnboardingService {
 
       if (fetchError) throw fetchError;
       if (!learner) throw new Error(`Learner ${learnerId} not found`);
-
-      // CUTOVER guard — hostellers are billed via Campus Living, not here.
-      // Skip academic bill insertion entirely (return 0 → counted as skipped).
-      if (learner.accommodation_type_id) {
-        const { data: accType, error: accError } = await supabase
-          .from('accommodation_types')
-          .select('code')
-          .eq('id', learner.accommodation_type_id)
-          .single();
-        if (accError) throw accError;
-        if (accType?.code === 'hostel') {
-          console.info(
-            `[billing/onboarding] createBillsFromProfile skipped learner ${learnerId}: hosteller — billed via campus living`
-          );
-          return 0;
-        }
-      }
 
       // Idempotency guard — if learner already has bills, do nothing.
       // Bulk-generate flows rely on this to skip already-billed learners.
@@ -394,19 +386,35 @@ export class OnboardingService {
       const currentUserId = userData?.user?.id ?? null;
 
       // Fetch billing categories (global, no institution filter as of 2026-04-28)
-      const { data: itemCategories } = await supabase
+      const { data: itemCategories, error: categoryError } = await supabase
         .from('billing_categories')
-        .select('id, category_name')
+        .select('id, category_name, kind')
         .eq('is_active', true);
+      if (categoryError) throw categoryError;
 
       const categoryLookup: Record<string, string> = {};
+      const kindById: Record<string, string> = {};
       if (itemCategories) {
         for (const cat of itemCategories) {
           categoryLookup[cat.category_name] = cat.id;
+          kindById[cat.id] = cat.kind;
         }
       }
 
-      // Due date = 30 days from now
+      // Owned by Campus Living (hostel, mess) and TMS (transport) — never
+      // billed from the admission path. See the CUTOVER HISTORY note above.
+      const FOREIGN_MODULE_KINDS = new Set(['hostel', 'mess', 'transport']);
+      const isForeignModule = (categoryId?: string | null) =>
+        !!categoryId && FOREIGN_MODULE_KINDS.has(kindById[categoryId]);
+      let skippedForeign = 0;
+
+      // FALLBACK due date only. As of 2026-08-21 the real due date comes from
+      // the fee structure — admission_fee_structure_items.due_offset_days /
+      // due_date, falling back to admission_fee_structures.default_due_offset_days
+      // (itself defaulted to 30) — and is applied by
+      // attachInstalmentSchedules below. This +30 stands only for a fee
+      // item the engine cannot resolve to a structure item at all, which is
+      // exactly the pre-2026-08-21 behaviour for those rows.
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
       const dueDateStr = dueDate.toISOString().split('T')[0];
@@ -418,6 +426,8 @@ export class OnboardingService {
             category_id: string;
             category_name: string;
             amount: number;
+            /** Added 2026-08-21; absent on snapshots resolved before then. */
+            fee_structure_item_id?: string | null;
           }>)
         : [];
 
@@ -425,9 +435,14 @@ export class OnboardingService {
         for (const item of feeItems) {
           const amount = Number(item?.amount ?? 0);
           if (amount <= 0) continue;
+          if (isForeignModule(item.category_id)) {
+            skippedForeign++;
+            continue;
+          }
           billsToInsert.push({
             student_id: learnerId,
             institution_id: learner.institution_id,
+            academic_year_id: learner.academic_year_id ?? null,
             item_category_id: item.category_id || null,
             bill_description: item.category_name || 'Fee',
             due_date: dueDateStr,
@@ -440,6 +455,10 @@ export class OnboardingService {
             status: 'unpaid',
             remarks: `Onboarding bill — auto-generated from learner fee_items`,
             created_by: currentUserId,
+            // Lets the expander find this item's schedule without re-running the
+            // 8-dimension match, and lets the promotion engine walk a settled
+            // bill back to the schedule line that names a lifecycle status.
+            fee_structure_item_id: item.fee_structure_item_id ?? null,
           });
         }
       } else {
@@ -449,9 +468,14 @@ export class OnboardingService {
           if (amount > 0) {
             const description = BILL_DESCRIPTIONS[fieldName] ?? fieldName;
             const categoryId = categoryLookup[description] || null;
+            if (isForeignModule(categoryId)) {
+              skippedForeign++;
+              continue;
+            }
             billsToInsert.push({
               student_id: learnerId,
               institution_id: learner.institution_id,
+              academic_year_id: learner.academic_year_id ?? null,
               item_category_id: categoryId,
               bill_description: description,
               due_date: dueDateStr,
@@ -470,17 +494,103 @@ export class OnboardingService {
       }
 
       if (billsToInsert.length === 0) {
+        // Everything this learner owes belongs to another module (a hosteller
+        // whose structure is hostel/mess only, say). That is a legitimate
+        // no-op, not an error — return 0 so the bulk-generate caller counts it
+        // as `skipped`, exactly like an already-billed learner.
+        if (skippedForeign > 0) {
+          console.info(
+            `[billing/onboarding] createBillsFromProfile: learner ${learnerId} has ${skippedForeign} fee item(s), all owned by Campus Living/TMS — nothing to bill here`
+          );
+          return 0;
+        }
         throw new Error(
           `No fee items or finance values found for learner ${learnerId}`
         );
       }
 
-      const { error: insertError } = await supabase
+      // Instalment expansion — DORMANT until an active instalment plan matches
+      // this learner's (institution, programme, category, academic year). With
+      // zero plans configured (or before migration 20260825013000 is applied),
+      // this returns billsToInsert untouched and the insert below is byte for
+      // byte today's behaviour. A matching plan turns ONE yearly row into N
+      // instalment rows whose amounts sum exactly to the yearly amount, each
+      // with its own due date. Split arithmetic lives in the SQL engine
+      // (billing_instalment_split_for_learner) shared with the account
+      // transition RPC, so the two generation paths cannot disagree.
+      // ONE row per fee, each optionally carrying the tranches that belong
+      // inside it. This used to expand a scheduled fee into N sibling BILLS,
+      // which is why three fee items produced five bills.
+      const scheduled = await attachInstalmentSchedules(
+        supabase,
+        learnerId,
+        billsToInsert
+      );
+
+      // `__instalments` is not a billing_student_bills column — strip it before
+      // the insert or PostgREST rejects the whole batch.
+      const rowsToInsert = scheduled.map(({ __instalments, ...row }) => row);
+
+      const { data: insertedBills, error: insertError } = await supabase
         .from('billing_student_bills')
-        .insert(billsToInsert);
+        .insert(rowsToInsert)
+        .select('id, item_category_id, fee_structure_item_id');
+
+      // Onboarding inserts the learner's whole fee set as one batch, so a
+      // single once-per-learner collision rejects all of it. Name the category
+      // that blocked it — otherwise the operator sees only a generic failure
+      // for a learner whose bills were partly already created earlier.
+      const duplicateMessage = describeOncePerLearnerError(insertError);
+      if (duplicateMessage) {
+        throw new Error(
+          `${duplicateMessage} No bills were created for this learner — resolve the existing bill, then retry.`
+        );
+      }
 
       if (insertError) throw insertError;
-      return billsToInsert.length;
+
+      // Write each schedule under the bill it belongs to. Matched on
+      // item_category_id rather than array position: PostgREST does not
+      // guarantee the returned order matches the sent order, and a schedule
+      // attached to the wrong fee would bill the right total on the wrong
+      // dates — silently, and only visible at the end of term. One bill per
+      // category per learner is already guaranteed here, so the key is unique.
+      const billIdByCategory = new Map<string, string>();
+      for (const b of (insertedBills ?? []) as Array<{
+        id: string;
+        item_category_id: string | null;
+      }>) {
+        if (b.item_category_id) billIdByCategory.set(b.item_category_id, b.id);
+      }
+
+      const instalmentRows = scheduled.flatMap((row) => {
+        if (!row.__instalments?.length || !row.item_category_id) return [];
+        const billId = billIdByCategory.get(row.item_category_id);
+        if (!billId) return [];
+        return row.__instalments.map((t) => ({
+          bill_id: billId,
+          sequence_no: t.sequence_no,
+          amount: t.amount,
+          due_date: t.due_date,
+          promotes_to_status_code: t.promotes_to_status_code,
+        }));
+      });
+
+      if (instalmentRows.length > 0) {
+        const { error: instalmentError } = await supabase
+          .from('billing_bill_instalments')
+          .insert(instalmentRows);
+        // NOT swallowed. A bill whose schedule failed to write is a bill that
+        // silently reverts to a single due date — the exact defect this whole
+        // feature exists to remove — so the caller must hear about it.
+        if (instalmentError) {
+          throw new Error(
+            `Bills were created but their instalment schedule could not be saved: ${getErrorMessage(instalmentError)}`
+          );
+        }
+      }
+
+      return rowsToInsert.length;
     } catch (error) {
       console.error('[billing/onboarding] createBillsFromProfile failed:', error);
       throw error;
@@ -607,6 +717,61 @@ export class OnboardingService {
       return { promoted: false, reason: result.reason ?? 'unknown' };
     }
     return { promoted: true };
+  }
+
+  // ── 5b. reevaluateStatus (operator re-run of the automatic promotion) ────
+
+  /**
+   * Re-runs the automatic lifecycle evaluation for one learner and reports what
+   * it decided. This is the manual counterpart to the payment triggers: the
+   * accounts team reaches for it when a learner's status looks behind their
+   * payments.
+   *
+   * PROMOTION ONLY, and never a bypass. The RPC applies exactly the thresholds
+   * configured in `admission_statuses` — it cannot move a learner who has not
+   * actually paid, it returns `no_op_for_status` outside account/reserved, and
+   * it re-asserts the from-status inside every UPDATE. So the worst a stray
+   * click can do is nothing.
+   *
+   * Unlike `markAsApproved`, this reports rather than throws: "nothing changed"
+   * is the expected answer most of the time, not an error. The returned
+   * `paid_pct`/`threshold` are what the caller should show — "paid 12%, needs
+   * 30%" is the answer the operator actually wants.
+   */
+  static async reevaluateStatus(learnerId: string): Promise<{
+    updated: boolean;
+    finalStatus?: string;
+    paidPct?: number;
+    threshold?: number;
+    reason?: string;
+  }> {
+    // Cast to `any` — generated Supabase types lag this RPC, same as the
+    // sibling methods in this file.
+    const supabase = this.supabase as any;
+
+    const { data, error } = await supabase.rpc(
+      'evaluate_learner_status_after_payment',
+      { p_learner_id: learnerId }
+    );
+    // Supabase errors are plain objects, not Error instances — getErrorMessage
+    // surfaces the real code/message instead of "[object Object]".
+    if (error) throw new Error(getErrorMessage(error));
+
+    const result = (data ?? {}) as {
+      updated?: boolean;
+      final_status?: string;
+      paid_pct?: number;
+      threshold?: number;
+      reason?: string;
+    };
+
+    return {
+      updated: result.updated === true,
+      finalStatus: result.final_status,
+      paidPct: Number(result.paid_pct ?? 0),
+      threshold: result.threshold == null ? undefined : Number(result.threshold),
+      reason: result.reason
+    };
   }
 
   // ── 6. revertToApproved ──────────────────────────────────────────────────

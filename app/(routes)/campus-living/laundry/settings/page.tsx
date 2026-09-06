@@ -152,7 +152,7 @@ export default function LaundrySettingsPage() {
               contracts for each hostel block.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/campus-living/laundry">
                 <ArrowLeft className="mr-2 h-4 w-4" />

@@ -561,13 +561,24 @@ export function BottomNavbar() {
         }}
         className={cn(
           'fixed bottom-0 left-0 right-0 z-[80]',
+          'max-w-full overflow-x-hidden',
           // Hide on desktop when sidebar is visible (lg+)
           'lg:hidden',
           'bg-background border-t border-border',
           'shadow-[0_-4px_20px_rgba(0,0,0,0.1)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]'
         )}
         style={{
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          // A slow drag that started on the nav used to begin an iOS text
+          // selection and pop the Copy / Proofread menu instead of doing
+          // nothing. Nav chrome is not readable content, so it is not
+          // selectable. Both properties are inherited, so the submenu that
+          // renders inside this element is covered too. Set here rather than
+          // via a Tailwind class because this project has no autoprefixer and
+          // older iOS Safari only honours the -webkit- form.
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          WebkitTouchCallout: 'none'
         }}
       >
         {/* Expanded submenu */}
@@ -581,7 +592,7 @@ export function BottomNavbar() {
             Every item gets a 3-color holographic gradient via tileGradient.
             Modules use GROUP_TILE_GRADIENTS by groupLabel; Search + More
             get utility-color defaults. */}
-        <div className="flex items-center justify-around">
+        <div className="flex w-full min-w-0 items-center justify-around">
           {primaryNavGroups.map((group) => (
             <BottomNavItem
               key={group.id}

@@ -212,7 +212,7 @@ export default function AdminQuestsPage() {
 
         {/* Quests Table */}
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             {isLoading ? (
               <div className="flex justify-center p-8">
                 <BeatLoader color="#00e902" />

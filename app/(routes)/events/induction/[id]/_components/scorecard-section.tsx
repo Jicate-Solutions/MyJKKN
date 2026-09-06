@@ -25,6 +25,26 @@ function fmt(n: number | null, suffix = ''): string {
   return n === null || n === undefined ? '—' : `${n}${suffix}`;
 }
 
+// Scores are Postgres NUMERIC; PostgREST strips trailing zeros on the way out
+// (3.90 → 3.9, 1.00 → 1), so a column of averages renders ragged. Pin to 2dp.
+// Number() because the same column can arrive as a string on other clients.
+function fmtScore(n: number | null): string {
+  return n === null || n === undefined ? '—' : Number(n).toFixed(2);
+}
+
+// An average PLUS the denominator it was computed from. A bare — is
+// indistinguishable from a broken query, and an average over 3 of 11 freshers must
+// not read with the same authority as one over 141 of 195. fn_induction_scorecard
+// already returns value_rated / advocacy_given per row — this stops throwing them away.
+function ScoreCell({ avg, n, of }: { avg: number | null; n: number; of: number }) {
+  return (
+    <div className="leading-tight">
+      <div>{fmtScore(avg)}</div>
+      <div className="text-[11px] text-muted-foreground tabular-nums">{n}/{of}</div>
+    </div>
+  );
+}
+
 export function ScorecardSection({ eventId }: { eventId: string }) {
   const [rows, setRows] = useState<ScorecardRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,12 +118,16 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
   const total = rows.find((r) => r.dimension === 'total');
   const depts = rows.filter((r) => r.dimension === 'department');
   const batches = rows.filter((r) => r.dimension === 'batch');
+  // group_id NULL is the “— No batch —” bucket, not a real batch.
+  const realBatches = batches.filter((r) => r.group_id !== null);
 
   // The funnel, left→right: experienced value drives advocacy drives referral drives JOIN.
   const steps = total ? [
     { icon: Users, label: 'Enrolled', value: fmt(total.enrolled), hint: 'freshers in this induction' },
-    { icon: Star, label: 'Value', value: fmt(total.value_avg), hint: `avg rating · ${total.value_rated} rated` },
-    { icon: Megaphone, label: 'Advocacy', value: fmt(total.advocacy_avg), hint: `avg NPS · ${total.promoters} promoter${total.promoters === 1 ? '' : 's'}` },
+    { icon: Star, label: 'Value', value: fmtScore(total.value_avg), hint: `avg 1–5 · ${total.value_rated} of ${total.enrolled} rated` },
+    // NOT NPS: this is the mean 0–10 recommendation score. Real NPS is
+    // %promoters − %detractors on a −100…+100 scale — don't relabel it back.
+    { icon: Megaphone, label: 'Advocacy', value: fmtScore(total.advocacy_avg), hint: `avg 0–10 · ${total.advocacy_given} of ${total.enrolled} rated · ${total.promoters} promoter${total.promoters === 1 ? '' : 's'}` },
     { icon: UserPlus, label: 'Referred', value: fmt(total.referred), hint: 'freshers who referred' },
     { icon: Send, label: 'Submitted', value: fmt(total.referrals_submitted), hint: 'prospects referred' },
     { icon: GraduationCap, label: 'Joined', value: fmt(total.referrals_joined), hint: 'referrals that joined', kpi: true },
@@ -111,7 +135,7 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <CardTitle className="text-base">Scorecard</CardTitle>
           <CardDescription>
@@ -165,13 +189,21 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
               </div>
             )}
 
-            {/* By batch */}
-            {batches.length > 0 && (
-              <div>
-                <div className="text-sm font-medium mb-2">By batch</div>
+            {/* By batch — the unassigned bucket ALONE is not a breakdown, it just
+                restates the Enrolled card. Render the table only once real batches
+                exist; otherwise point at the “Split into batches” control above. */}
+            <div>
+              <div className="text-sm font-medium mb-2">By batch</div>
+              {realBatches.length > 0 ? (
                 <ScorecardTable rows={batches} firstCol="Batch" />
-              </div>
-            )}
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Not split into batches yet — every fresher is unassigned, so a batch
+                  breakdown would only repeat the totals above.
+                  {canManage && ' Use “Split into batches” at the top of this page to divide the cohort.'}
+                </p>
+              )}
+            </div>
 
             <div className="flex justify-end">
               <Button size="sm" variant="ghost" onClick={load}>
@@ -193,8 +225,8 @@ function ScorecardTable({ rows, firstCol }: { rows: ScorecardRow[]; firstCol: st
           <TableRow>
             <TableHead>{firstCol}</TableHead>
             <TableHead className="text-right">Enrolled</TableHead>
-            <TableHead className="text-right">Value</TableHead>
-            <TableHead className="text-right">NPS</TableHead>
+            <TableHead className="text-right">Value (1–5)</TableHead>
+            <TableHead className="text-right">Advocacy (0–10)</TableHead>
             <TableHead className="text-right">Referred</TableHead>
             <TableHead className="text-right">Submitted</TableHead>
             <TableHead className="text-right">Joined</TableHead>
@@ -205,8 +237,12 @@ function ScorecardTable({ rows, firstCol }: { rows: ScorecardRow[]; firstCol: st
             <TableRow key={`${r.dimension}-${r.group_id ?? r.group_label}`}>
               <TableCell className="font-medium">{r.group_label}</TableCell>
               <TableCell className="text-right">{r.enrolled}</TableCell>
-              <TableCell className="text-right">{fmt(r.value_avg)}</TableCell>
-              <TableCell className="text-right">{fmt(r.advocacy_avg)}</TableCell>
+              <TableCell className="text-right">
+                <ScoreCell avg={r.value_avg} n={r.value_rated} of={r.enrolled} />
+              </TableCell>
+              <TableCell className="text-right">
+                <ScoreCell avg={r.advocacy_avg} n={r.advocacy_given} of={r.enrolled} />
+              </TableCell>
               <TableCell className="text-right">{r.referred}</TableCell>
               <TableCell className="text-right">{r.referrals_submitted}</TableCell>
               <TableCell className="text-right font-semibold text-emerald-700 dark:text-emerald-400">

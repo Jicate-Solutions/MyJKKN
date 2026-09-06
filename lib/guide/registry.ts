@@ -48,9 +48,19 @@ import { GUIDES as RESOURCES_GUIDES, REQUIRES as RESOURCES_REQUIRES } from "../r
 import { GUIDES as VAC_GUIDES, REQUIRES as VAC_REQUIRES } from "../vac/guide/content";
 import { GUIDES as OKR_GUIDES, REQUIRES as OKR_REQUIRES } from "../okr/guide/content";
 import { GUIDES as SCHOOLS_NETWORK_GUIDES, REQUIRES as SCHOOLS_NETWORK_REQUIRES } from "../admission/schools-network/guide/content";
-import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES } from "../foundation/guide/content";
+import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES, SESSION_LEADER_SECTIONS as FOUNDATION_SESSION_LEADER_SECTIONS, ONEMARK_PAPER_SECTIONS as FOUNDATION_ONEMARK_PAPER_SECTIONS, ONEMARK_REVIEW_SECTIONS as FOUNDATION_ONEMARK_REVIEW_SECTIONS } from "../foundation/guide/content";
 import { GUIDES as AUDIT_GUIDES, REQUIRES as AUDIT_REQUIRES } from "../audit/guide/content";
 import { GUIDES as IMPROVEMENT_GUIDES, REQUIRES as IMPROVEMENT_REQUIRES } from "../improvement/guide/content";
+import { GUIDES as CEO_ROUNDS_GUIDES, REQUIRES as CEO_ROUNDS_REQUIRES } from "../ceo-rounds/guide/content";
+import {
+  GUIDES as ACCREDITATION_GUIDES,
+  REQUIRES as ACCREDITATION_REQUIRES,
+  orientationSections as ACCREDITATION_ORIENTATION_SECTIONS,
+  cacSections as ACCREDITATION_CAC_SECTIONS,
+  ownerSections as ACCREDITATION_OWNER_SECTIONS,
+  frameworkSections as ACCREDITATION_FRAMEWORK_SECTIONS,
+  assignSections as ACCREDITATION_ASSIGN_SECTIONS,
+} from "../accreditation/guide/content";
 import {
   GUIDES as ID_CARDS_GUIDES,
   REQUIRES as ID_CARDS_REQUIRES,
@@ -73,11 +83,11 @@ import {
  * ──────────────────────────────────────────────────────────────────────── */
 export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
-  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member, FOUNDATION_REQUIRES.facilitator],
+  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member, FOUNDATION_REQUIRES.facilitator, FOUNDATION_REQUIRES.paper_builder, FOUNDATION_REQUIRES.item_approver],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman, LEARNERS_COUNCIL_REQUIRES.member, EVENTS_REQUIRES.organiser],
-  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor, SCHOOLS_NETWORK_REQUIRES.coordinator, FOUNDATION_REQUIRES.coordinator],
-  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, ACADEMIC_REQUIRES.registrar, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager, AUDIT_REQUIRES.auditor, IMPROVEMENT_REQUIRES.manage],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin, SCHOOLS_NETWORK_REQUIRES.admin, ID_CARDS_REQUIRES.templates, ID_CARDS_REQUIRES.operator],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor, SCHOOLS_NETWORK_REQUIRES.coordinator, FOUNDATION_REQUIRES.coordinator, ACCREDITATION_REQUIRES.assign],
+  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, ACADEMIC_REQUIRES.registrar, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager, AUDIT_REQUIRES.auditor, IMPROVEMENT_REQUIRES.manage, CEO_ROUNDS_REQUIRES.log, ACCREDITATION_REQUIRES.owner],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin, SCHOOLS_NETWORK_REQUIRES.admin, ID_CARDS_REQUIRES.templates, ID_CARDS_REQUIRES.operator, ACCREDITATION_REQUIRES.framework],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -985,6 +995,26 @@ export const foundationGuide: ModuleGuide = {
   module: "foundation",
   basePath: "/foundation",
   lanes: {
+    learner: {
+      // The learner floor is OPEN (PERSONA_REQUIRES.learner = []), so every
+      // section is stamped with foundation.practice.take and the server-side
+      // filter hides them from anyone not sitting the programme — Foundation
+      // content never leaks into the open getting-started baseline. This lane
+      // was authored in content.ts (#2703) but never composed here; OneMark's
+      // learner steps (practice / timed / live / vault) made that gap visible.
+      sections: withRequires(FOUNDATION_GUIDES.lanes.learner.sections, FOUNDATION_REQUIRES.learner),
+      // LATENT: composeLane() hands the start-here slot to the FIRST registry
+      // module that offers one and filterLaneSections() does not gate
+      // startHere — only sections. Today ai-pulse (earlier in REGISTRY) takes
+      // the learner slot, so this href never reaches the open learner floor;
+      // that is registry order, not a guarantee. If foundation ever moves
+      // ahead of every other learner-lane module, gate startHere in
+      // lib/guide/filter.ts before relying on it. composeModuleLane (the
+      // scoped /guide?module=foundation view) still needs it, so it stays.
+      startHere: FOUNDATION_GUIDES.lanes.learner.startHere,
+      title: FOUNDATION_GUIDES.lanes.learner.title,
+      tagline: FOUNDATION_GUIDES.lanes.learner.tagline,
+    },
     coordinator: {
       sections: withRequires(FOUNDATION_GUIDES.lanes.coordinator.sections, FOUNDATION_REQUIRES.coordinator),
       startHere: FOUNDATION_GUIDES.lanes.coordinator.startHere,
@@ -992,7 +1022,28 @@ export const foundationGuide: ModuleGuide = {
       tagline: FOUNDATION_GUIDES.lanes.coordinator.tagline,
     },
     facilitator: {
-      sections: withRequires(FOUNDATION_GUIDES.lanes.facilitator.sections, FOUNDATION_REQUIRES.facilitator),
+      // FOUR gates in one lane, on purpose. Reviewing a learner's diagnostic and
+      // RUNNING a practice session for a group are different jobs held by
+      // different people: the review sections need foundation.students.view,
+      // while running a session needs foundation.practice.take — and the one
+      // role that actually runs sessions (school_faculty) holds the second and
+      // not the first. Stamping the lane with a single key would have hidden the
+      // session steps from the only person who needs them. Same shape as
+      // auditGuide below: a cross-cutting job scoped by its own key.
+      //
+      // OneMark adds two more Senior Learner jobs on their own EXISTING keys:
+      // building a board-shape paper (foundation.assessments.manage) and
+      // ticking drafted items live (foundation.items.manage). They land in
+      // THIS lane, not coordinator, because the FAB opens the highest-priority
+      // lane the module fills and facilitator outranks coordinator — a Senior
+      // Learner on /foundation/onemark/paper must see the paper steps without
+      // switching lanes.
+      sections: [
+        ...withRequires(FOUNDATION_GUIDES.lanes.facilitator.sections, FOUNDATION_REQUIRES.facilitator),
+        ...withRequires(FOUNDATION_SESSION_LEADER_SECTIONS, FOUNDATION_REQUIRES.session_leader),
+        ...withRequires(FOUNDATION_ONEMARK_PAPER_SECTIONS, FOUNDATION_REQUIRES.paper_builder),
+        ...withRequires(FOUNDATION_ONEMARK_REVIEW_SECTIONS, FOUNDATION_REQUIRES.item_approver),
+      ],
       startHere: FOUNDATION_GUIDES.lanes.facilitator.startHere,
       title: FOUNDATION_GUIDES.lanes.facilitator.title,
       tagline: FOUNDATION_GUIDES.lanes.facilitator.tagline,
@@ -1043,8 +1094,8 @@ export const auditGuide: ModuleGuide = {
  * neither key) — improvement content never leaks into the open learner floor.
  * reviewer (Senior Learner / CEO) → supervisor, uniformly gated improvement.board.manage
  * (fail-closed, matching HR/OKR manager→supervisor).
- * NOTE: /ceo-rounds is a separate route (PR-3, not yet merged) — its guide is a
- * follow-up once that route exists and can be browser-tested.
+ * NOTE: /ceo-rounds now has its OWN guide module (ceoRoundsGuide, below) — the
+ * daily-round log is a sibling route, not part of /improvement-board.
  * ────────────────────────────────────────────────────────────────────────── */
 export const improvementGuide: ModuleGuide = {
   module: "improvement",
@@ -1064,6 +1115,41 @@ export const improvementGuide: ModuleGuide = {
       startHere: IMPROVEMENT_GUIDES.lanes.supervisor.startHere,
       title: IMPROVEMENT_GUIDES.lanes.supervisor.title,
       tagline: IMPROVEMENT_GUIDES.lanes.supervisor.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── CEO Rounds (MBA teaching-enterprise daily-round log) ─────────────────────
+ * rotating summary author → learner. Its sections carry their OWN per-section
+ * requires in content.ts (ceo_rounds.summary.write), so they are passed THROUGH
+ * verbatim rather than uniformly re-gated with withRequires. The learner lane is
+ * OPEN (PERSONA_REQUIRES.learner = []); every CEO Rounds learner section is
+ * gated, so a learner who is not an assigned summary author sees NONE of them —
+ * CEO Rounds content never leaks into the open learner floor (mirrors the
+ * Improvement Board learner lane above).
+ * Senior Learner / CEO → supervisor, uniformly gated ceo_rounds.log (fail-closed,
+ * matching HR/OKR manager→supervisor and Improvement Board).
+ * basePath /ceo-rounds — route→module map derives from it (route-map.ts).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const ceoRoundsGuide: ModuleGuide = {
+  module: "ceo-rounds",
+  basePath: "/ceo-rounds",
+  lanes: {
+    learner: {
+      // Sections already carry per-section requires (ceo_rounds.summary.write)
+      // from content.ts; pass them verbatim (do NOT withRequires — every learner
+      // section is gated, so nothing leaks into the open floor).
+      sections: CEO_ROUNDS_GUIDES.lanes.learner.sections,
+      startHere: CEO_ROUNDS_GUIDES.lanes.learner.startHere,
+      title: CEO_ROUNDS_GUIDES.lanes.learner.title,
+      tagline: CEO_ROUNDS_GUIDES.lanes.learner.tagline,
+    },
+    supervisor: {
+      sections: withRequires(CEO_ROUNDS_GUIDES.lanes.supervisor.sections, CEO_ROUNDS_REQUIRES.log),
+      startHere: CEO_ROUNDS_GUIDES.lanes.supervisor.startHere,
+      title: CEO_ROUNDS_GUIDES.lanes.supervisor.title,
+      tagline: CEO_ROUNDS_GUIDES.lanes.supervisor.tagline,
     },
   },
   routes: [],
@@ -1097,7 +1183,51 @@ export const idCardsGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide, auditGuide, improvementGuide, idCardsGuide];
+/* ── Accreditation & Compliance (the ten awarding bodies + IQAC) ─────────────
+ * ONE accreditation lane, contributed to EVERY lane an accreditation reader can
+ * resolve to — supervisor (the HOD / principal named as a metric owner),
+ * coordinator (the IQAC coordinator), module-admin (the catalog keeper) and
+ * external (the accreditation_officer / external_auditor_timeboxed role keys in
+ * EXTERNAL_ROLE_KEYS). Same cross-cutting shape as auditGuide above: the holders
+ * span several primary personas, so the content cannot live in one lane alone.
+ *
+ * The five section groups carry DIFFERENT keys, so they are gated group by group
+ * rather than uniformly — a viewer who can read the framework but was never
+ * named an owner gets the framework steps and none of the owner steps
+ * (fail-closed, same as idCardsGuide's two-key collapse).
+ *
+ * DO NOT merge these into one withRequires() call. It stamps ONE key across
+ * everything handed to it, so tidying them together would silently re-gate the
+ * CAC steps on `overview` and the owner steps on `cac` — the lane still renders
+ * and the wrong people lose the section, with no error anywhere. That exact
+ * failure is what __tests__/accreditation/guide-cac-gate.test.ts asserts against
+ * (and, for Foundation, guide-session-leader-gate.test.ts before it).
+ * ────────────────────────────────────────────────────────────────────────── */
+const accreditationLane = () => ({
+  sections: [
+    ...withRequires(ACCREDITATION_ORIENTATION_SECTIONS, ACCREDITATION_REQUIRES.overview),
+    ...withRequires(ACCREDITATION_CAC_SECTIONS, ACCREDITATION_REQUIRES.cac),
+    ...withRequires(ACCREDITATION_OWNER_SECTIONS, ACCREDITATION_REQUIRES.owner),
+    ...withRequires(ACCREDITATION_FRAMEWORK_SECTIONS, ACCREDITATION_REQUIRES.framework),
+    ...withRequires(ACCREDITATION_ASSIGN_SECTIONS, ACCREDITATION_REQUIRES.assign),
+  ],
+  startHere: ACCREDITATION_GUIDES.lanes.iqac.startHere,
+  title: ACCREDITATION_GUIDES.lanes.iqac.title,
+  tagline: ACCREDITATION_GUIDES.lanes.iqac.tagline,
+});
+export const accreditationGuide: ModuleGuide = {
+  module: "accreditation",
+  basePath: "/accreditation",
+  lanes: {
+    coordinator: accreditationLane(),
+    supervisor: accreditationLane(),
+    "module-admin": accreditationLane(),
+    external: accreditationLane(),
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide, auditGuide, improvementGuide, ceoRoundsGuide, idCardsGuide, accreditationGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -1137,6 +1267,8 @@ const MODULE_LABELS: Record<string, string> = {
   "schools-network": "Schools Network",
   foundation: "Foundation Programme",
   improvement: "Improvement Board",
+  "ceo-rounds": "CEO Rounds",
+  accreditation: "Accreditation & Compliance",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -1180,6 +1312,8 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   "schools-network": SCHOOLS_NETWORK_GUIDES.glossary ?? [],
   foundation: FOUNDATION_GUIDES.glossary ?? [],
   improvement: IMPROVEMENT_GUIDES.glossary ?? [],
+  "ceo-rounds": CEO_ROUNDS_GUIDES.glossary ?? [],
+  accreditation: ACCREDITATION_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */

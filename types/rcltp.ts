@@ -139,6 +139,99 @@ export interface RcltpPartBQuestion {
   updated_by: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// 2a. AI-generated question metadata — the typed shape of
+//     rcltp_part_b_questions.ai_meta for an AI-drafted question. WRITTEN by
+//     lib/services/rcltp/question-generation-service.ts (2-pass generate +
+//     answer-key check) and RENDERED by the Part-B review console. The row's
+//     `ai_meta` column stays `Json | null` (manual questions have null / an
+//     arbitrary shape), so the console casts to this when a question is
+//     source='ai_generated'. Every field is optional so a partial/legacy
+//     ai_meta degrades gracefully in the UI.
+// ---------------------------------------------------------------------------
+
+/** Marzano's New Taxonomy level a question targets (locked decision #2). */
+export type RcltpMarzanoLevel =
+  | 'retrieval'
+  | 'comprehension'
+  | 'analysis'
+  | 'knowledge_utilization';
+
+/** Second-pass answer-key check verdict (locked decision #5). */
+export type RcltpKeyCheckVerdict = 'agree' | 'disagree' | 'ambiguous' | 'unchecked';
+
+/** One question's answer-key check result. */
+export interface RcltpQuestionKeyCheck {
+  index: number;
+  verdict: RcltpKeyCheckVerdict;
+  note?: string;
+}
+
+/**
+ * The AI's frozen original — kept verbatim so a Senior Learner's edit is a
+ * measurable "what changed" signal, the self-improving-loop input (decision #8).
+ */
+export interface RcltpQuestionAiDraft {
+  question_text: string;
+  question_type: string;
+  options: string[] | null;
+  correct_answer: string;
+}
+
+/** Parsed shape of rcltp_part_b_questions.ai_meta for an AI-generated question. */
+export interface RcltpQuestionAiMeta {
+  marzano_level?: RcltpMarzanoLevel;
+  is_stretch?: boolean;
+  rationale?: string;
+  checker?: RcltpQuestionKeyCheck;
+  ai_draft?: RcltpQuestionAiDraft;
+  generated_by_model?: string;
+  coverage_note?: string;
+  generated_via?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 2b. Review-queue priority + weekly spot-check (locked decisions #5 and #7).
+//     Both are served by SECURITY DEFINER RPCs; see migration
+//     20260725080000_rcltp_batch_approve_and_spotcheck.sql.
+// ---------------------------------------------------------------------------
+
+/**
+ * One passage's place in the "most-needed-first" review queue, from
+ * fn_rcltp_passage_review_priority. `priority_rank` is computed server-side so
+ * the ordering rule lives in exactly one place — the console sorts by it and
+ * never re-implements the comparator.
+ *
+ * next_scheduled_at is null until assessment scheduling is in use; the ranking
+ * then falls through to at_risk_count, which is the live signal today.
+ */
+export interface RcltpPassageReviewPriority {
+  passage_id: string;
+  draft_count: number;
+  ai_agreed_count: number;
+  attention_count: number;
+  at_risk_count: number;
+  next_scheduled_at: string | null;
+  priority_rank: number;
+}
+
+/** Outcome a Senior Learner records against a sampled item. */
+export type RcltpSpotcheckStatus = 'pending' | 'confirmed' | 'flagged';
+
+/** One item in this week's anti-rubber-stamp sample (fn_rcltp_spotcheck_week). */
+export interface RcltpReviewSpotcheck {
+  id: string;
+  question_id: string;
+  question_text: string;
+  correct_answer: string | null;
+  passage_id: string | null;
+  passage_title: string | null;
+  week_start: string;
+  status: RcltpSpotcheckStatus;
+  note: string | null;
+  resolved_at: string | null;
+}
+
 /** rcltp_assessments — one assessment sitting (Part A voice + Part B comprehension). */
 export interface RcltpAssessment {
   id: string;
@@ -528,6 +621,14 @@ export interface CreateRcltpPassageDto {
   status?: RcltpPassageStatus;
   ai_meta?: Json | null;
   is_active?: boolean;
+  // Who added the passage. Director decision 7 (2026-07-28) tells THIS person
+  // when their material is in a language the overnight helper cannot draft for,
+  // so the column has to be populated at insert — it has no DB default and no
+  // trigger fills it. Optional here because RcltpPassagesService.createPassage
+  // supplies the signed-in user when the caller does not; a caller that has no
+  // session (or a server-side importer) leaves it null and the notice correctly
+  // falls back to the school head.
+  created_by?: string | null;
 }
 export type UpdateRcltpPassageDto = Partial<CreateRcltpPassageDto>;
 

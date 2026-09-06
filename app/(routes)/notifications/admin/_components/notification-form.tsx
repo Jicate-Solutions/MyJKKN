@@ -48,12 +48,18 @@ import { usePrograms } from '@/hooks/organization/use-programs';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { useRoles } from '@/hooks/organization/use-roles';
+import { useIsLcOfficeBearer } from '@/hooks/learners-council/use-is-lc-office-bearer';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { NOTIFICATION_CATEGORIES } from '@/lib/constants/notification-categories';
+import { parseYouTubeId } from '@/lib/media/youtube';
+import {
+  YouTubePreviewCard,
+  type YouTubeLinkPreview
+} from '@/components/notifications/youtube-preview-card';
 
 // Use shared canonical list so the filter tabs on /notifications/admin
 // always stay in sync with the options in this dropdown.
@@ -73,6 +79,11 @@ const notificationSchema = z.object({
   category: z.string().min(1, 'Category is required'),
   expires_at: z.string().optional(),
   // Targeting fields
+  // Multi-select (2026-08-04): one send can target several institutions, e.g.
+  // Dental + Pharmacy learners. `institution_id` is kept only as the DERIVED
+  // single value that the Department→Program→Semester→Section hierarchy needs
+  // (those levels belong to exactly one institution).
+  institution_ids: z.array(z.string()).optional(),
   institution_id: z.string().optional(),
   department_id: z.string().optional(),
   program_id: z.string().optional(),
@@ -108,9 +119,20 @@ const ALLOWED_FILE_TYPES = [
   'video/mp4',
   'audio/mpeg',
   'audio/mp3',
+  // Images (added 2026-08-04): the picker previously greyed images out and the
+  // validator rejected them, so an announcement could never carry a poster,
+  // circular scan, or screenshot. The storage bucket's allowed_mime_types was
+  // missing them too — both layers had to change (see the companion migration
+  // 20260804170000_notification_attachments_allow_images.sql).
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
 ];
 
-const ALLOWED_EXTENSIONS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mp3';
+const ALLOWED_EXTENSIONS =
+  '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mp3,.png,.jpg,.jpeg,.gif,.webp';
 const MAX_FILE_SIZE_MB = 25;
 const MAX_ATTACHMENTS = 5;
 
@@ -122,6 +144,8 @@ interface AttachmentFile {
 }
 
 function getFileIcon(type: string) {
+  // Checked first: 'image/*' must not fall through to the generic document icon.
+  if (type.startsWith('image/')) return <FileImage className='h-4 w-4 text-sky-500' />;
   if (type.includes('pdf')) return <FileText className='h-4 w-4 text-red-500' />;
   if (type.includes('word') || type.includes('document')) return <FileText className='h-4 w-4 text-blue-500' />;
   if (type.includes('excel') || type.includes('spreadsheet')) return <FileSpreadsheet className='h-4 w-4 text-green-500' />;
@@ -144,6 +168,10 @@ export function NotificationForm() {
   const [previewMode, setPreviewMode] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  // Resolved YouTube card for the Action URL, shown to the sender and stored on
+  // metadata.link_preview so recipients see the same thing.
+  const [linkPreview, setLinkPreview] = useState<YouTubeLinkPreview | null>(null);
+  const [resolvingLinkPreview, setResolvingLinkPreview] = useState(false);
 
   // Check if this is a reuse (pre-fill from query params)
   const isReuse = searchParams.get('reuse') === 'true';
@@ -170,6 +198,7 @@ export function NotificationForm() {
       priority: (searchParams.get('priority') as any) || 'normal',
       category: searchParams.get('category') || undefined,
       expires_at: '',
+      institution_ids: [],
       institution_id: undefined,
       department_id: undefined,
       program_id: undefined,
@@ -188,10 +217,94 @@ export function NotificationForm() {
 
   // Watch form values for hierarchical dependencies
   const watchedValues = form.watch();
-  const selectedInstitutionId = watchedValues.institution_id;
+  const selectedInstitutionIds = watchedValues.institution_ids || [];
+  // The Department→Program→Semester→Section chain is only meaningful inside ONE
+  // institution, so it stays enabled for a single selection and is disabled
+  // (with an explanation in the UI) when 0 or 2+ institutions are picked.
+  const selectedInstitutionId =
+    selectedInstitutionIds.length === 1 ? selectedInstitutionIds[0] : undefined;
   const selectedDepartmentId = watchedValues.department_id;
   const selectedProgramId = watchedValues.program_id;
   const selectedSemesterId = watchedValues.semester_id;
+
+  // Action URL → YouTube preview. Depending on the parsed id (not the raw
+  // string) means typing `&t=30` or `&list=…` onto a resolved link does not
+  // re-fetch, and a non-YouTube URL never fires a request at all.
+  const youTubeVideoId = parseYouTubeId(watchedValues.url);
+
+  useEffect(() => {
+    if (!youTubeVideoId) {
+      setLinkPreview(null);
+      return;
+    }
+
+    let cancelled = false;
+    // The id alone is enough to render a card (the poster URL is derived from
+    // it), so show that immediately and let the lookup enrich it.
+    setLinkPreview({ videoId: youTubeVideoId });
+    setResolvingLinkPreview(true);
+
+    (async () => {
+      try {
+        const response = await fetch('/api/notifications/link-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: watchedValues.url })
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled || data?.videoId !== youTubeVideoId) return;
+        setLinkPreview({
+          videoId: data.videoId,
+          title: data.title ?? null,
+          author: data.author ?? null,
+          thumbnailUrl: data.thumbnailUrl ?? null
+        });
+      } catch {
+        // Non-blocking by design: the id-only card stays, sending is unaffected.
+      } finally {
+        if (!cancelled) setResolvingLinkPreview(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [youTubeVideoId]);
+
+  /**
+   * notifications.metadata payload. Keeps the existing `attachments` shape and
+   * adds `link_preview` when the Action URL is a YouTube link. If the lookup
+   * never resolved (offline, oEmbed down, sender hit Send immediately) we still
+   * store the id — the card renders from that alone — so a failed preview can
+   * never block or degrade sending.
+   */
+  const buildMetadata = (
+    attachmentUrls: Array<{ name: string; url: string; type: string; size: number }>,
+    submittedUrl?: string
+  ): Record<string, unknown> | undefined => {
+    const metadata: Record<string, unknown> = {};
+
+    if (attachmentUrls.length > 0) {
+      metadata.attachments = attachmentUrls;
+    }
+
+    const videoId = parseYouTubeId(submittedUrl);
+    if (videoId) {
+      metadata.link_preview =
+        linkPreview && linkPreview.videoId === videoId
+          ? {
+              videoId,
+              title: linkPreview.title ?? null,
+              author: linkPreview.author ?? null,
+              thumbnailUrl: linkPreview.thumbnailUrl ?? null
+            }
+          : { videoId };
+    }
+
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
+  };
 
   // Fetch data with hierarchical dependencies
   const { institutions: institutionsData } = useInstitutionsWithAccess({});
@@ -234,7 +347,26 @@ export function NotificationForm() {
     limit: 1000 // Fixed: 2025-01-30 - Increased from 100 to fetch all sections for notifications
   });
 
-  const institutions = institutionsData || [];
+  // An elected Learners Council office bearer is a learner, so the composer
+  // must not offer them staff, HODs or principals as targets. Administrators
+  // are untouched — including an administrator who also holds a council seat.
+  //
+  // This narrows what the picker DRAWS. It is not the guard: the send path and
+  // RLS decide who can actually be reached, independently of this.
+  const { isOfficeBearer: isLcOfficeBearer, isAdmin: isLcAdmin } =
+    useIsLcOfficeBearer();
+  const restrictToLearners = isLcOfficeBearer && !isLcAdmin;
+
+  // Council office bearers hold college seats, so the two JKKN schools (which
+  // enrol children) are dropped from their picker. useInstitutionsWithAccess
+  // already defaults to entity_type='institution' for non-super-admins; this
+  // is the explicit second guard so a future change to that default cannot
+  // silently put schools back in front of a council office bearer.
+  const allInstitutions = institutionsData || [];
+  const institutions = restrictToLearners
+    ? allInstitutions.filter((i) => i.entity_type !== 'school')
+    : allInstitutions;
+
   const departments = departmentsResponse?.data || [];
   const programs = programsResponse?.data || [];
   const semesters = semestersResponse?.data || [];
@@ -245,12 +377,24 @@ export function NotificationForm() {
     includeSystemRoles: true
   });
 
-  const availableRoles =
+  // 'student' is the role key every learner carries. It is a stored value, not
+  // wording shown to anyone — the picker renders role_name ("Student") from the
+  // database, and the copy below says "learners".
+  const LEARNER_ROLE_KEY = 'student';
+
+  const allRoles =
     rolesResponse?.map((role) => ({
       value: role.role_key,
       label: role.role_name,
       description: role.description
     })) || [];
+
+  // Narrowing here covers every consumer at once — the checkbox grid, the
+  // "Select All Roles" toggle, the n/N counter and the target summary all read
+  // availableRoles.
+  const availableRoles = restrictToLearners
+    ? allRoles.filter((role) => role.value === LEARNER_ROLE_KEY)
+    : allRoles;
 
   // Fetch saved audiences
   const { data: audiences } = useQuery({
@@ -269,10 +413,19 @@ export function NotificationForm() {
   );
   const selectedDegreeId = selectedDepartment?.degree_id;
 
-  // Reset child fields when parent changes
-  const handleInstitutionChange = (value: string) => {
-    form.setValue('institution_id', value);
-    // Reset all child fields
+  // Reset child fields when parent changes.
+  // Toggling ANY institution invalidates the deeper hierarchy (a department id
+  // belongs to one institution), so the child levels are always cleared.
+  // Unchecking every institution returns targeting to "All institutions" —
+  // before 2026-08-04 this was a dead end: the dropdown listed only
+  // institutions, so once one was picked the only way back was "Clear All",
+  // which also wiped roles and audiences.
+  const handleInstitutionToggle = (institutionId: string, checked: boolean) => {
+    const current = form.getValues('institution_ids') || [];
+    const next = checked
+      ? [...current, institutionId]
+      : current.filter((id: string) => id !== institutionId);
+    form.setValue('institution_ids', next, { shouldValidate: true });
     form.setValue('department_id', undefined);
     form.setValue('program_id', undefined);
     form.setValue('semester_id', undefined);
@@ -305,6 +458,7 @@ export function NotificationForm() {
   };
 
   const clearAllTargeting = () => {
+    form.setValue('institution_ids', []);
     form.setValue('institution_id', undefined);
     form.setValue('department_id', undefined);
     form.setValue('program_id', undefined);
@@ -320,7 +474,7 @@ export function NotificationForm() {
 
       // Check if trying to send to all users without permission
       const isTargetingAll =
-        !data.institution_id &&
+        !(data.institution_ids && data.institution_ids.length > 0) &&
         !data.department_id &&
         !data.program_id &&
         !data.semester_id &&
@@ -366,9 +520,19 @@ export function NotificationForm() {
         priority: data.priority,
         category: data.category,
         expires_at: data.expires_at || undefined,
-        metadata: attachmentUrls.length > 0 ? { attachments: attachmentUrls } : undefined,
+        metadata: buildMetadata(attachmentUrls, data.url),
         targeting: {
-          institution_id: data.institution_id || undefined,
+          institution_ids:
+            data.institution_ids && data.institution_ids.length > 0
+              ? data.institution_ids
+              : undefined,
+          // Kept for backward compatibility: older consumers (and the deeper
+          // hierarchy branches) still read the single id. Only set when exactly
+          // one institution is selected, so it can never disagree with the list.
+          institution_id:
+            data.institution_ids && data.institution_ids.length === 1
+              ? data.institution_ids[0]
+              : undefined,
           department_id: data.department_id || undefined,
           program_id: data.program_id || undefined,
           semester_id: data.semester_id || undefined,
@@ -471,11 +635,14 @@ export function NotificationForm() {
   const getTargetSummary = () => {
     const targets: string[] = [];
 
-    if (watchedValues.institution_id) {
-      const institution = institutions.find(
-        (i: any) => i.id === watchedValues.institution_id
+    if (selectedInstitutionIds.length > 0) {
+      const names = selectedInstitutionIds.map((id: string) => {
+        const institution = institutions.find((i: any) => i.id === id);
+        return institution?.name || 'Selected';
+      });
+      targets.push(
+        `${names.length === 1 ? 'Institution' : `Institutions (${names.length})`}: ${names.join(', ')}`
       );
-      targets.push(`Institution: ${institution?.name || 'Selected'}`);
     }
 
     if (watchedValues.department_id) {
@@ -662,9 +829,23 @@ export function NotificationForm() {
                       />
                     </FormControl>
                     <FormDescription>
-                      URL to open when notification is clicked
+                      URL to open when notification is clicked. A YouTube link
+                      also shows recipients a preview card.
                     </FormDescription>
                     <FormMessage />
+                    {linkPreview && (
+                      <div className='mt-3 space-y-1.5'>
+                        <p className='text-xs font-medium text-muted-foreground'>
+                          {resolvingLinkPreview
+                            ? 'Loading video details…'
+                            : 'Recipients will see this card:'}
+                        </p>
+                        <YouTubePreviewCard
+                          preview={linkPreview}
+                          className='max-w-sm'
+                        />
+                      </div>
+                    )}
                   </FormItem>
                 )}
               />
@@ -709,36 +890,74 @@ export function NotificationForm() {
                   criteria.
                 </div>
               )}
+              {restrictToLearners && (
+                <p className='mt-2 text-xs text-muted-foreground'>
+                  As a council office bearer you can send to learners in your
+                  colleges.
+                </p>
+              )}
             </div>
             <div className='grid gap-4'>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                 <FormField
                   control={form.control}
-                  name='institution_id'
+                  name='institution_ids'
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Institution</FormLabel>
-                      <Select
-                        onValueChange={handleInstitutionChange}
-                        value={field.value || ''}
-                        key={`inst-${field.value || 'cleared'}`}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder='All institutions' />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {institutions.map((institution: any) => (
-                            <SelectItem
-                              key={institution.id}
-                              value={institution.id}
+                    <FormItem className='md:col-span-2'>
+                      <div className='flex items-center justify-between'>
+                        <FormLabel>Institutions</FormLabel>
+                        {selectedInstitutionIds.length > 0 && (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='h-auto py-0 text-xs'
+                            onClick={() => {
+                              form.setValue('institution_ids', []);
+                              form.setValue('department_id', undefined);
+                              form.setValue('program_id', undefined);
+                              form.setValue('semester_id', undefined);
+                              form.setValue('section_id', undefined);
+                            }}
+                          >
+                            Clear ({selectedInstitutionIds.length})
+                          </Button>
+                        )}
+                      </div>
+                      <p className='text-xs text-muted-foreground mb-2'>
+                        {selectedInstitutionIds.length === 0
+                          ? 'None selected = all institutions. Tick one or more to narrow (e.g. Dental + Pharmacy).'
+                          : selectedInstitutionIds.length === 1
+                            ? 'One institution selected — you can narrow further by department below.'
+                            : `${selectedInstitutionIds.length} institutions selected. Department and below are unavailable across multiple institutions — combine with Role targeting instead (e.g. Learner).`}
+                      </p>
+                      <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1'>
+                        {institutions.map((institution: any) => (
+                          <div
+                            key={institution.id}
+                            className='flex items-start gap-2 p-2 border rounded-lg hover:bg-muted/50'
+                          >
+                            <Checkbox
+                              id={`inst-${institution.id}`}
+                              checked={
+                                field.value?.includes(institution.id) || false
+                              }
+                              onCheckedChange={(checked) =>
+                                handleInstitutionToggle(
+                                  institution.id,
+                                  checked === true
+                                )
+                              }
+                            />
+                            <label
+                              htmlFor={`inst-${institution.id}`}
+                              className='text-sm font-medium cursor-pointer leading-tight'
                             >
                               {institution.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1391,7 +1610,7 @@ export function NotificationForm() {
                 Attachments (Optional)
               </h3>
               <p className='text-sm text-muted-foreground mt-1'>
-                Attach files to send with this notification. Supported: PDF, Word, Excel, PowerPoint, MP4 video, MP3 audio (max {MAX_FILE_SIZE_MB}MB each, up to {MAX_ATTACHMENTS} files)
+                Attach files to send with this notification. Supported: PDF, Word, Excel, PowerPoint, images (PNG, JPG, GIF, WebP), MP4 video, MP3 audio (max {MAX_FILE_SIZE_MB}MB each, up to {MAX_ATTACHMENTS} files)
               </p>
             </div>
 

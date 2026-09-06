@@ -12,8 +12,9 @@
 // Pattern: app/(public)/book/[slug]/page.tsx (server load → client widget).
 
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
+import { resolveRetiredHandle } from '@/lib/services/meetings/handle-redirect';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import {
   PublicHostService,
@@ -72,8 +73,18 @@ export async function generateMetadata({ params }: MeetPageProps): Promise<Metad
 export default async function MeetPersonPage({ params }: MeetPageProps) {
   const { handle } = await params;
   const [host, viewer] = await Promise.all([loadHost(handle), loadViewer()]);
-  // Unknown / private / auto-hidden / no-active-Google handle → genuine 404.
-  if (!host) notFound();
+
+  // Before 404ing: was this an address an admin retired? A published page's
+  // handle is admin-only to change precisely because the link may already be
+  // shared, so a rename must forward rather than break every saved link.
+  // 308 (permanentRedirect) so browsers and crawlers update the address, and so
+  // the method is preserved — a plain 302 would be re-followed on every visit.
+  if (!host) {
+    const current = await resolveRetiredHandle(handle);
+    if (current) permanentRedirect(`/meet/${current}`);
+    // Unknown / private / auto-hidden / no-active-Google → genuine 404.
+    notFound();
+  }
   // Real, bookable host who simply has no meeting types yet → explicit "not
   // ready" state instead of a confusing raw 404 (BUG-004267). The host testing
   // their own freshly-generated link gets a clear next step.
@@ -95,6 +106,10 @@ export default async function MeetPersonPage({ params }: MeetPageProps) {
         avatarUrl={host.avatarUrl}
         meetingTypes={host.meetingTypes}
         viewer={viewer}
+        // The host's own routing form, when they have an active one — the only
+        // place anything links to it. null for every host without one, and the
+        // page then renders exactly as it did before.
+        routingForm={host.routingForm}
       />
     </>
   );

@@ -15,10 +15,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowRight, Award, BarChart3, Construction } from 'lucide-react';
+import { Award, BarChart3, Construction, Info } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
 import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
+import { useAuth } from '@/hooks/use-auth';
+import { useInstitutionBodyScope } from '@/hooks/accreditation/use-institution-bodies';
+import { isBodyInScope } from '@/app/(routes)/accreditation/_lib/institution-body-scope';
 
 interface MetricRow {
   metric_code: string;
@@ -73,6 +76,21 @@ export function BodyPlaceholderPage({
   const meta = ACCREDITATION_BODIES.find((b) => b.code === bodyCode);
   const { data: metrics, isLoading: mLoading } = useBodyMetrics(bodyCode);
   const { data: evidence, isLoading: eLoading } = useBodyEvidenceCount(bodyCode);
+  const { profile } = useAuth();
+
+  // Does this body apply to the reader's own campus?
+  //
+  // Said, not enforced. These pages are cluster reads and an IQAC officer or
+  // super admin has every reason to open any of them, so blocking the route
+  // would break a legitimate need to answer "what does DCI even ask for?".
+  // What was actually wrong was the SILENCE: an engineering HOD landed on the
+  // Dental Council dashboard with no indication that none of it was theirs to
+  // do. A banner fixes that without taking anything away.
+  const { scope } = useInstitutionBodyScope(
+    (profile?.institution_id as string | undefined) ?? null,
+  );
+  const outOfScopeForViewer =
+    scope.kind === 'known' && !isBodyInScope(scope, bodyCode);
 
   const title = meta?.name ?? bodyCode;
 
@@ -87,6 +105,32 @@ export function BodyPlaceholderPage({
       />
 
       <div className="space-y-6">
+        {outOfScopeForViewer && (
+          <Card className="border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
+            <CardContent className="flex items-start gap-3 pt-6 text-sm">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+              <div>
+                <div className="font-medium">
+                  {bodyCode} does not apply to your campus
+                </div>
+                <p className="mt-1 text-muted-foreground">
+                  Nothing below counts towards your college&apos;s
+                  accreditation, and none of it is a gap on your side. You are
+                  reading it as a cluster view. Which bodies apply to which
+                  campus is recorded in{' '}
+                  <Link
+                    href="/accreditation/manage/bodies"
+                    className="underline underline-offset-2"
+                  >
+                    Manage → Awarding Bodies
+                  </Link>
+                  .
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className={`border-2 ${meta?.accentClass ?? ''}`}>
           <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

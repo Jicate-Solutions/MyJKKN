@@ -196,7 +196,7 @@ export function BuildersList() {
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-80" align="end">
+              <PopoverContent className="w-[calc(100vw-2rem)] max-w-[20rem] sm:w-80" align="end">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h4 className="font-medium">Filters</h4>

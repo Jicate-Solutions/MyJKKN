@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
-import { UserCheck } from 'lucide-react';
+import { UserCheck, GraduationCap, Phone } from 'lucide-react';
 
 const BRAND = '#0b6d41';
 type Status = 'present' | 'absent';
@@ -115,8 +115,40 @@ export function AttendanceCheckinDialog({
               <div key={m.learner_id} className="py-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">{m.name || 'Unnamed'}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {m.register_number ?? '—'}{m.batch_label ? ` · Batch ${m.batch_label}` : ''}
+                  {/* Programme first: register_number is still NULL for most freshers
+                      at induction time, so this line used to be a bare em-dash on the
+                      majority of rows and told the mentor nothing. The programme names
+                      the branch (department cannot — every engineering fresher sits in
+                      the shared first-year department), so it is what separates two
+                      same-name freshers in the group. */}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                    {m.program_name && (
+                      <span className="flex min-w-0 items-center gap-1">
+                        <GraduationCap className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{m.program_name}</span>
+                      </span>
+                    )}
+                    {/* The fresher's own number first — this is the mentor's
+                        contact list. Parent's number is the fallback and is
+                        labelled, so nobody rings a parent thinking it is the
+                        fresher. A tel: link so it dials straight from the phone
+                        the mentor is already holding. */}
+                    {(m.student_mobile || m.father_mobile) && (
+                      <a
+                        href={`tel:${m.student_mobile || m.father_mobile}`}
+                        className="flex items-center gap-1 tabular-nums hover:underline"
+                        title={m.student_mobile ? 'Fresher mobile' : "Parent's mobile"}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Phone className="h-3 w-3 shrink-0" />
+                        {m.student_mobile || m.father_mobile}
+                        {!m.student_mobile && <span>(parent)</span>}
+                      </a>
+                    )}
+                    {m.register_number && <span className="tabular-nums">{m.register_number}</span>}
+                    {m.batch_label && <span>Batch {m.batch_label}</span>}
+                    {!m.program_name && !m.register_number && !m.batch_label
+                      && !m.student_mobile && !m.father_mobile && <span>—</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -143,7 +175,7 @@ export function AttendanceCheckinDialog({
           })}
         </div>
 
-        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+        <DialogFooter className="flex-row flex-wrap items-center justify-between gap-2 sm:justify-between">
           <span className="text-xs text-muted-foreground tabular-nums">
             {presentCount} present · {absentCount} absent
           </span>

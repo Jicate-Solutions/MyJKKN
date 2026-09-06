@@ -202,7 +202,7 @@ export function HolidaysEditor({ scheduleId }: { scheduleId: string }) {
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-32"
+                className="min-w-0 flex-1 sm:w-32 sm:flex-none"
                 aria-label="Special hours start time"
               />
               <span className="text-sm text-muted-foreground">–</span>
@@ -210,7 +210,7 @@ export function HolidaysEditor({ scheduleId }: { scheduleId: string }) {
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-32"
+                className="min-w-0 flex-1 sm:w-32 sm:flex-none"
                 aria-label="Special hours end time"
               />
             </div>

@@ -52,6 +52,13 @@ interface Props {
 
 const OUTSTANDING: TaskStatus[] = ['queued', 'submitting', 'submitted'];
 const POLL_MS = 20000;
+// After this long still pending, the ₹0 Max lane is slow or its worker is down
+// (there is no paid fallback for these tasks). Rather than spin forever on a
+// misleading "ready soon", switch to an honest "still queued — check back" note.
+// The task is NOT failed — it stays queued and completes when the lane catches up
+// — so polling continues; only the copy changes. 3 min is well past a normal
+// completion, so it fires only when the lane is genuinely behind.
+const SLOW_MS = 180000;
 
 export function AiTaskButton({
   taskType,
@@ -68,6 +75,7 @@ export function AiTaskButton({
   const [result, setResult] = useState<TaskResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [slow, setSlow] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const applyRow = useCallback((row: TaskRow | undefined) => {
@@ -119,6 +127,16 @@ export function AiTaskButton({
     return stopPoll;
   }, [phase, taskId, stopPoll]);
 
+  // Slow-lane / worker-down copy: once pending exceeds SLOW_MS, stop implying
+  // "ready soon" and reassure the user it is safely queued (see SLOW_MS). Reset
+  // whenever we leave 'pending' (idle/ready/failed) or a fresh re-enqueue (new taskId).
+  useEffect(() => {
+    if (phase !== 'pending') { setSlow(false); return; }
+    setSlow(false);
+    const t = setTimeout(() => setSlow(true), SLOW_MS);
+    return () => clearTimeout(t);
+  }, [phase, taskId]);
+
   const enqueue = useCallback(async () => {
     setPhase('pending'); setResult(null); setErrorMsg(''); setPopoverOpen(false);
     try {
@@ -142,9 +160,13 @@ export function AiTaskButton({
       <div className={className}>
         <span className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Queued · {eta || 'ready soon'}
+          {slow ? 'Queued · taking longer than usual' : `Queued · ${eta || 'ready soon'}`}
         </span>
-        <p className="mt-1 text-xs text-muted-foreground">Runs in the background — you can leave this page and come back.</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {slow
+            ? 'The AI is busy right now — your request is safely queued and will finish in the background. You can close this and check back in a few minutes.'
+            : 'Runs in the background — you can leave this page and come back.'}
+        </p>
       </div>
     );
   }

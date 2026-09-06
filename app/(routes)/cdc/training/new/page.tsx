@@ -120,7 +120,7 @@ export default function NewTrainingProgrammePage() {
               </div>
 
               {/* Cohort binding — Target Department + Batch (BUG-004073) */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label>Target Department</Label>
                   <Select
@@ -179,7 +179,7 @@ export default function NewTrainingProgrammePage() {
               </div>
 
               {/* Dates */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="start_date">Start Date</Label>
                   <Input

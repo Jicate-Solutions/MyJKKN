@@ -264,9 +264,9 @@ export function TakeFlow({ assessmentId }: { assessmentId: string }) {
   if (!isOpen) {
     return (
       <div className='space-y-5'>
-        <div className='flex items-center justify-between gap-3'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <h1 className='text-xl font-semibold'>{typeLabel}</h1>
-          <Button asChild variant='outline' size='sm'>
+          <Button asChild variant='outline' size='sm' className='shrink-0 self-start sm:self-auto'>
             <Link href='/rcltp/student'>
               <ArrowLeft className='mr-2 h-4 w-4' /> My Reading
             </Link>

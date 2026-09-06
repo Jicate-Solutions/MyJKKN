@@ -445,7 +445,7 @@ export default function NewCampaignWizard() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Start date</Label>
                   <Input
@@ -481,7 +481,7 @@ export default function NewCampaignWizard() {
                   onChange={(e) => setBudget(e.target.value)}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Target leads</Label>
                   <Input

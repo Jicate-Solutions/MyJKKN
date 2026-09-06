@@ -72,7 +72,7 @@ function AdminRegistrationsPageInner({ params }: { params: Promise<{ id: string 
           <SarvamGalattaTable eventId={id} eventName={event.name} />
         ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-4">
+            <TabsList className="mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="teams" className="gap-2">
                 <Users className="h-4 w-4" />
                 Registered Teams

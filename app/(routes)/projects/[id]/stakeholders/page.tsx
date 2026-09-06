@@ -30,6 +30,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+  TAP_TARGET_TABS_LIST,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Users, FileText, Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
@@ -53,7 +58,7 @@ function ProjectStakeholdersPageInner() {
   return (
     <ContentLayout title="Stakeholder Communication">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -93,12 +98,12 @@ function ProjectStakeholdersPageInner() {
           value={tab}
           onValueChange={(v) => setTab(v as StakeholderTab)}
         >
-          <TabsList>
-            <TabsTrigger value="stakeholders" className="gap-1.5">
+          <TabsList className={TAP_TARGET_TABS_LIST}>
+            <TabsTrigger value="stakeholders" className={`gap-1.5 ${TAP_TARGET}`}>
               <Users className="h-4 w-4" />
               Stakeholders
             </TabsTrigger>
-            <TabsTrigger value="status-reports" className="gap-1.5">
+            <TabsTrigger value="status-reports" className={`gap-1.5 ${TAP_TARGET}`}>
               <FileText className="h-4 w-4" />
               Status Reports
             </TabsTrigger>

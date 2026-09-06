@@ -4,8 +4,11 @@
  * Change Request List — table of all change requests for one project.
  *
  * Columns: major/minor badge, type, title, impact summary, status, actions.
- * Actions: Approve / Reject (submitted or under_review), Delete.
- * Major requests are visually distinguished with a bold badge.
+ * Actions are gated by the viewer's role (fn_change_request_context):
+ *   • New Request      — project members & admins
+ *   • Approve / Reject — minor: project owner or admin; major: admin only
+ *   • Edit / Delete    — the requester, while still 'submitted'
+ * The RPCs enforce these server-side; this only decides which buttons render.
  *
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F14.
  */
@@ -21,6 +24,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -40,20 +44,22 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   CheckCircle2,
-  CircleSlash,
   GitPullRequestArrow,
   Loader2,
   MoreHorizontal,
+  Pencil,
   Plus,
   Trash2,
 } from 'lucide-react';
 import {
   useChangeRequests,
+  useChangeRequestContext,
   useDeleteChangeRequest,
 } from '@/hooks/projects/use-changes';
 import { ChangeRequestFormDialog } from './change-request-form-dialog';
 import { ChangeDecisionDialog } from './change-decision-dialog';
 import type { ProjectChangeRequest } from '@/types/projects';
+import type { ChangeRequestContext } from '@/lib/services/projects/change-service';
 
 interface ChangeRequestListProps {
   projectId: string;
@@ -73,10 +79,16 @@ function StatusBadge({ status }: { status: string }) {
           Rejected
         </Badge>
       );
-    case 'withdrawn':
+    case 'under_review':
       return (
-        <Badge variant="outline" className="text-muted-foreground">
-          Withdrawn
+        <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50">
+          Under review
+        </Badge>
+      );
+    case 'submitted':
+      return (
+        <Badge variant="outline" className="border-amber-500 text-amber-700 bg-amber-50">
+          Submitted
         </Badge>
       );
     default:
@@ -101,15 +113,32 @@ function MajorBadge({ isMajor }: { isMajor: boolean }) {
   );
 }
 
+/** Can the viewer approve/reject this request? minor → owner|admin; major → admin. */
+function canDecide(cr: ProjectChangeRequest, ctx?: ChangeRequestContext): boolean {
+  if (!ctx || cr.status !== 'submitted') return false;
+  return cr.is_major ? ctx.is_admin : ctx.is_owner || ctx.is_admin;
+}
+
+/** Can the viewer edit/delete this request? requester only, while submitted. */
+function canModify(cr: ProjectChangeRequest, ctx?: ChangeRequestContext): boolean {
+  if (!ctx || cr.status !== 'submitted') return false;
+  return !!ctx.my_profile_id && cr.requested_by === ctx.my_profile_id;
+}
+
 export function ChangeRequestList({ projectId }: ChangeRequestListProps) {
   const { data: changeRequests, isLoading, isError, error } = useChangeRequests(projectId);
+  const { data: ctx } = useChangeRequestContext(projectId);
   const deleteChangeRequest = useDeleteChangeRequest();
 
   const [formOpen, setFormOpen] = useState(false);
+  const [editingRequest, setEditingRequest] =
+    useState<ProjectChangeRequest | null>(null);
   const [decidingRequest, setDecidingRequest] =
     useState<ProjectChangeRequest | null>(null);
   const [deletingRequest, setDeletingRequest] =
     useState<ProjectChangeRequest | null>(null);
+
+  const canCreate = !!ctx && (ctx.is_member || ctx.is_admin);
 
   function handleDelete() {
     if (!deletingRequest) return;
@@ -151,10 +180,12 @@ export function ChangeRequestList({ projectId }: ChangeRequestListProps) {
           {changeRequests?.length ?? 0} change request
           {(changeRequests?.length ?? 0) !== 1 ? 's' : ''}
         </p>
-        <Button size="sm" onClick={() => setFormOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" />
-          New Request
-        </Button>
+        {canCreate && (
+          <Button size="sm" onClick={() => setFormOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            New Request
+          </Button>
+        )}
       </div>
 
       {isEmpty ? (
@@ -163,13 +194,17 @@ export function ChangeRequestList({ projectId }: ChangeRequestListProps) {
           <div>
             <p className="text-sm font-medium">No change requests</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Create the first change request for this project.
+              {canCreate
+                ? 'Create the first change request for this project.'
+                : 'There are no change requests for this project yet.'}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setFormOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Request
-          </Button>
+          {canCreate && (
+            <Button variant="outline" size="sm" onClick={() => setFormOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              New Request
+            </Button>
+          )}
         </div>
       ) : (
         <div className="rounded-md border">
@@ -185,69 +220,88 @@ export function ChangeRequestList({ projectId }: ChangeRequestListProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {changeRequests.map((cr) => (
-                <TableRow
-                  key={cr.id}
-                  className={cr.is_major ? 'bg-orange-50/30' : undefined}
-                >
-                  <TableCell>
-                    <MajorBadge isMajor={cr.is_major} />
-                  </TableCell>
-                  <TableCell>
-                    <span className="capitalize text-sm">{cr.change_type}</span>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <p className={`text-sm ${cr.is_major ? 'font-semibold' : 'font-medium'}`}>
-                        {cr.title}
-                      </p>
-                      {cr.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                          {cr.description}
+              {changeRequests.map((cr) => {
+                const showDecide = canDecide(cr, ctx);
+                const showModify = canModify(cr, ctx);
+                const hasActions = showDecide || showModify;
+                return (
+                  <TableRow
+                    key={cr.id}
+                    className={cr.is_major ? 'bg-orange-50/30' : undefined}
+                  >
+                    <TableCell>
+                      <MajorBadge isMajor={cr.is_major} />
+                    </TableCell>
+                    <TableCell>
+                      <span className="capitalize text-sm">{cr.change_type}</span>
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <p className={`text-sm ${cr.is_major ? 'font-semibold' : 'font-medium'}`}>
+                          {cr.title}
                         </p>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {cr.impact_summary ?? '—'}
-                    </p>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={cr.status} />
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {(cr.status === 'submitted' ||
-                          cr.status === 'under_review') && (
-                          <>
-                            <DropdownMenuItem
-                              onSelect={() => setDecidingRequest(cr)}
-                              className="gap-2"
-                            >
-                              <CheckCircle2 className="h-4 w-4 text-green-600" />
-                              Approve / Reject
-                            </DropdownMenuItem>
-                          </>
+                        {cr.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                            {cr.description}
+                          </p>
                         )}
-                        <DropdownMenuItem
-                          onSelect={() => setDeletingRequest(cr)}
-                          className="gap-2 text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {cr.impact_summary ?? '—'}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={cr.status} />
+                    </TableCell>
+                    <TableCell>
+                      {hasActions && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`h-8 w-8 ${TAP_TARGET_ICON}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {showDecide && (
+                              <DropdownMenuItem
+                                onSelect={() => setDecidingRequest(cr)}
+                                className="gap-2"
+                              >
+                                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                Approve / Reject
+                              </DropdownMenuItem>
+                            )}
+                            {showModify && (
+                              <DropdownMenuItem
+                                onSelect={() => setEditingRequest(cr)}
+                                className="gap-2"
+                              >
+                                <Pencil className="h-4 w-4" />
+                                Edit
+                              </DropdownMenuItem>
+                            )}
+                            {showModify && (
+                              <DropdownMenuItem
+                                onSelect={() => setDeletingRequest(cr)}
+                                className="gap-2 text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -259,6 +313,18 @@ export function ChangeRequestList({ projectId }: ChangeRequestListProps) {
         open={formOpen}
         onOpenChange={setFormOpen}
       />
+
+      {/* Edit form dialog */}
+      {editingRequest && (
+        <ChangeRequestFormDialog
+          projectId={projectId}
+          existing={editingRequest}
+          open={!!editingRequest}
+          onOpenChange={(open) => {
+            if (!open) setEditingRequest(null);
+          }}
+        />
+      )}
 
       {/* Decision dialog */}
       {decidingRequest && (

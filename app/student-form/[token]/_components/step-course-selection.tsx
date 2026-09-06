@@ -63,6 +63,14 @@ interface AdmissionYearRow {
   admission_year_name: string;
   year: number;
 }
+interface AcademicYearRow {
+  id: string;
+  academic_year_name: string;
+}
+interface SectionRow {
+  id: string;
+  section_name: string;
+}
 
 function Req() {
   return <span className="text-red-500 ml-0.5">*</span>;
@@ -156,6 +164,8 @@ export function StepCourseSelection({
     entry_type: data.entry_type ?? '',
     semester_id: data.semester_id ?? '',
     admission_year_id: data.admission_year_id ?? '',
+    academic_year_id: data.academic_year_id ?? '',
+    section_id: data.section_id ?? '',
   });
   const set = <K extends keyof typeof v>(k: K, val: typeof v[K]) =>
     setV((p) => ({ ...p, [k]: val }));
@@ -169,6 +179,8 @@ export function StepCourseSelection({
   const [semesters, setSemesters] = useState<SemesterRow[]>([]);
   const [department, setDepartment] = useState<DepartmentRow | null>(null);
   const [admissionYear, setAdmissionYear] = useState<AdmissionYearRow | null>(null);
+  const [academicYear, setAcademicYear] = useState<AcademicYearRow | null>(null);
+  const [sectionA, setSectionA] = useState<SectionRow | null>(null);
 
   const [loadingI, setLoadingI] = useState(false);
   const [loadingD, setLoadingD] = useState(false);
@@ -176,6 +188,8 @@ export function StepCourseSelection({
   const [loadingS, setLoadingS] = useState(false);
   const [loadingDept, setLoadingDept] = useState(false);
   const [loadingAY, setLoadingAY] = useState(false);
+  const [loadingAcY, setLoadingAcY] = useState(false);
+  const [loadingSec, setLoadingSec] = useState(false);
 
   async function fetchOptions(
     kind:
@@ -184,8 +198,10 @@ export function StepCourseSelection({
       | 'degrees'
       | 'programs'
       | 'semesters'
+      | 'sections'
       | 'department'
-      | 'admission_year',
+      | 'admission_year'
+      | 'academic_year',
     filters?: Record<string, string>,
   ) {
     const res = await fetch(`/api/student-form/${encodeURIComponent(token)}/course-options`, {
@@ -235,6 +251,35 @@ export function StepCourseSelection({
     fetchOptions('degrees', { institution_id: v.institution_id }).then((d) => {
       if (alive && d) setDegrees(d);
       setLoadingD(false);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v.institution_id]);
+
+  // When institution changes, resolve its CURRENT academic year (2026-07-27).
+  // Keyed on institution alone — unlike admission_year, academic_years is not
+  // program-scoped, so this must NOT live in the program effect below or it
+  // would stay empty until the student picks a programme.
+  useEffect(() => {
+    if (!v.institution_id) {
+      setAcademicYear(null);
+      if (v.academic_year_id) set('academic_year_id', '');
+      return;
+    }
+    let alive = true;
+    setLoadingAcY(true);
+    fetchOptions('academic_year', { institution_id: v.institution_id }).then((d) => {
+      if (!alive) return;
+      const row = (d as AcademicYearRow | null) ?? null;
+      setAcademicYear(row);
+      // Persist the FK so it ships with Save & Continue. Empty when the
+      // institution has no active row covering today — the render below
+      // tells the student to contact admission, and the wizard's required
+      // rule blocks final submit.
+      set('academic_year_id', row?.id ?? '');
+      setLoadingAcY(false);
     });
     return () => {
       alive = false;
@@ -372,6 +417,8 @@ export function StepCourseSelection({
   // the picked row otherwise, leaving a phantom selection.
   const handleEntryTypeChange = (entryType: string) => {
     set('entry_type', entryType);
+    // Set here as well as in the effect below so the field doesn't flash the
+    // old value while the semesters list settles.
     const picked = autoPickSemester(entryType, semesters);
     if (picked) set('semester_id', picked);
 
@@ -409,6 +456,12 @@ export function StepCourseSelection({
     }
   };
 
+  // FIRST YEAR admits get section "A" of their auto-picked semester, read-only.
+  // Declared ahead of the effects that read it: a dependency array is evaluated
+  // during render, so a const declared further down would hit the temporal dead
+  // zone rather than simply reading stale.
+  const isFirstYear = v.entry_type === 'FIRST YEAR';
+
   // When semesters list LOADS (after program change), re-apply the
   // entry-type rule if one is set. This handles the case where the user
   // picked Entry Type before picking Program — we still want auto-pick
@@ -420,7 +473,34 @@ export function StepCourseSelection({
     const picked = autoPickSemester(v.entry_type, semesters);
     if (picked && picked !== v.semester_id) set('semester_id', picked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [semesters]);
+  }, [semesters, v.entry_type]);
+
+  // Resolve section "A" under the committed semester — or clear a stale one.
+  // The clear branch matters when the student switches away from FIRST YEAR or
+  // changes semester: the old section would otherwise persist as a
+  // cross-semester reference on the learner row.
+  useEffect(() => {
+    if (!isFirstYear || !v.semester_id) {
+      setSectionA(null);
+      if (v.section_id) set('section_id', '');
+      return;
+    }
+    let alive = true;
+    setLoadingSec(true);
+    fetchOptions('sections', { semester_id: v.semester_id }).then((d) => {
+      if (!alive) return;
+      const rows = (d as SectionRow[] | null) ?? [];
+      const a =
+        rows.find((s) => s.section_name?.trim().toUpperCase() === 'A') ?? null;
+      setSectionA(a);
+      set('section_id', a?.id ?? '');
+      setLoadingSec(false);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFirstYear, v.semester_id]);
 
   const lateralLocksSemester =
     v.entry_type === 'FIRST YEAR' || v.entry_type === 'LATERAL ENTRY';
@@ -613,6 +693,37 @@ export function StepCourseSelection({
             <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           </div>
         </Field>
+
+        {/* Academic Year — read-only, auto-resolved from the picked
+         *  institution's active row whose date window contains today.
+         *  Saved with the form so the learner lands in the right cohort.
+         *  Added 2026-07-27. Depends on Institution only, not Program.
+         */}
+        <Field
+          label="Academic Year / கல்வி ஆண்டு"
+          required
+          helper="Automatically set for the current academic year. Cannot be changed."
+        >
+          <div className="relative">
+            <Input
+              value={
+                loadingAcY
+                  ? 'Loading…'
+                  : academicYear?.academic_year_name ?? ''
+              }
+              readOnly
+              placeholder={
+                !v.institution_id
+                  ? 'Pick institution first / முதலில் நிறுவனம் தேர்வு செய்க'
+                  : loadingAcY
+                    ? 'Loading academic year…'
+                    : 'No academic year configured for the current cycle — contact admission'
+              }
+              className="h-12 bg-muted/40 pr-10"
+            />
+            <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+        </Field>
       </Section>
 
       <Section title={{ en: 'Entry & Semester', ta: 'சேர்க்கை மற்றும் பருவம்' }}>
@@ -690,6 +801,33 @@ export function StepCourseSelection({
             )}
           </div>
         </Field>
+
+        {/* Section — read-only, and only rendered for FIRST YEAR, where it is
+         *  a derivation (section "A" of the auto-picked initial semester)
+         *  rather than a placement choice. Other entry types don't show it at
+         *  all: section placement there stays an admission-staff decision made
+         *  during onboarding. Added 2026-07-27.
+         */}
+        {isFirstYear && (
+          <Field
+            label="Section / பிரிவு"
+            helper="Automatically assigned for first-year admits. Cannot be changed."
+          >
+            <div className="relative">
+              <Input
+                value={loadingSec ? 'Loading…' : sectionA?.section_name ?? ''}
+                readOnly
+                placeholder={
+                  loadingSec
+                    ? 'Loading section…'
+                    : 'No section configured for this programme — contact admission'
+                }
+                className="h-12 bg-muted/40 pr-10"
+              />
+              <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            </div>
+          </Field>
+        )}
       </Section>
 
       <div className="flex gap-2 pt-2">

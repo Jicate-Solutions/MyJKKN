@@ -68,7 +68,15 @@ export default function RcltpRemedialPlansPage() {
   const institutionId = userProfile?.institution_id ?? undefined;
   const queryClient = useQueryClient();
 
-  const allowed = isSuperAdmin || can('rcltp.review');
+  // Mirrors the rcltp_remedial_plans_select RLS policy, which admits
+  // rcltp.review OR rcltp.report.view_all OR rcltp.config.manage. The guard
+  // previously accepted only the first, so holders of the other two could read
+  // these rows in the database but were turned away by the page.
+  const allowed =
+    isSuperAdmin ||
+    can('rcltp.review') ||
+    can('rcltp.report.view_all') ||
+    can('rcltp.config.manage');
 
   const atRiskQueryKey = ['rcltp', 'at-risk', institutionId];
   const { data: atRiskData, isLoading: dashLoading } = useQuery<RcltpAtRiskRow[]>({
@@ -146,7 +154,10 @@ export default function RcltpRemedialPlansPage() {
           <AlertDescription>
             Reviewing and approving remedial reading plans requires the{' '}
             <code className='rounded bg-muted px-1 py-0.5 text-xs'>rcltp.review</code>{' '}
-            permission. Contact your administrator if you need access.
+            permission, which is granted per role under{' '}
+            <strong>Users &rarr; Role Management &rarr; RCLTP</strong>. Only a super
+            administrator can change role permissions, so ask whoever manages roles
+            for your institution to add it to your role.
           </AlertDescription>
         </Alert>
       </ContentLayout>

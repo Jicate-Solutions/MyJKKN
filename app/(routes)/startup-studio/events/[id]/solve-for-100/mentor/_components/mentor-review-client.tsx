@@ -152,7 +152,7 @@ export function MentorReviewClient({ eventId, eventStartDate }: Props) {
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-      <TabsList>
+      <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
         <TabsTrigger value="unreviewed" className="gap-1.5">
           <Clock className="h-3.5 w-3.5" />
           Needs Review

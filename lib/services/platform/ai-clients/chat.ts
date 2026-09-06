@@ -64,6 +64,25 @@ export interface ClaudeChatResult {
 // and no Anthropic fallback is configured. Matches the platform workhorse.
 const HARDCODED_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
+// The Max-lane Claude CLI accepts the bare family aliases 'sonnet'/'opus' and
+// resolves each to Anthropic's current-latest in that tier at ₹0 — so
+// ai_model_config stores those aliases for Max-lane jobs. The PAID Anthropic
+// SDK does NOT accept a bare alias: `messages.create({ model: 'sonnet' })`
+// 404s. Translate alias -> concrete dated id ONLY here, at the paid-SDK
+// boundary. Max-lane CLI callers resolve the alias themselves and never pass
+// through resolveChatModel, so the ₹0 lane is untouched. Concrete ids (and any
+// non-alias value) pass through unchanged.
+const PAID_ANTHROPIC_ALIAS_TO_MODEL: Record<string, string> = {
+  sonnet: 'claude-sonnet-4-6', // latest Sonnet / platform workhorse
+  opus: 'claude-opus-4-8', // latest Opus
+};
+
+/** Map a bare family alias ('sonnet'/'opus') to a concrete model id the paid
+ *  Anthropic SDK accepts. Anything already concrete passes through unchanged. */
+function toPaidAnthropicModelId(modelId: string): string {
+  return PAID_ANTHROPIC_ALIAS_TO_MODEL[modelId] ?? modelId;
+}
+
 /**
  * Resolve the model for a feature with an anthropic-only guard.
  *
@@ -80,7 +99,7 @@ export async function resolveChatModel(
   const resolved = await getModelForFeature(featureKey);
 
   if (resolved.provider === 'anthropic') {
-    return { provider: 'anthropic', model_id: resolved.model_id, resolved };
+    return { provider: 'anthropic', model_id: toPaidAnthropicModelId(resolved.model_id), resolved };
   }
 
   if (resolved.fallback_provider === 'anthropic' && resolved.fallback_model_id) {
@@ -88,7 +107,7 @@ export async function resolveChatModel(
       `[ai-chat] feature_key=${featureKey} resolved to provider=${resolved.provider} ` +
         `(not anthropic) — using configured anthropic fallback ${resolved.fallback_model_id}`,
     );
-    return { provider: 'anthropic', model_id: resolved.fallback_model_id, resolved };
+    return { provider: 'anthropic', model_id: toPaidAnthropicModelId(resolved.fallback_model_id), resolved };
   }
 
   console.warn(

@@ -177,12 +177,12 @@ export function ImageTagRegionAuthor({ imageUrl, regions, onChange }: Props) {
           {regions.map((r, i) => (
             <div
               key={i}
-              className={`grid grid-cols-12 gap-2 items-end border rounded p-2 ${
+              className={`grid grid-cols-1 sm:grid-cols-12 gap-2 sm:items-end border rounded p-2 ${
                 selectedIdx === i ? 'border-green-500 bg-green-50/40' : ''
               }`}
               onClick={() => setSelectedIdx(i)}
             >
-              <div className="col-span-3">
+              <div className="sm:col-span-3">
                 <Label className="text-xs">Label</Label>
                 <Input
                   value={r.label}
@@ -190,7 +190,7 @@ export function ImageTagRegionAuthor({ imageUrl, regions, onChange }: Props) {
                   placeholder="e.g. Wickham striae"
                 />
               </div>
-              <div className="col-span-5">
+              <div className="sm:col-span-5">
                 <Label className="text-xs">Reasoning (optional)</Label>
                 <Input
                   value={r.reasoning || ''}
@@ -198,7 +198,7 @@ export function ImageTagRegionAuthor({ imageUrl, regions, onChange }: Props) {
                   placeholder="Why this region matters clinically"
                 />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Label className="text-xs">Tolerance (px)</Label>
                 <Input
                   type="number"
@@ -209,7 +209,7 @@ export function ImageTagRegionAuthor({ imageUrl, regions, onChange }: Props) {
                   }
                 />
               </div>
-              <div className="col-span-2 flex gap-1 justify-end">
+              <div className="sm:col-span-2 flex gap-1 justify-end">
                 <Button
                   type="button"
                   size="icon"

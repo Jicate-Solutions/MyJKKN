@@ -61,23 +61,41 @@ export async function GET(request: NextRequest) {
 
     // Fetch all inbound calls with lead + callback queue info.
     // Added `answered_at` so isCallAnswered() can read it.
-    let query = supabase
-      .from('admission_call_logs')
-      .select(`
-        id, from_number, lead_id, status, duration_seconds, cost_amount,
-        answered_at, created_at, auto_sms_sent, caller_location,
-        caller_attempt_number, callback_queued, callback_queue_id,
-        lead:admission_leads(id, full_name, priority)
-      `)
-      .eq('direction', 'inbound')
-      .order('created_at', { ascending: false });
+    //
+    // FIX (2026-08-02): paged with .range() — PostgREST caps un-ranged selects
+    // at 10,000 rows and still returns HTTP 200. Prod holds 11,594 inbound
+    // calls with no date filter, so the old single fetch silently dropped
+    // 1,594 calls: "Unique Callers" reported 5,710 of the true 6,562 and the
+    // unconverted-caller list was missing 296 callers (measured live
+    // 2026-08-02). Caller-level aggregation needs the actual rows, so
+    // pagination (not an aggregate RPC) is the correct shape here. A stable
+    // id tiebreak on the sort keeps pages from overlapping on equal
+    // created_at values.
+    const PAGE_SIZE = 1000;
+    const calls: any[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      let query = supabase
+        .from('admission_call_logs')
+        .select(`
+          id, from_number, lead_id, status, duration_seconds, cost_amount,
+          answered_at, created_at, auto_sms_sent, caller_location,
+          caller_attempt_number, callback_queued, callback_queue_id,
+          lead:admission_leads(id, full_name, priority)
+        `)
+        .eq('direction', 'inbound')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
 
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    if (fromDate) query = query.gte('created_at', fromDate);
-    if (toDate) query = query.lte('created_at', toDate);
+      if (institutionId) query = query.eq('institution_id', institutionId);
+      if (fromDate) query = query.gte('created_at', fromDate);
+      if (toDate) query = query.lte('created_at', toDate);
 
-    const { data: calls, error } = await query;
-    if (error) throw new Error(error.message);
+      const { data: page, error } = await query;
+      if (error) throw new Error(error.message);
+      calls.push(...(page || []));
+      if (!page || page.length < PAGE_SIZE) break;
+    }
 
     // Group by NORMALIZED E.164 phone so the same human stored as both
     // `+919894116664` and `09894116664` aggregates as one caller. Previously

@@ -387,7 +387,7 @@ export function NotificationRulesSection() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="grid grid-cols-4 gap-4 text-sm font-medium text-muted-foreground border-b pb-2">
+                <div className="grid grid-cols-4 gap-2 sm:gap-4 text-sm font-medium text-muted-foreground border-b pb-2">
                   <div>Event</div>
                   <div className="flex items-center gap-1 justify-center">
                     <Mail className="h-3 w-3" />
@@ -408,7 +408,7 @@ export function NotificationRulesSection() {
                   return (
                     <div
                       key={ev.event_key}
-                      className={`grid grid-cols-4 gap-4 items-center rounded-md px-2 py-1 transition ${
+                      className={`grid grid-cols-4 gap-2 sm:gap-4 items-center rounded-md px-2 py-1 transition ${
                         isRowDirty ? 'ring-2 ring-amber-400 bg-amber-50/40' : ''
                       }`}
                     >

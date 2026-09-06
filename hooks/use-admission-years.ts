@@ -20,6 +20,8 @@ export interface AdmissionYearOption {
   admission_year_name: string;
   year: number;
   is_active: boolean;
+  /** Institution's designated current cohort (Settings → Admission Years). */
+  is_current: boolean;
 }
 
 export interface UseAdmissionYearsResult {
@@ -52,7 +54,7 @@ export function useAdmissionYears(
     const supabase = createClientSupabaseClient();
     (supabase as any)
       .from('admission_years')
-      .select('id, admission_year_name, year, is_active')
+      .select('id, admission_year_name, year, is_active, is_current')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
       .order('year', { ascending: false })

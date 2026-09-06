@@ -290,7 +290,7 @@ export default function RecruitmentNeedDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-0">
-              <div className="border rounded-lg overflow-hidden">
+              <div className="border rounded-lg overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-muted/50">
@@ -429,7 +429,7 @@ export default function RecruitmentNeedDetailPage() {
 
                       {/* Expanded detail */}
                       {isExpanded && (
-                        <div className="border-t px-3 py-3">
+                        <div className="border-t px-3 py-3 overflow-x-auto">
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="text-muted-foreground">

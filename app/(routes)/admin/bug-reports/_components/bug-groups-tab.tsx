@@ -292,7 +292,11 @@ export function BugGroupsTab() {
               </Badge>
             )}
           </div>
-          <div className='flex items-center gap-2'>
+          {/* flex-wrap: the segmented status filter (~215px) plus "Scan now"
+              cannot both fit beside the title below ~400px, and Button carries
+              whitespace-nowrap with no shrink — so without wrapping the button
+              simply hangs off the card. */}
+          <div className='flex flex-wrap items-center gap-2'>
             <div className='flex rounded-md border overflow-hidden'>
               {(['proposed', 'confirmed', 'dismissed'] as const).map((s) => (
                 <button
@@ -368,7 +372,13 @@ export function BugGroupsTab() {
                     <p className='text-sm mt-2 line-clamp-2'>{cluster.sample_description}</p>
                   </div>
                   {cluster.status === 'proposed' && (
-                    <div className='flex items-center gap-2 shrink-0'>
+                    // No `shrink-0` here: the pair is ~235px of nowrap buttons,
+                    // wider than the card's content box below ~380px, and
+                    // shrink-0 pinned it at max-content so flex-wrap could
+                    // never trigger — the buttons hung 46px past the card
+                    // border at 320px. Shrinkable + wrapping stacks them only
+                    // when they genuinely don't fit; ≥414px is unchanged.
+                    <div className='flex flex-wrap items-center gap-2'>
                       <Button
                         size='sm'
                         onClick={() => {
@@ -419,12 +429,24 @@ export function BugGroupsTab() {
 
                 <Separator className='my-3' />
 
-                <div className='grid gap-1.5'>
+                {/* `grid-cols-1` is load-bearing, not decoration. A bare
+                    `grid` leaves the implicit column an `auto` track, and an
+                    `auto` track sizes to its items' MAX-content: the member
+                    row's `truncate` description sets white-space:nowrap, so
+                    its max-content is the whole 200-char string (~940px).
+                    The track grew to ~1209px inside an ~800px card and, with
+                    no overflow-x containment anywhere above, pushed the entire
+                    page ~330px past a 1280px viewport (~970px at 320px).
+                    grid-cols-1 compiles to repeat(1, minmax(0,1fr)) — the
+                    minmax(0,…) floor is what clamps the track to the card.
+                    `min-w-0` on the row is the same guard one level down
+                    (flex items default to min-width:auto). */}
+                <div className='grid grid-cols-1 gap-1.5'>
                   {(cluster.members ?? []).map((member, idx) => (
                     <Link
                       key={member.id}
                       href={`/admin/bug-reports/${member.id}`}
-                      className='flex items-center gap-2 text-xs rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors'
+                      className='flex min-w-0 items-center gap-2 text-xs rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors'
                     >
                       {idx === 0 ? (
                         <Crown className='w-3.5 h-3.5 text-amber-500 shrink-0' aria-label='canonical (oldest)' />
@@ -433,7 +455,16 @@ export function BugGroupsTab() {
                       )}
                       <span className='font-mono font-semibold shrink-0'>{member.display_id}</span>
                       <span className='text-muted-foreground truncate'>{member.description}</span>
-                      <span className='ml-auto text-muted-foreground shrink-0'>
+                      {/* Shrinkable + ellipsized rather than `shrink-0`: a
+                          26-char reporter name that refuses to shrink is
+                          itself an overflow source. Below `sm` it is dropped
+                          entirely (same responsive-label convention as
+                          BugStatusBadge on the Reports List tab) — at 390px
+                          the shrink budget clipped it to "M..", which costs
+                          the description room and tells the reader nothing.
+                          `max-w-[40%]` keeps a long name from crowding out
+                          the description on wider screens. */}
+                      <span className='ml-auto hidden max-w-[40%] truncate text-muted-foreground sm:block'>
                         {member.reporter_name ?? 'Unknown'}
                       </span>
                     </Link>
@@ -1198,9 +1229,12 @@ function LoopStepper({
                 </p>
                 <div className='mt-1 flex flex-wrap gap-1'>
                   {v.deployed_surface.surfaces.map((s) => (
+                    // min-w-0 + break-all: a route carrying query params has no
+                    // break opportunity, so an unbreakable chip wider than the
+                    // card overflows it (flex-wrap only wraps BETWEEN chips).
                     <span
                       key={s.route}
-                      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono ${
+                      className={`inline-flex min-w-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono break-all ${
                         s.live
                           ? 'border-green-300 text-green-800 dark:text-green-200'
                           : 'border-amber-300 text-amber-800 dark:text-amber-200'
@@ -1351,7 +1385,7 @@ function LoopStepper({
 
       <p className='text-[11px] text-muted-foreground border-t border-border/60 mt-1 pt-1.5'>
         AI proposes and never acts alone — you own merge &amp; deploy, sending to
-        reporters, and resolve. AI runs cost ₹0 (Max plan).
+        reporters, and resolve. AI runs cost ₹0 (Max lane).
       </p>
     </div>
   );

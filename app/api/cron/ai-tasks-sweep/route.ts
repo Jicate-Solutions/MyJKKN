@@ -16,14 +16,45 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   submitBatch,
   collectEndedBatches,
+  markJobCollected,
   type SubmitBatchRequest,
 } from '@/lib/services/platform/ai-clients/batch';
+import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 import { allTaskFeatureKeys, getTaskType } from '@/lib/ai-tasks/registry';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
 import { resend } from '@/lib/resend';
 
 const CLAIM_CAP = 50;
+
+// ─── ₹0 lane switch for on-demand tasks (Director directive 2026-07-26) ──────
+// 'jobs'  → enqueue every claimed task on the free #1998 ai_jobs registry (₹0,
+//           drained by the Max seat). 'batch' → the legacy PAID Anthropic
+//           Message Batches fallback, kept only so an in-flight bundle can still
+//           be drained and so the decision is reversible from a config row.
+//
+// FAIL-SAFE DIRECTION IS DELIBERATELY INVERTED vs the curriculum generate cron.
+// That cron falls back to the paid path on a policy read error so work is never
+// delayed. Here the Director's instruction is that paid spend stops entirely and
+// "everything queues free and slower" — so a policy hiccup must NOT silently
+// resume billing. On any read error we stay on the free lane: work waits, money
+// does not move. Slower is the accepted cost; unexpected spend is not.
+const TASK_LANE_KEY = 'loops.ai_tasks.submit_lane';
+
+async function readTaskLane(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<'jobs' | 'batch'> {
+  try {
+    const { data, error } = await admin.rpc('fn_get_policy', {
+      p_key: TASK_LANE_KEY,
+      p_scope_id: null,
+    });
+    if (error) return 'jobs';
+    return data === 'batch' ? 'batch' : 'jobs';
+  } catch {
+    return 'jobs';
+  }
+}
 // Loop-lane outage pager threshold (Director-ratified 2026-07-13 §B.5, "page
 // immediately", 30 min "filters Windows-update reboots"). Distinct from the
 // 10-min RUNNER_STALE_MS runner-down check below (Director-only, business-hours):
@@ -125,14 +156,22 @@ async function runnerDownHealthCheck(
   // A live runner stamps this every ~2 min, so a missing pulse means it is down.
   const heartbeatStale = !(heartbeatAgeMs < RUNNER_STALE_MS);
 
-  // 2) Oldest non-terminal ai_job stuck past the cutoff.
-  const staleCutoffIso = new Date(now - RUNNER_STALE_MS).toISOString();
+  // 2) A job genuinely STUCK IN PROCESSING — one a worker CLAIMED but never
+  //    finished. A merely-old PENDING (unclaimed) job is a healthy queue backlog
+  //    being drained, NOT a stuck runner. Keying this on requested_at (queue time)
+  //    meant a large legitimate backlog — e.g. ~500 pending curriculum jobs —
+  //    fired an hourly FALSE "AI runner appears down" for its whole duration while
+  //    the runner was alive and steadily draining. Key on claimed_at (processing
+  //    time), with a generous window since real AI jobs can run several minutes.
+  const STUCK_CLAIMED_MS = 30 * 60 * 1000;
+  const stuckCutoffIso = new Date(now - STUCK_CLAIMED_MS).toISOString();
   const { data: stuckRows } = await admin
     .from('ai_jobs')
-    .select('id, job_type, status, requested_at')
+    .select('id, job_type, status, requested_at, claimed_at')
     .not('status', 'in', TERMINAL_STATUSES)
-    .lt('requested_at', staleCutoffIso)
-    .order('requested_at', { ascending: true })
+    .not('claimed_at', 'is', null)
+    .lt('claimed_at', stuckCutoffIso)
+    .order('claimed_at', { ascending: true })
     .limit(1);
   const stuckJob = Array.isArray(stuckRows) && stuckRows.length > 0 ? stuckRows[0] : null;
 
@@ -169,7 +208,7 @@ async function runnerDownHealthCheck(
     ? `${Math.round(heartbeatAgeMs / 60000)} min`
     : 'never fired / no heartbeat row';
   const stuckLabel = stuckJob
-    ? `job ${stuckJob.id} (${stuckJob.job_type}, status=${stuckJob.status}, queued ${new Date(stuckJob.requested_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST)`
+    ? `job ${stuckJob.id} (${stuckJob.job_type}, status=${stuckJob.status}, claimed ${new Date(stuckJob.claimed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST, not completed)`
     : 'none';
   const nowIst = nowDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
@@ -427,6 +466,113 @@ async function reclaimStaleJobs(
   return { checked: true, requeued: row.requeued ?? 0, failed: row.failed ?? 0 };
 }
 
+// ── Max-lane RESTART alerts (fail-safe, visibility for self-heals) ────────────
+// The Max-lane drains now auto-restart on crash (~1 min) and survive reboots via
+// auto-login — so a flaky box self-heals silently and runnerDownHealthCheck (10-min
+// stale window) never fires for a ~1–2 min blip. This surfaces EVERY restart so a
+// box rebooting nightly (failing hardware / bad update loop) can't hide.
+//
+// Mechanism: each drain stamps a per-process launch id (process-start epoch secs)
+// onto its heartbeat row via fn_ai_routine_record_fire's 3rd arg. A CHANGE in that
+// id = the process restarted. We alert once per (runner, launch id); dedup is the
+// notifications.idempotency_key UNIQUE index (no ack table). A steady box keeps the
+// same launch id every heartbeat → the key never changes → silent. launch ids are
+// monotonic process-start epochs, never reused, so a restart alerts exactly once
+// even if an old idempotency row is later pruned. NULL launch ids (cloud routines,
+// or before the box drain ships the stamp) are skipped, so nothing alerts during
+// the pre-box-update window. Distinct from runnerDownHealthCheck (sustained-outage
+// signal) — both are kept: down-alert on the way down, restart-alert on the way up.
+const RESTART_RUNNERS = ['maxlane:poller-heartbeat', 'maxlane:chat-drain'];
+
+async function maxlaneRestartAlerts(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<Record<string, unknown>> {
+  const { data, error } = await admin
+    .from('ai_routine_schedules')
+    .select('routine_id, launch_id, last_fired_at')
+    .in('routine_id', RESTART_RUNNERS);
+  if (error) return { checked: false, error: error.message };
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const rawRow of data ?? []) {
+    const row = rawRow as { routine_id: string; launch_id: string | null };
+    const runner = row.routine_id;
+    const launchId = row.launch_id;
+    // Skip until a box drain stamps a launch id (pre-box-update window / cloud rows).
+    if (!launchId) {
+      results.push({ runner, skipped: 'no_launch_id' });
+      continue;
+    }
+
+    // Dedup key: one alert per (runner, launch id).
+    const idempotencyKey = `maxlane-restart:${runner}:${launchId}`;
+
+    // Human label: launch id is epoch SECONDS. Show "restarted at HH:MM IST" when it
+    // parses to a plausible recent epoch; else fall back to the raw id (drift-safe).
+    const epochSec = Number(launchId);
+    const launchedLabel =
+      Number.isFinite(epochSec) && epochSec > 1_700_000_000 && epochSec < 4_000_000_000
+        ? `${new Date(epochSec * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`
+        : `launch id ${launchId}`;
+    const shortRunner = runner.replace(/^maxlane:/, '');
+
+    // In-app notification. Its idempotency_key UNIQUE index is the single source of
+    // truth for "already alerted this launch" — gate the email on its result so the
+    // two channels can't diverge (one fires without the other).
+    const fanout = await fanoutNotification(admin, {
+      title: 'Max-lane worker restarted',
+      body:
+        `The Max-lane ${shortRunner} restarted (started ${launchedLabel}). It self-healed ` +
+        `automatically — no action needed for a one-off, but frequent restarts can signal a ` +
+        `flaky box (reboot loop or failing hardware).`,
+      userIds: [DIRECTOR_UID],
+      createdBy: DIRECTOR_UID,
+      category: 'general', // free-text; 'general' guarantees the bell renders it
+      kind: 'work_item',
+      priority: 'normal', // informational (already recovered), not a page
+      idempotencyKey,
+      url: '/admin/ai-routines',
+      source: 'ai-tasks-sweep:maxlane-restart',
+      metadata: { event: 'maxlane_restart', runner, launch_id: launchId },
+    });
+
+    if (fanout.skipped === 'idempotent') {
+      // A prior sweep already alerted this launch → do not re-send the email.
+      results.push({ runner, launch_id: launchId, alerted: false, idempotent: true });
+      continue;
+    }
+
+    // Email the Director. Best-effort — the resend Idempotency-Key header is a
+    // provider-side backstop (24h) on top of the notification-row gate.
+    let emailed = false;
+    if (process.env.RESEND_API_KEY) {
+      try {
+        await resend.emails.send(
+          {
+            from: FROM_EMAIL,
+            to: DIRECTOR_EMAIL,
+            subject: '🔄 MyJKKN Max-lane worker restarted',
+            html: `<h2 style="color:#0b6d41">Max-lane worker restarted</h2>
+<p>The MyJKKN Max-lane <strong>${shortRunner}</strong> restarted and self-healed automatically. No action is needed for a one-off — but frequent restarts can signal a flaky box (reboot loop or failing hardware), so this is surfaced for visibility.</p>
+<table style="border-collapse:collapse;margin-top:8px">
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Worker</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${shortRunner}</td></tr>
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Restarted</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${launchedLabel}</td></tr>
+</table>
+<p style="margin-top:16px">See the <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/admin/ai-routines">AI routines liveness strip</a> for restart history.</p>
+<p style="color:#6b7280;font-size:12px;margin-top:24px">Automated alert from /api/cron/ai-tasks-sweep max-lane restart check. Fires once per worker restart (deduped by launch id).</p>`,
+          },
+          { headers: { 'Idempotency-Key': idempotencyKey } },
+        );
+        emailed = true;
+      } catch (emailErr) {
+        console.error('[ai-tasks-sweep] maxlane-restart email failed:', emailErr);
+      }
+    }
+    results.push({ runner, launch_id: launchId, alerted: true, notified: fanout.notified, emailed });
+  }
+  return { checked: true, runners: results };
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -441,7 +587,9 @@ export async function GET(request: NextRequest) {
   const admin = createServiceRoleClient();
   const started = Date.now();
   const hasKey = Boolean(process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY);
-  const features: Record<string, unknown> = {};
+  // Read once per run so every feature in this sweep uses one consistent lane.
+  const lane = await readTaskLane(admin);
+  const features: Record<string, unknown> = { _lane: lane };
 
   for (const featureKey of allTaskFeatureKeys()) {
     const tt = getTaskType(featureKey);
@@ -449,7 +597,7 @@ export async function GET(request: NextRequest) {
     const stat: Record<string, unknown> = {};
 
     // ── 1) COLLECT ended batches → record → reflect back ──────────────────────
-    let recorded = 0, failedCollect = 0, jobs = 0;
+    let recorded = 0, failedCollect = 0, jobs = 0, collectedJobs = 0;
     try {
       const collected = await collectEndedBatches(featureKey);
       jobs = collected.length;
@@ -481,13 +629,97 @@ export async function GET(request: NextRequest) {
             await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.customId, outcome: 'failed' });
           }
         }
+
+        // Updated: 2026-07-26 — FINALIZE the job. collectEndedBatches()
+        // deliberately leaves the job in 'collecting' so the caller can
+        // domain-record first (see batch.ts header); the three other collect
+        // callers each call markJobCollected, this one never did. Every item
+        // above reaches a terminal task state (mark_done or mark_failed, both
+        // branches and the catch), so the job is fully drained here and must
+        // be closed. Without this the job is re-claimed on every tick, re-drains
+        // the same results, and burns its retry budget until the PAID batch
+        // expires — observed in production as three expired batches at 103/104
+        // collect_attempts and a fourth wedged at 19, all phase='user_task'
+        // (the only phase this route submits). Finalize failure is logged, not
+        // thrown, so one bad job cannot strand the remaining jobs' finalize.
+        try {
+          await markJobCollected(job.jobId);
+          collectedJobs++;
+        } catch (finErr) {
+          console.error(
+            `[cron/ai-tasks-sweep] ${featureKey}: job ${job.jobId} drained but finalize failed —`,
+            finErr instanceof Error ? finErr.message : finErr,
+          );
+        }
       }
-      stat.collect = { jobs, recorded, failed: failedCollect };
+      stat.collect = { jobs, collected: collectedJobs, recorded, failed: failedCollect };
     } catch (e) {
       stat.collect = { error: e instanceof Error ? e.message : 'collect failed' };
     }
 
-    // ── 2) SUBMIT newly-queued clicks as ONE batch ────────────────────────────
+    // ── 1b) JOBS-LANE COLLECT — drain done ai_jobs (₹0 Max lane) ──────────────
+    // Records the SAME way as the paid path above (tt.recordResult →
+    // fn_ai_task_mark_done), so a task's stored result is identical whichever
+    // lane produced it. Runs ALWAYS, independent of the lane switch and of
+    // hasKey: the Max seat needs no Anthropic key, and draining unconditionally
+    // means a flip back to 'batch' never orphans work already queued on the free
+    // lane. fn_ai_collect_claim stamps delivered_at, so each result is recorded
+    // at most once.
+    let laneRecorded = 0, laneFailed = 0;
+    try {
+      const laneItems = await collectJobsLane(admin, [featureKey], CLAIM_CAP);
+      for (const item of laneItems) {
+        const ctx = item.context ?? {};
+        const uid = ctx.requested_by ? String(ctx.requested_by) : null;
+        const courseCode = ctx.course_code ? String(ctx.course_code) : null;
+        // Close the ORIGINATING ai_task_queue row, whose id is stashed in _ctx at
+        // enqueue (see SUBMIT below). item.jobId is the ai_jobs id — it never
+        // matches an ai_task_queue row, so marking by it silently no-ops, stranding
+        // the task in 'submitting' forever (and hanging the requester's button).
+        // Legacy jobs enqueued before task_id was stashed have none: still record
+        // the artifact (recordResult), just skip the row-close we cannot target.
+        const taskId = typeof ctx.task_id === 'string' ? ctx.task_id : null;
+        try {
+          if (item.message) {
+            const result = await tt.recordResult(admin, ctx, item.message);
+            if (taskId) await admin.rpc('fn_ai_task_mark_done', { p_task_id: taskId, p_result: result });
+            laneRecorded++;
+            if (taskId) await notifyOutcome(admin, tt, { uid, courseCode, taskId, outcome: 'done' });
+          } else {
+            // Drain completed but produced no usable text — fail the task so the
+            // requester is told, rather than leaving it silently in-flight.
+            if (taskId) {
+              await admin.rpc('fn_ai_task_mark_failed', {
+                p_task_id: taskId,
+                p_error: 'max lane returned no usable text',
+              });
+              await notifyOutcome(admin, tt, { uid, courseCode, taskId, outcome: 'failed' });
+            }
+            laneFailed++;
+          }
+        } catch (e) {
+          if (taskId) {
+            await admin.rpc('fn_ai_task_mark_failed', {
+              p_task_id: taskId,
+              p_error: e instanceof Error ? e.message : 'record failed',
+            });
+            await notifyOutcome(admin, tt, { uid, courseCode, taskId, outcome: 'failed' });
+          }
+          laneFailed++;
+        }
+      }
+      stat.collect_jobs_lane = { claimed: laneItems.length, recorded: laneRecorded, failed: laneFailed };
+    } catch (e) {
+      stat.collect_jobs_lane = { error: e instanceof Error ? e.message : 'jobs-lane collect failed' };
+    }
+
+    // ── 2) SUBMIT newly-queued clicks ─────────────────────────────────────────
+    // On lane='jobs' (the ₹0 default) each claimed task is enqueued on the free
+    // #1998 ai_jobs registry; on 'batch' it goes to the paid Anthropic Message
+    // Batches API. Lesson-spine regen used to have a per-feature Max-lane defer +
+    // its own sibling cron here; both were retired once this sweep itself gained
+    // the ₹0 jobs lane — regen now flows through the SAME path as every other
+    // on-demand task, so there is no second mechanism to strand its rows.
     try {
       const { data: claimed, error: claimErr } = await admin.rpc('fn_ai_task_claim_queued', {
         p_feature_key: featureKey,
@@ -514,7 +746,12 @@ export async function GET(request: NextRequest) {
               uid, courseCode, taskId: row.id,
               outcome: reason === 'not_enough_feedback' ? 'empty' : 'done',
             });
-          } else if (!hasKey) {
+          } else if (lane === 'batch' && !hasKey) {
+            // Only the PAID batch lane needs an Anthropic key. On the ₹0 lane the
+            // Max seat runs the job, so a missing key must NOT resolve the task as
+            // 'ai_not_configured' — that would silently discard every request the
+            // moment the key is removed, which is exactly what switching the paid
+            // lane off does.
             await admin.rpc('fn_ai_task_mark_done', {
               p_task_id: row.id,
               p_result: { suggestion: null, reason: 'ai_not_configured' },
@@ -526,7 +763,9 @@ export async function GET(request: NextRequest) {
               customId: row.id,
               params: built.params,
               // carry requested_by so the collect step can notify the requester (P2)
-              context: { ...built.itemContext, requested_by: row.requested_by },
+              // and task_id so it can close THIS ai_task_queue row (item.jobId is the
+              // ai_jobs id and never matches a task row — see the jobs-lane collect).
+              context: { ...built.itemContext, requested_by: row.requested_by, task_id: row.id },
               dedupeKey: row.dedupe_key,
             });
           }
@@ -540,16 +779,68 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      if (requests.length > 0) {
+      if (requests.length > 0 && lane === 'jobs') {
+        // ₹0 MAX LANE — enqueue each claimed task as an ai_job instead of buying a
+        // paid batch. The seeded job type's glue prompt_template is {{prompt}}, so
+        // we pass the SAME assembled prompt buildSubmitItem produced (system +
+        // user), extracted from the request, and the model sees identical
+        // instructions. No Anthropic key is used on this path.
+        //
+        // NOTE the model is deliberately NOT forwarded. The registry stores family
+        // aliases ('sonnet'/'opus') which the Max CLI resolves to current-latest;
+        // the paid HTTP API rejects them outright (not_found_error: model: sonnet —
+        // observed on all 34 requests of the 2026-07-25 bundle). Letting the seat
+        // resolve its own model is both correct and always-latest.
+        let enqueued = 0, inFlight = 0, enqueueFailed = 0;
+        const submittedIds: string[] = [];
+        for (const req of requests) {
+          const system = typeof req.params.system === 'string' ? req.params.system : '';
+          const userContent = req.params.messages?.[0]?.content;
+          const user = typeof userContent === 'string' ? userContent : JSON.stringify(userContent);
+          const r = await enqueueJobsLane(admin, {
+            jobType: featureKey,
+            prompt: `${system}\n\n${user}`,
+            context: req.context ?? {},
+            dedupeKey: req.dedupeKey ?? req.customId,
+          });
+          if (r.ok) {
+            enqueued++;
+            submittedIds.push(req.customId);
+          } else if (r.reason === 'in_flight') {
+            // Already queued/claimed on the free lane — treat as handled so the
+            // task is not requeued into a duplicate.
+            inFlight++;
+            submittedIds.push(req.customId);
+          } else {
+            // Could not enqueue (unknown/disabled job type, no seat owner, error).
+            // Requeue below so the next sweep retries rather than losing the click.
+            enqueueFailed++;
+            console.warn(
+              `[cron/ai-tasks-sweep] ${featureKey}: jobs-lane enqueue failed (${r.reason}): ${r.error ?? ''}`,
+            );
+          }
+        }
+        if (submittedIds.length > 0) {
+          await admin.rpc('fn_ai_task_mark_submitted', { p_task_ids: submittedIds });
+        }
+        const requeueIds = requests.map((r) => r.customId).filter((id) => !submittedIds.includes(id));
+        if (requeueIds.length > 0) {
+          await admin.rpc('fn_ai_task_requeue', { p_task_ids: requeueIds });
+        }
+        stat.submit = {
+          lane: 'jobs', claimed: rows.length, submitted: enqueued, in_flight: inFlight,
+          requeued: requeueIds.length, skipped, erroredBuild,
+        };
+      } else if (requests.length > 0) {
         const modelId = String(requests[0].params.model);
         try {
           const res = await submitBatch({ featureKey, phase: 'user_task', modelId, requests });
           await admin.rpc('fn_ai_task_mark_submitted', { p_task_ids: requests.map((r) => r.customId) });
-          stat.submit = { claimed: rows.length, submitted: res?.requestCount ?? requests.length, skipped, erroredBuild, jobId: res?.jobId ?? null };
+          stat.submit = { lane: 'batch', claimed: rows.length, submitted: res?.requestCount ?? requests.length, skipped, erroredBuild, jobId: res?.jobId ?? null };
         } catch (e) {
           // Submit failed → requeue for the next sweep (nothing billed on a reserve/create failure).
           await admin.rpc('fn_ai_task_requeue', { p_task_ids: requests.map((r) => r.customId) });
-          stat.submit = { claimed: rows.length, submitted: 0, skipped, erroredBuild, submit_error: e instanceof Error ? e.message : 'submit failed' };
+          stat.submit = { lane: 'batch', claimed: rows.length, submitted: 0, skipped, erroredBuild, submit_error: e instanceof Error ? e.message : 'submit failed' };
         }
       } else {
         stat.submit = { claimed: rows.length, submitted: 0, skipped, erroredBuild };
@@ -605,5 +896,15 @@ export async function GET(request: NextRequest) {
     learnerNoteDrafts = { checked: false, error: draftsErr instanceof Error ? draftsErr.message : 'reminder failed' };
   }
 
-  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, elapsed_ms: Date.now() - started });
+  // ── 6) MAX-LANE RESTART ALERTS (visibility for self-heals) ────────────────
+  // Same fail-safe discipline: own try/catch, additive `maxlane_restarts` field.
+  let maxlaneRestarts: Record<string, unknown> = { checked: false };
+  try {
+    maxlaneRestarts = await maxlaneRestartAlerts(admin);
+  } catch (restartErr) {
+    console.error('[ai-tasks-sweep] maxlane restart alerts failed:', restartErr);
+    maxlaneRestarts = { checked: false, error: restartErr instanceof Error ? restartErr.message : 'restart alerts failed' };
+  }
+
+  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, maxlane_restarts: maxlaneRestarts, elapsed_ms: Date.now() - started });
 }

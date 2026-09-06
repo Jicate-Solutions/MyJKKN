@@ -901,7 +901,7 @@ function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss,
       isOverdue && "border-red-300 dark:border-red-800"
     )}>
       <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <div className={cn(
               "p-2 rounded-lg",
@@ -1022,7 +1022,7 @@ function RuleCard({ rule, onToggle, onSettings }: {
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className={cn(
               "p-2 rounded-lg",
@@ -1373,7 +1373,7 @@ function AdmissionRemindersPageContent() {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="reminders">
                 Reminders
                 {(overdueCount > 0) && (

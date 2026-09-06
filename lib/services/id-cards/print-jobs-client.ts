@@ -6,6 +6,7 @@
 //   • fetchIdCardTemplates()          — template picker options (session RLS)
 //   • resolveProfileIdForLearner()    — learners_profiles.id → profiles.id
 //   • resolveProfileIdsForLearners()  — batch variant for bulk printing
+//   • resolveAccountsForLearners()    — batch variant returning the account id
 //   • resolveProfileIdByEmail()       — team-member fallback (profiles.email)
 //   • enqueuePrintJob()               — POST /api/id-cards/jobs, mapped outcomes
 //   • getLastTemplateId()/setLastTemplateId() — localStorage memory of the
@@ -76,25 +77,62 @@ export async function resolveProfileIdForLearner(
   return data?.id ?? null;
 }
 
+// PostgREST encodes .in() filters in the request URL, so a whole-cohort batch
+// (1000+ UUIDs ≈ 37 KB) would overflow URL limits. 100 ids ≈ 3.7 KB — safe.
+const RESOLVE_CHUNK_SIZE = 100;
+
+export interface LearnerAccountInfo {
+  /** profiles.id — the account the print job is enqueued against. */
+  profileId: string;
+}
+
+// profiles.avatar_url used to ride along here as the last link of the render
+// engine's photo fallback chain, so callers could predict an initials box.
+// Removed 2026-09-03: an account avatar no longer qualifies a card at all
+// (Guard 3), so fetching it told callers nothing and invited the old rule back.
+
 /**
- * Batch variant: map learners_profiles.id → profiles.id in ONE query.
+ * Batch account resolution: map learners_profiles.id → account info
+ * (profiles.id), chunked to stay within URL limits at cohort
+ * scale (freshers batch / whole class).
  * Learners without an account are simply absent from the returned map.
+ */
+export async function resolveAccountsForLearners(
+  learnerIds: string[]
+): Promise<Map<string, LearnerAccountInfo>> {
+  const map = new Map<string, LearnerAccountInfo>();
+  if (learnerIds.length === 0) return map;
+
+  const supabase = createClientSupabaseClient();
+  for (let i = 0; i < learnerIds.length; i += RESOLVE_CHUNK_SIZE) {
+    const chunk = learnerIds.slice(i, i + RESOLVE_CHUNK_SIZE);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, learner_id')
+      .in('learner_id', chunk);
+
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.learner_id) {
+        map.set(row.learner_id, { profileId: row.id });
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * Batch variant: map learners_profiles.id → profiles.id. Thin wrapper over
+ * resolveAccountsForLearners (same chunked query) for callers that only need
+ * the account id.
  */
 export async function resolveProfileIdsForLearners(
   learnerIds: string[]
 ): Promise<Map<string, string>> {
+  const accounts = await resolveAccountsForLearners(learnerIds);
   const map = new Map<string, string>();
-  if (learnerIds.length === 0) return map;
-
-  const supabase = createClientSupabaseClient();
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, learner_id')
-    .in('learner_id', learnerIds);
-
-  if (error) throw error;
-  for (const row of data ?? []) {
-    if (row.learner_id) map.set(row.learner_id, row.id);
+  for (const [learnerId, info] of accounts) {
+    map.set(learnerId, info.profileId);
   }
   return map;
 }

@@ -22,6 +22,7 @@ import {
   useServiceRequests,
   useRequestCountsByStatus,
 } from '@/hooks/service-requests/use-service-requests';
+import { useTablePagination } from '@/hooks/service-requests/use-table-pagination';
 import { RequestDataTable } from './_components/request-data-table';
 import {
   Plus,
@@ -39,9 +40,22 @@ export default function ServiceRequestsHubPage() {
   const initialTab = searchParams.get('tab') || 'my-requests';
   const [activeTab, setActiveTab] = useState(initialTab);
 
-  const { data: myRequestsData, isLoading: myLoading } = useMyServiceRequests();
-  const { data: pendingApprovalsData, isLoading: approvalsLoading } = usePendingApprovals();
-  const { data: allRequestsData, isLoading: allLoading } = useServiceRequests();
+  // Independent paging state per tab — each one pages the server rather than
+  // slicing a single unparameterised fetch, which previously capped every tab
+  // at the API's default page size.
+  const myPaging = useTablePagination();
+  const approvalsPaging = useTablePagination();
+  const allPaging = useTablePagination();
+
+  const { data: myRequestsData, isLoading: myLoading, isFetching: myFetching } =
+    useMyServiceRequests(myPaging.queryParams);
+  const {
+    data: pendingApprovalsData,
+    isLoading: approvalsLoading,
+    isFetching: approvalsFetching,
+  } = usePendingApprovals(approvalsPaging.queryParams);
+  const { data: allRequestsData, isLoading: allLoading, isFetching: allFetching } =
+    useServiceRequests(allPaging.queryParams);
   const { data: counts } = useRequestCountsByStatus();
 
   const handleTabChange = (tab: string) => {
@@ -141,7 +155,7 @@ export default function ServiceRequestsHubPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="my-requests">My Requests</TabsTrigger>
             {canApprove && (
               <TabsTrigger value="pending-approvals">Pending Approvals</TabsTrigger>
@@ -158,12 +172,21 @@ export default function ServiceRequestsHubPage() {
                   <div className="flex justify-center items-center min-h-[200px]">
                     <p className="text-sm text-muted-foreground">Loading...</p>
                   </div>
-                ) : myRequestsData?.data && myRequestsData.data.length > 0 ? (
+                ) : (myRequestsData?.data && myRequestsData.data.length > 0) ||
+                  myPaging.search ? (
+                  // Stay mounted on an empty *search* result, otherwise the
+                  // search box unmounts and the filter can't be cleared.
                   <RequestDataTable
-                    data={myRequestsData.data}
+                    data={myRequestsData?.data ?? []}
                     showRequester={false}
                     showEdit={true}
                     showCancel={true}
+                    onSearch={myPaging.handleSearch}
+                    initialSearch={myPaging.search}
+                    serverSidePagination={myPaging.buildPaginationProps(
+                      myRequestsData?.metadata,
+                      myFetching
+                    )}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12">
@@ -188,10 +211,18 @@ export default function ServiceRequestsHubPage() {
                     <div className="flex justify-center items-center min-h-[200px]">
                       <p className="text-sm text-muted-foreground">Loading...</p>
                     </div>
-                  ) : pendingApprovalsData?.data && pendingApprovalsData.data.length > 0 ? (
+                  ) : (pendingApprovalsData?.data &&
+                      pendingApprovalsData.data.length > 0) ||
+                    approvalsPaging.search ? (
                     <RequestDataTable
-                      data={pendingApprovalsData.data as any}
+                      data={(pendingApprovalsData?.data ?? []) as any}
                       showRequester={true}
+                      onSearch={approvalsPaging.handleSearch}
+                      initialSearch={approvalsPaging.search}
+                      serverSidePagination={approvalsPaging.buildPaginationProps(
+                        pendingApprovalsData?.metadata,
+                        approvalsFetching
+                      )}
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12">
@@ -214,8 +245,18 @@ export default function ServiceRequestsHubPage() {
                     <div className="flex justify-center items-center min-h-[200px]">
                       <p className="text-sm text-muted-foreground">Loading...</p>
                     </div>
-                  ) : allRequestsData?.data && allRequestsData.data.length > 0 ? (
-                    <RequestDataTable data={allRequestsData.data} showDelete={isSuperAdmin} />
+                  ) : (allRequestsData?.data && allRequestsData.data.length > 0) ||
+                    allPaging.search ? (
+                    <RequestDataTable
+                      data={allRequestsData?.data ?? []}
+                      showDelete={isSuperAdmin}
+                      onSearch={allPaging.handleSearch}
+                      initialSearch={allPaging.search}
+                      serverSidePagination={allPaging.buildPaginationProps(
+                        allRequestsData?.metadata,
+                        allFetching
+                      )}
+                    />
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12">
                       <p className="text-sm text-muted-foreground">No requests found</p>

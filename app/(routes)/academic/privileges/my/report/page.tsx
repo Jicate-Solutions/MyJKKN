@@ -149,14 +149,16 @@ export default function PrivilegeReportPage() {
             {/* Renewal status banner */}
             <Card className="overflow-hidden">
               <CardContent className="p-4 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">{membership.group_name}</p>
-                    <p className="text-xs text-muted-foreground">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-muted-foreground mb-1 truncate">{membership.group_name}</p>
+                    <p className="text-xs text-muted-foreground truncate">
                       Director Order #{membership.reference_code}
                     </p>
                   </div>
-                  {getRenewalBadge(membership.renewal_status)}
+                  <div className="shrink-0">
+                    {getRenewalBadge(membership.renewal_status)}
+                  </div>
                 </div>
               </CardContent>
             </Card>

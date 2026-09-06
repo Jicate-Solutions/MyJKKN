@@ -256,16 +256,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Auto-assign sort_order: count existing members + 1
+    // Auto-assign sort_order: append after the existing roster.
+    //
+    // `?? ` alone was not enough — the Add Member dialog used to send a literal
+    // 0, which is not nullish, so every member landed on sort_order 0 and the
+    // roster had no order at all. Anything <= 0 now means "auto", except that
+    // the council routes still insert -1 deliberately to float the chairman /
+    // member secretary to the top (they insert directly, not through here).
     const { count } = await writeDb
       .from('bos_members')
       .select('id', { count: 'exact', head: true })
       .eq('composition_id', body.composition_id);
 
+    const explicitOrder =
+      typeof body.sort_order === 'number' && body.sort_order > 0
+        ? body.sort_order
+        : null;
+
     const insertData = {
       ...body,
       committee_id: committeeId,
-      sort_order: body.sort_order ?? (count ?? 0) + 1,
+      sort_order: explicitOrder ?? (count ?? 0) + 1,
       is_active: body.is_active ?? true,
     };
 
@@ -284,6 +295,33 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) throw error;
+
+    // Pull the new member into its own group's numbering. The insert above
+    // appended it at `count + 1`, which sorts last INSIDE its group (right) but
+    // last in the WHOLE composition (wrong — it would print at the end of the
+    // meeting notice instead of after the other faculty members). The function
+    // recompacts sort_order to 1..n and rebuilds group_position, so the stored
+    // ranks match the roster exactly. Never fatal: a failure here leaves the
+    // member correctly created, just numbered at the tail until the next write.
+    const inserted = data as { id: string } | null;
+    if (inserted?.id) {
+      const rankDb = createServiceRoleClient();
+      const { error: renumberErr } = await rankDb.rpc('bos_renumber_member_order', {
+        p_composition_id: body.composition_id,
+      });
+      if (renumberErr) {
+        console.warn('[bos/members] renumber after insert failed:', renumberErr);
+      } else {
+        // Re-read the ranks the function just assigned so the response (which
+        // the client writes straight into its cache) isn't stale.
+        const { data: ranked } = await rankDb
+          .from('bos_members')
+          .select('sort_order, group_position')
+          .eq('id', inserted.id)
+          .maybeSingle();
+        if (ranked) Object.assign(data as object, ranked);
+      }
+    }
 
     return NextResponse.json(data, { status: 201 });
   } catch (error) {

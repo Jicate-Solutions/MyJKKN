@@ -630,6 +630,16 @@ export class NameToIdResolver {
   /**
    * Resolve Academic Year name to ID using FLEXIBLE matching
    * Matches "2025-2026" to "2025-26", "AY 2025-26", etc.
+   *
+   * Resolves ACTIVE years only. Deactivated years are still real rows that
+   * every one of the matches below would happily return, but no picker can
+   * render them, so a resolved-but-inactive id becomes a blank field on the
+   * profile that survives every later save. On 2026-08-10 fifteen Dental
+   * learners were found on "2025-2026 Additional 3/4" that way — and an
+   * exported sheet carries those names verbatim, so a re-import re-wrote them.
+   * A trigger now rejects them at the learners_profiles write too
+   * (validate_learner_semester_year_scope).
+   *
    * @param yearName - The academic year name (e.g., "2025-2026", "2025-26", "AY 2025-26")
    * @param institutionId - Optional institution filter
    */
@@ -647,6 +657,7 @@ export class NameToIdResolver {
       let query = supabaseAdmin
         .from('academic_years')
         .select('id, academic_year_name')
+        .eq('is_active', true)
         .ilike('academic_year_name', yearName.trim());
 
       if (institutionId) {
@@ -666,6 +677,7 @@ export class NameToIdResolver {
           let formatQuery = supabaseAdmin
             .from('academic_years')
             .select('id, academic_year_name')
+            .eq('is_active', true)
             .ilike('academic_year_name', format);
 
           if (institutionId) {
@@ -681,7 +693,15 @@ export class NameToIdResolver {
           }
         }
 
-        // If still not found, try PATTERN matching (contains any year number)
+        // If still not found, try PATTERN matching on the STARTING year.
+        //
+        // Anchored at the start (`2025%`), not a contains match (`%2025%`).
+        // A contains match reads the year off the WRONG END of a range: for
+        // input "2025-26" it matches "2024-2025" too, and at JKKN Dental
+        // `%2025%` matched five rows with "2024-2025" — a different academic
+        // year entirely — sorting first. Ordered explicitly for the same
+        // reason: this used to be `.limit(1)` with no ORDER BY, so which row
+        // won was heap order, and could change after any vacuum.
         if (!data) {
           const yearNumbers = yearName.match(/\d{4}/g);
           if (yearNumbers && yearNumbers.length > 0) {
@@ -690,13 +710,18 @@ export class NameToIdResolver {
             let patternQuery = supabaseAdmin
               .from('academic_years')
               .select('id, academic_year_name')
-              .ilike('academic_year_name', `%${yearNumbers[0]}%`);
+              .eq('is_active', true)
+              .ilike('academic_year_name', `${yearNumbers[0]}%`);
 
             if (institutionId) {
               patternQuery = patternQuery.eq('institution_id', institutionId);
             }
 
-            const patternResult = await patternQuery.limit(1).single();
+            const patternResult = await patternQuery
+              .order('start_date', { ascending: true })
+              .order('academic_year_name', { ascending: true })
+              .limit(1)
+              .single();
             if (patternResult.data) {
               data = patternResult.data;
               error = null;

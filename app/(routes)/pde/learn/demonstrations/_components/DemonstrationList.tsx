@@ -379,7 +379,7 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
 
                 <Separator />
 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />

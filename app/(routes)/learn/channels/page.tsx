@@ -167,7 +167,7 @@ function ChannelsPageInner() {
 
         {/* Tabs + Content */}
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             {TAB_FILTERS.map((t) => (
               <TabsTrigger key={t.value} value={t.value}>
                 {t.label}

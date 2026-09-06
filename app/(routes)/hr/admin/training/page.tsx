@@ -125,7 +125,7 @@ export default function AdminTrainingPage() {
       </Breadcrumb>
 
       <div className="mt-6 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Training Programs</h1>
             <p className="text-sm text-muted-foreground">
@@ -133,7 +133,7 @@ export default function AdminTrainingPage() {
               issue completion certificates.
             </p>
           </div>
-          <Button asChild>
+          <Button asChild className="shrink-0">
             <Link href="/hr/admin/training/new">
               <Plus className="h-4 w-4 mr-1" /> New Program
             </Link>

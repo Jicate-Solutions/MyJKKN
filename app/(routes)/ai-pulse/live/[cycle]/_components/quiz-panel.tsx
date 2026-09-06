@@ -36,6 +36,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { useSubmitQuiz } from '@/lib/services/ai-pulse/live-session-service';
 import { QuizService } from '@/lib/services/ai-pulse/quiz-service';
+import { stripLeadingQuestionNumber } from '@/lib/services/ai-pulse/quiz-question-text';
 
 interface QuizPanelProps {
   cycleId: string;
@@ -70,10 +71,13 @@ export function QuizPanel({
   const [shownScore, setShownScore] = useState<number | null>(
     existingScore ?? null,
   );
-  // Pass thresholds come from the authored quiz (config.quiz). Defaults match
-  // the platform policy seeds: live 40, async make-up 60.
+  // Pass thresholds come from the authored quiz (config.quiz). These literals
+  // mirror DEFAULT_QUIZ in quiz-service.ts — live 50 (raised from 40 on
+  // 2026-07-30, decision #10), async make-up 60. They are a read-side fallback
+  // only: an authored quiz always supplies its own stored values below, so
+  // changing them cannot re-score any cycle that has a quiz on file.
   const [thresholds, setThresholds] = useState<{ live: number; async: number }>({
-    live: 40,
+    live: 50,
     async: 60,
   });
 
@@ -93,13 +97,16 @@ export function QuizPanel({
         const ctx = await QuizService.getQuiz(cycleId);
         if (cancelled) return;
         setThresholds({
-          live: ctx?.quiz.pass_threshold_live ?? 40,
+          live: ctx?.quiz.pass_threshold_live ?? 50,
           async: ctx?.quiz.pass_threshold_async ?? 60,
         });
         const mapped: QuizQuestion[] = (ctx?.quiz.questions ?? [])
           .map((q) => {
-            const en = q.question_en?.trim() ?? '';
-            const ta = q.question_ta?.trim() ?? '';
+            // Strip any number the author typed into the text — this list is
+            // already numbered by the <ol> below, so leaving it in shows the
+            // learner the number twice.
+            const en = stripLeadingQuestionNumber(q.question_en);
+            const ta = stripLeadingQuestionNumber(q.question_ta);
             const options = q.options
               .map((o) => {
                 const oen = o.text_en?.trim() ?? '';

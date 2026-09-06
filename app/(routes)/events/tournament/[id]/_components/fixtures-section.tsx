@@ -34,6 +34,8 @@ import {
   useAwardAchievements,
   useGenerateKnockoutFromPools,
 } from '@/hooks/events/use-tournament-fixtures';
+import { useMediaQuery } from '@/hooks/use-media-query';
+import { MobileScoreSheet } from './mobile-score-sheet';
 
 function MatchStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -232,6 +234,9 @@ export function DivisionFixtures({
   const poolKnockout = useGenerateKnockoutFromPools(eventId);
   const [scheduling, setScheduling] = useState<TournamentMatch | null>(null);
   const [recording, setRecording] = useState<TournamentMatch | null>(null);
+  // Phones get the one-handed courtside score sheet; wider screens keep the dialog.
+  // Only read after a tap (recording != null), which is always post-hydration.
+  const isPhone = useMediaQuery('(max-width: 640px)');
   const hasCompleted = matches.some((m) => m.status === 'completed');
   // pools_ko: offer "generate knockout" once every pool match is decided and no KO exists yet
   const poolMatches = matches.filter((m) => m.pool);
@@ -284,11 +289,11 @@ export function DivisionFixtures({
 
   return (
     <div className="mt-3 rounded-lg border p-3">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Swords className="h-3.5 w-3.5" /> Fixtures
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center justify-end gap-1">
           {canManage && poolsDone && (
             <Button
               size="sm"
@@ -409,14 +414,22 @@ export function DivisionFixtures({
           onOpenChange={(v) => !v && setScheduling(null)}
         />
       )}
-      {recording && (
-        <ResultDialog
-          eventId={eventId}
-          match={recording}
-          open={!!recording}
-          onOpenChange={(v) => !v && setRecording(null)}
-        />
-      )}
+      {recording &&
+        (isPhone ? (
+          <MobileScoreSheet
+            eventId={eventId}
+            match={recording}
+            open={!!recording}
+            onOpenChange={(v) => !v && setRecording(null)}
+          />
+        ) : (
+          <ResultDialog
+            eventId={eventId}
+            match={recording}
+            open={!!recording}
+            onOpenChange={(v) => !v && setRecording(null)}
+          />
+        ))}
     </div>
   );
 }

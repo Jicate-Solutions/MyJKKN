@@ -50,8 +50,7 @@ export default function RegisterPage({ params }: { params: Promise<{ id: string 
   }
 
   const isOpen = event.status === 'registration_open' &&
-    event.registration_deadline &&
-    new Date(event.registration_deadline) > new Date();
+    (!event.registration_deadline || new Date(event.registration_deadline) > new Date());
 
   if (!isOpen && !isSuperAdmin) {
     return (

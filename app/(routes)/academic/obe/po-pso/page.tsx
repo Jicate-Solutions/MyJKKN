@@ -87,7 +87,7 @@ export default function POPSOPage() {
   };
 
   return (
-    <div className='space-y-6'>
+    <div className='space-y-6 px-4 md:px-8 pb-24 lg:pb-0'>
       <div>
         <h1 className='text-2xl font-bold py-1'>Program Outcomes & PSOs</h1>
         <p className='text-sm sm:text-base text-muted-foreground'>

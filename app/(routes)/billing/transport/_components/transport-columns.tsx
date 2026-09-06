@@ -1,12 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { Receipt } from 'lucide-react';
+import { ReceiptIndianRupee } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TransportPayOnlineButton } from './transport-pay-online-button';
 import type { PermissionColumnDef } from '@/components/ui/data-table';
-import type { TransportCollectable } from '@/hooks/billing/use-transport-collectables';
+import {
+  PERSON_TYPE_LABEL,
+  type TransportCollectable,
+} from '@/hooks/billing/use-transport-collectables';
 
 const RETURN_TO = '/billing/transport';
 
@@ -34,20 +37,66 @@ const paidOf = (r: TransportCollectable) =>
 export function getTransportColumns({ instName, canCollect, canReceipt }: ColumnOpts): PermissionColumnDef<TransportCollectable>[] {
   return [
     {
+      // Id deliberately UNCHANGED ('learner', not 'person'). Column ids key the
+      // persisted visibility state, any saved sorting, and the permission map —
+      // renaming one silently stops all of those resolving after deploy, with no
+      // error. Only the header text changes: this list has always carried Senior
+      // Learners too, it just never said so.
       id: 'learner',
-      header: 'Learner',
+      header: 'Name',
       accessorFn: (r) => [r.first_name, r.last_name].filter(Boolean).join(' '),
       cell: ({ row }) => {
         const r = row.original;
         const name = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || '—';
+        // The billing schedule page is keyed by learners_profiles.id. A Senior
+        // Learner's id is a staff.id, so linking there resolves to nothing —
+        // which is what this cell did for all 35 of them before person_type
+        // existed to tell them apart. Their name is plain text instead.
+        //
+        // Tested for the NON-learner token, never for 'learner'. The two are not
+        // symmetric: `=== 'learner'` treats anything unexpected — a React Query
+        // cache served before the new RPC lands, an environment where the
+        // migration has not run, a future third population — as a Senior Learner,
+        // which would strip the billing link from all 1,266 learner rows at once
+        // and surface no error at all. Failing the other way costs one dead link
+        // on 35 rows, which is where this started.
+        const isLearner = r.person_type !== 'staff';
         const href = `/billing/schedule/students/${r.student_id}?returnTo=${encodeURIComponent(RETURN_TO)}`;
         return (
           <div>
-            <Link href={href} className='font-medium underline-offset-2 hover:text-primary hover:underline'>
-              {name}
-            </Link>
+            {isLearner ? (
+              <Link href={href} className='font-medium underline-offset-2 hover:text-primary hover:underline'>
+                {name}
+              </Link>
+            ) : (
+              <span className='font-medium'>{name}</span>
+            )}
             <div className='text-muted-foreground font-mono text-xs'>{r.roll_number || '—'}</div>
           </div>
+        );
+      },
+    },
+    {
+      id: 'person_type',
+      header: 'Type',
+      // Falls back to the Learner label, never to the raw database token: an
+      // unrecognised value printing 'staff' on screen would leak the column
+      // vocabulary into the UI and read as a third, nonexistent category.
+      accessorFn: (r) => PERSON_TYPE_LABEL[r.person_type] ?? PERSON_TYPE_LABEL.learner,
+      cell: ({ row }) => {
+        const r = row.original;
+        const isSenior = r.person_type === 'staff';
+        return (
+          <Badge
+            variant='outline'
+            className={`whitespace-nowrap text-xs ${
+              isSenior
+                ? 'border-purple-200 bg-purple-50 text-purple-800'
+                : 'border-blue-200 bg-blue-50 text-blue-800'
+            }`}
+          >
+            {PERSON_TYPE_LABEL[r.person_type] ?? PERSON_TYPE_LABEL.learner}
+          </Badge>
         );
       },
     },
@@ -127,7 +176,7 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
                 )}
                 {canReceipt && (
                   <Button asChild variant='outline' size='sm' className='h-8 gap-1 px-2 text-xs'>
-                    <Link href={receiptHref}><Receipt className='h-3.5 w-3.5' /> Receipt</Link>
+                    <Link href={receiptHref}><ReceiptIndianRupee className='h-3.5 w-3.5' /> Receipt</Link>
                   </Button>
                 )}
               </>

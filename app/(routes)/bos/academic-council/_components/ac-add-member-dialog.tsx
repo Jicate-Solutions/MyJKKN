@@ -167,7 +167,9 @@ export function AcAddMemberDialog({
         email: email.trim() || undefined,
         contact_no: contactNo.trim() || undefined,
         is_active: true,
-        sort_order: 0,
+        // sort_order omitted → the API appends (count + 1). A literal 0 pinned
+        // every new member to the top, ahead of the -1 chairman snapshot only
+        // by accident, and left the roster effectively unordered.
       },
       {
         onSuccess: () => toast.success('Member added'),

@@ -202,12 +202,12 @@ function TrainingProgrammeDetailContent({ params }: Props) {
 
         {/* Enrollments */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">
               Enrolled Learners {!enrollmentsLoading && `(${enrollments?.length ?? 0})`}
             </h2>
             <PermissionGuard module="cdc.training" action="edit">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
                   variant="outline"
@@ -244,15 +244,15 @@ function TrainingProgrammeDetailContent({ params }: Props) {
           ) : (
             <div className="border rounded-lg divide-y">
               {(enrollments ?? []).map((enrollment) => (
-                <div key={enrollment.id} className="flex items-center justify-between px-4 py-3 text-sm">
-                  <div>
+                <div key={enrollment.id} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 text-sm">
+                  <div className="min-w-0">
                     <p className="font-medium">{[enrollment.learner?.first_name, enrollment.learner?.last_name].filter(Boolean).join(' ') || 'Unknown learner'}</p>
                     <p className="text-muted-foreground text-xs">
                       {enrollment.learner?.roll_number && `${enrollment.learner.roll_number} · `}
                       {enrollment.learner?.institution?.name}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     {enrollment.attendance_pct != null ? (
                       <span
                         className="text-xs text-muted-foreground"

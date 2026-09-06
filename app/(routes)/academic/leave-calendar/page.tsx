@@ -111,9 +111,9 @@ export default function LeaveCalendarPage() {
             </CardContent>
           </Card>
 
-          <div className='grid gap-6 lg:grid-cols-4'>
+          <div className='grid grid-cols-1 gap-6 lg:grid-cols-4'>
             {/* Calendar */}
-            <div className='lg:col-span-3'>
+            <div className='min-w-0 lg:col-span-3'>
               <Card>
                 <CardHeader>
                   <CardTitle>Academic Leave Calendar</CardTitle>
@@ -135,7 +135,7 @@ export default function LeaveCalendarPage() {
             </div>
 
             {/* Legend */}
-            <div className='lg:col-span-1'>
+            <div className='min-w-0 lg:col-span-1'>
               <CalendarLegend institutionId={effectiveInstitutionId || null} />
             </div>
           </div>

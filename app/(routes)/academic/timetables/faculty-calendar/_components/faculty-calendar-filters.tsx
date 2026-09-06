@@ -218,21 +218,23 @@ export function FacultyCalendarFilters({
               <PopoverTrigger asChild>
                 <Button
                   variant='outline'
-                  className='w-full justify-start text-left font-normal'
+                  className='w-full min-w-0 justify-start text-left font-normal'
                 >
-                  <CalendarIcon className='mr-2 h-4 w-4' />
-                  {dateRange.from ? (
-                    dateRange.to ? (
-                      <>
-                        {format(dateRange.from, 'LLL dd, y')} -{' '}
-                        {format(dateRange.to, 'LLL dd, y')}
-                      </>
+                  <CalendarIcon className='mr-2 h-4 w-4 shrink-0' />
+                  <span className='min-w-0 truncate'>
+                    {dateRange.from ? (
+                      dateRange.to ? (
+                        <>
+                          {format(dateRange.from, 'LLL dd, y')} -{' '}
+                          {format(dateRange.to, 'LLL dd, y')}
+                        </>
+                      ) : (
+                        format(dateRange.from, 'LLL dd, y')
+                      )
                     ) : (
-                      format(dateRange.from, 'LLL dd, y')
-                    )
-                  ) : (
-                    <span>Pick a date range</span>
-                  )}
+                      'Pick a date range'
+                    )}
+                  </span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent className='w-auto p-0' align='start'>
@@ -651,7 +653,7 @@ export function FacultyCalendarFilters({
         <div className='pt-4 border-t'>
           <Button
             onClick={applyFilters}
-            className='w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-3 text-base shadow-lg hover:shadow-xl transition-all duration-200'
+            className='w-full h-auto whitespace-normal leading-tight bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-3 text-base shadow-lg hover:shadow-xl transition-all duration-200'
             size='lg'
           >
             <Filter className='h-5 w-5 mr-2' />

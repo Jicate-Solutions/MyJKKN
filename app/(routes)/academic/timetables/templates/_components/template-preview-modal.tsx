@@ -125,7 +125,7 @@ export function TemplatePreviewModal({
                 </CardTitle>
               </CardHeader>
               <CardContent className='space-y-4'>
-                <div className='grid grid-cols-2 gap-4'>
+                <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
                   <div className='space-y-3'>
                     <div className='flex items-center gap-2'>
                       <Building className='h-4 w-4 text-muted-foreground' />
@@ -297,7 +297,7 @@ export function TemplatePreviewModal({
           </div>
         </ScrollArea>
 
-        <DialogFooter className='flex gap-2'>
+        <DialogFooter className='flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             Close
           </Button>

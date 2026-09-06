@@ -60,10 +60,16 @@ export function allocationMatchesFilters(
   if (f.institution_id && ac?.institution_id !== f.institution_id) return false;
   if (f.program_id && ac?.program_id !== f.program_id) return false;
   if (f.semester_id && ac?.semester_id !== f.semester_id) return false;
-  if (f.room_category_id && ac?.hostel_category_id !== f.room_category_id)
+  // Compared by name, not id — room categories are institution-scoped, same
+  // reasoning as mess_category_id below (the option list is deduped by name).
+  if (f.room_category_id && ac?.room_category?.name !== f.room_category_id)
     return false;
   if (f.room_id && a?.room_id !== f.room_id) return false;
-  if (f.mess_category_id && ac?.mess_category_id !== f.mess_category_id)
+  // Compared by name, not id — mess categories are institution-scoped, so
+  // "Classic" at one institution and "Classic" at another are different rows
+  // with the same name. The filter option list is deduped by name (see
+  // messCategoryOptions below), so it must match the same way here.
+  if (f.mess_category_id && ac?.mess_category?.name !== f.mess_category_id)
     return false;
   return true;
 }
@@ -133,19 +139,26 @@ export function AllocationAcademicFilterSelects({
     [progScoped]
   );
 
+  // Deduped by name, not id — room categories are institution-scoped, so
+  // viewing "All Institutions" can surface e.g. two separate "Classic Room"
+  // rows (one per institution). Same fix as messCategoryOptions below.
   const roomCategoryOptions = useMemo(
     () =>
       distinctOptions(instScoped, (a) => ({
-        value: academic(a)?.hostel_category_id,
+        value: academic(a)?.room_category?.name,
         label: academic(a)?.room_category?.name,
       })),
     [instScoped]
   );
 
+  // Deduped by name, not id — mess categories are institution-scoped, so
+  // viewing "All Institutions" can surface e.g. two separate "Classic" rows
+  // (one per institution). distinctOptions dedupes on `value`, so using the
+  // id there let both through as "duplicates" with the same label.
   const messCategoryOptions = useMemo(
     () =>
       distinctOptions(instScoped, (a) => ({
-        value: academic(a)?.mess_category_id,
+        value: academic(a)?.mess_category?.name,
         label: academic(a)?.mess_category?.name,
       })),
     [instScoped]
@@ -158,7 +171,7 @@ export function AllocationAcademicFilterSelects({
   const roomOptions = useMemo(() => {
     const scoped = value.room_category_id
       ? instScoped.filter(
-          (a) => academic(a)?.hostel_category_id === value.room_category_id
+          (a) => academic(a)?.room_category?.name === value.room_category_id
         )
       : instScoped;
     const multiBlock =

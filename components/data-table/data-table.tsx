@@ -34,7 +34,8 @@ import { useTableConfig, type TableConfig } from './utils/table-config';
 import type { CaseFormatConfig } from './utils/case-utils';
 import type {
   DataTransformFunction,
-  ExportableData
+  ExportableData,
+  PdfExportOptions
 } from './utils/export-utils';
 import { useTableColumnResize } from './hooks/use-table-column-resize';
 import { DataTableResizer } from './data-table-resizer';
@@ -139,6 +140,10 @@ interface DataTableProps<TData extends ExportableData, TValue> {
     headers: string[];
     caseConfig?: CaseFormatConfig;
     transformFunction?: DataTransformFunction<TData>;
+    // Opt in to PDF export. Omit and the Export menu keeps only CSV/XLS.
+    // A PDF page fits far fewer columns than a spreadsheet, so tables with a
+    // wide export schema should pass `pdf.headers` with a printable subset.
+    pdf?: PdfExportOptions;
   };
 
   // ID field in TData for tracking selected items
@@ -988,6 +993,7 @@ export function DataTable<TData extends ExportableData, TValue>({
           columnWidths={exportConfig?.columnWidths || []}
           headers={exportConfig?.headers || []}
           transformFunction={exportConfig?.transformFunction}
+          pdfOptions={exportConfig?.pdf}
           customToolbarComponent={renderToolbarContent?.({
             selectedRows: selectedFullRows,
             allSelectedIds: Object.keys(selectedItemIds),

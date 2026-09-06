@@ -42,7 +42,7 @@ function BillingInner() {
         <div>
           <Label>College</Label>
           <Select value={institutionId} onValueChange={setInstitutionId}>
-            <SelectTrigger className="w-72"><SelectValue placeholder="Pick a college to load" /></SelectTrigger>
+            <SelectTrigger className="w-full sm:w-72"><SelectValue placeholder="Pick a college to load" /></SelectTrigger>
             <SelectContent>
               {institutions.map((i: { id: string; name: string }) => (
                 <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>

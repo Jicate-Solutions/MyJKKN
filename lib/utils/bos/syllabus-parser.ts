@@ -20,6 +20,14 @@ export interface ParsedSyllabus {
         subtopics?: Array<{ number: number; title: string }>;
       }>;
       remarks: string;
+      /**
+       * Per-unit period marker, free text — either an Anna-University
+       * "theory + tutorial" split ("9 + 3") or a plain count ("9"). Only the
+       * CET/Engineering PDF renderer prints it (see course-syllabus-cet-pdf.ts),
+       * but it must survive the XLSX round-trip or an export→edit→re-import
+       * silently wipes every unit's hours.
+       */
+      hours?: string;
     }>;
     // Practical/lab papers store experiments as topics[] instead of units[]
     // (see types/bos.ts course_content dual shape). is_practical is only set
@@ -822,6 +830,9 @@ function parseUnitsSheet(rows: SheetRows) {
   const subtopicCol = findCol(headers, 'sub-topic', 'subtopic', 'sub topic');
   const sectionsCol = findCol(headers, 'sections', 'section');
   const remarksCol = findCol(headers, 'remarks', 'book reference', 'reference');
+  // Optional column — sheets authored before Hours shipped simply lack it,
+  // and findCol returns -1, leaving `hours` undefined (not an empty string).
+  const hoursCol = findCol(headers, 'hours', 'periods');
 
   const unitMap = new Map<string, ParsedSyllabus['course_content']['units'][number]>();
   for (let i = 1; i < rows.length; i++) {
@@ -840,6 +851,11 @@ function parseUnitsSheet(rows: SheetRows) {
         chapters: [],
         remarks: remarksCol >= 0 ? (row[remarksCol] ?? '').trim() : '',
       };
+      // Omit the key entirely when the column is absent or blank, so a sheet
+      // without Hours leaves an existing unit's hours untouched rather than
+      // overwriting it with ''.
+      const hoursRaw = hoursCol >= 0 ? String(row[hoursCol] ?? '').trim() : '';
+      if (hoursRaw) unit.hours = hoursRaw;
       unitMap.set(unitId, unit);
     }
     const chapterTitle = chapterCol >= 0 ? (row[chapterCol] ?? '').trim() : '';

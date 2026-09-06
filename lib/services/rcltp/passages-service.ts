@@ -29,6 +29,8 @@ import type {
   CreateRcltpPartBQuestionDto,
   UpdateRcltpPartBQuestionDto,
   UpdateRcltpQuestionReviewDto,
+  RcltpPassageReviewPriority,
+  RcltpReviewSpotcheck,
 } from '@/types/rcltp';
 import {
   rcltpRange,
@@ -39,6 +41,28 @@ import {
 
 export class RcltpPassagesService {
   private static supabase = createClientSupabaseClient();
+
+  /**
+   * The signed-in user's profile id, for attribution columns.
+   *
+   * auth.users.id == profiles.id (1:1), so the session user's id IS the
+   * profiles.id that created_by FKs to.
+   *
+   * getSession(), NOT getUser(): getUser() revalidates the token against the
+   * auth server on every call and can stall the mutation that awaits it
+   * (bug #1205 — change-request create hung on "Creating…" indefinitely). For
+   * "who is logged in right now" the locally-cached session is the correct
+   * source. Never throws — an unauthenticated client returns null so a missing
+   * actor degrades to a null column instead of blocking the write.
+   */
+  private static async currentUserId(): Promise<string | null> {
+    try {
+      const { data } = await this.supabase.auth.getSession();
+      return data.session?.user?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   // -------------------------------------------------------------------------
   // PASSAGES — reads (RLS-scoped; library table also exposes global rows)
@@ -102,10 +126,19 @@ export class RcltpPassagesService {
   // PASSAGES — staff/admin writes (RLS: rcltp.config.manage; global = admin only)
   // -------------------------------------------------------------------------
 
+  /**
+   * created_by is stamped from the session because nothing else fills it: the
+   * column has no DB default and rcltp_set_updated_at is the table's only
+   * trigger. Director decision 7 (2026-07-28) notifies the person who added a
+   * non-English passage, and that recipient does not exist unless it is
+   * recorded here. Pre-existing rows keep created_by NULL and correctly fall
+   * back to the school head — their author is genuinely unknown.
+   */
   static async createPassage(input: CreateRcltpPassageDto): Promise<RcltpPassage> {
+    const createdBy = input.created_by ?? (await this.currentUserId());
     const { data, error } = await (this.supabase as any)
       .from('rcltp_passages')
-      .insert([{ language: 'en', ...input }])
+      .insert([{ language: 'en', ...input, created_by: createdBy }])
       .select()
       .single();
     if (error) throw error;
@@ -328,6 +361,94 @@ export class RcltpPassagesService {
     if (error) throw error;
     toast.success('Question review saved');
     return data as RcltpPartBQuestion;
+  }
+
+  /**
+   * Promote MANY reviewed questions in one statement (locked decision #1 —
+   * "approve all AI-agreed"). One `.update().in('id', ids)` round-trip rather
+   * than N mutations: the console can clear a whole passage's agreed drafts
+   * without N network calls, and RLS still evaluates per row, so a caller who
+   * may not touch one of the ids simply does not update it.
+   *
+   * FREEZE BY OMISSION: the patch is an UpdateRcltpQuestionReviewDto (status +
+   * reviewed_by + reviewed_at only). It carries no ai_meta, so the frozen
+   * ai_meta.ai_draft survives untouched — the invariant holds by construction,
+   * exactly as in the single-row reviewQuestion path.
+   *
+   * Returns the rows actually updated, so the caller reports what really landed
+   * rather than what it hoped would land.
+   */
+  static async reviewQuestionsBulk(
+    ids: string[],
+    input: UpdateRcltpQuestionReviewDto
+  ): Promise<RcltpPartBQuestion[]> {
+    if (ids.length === 0) return [];
+    const { data, error } = await (this.supabase as any)
+      .from('rcltp_part_b_questions')
+      .update({
+        ...input,
+        reviewed_at: input.reviewed_at ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', ids)
+      .select();
+    if (error) throw error;
+    const rows = (data ?? []) as RcltpPartBQuestion[];
+    if (rows.length < ids.length) {
+      // Honest partial result — never report N approved when the DB took fewer.
+      toast.success(
+        `Approved ${rows.length} of ${ids.length} — the rest were not permitted or already reviewed.`
+      );
+    } else {
+      toast.success(`Approved ${rows.length} questions`);
+    }
+    return rows;
+  }
+
+  /**
+   * Most-needed-first ordering for the review queue (locked decision #5), via
+   * fn_rcltp_passage_review_priority. Returns one row per visible passage with
+   * its counts and a server-computed priority_rank.
+   */
+  static async getPassageReviewPriority(
+    institutionId?: string | null
+  ): Promise<RcltpPassageReviewPriority[]> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_passage_review_priority',
+      { p_institution_id: institutionId ?? null }
+    );
+    if (error) throw error;
+    return (data ?? []) as RcltpPassageReviewPriority[];
+  }
+
+  /**
+   * This week's anti-rubber-stamp sample for the signed-in Senior Learner
+   * (locked decision #7). The RPC is self-healing: the first call in a week
+   * draws the sample, later calls return the same rows — no scheduler that can
+   * silently stop running.
+   */
+  static async getSpotcheckWeek(): Promise<RcltpReviewSpotcheck[]> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_spotcheck_week'
+    );
+    if (error) throw error;
+    return (data ?? []) as RcltpReviewSpotcheck[];
+  }
+
+  /** Record the outcome of one sampled item: it reads correctly, or it needs a look. */
+  static async resolveSpotcheck(
+    id: string,
+    status: 'confirmed' | 'flagged',
+    note?: string | null
+  ): Promise<void> {
+    const { error } = await (this.supabase as any).rpc(
+      'fn_rcltp_spotcheck_resolve',
+      { p_id: id, p_status: status, p_note: note ?? null }
+    );
+    if (error) throw error;
+    toast.success(
+      status === 'confirmed' ? 'Spot-check confirmed' : 'Flagged for a second look'
+    );
   }
 
   /**

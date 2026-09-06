@@ -13,6 +13,26 @@ export const dynamic = 'force-dynamic';
 // Uses the same service-role + manual auth pattern as /list, because the
 // admission_leads RLS policies cascade 3 levels deep and exceed the
 // authenticated role statement timeout.
+//
+// PERF (2026-08-02): the data assembly is ONE RPC round-trip,
+// get_admission_lead_program_counts (SECURITY INVOKER, EXECUTE locked to
+// service_role). Previously this route issued three sequential PostgREST
+// queries — programs, then EVERY admission_leads row with
+// interested_programs populated (10,946 rows / ~1MB in prod; the old comment
+// said "typically <500 rows"), then an exact count — and aggregated in JS.
+// Besides the latency, the un-ranged row fetch was silently truncated at the
+// PostgREST max-rows cap (10,000), so global-scope counts UNDERCOUNTED once
+// the table passed 10k qualifying rows. The RPC aggregates in SQL (<35ms) and
+// returns only the per-program totals, which is both faster and correct.
+// Equivalence vs the old JS aggregation was verified cross-implementation
+// across all 10 institutions + global scope (12/12 identical once the old
+// path's fetch was paginated past the cap). NOTE: interested_programs is
+// text[] — entries are compared to program ids as strings, exactly as the JS
+// did; non-UUID / orphan entries are dropped at the join.
+//
+// The permission prelude is unchanged in behavior; the two non-super-admin
+// lookups (user_has_permission + scoped user_roles) now run in parallel
+// since both depend only on user.id.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
@@ -41,30 +61,33 @@ export async function GET(request: NextRequest) {
 
   const isSuperAdmin = !!profile.is_super_admin || profile.role === 'super_admin';
 
+  // 3+4. Permission gate + cross-institution scope. Both lookups depend only
+  // on user.id, so for non-super-admins they run in ONE parallel round-trip
+  // instead of two sequential ones. Super admins skip both (as before).
   let canViewLeads = isSuperAdmin;
-  if (!canViewLeads) {
-    const { data: permResult } = await supabase.rpc('user_has_permission', {
-      user_id: user.id,
-      permission_key: 'admission.leads.view'
-    });
-    canViewLeads = !!permResult;
-  }
-
-  if (!canViewLeads) {
-    return NextResponse.json(
-      { error: 'Forbidden: admission.leads.view permission required' },
-      { status: 403 }
-    );
-  }
-
-  // 3. Resolve cross-institution access
   let isAdmissionGlobalUser = isSuperAdmin;
-  if (!isAdmissionGlobalUser) {
-    const { data: scopedRoles } = await supabase
-      .from('user_roles')
-      .select('custom_roles!inner(institution_scope, module_scopes)')
-      .eq('user_id', user.id);
-    isAdmissionGlobalUser = (scopedRoles || []).some((ur: any) => {
+
+  if (!isSuperAdmin) {
+    const [permRes, rolesRes] = await Promise.all([
+      supabase.rpc('user_has_permission', {
+        user_id: user.id,
+        permission_key: 'admission.leads.view'
+      }),
+      supabase
+        .from('user_roles')
+        .select('custom_roles!inner(institution_scope, module_scopes)')
+        .eq('user_id', user.id)
+    ]);
+
+    canViewLeads = !!permRes.data;
+    if (!canViewLeads) {
+      return NextResponse.json(
+        { error: 'Forbidden: admission.leads.view permission required' },
+        { status: 403 }
+      );
+    }
+
+    isAdmissionGlobalUser = (rolesRes.data || []).some((ur: any) => {
       const cr = ur.custom_roles;
       if (!cr) return false;
       if (cr.institution_scope === 'all') return true;
@@ -73,7 +96,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 4. Determine target institution
+  // 5. Determine target institution
   const { searchParams } = request.nextUrl;
   const requestedInstitutionId = searchParams.get('institution_id') || undefined;
 
@@ -90,78 +113,26 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // 5. Load programs for the target scope.
-    //    If no institutionId (global user, no param), return all programs
-    //    across institutions — still useful so the tab strip works globally.
-    let programsQuery = supabase
-      .from('programs')
-      .select('id, program_name, institution_id')
-      .order('program_name', { ascending: true });
+    // 6. Single-scan aggregate: programs (count 0 included), per-program
+    //    DISTINCT-lead counts, total leads in scope, and leads with a
+    //    non-empty interested_programs array — one round-trip.
+    const { data: agg, error: aggError } = await supabase.rpc(
+      'get_admission_lead_program_counts',
+      { p_institution_id: institutionId ?? null }
+    );
+    if (aggError) throw aggError;
 
-    if (institutionId) {
-      programsQuery = programsQuery.eq('institution_id', institutionId);
-    }
-
-    const { data: programs, error: programsError } = await programsQuery;
-    if (programsError) throw programsError;
-
-    const programList = programs || [];
-
-    // 6. Load leads with interested_programs populated for the same scope.
-    //    Since interested_programs is uuid[], we can't aggregate in a single
-    //    Supabase query without a custom RPC — we fetch the array column and
-    //    aggregate client-side. This is cheap (typically <500 rows).
-    let leadsQuery = supabase
-      .from('admission_leads')
-      .select('id, interested_programs, institution_id')
-      .not('interested_programs', 'is', null);
-
-    if (institutionId) {
-      leadsQuery = leadsQuery.eq('institution_id', institutionId);
-    } else if (!isAdmissionGlobalUser && profile.institution_id) {
-      leadsQuery = leadsQuery.eq('institution_id', profile.institution_id);
-    }
-
-    const { data: leads, error: leadsError } = await leadsQuery;
-    if (leadsError) throw leadsError;
-
-    // 7. Aggregate lead counts per program.
-    const countMap = new Map<string, number>();
-    let totalWithProgram = 0;
-    (leads || []).forEach((lead: any) => {
-      const ips = Array.isArray(lead.interested_programs)
-        ? lead.interested_programs
-        : [];
-      if (ips.length > 0) totalWithProgram += 1;
-      const seen = new Set<string>();
-      ips.forEach((pid: string) => {
-        if (!pid || seen.has(pid)) return;
-        seen.add(pid);
-        countMap.set(pid, (countMap.get(pid) || 0) + 1);
-      });
-    });
-
-    // 8. Total count — all leads in scope (not just those with a program).
-    let totalCountQuery = supabase
-      .from('admission_leads')
-      .select('id', { count: 'exact', head: true });
-
-    if (institutionId) {
-      totalCountQuery = totalCountQuery.eq('institution_id', institutionId);
-    } else if (!isAdmissionGlobalUser && profile.institution_id) {
-      totalCountQuery = totalCountQuery.eq('institution_id', profile.institution_id);
-    }
-
-    const { count: totalCount } = await totalCountQuery;
-
-    // 9. Assemble response — include every program (even count 0), sorted
-    //    by count desc then program_name asc so the tab strip shows active
-    //    programs first.
-    const result = programList
-      .map((p: any) => ({
-        program_id: p.id,
+    // 7. Assemble response — sorted by count desc then program_name asc so
+    //    the tab strip shows active programs first (same JS sort as before).
+    const result = ((agg?.programs || []) as Array<{
+      program_id: string;
+      program_name: string;
+      count: number;
+    }>)
+      .map((p) => ({
+        program_id: p.program_id,
         program_name: p.program_name,
-        count: countMap.get(p.id) || 0,
+        count: p.count || 0,
       }))
       .sort((a, b) => {
         if (b.count !== a.count) return b.count - a.count;
@@ -170,8 +141,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       data: result,
-      total: totalCount || 0,
-      totalWithProgram,
+      total: agg?.total || 0,
+      totalWithProgram: agg?.total_with_program || 0,
     });
   } catch (err) {
     console.error('[admission/leads/program-counts] API route error:', err);

@@ -33,6 +33,8 @@ export interface ProcurementPurchaseOrder {
   pdf_url: string | null;
   created_by: string | null;
   notes: string | null;
+  /** Accreditation tag — library-resource POs in a post-approval status auto-emit NAAC 3.1.1 purchase-bill evidence (DB trigger, Wave 2D). */
+  is_library_resource: boolean;
   /** Selected document format; NULL falls back to the standard hardcoded layout. */
   po_format_id: string | null;
   /** Values for the active format's header_values.* fields. */

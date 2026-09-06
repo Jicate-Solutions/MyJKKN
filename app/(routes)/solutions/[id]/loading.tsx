@@ -14,7 +14,7 @@ export default function SolutionDetailLoading() {
       </div>
 
       {/* Tabs */}
-      <Skeleton className="h-10 w-96" />
+      <Skeleton className="h-10 w-full sm:w-96" />
 
       {/* Content */}
       <div className="grid gap-4 md:grid-cols-2">

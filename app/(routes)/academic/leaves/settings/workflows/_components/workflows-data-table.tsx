@@ -386,16 +386,16 @@ export function WorkflowsDataTable() {
   return (
     <div className='space-y-4'>
       {/* Toolbar */}
-      <div className='flex items-center justify-between gap-4'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
         {/* Institution Filter - Only for Super Admin */}
         {isSuperAdmin && (
-          <div className='flex items-center gap-2'>
-            <span className='text-sm text-muted-foreground'>Institution:</span>
+          <div className='flex w-full items-center gap-2 sm:w-auto'>
+            <span className='text-sm text-muted-foreground shrink-0'>Institution:</span>
             <Select
               value={selectedInstitutionId || ALL_INSTITUTIONS_VALUE}
               onValueChange={(value) => setSelectedInstitutionId(value)}
             >
-              <SelectTrigger className='w-[280px]'>
+              <SelectTrigger className='min-w-0 flex-1 sm:w-[280px] sm:flex-none'>
                 <SelectValue placeholder='Select institution' />
               </SelectTrigger>
               <SelectContent>
@@ -417,6 +417,7 @@ export function WorkflowsDataTable() {
           size='sm'
           onClick={() => fetchWorkflows()}
           disabled={loading}
+          className='shrink-0'
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           Refresh

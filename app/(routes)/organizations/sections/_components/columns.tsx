@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
 export const getColumns = (
-  adaptLabel?: (label: string) => string
+  adaptLabel?: (label: string) => string,
+  onDeleted?: (id: string) => void
 ): ColumnDef<Section>[] => {
   const adapt = adaptLabel || ((label) => label);
 
@@ -156,9 +157,7 @@ export const getColumns = (
         onEdit={(id) => {
           // Navigation will be handled in the DataTableRowActions component
         }}
-        onDelete={(id) => {
-          // Deletion will be handled in the DataTableRowActions component
-        }}
+        onDelete={onDeleted}
       />
     ),
     enableSorting: false,

@@ -162,10 +162,10 @@ export default function FeesEconomicsConfigPage() {
                 title='Fee configuration'
                 description='The fees a learner is charged — per room / mess category, per upgrade, and per package — for the selected hostel year.'
                 action={
-                  <label className='flex items-center gap-2 text-sm'>
+                  <label className='flex flex-wrap items-center gap-2 text-sm'>
                     <span className='whitespace-nowrap text-muted-foreground'>Hostel year</span>
                     <select
-                      className='h-9 w-48 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
+                      className='h-9 w-full sm:w-48 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
                       value={effectiveYearId ?? ''}
                       onChange={(e) => setSelectedYearId(e.target.value || undefined)}
                       disabled={loadingYears || !hostelYears?.length}
@@ -209,7 +209,7 @@ export default function FeesEconomicsConfigPage() {
 
               {effectiveYearId ? (
                 <Tabs defaultValue='category' className='space-y-4'>
-                  <TabsList>
+                  <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
                     <TabsTrigger value='category'>Category Fees</TabsTrigger>
                     <TabsTrigger value='upgrade'>Upgrade Fees</TabsTrigger>
                     <TabsTrigger value='package'>Package Fees</TabsTrigger>

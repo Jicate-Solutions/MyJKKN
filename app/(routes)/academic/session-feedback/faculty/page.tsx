@@ -77,9 +77,11 @@ import { FollowupCell } from '../_components/followup-cell';
 import { AiSuggestionDialog } from '../_components/ai-suggestion-dialog';
 import { AiTaskButton } from '@/components/ai-tasks/ai-task-button';
 import { LivePulseSection } from '../_components/live-pulse-control';
+import { PreSessionMaterialsControl } from '../_components/pre-session-materials-control';
 import { MyLoopNotesCard } from '../_components/my-loop-notes-card';
 import { MyPulseCard } from '../_components/my-pulse-card';
 import { FreetextCarryCountsCard } from '../_components/freetext-carry-counts-card';
+import { ClarificationAsksCard } from '../_components/clarification-asks-card';
 import {
   UnderstandingBand,
   understandingLevel,
@@ -759,6 +761,9 @@ export default function FacultySessionInsightPage() {
       {/* Live — open an in-class pulse for today's classes (fuels the loop) */}
       <LivePulseSection from={from} to={to} />
 
+      {/* Pre-session materials — post a link ahead + objective opens trace (Rank 3a) */}
+      <PreSessionMaterialsControl from={from} to={to} />
+
       {/* Summary — honest per-course understanding bands (D2/D4, 2026-07-24) */}
       <PerCourseUnderstandingCard rows={rows} />
 
@@ -780,6 +785,13 @@ export default function FacultySessionInsightPage() {
           being re-asked in this facilitator's courses (>=3-learner floor;
           renders nothing below it). Spec: scf-freetext-carryforward-2026-07-19 */}
       <FreetextCarryCountsCard />
+
+      {/* Re-explanation asks — per-session COUNTS of learners who asked for a
+          topic again (Lane C, 20260725133000). Count-only server-side; the
+          outcome is the learner's own self-report, so "still open" means they
+          have not answered yet — never that anyone refused. Renders nothing
+          when there are no asks. */}
+      <ClarificationAsksCard />
 
       {/* Coverage — who confirmed, who's pending */}
       <CompletionSection from={from} to={to} />

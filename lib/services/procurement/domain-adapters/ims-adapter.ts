@@ -176,12 +176,15 @@ export const imsAdapter: ProcurementDomainAdapter = {
 
   async reconcileNewItem(snapshot: ItemSnapshot, ctx: DomainCtx): Promise<string> {
     // Create a catalog item for an approved "new item" Purchase Request.
-    // Code is a placeholder; the store admin can refine item master fields later.
-    const code = `NEW-${Date.now().toString().slice(-8)}`;
+    //
+    // `code` is omitted, not invented. This used to mint `NEW-<timestamp>` and
+    // leave the store admin to fix it later; since 20260804120000 the
+    // ims_items_autofill_code trigger assigns a real code from the institution's
+    // sequence, so an item born here is indistinguishable from one created on the
+    // items page. The store admin can still refine the other master fields.
     const { data, error } = await db()
       .from('ims_items')
       .insert({
-        code,
         name: snapshot.name,
         hsn_code: snapshot.hsnCode ?? null,
         gst_rate: snapshot.gstRate ?? 0,

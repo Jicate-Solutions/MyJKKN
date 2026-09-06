@@ -46,22 +46,13 @@ export function useAutoBlocks() {
   return { blocks: query.data ?? [], loading: query.isLoading };
 }
 
-// Floors (with student rooms) for the selected block — drives the floor-scope picker.
-export function useBlockFloors(blockId: string) {
+// Institutions housed by any block of this hostel type — scopes the Institution
+// cohort filter on the auto-allocate page.
+export function useHostelTypeInstitutions(hostelType: string) {
   const query = useQuery({
-    queryKey: [...KEY, 'block-floors', blockId],
-    queryFn: () => AllocationBatchService.getBlockFloors(blockId),
-    enabled: !!blockId,
-  });
-  return { floors: query.data ?? [], loading: query.isLoading };
-}
-
-// Institutions the selected block serves — scopes the Institution cohort filter.
-export function useBlockInstitutions(blockId: string) {
-  const query = useQuery({
-    queryKey: [...KEY, 'block-institutions', blockId],
-    queryFn: () => AllocationBatchService.getBlockInstitutions(blockId),
-    enabled: !!blockId,
+    queryKey: [...KEY, 'hostel-type-institutions', hostelType],
+    queryFn: () => AllocationBatchService.getInstitutionsByHostelType(hostelType),
+    enabled: !!hostelType,
   });
   return { institutions: query.data ?? [], loading: query.isLoading };
 }
@@ -84,16 +75,15 @@ export function useAllocationBatchActions() {
 
   const generate = useCallback(
     async (
-      blockId: string,
-      hostelYearId: string,
-      strict = false,
-      floor: number | null = null,
+      hostelType: string,
+      strict = true,
       institutionId: string | null = null,
       programId: string | null = null,
       semesterId: string | null = null,
+      allowOverflow = true,
     ) => {
       const id = await AllocationBatchService.generate(
-        blockId, hostelYearId, strict, floor, institutionId, programId, semesterId,
+        hostelType, strict, institutionId, programId, semesterId, allowOverflow,
       );
       await invalidate();
       return id;
@@ -121,6 +111,29 @@ export function useAllocationBatchActions() {
     },
     [invalidate]
   );
+  // Bulk reset for the Batches list. Runs sequentially and COLLECTS failures
+  // instead of aborting on the first one — fn_reset_allocation_batch refuses
+  // (P0001) any batch whose allocations carry a deposit record, so one bad
+  // batch must not strand the rest. Invalidates once at the end so the table
+  // doesn't refetch (and rows don't vanish) mid-loop.
+  const resetMany = useCallback(
+    async (batchIds: string[]): Promise<{ id: string; message: string }[]> => {
+      const failed: { id: string; message: string }[] = [];
+      for (const batchId of batchIds) {
+        try {
+          await AllocationBatchService.reset(batchId);
+        } catch (e) {
+          failed.push({
+            id: batchId,
+            message: e instanceof Error ? e.message : 'Failed to reset batch',
+          });
+        }
+      }
+      await invalidate();
+      return failed;
+    },
+    [invalidate]
+  );
   const removeAllocations = useCallback(
     async (batchId: string, allocationIds: string[]) => {
       await AllocationBatchService.removeAllocations(batchId, allocationIds);
@@ -129,5 +142,5 @@ export function useAllocationBatchActions() {
     [invalidate]
   );
 
-  return { generate, approve, reject, reset, removeAllocations };
+  return { generate, approve, reject, reset, resetMany, removeAllocations };
 }

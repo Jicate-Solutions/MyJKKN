@@ -8,10 +8,12 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { StatusBadge } from '@/components/procurement/status-badge';
+import { EmptyState } from '@/components/empty-state';
+import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { PO_STATUS_CONFIG, type PoStatus, type PurchaseOrderFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -50,13 +52,13 @@ export default function PurchaseOrdersPage() {
     institution_id: effectiveInstitution,
   };
 
-  const { data: response, isLoading } = usePurchaseOrders(filters);
+  const { data: response, isLoading, isError } = usePurchaseOrders(filters);
   const pos = response?.data ?? [];
 
   return (
     <ContentLayout title="Purchase Orders">
       <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Purchase Orders</h2>
             <p className="text-muted-foreground">
@@ -66,6 +68,7 @@ export default function PurchaseOrdersPage() {
           {canManageFormats && (
             <Button
               variant="outline"
+              className="shrink-0"
               onClick={() => router.push('/procurement/purchase-orders/formats')}
             >
               <Settings2 className="mr-2 h-4 w-4" />
@@ -115,10 +118,15 @@ export default function PurchaseOrdersPage() {
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
-            ) : pos.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <p>No purchase orders found</p>
+            ) : isError ? (
+              <div className="p-6">
+                <AlertBox type="error" message="Failed to load purchase orders. Please try again." />
               </div>
+            ) : pos.length === 0 ? (
+              <EmptyState
+                title="No purchase orders found"
+                description="Purchase orders generated from awarded RFQs will appear here."
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -143,12 +151,13 @@ export default function PurchaseOrdersPage() {
                         ₹{Number(po.total_amount ?? 0).toLocaleString()}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{PO_STATUS_CONFIG[po.status].label}</Badge>
+                        <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`View purchase order ${po.po_number}`}
                           onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
                         >
                           <Eye className="h-4 w-4" />

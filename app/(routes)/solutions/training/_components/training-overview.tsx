@@ -159,12 +159,12 @@ export function TrainingOverview() {
 
       {/* Upcoming Sessions */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Upcoming Sessions</CardTitle>
             <CardDescription>Next scheduled training sessions</CardDescription>
           </div>
-          <Button variant="outline" size="sm" asChild>
+          <Button variant="outline" size="sm" className="shrink-0" asChild>
             <Link href="/solutions/training/sessions">
               View All <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
@@ -189,12 +189,12 @@ export function TrainingOverview() {
                   key={session.id}
                   className="flex items-center justify-between p-4 rounded-lg border"
                 >
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium">{session.title || `Session ${session.session_number}`}</p>
                     <p className="text-sm text-muted-foreground">
                       {(session.program as any)?.solution?.title || 'Training Program'}
                     </p>
-                    <div className="flex items-center gap-4 mt-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-4 mt-2 text-sm">
                       {session.session_date && (
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
@@ -215,7 +215,7 @@ export function TrainingOverview() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <Badge variant="secondary">
                       <Users className="mr-1 h-3 w-3" />
                       {(session as any).assignments?.length || 0} cohort

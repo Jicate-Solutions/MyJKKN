@@ -191,11 +191,11 @@ export default function WeeklyMessMenuPage() {
         {/* Context bar: week nav · gender toggle · tier toggle (NO institution) */}
         <Card>
           <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" aria-label="Previous week" onClick={() => setWeekOffset((w) => w - 1)}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <div className="min-w-[230px] text-center">
+              <div className="min-w-0 flex-1 text-center sm:min-w-[230px] sm:flex-none">
                 <p className="font-semibold">{weekRangeLabel(weekStart)}</p>
                 <p className="text-xs text-muted-foreground">
                   {weekOffset === 0 ? 'Current week' : `Week of ${weekStart}`}

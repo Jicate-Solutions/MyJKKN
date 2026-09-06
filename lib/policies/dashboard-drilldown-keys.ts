@@ -221,8 +221,17 @@ export const DRILLDOWN_DEFAULTS: Record<DrilldownPolicyKey, string | number | bo
   'dashboard.drilldown.reserved.enabled': true,
 
   // ---- admitted_active (Admitted KPI = admitted + active per workflow spec) ----
-  'dashboard.drilldown.admitted_active.destination': '/learners/enquiries?tab=admitted',
-  'dashboard.drilldown.admitted_active.columns': ['name', 'date', 'institution', 'program'],
+  // 2026-08-13: repointed from /learners/enquiries?tab=admitted to the
+  // purpose-built source drill-down, which answers "which source did each of
+  // these admitted learners come from?". It is profile-anchored, so its total
+  // equals this KPI exactly — including the direct admissions that have no
+  // lead row and therefore no source (964 of 1,515 for AY 2026).
+  // Lands on the Source Analytics tab, whose "Admitted by Source" panel is
+  // profile-anchored — its total equals this KPI exactly, direct admissions
+  // (964 of 1,515 for AY 2026) included. appendDashboardScope() adds
+  // admission_year + institution_ids, which the dashboard reads alongside ?ay=.
+  'dashboard.drilldown.admitted_active.destination': '/admission/group-dashboard?tab=sources',
+  'dashboard.drilldown.admitted_active.columns': ['name', 'date', 'institution', 'program', 'source'],
   'dashboard.drilldown.admitted_active.action_buttons.director': [],
   'dashboard.drilldown.admitted_active.action_buttons.counselor': [],
   'dashboard.drilldown.admitted_active.action_buttons.principal': [],

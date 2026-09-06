@@ -99,6 +99,17 @@ export function LearnerCreateForm() {
         visibleTabs={[...VISIBLE_TABS]}
         // Suppress "Save Draft" — create flow is strict, single-shot
         hideDraft={true}
+        // Profiles covers learners joining at any stage (transfers, back-dated
+        // records, re-admissions), so any department stays selectable and the
+        // semester isn't auto-rewritten. That policy is admission-capture
+        // only — it lives in the enquiry flow.
+        enforceAdmissionRules={false}
+        // Tamil-script name inputs on Basic Details. Scoped to the Learner
+        // Profiles screens — the enquiry and student self-fill flows that share
+        // this form stay as they were.
+        showTamilNames
+        // ABC ID / EMIS / UMIS — same Profiles-only scoping.
+        showLearnerIdentifiers
         submitLabel="Create Learner"
         // Custom submit — form's commitSubmit early-returns after this
         onSubmit={handleStrictSubmit}

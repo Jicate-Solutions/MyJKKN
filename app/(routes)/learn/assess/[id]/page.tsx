@@ -296,7 +296,7 @@ export default function AssessmentTakerPage({
             )}
 
             {/* Navigation */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Button
                 variant="outline"
                 disabled={currentQuestionIdx === 0}

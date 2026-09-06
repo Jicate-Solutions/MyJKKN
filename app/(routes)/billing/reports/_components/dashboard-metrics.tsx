@@ -9,15 +9,36 @@ import {
   FileText,
   TrendingUp,
   AlertCircle,
-  Receipt,
+  ReceiptIndianRupee,
   Percent,
   Download,
   Building2,
   Landmark,
-  HelpCircle
+  HelpCircle,
+  GraduationCap
 } from 'lucide-react';
-import type { BillingDashboardMetrics } from '@/types/billing-schedule';
+import type {
+  BillingDashboardMetrics,
+  StudentYearBreakdown
+} from '@/types/billing-schedule';
 import type { BillingCollectionSplit } from '@/types/billing-analytics';
+
+/**
+ * '1st Year', '2nd Year', '3rd Year', … for the year-of-study cards.
+ *
+ * Formatted here rather than in the RPC because it is presentation: the SQL
+ * emits the bare ordinal so the payload stays language-neutral. The 11–13 case
+ * is guarded even though no programme runs that long — an ordinal helper that
+ * says '11st' is the kind of thing that survives into a screenshot.
+ */
+function yearOfStudyLabel(year: number | null): string {
+  if (year === null) return 'Year Not Set';
+  const suffix =
+    year % 100 >= 11 && year % 100 <= 13
+      ? 'th'
+      : { 1: 'st', 2: 'nd', 3: 'rd' }[year % 10] ?? 'th';
+  return `${year}${suffix} Year`;
+}
 
 interface DashboardMetricsProps {
   metrics: BillingDashboardMetrics | null;
@@ -27,13 +48,17 @@ interface DashboardMetricsProps {
    *  Undefined for users without billing.analytics.view — the section is then
    *  simply not rendered. */
   split?: BillingCollectionSplit;
+  /** Year-wise split of the Total Learners card. Served by its own query, since
+   *  the dashboard RPC returns grand totals only. */
+  yearWiseStudents?: StudentYearBreakdown[];
 }
 
 export function DashboardMetrics({
   metrics,
   loading,
   canExport,
-  split
+  split,
+  yearWiseStudents = []
 }: DashboardMetricsProps) {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -70,10 +95,12 @@ export function DashboardMetrics({
     );
   }
 
+  const totalStudents = metrics.total_students;
+
   return (
     <div className='space-y-6'>
       {/* Header with Export */}
-      <div className='flex justify-between items-center'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <h3 className='text-lg font-medium'>Dashboard Overview</h3>
         {canExport && (
           <Button variant='outline' size='sm'>
@@ -85,11 +112,11 @@ export function DashboardMetrics({
 
       {/* KPI Cards */}
       <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
-        {/* Total Students */}
+        {/* Total Learners */}
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>
-              Total Students
+              Total Learners
             </CardTitle>
             <Users className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
@@ -188,7 +215,7 @@ export function DashboardMetrics({
             <CardTitle className='text-sm font-medium'>
               Recent Receipts
             </CardTitle>
-            <Receipt className='h-4 w-4 text-muted-foreground' />
+            <ReceiptIndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold'>
@@ -200,6 +227,69 @@ export function DashboardMetrics({
           </CardContent>
         </Card>
       </div>
+
+      {/* Year-wise split of the Total Learners card above. */}
+      {yearWiseStudents.length > 0 && (
+        <div>
+          <h3 className='text-lg font-medium'>Learners by Year of Study</h3>
+          <p className='text-sm text-muted-foreground mb-3'>
+            Splits the Total Learners figure above using each learner&apos;s
+            current semester. Billed and collected cover the selected date
+            range; outstanding is the balance carried as of today.
+          </p>
+          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+            {yearWiseStudents.map((bucket) => (
+              <Card key={bucket.year ?? 'unassigned'}>
+                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                  <CardTitle className='text-sm font-medium'>
+                    {yearOfStudyLabel(bucket.year)}
+                  </CardTitle>
+                  <GraduationCap className='h-4 w-4 text-muted-foreground' />
+                </CardHeader>
+                <CardContent>
+                  <div className='text-2xl font-bold'>
+                    {bucket.student_count.toLocaleString()}
+                  </div>
+                  <p className='text-xs text-muted-foreground mt-1'>
+                    {bucket.student_count === 1 ? 'learner' : 'learners'}
+                    {totalStudents > 0 &&
+                      ` · ${formatPercentage(
+                        (bucket.student_count / totalStudents) * 100
+                      )} of total`}
+                  </p>
+
+                  <div className='mt-3 space-y-1.5 border-t pt-3'>
+                    <div className='flex items-center justify-between gap-2'>
+                      <span className='text-xs text-muted-foreground'>
+                        Billed
+                      </span>
+                      <span className='text-sm font-semibold text-blue-600'>
+                        {formatCurrency(bucket.amount_billed)}
+                      </span>
+                    </div>
+                    <div className='flex items-center justify-between gap-2'>
+                      <span className='text-xs text-muted-foreground'>
+                        Collected
+                      </span>
+                      <span className='text-sm font-semibold text-green-600'>
+                        {formatCurrency(bucket.amount_collected)}
+                      </span>
+                    </div>
+                    <div className='flex items-center justify-between gap-2'>
+                      <span className='text-xs text-muted-foreground'>
+                        Outstanding
+                      </span>
+                      <span className='text-sm font-semibold text-orange-600'>
+                        {formatCurrency(bucket.outstanding)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Collection ownership — who the collected cash actually belongs to. */}
       {split && (
@@ -270,20 +360,19 @@ export function DashboardMetrics({
                     className='flex items-center justify-between p-3 border rounded-lg'
                   >
                     <div className='flex items-center gap-3'>
-                      <Receipt className='h-4 w-4 text-muted-foreground' />
-                      <div>
-                        <p className='font-medium'>{receipt.receipt_number}</p>
-                        <p className='text-sm text-muted-foreground'>
-                          {`${receipt.student?.first_name || 'Unknown'} ${receipt.student?.last_name || 'Student'}`}
-                        </p>
-                      </div>
+                      <ReceiptIndianRupee className='h-4 w-4 text-muted-foreground' />
+                      {/* The dashboard RPC's recent-receipts sub-select only
+                          emits id, receipt_number, receipt_date,
+                          payment_amount, payment_mode — no student name and
+                          no created_at, so neither is rendered here. */}
+                      <p className='font-medium'>{receipt.receipt_number}</p>
                     </div>
                     <div className='text-right'>
                       <p className='font-semibold text-green-600'>
                         {formatCurrency(receipt.payment_amount)}
                       </p>
                       <p className='text-xs text-muted-foreground'>
-                        {new Date(receipt.created_at).toLocaleDateString()}
+                        {new Date(receipt.receipt_date).toLocaleDateString()}
                       </p>
                     </div>
                   </div>

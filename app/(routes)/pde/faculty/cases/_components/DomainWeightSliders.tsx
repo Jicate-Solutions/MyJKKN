@@ -76,12 +76,12 @@ export function DomainWeightSliders({ value, onChange }: Props) {
         {DOMAINS.map((d) => {
           const v = asPercent(value[d.key] || 0);
           return (
-            <div key={d.key} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-4">
+            <div key={d.key} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:items-center">
+              <div className="sm:col-span-4">
                 <Label className="text-sm font-medium">{d.label}</Label>
                 <p className="text-xs text-muted-foreground">{d.hint}</p>
               </div>
-              <div className="col-span-6">
+              <div className="sm:col-span-6">
                 <Slider
                   value={[v]}
                   min={0}
@@ -90,7 +90,7 @@ export function DomainWeightSliders({ value, onChange }: Props) {
                   onValueChange={(arr) => update(d.key, arr[0])}
                 />
               </div>
-              <div className="col-span-2 text-right text-sm tabular-nums font-semibold">
+              <div className="sm:col-span-2 text-left sm:text-right text-sm tabular-nums font-semibold">
                 {v.toFixed(0)}%
               </div>
             </div>

@@ -571,7 +571,7 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
               : ''
         }
       >
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           {canEdit && (isDraft || meeting.status === 'principal_approved') && (
             <Button
               size='sm'
@@ -746,7 +746,7 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
       <Card>
         <CardContent className='p-4'>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className='mb-4'>
+            <TabsList className='mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
               <TabsTrigger value='agenda' className='gap-1.5'>
                 Agenda
                 {(meeting.agenda_item_count ?? 0) > 0 && (
@@ -783,6 +783,7 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
                 canEdit={canEdit}
                 meetingStatus={meeting.status}
                 committeeId={meeting.committee_id}
+                meetingType={meeting.meeting_type}
               />
             </TabsContent>
 

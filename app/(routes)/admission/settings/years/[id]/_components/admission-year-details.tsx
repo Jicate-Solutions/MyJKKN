@@ -36,6 +36,17 @@ export function AdmissionYearDetails({
               {admissionYear.is_active ? 'Active' : 'Inactive'}
             </Badge>
           </div>
+          <div>
+            <p className='font-medium'>Current Admission Year</p>
+            <Badge
+              variant='outline'
+              className={
+                admissionYear.is_current ? 'border-primary text-primary' : ''
+              }
+            >
+              {admissionYear.is_current ? 'Current' : 'Not current'}
+            </Badge>
+          </div>
         </div>
       </CardContent>
     </Card>

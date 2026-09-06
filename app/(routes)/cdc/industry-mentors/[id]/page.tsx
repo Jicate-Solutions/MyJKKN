@@ -146,9 +146,9 @@ function IndustryMentorDetailContent({ params }: Props) {
                 )}
                 <AvatarFallback className="text-lg">{initials}</AvatarFallback>
               </Avatar>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0">
                     <h1 className="text-xl font-semibold">{mentor.mentor_name}</h1>
                     {mentor.designation && (
                       <p className="text-sm text-muted-foreground">
@@ -157,7 +157,7 @@ function IndustryMentorDetailContent({ params }: Props) {
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     {!mentor.is_active && (
                       <Badge variant="secondary">Inactive</Badge>
                     )}
@@ -167,7 +167,7 @@ function IndustryMentorDetailContent({ params }: Props) {
                       </Badge>
                     )}
                     {!editing && (
-                      <PermissionGuard module="cdc.industry_mentors" action="edit">
+                      <PermissionGuard module="cdc.industry_mentors" action="edit" fallback={null}>
                         <Button size="sm" variant="outline" onClick={startEdit}>
                           <Pencil className="h-3 w-3 mr-1" />
                           Edit

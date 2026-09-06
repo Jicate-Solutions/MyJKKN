@@ -154,6 +154,15 @@ export interface MenuWeekCell {
   status: string;
   is_special_day: boolean;
   special_day_name: string | null;
+  /**
+   * Menu-row identity (mess_menus.id / institution_id / week_start_date of the
+   * EFFECTIVE week the cell came from). Present only once the 2026-07-26
+   * mess-loop migration extends fn_mess_menu_week — optional so the rating
+   * surface stays dark until the migration is applied (Director-gated).
+   */
+  id?: string;
+  institution_id?: string;
+  week_start_date?: string;
 }
 
 export interface MenuWeekResult {

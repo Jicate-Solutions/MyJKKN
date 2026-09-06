@@ -256,7 +256,7 @@ export default function InterviewDetailPage() {
           <CardContent className="p-6">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
               <div className="space-y-2">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <h1 className="text-xl font-semibold">
                     {candidate?.name ?? 'Loading...'}
                   </h1>

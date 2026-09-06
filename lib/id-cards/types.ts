@@ -17,6 +17,19 @@ export type IdCardPolicy = {
   station_endpoint_url: string | null;
   ribbon_type: 'YMCKO' | 'YMCKOK' | 'monochrome';
   photo_fallback: string[];
+  /**
+   * How long a printed card is valid for (2026-09-02). Absent on databases
+   * that predate migration 20260902010000 — every reader must fail soft to
+   * the built-in defaults, which ARE the Director's rules.
+   */
+  validity?: {
+    /** 'course_end' = a learner's card lasts their whole course. */
+    learner_mode: 'course_end' | 'yearly';
+    /** Team-member cards are re-issued each academic year. */
+    team_member_mode: 'yearly';
+    /** Academic-year end as `MM-DD` (default '05-31'). */
+    year_end_mmdd: string;
+  };
 };
 
 export type IdCardPrintJobStatus =
@@ -37,6 +50,27 @@ export type IdCardPrintJob = {
   result: { success: boolean; error_message: string | null } | null;
 };
 
+// Pickup response shape (POST /api/id-cards/jobs/:id/pickup) — the claimed job
+// row PLUS the duplex hint. `has_back` tells the print bridge whether the
+// job's template has a configured back side (back_layout_json non-null), i.e.
+// whether GET .../render?side=back will return a PNG instead of 404
+// back_not_configured. Additive field: bridges that predate it ignore it and
+// keep printing fronts only, so shipping this is dark by construction.
+export type IdCardPrintJobPickup = IdCardPrintJob & {
+  has_back: boolean;
+};
+
+/**
+ * Duplex hint: does a template row's back_layout_json mean "back side
+ * configured"? Mirrors the render route's DARK gate exactly — any non-null /
+ * non-undefined value (including `{}` = default back design) counts as
+ * configured; NULL (every prod template until it opts in) does not.
+ * Pure so the pickup route and tests share one definition.
+ */
+export function hasBackSide(backLayoutJson: unknown): boolean {
+  return backLayoutJson !== null && backLayoutJson !== undefined;
+}
+
 // Allowlist of writeable platform_policies keys for the id-card subsystem.
 // Anything outside this list is rejected by PATCH /api/id-cards/policy.
 // Keep in sync with Agent A's reader fn schema.
@@ -51,7 +85,12 @@ export const ID_CARD_POLICY_KEYS = [
   'id_card.encoding.rfid_hardware_present',
   'id_card.station_endpoint_url',
   'id_card.ribbon_type',
-  'id_card.photo_fallback'
+  'id_card.photo_fallback',
+  // Card validity (2026-09-02). Dotted form — this is what the seeded rows and
+  // fn_get_id_card_policy actually read.
+  'id_card.validity.learner_mode',
+  'id_card.validity.team_member_mode',
+  'id_card.validity.year_end_mmdd'
 ] as const;
 
 export type IdCardPolicyKey = (typeof ID_CARD_POLICY_KEYS)[number];

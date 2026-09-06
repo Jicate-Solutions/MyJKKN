@@ -67,28 +67,80 @@ export async function POST(
       );
     }
 
-    // Map role_category to checklist cadre name
-    const cadreMap: Record<string, string> = {
+    // Resolve the onboarding template for THIS candidate's organization.
+    //
+    // 2026-08-07: this used to match on checklist_name alone with .maybeSingle()
+    // and no org filter. Every organization has its own row per template name
+    // (14 x 'Teaching Faculty Onboarding'), so the unscoped read returned 14
+    // rows for a super-admin — .maybeSingle() forgives ZERO rows but not MANY,
+    // so it raised PGRST116 and onboarding could never start. Everyone else hit
+    // the mirror image: this table's RLS is
+    // `hr_organization_id = auth_hr_organization_id()`, user_hr_access is
+    // effectively empty, so they saw zero rows and got "must seed checklists".
+    //
+    // Templates are non-PII configuration, so the read goes through the
+    // service-role client (same rationale as fn_list_active_approval_flows) and
+    // is scoped explicitly to the candidate's own organization instead.
+    const cadreCodeMap: Record<string, string> = {
+      teaching_faculty:  'TEACHING',
+      medical:           'TEACHING',          // Medical uses the teaching checklist as base
+      non_teaching:      'NON_TECHNICAL',
+      senior_leadership: 'ADMINISTRATIVE',
+      contract:          'NON_TECHNICAL',
+    };
+    // Legacy per-category names, kept as a tie-breaker for the org-wide rows
+    // that predate cadre scoping (applies_to_cadre_id IS NULL).
+    const legacyNameMap: Record<string, string> = {
       teaching_faculty:  'Teaching Faculty Onboarding',
-      medical:           'Teaching Faculty Onboarding',         // Medical uses teaching checklist as base
+      medical:           'Teaching Faculty Onboarding',
       non_teaching:      'Non-Technical Administrative Staff Onboarding',
       senior_leadership: 'Administrative Leadership Onboarding',
       contract:          'Non-Technical Administrative Staff Onboarding',
     };
-    const checklistName = cadreMap[candidate.role_category] ?? 'Teaching Faculty Onboarding';
+    const cadreCode = cadreCodeMap[candidate.role_category] ?? 'TEACHING';
+    const legacyName = legacyNameMap[candidate.role_category] ?? 'Teaching Faculty Onboarding';
 
-    // Fetch the matching onboarding checklist
-    const { data: checklist, error: checklistErr } = await supabase
+    const configClient = createServiceRoleClient();
+
+    const { data: orgTemplates, error: checklistErr } = await configClient
       .from('hr_onboarding_checklists')
-      .select('*')
-      .eq('checklist_name', checklistName)
-      .eq('is_active', true)
-      .maybeSingle();
+      .select('id, checklist_name, steps, applies_to_cadre_id')
+      .eq('hr_organization_id', candidate.hr_organization_id)
+      .eq('is_active', true);
     if (checklistErr) throw checklistErr;
+
+    const { data: cadreRows, error: cadreErr } = await configClient
+      .from('hr_cadres')
+      .select('id')
+      .eq('hr_organization_id', candidate.hr_organization_id)
+      .eq('code', cadreCode)
+      .eq('is_active', true);
+    if (cadreErr) throw cadreErr;
+    const cadreIds = new Set((cadreRows ?? []).map((c) => (c as { id: string }).id));
+
+    // Most specific wins: this role's cadre > the legacy per-category name >
+    // any org-wide default. Without that order a cadre-scoped template would be
+    // shadowed by the org-wide catch-all.
+    const templates = (orgTemplates ?? []) as Array<{
+      id: string;
+      checklist_name: string;
+      steps: unknown;
+      applies_to_cadre_id: string | null;
+    }>;
+    const checklist =
+      templates.find((t) => t.applies_to_cadre_id && cadreIds.has(t.applies_to_cadre_id)) ??
+      templates.find((t) => !t.applies_to_cadre_id && t.checklist_name === legacyName) ??
+      templates.find((t) => !t.applies_to_cadre_id) ??
+      null;
 
     if (!checklist) {
       return NextResponse.json(
-        { error: `No active onboarding checklist found for '${checklistName}'. HR Admin must seed checklists first.` },
+        {
+          error:
+            `No active onboarding checklist is configured for this candidate's organization. ` +
+            `Open /hr/admin/onboarding-checklists and add one for the '${cadreCode}' cadre ` +
+            `(or an "applies to all cadres" default), then start onboarding again.`,
+        },
         { status: 400 }
       );
     }

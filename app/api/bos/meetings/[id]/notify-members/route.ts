@@ -14,15 +14,26 @@ import {
   renderBosEmailTemplate,
   resolveMeetingBodyType,
   resolveBosEmailTemplateForBody,
+  meetingOrdinalWord,
 } from '@/lib/services/bos-email-templates';
 import {
   resolveBosSmtpConfig,
   resolveBosBoardSender,
+  mergeBoardSmtpConfig,
   sendBosEmail,
   resolveBosSenderDisplayName,
 } from '@/lib/services/bos-email-sender';
 import { openBosCallLetterRenderer } from '@/lib/pdf/bos-meeting-notice';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
+import {
+  fetchBosLetterheadAssets,
+  withLetterheadAssets,
+} from '@/lib/utils/bos/letterhead-assets';
+import {
+  buildBosLetterRef,
+  resolveBosCommitteeShortCode,
+  resolveBosMemberSerials,
+} from '@/lib/utils/bos/call-letter-ref';
 import { bosMemberTypeLabel, isBosChairmanRow } from '@/types/bos';
 
 // Vercel runtime config. Puppeteer + @sparticuz/chromium needs the Node
@@ -39,6 +50,44 @@ export const dynamic = 'force-dynamic';
 const notifyMembersSchema = z.object({
   memberIds: z.array(z.string().uuid()).min(1).max(100),
 });
+
+// {{chairman_block}} is injected into the email as raw HTML, so member-supplied
+// values (names, designations) must be escaped — an "&" in a department name
+// would otherwise break the markup.
+function escapeEmailHtml(s: string | null | undefined): string {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Drop a leading "Department of " so the renderer's own prefix never doubles up
+// ("Department of Department of ECE"). Mirrors the call-letter PDF helper.
+function stripDeptPrefix(s: string | null | undefined): string {
+  return String(s ?? '').replace(/^\s*department\s+of\s+/i, '').trim();
+}
+
+// "1" → "1st", "2" → "2nd", "3" → "3rd", "11" → "11th". Used for the
+// {{meeting_ordinal}} placeholder (e.g. "1st Board of Studies meeting").
+function ordinalSuffix(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n < 1) return '';
+  const rem100 = n % 100;
+  const rem10 = n % 10;
+  const suffix =
+    rem100 >= 11 && rem100 <= 13
+      ? 'th'
+      : rem10 === 1
+        ? 'st'
+        : rem10 === 2
+          ? 'nd'
+          : rem10 === 3
+            ? 'rd'
+            : 'th';
+  return `${n}${suffix}`;
+}
 
 // ── POST /api/bos/meetings/[id]/notify-members ────────────────────────────────
 // Queues a meeting-invitation email for each selected member via the existing
@@ -167,9 +216,13 @@ export async function POST(
     ] = await Promise.all([
       // member_type stores the catalog type NAME since 20260710150000 —
       // chairman is derived from the catalog base_type in JS below.
+      // The contact columns feed the {{chairman_*}} email placeholders, which
+      // sign the invitation as the convening board's chairman.
       supabase
         .from('bos_members')
-        .select('display_name, member_type, member_type_rec:bos_member_types(base_type)')
+        .select(
+          'display_name, member_type, committee_id, display_designation, display_department, display_institution, contact_no, email, member_type_rec:bos_member_types(base_type)',
+        )
         .eq('composition_id', meeting.composition_id)
         .eq('is_active', true),
       supabase
@@ -185,12 +238,32 @@ export async function POST(
     ]);
 
     const agendaItems = agendaItemsRaw ?? [];
+    // Chairman of the CONVENING body. A composition can govern several boards
+    // and committees, each with its own chairman, so prefer the one sitting on
+    // this meeting's committee before falling back to the composition-wide
+    // chairman (legacy rows have no committee assignment).
+    const chairmanCandidates = (memberCandidates ?? []).filter((m) =>
+      isBosChairmanRow(m as never),
+    );
+    const meetingCommitteeId =
+      (meeting as { committee_id?: string | null }).committee_id ?? null;
     const chairmanRow =
-      (memberCandidates ?? []).find((m) => isBosChairmanRow(m as never)) ?? null;
+      (meetingCommitteeId
+        ? chairmanCandidates.find(
+            (m) => (m as { committee_id?: string | null }).committee_id === meetingCommitteeId,
+          )
+        : null) ??
+      chairmanCandidates[0] ??
+      null;
 
     // Resolve the institution header config once — used by every PDF render
-    // below. Pure mapping function (no I/O), safe to call hoisted.
-    const instHeader = getInstitutionHeader(instRow?.name ?? null);
+    // below. The static half is a pure mapping; the seal + signature come from
+    // bos_letterhead_assets (uploaded at /bos/email-settings), so this is one
+    // extra query per batch rather than per recipient.
+    const instHeader = withLetterheadAssets(
+      getInstitutionHeader(instRow?.name ?? null),
+      await fetchBosLetterheadAssets(meeting.institutions_id),
+    );
 
     // Fetch board metadata for the call-letter subject + body line
     // ("Meeting of the {board_type} {board_name} Board of Studies"). COE is
@@ -224,6 +297,24 @@ export async function POST(
       (meeting as { board_type?: string | null }).board_type ??
       coeBoard?.board_type ??
       null;
+
+    // ── Reference numbers ────────────────────────────────────────────────────
+    // JKKNCET/BoS/ECE/2026-2027/01. Resolved ONCE per batch: the committee
+    // short code is meeting-wide, and the serial map covers every member, so
+    // the loop below just looks up each recipient's rank. Must match what
+    // preview-pdf computes — both call the same helpers with the same inputs.
+    const [committeeShortCode, memberSerials] = await Promise.all([
+      resolveBosCommitteeShortCode(supabase, {
+        committeeId: (meeting as { committee_id?: string | null }).committee_id ?? null,
+        bodyTypeCode,
+      }),
+      resolveBosMemberSerials(supabase, {
+        compositionId: meeting.composition_id,
+        committeeId: (meeting as { committee_id?: string | null }).committee_id ?? null,
+      }),
+    ]);
+    const boardCodeForRef =
+      (coeBoard as { board_code?: string | null } | undefined)?.board_code || boardName;
 
     // Members eligible for direct send vs. those skipped due to missing email.
     const withEmail = members.filter((m) => m.email && m.email.includes('@'));
@@ -262,6 +353,10 @@ export async function POST(
       meeting.institutions_id,
       meeting.board_id,
     );
+    // Model 3: if the board carries its own SMTP username + password, send
+    // through a merged config that authenticates AS the board mailbox.
+    // Otherwise this is the institution account unchanged (From-only override).
+    const { cfg: effectiveSmtpConfig } = mergeBoardSmtpConfig(smtpConfig, boardSender);
 
     // Open ONE Puppeteer browser for this batch so the per-recipient PDF
     // renders share warm pages instead of cold-starting each time. Falls
@@ -310,6 +405,38 @@ export async function POST(
       signoff_contact: officials?.contact_cell ?? '',
     };
 
+    // ── Chairman signature block ─────────────────────────────────────────────
+    // Institutions that sign the invitation as the board chairman (rather than
+    // the principal) use these. {{chairman_block}} is the safe one to drop into
+    // a template: it is pre-rendered HTML that OMITS whatever the chairman row
+    // doesn't have, whereas an individual {{chairman_contact}} on a member with
+    // no phone number would render the raw token — fillTokens deliberately
+    // leaves unknown/empty tokens intact.
+    const chairmanDept = stripDeptPrefix(
+      (chairmanRow as { display_department?: string | null } | null)?.display_department,
+    );
+    const chairman = {
+      chairman_name: chairmanRow?.display_name ?? '',
+      chairman_designation:
+        (chairmanRow as { display_designation?: string | null } | null)?.display_designation ?? '',
+      chairman_department: chairmanDept ? `Department of ${chairmanDept}` : '',
+      chairman_institution:
+        (chairmanRow as { display_institution?: string | null } | null)?.display_institution ??
+        instRow?.name ??
+        '',
+      chairman_contact: (chairmanRow as { contact_no?: string | null } | null)?.contact_no ?? '',
+      chairman_email: (chairmanRow as { email?: string | null } | null)?.email ?? '',
+    };
+    const chairmanBlockHtml = [
+      chairman.chairman_name ? `${escapeEmailHtml(chairman.chairman_name)},` : '',
+      chairman.chairman_designation ? `${escapeEmailHtml(chairman.chairman_designation)},` : '',
+      chairman.chairman_department ? `${escapeEmailHtml(chairman.chairman_department)},` : '',
+      chairman.chairman_institution ? `${escapeEmailHtml(chairman.chairman_institution)},` : '',
+      chairman.chairman_contact ? `Mobile: ${escapeEmailHtml(chairman.chairman_contact)}` : '',
+    ]
+      .filter(Boolean)
+      .join('<br/>');
+
     for (const m of withEmail) {
       const values: Record<string, string> = {
         member_name: m.display_name,
@@ -323,11 +450,27 @@ export async function POST(
         meeting_date: meetingDate,
         meeting_time: meeting.scheduled_time ?? '',
         meeting_venue: meeting.venue ?? '',
+        // {{venue}} — like meeting_venue but with a graceful fallback so the
+        // token never renders empty in "…in the {{venue}}." phrasing.
+        venue: meeting.venue?.trim() || 'department',
         meeting_url: meetingUrl,
         academic_year: meeting.academic_year ?? '',
-        chairman_name: chairmanRow?.display_name ?? '',
+        ...chairman,
+        chairman_block: chairmanBlockHtml,
         institution_name: instRow?.name ?? '',
         agenda_summary: meeting.agenda_text ?? '',
+        // Board / department context (e.g. "Electronics and Communication
+        // Engineering") — lets one per-institution BOS format name the correct
+        // board per meeting. Sourced from the COE board lookup above.
+        board_name: boardName ?? '',
+        board_type: boardType ?? '',
+        // Meeting sequence — raw number ("1") and ordinal ("1st") for headings
+        // like "1st Board of Studies meeting".
+        meeting_number: meeting.meeting_number != null ? String(meeting.meeting_number) : '',
+        meeting_ordinal: ordinalSuffix(meeting.meeting_number),
+        // Spelled-out form ("First") — what the invitation subject/body use, so
+        // the email matches the call letter's "Sub:" line.
+        meeting_ordinal_word: meetingOrdinalWord(meeting.meeting_number),
         ...signoff,
       };
 
@@ -430,6 +573,15 @@ export async function POST(
             },
             boardName,
             boardType,
+            boardCode: (coeBoard as { board_code?: string | null } | undefined)?.board_code ?? null,
+            memberRole: values.member_role,
+            refNo: buildBosLetterRef({
+              prefix: instHeader.ref_prefix ?? 'JKKNCET',
+              committeeCode: committeeShortCode,
+              boardCode: boardCodeForRef,
+              academicYear: meeting.academic_year,
+              serial: memberSerials.get(m.id) ?? null,
+            }),
             header: instHeader,
             bodyFormat: pdfBodyFormat,
           });
@@ -445,7 +597,7 @@ export async function POST(
         }
       }
 
-      const result = await sendBosEmail(smtpConfig, {
+      const result = await sendBosEmail(effectiveSmtpConfig, {
         to: m.email!,
         subject,
         html,

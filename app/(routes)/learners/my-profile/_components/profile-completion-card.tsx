@@ -32,7 +32,7 @@ export function ProfileCompletionCard({ completion, canEdit, onEdit, onClose }: 
   return (
     <Card className="mb-6" id="profile-completion-card">
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
               Profile Completion Status
@@ -42,7 +42,7 @@ export function ProfileCompletionCard({ completion, canEdit, onEdit, onClose }: 
               {completed} of {totalRequired} required fields completed
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {canEdit && overallPercentage < 100 && (
               <Button onClick={onEdit}>Complete Profile</Button>
             )}

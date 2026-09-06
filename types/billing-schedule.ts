@@ -2,6 +2,7 @@
 // This file contains all TypeScript interfaces for the billing schedule management system
 
 import type { BillingCollectionType } from './billing';
+import type { EntityType } from './organizations';
 
 // Enums and Union Types
 export type BillStatus =
@@ -157,6 +158,11 @@ export interface StudentBillFilters {
   search?: string;
   student_id?: string;
   institution_id?: string;
+  // Restricts the list to bills of institutions with this entity_type. The
+  // billing schedule is a college module, so every screen passes 'institution'
+  // — school fee bills live behind /billing/school-fees. Without it the
+  // "All Institutions" default view leaks the entity types the dropdown hides.
+  institution_entity_type?: EntityType;
   item_category_id?: string;
   // Ownership of the fee — resolved to the matching billing_categories ids and
   // applied as item_category_id IN (...). Uncategorised bills are excluded when set.
@@ -179,6 +185,12 @@ export interface StudentBillFilters {
   section_id?: string;
   // accommodation_types.code (hostel | dayscholar | pg | not_applicable)
   accommodation_type?: string;
+  // admission_years.admission_year_name (e.g. '2025-2026') — NOT an id.
+  // admission_years is per-institution (79 rows, only 9 distinct names across
+  // 11 colleges), so filtering by a single id would silently scope the result
+  // to one college. The service resolves the name to every matching id and
+  // applies them as student.admission_year_id IN (...).
+  admission_year?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -206,7 +218,24 @@ export interface BillingReceipt {
   payment_mode: PaymentMode;
   payment_reference_number?: string;
   payment_amount: number;
+  /** Transaction date — when the payer says the money left their hands. */
   payment_paid_date: string;
+  /**
+   * When the money actually credited to the institution account. Deliberately
+   * separate from payment_paid_date: a NEFT initiated on the 18th may credit on
+   * the 19th, and reconciliation keys on the credit date.
+   * NULL for cash and for every receipt raised before 20260909000000.
+   */
+  date_of_credit?: string | null;
+  /** payment_mode='dd' only. */
+  dd_bank_name?: string | null;
+  /** payment_mode='dd' only. */
+  dd_branch?: string | null;
+  /**
+   * Payer as named on the bank record for NEFT (payment_mode='bank_transfer').
+   * Distinct from payer_name, which is who the counter recorded as paying.
+   */
+  remitter_name?: string | null;
   payer_name: string;
   payer_contact?: string;
   accountant_id?: string;
@@ -261,6 +290,11 @@ export interface CreateReceiptDto {
   payment_reference_number?: string;
   payment_amount: number;
   payment_paid_date: string;
+  // NOTE: date_of_credit / dd_bank_name / dd_branch / remitter_name are NOT
+  // here. They live on the billing_receipts ROW (see BillingReceipt) and are
+  // read back by the school reprint, but only the school counter WRITES them,
+  // through CreateSchoolReceiptDto + fn_create_school_fee_receipt. The college
+  // RPC does not carry them, so accepting them here would silently drop them.
   payer_name: string;
   payer_contact?: string;
   accountant_id?: string;
@@ -564,16 +598,23 @@ export interface InvoiceListResponse {
   };
 }
 
-// Accommodation-type filter options. The `value` is an `accommodation_types.code`
-// (identical across every institution's catalog), so the dropdown works without
-// first picking an institution. The service layer resolves the code to that
-// institution's actual `accommodation_type_id`(s) at query time.
+// Accommodation-type filter options. The `value` is an `accommodation_types.code`.
+// That table is GLOBAL (single row per code since 20260610100000), not per
+// institution, so the dropdown works without first picking an institution.
+// Billing Schedule resolves the code to ids in the service layer; the billing
+// REPORTS filters resolve it in SQL instead — billing_report_student_cohort
+// LEFT JOINs accommodation_types and compares on code.
 export const ACCOMMODATION_TYPE_OPTIONS = [
   { value: 'hostel', label: 'Hostel' },
   { value: 'dayscholar', label: 'Day Scholar' },
   { value: 'pg', label: 'Paying Guest' },
   { value: 'not_applicable', label: 'Not Applicable' }
 ] as const;
+
+/** The four valid accommodation_types.code values, derived so a typo like
+ *  'day_scholar' fails to compile instead of silently matching nothing. */
+export type AccommodationCode =
+  (typeof ACCOMMODATION_TYPE_OPTIONS)[number]['value'];
 
 // Learner lifecycle-status filter options for the billing schedule list.
 // Scoped to the states a learner can be in once bills exist (the 'account'
@@ -595,6 +636,10 @@ export const LIFECYCLE_STATUS_FILTER_OPTIONS = [
 // Student Search and List Interfaces
 export interface StudentSearchFilters {
   institution_id?: string;
+  // Restricts the result set to learners of institutions with this entity_type.
+  // The billing schedule is a college module, so its student search passes
+  // 'institution' — schools / offices / companies are billed elsewhere.
+  institution_entity_type?: EntityType;
   academic_year_id?: string;
   degree_id?: string;
   department_id?: string;
@@ -606,7 +651,21 @@ export interface StudentSearchFilters {
   first_name?: string;
   last_name?: string;
   roll_number?: string;
+  /** learners_profiles.register_number — the university enrolment number,
+   *  distinct from the institution-local roll_number. Both are printed on the
+   *  ID card barcode, so the unified `query` below matches either. */
+  register_number?: string;
   mobile_number?: string;
+  /**
+   * Unified operator search box. One string matched (case-insensitive,
+   * substring) against first_name, last_name, roll_number, register_number
+   * and student_mobile at once — what the counter clerk types or scans.
+   * Applied as a single PostgREST `or(...)`, so it stays one round trip.
+   *
+   * When set, it takes precedence over the individual name/roll/mobile
+   * filters (which the bulk pages still use programmatically).
+   */
+  query?: string;
   is_profile_complete?: boolean;
   page?: number;
   limit?: number;
@@ -615,6 +674,9 @@ export interface StudentSearchFilters {
 export interface StudentForBilling {
   id: string;
   roll_number?: string;
+  /** University enrolment number. Carried by the list query so the unified
+   *  search box can show WHICH identifier matched the scan. */
+  register_number?: string;
   first_name: string;
   last_name: string;
   father_name: string;
@@ -627,10 +689,22 @@ export interface StudentForBilling {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // Quota and community are the two demographic dimensions a fee structure
+  // resolves on, and gender drives the hostel/mess bands — accounts reads all
+  // three next to the academic hierarchy when a bill looks wrong. Selected by
+  // getStudentForBilling only; the list query does not carry them.
+  gender?: string;
+  quota_id?: string;
+  community_category_id?: string;
   // Accommodation type off learners_profiles. Surfaced on the
   // /billing/schedule/students/[id] detail page (Accommodation card) and used by
   // the accommodation-type filter on the list pages.
   accommodation_type_id?: string;
+  // Admission year off learners_profiles. Shown on the
+  // /billing/schedule/students/[id] Academic Information card — the accounts
+  // team reads it alongside Academic Year, which is a different thing: the
+  // admission year is the cohort the learner joined in and never changes.
+  admission_year_id?: string;
   // 2026-05-21: shown on /billing/schedule/students/[id] header so the
   // accounts team sees the learner's current state (account → reserved →
   // admitted → active) at a glance.
@@ -666,10 +740,29 @@ export interface StudentForBilling {
     id: string;
     section_name: string;
   };
+  quota?: {
+    id: string;
+    name: string;
+  };
+  // community_categories.code ('OC' | 'BC' | 'MBC' | 'SC' | 'ST' | …) is the
+  // string every other learner surface displays (learner-detail, my-profile,
+  // the API boundary), so billing shows the same one.
+  community_category?: {
+    id: string;
+    code: string;
+  };
   accommodation_type?: {
     id: string;
     code: string;
     name: string;
+  };
+  // admission_year_name is the display label ("2024-2025"); year is the plain
+  // integer the rest of the platform keys cohorts on. Both carried so the UI
+  // can fall back when a row was created without a name.
+  admission_year?: {
+    id: string;
+    admission_year_name: string | null;
+    year: number | null;
   };
 }
 
@@ -727,9 +820,33 @@ export interface TransactionSummary {
   total_refunds: number;
 }
 
+export type ReportSchemeKey =
+  | 'first_graduate'
+  | 'pmss'
+  | 'scholarship_7_5'
+  | 'other';
+
+export const REPORT_SCHEME_OPTIONS: { value: ReportSchemeKey; label: string }[] = [
+  { value: 'first_graduate', label: 'First Graduate' },
+  { value: 'pmss', label: 'PMSS' },
+  { value: 'scholarship_7_5', label: '7.5% Scholarship' },
+  { value: 'other', label: 'Others / Not Applicable' },
+];
+
 export interface BillingReportFilters {
   institution_id?: string;
+  /** Academic year id, or the ACADEMIC_YEAR_UNSPECIFIED sentinel for bills with no year. */
+  academic_year_id?: string;
+  degree_id?: string;
   department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  item_category_id?: string;
+  /** Empty or absent means no scheme restriction. */
+  schemes?: ReportSchemeKey[];
+  /** accommodation_types.code values. Empty or absent means no restriction. */
+  accommodation_codes?: AccommodationCode[];
   student_id?: string;
   date_from?: string;
   date_to?: string;
@@ -823,6 +940,23 @@ export interface InvoiceReport {
   grand_total: number;
   billing_period_from?: string;
   billing_period_to?: string;
+}
+
+/**
+ * One year-wise bucket for the /billing/reports dashboard cards.
+ *
+ * Produced by StudentYearBreakdownService, not by the dashboard RPC — that RPC
+ * returns grand totals only.
+ */
+export interface StudentYearBreakdown {
+  /** 1, 2, 3, … — or null for learners whose year cannot be determined. */
+  year: number | null;
+  /** Distinct learners with bills in this year. */
+  student_count: number;
+  amount_billed: number;
+  amount_collected: number;
+  /** Balance still carried on unpaid / partially paid / overdue bills. */
+  outstanding: number;
 }
 
 export interface BillingDashboardMetrics {

@@ -17,6 +17,7 @@ import {
   type HRLeaveType,
 } from '@/types/hr-leave-types';
 import { LeaveTypeRowActions } from './leave-type-row-actions';
+import type { LeaveApprovalFlowCoverage } from '@/lib/services/hr/leave-approval-flow-service';
 
 export interface LeaveTypeColumnActions {
   canManage: boolean;
@@ -24,7 +25,13 @@ export interface LeaveTypeColumnActions {
   onView: (t: HRLeaveType) => void;
   onAssign: (t: HRLeaveType) => void;
   onEdit: (t: HRLeaveType) => void;
-  onArchive: (t: HRLeaveType) => Promise<void> | void;
+  /** Opens the approval-chain editor for this type. */
+  onApprovalFlow: (t: HRLeaveType) => void;
+  /** Asks the page to open its archive confirmation. */
+  onArchive: (t: HRLeaveType) => void;
+  onActivate: (t: HRLeaveType) => Promise<void> | void;
+  /** Asks the page to open its delete confirmation. */
+  onDelete: (t: HRLeaveType) => void;
   /**
    * hr_organization_id → institution name, from useHrOrgMappings.
    *
@@ -33,6 +40,12 @@ export interface LeaveTypeColumnActions {
    * mapping RPC resolves, which is why the cell falls back to '—'.
    */
   orgNameById: Map<string, string>;
+  /**
+   * Which types have their own approval flow and which organizations have a
+   * catch-all. Passed in for the same reason as orgNameById — one shared query,
+   * not one subscription per visible row. Undefined until it resolves.
+   */
+  flowCoverage: LeaveApprovalFlowCoverage | undefined;
 }
 
 /** Paid / Carry-forward / Encashable, rendered as one wrapping badge cluster. */
@@ -159,18 +172,55 @@ export function getLeaveTypeColumns(
       },
     },
     {
-      accessorKey: 'default_entitled_days',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Entitled" />
-      ),
-      size: 100,
+      id: 'approval',
+      header: 'Approval',
+      size: 130,
+      // Derived from two Sets rather than a row field, so there is nothing to
+      // sort or filter on server-side.
+      enableSorting: false,
       cell: ({ row }) => {
-        // Short Time Off is measured in minutes/requests, not days — showing
-        // "0 days" for a Permission type reads as a misconfiguration.
-        if (row.original.request_category === 'short_time_off') {
-          return <span className="text-muted-foreground">n/a</span>;
+        const t = row.original;
+        const cov = actions.flowCoverage;
+        if (!cov) return <span className="text-muted-foreground">—</span>;
+
+        // A type with its OWN flow. The only state the row menu's "Who approves
+        // this" has actually been used for.
+        if (cov.ownFlowTypeIds.has(t.id)) {
+          return (
+            <Badge
+              variant="secondary"
+              title="This leave type has its own approval flow, which beats the organisation's catch-all."
+            >
+              Own flow
+            </Badge>
+          );
         }
-        return <span>{row.original.default_entitled_days} days</span>;
+
+        // Inheriting the organisation's catch-all is NOT a misconfiguration —
+        // 58 of 66 active types do exactly this. Rendered quietly so it does
+        // not read as something to fix.
+        if (cov.orgsWithCatchAll.has(t.hr_organization_id)) {
+          return (
+            <span
+              className="text-xs text-muted-foreground"
+              title="No flow of its own, so it follows the organisation's catch-all flow. Use “Who approves this” to give it a specific one."
+            >
+              Org default
+            </span>
+          );
+        }
+
+        // Nothing resolves. buildApprovalChain THROWS in this state, so nobody
+        // can apply for this leave type at all — the one case worth shouting
+        // about, and the reason this column exists.
+        return (
+          <Badge
+            variant="destructive"
+            title="No approval flow resolves for this leave type, so applying for it fails outright. Use “Who approves this” on the row menu, or give the organisation a catch-all flow."
+          >
+            Not set
+          </Badge>
+        );
       },
     },
     {
@@ -240,7 +290,10 @@ export function getLeaveTypeColumns(
           onView={actions.onView}
           onAssign={actions.onAssign}
           onEdit={actions.onEdit}
+          onApprovalFlow={actions.onApprovalFlow}
           onArchive={actions.onArchive}
+          onActivate={actions.onActivate}
+          onDelete={actions.onDelete}
         />
       ),
     },

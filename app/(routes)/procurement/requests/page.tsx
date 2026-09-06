@@ -8,6 +8,9 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { StatusBadge } from '@/components/procurement/status-badge';
+import { EmptyState } from '@/components/empty-state';
+import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import {
   PR_STATUS_CONFIG,
@@ -15,7 +18,6 @@ import {
   type PurchaseRequestFilters,
 } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -54,7 +56,7 @@ export default function PurchaseRequestsPage() {
     institution_id: effectiveInstitution,
   };
 
-  const { data: response, isLoading } = usePurchaseRequests(filters);
+  const { data: response, isLoading, isError } = usePurchaseRequests(filters);
   const requests = response?.data ?? [];
 
   return (
@@ -88,7 +90,7 @@ export default function PurchaseRequestsPage() {
                 />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectTrigger className="w-full sm:w-[200px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -116,10 +118,15 @@ export default function PurchaseRequestsPage() {
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
-            ) : requests.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <p>No purchase requests found</p>
+            ) : isError ? (
+              <div className="py-12 px-6">
+                <AlertBox type="error" message="Failed to load purchase requests. Please try again." />
               </div>
+            ) : requests.length === 0 ? (
+              <EmptyState
+                title="No purchase requests found"
+                description="Requests you create or that are routed to you will appear here."
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -134,32 +141,30 @@ export default function PurchaseRequestsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {requests.map((req) => {
-                    const statusConfig = PR_STATUS_CONFIG[req.status];
-                    return (
-                      <TableRow key={req.id}>
-                        <TableCell className="font-medium">{req.request_number}</TableCell>
-                        <TableCell>{formatDateDMY(req.created_at)}</TableCell>
-                        <TableCell className="capitalize">
-                          {req.request_type.replace('_', ' ')}
-                        </TableCell>
-                        <TableCell>{req.requested_by_profile?.full_name || '-'}</TableCell>
-                        <TableCell>{req.item_count ?? '-'}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{statusConfig.label}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => router.push(`/procurement/requests/${req.id}`)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                  {requests.map((req) => (
+                    <TableRow key={req.id}>
+                      <TableCell className="font-medium">{req.request_number}</TableCell>
+                      <TableCell>{formatDateDMY(req.created_at)}</TableCell>
+                      <TableCell className="capitalize">
+                        {req.request_type.replace('_', ' ')}
+                      </TableCell>
+                      <TableCell>{req.requested_by_profile?.full_name || '-'}</TableCell>
+                      <TableCell>{req.item_count ?? '-'}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={req.status} config={PR_STATUS_CONFIG} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label="View request"
+                          onClick={() => router.push(`/procurement/requests/${req.id}`)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             )}

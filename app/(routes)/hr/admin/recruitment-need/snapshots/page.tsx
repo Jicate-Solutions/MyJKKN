@@ -115,12 +115,12 @@ export default function SnapshotsPage() {
       </Breadcrumb>
 
       <div className="mt-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2"><Camera className="h-6 w-6 text-primary" /> Signal Snapshots</h1>
+            <h1 className="text-2xl font-semibold flex items-center gap-2"><Camera className="h-6 w-6 shrink-0 text-primary" /> Signal Snapshots</h1>
             <p className="text-sm text-muted-foreground mt-1">Point-in-time captures of recruitment signals for audit and historical comparison.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => window.open('/api/hr/recruitment-need/export?format=xlsx', '_blank')}>
               <Download className="h-4 w-4 mr-2" />Export XLSX
             </Button>

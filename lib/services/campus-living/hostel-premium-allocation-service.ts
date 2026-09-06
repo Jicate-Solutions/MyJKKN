@@ -1,5 +1,5 @@
 // ============================================================================
-// Premium Stay Phase 1 — Premium Allocation Service
+// Premium Room Phase 1 — Premium Allocation Service
 // ============================================================================
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
 // Companion: lib/services/campus-living/hostel-tier-service.ts (CRUD on table)
@@ -23,6 +23,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   PremiumEligibilityResult,
   RoommateInviteState,
+  PremiumInviteCandidate,
 } from '@/types/campus-living/premium';
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,9 @@ export interface PremiumAvailableRoom {
   ac_status: string;
   has_attached_bathroom: boolean | null;
   tier_access: 'premium_only' | 'either';
+  /** hostel_rooms.category_id — the fee band the room is priced in. Needed to
+   *  quote what a sole occupant would owe before she confirms (2026-08-09). */
+  category_id: string | null;
 }
 
 /**
@@ -113,7 +117,7 @@ export async function listAvailableRoomsForPremium(
   const { data, error } = await supabase
     .from('hostel_rooms')
     .select(
-      'id, block_id, room_number, floor, capacity, ac_status, has_attached_bathroom, tier_access, hostel_blocks(name)',
+      'id, block_id, room_number, floor, capacity, category_id, ac_status, has_attached_bathroom, tier_access, hostel_blocks(name)',
     )
     .in('block_id', blockIds)
     .in('tier_access', ['premium_only', 'either']);
@@ -166,6 +170,7 @@ export async function listAvailableRoomsForPremium(
       ac_status: r.ac_status,
       has_attached_bathroom: r.has_attached_bathroom ?? null,
       tier_access: r.tier_access,
+      category_id: r.category_id ?? null,
     }));
 }
 
@@ -499,4 +504,33 @@ export async function countAllocationsByTier(
   }
 
   return counts;
+}
+
+/**
+ * Everyone the caller may invite into her room, with enough detail to recognise
+ * a person: department, semester, programme, and where they live now.
+ *
+ * The list exists because a learner cannot know who else is in her room
+ * category — search-by-name only helps if you already know the name. Ordering
+ * puts her own room category first.
+ *
+ * Own-allocation scoped inside the RPC, which refuses an allocation that is not
+ * the caller's.
+ */
+export async function listInviteCandidates(
+  allocationId: string,
+): Promise<PremiumInviteCandidate[]> {
+  const supabase = createClientSupabaseClient() as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  };
+  const { data, error } = await supabase.rpc('fn_premium_invite_candidates', {
+    p_allocation_id: allocationId,
+  });
+
+  if (error) {
+    console.error('[premium-allocation] listInviteCandidates RPC error:', error);
+    throw new Error(error.message || 'Could not load learners you can invite');
+  }
+
+  return (data ?? []) as PremiumInviteCandidate[];
 }

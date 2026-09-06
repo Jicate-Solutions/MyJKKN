@@ -102,6 +102,11 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // entry + sidebar routes; procurement_* tables aren't in table-module-map, so
   // it's category-only like the entries above.
   ['Procurement', 'procurement'],
+  // Director's Desk (2026-08-05, specs/director-desk/SPEC.md): has the 'director'
+  // PERMISSION_CATEGORIES entry + the /director-desk and /my-desk routes;
+  // director_handovers / director_handover_audit are not in table-module-map, so
+  // it's category-only like the entries above.
+  ["Director's Desk", 'director'],
 ];
 
 /**
@@ -140,6 +145,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // Projects module (menu-visibility gap fix 2026-07-12 — first
   // MENU_PERMISSIONS entry for /projects needed a module mapping too)
   ['/projects', 'Projects'],
+  // Campus Walk writes project_tasks under CAMPUS-OPS, so it rolls up into the
+  // existing Projects module rather than introducing a new canonical module.
+  ['/campus-walk', 'Projects'],
   // My Kit — store-kit self view (PR-K2 2026-07-12); module home is IMS
   ['/my-kit', 'IMS'],
   // /admin/* — sub-prefixes first
@@ -164,6 +172,11 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // relocation wave-2) — covered by the base ['/ai-query', 'System'] mapping
   // below; override dropped.
   ['/admin/reset-driver-passwords', 'System'],
+  // Teaching-enterprise cohort config. Lives under /admin (super-admin URL
+  // space) but belongs to the Improvement Board module — it is gated by
+  // improvement.board.manage and edits that module's participant layer. Must
+  // stay ABOVE the '/admin' catch-all so the longest-prefix scan picks it.
+  ['/admin/teaching-cohorts', 'Improvement Board'],
   // /admin/hr relocated to /hr/admin (2026-06-10 admin-cluster relocation) —
   // covered by the base ['/hr', 'Staff'] mapping below; override dropped.
   // Meta surface modules (catalog consolidation 2026-05-30, κ).
@@ -213,6 +226,12 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/academic', 'Academic'],
   ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
   ['/improvement-board', 'Improvement Board'], // MBA teaching-enterprise (improvement.* + ceo_rounds.* perms)
+  ['/ceo-rounds', 'Improvement Board'], // MBA teaching-enterprise — CEO Rounds log (ceo_rounds.* perms)
+  // Director's Desk — the two halves of one feature (director.handover.* perms).
+  // /my-desk is the receiving side and is mapped to view_profile in
+  // MENU_PERMISSIONS, but it still belongs to this module for audit purposes.
+  ['/director-desk', "Director's Desk"],
+  ['/my-desk', "Director's Desk"],
   ['/rcltp', 'Academic'], // MyJKKN RCLTP reading-assessment module (rcltp.* perms)
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],
@@ -223,6 +242,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/health', 'Health'],
   ['/ims', 'IMS'],
   ['/events', 'Events'],
+  ['/courses', 'Courses'],
   ['/audit', 'System'],
   ['/staff', 'Staff'],
   ['/users', 'Users'],
@@ -230,10 +250,18 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/learn', 'PDE Learning'],
   ['/meetings', 'System'], // jicate-booking inbox; Overview-group sidebar entry per PR #655
   ['/profile', 'Users'],
+  // What's New — the product changelog. Open to everyone signed in
+  // (view_profile sentinel); it scopes its own content by role.
+  ['/whats-new', 'System'],
   ['/okr', 'Work Pulse'],
   ['/vac', 'VAC'],
   ['/bos', 'System'],
   ['/cdc', 'CDC'], // Career Development Centre — drives, placements, internships, idp, clubs, mentors, training, bulletin, exports, industry-mentors
+  // Industry Partners directory (public.industry_partners — the COMPANIES,
+  // distinct from /cdc/industry-mentors which reads industry_mentors). The
+  // route is top-level rather than under /cdc, but the module is CDC-owned and
+  // its permission key is cdc.industry_partners.view — so it rolls up to CDC.
+  ['/industry-partners', 'CDC'],
   ['/internships', 'Internship'], // Internship Module — operational cycles/sites/preceptors/vehicles routes (PR #1209)
   // Instagram monitoring substrate (Phase 1B, 2026-05-30): /social/instagram/*
   // sub-routes (accounts, posts, audits, dormant queue, alerts) all roll up

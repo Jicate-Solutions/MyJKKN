@@ -90,14 +90,14 @@ export default function CdcDrivesListPage() {
       </Breadcrumb>
 
       <div className="mt-6 space-y-4">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <h1 className="text-2xl font-semibold">Campus Drives</h1>
             <p className="text-sm text-muted-foreground">
               Recruiter-led placement and internship drives across all institutions.
             </p>
           </div>
-          <PermissionGuard module="cdc.drives" action="create">
+          <PermissionGuard module="cdc.drives" action="create" fallback={null}>
             <Button asChild>
               <Link href="/cdc/drives/new">
                 <Plus className="h-4 w-4 mr-2" />

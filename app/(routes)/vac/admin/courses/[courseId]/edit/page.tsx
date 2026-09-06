@@ -58,6 +58,7 @@ export default function EditCoursePage({
         fee: course.fee,
         course_category: course.course_category,
         faculty_eligible: course.faculty_eligible,
+        is_value_education: course.is_value_education ?? false,
         nsqf_level: course.nsqf_level ?? undefined,
         nheqf_level: course.nheqf_level ?? undefined,
         ncrf_credits: course.ncrf_credits ?? undefined,
@@ -297,6 +298,17 @@ export default function EditCoursePage({
                 />
                 <Label htmlFor="faculty_eligible">
                   Faculty eligible (professional development)
+                </Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="is_value_education"
+                  checked={form.is_value_education || false}
+                  onCheckedChange={(v) => updateField('is_value_education', v)}
+                />
+                <Label htmlFor="is_value_education">
+                  Value-education course (NAAC 6.4)
                 </Label>
               </div>
             </CardContent>

@@ -115,7 +115,7 @@ export default function RecruitmentNeedAdminHub() {
       <div className="space-y-6">
         <header>
           <div className="flex items-center gap-2">
-            <Signal className="h-6 w-6 text-primary" />
+            <Signal className="h-6 w-6 shrink-0 text-primary" />
             <h1 className="text-2xl font-semibold">
               Recruitment Need Signal — Configuration
             </h1>

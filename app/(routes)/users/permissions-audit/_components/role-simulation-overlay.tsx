@@ -394,15 +394,15 @@ export function RoleSimulationOverlay({
                     key={key}
                     type="button"
                     onClick={() => togglePermission(key)}
-                    className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60 ${
+                    className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60 ${
                       isChanged
                         ? 'bg-amber-50 dark:bg-amber-900/20'
                         : ''
                     }`}
                   >
-                    <code className="text-xs">{key}</code>
+                    <code className="min-w-0 flex-1 truncate text-xs">{key}</code>
                     <span
-                      className={`inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      className={`inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
                         isGranted
                           ? 'bg-emerald-500'
                           : 'bg-muted-foreground/30'

@@ -452,16 +452,34 @@ export class HRMemoService {
       const title = 'HR memo issued';
       const body = reason.length > 240 ? reason.slice(0, 237) + '...' : reason;
 
-      // Insert notification rows — schema-agnostic with try/catch
-      await this.supabase.from('notifications').insert(
-        recipients.map((rid) => ({
-          recipient_id: rid,
+      // Write ONE notifications row (recipient_id does not exist on
+      // notifications), then link each recipient via user_notifications.
+      // This is an auto-issued cron path with no acting user, so created_by
+      // falls back to the first recipient (a valid profiles.id).
+      const { data: notifRow, error: notifErr } = await this.supabase
+        .from('notifications')
+        .insert({
           title,
           body,
           category: 'hr_memo',
+          created_by: recipients[0],
+          targeting: { type: 'user', user_ids: recipients },
           metadata: { staff_id: staffId },
-        })),
+        })
+        .select('id')
+        .single();
+      if (notifErr || !notifRow) {
+        console.error('[memo-service] notifications insert failed', notifErr);
+        return false;
+      }
+
+      const { error: linkErr } = await this.supabase.from('user_notifications').insert(
+        recipients.map((rid) => ({ notification_id: notifRow.id, user_id: rid })),
       );
+      if (linkErr) {
+        console.error('[memo-service] user_notifications insert failed', linkErr);
+        return false;
+      }
 
       return true;
     } catch {

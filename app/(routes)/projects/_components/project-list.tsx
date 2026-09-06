@@ -41,6 +41,7 @@ import {
 } from '@/hooks/projects/use-projects';
 import { useInstitutions } from '@/hooks/hr/recruitment-need/use-data-entry';
 import type { ProjectFilters, ProjectWithRelations, RagStatus } from '@/types/projects';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 import { ProjectFormDialog } from './project-form-dialog';
 
 const ALL = 'all';
@@ -111,23 +112,23 @@ export function ProjectList() {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-end gap-3">
-        <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
-          <div className="relative">
+        <form onSubmit={handleSearchSubmit} className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="relative flex-1 sm:flex-none">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search by name or code…"
-              className="w-64 pl-8"
+              className={`w-full pl-8 sm:w-64 ${TAP_TARGET}`}
             />
           </div>
-          <Button type="submit" variant="secondary">
+          <Button type="submit" variant="secondary" className={TAP_TARGET}>
             Search
           </Button>
         </form>
 
         <Select value={statusId} onValueChange={(v) => setParam('status', v)}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className={`w-44 ${TAP_TARGET}`}>
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -141,7 +142,7 @@ export function ProjectList() {
         </Select>
 
         <Select value={typeId} onValueChange={(v) => setParam('type', v)}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className={`w-44 ${TAP_TARGET}`}>
             <SelectValue placeholder="Type" />
           </SelectTrigger>
           <SelectContent>
@@ -155,7 +156,7 @@ export function ProjectList() {
         </Select>
 
         <Select value={institutionId} onValueChange={(v) => setParam('institution', v)}>
-          <SelectTrigger className="w-52">
+          <SelectTrigger className={`w-52 ${TAP_TARGET}`}>
             <SelectValue placeholder="Institution" />
           </SelectTrigger>
           <SelectContent>
@@ -168,7 +169,7 @@ export function ProjectList() {
           </SelectContent>
         </Select>
 
-        <Button className="ml-auto gap-1.5" onClick={() => setCreateOpen(true)}>
+        <Button className={`ml-auto gap-1.5 ${TAP_TARGET}`} onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4" />
           New Project
         </Button>
@@ -189,7 +190,7 @@ export function ProjectList() {
           ) : projects.length === 0 ? (
             <div className="p-12 text-center">
               <p className="text-sm text-muted-foreground">No projects match your filters.</p>
-              <Button variant="outline" className="mt-4 gap-1.5" onClick={() => setCreateOpen(true)}>
+              <Button variant="outline" className={`mt-4 gap-1.5 ${TAP_TARGET}`} onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4" />
                 Create your first project
               </Button>

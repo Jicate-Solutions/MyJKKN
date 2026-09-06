@@ -15,10 +15,17 @@ import { PersonAvailabilityService } from '@/lib/services/availability/person-av
 import { useAuth } from '@/hooks/use-auth';
 import { AttendanceDialog } from './attendance-dialog';
 import { AttendanceCoverageBanner } from './attendance-coverage-banner';
+import { AttendancePdfButton } from './attendance-pdf-button';
 import { DayAttendanceDialog } from './day-attendance-dialog';
 import { FeedbackKioskDialog } from './feedback-kiosk-dialog';
 import { SessionPollDialog } from './session-poll-dialog';
+import { SessionQuestionDialog } from './session-question-dialog';
+import { SessionShareDialog } from './session-share-dialog';
 import { SessionSpeakerPicker } from './session-speaker-picker';
+import {
+  InductionSharingService,
+  type SessionShareRow,
+} from '@/lib/services/induction/induction-sharing-service';
 import { VenueRoomPicker } from '@/app/(routes)/meetings/manage/_components/venue-room-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,7 +39,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, Settings2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, Settings2, Share2, ClipboardList } from 'lucide-react';
 
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
@@ -48,7 +55,20 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function SessionsSection({ eventId, batches }: { eventId: string; batches: Batch[] }) {
+export function SessionsSection({
+  eventId,
+  batches,
+  isLive,
+}: {
+  eventId: string;
+  batches: Batch[];
+  // Lifecycle mirror, NOT the gate. The real refusal is a BEFORE INSERT/UPDATE
+  // trigger on event_session_attendance / event_session_feedback
+  // (fn_induction_assert_live). This flag only stops us OFFERING a control the
+  // database is going to refuse — same pattern as canEditEvent vs events_auth_update.
+  // Building the schedule stays available in Draft; only running it does not.
+  isLive: boolean;
+}) {
   const { profile } = useAuth();
   // Server-truth event-level manage gate (admin / induction.manage WITH access to
   // THIS event's institution / per-event coordinator). Mirrors the DEFINER RPCs
@@ -60,6 +80,9 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
   // session id → linked resource persons (shown on the card + drives per-session access)
   const [sessionSpeakers, setSessionSpeakers] = useState<Record<string, DirectoryUser[]>>({});
+  // session id → OTHER colleges this session is co-conducted with (Director D2).
+  // Labelling only — sharing carries no attendance/completion meaning yet.
+  const [sessionShares, setSessionShares] = useState<Record<string, SessionShareRow[]>>({});
   const [feedback, setFeedback] = useState<Record<string, { avg: number; count: number }>>({});
   const [dayFeedback, setDayFeedback] = useState<Record<number, { avg: number; count: number }>>({});
   // per-day past-vs-marked attendance coverage (drives the back-mark nudge; empty for non-managers)
@@ -90,6 +113,10 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const [venueInitialName, setVenueInitialName] = useState('');
   const [outcome, setOutcome] = useState('');
   const [links, setLinks] = useState<ResourceLink[]>([]);
+  // The fresher REGISTRATION DESK (event_sessions.kind = 'registration'). A desk
+  // needs no resource person, and Senior Peer Mentors staff it — so ticking this
+  // hides the speaker picker here and opens the session to mentors server-side.
+  const [isRegistration, setIsRegistration] = useState(false);
   const [speakers, setSpeakers] = useState<DirectoryUser[]>([]);
   // Guard: never write the speaker set until existing links have loaded, so a
   // save before/without a successful load can't silently wipe them.
@@ -97,6 +124,19 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   // Retry-safe create: holds the id of a session created this open, so a retry
   // after a failed speaker-write updates the same row instead of duplicating it.
   const lastCreatedIdRef = useRef<string | null>(null);
+
+  // Re-read cross-college shares on their own. Separated from load() so the
+  // share dialog can refresh just this slice after an add/remove without
+  // re-fetching the whole schedule (and without flashing the loading state).
+  const loadShares = useCallback(() => {
+    InductionSharingService.listEventShares(eventId)
+      .then((rows) => {
+        const byId: Record<string, SessionShareRow[]> = {};
+        InductionSharingService.groupBySession(rows).forEach((v, k) => { byId[k] = v; });
+        setSessionShares(byId);
+      })
+      .catch(() => setSessionShares({}));
+  }, [eventId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +165,9 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       InductionSpeakersService.getSpeakersBySession(rows.map((r) => r.id))
         .then(setSessionSpeakers)
         .catch(() => setSessionSpeakers({}));
+      // cross-college shares, one call for the whole event (non-blocking, same
+      // reasoning as speakers: a failure hides the badges, never the schedule)
+      loadShares();
       const fb: Record<string, { avg: number; count: number }> = {};
       for (const s of summary) fb[s.session_id] = { avg: Number(s.avg_rating), count: s.response_count };
       setFeedback(fb);
@@ -143,7 +186,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       toast.error(`Couldn't load sessions: ${e.message ?? e}`);
     }
     finally { setLoading(false); }
-  }, [eventId]);
+  }, [eventId, loadShares]);
   useEffect(() => { load(); }, [load]);
 
   // Access model: admins / induction.manage holders / per-event coordinators manage
@@ -157,7 +200,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const resetForm = () => {
     setDay('1'); setBatchId(COMBINED); setStart(''); setEnd('');
     setTitle(''); setSpeaker(''); setVenueResourceId(''); setVenueInitialName('');
-    setOutcome(''); setLinks([]); setSpeakers([]);
+    setOutcome(''); setLinks([]); setSpeakers([]); setIsRegistration(false);
     setSpeakersLoaded(false);
     lastCreatedIdRef.current = null;
     setEditing(null);
@@ -174,6 +217,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
     setBatchId(s.batch_id ?? COMBINED);
     setStart(isoToLocal(s.start_at)); setEnd(isoToLocal(s.end_at));
     setTitle(s.title); setSpeaker(s.speaker_text ?? '');
+    setIsRegistration(s.kind === 'registration');
     setVenueResourceId(s.venue_resource_id ?? '');
     setVenueInitialName(s.venue_text ?? '');
     setOutcome(s.outcome_text ?? ''); setLinks(s.resource_links ?? []);
@@ -200,6 +244,10 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
           speakers.map((s) => s.id),
           new Date(start).toISOString(),
           new Date(end).toISOString(),
+          // the session being saved is never a clash with itself — same id the
+          // upsert below reuses, so a retry after a failed speaker-write is
+          // excluded too.
+          editing?.id ?? lastCreatedIdRef.current,
         );
         const hard = rows.filter((r) => r.source === 'meeting' || r.source === 'event');
         if (hard.length) {
@@ -234,6 +282,11 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
         // STRICT: send only the chosen room id — the RPC derives venue_text from
         // the registry name (or clears it when no room is chosen). No free text.
         venueResourceId: venueResourceId || null,
+        // Always explicit from this form (it owns the checkbox), so unticking
+        // clears the kind rather than leaving a stale 'registration' — except on
+        // a mentor check-in, where omitting the key leaves the stored kind alone.
+        // (The RPC enforces this too; sending nothing keeps the intent obvious.)
+        kind: editing?.kind === 'mentor_checkin' ? undefined : isRegistration ? 'registration' : '',
         outcomeText: outcome.trim() || null,
         resourceLinks: links.filter((l) => l.url.trim()),
       });
@@ -280,7 +333,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-base flex items-center gap-2">
               Sessions
@@ -293,7 +346,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
             <CardDescription>The day-by-day schedule — topics, speakers, venues, outcomes, and resources.</CardDescription>
           </div>
           {canManage && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <Button size="sm" variant="ghost" className="gap-1">
@@ -385,7 +438,33 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                     </p>
                   )}
                 </div>
-                <div className="space-y-1.5">
+                {/* Registration desk: no speaker, mentor-staffed. Sits directly
+                    above the picker it replaces so the swap is self-explaining.
+                    Hidden for a monthly mentor check-in — that kind is owned by
+                    the training flow and is not convertible (the RPC refuses it
+                    either way; this just avoids offering a no-op control). */}
+                <div className={`rounded-md border p-3 ${editing?.kind === 'mentor_checkin' ? 'hidden' : ''}`}>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-primary"
+                      checked={isRegistration}
+                      onChange={(e) => setIsRegistration(e.target.checked)}
+                      disabled={saving}
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium flex items-center gap-1.5">
+                        <ClipboardList className="h-3.5 w-3.5" /> Registration desk
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        No resource person needed. Senior Peer Mentors of this induction can take
+                        this session&apos;s attendance for the whole cohort, without waiting for their
+                        training to be recorded.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                <div className={`space-y-1.5 ${isRegistration ? 'hidden' : ''}`}>
                   <Label>Resource persons (linked users)</Label>
                   <SessionSpeakerPicker
                     value={speakers}
@@ -393,6 +472,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                     disabled={saving}
                     sessionStart={start}
                     sessionEnd={end}
+                    excludeSessionId={editing?.id ?? lastCreatedIdRef.current}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -435,7 +515,23 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
             this just avoids rendering an empty slot for students/speakers).
             canManage is the server-truth event manage gate (fn_induction_can_manage_event),
             which already includes per-event coordinators. */}
-        {canManage && !loading && (
+        {/* Draft explains itself. Without this the attendance and feedback icons
+            simply vanish from every row and the coordinator has no idea why —
+            the failure mode that made the missing lifecycle gate hard to spot in
+            the first place. */}
+        {!isLive && !loading && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-950/30">
+            <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+            <p className="text-amber-900 dark:text-amber-200">
+              This induction is a <strong>Draft</strong>. Freshers cannot see it, and attendance,
+              feedback and polls are closed. Build the schedule here, then set the status to{' '}
+              <strong>Live</strong> to open it.
+            </p>
+          </div>
+        )}
+        {/* Back-mark coverage compares past sessions against marks — meaningless
+            while nothing can be marked. */}
+        {canManage && isLive && !loading && (
           <AttendanceCoverageBanner coverage={coverage} unavailable={coverageFailed} />
         )}
         {loading ? (
@@ -479,7 +575,10 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                     )}
                     <div className="h-px flex-1 bg-border" />
                     {d !== 0 && canManage && (
-                      <DayAttendanceDialog eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
+                      <>
+                        {isLive && <DayAttendanceDialog eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />}
+                        <AttendancePdfButton eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
+                      </>
                     )}
                   </div>
 
@@ -490,7 +589,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                       const isMySession = speakers.some((u) => u.id === profile?.id);
                       const canOperate = canManage || isMySession;
                       return (
-                      <div key={s.id} className="group flex gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40 hover:bg-muted/30">
+                      <div key={s.id} className="group flex flex-wrap gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40 hover:bg-muted/30">
                         {/* time gutter */}
                         <div className="w-14 shrink-0 pt-0.5 text-right">
                           <div className="text-sm font-semibold leading-tight tabular-nums">{fmtTime(s.start_at)}</div>
@@ -500,11 +599,28 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium">{s.title}</span>
+                            {s.kind === 'registration' && (
+                              <Badge variant="outline" className="gap-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+                                title="Registration desk — Senior Peer Mentors can take this session's attendance">
+                                <ClipboardList className="h-3 w-3" /> Registration
+                              </Badge>
+                            )}
                             <Badge variant="secondary">{s.batch_label ? `Batch ${s.batch_label}` : 'Combined'}</Badge>
                             {feedback[s.id] && (
                               <Badge variant="outline" className="gap-1" title={`${feedback[s.id].count} response(s)`}>
                                 <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
                                 {feedback[s.id].avg.toFixed(1)} · {feedback[s.id].count}
+                              </Badge>
+                            )}
+                            {/* co-conducted with other colleges (D2). Names in the
+                                tooltip so a 4-college share doesn't wrap the row. */}
+                            {(sessionShares[s.id]?.length ?? 0) > 0 && (
+                              <Badge variant="outline" className="gap-1"
+                                title={`Shared with ${sessionShares[s.id].map((x) => x.institution_name).join(', ')}`}>
+                                <Share2 className="h-3 w-3" />
+                                {sessionShares[s.id].length === 1
+                                  ? sessionShares[s.id][0].institution_name
+                                  : `${sessionShares[s.id].length} colleges`}
                               </Badge>
                             )}
                           </div>
@@ -542,16 +658,38 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                           )}
                         </div>
                         {/* actions — operate on assigned sessions; edit/delete for managers only */}
-                        <div className="flex gap-1 shrink-0">
+                        <div className="flex gap-1 shrink-0 w-full justify-end sm:w-auto">
                           {canOperate && (
                             <>
-                              <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />
-                              <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
-                              <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
+                              {/* Marking, capture and polls are all "running the
+                                  induction" — Live only. The PDF below is a
+                                  read-only export and stays available so a
+                                  coordinator can still print blank sheets while
+                                  the programme is being prepared. */}
+                              {isLive && <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />}
+                              {/* Sits next to the attendance icon on purpose — mark
+                                  it, then download the sheet for that same session. */}
+                              <AttendancePdfButton eventId={eventId} session={s} />
+                              {isLive && (
+                                <>
+                                  <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
+                                  <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
+                                  {/* Learners ask + upvote; opening this switches the board on. */}
+                                  <SessionQuestionDialog sessionId={s.id} sessionTitle={s.title} />
+                                </>
+                              )}
                             </>
                           )}
                           {canManage && (
                             <>
+                              {/* D10: only the HOST college manages sharing, so this
+                                  sits behind the same gate as edit/delete. */}
+                              <SessionShareDialog
+                                sessionId={s.id}
+                                sessionTitle={s.title}
+                                shares={sessionShares[s.id] ?? []}
+                                onChanged={loadShares}
+                              />
                               <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
                               <Button size="icon" variant="ghost" onClick={() => remove(s)}><Trash2 className="h-4 w-4" /></Button>
                             </>

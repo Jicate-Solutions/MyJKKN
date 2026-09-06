@@ -660,7 +660,7 @@ function ReengageTabContent({ institutionId }: { institutionId: string }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Snowflake className="h-6 w-6 text-blue-500" />
@@ -670,7 +670,7 @@ function ReengageTabContent({ institutionId }: { institutionId: string }) {
             Revive dormant leads with targeted re-engagement campaigns
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={handleRefresh}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
@@ -741,7 +741,7 @@ function ReengageTabContent({ institutionId }: { institutionId: string }) {
 
       {/* Tabs */}
       <Tabs defaultValue="leads" className="space-y-6">
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="leads">Cold Leads</TabsTrigger>
           <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
           <TabsTrigger value="wa-sequences">WhatsApp Sequences</TabsTrigger>
@@ -751,15 +751,15 @@ function ReengageTabContent({ institutionId }: { institutionId: string }) {
         {/* Cold Leads Tab */}
         <TabsContent value="leads" className="space-y-4">
           <div className="flex flex-wrap gap-4 items-center justify-between">
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Input
                 placeholder="Search leads..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-64"
+                className="w-full sm:w-64"
               />
               <Select value={daysFilter} onValueChange={setDaysFilter}>
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-full sm:w-[180px]">
                   <SelectValue placeholder="Filter by days" />
                 </SelectTrigger>
                 <SelectContent>
@@ -771,7 +771,7 @@ function ReengageTabContent({ institutionId }: { institutionId: string }) {
               </Select>
             </div>
             {selectedLeads.length > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="secondary">{selectedLeads.length} selected</Badge>
                 <Button size="sm" disabled={isSendingMessage} onClick={async () => {
                   setIsSendingMessage(true);

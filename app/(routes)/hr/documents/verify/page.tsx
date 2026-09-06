@@ -378,7 +378,7 @@ function DocumentRow({ row, verifierProfileId }: DocumentRowProps) {
 
   return (
     <Card>
-      <CardContent className="p-4 flex items-start justify-between gap-3">
+      <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3 min-w-0">
           {/* Thumbnail / file-type pill */}
           <div className="shrink-0 w-12 h-12 rounded border border-border bg-muted/40 flex items-center justify-center text-[10px] font-semibold text-muted-foreground uppercase">
@@ -441,7 +441,7 @@ function DocumentRow({ row, verifierProfileId }: DocumentRowProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Button
             size="sm"
             variant="ghost"

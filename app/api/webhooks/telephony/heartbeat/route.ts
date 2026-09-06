@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/nextjs';
 import crypto from 'crypto';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 // Heartbeat is a fast-path INSERT; 30s is generous headroom against the
 // Vercel 10s default. Future CRITICAL-event branching (notification dispatch,
@@ -78,31 +79,50 @@ async function emitCriticalNotification(
       ? bodyParts.join(' · ')
       : 'Exotel reported a CRITICAL connectivity event. Check the calls dashboard.';
 
-    // Insert into the canonical notifications table. Director-side fan-out is
-    // handled by the existing notification dispatcher pipeline. Per
-    // feedback_action_config_url_target_domain_not_meta.md, action_config.url
-    // must point at the live entity page, NOT /notifications/admin.
-    const { error } = await (supabase as any)
-      .from('notifications')
-      .insert({
-        title,
-        body,
-        category: HEARTBEAT_NOTIFICATION_CATEGORY,
-        priority: 'high',
-        action_type: 'navigate',
-        action_config: { url: HEARTBEAT_NOTIFICATION_URL },
-        metadata: {
-          source: 'telephony.heartbeat',
-          status_type: payload.status_type,
-          virtual_number: payload.virtual_number,
-          incoming_affected: payload.incoming_affected || [],
-          outgoing_affected: payload.outgoing_affected || [],
-          received_at: new Date().toISOString(),
-        },
-      });
+    // Resolve Director-facing recipients — the super admins — mirroring
+    // lib/instagram/sync-accounts.ts:alertEnumerationFailure. The prior insert
+    // was fatally broken: it omitted created_by AND targeting (both NOT NULL,
+    // no default) so it always threw, and it used action_type/action_config
+    // columns that do not exist on notifications (the click-through column is
+    // `url`). It also never resolved any recipient and never wrote the
+    // per-recipient user_notifications fan-out the comment claimed a dispatcher
+    // handled — so a CRITICAL Exotel outage paged nobody.
+    const { data: admins } = await (supabase as any)
+      .from('profiles')
+      .select('id')
+      .eq('is_super_admin', true);
+    const recipientIds = ((admins ?? []) as Array<{ id: string }>)
+      .map((a) => a.id)
+      .filter(Boolean);
+    if (recipientIds.length === 0) {
+      console.error('[Heartbeat Webhook] no super-admin recipients for CRITICAL alert');
+      return;
+    }
 
-    if (error) {
-      console.error('[Heartbeat Webhook] notifications insert failed:', error);
+    // fanoutNotification writes the notifications row (real columns only) AND
+    // fans out to user_notifications for every recipient, so the alert reaches
+    // each Director's bell / inbox.
+    const result = await fanoutNotification(supabase, {
+      title,
+      body,
+      userIds: recipientIds,
+      createdBy: recipientIds[0],
+      category: HEARTBEAT_NOTIFICATION_CATEGORY,
+      priority: 'high',
+      url: HEARTBEAT_NOTIFICATION_URL,
+      targeting: { type: 'user', user_ids: recipientIds },
+      source: 'telephony.heartbeat',
+      metadata: {
+        status_type: payload.status_type,
+        virtual_number: payload.virtual_number,
+        incoming_affected: payload.incoming_affected || [],
+        outgoing_affected: payload.outgoing_affected || [],
+        received_at: new Date().toISOString(),
+      },
+    });
+
+    if (result.skipped) {
+      console.warn('[Heartbeat Webhook] critical notification skipped:', result.skipped);
     }
   } catch (err) {
     console.error('[Heartbeat Webhook] emitCriticalNotification threw:', err);

@@ -134,8 +134,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       updates.board_code = body.board_code;
     }
 
-    // Recompute totals if both sides were sent
-    if ('internal_max_mark' in updates && 'external_max_mark' in updates) {
+    // Recompute the total from the CONVERTED marks — the weightage pair the
+    // Max Marks form edits. Summing the question-paper ceilings instead would
+    // store 50 + 100 = 150 for a Theory + Practical course whose real total is
+    // 100. Falls back to the ceilings only for callers that send just those.
+    if ('internal_converted_mark' in updates && 'external_converted_mark' in updates) {
+      const i = (updates.internal_converted_mark as number | undefined) ?? 0;
+      const e = (updates.external_converted_mark as number | undefined) ?? 0;
+      updates.total_max_mark = i + e;
+    } else if ('internal_max_mark' in updates && 'external_max_mark' in updates) {
       const i = (updates.internal_max_mark as number | undefined) ?? 0;
       const e = (updates.external_max_mark as number | undefined) ?? 0;
       updates.total_max_mark = i + e;

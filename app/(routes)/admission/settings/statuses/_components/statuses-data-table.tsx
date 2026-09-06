@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAdmissionStatuses, useArchiveAdmissionStatus, useRestoreAdmissionStatus } from '@/hooks/admission/use-admission-statuses';
-import type { AdmissionStatus, AdmissionStatusScope } from '@/types/admission-status';
+import { THRESHOLD_BASIS_LABELS, type AdmissionStatus, type AdmissionStatusScope } from '@/types/admission-status';
 import { StatusFormDialog } from './status-form-dialog';
 
 const STATUS_SCOPE_TABS = ['lead', 'learner'] as const;
@@ -26,7 +26,7 @@ export function StatusesDataTable() {
 
   return (
     <Tabs value={scope} onValueChange={(v) => setScope(v as AdmissionStatusScope)}>
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <TabsList>
           <TabsTrigger value="lead">Lead Stages</TabsTrigger>
           <TabsTrigger value="learner">Learner Statuses</TabsTrigger>
@@ -55,6 +55,7 @@ export function StatusesDataTable() {
                   <TableHead>Terminal</TableHead>
                   <TableHead>Seat Filled</TableHead>
                   <TableHead>Threshold %</TableHead>
+                  <TableHead>Counted against</TableHead>
                   <TableHead>Gates Login</TableHead>
                   <TableHead>Active</TableHead>
                   <TableHead className="w-24 text-right">Actions</TableHead>
@@ -62,7 +63,7 @@ export function StatusesDataTable() {
               </TableHeader>
               <TableBody>
                 {(data ?? []).length === 0 && (
-                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">
+                  <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground">
                     No statuses. Click <em>Add status</em> to create one.
                   </TableCell></TableRow>
                 )}
@@ -78,6 +79,11 @@ export function StatusesDataTable() {
                     <TableCell>{s.is_terminal ? 'Yes' : ''}</TableCell>
                     <TableCell>{s.is_seat_filled ? 'Yes' : ''}</TableCell>
                     <TableCell>{s.fee_paid_threshold_percent != null ? `${s.fee_paid_threshold_percent}%` : '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {s.fee_paid_threshold_percent != null
+                        ? (THRESHOLD_BASIS_LABELS[s.threshold_basis ?? 'due_to_date'] ?? s.threshold_basis)
+                        : '—'}
+                    </TableCell>
                     <TableCell>{s.gates_login ? 'Yes' : ''}</TableCell>
                     <TableCell>{s.is_active ? 'Active' : 'Archived'}</TableCell>
                     <TableCell className="text-right space-x-1">

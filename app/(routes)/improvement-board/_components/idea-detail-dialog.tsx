@@ -6,6 +6,13 @@
  * PROPOSE-ONLY: every status move goes through ImprovementService.setStatus
  * (the SECURITY DEFINER RPC). Learners may only withdraw while `logged`.
  * Managers (improvement.board.manage) review / approve / apply / verify / score.
+ *
+ * FINDER vs FIXER: the learner who filed the idea is the finder; the learner who
+ * ships the change records it here and becomes the fixer. That write also goes
+ * through a SECURITY DEFINER RPC (fn_improvement_set_resolution) because the base
+ * UPDATE policy does not permit a build-mode learner to write those columns.
+ * Whether to offer the control is answered by fn_improvement_can_resolve() — it
+ * cannot be computed in the browser.
  */
 
 import { useEffect, useState } from 'react';
@@ -28,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Zap, Lock, Clock, ArrowRight } from 'lucide-react';
+import { Zap, Lock, Clock, ArrowRight, Wrench, ExternalLink } from 'lucide-react';
 import {
   ImprovementService,
   type ImprovementIdeaEnriched,
@@ -40,6 +47,15 @@ import {
   STATUS_BADGE_CLASS,
   ALLOWED_MANAGER_TRANSITIONS
 } from './board-constants';
+
+/** The statuses `fn_improvement_set_resolution` accepts. Kept in sync with the
+ *  RPC by hand — the RPC is the authority and will refuse anything else. */
+const RESOLVABLE_STATUSES: ImprovementIdeaStatus[] = [
+  'approved',
+  'applied',
+  'verified',
+  'closed'
+];
 
 interface IdeaDetailDialogProps {
   idea: ImprovementIdeaEnriched | null;
@@ -67,6 +83,10 @@ export function IdeaDetailDialog({
   const [moveNote, setMoveNote] = useState('');
   const [scoreInput, setScoreInput] = useState('');
 
+  // Fixer controls — "record the fix"
+  const [canResolve, setCanResolve] = useState<boolean | null>(null);
+  const [resolutionInput, setResolutionInput] = useState('');
+
   // Author edit controls
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -79,10 +99,29 @@ export function IdeaDetailDialog({
   const canWithdraw = isAuthor && idea?.status === 'logged';
   const canEdit = isAuthor && idea?.status === 'logged';
 
+  /** Statuses the RPC accepts a resolution on. `approved` is the pick-up state:
+   *  recording the fix there also advances the idea to `applied`. */
+  const resolvableStatus =
+    !!idea && RESOLVABLE_STATUSES.includes(idea.status);
+
+  /* Viewer-scoped capability probe — one round trip, kept for the dialog's
+     lifetime. Not idea-scoped: the answer is about the viewer, not the row. */
+  useEffect(() => {
+    if (!open || canResolve !== null) return;
+    let cancelled = false;
+    ImprovementService.canRecordResolution().then((v) => {
+      if (!cancelled) setCanResolve(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, canResolve]);
+
   useEffect(() => {
     if (!open || !idea) return;
     setMoveTarget('');
     setMoveNote('');
+    setResolutionInput(idea.resolution_ref || '');
     setScoreInput(idea.score != null ? String(idea.score) : '');
     setEditing(false);
     setEditTitle(idea.title || '');
@@ -138,6 +177,22 @@ export function IdeaDetailDialog({
       onChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to withdraw.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRecordResolution = async () => {
+    const ref = resolutionInput.trim();
+    if (!ref || busy) return;
+    setBusy(true);
+    try {
+      await ImprovementService.setResolution(idea.id, ref);
+      toast.success('Fix recorded — you are credited as the fixer.');
+      onOpenChange(false);
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to record the fix.');
     } finally {
       setBusy(false);
     }
@@ -275,6 +330,33 @@ export function IdeaDetailDialog({
             </div>
           )}
 
+          {/* Credit — finder vs fixer. The finder is always known (the author);
+              the fixer appears once a build-mode learner records the change. */}
+          {idea.resolution_ref && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-3">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-900">
+                <Wrench className="h-3.5 w-3.5" /> Fix shipped
+              </div>
+              <a
+                href={idea.resolution_ref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1 break-all text-sm font-medium text-emerald-800 underline underline-offset-2 hover:text-emerald-900"
+              >
+                {idea.resolution_ref}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+              <p className="mt-1 text-xs text-emerald-900/80">
+                Fixed by {idea.resolver_name || 'a learner'}
+                {idea.resolved_at
+                  ? ` · ${new Date(idea.resolved_at).toLocaleString()}`
+                  : ''}
+                {' · found by '}
+                {idea.author_name || 'a learner'}
+              </p>
+            </div>
+          )}
+
           {/* Activity timeline */}
           <div className="border-t pt-3">
             <div className="text-muted-foreground mb-2 flex items-center gap-1.5 text-xs font-medium">
@@ -351,6 +433,43 @@ export function IdeaDetailDialog({
             </div>
           )}
 
+          {/* Record the fix — build-mode learners and board managers.
+              The RPC is the authority; this block only decides what to offer. */}
+          {resolvableStatus && canResolve !== false && (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <Wrench className="h-3.5 w-3.5" />
+                {idea.resolution_ref ? 'Update the fix link' : 'Record the fix'}
+              </p>
+              {canResolve === null ? (
+                <div className="bg-muted h-9 w-full animate-pulse rounded-md" />
+              ) : (
+                <>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      placeholder="https://github.com/… (link to the shipped change)"
+                      value={resolutionInput}
+                      onChange={(e) => setResolutionInput(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button
+                      onClick={handleRecordResolution}
+                      disabled={busy || !resolutionInput.trim()}
+                    >
+                      {busy ? 'Saving…' : 'Record fix'}
+                    </Button>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    You are credited as the fixer. The learner who filed the idea
+                    keeps their finder credit.
+                    {idea.status === 'approved' &&
+                      ' Recording the fix also moves this idea to Applied.'}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Author actions */}
           {(canEdit || canWithdraw) && !editing && (
             <div className="flex flex-wrap gap-2 border-t pt-3">
@@ -389,6 +508,11 @@ function Field({ label, value }: { label: string; value: string | null }) {
 }
 
 function formatAction(a: ImprovementIdeaActivityEnriched): string {
+  if (a.action === 'resolution_recorded') {
+    return a.to_status
+      ? `recorded the fix and moved it to ${STATUS_LABEL[a.to_status]}`
+      : 'recorded the fix';
+  }
   if (a.from_status && a.to_status) {
     return `moved it from ${STATUS_LABEL[a.from_status]} to ${STATUS_LABEL[a.to_status]}`;
   }

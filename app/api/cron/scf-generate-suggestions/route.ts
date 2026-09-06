@@ -130,6 +130,30 @@ const WIDENED_MIN_ASKS = 2;
 // MAX_COLLECT_ATTEMPTS (the stuck-job cap) is imported from ai-clients/batch so
 // the collect-error path and this domain-record path share one threshold.
 
+// Carry-forward answers ride INTO the free-text body as bracketed markers, prepended
+// by learners/class-feedback/_components/feedback-dialog.tsx:
+//   "[carry-forward: Yes]"  /  "[freetext-carry \"<summary>\": Partly]"
+// A learner who answered the carry-forward question but wrote NO prose stores a
+// comment that is only a marker — nothing for the judge to read. Left unstripped
+// those markers count toward WIDENED_MIN_COMMENTS, so a class with zero written
+// feedback still opens the widened gate and burns a judge run on empty strings.
+// Measured on prod 2026-07-30: 2,923 of 5,642 stored free-text rows (51.8%) over
+// 21 days are pure marker, and 93 of 284 judge runs were admitted to the gate by
+// markers alone. Anchored at the START and non-greedy on "]" so a summary that
+// itself contains "]" under-strips (leaves prose) rather than eating real text.
+const CARRY_MARKER_RE = /^\s*\[(?:carry-forward|freetext-carry)\b[^\]]*\]\s*/i;
+
+/** Strip leading carry-forward markers; '' when the comment was only markers. */
+function stripCarryMarkers(raw: string): string {
+  let out = raw.trim();
+  let prev = '';
+  while (out !== prev) {
+    prev = out;
+    out = out.replace(CARRY_MARKER_RE, '');
+  }
+  return out.trim();
+}
+
 // Replicated verbatim from ai-suggest-improvement/route.ts so the model's
 // output shape is identical — the record RPC stores the same JSON structure.
 const SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback on how well they understood a session. You receive ONLY aggregate signals and anonymized comment text — never any student identity.
@@ -1108,7 +1132,7 @@ export async function GET(request: NextRequest) {
           ? Number(signal.avg_understood)
           : null;
       const freeTexts: string[] = (signal?.free_texts ?? [])
-        .map((t) => String(t ?? '').trim())
+        .map((t) => stripCarryMarkers(String(t ?? '')))
         .filter((t) => t.length > 0);
       const freeTextCount = freeTexts.length;
       const lowResponses = Number(signal?.low_responses ?? 0);

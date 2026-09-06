@@ -15,7 +15,7 @@ export function SuperAdminControlsClient() {
   const router = useRouter();
 
   return (
-    <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg">
+    <div className="flex flex-col gap-3 p-4 bg-red-50 border border-red-200 rounded-lg sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-2">
         <Badge variant="destructive" className="gap-1">
           <Settings className="h-3 w-3" />
@@ -28,7 +28,7 @@ export function SuperAdminControlsClient() {
       <Button
         variant="outline"
         size="sm"
-        className="gap-1 border-red-300 text-red-700 hover:bg-red-100"
+        className="shrink-0 gap-1 border-red-300 text-red-700 hover:bg-red-100"
         onClick={() => router.push('/academic/timetables/conflicts')}
       >
         <AlertTriangle className="h-3 w-3" />

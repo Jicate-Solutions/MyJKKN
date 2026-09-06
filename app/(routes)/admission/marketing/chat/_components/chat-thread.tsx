@@ -867,7 +867,7 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
               </TooltipTrigger>
               <TooltipContent>Send Template</TooltipContent>
             </Tooltip>
-            <PopoverContent className="w-96 p-0" align="end" side="top">
+            <PopoverContent className="w-[calc(100vw-2rem)] max-w-96 p-0 sm:w-96" align="end" side="top">
               <div className="p-2 border-b flex items-center justify-between">
                 <p className="text-xs font-medium text-muted-foreground">WhatsApp Templates</p>
                 <Button

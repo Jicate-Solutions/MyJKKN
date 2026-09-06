@@ -70,10 +70,12 @@ export function AiPromptSection({
           return (
             <AccordionItem key={index} value={`prompt-${index}`}>
               <AccordionTrigger className="hover:no-underline">
-                <div className="flex items-center gap-3 flex-1 text-left">
-                  <CategoryIcon className="h-4 w-4 text-primary flex-shrink-0" />
-                  <span className="text-sm font-medium">{prompt.title}</span>
-                  <div className="flex items-center gap-2 ml-auto mr-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 flex-1 min-w-0 text-left">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <CategoryIcon className="h-4 w-4 text-primary flex-shrink-0 mt-0.5 sm:mt-0" />
+                    <span className="text-sm font-medium min-w-0 break-words">{prompt.title}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0 sm:ml-auto sm:mr-4">
                     <Badge
                       variant="outline"
                       className={`text-xs ${categoryColor}`}

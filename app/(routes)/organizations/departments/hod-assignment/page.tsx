@@ -68,7 +68,7 @@ export default function DepartmentsHoDPage() {
       const { data, error } = await sb
         .from('staff')
         .select(
-          'profile_id, first_name, last_name, institution_id, institutions!inner(name), role_key, is_active',
+          'profile_id, first_name, last_name, institution_id, institutions!staff_institution_id_fkey!inner(name), role_key, is_active',
         )
         .eq('role_key', 'hod')
         .eq('is_active', true);

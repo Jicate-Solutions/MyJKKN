@@ -341,6 +341,89 @@ export async function PATCH(
       );
     }
 
+    // Cross-institution IMS store grants (ims_user_store_grants).
+    //
+    // Gated on super_admin — deliberately stricter than the canEdit check above,
+    // which also admits 'administrator' and self-edits. A grant here lets the
+    // user read another institution's IMS data, so it is not an ordinary profile
+    // field. The DB agrees: ims_user_store_grants' write policies are
+    // super_admin-only, so this is defence in depth rather than the only gate.
+    //
+    // Rows are deactivated rather than deleted, keeping granted_by/granted_at as
+    // an audit trail of who opened up what.
+    let grantsChanged = false;
+    if (body.ims_store_grant_ids !== undefined) {
+      if (currentProfile.role !== 'super_admin') {
+        return NextResponse.json(
+          { error: 'Only super admins can change IMS store grants' },
+          { status: 403 }
+        );
+      }
+
+      const requestedIds: string[] = Array.isArray(body.ims_store_grant_ids)
+        ? body.ims_store_grant_ids
+        : [];
+
+      // Same validation the assigned_store_id block applies: a dangling or
+      // inactive store id would produce a grant that silently grants nothing.
+      if (requestedIds.length > 0) {
+        const { data: validStores } = await supabaseAdmin
+          .from('ims_stores')
+          .select('id, is_active')
+          .in('id', requestedIds);
+
+        const activeIds = new Set(
+          (validStores || []).filter((s) => s.is_active).map((s) => s.id)
+        );
+        const invalid = requestedIds.filter((id) => !activeIds.has(id));
+
+        if (invalid.length > 0) {
+          return NextResponse.json(
+            { error: `Store not found or inactive: ${invalid.join(', ')}` },
+            { status: 400 }
+          );
+        }
+      }
+
+      const { data: existingGrants } = await supabaseAdmin
+        .from('ims_user_store_grants')
+        .select('store_id, is_active')
+        .eq('user_id', userId);
+
+      const existing = existingGrants || [];
+      const toRevoke = existing
+        .filter((g) => g.is_active && !requestedIds.includes(g.store_id))
+        .map((g) => g.store_id);
+      const toGrant = requestedIds.filter(
+        (id) => !existing.some((g) => g.store_id === id && g.is_active)
+      );
+
+      if (toRevoke.length > 0) {
+        await supabaseAdmin
+          .from('ims_user_store_grants')
+          .update({ is_active: false })
+          .eq('user_id', userId)
+          .in('store_id', toRevoke);
+      }
+
+      if (toGrant.length > 0) {
+        // Upsert, not insert: a previously revoked grant still holds its row
+        // (unique on user_id+store_id), so re-granting must reactivate it.
+        await supabaseAdmin.from('ims_user_store_grants').upsert(
+          toGrant.map((store_id) => ({
+            user_id: userId,
+            store_id,
+            is_active: true,
+            granted_by: user.id,
+            granted_at: new Date().toISOString()
+          })),
+          { onConflict: 'user_id,store_id' }
+        );
+      }
+
+      grantsChanged = toRevoke.length > 0 || toGrant.length > 0;
+    }
+
     // If role changed via the simple role field, sync to user_roles table
     if (body.role !== undefined && body.role !== originalTargetUser?.role) {
       try {
@@ -435,6 +518,7 @@ export async function PATCH(
       originalTargetUser?.assigned_store_id !== body.assigned_store_id
     )
       changes.push('assigned_store');
+    if (grantsChanged) changes.push('ims_store_grants');
     if (updatedRoleIds !== undefined) changes.push('roles');
 
     if (changes.length > 0) {

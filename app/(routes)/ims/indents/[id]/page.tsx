@@ -202,8 +202,11 @@ function IndentDetailPageInner() {
     try {
       await markIssued.mutateAsync(id);
       toast.success('Indent marked as fully issued');
-    } catch {
-      toast.error('Failed to mark indent as issued');
+    } catch (error) {
+      // Surface the reason — the service refuses to stamp an indent 'issued'
+      // while any line is still unissued, and "Failed to mark" alone would hide
+      // which lines still need issuing.
+      toast.error(error instanceof Error ? error.message : 'Failed to mark indent as issued');
     }
   };
 
@@ -237,7 +240,7 @@ function IndentDetailPageInner() {
               <p className="text-muted-foreground">Indent Request Details</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isEditable && (
               <Button
                 variant="outline"

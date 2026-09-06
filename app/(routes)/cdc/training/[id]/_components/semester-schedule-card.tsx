@@ -205,7 +205,7 @@ export function SemesterScheduleCard({ programmeId, targetDepartmentId }: Props)
                 />
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="total_hours">Total Hours</Label>
                 <Input
@@ -233,7 +233,7 @@ export function SemesterScheduleCard({ programmeId, targetDepartmentId }: Props)
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="sem_start">Start Date</Label>
                 <Input

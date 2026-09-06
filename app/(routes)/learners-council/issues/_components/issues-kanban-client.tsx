@@ -51,6 +51,10 @@ import {
   useEscalateIssue,
   useAddComment
 } from '@/hooks/learners-council/use-lc-issues';
+import {
+  GRIEVANCE_DESCRIPTION_MIN_LENGTH,
+  validateGrievanceDescription
+} from '@/lib/validations/grievance-ticket';
 import type { GrievanceTicket } from '@/types/grievance';
 
 /** Priority badge colors */
@@ -101,8 +105,14 @@ export function IssuesKanbanClient({
   const [createOpen, setCreateOpen] = useState(false);
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
+  const [descriptionTouched, setDescriptionTouched] = useState(false);
   const [category, setCategory] = useState('');
   const [priority, setPriority] = useState('medium');
+
+  // BUG-01: mirrors the grievance_tickets description CHECK rule so a short
+  // entry is caught here instead of coming back as a database error.
+  const descriptionError = validateGrievanceDescription(description);
+  const showDescriptionError = descriptionTouched && !!descriptionError;
 
   // Filter state
   const [filterAssignee, setFilterAssignee] = useState<string>('all');
@@ -125,7 +135,11 @@ export function IssuesKanbanClient({
   const [commentText, setCommentText] = useState('');
 
   const handleCreate = () => {
-    if (!subject || !description || !category) return;
+    if (!subject || !category) return;
+    if (descriptionError) {
+      setDescriptionTouched(true);
+      return;
+    }
     createIssue.mutate(
       {
         data: {
@@ -142,6 +156,7 @@ export function IssuesKanbanClient({
           setCreateOpen(false);
           setSubject('');
           setDescription('');
+          setDescriptionTouched(false);
           setCategory('');
           setPriority('medium');
         }
@@ -215,13 +230,26 @@ export function IssuesKanbanClient({
                 />
               </div>
               <div className="space-y-2">
-                <Label>Description</Label>
+                <Label htmlFor="lc-issue-description">Description</Label>
                 <Textarea
+                  id="lc-issue-description"
                   placeholder="Detailed description of the issue, including any relevant context..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  onBlur={() => setDescriptionTouched(true)}
                   rows={4}
+                  aria-invalid={showDescriptionError || undefined}
+                  aria-describedby="lc-issue-description-help"
                 />
+                <p
+                  id="lc-issue-description-help"
+                  role={showDescriptionError ? 'alert' : undefined}
+                  className={showDescriptionError ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}
+                >
+                  {showDescriptionError
+                    ? descriptionError
+                    : `At least ${GRIEVANCE_DESCRIPTION_MIN_LENGTH} characters, so it can be actioned.`}
+                </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -262,7 +290,7 @@ export function IssuesKanbanClient({
               </DialogClose>
               <Button
                 onClick={handleCreate}
-                disabled={!subject || !description || !category || createIssue.isPending}
+                disabled={!subject || !!descriptionError || !category || createIssue.isPending}
               >
                 {createIssue.isPending ? 'Creating...' : 'Create Issue'}
               </Button>
@@ -343,7 +371,7 @@ export function IssuesKanbanClient({
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Filter className="h-4 w-4 text-muted-foreground" />
         <Select value={filterAssignee} onValueChange={setFilterAssignee}>
           <SelectTrigger className="w-48">

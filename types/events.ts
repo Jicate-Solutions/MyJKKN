@@ -10,6 +10,13 @@ export type EventType = 'marathon' | 'cultural_fest' | 'seminar' | 'workshop' | 
 // Cross-institution levers (exist on the live `events` table; CHECK-constrained in DB).
 export type EventScope = 'chapter' | 'institution' | 'all_jkkn';
 export type EventVisibility = 'public' | 'all_jkkn' | 'institution' | 'invited';
+/**
+ * Which kind of organisation an EXTERNAL participant represents on the public
+ * tournament registration form. 'school' shows "School / club" backed by the
+ * school_master directory picker; 'college' shows "College" as free text.
+ * Defaults to 'school' in the DB so existing tournaments are unaffected.
+ */
+export type ParticipantOrgType = 'school' | 'college';
 
 export type EventStatus = 'draft' | 'planning' | 'preparation' | 'execution' | 'live' | 'post_event' | 'archived' | 'cancelled';
 
@@ -43,6 +50,107 @@ export const EVENT_STATUS_TRANSITIONS: Record<EventStatus, EventStatus[]> = {
   cancelled: ['draft'],
 };
 
+// ── General events (wizard-created rows with no dedicated console) ───────────
+// Lectures, cultural programmes, convocations, … run a two-state model —
+// Draft (hidden, registration closed) <-> Active (visible, open) — mirroring
+// tournaments (see TOURNAMENT_STATUS_* in types/tournament.ts).
+//
+// They are gated on their OWN map because EVENT_STATUS_TRANSITIONS above has no
+// draft -> live edge: validating a one-click activation against it rejects the
+// write ("Invalid status transition") on every attempt. That exact bug already
+// shipped once in the tournament module. Do NOT widen the shared map to suit
+// these — marathon and induction genuinely walk its full 8-state pipeline, and
+// a draft -> live edge there would let them skip it silently.
+
+/** The DB value a general event stores while it is open. Shown to users as "Active". */
+export const GENERAL_EVENT_ACTIVE_STATUS = 'live' as const satisfies EventStatus;
+
+/**
+ * General-event transitions. Rows that reached another status before this model
+ * shipped (the live table holds several `archived` ones) are tolerated so they
+ * can be moved onto it — under the shared map `archived` is terminal, which
+ * would strand them with no reachable status at all.
+ */
+export const GENERAL_EVENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, EventStatus[]>> = {
+  draft: ['live'],
+  live: ['draft'],
+  planning: ['draft', 'live'],
+  preparation: ['draft', 'live'],
+  execution: ['draft', 'live'],
+  post_event: ['draft', 'live'],
+  archived: ['draft', 'live'],
+  cancelled: ['draft', 'live'],
+};
+
+/** Draft vs Active — every non-draft general-event status reads as Active. */
+export function generalEventStatusLabel(status: string): string {
+  return status === 'draft' ? 'Draft' : 'Active';
+}
+
+/** True when the event is open (i.e. anything that isn't a draft). */
+export function isGeneralEventActive(status: string): boolean {
+  return status !== 'draft';
+}
+
+// ── Induction ────────────────────────────────────────────────────────────────
+// Added 2026-08-18. Until now the induction module had NO status writer at all:
+// fn_induction_create_program hardcodes `status = 'draft'` and nothing anywhere
+// — no service, no RPC, no UI — ever wrote another value. Every induction
+// created through the module was stuck in Draft permanently, and the detail
+// console only rendered the badge. Exactly the hole GeneralEventService was
+// created to close for wizard events.
+//
+// Its OWN map, for two reasons:
+//
+//   • EVENT_STATUS_TRANSITIONS has no draft -> live edge (draft goes to
+//     'planning'), so validating a one-click activation against it rejects every
+//     attempt. That bug already shipped twice here — tournaments, then general
+//     events. The note above it says not to widen it, and this does not.
+//
+//   • Not GENERAL_EVENT_STATUS_TRANSITIONS either, despite the identical shape
+//     today. That map belongs to wizard-created events; sharing it would couple
+//     two lifecycles that have no reason to move together, and the first time
+//     one needed a state the other didn't, the change would land on both.
+//
+// Draft <-> Live is the whole model on purpose: those are the only two values
+// any induction has ever held. If the programme later needs a "Completed" phase
+// (the Scorecard and Loop Playbook sections would be its natural home), it is
+// one entry here plus one label below — not a redesign.
+
+/** The DB value an induction stores while it is running. Shown as "Live". */
+export const INDUCTION_ACTIVE_STATUS = 'live' as const satisfies EventStatus;
+
+/**
+ * Induction transitions. The legacy arms exist so a row that reached another
+ * status before this model shipped can be moved onto it — under the shared map
+ * `archived` is terminal, which would strand such a row with no reachable
+ * status at all. Same tolerance GENERAL_EVENT_STATUS_TRANSITIONS documents.
+ */
+export const INDUCTION_STATUS_TRANSITIONS: Partial<Record<EventStatus, EventStatus[]>> = {
+  draft: ['live'],
+  live: ['draft'],
+  planning: ['draft', 'live'],
+  preparation: ['draft', 'live'],
+  execution: ['draft', 'live'],
+  post_event: ['draft', 'live'],
+  archived: ['draft', 'live'],
+  cancelled: ['draft', 'live'],
+};
+
+/**
+ * Label for an induction status.
+ *
+ * NOT generalEventStatusLabel(): that collapses every non-draft value to
+ * "Active", which would report a legacy `archived` or `cancelled` induction as
+ * running. Draft and Live get their own words; anything else keeps its real
+ * EVENT_STATUS_LABELS name so the row cannot lie about where it is.
+ */
+export function inductionStatusLabel(status: string): string {
+  if (status === 'draft') return 'Draft';
+  if (status === INDUCTION_ACTIVE_STATUS) return 'Live';
+  return EVENT_STATUS_LABELS[status as EventStatus] ?? status;
+}
+
 // ============================================================================
 // Core Entities
 // ============================================================================
@@ -72,6 +180,8 @@ export interface Event {
   max_registrations: number | null;
   is_public: boolean;
   allow_external_registration: boolean;
+  /** Which kind of organisation EXTERNAL participants represent (see ParticipantOrgType). */
+  participant_org_type: ParticipantOrgType;
   is_active: boolean;
   previous_event_id: string | null;
   year: number | null;
@@ -87,6 +197,11 @@ export interface Event {
   visibility: EventVisibility | null;
   venue_resource_id: string | null;
   venue_text: string | null;
+  // NAAC evidence tags (events.naac_criteria text[] NOT NULL DEFAULT '{}',
+  // live since Phase 1A 20260417000001; GIN-indexed). Read by the events →
+  // quality-evidence-spine emitter (PR #2408); written by the NAAC criteria
+  // field on the tournament edit dialog (Wave 3, 2026-07-26).
+  naac_criteria: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -212,6 +327,9 @@ export interface CreateEventDto {
   tagline?: string;
   event_date?: string;
   start_time?: string;
+  /** Pairs with start_time. Both are `time` columns — the hours the event runs
+   *  on each of its days, and the hours the room is held for. */
+  end_time?: string;
   venue?: string;
   venue_address?: string;
   year?: number;
@@ -219,6 +337,7 @@ export interface CreateEventDto {
   max_registrations?: number;
   is_public?: boolean;
   allow_external_registration?: boolean;
+  participant_org_type?: ParticipantOrgType;
   config?: Record<string, unknown>;
   registration_config?: Record<string, unknown>;
   branding_config?: Record<string, unknown>;
@@ -231,6 +350,8 @@ export interface CreateEventDto {
   end_date?: string;
   registration_open_date?: string;
   registration_close_date?: string;
+  // NAAC evidence tags — see Event.naac_criteria.
+  naac_criteria?: string[];
 }
 
 export interface UpdateEventDto extends Partial<CreateEventDto> {
@@ -240,6 +361,26 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   hero_image_url?: string;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
+}
+
+/**
+ * What deleting an event would take with it, counted past RLS by
+ * fn_event_delete_blockers. Counting these in the browser reports 0 for anyone
+ * who can't see the child rows — a false "safe to delete" on the one check that
+ * exists to stop data loss — so the numbers only ever come from that RPC.
+ */
+export interface EventDeleteBlockers {
+  registrations: number;
+  payments: number;
+  /**
+   * Enrolled induction learners. A separate count because an induction never
+   * writes events_registrations — freshers arrive through
+   * fn_induction_auto_enroll — so the other two are always 0 for one, and the
+   * guard used to wave it through with hundreds of learners attached.
+   */
+  induction_learners: number;
+  /** True when the DB will refuse the delete outright (the trigger, not the UI). */
+  blocked: boolean;
 }
 
 export interface EventFilters {

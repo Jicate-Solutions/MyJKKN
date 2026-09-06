@@ -122,6 +122,26 @@ export const getColumns = ({
       )
   },
   {
+    accessorKey: 'once_per_learner',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Duplicate Guard' />
+    ),
+    // Only the restricted state gets a badge. Most categories are unrestricted,
+    // so badging both would add noise to every row for no signal.
+    cell: ({ row }) =>
+      row.original.once_per_learner ? (
+        <Badge
+          variant='outline'
+          className='border-emerald-500/40 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
+          title='A learner can hold only one live bill in this category. Enforced in the database across every billing route.'
+        >
+          Once per learner
+        </Badge>
+      ) : (
+        <span className='text-muted-foreground text-sm'>—</span>
+      )
+  },
+  {
     accessorKey: 'frequency',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Frequency' />

@@ -31,7 +31,7 @@ export const GUIDES: GuideBook = {
       whyItMatters:
         "Every engaged week adds to your streak and your AI skills profile — and the best team work gets shown across the whole institution.",
       startHere: { label: "Go to My Pulse", href: "/ai-pulse/my-pulse" },
-      journey: ["Join the session", "Hit all 4 gates", "Build the challenge", "See if you won Gold"],
+      journey: ["Join the session", "Hit all 4 gates", "Build the challenge", "See if you won Gold", "Climb the leaderboard"],
       sections: [
         {
           id: "join",
@@ -86,6 +86,23 @@ export const GUIDES: GuideBook = {
               detail:
                 "Your team uses the week's AI tool to build the challenge and submits a link. The best two teams per department become Gold and are shown to everyone.",
               link: { label: "Open My Pulse", href: "/ai-pulse/my-pulse" },
+            },
+          ],
+        },
+        {
+          id: "leaderboard",
+          title: "See where you stand",
+          steps: [
+            {
+              action: "Open the **Leaderboard** to see your points, badges, and rank.",
+              detail:
+                "You earn points for taking part — build a prompt, take the quiz, use a weekly starter, or publish your work — and bonus points for doing it well. Everyone can see the board, and your department climbs when more of you take part.",
+              tip: "Build a prompt that passes all four checks (role, context, task, format) to earn the Gold Prompt badge.",
+              platforms: {
+                web: "left sidebar → AI Pulse → Leaderboard",
+                mobile: "tap More (⋯) in the bottom bar → AI Pulse → Leaderboard",
+              },
+              link: { label: "Open the Leaderboard", href: "/ai-pulse/leaderboard" },
             },
           ],
         },

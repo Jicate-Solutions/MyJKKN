@@ -10,11 +10,58 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient
+} from '@/lib/supabase/server';
 import {
   listTriggerRulesWithRates,
   updateTriggerRule
 } from '@/lib/services/meetings/meeting-trigger-service';
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The alert-owner picker only ever offers same-institution staff, but the API
+ * is the boundary — `updateTriggerRule` accepts any uuid and writes it straight
+ * to `meeting_trigger_rules.alert_owner_staff_id`, so a hand-rolled PATCH could
+ * point College A's data-gap alert at a staff member of College B (that person
+ * would then receive A's attendance alerts). Validate the pairing server-side.
+ *
+ * Returns null when the value is acceptable, or a message to 400 with.
+ */
+async function validateAlertOwner(
+  ruleId: string,
+  staffId: string
+): Promise<string | null> {
+  if (!UUID_RE.test(staffId)) return 'alert_owner_staff_id must be a uuid';
+
+  const service = createServiceRoleClient();
+  const [{ data: rule }, { data: owner }] = await Promise.all([
+    service
+      .from('meeting_trigger_rules')
+      .select('institution_id')
+      .eq('id', ruleId)
+      .maybeSingle(),
+    service
+      .from('staff')
+      .select('institution_id, is_active')
+      .eq('id', staffId)
+      .maybeSingle()
+  ]);
+
+  if (!rule) return 'Rule not found';
+  if (!owner) return 'Alert owner not found';
+  if ((owner as any).is_active === false)
+    return 'Alert owner is not an active team member';
+  if (
+    !(rule as any).institution_id ||
+    (owner as any).institution_id !== (rule as any).institution_id
+  )
+    return 'Alert owner must belong to the same institution as the rule';
+  return null;
+}
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>) {
   const {
@@ -72,6 +119,17 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     if (!body?.id)
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
+
+    // A uuid owner must belong to the same college as the rule. `null` clears
+    // it and `undefined` leaves it untouched — neither needs checking.
+    if (typeof body.alert_owner_staff_id === 'string') {
+      const ownerError = await validateAlertOwner(
+        body.id,
+        body.alert_owner_staff_id
+      );
+      if (ownerError)
+        return NextResponse.json({ error: ownerError }, { status: 400 });
+    }
 
     const result = await updateTriggerRule({
       id: body.id,

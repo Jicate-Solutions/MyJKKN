@@ -12,6 +12,10 @@ export function createCoursesColumns(
     /** Hide the Part column — institutions that don't use the TN
      *  arts-college tiers (see institutionSkipsPartLevel, e.g. CET). */
     hidePart?: boolean;
+    /** Show an Academic Year column — year-based models (Pharm.D/AHS) locate a
+     *  course by year, not semester tiers. Per-row (a COP list mixes B.Pharm
+     *  semester courses with Pharm.D year courses), so it renders "—" when absent. */
+    showAcademicYear?: boolean;
   },
 ): ColumnDef<BosCourseMaster>[] {
   return [
@@ -33,6 +37,17 @@ export function createCoursesColumns(
   ...(opts?.hidePart
     ? []
     : [{ accessorKey: 'course_part_master', header: 'Part' } as ColumnDef<BosCourseMaster>]),
+  ...(opts?.showAcademicYear
+    ? [{
+        id: 'academic_year',
+        header: 'Year',
+        cell: ({ row }: { row: { original: BosCourseMaster } }) => {
+          // academic_year is a COE field pending the COP hand-off; tolerate absence.
+          const y = (row.original as BosCourseMaster & { academic_year?: number | null }).academic_year;
+          return y ? String(y) : <span className='text-xs text-muted-foreground'>—</span>;
+        },
+      } as ColumnDef<BosCourseMaster>]
+    : []),
   {
     accessorKey: 'course_type',
     header: 'Type',

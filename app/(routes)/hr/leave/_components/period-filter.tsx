@@ -126,20 +126,20 @@ export function PeriodFilter({
         </Select>
       </div>
 
-      <div className="flex items-end gap-2 rounded-md border px-3 py-2">
+      <div className="flex w-full items-end gap-2 rounded-md border px-3 py-2 sm:w-auto">
         <CalendarDays className="mb-2 h-4 w-4 shrink-0 text-muted-foreground" />
-        <div>
+        <div className="min-w-0 flex-1 sm:flex-none">
           <Label className="text-xs text-muted-foreground">From</Label>
           <Input
             type="date"
             value={value.from}
             disabled={value.preset === 'all'}
             onChange={(e) => setBound('from', e.target.value)}
-            className="mt-1 h-8 w-[150px] border-0 p-0 shadow-none focus-visible:ring-0"
+            className="mt-1 h-8 w-full border-0 p-0 shadow-none focus-visible:ring-0 sm:w-[150px]"
           />
         </div>
         <span className="mb-2 text-muted-foreground">–</span>
-        <div>
+        <div className="min-w-0 flex-1 sm:flex-none">
           <Label className="text-xs text-muted-foreground">To</Label>
           <Input
             type="date"
@@ -147,7 +147,7 @@ export function PeriodFilter({
             min={value.from}
             disabled={value.preset === 'all'}
             onChange={(e) => setBound('to', e.target.value)}
-            className="mt-1 h-8 w-[150px] border-0 p-0 shadow-none focus-visible:ring-0"
+            className="mt-1 h-8 w-full border-0 p-0 shadow-none focus-visible:ring-0 sm:w-[150px]"
           />
         </div>
       </div>

@@ -155,14 +155,14 @@ export function BookingForm({
           <CardContent className='space-y-4'>
             {/* Resource Info */}
             <div className='rounded-lg border p-4 space-y-3'>
-              <div className='flex items-start justify-between'>
-                <div>
+              <div className='flex items-start justify-between gap-3'>
+                <div className='min-w-0'>
                   <p className='font-semibold text-lg'>{resource.name}</p>
                   <p className='text-sm text-muted-foreground'>
                     {resource.description}
                   </p>
                 </div>
-                <Badge variant='outline'>{resource.status}</Badge>
+                <Badge variant='outline' className='shrink-0'>{resource.status}</Badge>
               </div>
 
               <div className='grid gap-3 sm:grid-cols-2 text-sm'>
@@ -381,7 +381,7 @@ export function BookingForm({
         )}
 
         {/* Submit Button */}
-        <div className='flex items-center justify-between gap-4'>
+        <div className='flex flex-wrap items-center justify-between gap-4'>
           <Button
             type='button'
             variant='outline'

@@ -11,11 +11,17 @@ export type BosExpertCategory =
   | 'industry_expert'
   | 'alumni'
   | 'startup'
-  | 'student';
+  | 'student'
+  // Faculty / Chairman can also be sourced from the external-expert directory
+  // (a faculty member or chairman brought in from another institution), so both
+  // are valid expert categories in addition to being member types.
+  | 'faculty_member'
+  | 'chairman';
 
 export type BosMemberType =
   | 'chairman'
   | 'internal_member'
+  | 'faculty_member'
   | 'university_nominee'
   | 'subject_expert'
   | 'academic_expert'
@@ -41,6 +47,21 @@ export type BosMeetingStatus =
 export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid' | 'academic_council' | 'governing_body';
 
 export type BosAttendanceStatus = 'present' | 'absent' | 'leave_of_absence';
+
+/**
+ * How a member attended — the dimension the SOP's sitting charges are quoted
+ * against (20260805120000). Recorded PER ATTENDEE, not per meeting: the
+ * `online`/`hybrid` values on BosMeetingType describe the meeting's format but
+ * can't coexist with `academic_council`/`governing_body`, and a hybrid meeting
+ * has attendees on both sides regardless. Online attendance always pays zero
+ * travel allowance.
+ */
+export type BosAttendanceMode = 'offline' | 'online';
+
+export const BOS_ATTENDANCE_MODE_LABELS: Record<BosAttendanceMode, string> = {
+  offline: 'Offline',
+  online: 'Online',
+};
 
 export type BosResolutionStatus =
   | 'pending'
@@ -79,11 +100,14 @@ export const BOS_EXPERT_CATEGORY_LABELS: Record<BosExpertCategory, string> = {
   alumni: 'Alumni',
   startup: 'Startup',
   student: 'Student',
+  faculty_member: 'Faculty Member',
+  chairman: 'Chairman',
 };
 
 export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   chairman: 'Chairman',
   internal_member: 'Member',
+  faculty_member: 'Faculty Member',
   university_nominee: 'University Nominee',
   subject_expert: 'Subject Expert',
   academic_expert: 'Academic Expert',
@@ -428,6 +452,17 @@ export interface BosUnit {
   remarks?: string;
   /** Period marker "theory+tutorial" (e.g. "6+6"); engineering/CET syllabi. */
   hours?: string;
+  // ── Nursing (inc_nursing) per-unit outline columns ──────────────────
+  // Optional; populated only for nursing syllabi. Engineering/CAS renderers
+  // ignore them, so existing rows are unaffected.
+  /** Nursing "Learning Outcomes" column for this unit. */
+  learning_outcomes?: string[];
+  /** Nursing "Teaching/Learning Activities" column for this unit. */
+  teaching_activities?: string[];
+  /** Nursing "Assessment Methods" column for this unit. */
+  assessment_methods?: string[];
+  /** Nursing hour-type marker for the unit, e.g. "3 (T)" → 'theory'. */
+  hour_type?: 'theory' | 'practical';
 }
 
 // Practical-paper topic: a numbered heading (e.g. "MAJOR PRACTICALS") that may
@@ -639,12 +674,173 @@ export interface BosLlcConferenceData {
   description?: string;
 }
 
+// ── Academic model discriminator (multi-institution BoS) ─────────────
+// Distinguishes the structurally-different syllabus shapes BoS now carries.
+//   anna_univ  — engineering (CET) / arts-science (CAS): semester, CO-PO-PSO,
+//                Bloom's/Fink's taxonomy. The original model.
+//   mgr_ahs    — Allied Health Sciences (Dr. MGR Medical Univ): year/paper,
+//                exam-scheme + internship, no CO-PO.
+//   mgr_pharmd — Pharm.D (Dr. MGR Medical Univ): reuses the mgr_ahs shape
+//                (year → subject → lecture-topic tree, exam-scheme, internship).
+//   pci_pharm  — B.Pharm (Pharmacy Council of India, CBCS): semester + credits
+//                + coded courses + Unit I–V content, but NO CO-PO-PSO/Bloom.
+//   inc_nursing — B.Sc Nursing (Indian Nursing Council reg, TNMGRMU exam):
+//                semester + credits + coded courses, Theory/Lab/Clinical workload
+//                split, per-unit outline, a PARALLEL clinical outline, and CO →
+//                10 INC core-competency mapping INSTEAD of CO-PO-PSO/Bloom.
+export type AcademicModel = 'anna_univ' | 'mgr_ahs' | 'mgr_pharmd' | 'pci_pharm' | 'inc_nursing' | 'mgr_bds';
+
+// ── Exam scheme (PCI / Dr. MGR) ──────────────────────────────────────
+// Replaces the Anna CO-PO/Bloom assessment blocks for pharmacy/AHS models.
+export interface BosExamSchemeComponent {
+  name: string;                 // "Internal Assessment", "End Semester (Theory)", "Practical", "Oral / Viva"
+  max?: number | null;          // maximum marks (null when the source omits it)
+  min?: number | null;          // pass minimum (null when the source omits it)
+  duration_hours?: number | null;
+  sub?: { name: string; max?: number | null }[]; // e.g. IA → Continuous + Sessional
+}
+
+export interface BosExamQuestionSection {
+  name: string;                 // "MCQ/Objective", "Long Answers (2 of 3)", ...
+  marks?: number | null;
+}
+
+export interface BosExamQuestionPattern {
+  variant?: string;             // "75" | "50" | "35" (PCI paper variant)
+  duration_hours?: number | null;
+  sections?: BosExamQuestionSection[];
+  total_marks?: number | null;
+}
+
+export interface BosExamScheme {
+  components?: BosExamSchemeComponent[];
+  total_marks?: number | null;
+  pass_pct?: number | null;
+  distinction_pct?: number | null;
+  question_pattern?: BosExamQuestionPattern;   // PCI theory blueprint (B.Pharm)
+  notes?: string;
+}
+
+// ── Internship / Residency postings (Pharm.D 6th year, AHS internships) ──
+export interface BosInternshipPosting {
+  area: string;                 // "General Medicine", "Specialty department"
+  duration?: string;            // "6 months", "2 months"
+  repeat?: number;              // e.g. 3 (× three specialty departments)
+  skills?: string[];            // optional in-service skill checklist
+}
+
+export interface BosInternshipPostings {
+  total_duration?: string;      // "12 months"
+  postings?: BosInternshipPosting[];
+  notes?: string;
+}
+
+// ── AHS / Pharm.D content tree (year → subject → flat lecture topics) ──
+// Deliberately distinct from BosCourseContentData (Unit I–V) so neither
+// renderer has to guess which shape it is looking at.
+export interface BosAhsSubject {
+  subject_no?: string;          // "1.1", "2.5" (source numbering; no course code)
+  title: string;                // "Human Anatomy and Physiology"
+  lecture_hours?: number | null;
+  mode?: 'flat' | 'units';
+  topics?: string[];            // flat "LECTURE WISE PROGRAM" topic list
+  units?: { unit_no: string; topics: string[] }[];
+  reference_books?: string[];
+}
+
+export interface BosAhsContent {
+  intro?: string;               // "INTRODUCTION/OBJECTIVES" paragraph
+  academic_year?: number;       // 1..5 (Pharm.D)
+  subjects?: BosAhsSubject[];
+}
+
+// ── Nursing (INC / TNMGRMU) content shapes ───────────────────────────
+// Distinct from the Anna CO-PO/Bloom model. A nursing course carries a
+// Theory / Lab-Skill-Lab / Clinical workload split, a per-unit theory outline
+// (the extra optional fields on BosUnit below), a PARALLEL clinical outline,
+// and CO → 10 INC core-competency mapping instead of CO-PO-PSO.
+
+/** Theory / Lab-Skill-Lab / Clinical credits + contact hours (+ clinical weeks). */
+export interface BosNursingWorkloadPart {
+  credits?: number | null;
+  hours?: number | null;        // contact hours (per semester, may exceed 40)
+  weeks?: number | null;        // clinical only — placement duration in weeks
+}
+export interface BosNursingWorkload {
+  theory?: BosNursingWorkloadPart;
+  practical?: BosNursingWorkloadPart;   // Lab / Skill-Lab
+  clinical?: BosNursingWorkloadPart;
+}
+
+/** One row of the parallel clinical outline table. */
+export interface BosClinicalOutlineUnit {
+  clinical_unit?: string;              // "1", "2" (or a heading)
+  duration_weeks?: number | null;
+  learning_outcomes?: string[];
+  procedural_competencies?: string[];  // Procedural Competencies / Clinical Skills
+  clinical_requirements?: string[];
+  assessment_methods?: string[];
+}
+/** One skill-lab / practicum competency (pre-clinical simulation training). */
+export interface BosPracticumSkill {
+  sno?: string;
+  competency: string;
+  mode?: string;              // "Role Play", "Simulator/Standardized patient", …
+}
+export interface BosClinicalOutlineData {
+  units?: BosClinicalOutlineUnit[];
+  /** Skill-lab practicum competencies (the practical/skill-lab hours). */
+  practicum_skills?: BosPracticumSkill[];
+  notes?: string;
+}
+
+/** CO → 10 INC core-competency mapping (replaces po_mappings for nursing). */
+export interface BosCoreCompetency {
+  id: number;                          // 1..10
+  label: string;                       // "Patient centered care", …
+}
+export interface BosCompetencyMapping {
+  co_id: string;                       // "C1", "CO1"
+  competencies: number[];              // core-competency ids this CO maps to
+}
+export interface BosCompetencyMappingsData {
+  core_competencies?: BosCoreCompetency[];
+  mappings?: BosCompetencyMapping[];
+}
+
 export interface BosCourseSyllabus {
   id: string;
   institutions_id: string;
   board_id: string;
   regulation_id?: string;
   composition_id?: string;
+  /**
+   * Discriminator for the syllabus shape. Defaults to 'anna_univ' so every
+   * pre-existing engineering/CAS row is unaffected. Persisted on the row at
+   * creation (resolved from the selected BoS board) — never re-derived on read.
+   */
+  academic_model?: AcademicModel;
+  /** B.Pharm 1..8 (semester model). Null for year-based models. */
+  semester?: number;
+  /** Pharm.D 1..5 (year model). Null for semester-based models. */
+  academic_year?: number;
+  /** B.Pharm "Scope" paragraph (a course-level scope statement). */
+  scope?: string;
+  /** PCI / Dr. MGR exam scheme — replaces CO-PO/Bloom assessment for pharmacy. */
+  exam_scheme?: BosExamScheme;
+  /** Pharm.D internship/residency postings (6th year). */
+  internship_postings?: BosInternshipPostings;
+  /** Pharm.D year → subject → lecture-topic tree (mgr_pharmd / mgr_ahs). */
+  ahs_content?: BosAhsContent;
+  // ── Nursing (inc_nursing) ───────────────────────────────────────────
+  /** Nursing DESCRIPTION paragraph. */
+  course_description?: string;
+  /** Nursing Theory / Lab / Clinical credits+hours (+clinical weeks). */
+  nursing_workload?: BosNursingWorkload;
+  /** Nursing parallel clinical outline (coexists with course_content). */
+  clinical_outline?: BosClinicalOutlineData;
+  /** Nursing CO → 10 INC core-competency mapping (replaces po_mappings). */
+  competency_mappings?: BosCompetencyMappingsData;
   /**
    * Stable COE course id (BosCourseMaster.id) — the canonical link to the COE
    * course. course_code/course_name below are fallback display snapshots that
@@ -656,6 +852,12 @@ export interface BosCourseSyllabus {
   course_credits?: number;
   total_hours?: number;
   contact_hours?: number;
+
+  // NAAC-2024 coverage tags
+  /** NAAC metric 1.4 — skill/apprenticeship-focused course */
+  is_skill_based?: boolean;
+  /** NAAC metric 1.6 — contains Indian Knowledge System content */
+  is_iks?: boolean;
 
   // Versioning
   version_number: number;
@@ -1058,7 +1260,21 @@ export interface BosMember {
   address?: string;
   contact_no?: string;
   email?: string;
+  /**
+   * Display rank across the WHOLE composition (1..n, contiguous). Meeting
+   * notices, minutes and attendance sheets ORDER BY this.
+   */
   sort_order: number;
+  /**
+   * Serial number WITHIN this member's type group in its committee — restarts
+   * at 1 per group (Faculty Members 1,2,3,4; Chairman 1). This is the number
+   * the roster card shows and the per-category S.No a report prints.
+   *
+   * Both ranks are maintained server-side by the `bos_renumber_member_order`
+   * DB function, which the member API calls after every insert/update/delete/
+   * reorder. Never write either column directly from a client.
+   */
+  group_position?: number;
   is_active: boolean;
   joined_date?: string;
   left_date?: string;
@@ -1077,9 +1293,42 @@ export interface BosMember {
 
 export type CreateBosMemberDto = Omit<
   BosMember,
-  'id' | 'created_at' | 'updated_at' | 'expert' | 'member_type_rec'
->;
+  'id' | 'created_at' | 'updated_at' | 'expert' | 'member_type_rec' | 'sort_order'
+> & {
+  /**
+   * Display rank within the composition. Omit it — POST /api/bos/members
+   * appends the new member at the end (existing count + 1). Sending 0 would
+   * pin every new member to the top of the roster, which is how the whole
+   * table ended up unordered before the Reorder controls existed.
+   */
+  sort_order?: number;
+};
 export type UpdateBosMemberDto = Partial<CreateBosMemberDto>;
+
+/**
+ * Result of POST /api/bos/members/refresh — the manual "pull latest details
+ * from staff / external-expert record" action on a composition's roster.
+ *
+ * The display_* columns are point-in-time snapshots on purpose (past meeting
+ * notices and minutes must keep the designation the member held then), so this
+ * only ever runs when an operator presses Refresh.
+ */
+export interface BosMemberRefreshResult {
+  /** Rows whose snapshot differed from the source and were rewritten. */
+  updated: number;
+  /** Rows already matching their source row. */
+  unchanged: number;
+  /** Rows with no source link, or whose staff/expert record no longer exists. */
+  skipped: number;
+  /** Rows the writer was not permitted to update (RLS returned no rows). */
+  failed: number;
+  /** Field-level diff of everything that changed, for the summary toast. */
+  changes: {
+    id: string;
+    display_name: string | null;
+    fields: { field: string; from: string | null; to: string | null }[];
+  }[];
+}
 
 // ── Meeting Minutes (rich content) ────────────────────────────────────────────
 
@@ -1274,6 +1523,12 @@ export interface BosMeetingAttendee {
   meeting_id: string;
   member_id: string;
   attendance_status: BosAttendanceStatus;
+  /**
+   * Offline (in person) or online. Optional on the interface because rows
+   * written before 20260805120000 are read back with the column's 'offline'
+   * default — treat undefined as 'offline'.
+   */
+  attendance_mode?: BosAttendanceMode;
   absence_reason?: string;
   ta_da_eligible: boolean;
   created_at: string;
@@ -1345,6 +1600,23 @@ export interface BosCourseReview {
 // ── TA/DA Rate Settings ───────────────────────────────────────────────────────
 
 /**
+ * How a member type's travel allowance is computed (20260805120000):
+ *   • distance — round-trip km × ta_per_km (the University Nominee's
+ *     "as per the distance"; the only basis that existed before this).
+ *   • flat     — travel_flat_amount regardless of distance (the external
+ *     Academic/Industry members' fixed ₹1,500).
+ *   • none     — sitting charge only, no travel component.
+ * Online attendance pays zero under every basis.
+ */
+export type BosTaDaTravelBasis = 'distance' | 'flat' | 'none';
+
+export const BOS_TA_DA_TRAVEL_BASIS_LABELS: Record<BosTaDaTravelBasis, string> = {
+  distance: 'As per distance',
+  flat: 'Flat amount',
+  none: 'No travel',
+};
+
+/**
  * Configurable per-council / per-member-type claim rates (bos_ta_da_rates,
  * 20260710130000). Keyed by committee NAME (a council kind — every
  * composition's 'Curriculum Development Cell' shares one rate set) and the
@@ -1359,8 +1631,20 @@ export interface BosTaDaRate {
   institutions_id: string;
   committee_name: string;
   member_type: string;
+  /** Sitting charge when the member attends offline (in person). */
   honorarium_amount: number;
+  /** Sitting charge when the member attends online. NULL = same as offline. */
+  honorarium_amount_online?: number | null;
+  /** Per-km rate — used only under the 'distance' travel basis. */
   ta_per_km: number;
+  /**
+   * How travel is computed for this member type (20260805120000). Optional on
+   * the interface for reads of rows written before the migration; absent means
+   * 'distance', the only basis that previously existed.
+   */
+  travel_basis?: BosTaDaTravelBasis | null;
+  /** Fixed travel allowance under the 'flat' basis; ignored otherwise. */
+  travel_flat_amount?: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

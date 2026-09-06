@@ -106,12 +106,12 @@ export default function LTIConfigPage() {
     <ContentLayout title="LTI Configuration">
       <PageBreadcrumb items={[{ label: 'Admin', href: '/admin' }, { label: 'PDE', href: '/pde/admin/assessments' }, { label: 'LTI Configuration' }]} />
       <div className="space-y-6 p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">LTI Tool Integration</h1>
             <p className="text-sm text-muted-foreground mt-1">Configure LTI 1.3 tools (MATLAB Grader, etc.)</p>
           </div>
-          <Button onClick={() => setShowForm(!showForm)}><Plus className="w-4 h-4 mr-1" /> Register Tool</Button>
+          <Button onClick={() => setShowForm(!showForm)} className="shrink-0"><Plus className="w-4 h-4 mr-1" /> Register Tool</Button>
         </div>
 
         {/* Phase-4 limitation banner — promoted from a dashed footer card so it

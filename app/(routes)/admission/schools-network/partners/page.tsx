@@ -151,7 +151,7 @@ function PartnersContent() {
           <CardTitle className="flex items-center gap-2">
             <Handshake className="h-5 w-5" /> Program Partners
           </CardTitle>
-          <PermissionGuard module="schools_network.partners" action="manage">
+          <PermissionGuard module="schools_network.partners" action="manage" fallback={null}>
             <Link href="/admission/schools-network/partners/new">
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-2" /> Add Partner
@@ -170,7 +170,7 @@ function PartnersContent() {
                 Add a CSR partner, grant, corporate sponsor, or government foundation
                 that funds or co-delivers your school programs.
               </p>
-              <PermissionGuard module="schools_network.partners" action="manage">
+              <PermissionGuard module="schools_network.partners" action="manage" fallback={null}>
                 <Link href="/admission/schools-network/partners/new">
                   <Button>
                     <Plus className="h-4 w-4 mr-2" /> Add the first partner
@@ -248,7 +248,7 @@ function PartnersContent() {
               </Table>
 
               {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
                   <div className="text-sm text-muted-foreground">
                     Showing {(currentPage - 1) * PAGE_SIZE + 1} to{' '}
                     {Math.min(currentPage * PAGE_SIZE, total)} of {total}

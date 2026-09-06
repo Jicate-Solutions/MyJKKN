@@ -11,7 +11,10 @@
 // table's refresh token. This component owns only the menu and the confirm.
 
 import { useState } from 'react';
-import { MoreHorizontal, Pencil, Archive, Users, Eye } from 'lucide-react';
+import {
+  MoreHorizontal, Pencil, Archive, Users, Eye, GitBranch,
+  ArchiveRestore, Trash2, Loader2, AlertTriangle,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -21,17 +24,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import type { HRLeaveType } from '@/types/hr-leave-types';
+import type { HRLeaveTypeDeleteResult } from '@/lib/services/hr/leave-type-service';
 
 interface LeaveTypeRowActionsProps {
   leaveType: HRLeaveType;
@@ -39,7 +33,14 @@ interface LeaveTypeRowActionsProps {
   onView: (t: HRLeaveType) => void;
   onAssign: (t: HRLeaveType) => void;
   onEdit: (t: HRLeaveType) => void;
-  onArchive: (t: HRLeaveType) => Promise<void> | void;
+  /** Opens the approval-chain editor for this type. */
+  onApprovalFlow: (t: HRLeaveType) => void;
+  /** ASKS THE PAGE to open its archive confirmation. Does not archive. */
+  onArchive: (t: HRLeaveType) => void;
+  /** Un-archive. Shown only on an archived row. */
+  onActivate: (t: HRLeaveType) => Promise<void> | void;
+  /** ASKS THE PAGE to open its delete confirmation. Does not delete. */
+  onDelete: (t: HRLeaveType) => void;
 }
 
 export function LeaveTypeRowActions({
@@ -47,26 +48,23 @@ export function LeaveTypeRowActions({
   onView,
   onAssign,
   onEdit,
+  onApprovalFlow,
   onArchive,
+  onActivate,
+  onDelete,
 }: LeaveTypeRowActionsProps) {
-  const [showArchiveAlert, setShowArchiveAlert] = useState(false);
-  const [isArchiving, setIsArchiving] = useState(false);
-
-  const handleArchive = async () => {
-    setIsArchiving(true);
+  const [isActivating, setIsActivating] = useState(false);
+  const handleActivate = async () => {
+    setIsActivating(true);
     try {
-      // The page handler owns the toast and the refresh bump; it swallows its
-      // own errors, so there is nothing to catch here.
-      await Promise.resolve(onArchive(leaveType));
+      await Promise.resolve(onActivate(leaveType));
     } finally {
-      setIsArchiving(false);
-      setShowArchiveAlert(false);
+      setIsActivating(false);
     }
   };
 
   return (
-    <>
-      <DropdownMenu>
+    <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
@@ -86,53 +84,50 @@ export function LeaveTypeRowActions({
             <Users className="mr-2 h-4 w-4" />
             Who gets this
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onApprovalFlow(leaveType)}>
+            <GitBranch className="mr-2 h-4 w-4" />
+            Who approves this
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onEdit(leaveType)}>
             <Pencil className="mr-2 h-4 w-4" />
             Edit
           </DropdownMenuItem>
-          {leaveType.is_active && (
+          <DropdownMenuSeparator />
+          {leaveType.is_active ? (
+            <DropdownMenuItem
+              // Deferred by one tick: Radix closes the menu on select and
+              // returns focus to its trigger, and a dialog opened in that same
+              // frame sees focus land outside itself and dismisses.
+              onClick={() => setTimeout(() => onArchive(leaveType), 0)}
+              className="text-destructive"
+            >
+              <Archive className="mr-2 h-4 w-4" />
+              Archive
+            </DropdownMenuItem>
+          ) : (
             <>
-              <DropdownMenuSeparator />
+              {/* Activate needs no confirmation: it is the exact inverse of
+                  Archive, destroys nothing, and is itself undoable. */}
+              <DropdownMenuItem onClick={() => void handleActivate()} disabled={isActivating}>
+                {isActivating
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <ArchiveRestore className="mr-2 h-4 w-4" />}
+                Activate
+              </DropdownMenuItem>
+              {/* Delete is offered ONLY on an archived row, so removing a type
+                  is always archive-then-delete and never one click from the
+                  list staff are applying against. */}
               <DropdownMenuItem
-                onClick={() => setShowArchiveAlert(true)}
+                // Deferred for the same reason as Archive above.
+                onClick={() => setTimeout(() => onDelete(leaveType), 0)}
                 className="text-destructive"
               >
-                <Archive className="mr-2 h-4 w-4" />
-                Archive
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete permanently
               </DropdownMenuItem>
             </>
           )}
         </DropdownMenuContent>
-      </DropdownMenu>
-
-      <AlertDialog open={showArchiveAlert} onOpenChange={setShowArchiveAlert}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Archive this leave type?</AlertDialogTitle>
-            <AlertDialogDescription>
-              <strong>{leaveType.leave_type_name}</strong> will stop being offered
-              when staff apply for leave. Existing applications and balances are not
-              affected. This screen has no un-archive action, so reversing it needs a
-              database change.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isArchiving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                // Keep the dialog mounted while the mutation runs — the default
-                // action closes it immediately, unmounting the pending state.
-                e.preventDefault();
-                void handleArchive();
-              }}
-              disabled={isArchiving}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isArchiving ? 'Archiving…' : 'Archive'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    </DropdownMenu>
   );
 }

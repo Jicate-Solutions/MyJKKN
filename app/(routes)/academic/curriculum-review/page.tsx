@@ -57,7 +57,7 @@ type EditState = Record<
     title: string;
     primaryFink: FinkDimension | '';
     primaryBloom: string;                         // K1..K6, used when taxonomy = 'blooms'
-    primaryTaxonomy: 'finks' | 'blooms' | null;   // read-only branch: which primary picker to show
+    primaryTaxonomy: 'finks' | 'blooms' | 'jkkn_advanced' | null;   // read-only branch: which primary picker to show
     outcomes: LessonOutcome[];
   }
 >;
@@ -338,12 +338,17 @@ export default function CurriculumReviewPage() {
                     <CardContent className="space-y-4">
                       {draft.artifact_kind === 'lesson' && (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-muted-foreground">
+                          <span className="shrink-0 text-xs font-medium text-muted-foreground">
                             {isBloomPrimary(e?.primaryTaxonomy) ? 'Primary Bloom level' : 'Primary focus'}
                           </span>
                           {isBloomPrimary(e?.primaryTaxonomy) ? (
                             <Select
-                              value={e?.primaryBloom || undefined}
+                              // JABT added-half codes (HD/AF3/L2L, …) have no SelectItem — the
+                              // picker offers K1-K6 only, the added half enters via the Fink
+                              // picker by design. A Radix Select whose value matches no item
+                              // renders EMPTY, so treat non-K values as "no selection" and let
+                              // the placeholder (bloomLabel knows the added-half labels) show.
+                              value={BLOOM_OPTIONS.some((b) => b.value === e?.primaryBloom) ? e?.primaryBloom : undefined}
                               onValueChange={(v) =>
                                 setEdits((prev) => ({
                                   ...prev,
@@ -351,7 +356,7 @@ export default function CurriculumReviewPage() {
                                 }))
                               }
                             >
-                              <SelectTrigger className="h-8 w-56">
+                              <SelectTrigger className="h-8 w-full sm:w-56">
                                 <SelectValue placeholder={bloomLabel(draft.primary_bloom_level)} />
                               </SelectTrigger>
                               <SelectContent>
@@ -370,7 +375,7 @@ export default function CurriculumReviewPage() {
                                 }))
                               }
                             >
-                              <SelectTrigger className="h-8 w-56">
+                              <SelectTrigger className="h-8 w-full sm:w-56">
                                 <SelectValue placeholder={finkLabel(draft.primary_fink_dimension)} />
                               </SelectTrigger>
                               <SelectContent>
@@ -451,7 +456,7 @@ export default function CurriculumReviewPage() {
                         </div>
                       )}
 
-                      <div className="flex items-center gap-2 pt-1">
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
                         <Button
                           size="sm"
                           onClick={() => approve(draft)}

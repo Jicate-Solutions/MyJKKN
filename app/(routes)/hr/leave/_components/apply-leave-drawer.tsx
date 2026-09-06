@@ -12,7 +12,7 @@
  * of the 11 organizations maintains its own catalog.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { AlertCircle, CalendarPlus } from 'lucide-react';
 
 import {
@@ -28,16 +28,40 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
+import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
+import { useMyApplications } from '@/hooks/hr/use-leave';
+import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
+import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance';
 import { getErrorMessage } from '@/lib/utils';
 import { formatDays } from './format';
-import type { LeaveDurationType } from '@/types/hr';
+import { LeaveDocumentUpload } from './leave-document-upload';
+import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
+import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
+import type { HRLeaveApplicationWithType, LeaveDocument, LeaveDurationType } from '@/types/hr';
+import { toast } from 'sonner';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
   { value: 'full', label: 'Full day', days: 1 },
   { value: 'first_half', label: 'First half (AM)', days: 0.5 },
   { value: 'second_half', label: 'Second half (PM)', days: 0.5 },
 ];
+
+/** Consumed share of the entitlement, clamped — an over-drawn type is still 100%. */
+function pct(used: number, total: number): number {
+  if (!total || total <= 0) return 0;
+  return Math.min(100, Math.round((used / total) * 100));
+}
+
+function Figure({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className={strong ? 'text-base font-semibold' : 'text-sm font-medium'}>{value}</p>
+    </div>
+  );
+}
 
 export function ApplyLeaveDrawer({
   open,
@@ -56,6 +80,18 @@ export function ApplyLeaveDrawer({
   const [reason, setReason] = useState('');
   const [isEmergency, setIsEmergency] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Picked but NOT uploaded — see LeaveDocumentUpload for why the upload
+  // waits for Submit.
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  /**
+   * Drive results keyed by the File object itself, so a Submit that uploads
+   * fine and then fails at /applications re-uses the file it already put in
+   * Drive instead of duplicating it on the retry. A WeakMap because the key
+   * IS the File — once the user removes it, the entry goes with it.
+   */
+  const uploadedRef = useRef<WeakMap<File, LeaveDocument>>(new WeakMap());
 
   const options = ctx.balancesFor('leave');
   const selected = options.find((b) => b.leave_type_id === leaveTypeId);
@@ -78,9 +114,15 @@ export function ApplyLeaveDrawer({
   const effectiveDuration: LeaveDurationType =
     selected?.allow_half_day && isSingleDay ? durationType : 'full';
 
-  const available = selected
-    ? selected.entitled + selected.carried_forward - selected.used
-    : null;
+  /**
+   * READ from the view, not recomputed.
+   *
+   * This was `entitled + carried_forward - used`, which cannot see a request
+   * awaiting approval -- so the drawer offered 12 days while the database, which
+   * does count them, refused. The view's `available` nets off pending and caps
+   * at what has actually accrued.
+   */
+  const available = selected ? selected.available : null;
 
   // Inclusive day span, adjusted for a half-day request.
   const requestedDays = useMemo(() => {
@@ -93,27 +135,165 @@ export function ApplyLeaveDrawer({
   }, [startDate, endDate, effectiveDuration]);
 
   const overBalance = available !== null && requestedDays > available;
+  /**
+   * Advance notice, checked here as well as on the server.
+   *
+   * It was server-only, so the whole form could be filled in and the rule only
+   * surfaced as a 400 on Submit — which is how "You gave -38" reached a user.
+   * Mirrors LeaveService.applyLeave exactly, including the is_emergency bypass:
+   * a difference between the two would either block a request the server would
+   * take, or promise one it will refuse.
+   */
+  const noticeDays = useMemo(() => {
+    if (!startDate) return null;
+    const today = new Date().toISOString().split('T')[0];
+    return Math.floor(
+      (new Date(startDate).getTime() - new Date(today).getTime()) / 86_400_000
+    );
+  }, [startDate]);
+
+  const requiredNotice = selected?.min_advance_notice_days ?? 0;
+  const shortNotice =
+    !isEmergency && requiredNotice > 0 && noticeDays !== null && noticeDays < requiredNotice;
+
   const overContinuous =
     selected?.max_continuous_days != null && requestedDays > selected.max_continuous_days;
+
+  // The per-period throttle ("2 Casual Leave days a month") sits alongside the
+  // annual entitlement, so a request can be well inside the balance and still be
+  // refused. Keyed on startDate, not today: trg_hla_leave_period_cap resolves the
+  // window from the request's start_date, and a readout for a different month
+  // would show a figure that is not the one enforced.
+  const { data: periodUsage } = useLeavePeriodUsage(
+    ctx.employeeId || undefined,
+    leaveTypeId || undefined,
+    ctx.hrAcademicYearId || null,
+    startDate || undefined
+  );
+
+  const periodCapped = !!periodUsage?.limited && !periodUsage.window_unresolved;
+  const periodWindowBroken = !!periodUsage?.limited && !!periodUsage.window_unresolved;
+  const overPeriod = periodCapped && requestedDays > Number(periodUsage?.days_left ?? 0);
+
+  // A month HR has closed refuses the request at the database
+  // (trg_hla_block_locked_period). Catching it here means the user is told
+  // before filling the form and — the reason this exists — before waiting on a
+  // document upload that a 400 then throws away.
+  const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
+  const closedHit = closedMonthsInRange(startDate, endDate, closedMonths);
+
+  // An employment category excluded from HR cannot raise anything —
+  // trg_hla_block_non_hr_staff refuses the insert. Say it before the form is
+  // filled in rather than after.
+  const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
+
+  /**
+   * A live request already covering these dates. hr_trig_leave_enforce_no_overlap
+   * refuses it outright — this says so while the dates are being picked instead
+   * of after Submit.
+   *
+   * Reads the caller's own list, which the applications route caps at 50. Fine
+   * for one person's requests, and the trigger is the enforcement point either
+   * way, so a miss here costs a round trip and not a double booking.
+   */
+  const { data: mine } = useMyApplications(ctx.employeeId || undefined);
+  const clash = useMemo(() => {
+    if (!startDate || !endDate || endDate < startDate) return null;
+    // The route embeds hr_leave_types; the hook's return type predates that.
+    const list = (mine?.data ?? []) as HRLeaveApplicationWithType[];
+    return list.find((a) => {
+      if ((a.hr_leave_types?.request_category ?? 'leave') !== 'leave') return false;
+      if (!['pending', 'approved', 'escalated'].includes(a.status)) return false;
+      return a.start_date <= endDate && startDate <= a.end_date;
+    }) ?? null;
+  }, [mine, startDate, endDate]);
+
+  // Does THIS request need a certificate? Shared with the server so the drawer
+  // and LeaveService.createApplication cannot disagree about the answer.
+  const docRule = leaveDocumentRequirement(
+    selected
+      ? {
+          requires_documents: selected.requires_documents,
+          document_required_after_days: selected.document_required_after_days,
+        }
+      : null,
+    requestedDays,
+    isEmergency,
+  );
 
   const reset = () => {
     setLeaveTypeId(''); setStartDate(''); setEndDate('');
     setDurationType('full'); setReason(''); setIsEmergency(false); setError(null);
+    setDocumentFiles([]); setUploadError(null); setUploading(false);
+    uploadedRef.current = new WeakMap();
   };
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
-    !!endDate && !!reason.trim() && !overBalance && !overContinuous &&
-    requestedDays > 0 && !mutation.isPending;
+    !!endDate && !!reason.trim() && !overBalance && !overContinuous && !shortNotice &&
+    !overPeriod && !periodWindowBroken && !clash && closedHit.length === 0 && !notInHr &&
+    requestedDays > 0 && !mutation.isPending && !uploading &&
+    // A type that demands a certificate must not be submittable without one.
+    // The server enforces the same rule; this only spares the round trip.
+    (!docRule.required || documentFiles.length > 0);
+
+  /**
+   * Upload every picked file, skipping any this Submit already uploaded.
+   * Sequential, not Promise.all: three 5 MB files racing on a phone connection
+   * is how you get a timeout, and the count is capped at three anyway.
+   */
+  const uploadDocuments = async (): Promise<LeaveDocument[]> => {
+    const out: LeaveDocument[] = [];
+    for (const file of documentFiles) {
+      const cached = uploadedRef.current.get(file);
+      if (cached) { out.push(cached); continue; }
+
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('employee_id', ctx.employeeId);
+      fd.append('leave_type_id', leaveTypeId);
+      fd.append('start_date', startDate);
+
+      const res = await fetch('/api/hr/leave/documents/upload', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Could not upload "${file.name}".`);
+      }
+      const doc = (await res.json()) as LeaveDocument;
+      uploadedRef.current.set(file, doc);
+      out.push(doc);
+    }
+    return out;
+  };
 
   const submit = async () => {
     setError(null);
+    setUploadError(null);
+
+    // Files go to Drive BEFORE the application row exists. The worst case is an
+    // orphaned Drive file; the alternative — create the row, then attach — can
+    // leave a required document missing on exactly the requests that need one.
+    let documents: LeaveDocument[] = [];
+    if (documentFiles.length > 0) {
+      setUploading(true);
+      try {
+        documents = await uploadDocuments();
+      } catch (err) {
+        const message = getErrorMessage(err);
+        setUploadError(message);
+        toast.error(message);
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
+
     try {
       await mutation.mutateAsync({
         hr_organization_id: ctx.hrOrgId,
         employee_id: ctx.employeeId,
         leave_type_id: leaveTypeId,
-        academic_year_id: ctx.academicYearId || null,
+        hr_academic_year_id: ctx.hrAcademicYearId || null,
         start_date: startDate,
         end_date: endDate,
         duration_type: effectiveDuration,
@@ -121,7 +301,7 @@ export function ApplyLeaveDrawer({
         end_time: null,
         reason,
         is_emergency: isEmergency,
-        documents: [],
+        documents,
         applied_by: '', // server fills from the authenticated user
         department_id: null,
       });
@@ -129,7 +309,13 @@ export function ApplyLeaveDrawer({
       onOpenChange(false);
     } catch (err) {
       // Supabase errors are plain objects, not Error instances.
-      setError(getErrorMessage(err));
+      // Toast AS WELL as the inline alert. The alert sits at the bottom of a
+      // scrollable sheet while Submit lives in the fixed footer, so a long
+      // form can push it out of view entirely — which is how a failed submit
+      // looked like nothing happening at all.
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -152,8 +338,8 @@ export function ApplyLeaveDrawer({
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                No academic year covers today for your institution, so leave cannot be
-                submitted. Please contact HR.
+                No HR academic year covers today, so leave cannot be submitted.
+                Please contact HR.
               </AlertDescription>
             </Alert>
           )}
@@ -176,7 +362,8 @@ export function ApplyLeaveDrawer({
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((b) => {
-                      const avail = b.entitled + b.carried_forward - b.used;
+                      // Same figure the card below and the server use.
+                      const avail = b.available;
                       return (
                         <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                           {b.leave_type_name}
@@ -188,14 +375,105 @@ export function ApplyLeaveDrawer({
                     })}
                   </SelectContent>
                 </Select>
+                {/* The entitlement used to be one muted line here and was easy
+                    to miss. It decides whether the request can be submitted at
+                    all, so it gets a card — matching the short-time-off drawer. */}
                 {selected && (
-                  <p className="mt-1.5 text-xs text-muted-foreground">
-                    Entitled {selected.entitled} · used {selected.used} · carried{' '}
-                    {selected.carried_forward}
-                    {selected.max_continuous_days != null && (
-                      <> · max {selected.max_continuous_days} day(s) at a time</>
+                  <div className="mt-2 rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Your balance · this academic year
+                      </span>
+                      {selected.max_continuous_days != null && (
+                        <span className="text-[11px] text-muted-foreground">
+                          max {selected.max_continuous_days} day(s) at a time
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Pending is named rather than silently deducted: "10
+                        available" is baffling to someone who believes they have
+                        12, when the two missing days are ones they filed
+                        themselves an hour ago. Shown only when there are any, so
+                        the common case keeps four columns. */}
+                    <div
+                      className={`mt-2 grid gap-2 text-center ${
+                        selected.pending > 0 ? 'grid-cols-5' : 'grid-cols-4'
+                      }`}
+                    >
+                      <Figure label="Entitled" value={formatDays(selected.entitled)} />
+                      <Figure label="Carried" value={formatDays(selected.carried_forward)} />
+                      <Figure label="Used" value={formatDays(selected.used)} />
+                      {selected.pending > 0 && (
+                        <Figure label="Pending" value={formatDays(selected.pending)} />
+                      )}
+                      <Figure label="Available" value={formatDays(available)} strong />
+                    </div>
+                    <Progress
+                      className="mt-2 h-1.5"
+                      value={pct(
+                        selected.used + selected.pending,
+                        selected.accrued + selected.carried_forward
+                      )}
+                    />
+                    {selected.pending > 0 && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatDays(selected.pending)} day(s) are held by requests awaiting
+                        approval and cannot be applied for again.
+                      </p>
                     )}
-                  </p>
+                    {selected.accrued < selected.entitled && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatDays(selected.accrued)} of {formatDays(selected.entitled)} day(s)
+                        have accrued so far this year; the rest accrue month by month.
+                      </p>
+                    )}
+
+                    {/* The per-period throttle sits ALONGSIDE the entitlement: a
+                        request can be well inside the balance and still refused. */}
+                    {periodCapped && (
+                      <div className="mt-2 border-t pt-2">
+                        <p className="text-xs text-muted-foreground">
+                          Also capped at{' '}
+                          <strong>{formatDays(periodUsage?.max_days)}</strong> day(s){' '}
+                          {LIMIT_PERIOD_LABELS[periodUsage!.limit_period ?? 'month'].toLowerCase()} —{' '}
+                          <strong>{formatDays(periodUsage?.days_left)}</strong> left
+                          {periodUsage?.period_start && periodUsage?.period_end && (
+                            <>
+                              {' '}({new Date(`${periodUsage.period_start}T00:00:00`).toLocaleDateString('en-GB')} –{' '}
+                              {new Date(`${periodUsage.period_end}T00:00:00`).toLocaleDateString('en-GB')})
+                            </>
+                          )}
+                        </p>
+                        {/* The balance card above already names its pending
+                            hold; this figure has the same one folded in and
+                            said nothing, so the two read as disagreeing.
+                            hr_leave_period_usage counts 'pending' and
+                            'escalated' beside 'approved', exactly as the cap
+                            trigger does. */}
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Requests awaiting approval are already counted here,
+                          and released if rejected, cancelled or withdrawn.
+                        </p>
+                      </div>
+                    )}
+
+                    {requestedDays > 0 && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This request is <strong>{formatDays(requestedDays)}</strong> day(s) —{' '}
+                        {overBalance ? (
+                          <span className="text-destructive">
+                            {formatDays(requestedDays - (available ?? 0))} more than you have.
+                          </span>
+                        ) : (
+                          <>
+                            <strong>{formatDays((available ?? 0) - requestedDays)}</strong> would
+                            remain.
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -216,6 +494,28 @@ export function ApplyLeaveDrawer({
                     onChange={(e) => setEndDate(e.target.value)} />
                 </div>
               </div>
+
+              {notInHr && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Your employment category is not managed in HR, so leave cannot be
+                    applied for here. Contact HR if you believe this is an error.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {closedHit.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Attendance for {describeClosedMonths(closedHit)}{' '}
+                    {closedHit.length > 1 ? 'are' : 'is'} closed, so leave covering{' '}
+                    {closedHit.length > 1 ? 'those months' : 'that month'} can no longer be
+                    applied for. Choose a date in an open month, or ask HR to reopen the month.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <div>
                 <Label htmlFor="duration">Duration</Label>
@@ -255,12 +555,66 @@ export function ApplyLeaveDrawer({
                   </AlertDescription>
                 </Alert>
               )}
+              {clash && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    You already have a {clash.hr_leave_types?.leave_type_name ?? 'leave'} request
+                    from {new Date(`${clash.start_date}T00:00:00`).toLocaleDateString('en-GB')} to{' '}
+                    {new Date(`${clash.end_date}T00:00:00`).toLocaleDateString('en-GB')} ({clash.status}).
+                    Pick different dates, or cancel that request first.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {shortNotice && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    {noticeDays! < 0 ? (
+                      <>
+                        {selected?.leave_type_name} cannot be applied for a past date —{' '}
+                        {startDate} was {Math.abs(noticeDays!)} day(s) ago.
+                      </>
+                    ) : (
+                      <>
+                        {selected?.leave_type_name} needs {requiredNotice} day(s) advance
+                        notice; {startDate} is only {noticeDays} day(s) away.
+                      </>
+                    )}{' '}
+                    Tick <strong>Emergency leave</strong> below if it could not have been
+                    filed in time.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {overContinuous && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
                     {selected?.leave_type_name} allows at most{' '}
                     {selected?.max_continuous_days} consecutive day(s).
+                  </AlertDescription>
+                </Alert>
+              )}
+              {overPeriod && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Only {formatDays(periodUsage?.days_left)} day(s) of{' '}
+                    {selected?.leave_type_name} left for{' '}
+                    {periodUsage?.period_start} to {periodUsage?.period_end}
+                    {' '}(limit {formatDays(periodUsage?.max_days)} day(s)).
+                  </AlertDescription>
+                </Alert>
+              )}
+              {periodWindowBroken && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    The {periodUsage?.limit_period ?? 'period'} limit for{' '}
+                    {selected?.leave_type_name} cannot be resolved for this date, so the
+                    request would be rejected. Please contact HR.
                   </AlertDescription>
                 </Alert>
               )}
@@ -271,6 +625,17 @@ export function ApplyLeaveDrawer({
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Explain the reason for your leave" />
               </div>
+
+              {(docRule.required || docRule.optional) && (
+                <LeaveDocumentUpload
+                  files={documentFiles}
+                  onChange={setDocumentFiles}
+                  required={docRule.required}
+                  reason={docRule.reason}
+                  uploading={uploading}
+                  error={uploadError}
+                />
+              )}
 
               <div className="flex items-start gap-2">
                 <Checkbox id="emergency" checked={isEmergency}
@@ -296,7 +661,7 @@ export function ApplyLeaveDrawer({
         <SheetFooter className="border-t px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={submit} disabled={!canSubmit}>
-            {mutation.isPending ? 'Submitting…' : 'Submit'}
+            {uploading ? 'Uploading…' : mutation.isPending ? 'Submitting…' : 'Submit'}
           </Button>
         </SheetFooter>
       </SheetContent>

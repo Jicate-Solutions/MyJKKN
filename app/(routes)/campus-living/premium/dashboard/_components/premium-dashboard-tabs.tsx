@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay — Dashboard Tabs
+// Premium Room — Dashboard Tabs
 // ============================================================================
 // Created: 2026-05-16
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html (decision-#14)
@@ -38,7 +38,7 @@ export function PremiumDashboardTabs() {
   const [activeTab, setActiveTab] = useTabParam('revenue', PREMIUM_DASHBOARD_TABS);
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-      <TabsList>
+      <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
         <TabsTrigger value="revenue">Revenue + Adoption</TabsTrigger>
         <TabsTrigger value="heatmap">Per-college Heatmap</TabsTrigger>
         <TabsTrigger value="activity">Activity Log</TabsTrigger>

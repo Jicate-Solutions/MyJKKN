@@ -10,9 +10,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import type {
   SolutionRepoWithSharing,
+  BulkLinkReposResult,
 } from '@/lib/services/solutions/solution-repos-service';
 
-export type { SolutionRepoWithSharing };
+export type { SolutionRepoWithSharing, BulkLinkReposResult };
 
 // Key family kept local to avoid touching the shared lib/query-keys.ts registry
 // in this PR (pr-preflight overlap hygiene). Same shape as solutionsHubKeys.
@@ -44,6 +45,24 @@ export function useLinkSolutionRepo(solutionId: string) {
       apiClient.post('/api/solutions/repos', {
         solution_id: solutionId,
         repo_full_name,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionRepoKeys.bySolution(solutionId) });
+    },
+  });
+}
+
+/**
+ * Link MANY repos in one call. Mirrors useLinkSolutionRepo and invalidates the
+ * same query key so the list refreshes. Returns { linked, skipped, invalid }.
+ */
+export function useBulkLinkRepos(solutionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (repo_full_names: string[]) =>
+      apiClient.post<BulkLinkReposResult>('/api/solutions/repos/bulk', {
+        solution_id: solutionId,
+        repo_full_names,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionRepoKeys.bySolution(solutionId) });

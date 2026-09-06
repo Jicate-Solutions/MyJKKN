@@ -317,7 +317,7 @@ export function TimetableFilters({
       </div>
 
       <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center'>
           {isSuperAdmin && (
             <Select
               value={searchParams.institution_id || 'all'}
@@ -442,7 +442,7 @@ export function TimetableFilters({
         )}
       </div>
 
-      <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+      <div className='flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center'>
         <Select
           value={searchParams.semester || 'all'}
           onValueChange={(value) => {

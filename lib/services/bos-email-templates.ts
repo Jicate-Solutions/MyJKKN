@@ -10,6 +10,45 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+// ── Ordinal helpers ──────────────────────────────────────────────────────────
+// The invitation reads "First Board of Studies Meeting", not "1st" — the
+// spelled-out form matches the printed call letter's "Sub:" line. Kept here
+// rather than in each route so the email and the PDF can never drift apart.
+
+const ORDINAL_WORDS = [
+  'First', 'Second', 'Third', 'Fourth', 'Fifth',
+  'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth',
+  'Eleventh', 'Twelfth', 'Thirteenth', 'Fourteenth', 'Fifteenth',
+  'Sixteenth', 'Seventeenth', 'Eighteenth', 'Nineteenth', 'Twentieth',
+];
+
+/** 1 → "1st", 2 → "2nd", 11 → "11th". Returns '' for null/invalid input. */
+export function meetingOrdinalNumeric(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n < 1) return '';
+  const rem100 = n % 100;
+  const rem10 = n % 10;
+  const suffix =
+    rem100 >= 11 && rem100 <= 13
+      ? 'th'
+      : rem10 === 1
+        ? 'st'
+        : rem10 === 2
+          ? 'nd'
+          : rem10 === 3
+            ? 'rd'
+            : 'th';
+  return `${n}${suffix}`;
+}
+
+/**
+ * 1 → "First", 2 → "Second", 20 → "Twentieth". Past the spelled-out range it
+ * falls back to the numeric form ("21st") rather than returning nothing.
+ */
+export function meetingOrdinalWord(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n < 1) return '';
+  return ORDINAL_WORDS[n - 1] ?? meetingOrdinalNumeric(n);
+}
+
 // ── Placeholder catalog ──────────────────────────────────────────────────────
 // Single source of truth for which {{tokens}} a template supports. The admin
 // UI uses this list to render the click-to-insert sidebar, and the preview
@@ -33,6 +72,11 @@ export const BOS_TEMPLATE_PLACEHOLDERS: BosTemplatePlaceholder[] = [
   { key: 'academic_year',      label: 'Academic Year',     description: 'Academic year of the meeting (e.g. "2026-2027").' },
   { key: 'chairman_name',      label: 'Chairman Name',     description: 'Name of the board chairman.' },
   { key: 'institution_name',   label: 'Institution Name',  description: 'Full college/institution name.' },
+  { key: 'board_name',         label: 'Board / Department', description: 'Board (department) name, e.g. "Electronics and Communication Engineering". Lets one BOS format name the correct board per meeting.' },
+  { key: 'board_type',         label: 'Board Level',       description: 'Academic level prefix of the board, e.g. "UG" / "PG" (blank when not set).' },
+  { key: 'meeting_number',     label: 'Meeting Number',    description: 'Meeting sequence as a plain number (e.g. "1").' },
+  { key: 'meeting_ordinal',      label: 'Meeting Ordinal',      description: 'Meeting sequence as a numeric ordinal (e.g. "1st", "2nd").' },
+  { key: 'meeting_ordinal_word', label: 'Meeting Ordinal (word)', description: 'Meeting sequence spelled out (e.g. "First", "Second") — matches the printed call letter\'s "Sub:" line. Prefer this for headings like "First Board of Studies Meeting".' },
   { key: 'agenda_summary',     label: 'Agenda Summary',    description: 'Plain-text agenda overview from the meeting.' },
   // ── Sign-off block ─────────────────────────────────────────────────────────
   // Resolved from getInstitutionHeader().officials at send time so the email
@@ -42,6 +86,16 @@ export const BOS_TEMPLATE_PLACEHOLDERS: BosTemplatePlaceholder[] = [
   { key: 'signoff_address',     label: 'Signoff Address',     description: 'Postal address line for the signing institution.' },
   { key: 'signoff_email',       label: 'Signoff Email',       description: 'Reply-to email address for the signing institution.' },
   { key: 'signoff_contact',     label: 'Signoff Contact',     description: 'Phone/cell number(s) for the signing institution.' },
+  // ── Board chairman block ───────────────────────────────────────────────────
+  // For institutions (e.g. CET) whose invitations are signed by the convening
+  // board's chairman rather than the principal. Resolved per meeting from the
+  // chairman on the meeting's committee, falling back to the composition's.
+  { key: 'chairman_block',       label: 'Chairman Block',       description: 'Ready-made multi-line signature for the board chairman: name, designation, department, institution, "Mobile: …". Lines the chairman has no value for are omitted — prefer this over the individual chairman fields below.' },
+  { key: 'chairman_designation', label: 'Chairman Designation', description: 'Chairman\'s designation, e.g. "ASSOCIATE PROFESSOR".' },
+  { key: 'chairman_department',  label: 'Chairman Department',  description: 'Chairman\'s department, already prefixed — e.g. "Department of Electronics and Communication Engineering".' },
+  { key: 'chairman_institution', label: 'Chairman Institution', description: 'Chairman\'s institution (falls back to the meeting\'s institution).' },
+  { key: 'chairman_contact',     label: 'Chairman Mobile',      description: 'Chairman\'s mobile number. Renders as a raw token when the member row has none — use Chairman Block to avoid that.' },
+  { key: 'chairman_email',       label: 'Chairman Email',       description: 'Chairman\'s email address.' },
 ];
 
 // Mock values used by the live-preview pane and the test-send endpoint so
@@ -58,12 +112,24 @@ export const BOS_TEMPLATE_PREVIEW_VALUES: Record<string, string> = {
   academic_year: '2026-2027',
   chairman_name: 'Capt.Dr.M.NALINI, Principal',
   institution_name: 'J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE',
+  board_name: 'Electronics and Communication Engineering',
+  board_type: 'UG',
+  meeting_number: '1',
+  meeting_ordinal: '1st',
+  meeting_ordinal_word: 'First',
   agenda_summary: 'Approval of revised syllabi for CS301 and CS402; review of programme outcomes.',
   signoff_name: 'Capt.Dr.M.NALINI, M.Sc.,M.Phil.,Ph.D., Principal',
   signoff_institution: 'J.K.K.NATARAJA COLLEGE OF ARTS & SCIENCE (AUTONOMOUS)',
   signoff_address: 'Komarapalayam - 638 183, Namakkal District, Tamil Nadu',
   signoff_email: 'arts@jkkn.org',
   signoff_contact: '94878 33330, 99653 63999',
+  chairman_block:
+    'Dr. RAJESH K.P,<br/>ASSOCIATE PROFESSOR,<br/>Department of Electronics and Communication Engineering,<br/>JKKN College of Engineering and Technology,<br/>Mobile: 98765 43210',
+  chairman_designation: 'ASSOCIATE PROFESSOR',
+  chairman_department: 'Department of Electronics and Communication Engineering',
+  chairman_institution: 'JKKN College of Engineering and Technology',
+  chairman_contact: '98765 43210',
+  chairman_email: 'chairman.ece@jkkn.ac.in',
 };
 
 // ── Rendering ─────────────────────────────────────────────────────────────────

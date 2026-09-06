@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay Phase 2 — Override Allocations Table
+// Premium Room Phase 2 — Override Allocations Table
 // ============================================================================
 // Lists current premium / premium_plus active allocations with filters.
 // Override button opens OverrideAllocationDialog.
@@ -212,7 +212,7 @@ export function OverrideAllocationsTable() {
             </Table>
           </div>
 
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <div>
               Showing {(page - 1) * PAGE_SIZE + 1}–
               {Math.min(page * PAGE_SIZE, data?.total ?? 0)} of {data?.total ?? 0}

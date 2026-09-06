@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 
 export default function ClassInchargesPage() {
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6 p-4 md:p-6 pb-24 lg:pb-6">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>

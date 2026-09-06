@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Receipt, X, Loader2 } from 'lucide-react';
+import { ReceiptIndianRupee, X, Loader2 } from 'lucide-react';
 import {
   useOnboardingLearners,
   useBulkGenerateBills,
@@ -256,7 +256,7 @@ export function OnboardingDataTable() {
   return (
     <div className="space-y-4">
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList>
+        <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
           {TABS.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
               {tab.label}
@@ -274,8 +274,8 @@ export function OnboardingDataTable() {
 
       {/* Bulk action toolbar — visible only when ≥1 row selected */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-4 py-3">
-          <div className="flex flex-col text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/40 px-4 py-3">
+          <div className="flex flex-col text-sm min-w-0">
             <span className="font-medium">
               {selectedIds.size} learner{selectedIds.size === 1 ? '' : 's'} selected
             </span>
@@ -309,7 +309,7 @@ export function OnboardingDataTable() {
                   </>
                 ) : (
                   <>
-                    <Receipt className="h-4 w-4 mr-1" />
+                    <ReceiptIndianRupee className="h-4 w-4 mr-1" />
                     Generate Bills
                     {selectedWithoutBills.length > 0 && ` (${selectedWithoutBills.length})`}
                   </>

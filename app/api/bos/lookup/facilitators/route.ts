@@ -98,18 +98,36 @@ export async function GET(request: NextRequest) {
     // only granted one sibling would have the other stripped from targetIds
     // and lose visibility into half the staff.
     if (!scope.isSuperAdmin && clientIds.length > 0) {
-      const expandedScope = new Set<string>();
+      // Deduped seed — a user commonly has the same id in both institutionsId
+      // and allInstitutionIds, and each expansion costs a Supabase round trip
+      // (the COE list itself is process-cached for 10 min).
       const scopeSeed = [
-        ...(scope.institutionsId ? [scope.institutionsId] : []),
-        ...scope.allInstitutionIds,
+        ...new Set(
+          [
+            ...(scope.institutionsId ? [scope.institutionsId] : []),
+            ...scope.allInstitutionIds,
+          ].filter(Boolean)
+        ),
       ];
-      // Expand each scope id to its CAS sibling pair via COE-aware resolver.
-      // Duplicates collapse automatically in the Set.
-      for (const id of scopeSeed) {
-        const siblings = await resolveInstitutionIds(supabase, id);
-        siblings.forEach((s) => expandedScope.add(s));
+
+      // Fast path: the raw scope already covers every requested id, so the CAS
+      // expansion can only widen a set we're about to intersect down again.
+      // This is the common case (a chairman opening their own board) and it
+      // skips the resolver entirely — the picker refetches on every search.
+      const rawScope = new Set(scopeSeed);
+      if (!targetIds.every((id) => rawScope.has(id))) {
+        // Expand each scope id to its CAS sibling pair via the COE-aware
+        // resolver. Run in parallel — these are independent lookups, and doing
+        // them sequentially made the cost scale with the user's institution
+        // count on a request that fires per search.
+        const expanded = await Promise.all(
+          scopeSeed.map((id) => resolveInstitutionIds(supabase, id))
+        );
+        const expandedScope = new Set(expanded.flat());
+        targetIds = targetIds.filter((id) => expandedScope.has(id));
+      } else {
+        targetIds = targetIds.filter((id) => rawScope.has(id));
       }
-      targetIds = targetIds.filter((id) => expandedScope.has(id));
     }
 
     if (targetIds.length === 0) {
@@ -140,7 +158,7 @@ export async function GET(request: NextRequest) {
       .select(
         `id, first_name, last_name, staff_id, email, institution_email, phone, designation,
          institution_id,
-         institution:institutions ( id, name ),
+         institution:institutions!staff_institution_id_fkey ( id, name ),
          department:departments ( id, department_name ),
          category:employment_categories!inner ( id, category_name, is_teaching )`
       )

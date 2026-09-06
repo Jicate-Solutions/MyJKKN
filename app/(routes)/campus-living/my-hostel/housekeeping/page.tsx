@@ -4,15 +4,27 @@
 // Spec: specs/housekeeping-slot-booking-spec-2026-06-10.md §"UI surfaces → Agent C"
 // Pattern source: app/(routes)/campus-living/my-hostel/premium/page.tsx
 //
-// Premium residents book 10-minute housekeeping slots for their room. Slots
-// are computed server-side (fn_housekeeping_available_slots); every knob is a
-// platform_policies row, so nothing here hardcodes durations or windows —
-// slot length + service window come back inside the slots response, and the
-// advance-days / cancellation-cutoff knobs are read via fn_get_policy_int
-// (same client-side reader mess-menu-policy-service uses) with the seeded
-// migration defaults as fallback.
+// Premium-ROOM-CATEGORY residents book 10-minute housekeeping slots for their
+// room. Slots are computed server-side (fn_housekeeping_available_slots);
+// every knob is a platform_policies row, so nothing here hardcodes durations
+// or windows — slot length + service window come back inside the slots
+// response, and the advance-days / cancellation-cutoff knobs are read via
+// fn_get_policy_int (same client-side reader mess-menu-policy-service uses)
+// with the seeded migration defaults as fallback.
 //
-// Gating is data-driven (matches premium/page.tsx — no PermissionGuard):
+// WHO IS ENTITLED (reworked 2026-08-25, migration
+// 20260825120000_housekeeping_entitlement_by_room_category.sql): the resident's
+// ROOM CATEGORY (hostel_categories) decides, via hostel_categories.tier_key →
+// hostel_tier_policy.tier_features + the weekly_quota_by_tier policy row.
+// It used to key on hostel_allocations.tier_id, which production never
+// populated — every row is 'standard' with tier_features [], so this page
+// showed the upsell to 100% of residents and nobody ever booked. Do not
+// reintroduce an allocation-tier check here.
+//
+// Gating is data-driven (matches premium/page.tsx — no PermissionGuard) and
+// comes from ONE call, fn_housekeeping_my_entitlement, which is also what
+// fn_housekeeping_book_slot enforces — so the card a resident sees and the
+// answer the write gate gives cannot disagree:
 //   1. no active allocation  → calm "allocation pending" card
 //   2. tier not entitled     → upsell card linking to ../premium
 //   3. quota configured to 0 → "not included in your plan" card
@@ -246,12 +258,14 @@ export default function HousekeepingBookingPage() {
             <CardContent className='p-8 text-center space-y-3'>
               <Sparkles className='h-10 w-10 mx-auto text-amber-500' />
               <p className='font-medium text-amber-900'>
-                Personal room cleaning is a Premium Stay feature
+                Personal room cleaning is a Premium Room feature
               </p>
               <p className='text-sm text-amber-700 max-w-md mx-auto'>
-                Upgrade to Premium to book personal room-cleaning slots at a
-                time that suits you. Standard rooms are covered by the regular
-                block cleaning schedule.
+                {entitlement.categoryName
+                  ? `${entitlement.categoryName} is covered by the regular block cleaning schedule.`
+                  : 'Your room category is covered by the regular block cleaning schedule.'}{' '}
+                Upgrade to a Premium room to book personal room-cleaning slots
+                at a time that suits you.
               </p>
               <Button asChild className='mt-2'>
                 <Link href='/campus-living/my-hostel/premium'>
@@ -303,6 +317,7 @@ export default function HousekeepingBookingPage() {
 
         <EntitlementHeader
           tierKey={entitlement.tierKey}
+          categoryName={entitlement.categoryName}
           weeklyQuota={entitlement.weeklyQuota}
           usedThisWeek={entitlement.usedThisWeek}
           blockName={blockName}

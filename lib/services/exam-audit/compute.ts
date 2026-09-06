@@ -321,30 +321,75 @@ export function computeExamAuditPrograms(input: {
 // same way — both call these. (Attendance gates who may SIT the exam; it never
 // decides the internal marks.)
 
+// FALLBACK defaults only. The live values come from platform_policies
+// (POLICY_KEYS.EXAM_ELIGIBILITY_*) and are resolved at the edge — API routes use
+// getPolicyInt(), client components use useEligibilityThresholds(). These constants
+// are what those helpers fall back to when the policy row is missing or the RPC
+// fails, so the numbers here must stay equal to the seeded row values.
+// This module stays PURE (no policy import) so it can be reasoned about and unit
+// tested without a Supabase client.
 export const ATTENDANCE_ELIGIBILITY = 75; // university norm
 export const CONDONATION_FLOOR = 65; // condonation band below eligibility
 
-/** Sum per-course attendance rows into one {present,total} per student. */
+export type EligibilityThresholds = {
+  /** pct at or above this is eligible */
+  eligibility: number;
+  /** pct below this is at risk of ineligibility */
+  condonation: number;
+};
+
+export const DEFAULT_ELIGIBILITY_THRESHOLDS: EligibilityThresholds = {
+  eligibility: ATTENDANCE_ELIGIBILITY,
+  condonation: CONDONATION_FLOOR,
+};
+
+/** Sum per-course attendance rows into one {present,protected,total} per learner.
+ *
+ * `protected` is the count of days the learner was marked absent but which an
+ * approved tournament permission or full-day on-duty application excuses —
+ * fn_attendance_protected_days is the single source of that, and the "With
+ * Attendance" line on the Principal's permission letter is why it exists. It is
+ * carried SEPARATELY from `present` rather than folded into it, so the raw
+ * marked record and the excused credit stay tellable apart at every layer.
+ *
+ * Rows from before this column existed simply have no `protected` and score
+ * exactly as they did.
+ */
 export function aggregateAttendanceByStudent(
-  rows: Array<{ student_id: string; present: number; total: number }>,
-): Map<string, { present: number; total: number }> {
-  const byStudent = new Map<string, { present: number; total: number }>();
+  rows: Array<{ student_id: string; present: number; total: number; protected?: number | null }>,
+): Map<string, { present: number; protected: number; total: number }> {
+  const byStudent = new Map<string, { present: number; protected: number; total: number }>();
   for (const a of rows) {
-    const cur = byStudent.get(a.student_id) ?? { present: 0, total: 0 };
+    const cur = byStudent.get(a.student_id) ?? { present: 0, protected: 0, total: 0 };
     cur.present += a.present;
+    cur.protected += a.protected ?? 0;
     cur.total += a.total;
     byStudent.set(a.student_id, cur);
   }
   return byStudent;
 }
 
+/** The percentage eligibility is judged on: marked-present days PLUS excused
+ *  days, over every session held. Only a day marked absent can be excused, so
+ *  this can never exceed 100. */
+export function eligiblePct(att: { present: number; protected?: number; total: number }): number {
+  if (att.total <= 0) return 0; // no sessions held is not 0% attendance, but it is never a band
+  return (100 * (att.present + (att.protected ?? 0))) / att.total;
+}
+
+// The 'below_65' / 'below_75' bucket NAMES are a stable API (types, response
+// payloads, the drill-down UI) and deliberately keep their historical labels even
+// when the configured thresholds differ — they mean "at risk" and "needs
+// condonation", not literally 65 and 75. Render the numbers from the resolved
+// thresholds, never from the bucket name.
 export function eligibilityBucket(
-  att: { present: number; total: number } | undefined,
+  att: { present: number; protected?: number; total: number } | undefined,
+  thresholds: EligibilityThresholds = DEFAULT_ELIGIBILITY_THRESHOLDS,
 ): ExamAuditAttendanceBucket {
   if (!att || att.total === 0) return 'no_record';
-  const pct = (100 * att.present) / att.total;
-  if (pct < CONDONATION_FLOOR) return 'below_65';
-  if (pct < ATTENDANCE_ELIGIBILITY) return 'below_75';
+  const pct = eligiblePct(att);
+  if (pct < thresholds.condonation) return 'below_65';
+  if (pct < thresholds.eligibility) return 'below_75';
   return 'ok';
 }
 
@@ -365,9 +410,12 @@ export function computeExamAuditStudentDetail(input: {
   registrations: CoeExamRegistrationRow[];
   provenance: CoeCiaProvenanceRow[];
   programs: CoeProgramRef[];
-  attendanceByStudent: Map<string, { present: number; total: number }>;
+  attendanceByStudent: Map<string, { present: number; protected?: number; total: number }>;
+  /** Resolved from platform_policies by the caller; falls back to 75/65. */
+  thresholds?: EligibilityThresholds;
 }): ExamAuditStudentDetailRow[] {
   const { programCode, registrations, provenance, programs, attendanceByStudent } = input;
+  const thresholds = input.thresholds ?? DEFAULT_ELIGIBILITY_THRESHOLDS;
   const programNameById = new Map(programs.map((p) => [p.id, p]));
 
   // Student → registration program (the SAME fallback map the overview builds).
@@ -443,7 +491,7 @@ export function computeExamAuditStudentDetail(input: {
   const out: ExamAuditStudentDetailRow[] = [];
   for (const [sid, s] of byStudent) {
     const att = attendanceByStudent.get(sid);
-    const bucket = eligibilityBucket(att);
+    const bucket = eligibilityBucket(att, thresholds);
     out.push({
       student_id: sid,
       student_name: s.name,
@@ -456,8 +504,9 @@ export function computeExamAuditStudentDetail(input: {
       verified_pct: s.ciaRows > 0 ? Math.round((100 * s.verified) / s.ciaRows) : null,
       avg_internal_pct: s.pctCount > 0 ? Math.round(s.pctSum / s.pctCount) : null,
       att_present: att && att.total > 0 ? att.present : null,
+      att_protected: att && att.total > 0 ? (att.protected ?? 0) : null,
       att_total: att && att.total > 0 ? att.total : null,
-      att_pct: att && att.total > 0 ? Math.round((1000 * att.present) / att.total) / 10 : null,
+      att_pct: att && att.total > 0 ? Math.round(10 * eligiblePct(att)) / 10 : null,
       att_bucket: bucket,
     });
   }

@@ -88,6 +88,7 @@ export function EventReviewDialog({ eventId, onOpenChange }: Props) {
             <div className="text-sm text-muted-foreground">
               Trigger: {event.trigger_field} • Requested {new Date(event.requested_at).toLocaleString()}
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left">
@@ -114,6 +115,7 @@ export function EventReviewDialog({ eventId, onOpenChange }: Props) {
                 ))}
               </tbody>
             </table>
+            </div>
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={refundExcess} onCheckedChange={(c) => setRefundExcess(!!c)} />
               Refund excess instead of holding as credit balance

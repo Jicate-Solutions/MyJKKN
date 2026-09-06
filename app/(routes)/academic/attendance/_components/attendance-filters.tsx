@@ -611,6 +611,12 @@ export function AttendanceFilters({
                       section_id from semester_id and producing empty attendance
                       results. Only render sections that belong to the currently
                       selected semester. */}
+                  {/* Updated: 2026-07-31 (BUG-003152) - Key by section id, not
+                      section_name. Two distinct sections in the same semester
+                      can share a name (e.g. a regular-intake section and a
+                      separately admitted batch's section both named "A"), and
+                      deduping by name was silently dropping one of them from
+                      the list. */}
                   {Array.from(
                     new Map(
                       sections
@@ -623,7 +629,7 @@ export function AttendanceFilters({
                           (section: {
                             id: string;
                             section_name: import('react').ReactNode;
-                          }) => [section.section_name, section]
+                          }) => [section.id, section]
                         )
                     ).values()
                   ).map(
@@ -645,7 +651,7 @@ export function AttendanceFilters({
 
           <div className='space-y-2'>
             <Label htmlFor='date'>Attendance Date</Label>
-            <div className='flex gap-4 w-[280px]'>
+            <div className='flex gap-2 sm:gap-4 w-full sm:w-[280px]'>
               <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
                 <PopoverTrigger asChild>
                   <Button

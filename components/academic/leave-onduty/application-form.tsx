@@ -138,6 +138,13 @@ export function ApplicationForm({
   const [selectedPeriodsByDate, setSelectedPeriodsByDate] = useState<
     Record<string, string[]>
   >({});
+  // Per-date "can this be applied for?" reported by each PeriodSelector. The
+  // server throws when period detection fails, so a date with no detectable
+  // periods must block submission instead of failing after the learner has
+  // filled the whole form.
+  const [dateAvailability, setDateAvailability] = useState<
+    Record<string, boolean>
+  >({});
   const [reason, setReason] = useState('');
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [sponsorId, setSponsorId] = useState<string | null>(null);
@@ -376,6 +383,17 @@ export function ApplicationForm({
       return;
     }
 
+    // The server rejects any date whose periods could not be detected. Stop here
+    // with a clear message rather than surfacing the raw service error.
+    if (blockedDates.length > 0) {
+      toast.error(
+        `No classes found on ${blockedDates
+          .map((d) => format(new Date(d), 'dd MMM'))
+          .join(', ')}. Please choose another date or contact your administrator.`
+      );
+      return;
+    }
+
     const fileReq = getFileRequirements();
     if (fileReq.required && !attachmentFile) {
       toast.error('This category requires a supporting document. Please attach a file.');
@@ -443,8 +461,13 @@ export function ApplicationForm({
     );
   };
 
+  // Dates whose periods could not be detected. `undefined` means "not reported
+  // yet" (still loading) and must not block — only an explicit false does.
+  const blockedDates = daysInRange.filter((d) => dateAvailability[d] === false);
+
   const isFormValid = () => {
     if (requiresSponsorApproval && !sponsorId) return false;
+    if (blockedDates.length > 0) return false;
     return (
       category &&
       subCategory &&
@@ -698,6 +721,11 @@ export function ApplicationForm({
             onPeriodsChange={(periods) =>
               setSelectedPeriodsByDate((prev) => ({ ...prev, [dateStr]: periods }))
             }
+            onAvailabilityChange={(available) =>
+              setDateAvailability((prev) =>
+                prev[dateStr] === available ? prev : { ...prev, [dateStr]: available }
+              )
+            }
           />
         </div>
       ))}
@@ -723,6 +751,18 @@ export function ApplicationForm({
           requirements={getFileRequirements()}
           selectedFile={attachmentFile}
         />
+      )}
+
+      {/* Why submit is disabled. Without this a multi-day range gives no clue
+          which day is the blocker. */}
+      {blockedDates.length > 0 && (
+        <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-3 text-xs sm:text-sm text-red-800 dark:text-red-200">
+          No classes found on{' '}
+          <span className="font-medium">
+            {blockedDates.map((d) => format(new Date(d), 'dd MMM yyyy')).join(', ')}
+          </span>
+          . You cannot submit until every day in the range has a timetable.
+        </div>
       )}
 
       {/* Form Actions - Stack on mobile */}

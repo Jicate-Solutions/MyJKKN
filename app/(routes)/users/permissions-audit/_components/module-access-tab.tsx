@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { BeatLoader } from 'react-spinners';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select';
 import {
   CheckCircle,
+  ChevronsUpDown,
   Download,
   ExternalLink,
   Eye,
@@ -24,10 +25,26 @@ import {
   Trash2,
   Users
 } from 'lucide-react';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 import {
   getDisplayNameForModuleKey,
 } from '@/lib/permissions-audit/module-mappings';
+import { usePermissions } from '@/hooks/use-permissions';
+import { AssignUserDialog } from './assign-user-dialog';
+import { CreateScopedRoleDialog } from './create-scoped-role-dialog';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -194,21 +211,42 @@ export function ModuleAccessTab() {
   const [err, setErr] = useState<string | null>(null);
   const [module, setModule] = useState<string>('');
   const [submodule, setSubmodule] = useState<string>('__all__');
+  // When set, the action cards are narrowed to a single action verb (the
+  // "scope to a particular action" drill from the searchable picker).
+  const [actionFilter, setActionFilter] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // The role a user is being assigned to (opens the AssignUserDialog).
+  const [assignFor, setAssignFor] = useState<{
+    roleKey: string;
+    roleName: string;
+  } | null>(null);
+  // The action a scoped role is being created for (opens CreateScopedRoleDialog).
+  const [createFor, setCreateFor] = useState<{
+    moduleLabel: string;
+    actionLabel: string;
+    permKeys: string[];
+  } | null>(null);
+  // This tab's data (matrix API) is super-admin-only, so anyone who can see it
+  // can assign. The server endpoint still enforces roles.assign independently.
+  const { isSuperAdmin } = usePermissions();
+
+  const loadMatrix = useCallback(async () => {
+    try {
+      setLoading(true);
+      const r = await fetch('/api/users/permissions-audit/matrix');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setData((await r.json()) as MatrixData);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const r = await fetch('/api/users/permissions-audit/matrix');
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        setData((await r.json()) as MatrixData);
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : 'Failed to load');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    loadMatrix();
+  }, [loadMatrix]);
 
   // Modules in the picker. Source is the UNION of:
   //   1. Modules discovered in data.matrix (every first-dot-segment of every
@@ -305,6 +343,70 @@ export function ModuleAccessTab() {
   useEffect(() => {
     if (!module && modules.length > 0) setModule(modules[0].key);
   }, [modules, module]);
+
+  // Flat searchable entries for the combobox: every module, PLUS every
+  // module → action pair, so typing e.g. "quiz author" jumps straight to that
+  // action scope. Actions are derived from the same classifyPerm() the cards use.
+  const pickerEntries = useMemo(() => {
+    const mods = modules.map((m) => ({
+      id: `m:${m.key}`,
+      module: m.key,
+      action: null as string | null,
+      label: m.label,
+      hint:
+        m.grantCount === 0
+          ? 'no grants'
+          : `${m.grantingRoles} role${m.grantingRoles !== 1 ? 's' : ''}`,
+      search: m.label
+    }));
+    const seen = new Set<string>();
+    const acts: Array<{
+      id: string;
+      module: string;
+      action: string;
+      label: string;
+      hint: string;
+      search: string;
+    }> = [];
+    if (data) {
+      Object.keys(data.matrix).forEach((k) => {
+        const c = classifyPerm(k);
+        const id = `${c.module}|${c.action}`;
+        if (seen.has(id)) return;
+        seen.add(id);
+        const ml = moduleLabel(c.module);
+        const verbLabel = verbFor(c.action).label;
+        acts.push({
+          id: `a:${id}`,
+          module: c.module,
+          action: c.action,
+          label: `${ml} › ${verbLabel}`,
+          hint: 'action',
+          search: `${ml} ${verbLabel} ${c.action}`
+        });
+      });
+    }
+    acts.sort((a, b) => a.label.localeCompare(b.label));
+    return { mods, acts };
+  }, [modules, data]);
+
+  const currentPickerLabel = actionFilter
+    ? `${moduleLabel(module)} › ${verbFor(actionFilter).label}`
+    : moduleLabel(module) || 'Select module';
+
+  const selectModuleScope = (nextModule: string) => {
+    setModule(nextModule);
+    setSubmodule('__all__');
+    setActionFilter(null);
+    setPickerOpen(false);
+  };
+
+  const selectActionScope = (nextModule: string, action: string) => {
+    setModule(nextModule);
+    setSubmodule('__all__');
+    setActionFilter(action);
+    setPickerOpen(false);
+  };
 
   // Sub-modules for the selected module
   const submodules = useMemo(() => {
@@ -441,11 +543,17 @@ export function ModuleAccessTab() {
     );
   }
 
-  const actionKeys = Array.from(groupedByAction.keys()).sort((a, b) => {
+  const allActionKeys = Array.from(groupedByAction.keys()).sort((a, b) => {
     const ai = ACTION_ORDER.indexOf(a);
     const bi = ACTION_ORDER.indexOf(b);
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
+  // When an action scope is picked in the combobox, narrow the cards to just
+  // that action verb (falls back to all if the filter no longer applies).
+  const actionKeys =
+    actionFilter && allActionKeys.includes(actionFilter)
+      ? [actionFilter]
+      : allActionKeys;
 
   const totalPerms = Array.from(groupedByAction.values()).reduce(
     (n, arr) => n + arr.length,
@@ -473,50 +581,71 @@ export function ModuleAccessTab() {
                 <span className='text-xs text-muted-foreground whitespace-nowrap'>
                   Module
                 </span>
-                <Select
-                  value={module}
-                  onValueChange={(v) => {
-                    setModule(v);
-                    setSubmodule('__all__');
-                  }}
-                >
-                  <SelectTrigger className='w-[260px] h-8 text-xs'>
-                    <SelectValue placeholder='Select module' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modules.length === 0 ? (
-                      <div className='px-2 py-1.5 text-xs text-muted-foreground'>
-                        No modules available.
-                      </div>
-                    ) : (
-                      modules.map((m) => {
-                        const isDormant = m.grantCount === 0;
-                        const sourceTag =
-                          m.source === 'catalog'
-                            ? ' · catalog only'
-                            : m.source === 'data'
-                            ? ' · uncatalogued'
-                            : '';
-                        return (
-                          <SelectItem key={m.key} value={m.key}>
-                            <span
-                              className={
-                                isDormant ? 'text-muted-foreground italic' : ''
-                              }
+                <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant='outline'
+                      role='combobox'
+                      aria-expanded={pickerOpen}
+                      className='w-[280px] h-8 text-xs justify-between font-normal'
+                    >
+                      <span className='truncate'>{currentPickerLabel}</span>
+                      <ChevronsUpDown className='ml-2 h-3.5 w-3.5 shrink-0 opacity-50' />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className='w-[320px] p-0' align='start'>
+                    <Command>
+                      <CommandInput
+                        placeholder='Search module or action…'
+                        className='h-9 text-xs'
+                      />
+                      <CommandList>
+                        <CommandEmpty className='py-4 text-center text-xs text-muted-foreground'>
+                          No match.
+                        </CommandEmpty>
+                        <CommandGroup heading='Modules'>
+                          {pickerEntries.mods.map((e) => (
+                            <CommandItem
+                              key={e.id}
+                              value={`${e.search} ${e.id}`}
+                              onSelect={() => selectModuleScope(e.module)}
+                              className='text-xs'
                             >
-                              {m.label}
-                            </span>
-                            <span className='text-muted-foreground ml-1 text-[11px]'>
-                              {isDormant
-                                ? `· no grants${sourceTag}`
-                                : `· ${m.grantingRoles} role${m.grantingRoles !== 1 ? 's' : ''}${sourceTag}`}
-                            </span>
-                          </SelectItem>
-                        );
-                      })
-                    )}
-                  </SelectContent>
-                </Select>
+                              <span
+                                className={
+                                  e.hint === 'no grants'
+                                    ? 'text-muted-foreground italic'
+                                    : ''
+                                }
+                              >
+                                {e.label}
+                              </span>
+                              <span className='ml-auto text-[10px] text-muted-foreground'>
+                                {e.hint}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                        {pickerEntries.acts.length > 0 && (
+                          <CommandGroup heading='Actions (scope to one)'>
+                            {pickerEntries.acts.map((e) => (
+                              <CommandItem
+                                key={e.id}
+                                value={`${e.search} ${e.id}`}
+                                onSelect={() =>
+                                  selectActionScope(e.module, e.action)
+                                }
+                                className='text-xs'
+                              >
+                                <span className='truncate'>{e.label}</span>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        )}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               {submodules.length > 1 && (
@@ -568,6 +697,22 @@ export function ModuleAccessTab() {
                   <span className='font-medium text-foreground'>{submodule}</span>
                 </>
               )}
+              {actionFilter && (
+                <>
+                  {' '}
+                  ›{' '}
+                  <span className='font-medium text-foreground capitalize'>
+                    {verbFor(actionFilter).label}
+                  </span>
+                  <button
+                    type='button'
+                    onClick={() => setActionFilter(null)}
+                    className='ml-1.5 text-[11px] underline hover:text-foreground'
+                  >
+                    clear action
+                  </button>
+                </>
+              )}
               <span className='mx-2'>·</span>
               {totalPerms} permission{totalPerms !== 1 ? 's' : ''} across{' '}
               {actionKeys.length} action{actionKeys.length !== 1 ? 's' : ''}
@@ -616,43 +761,81 @@ export function ModuleAccessTab() {
                 <CardContent className='pt-0'>
                   <div className='flex flex-wrap gap-1.5'>
                     {rolesGranted.map(({ role, meta, alwaysGrants }) => (
-                      <Link
-                        key={role}
-                        href={`/users/permissions-audit?tab=resolver&role=${encodeURIComponent(
-                          role
-                        )}`}
-                        className='group'
-                      >
-                        <Badge
-                          variant={alwaysGrants ? 'default' : 'outline'}
-                          className={`text-xs gap-1 cursor-pointer transition-colors ${
-                            alwaysGrants ? '' : verb.hoverClass
-                          }`}
-                          title={
-                            alwaysGrants
-                              ? 'Super admins bypass per-permission flags via is_super_admin() — always granted regardless of role config'
-                              : undefined
-                          }
+                      <div key={role} className='inline-flex items-center'>
+                        <Link
+                          href={`/users/permissions-audit?tab=resolver&role=${encodeURIComponent(
+                            role
+                          )}`}
+                          className='group'
                         >
-                          {meta.name}
-                          <span
-                            className={
+                          <Badge
+                            variant={alwaysGrants ? 'default' : 'outline'}
+                            className={`text-xs gap-1 cursor-pointer transition-colors ${
+                              alwaysGrants ? '' : verb.hoverClass
+                            }`}
+                            title={
                               alwaysGrants
-                                ? 'opacity-80'
-                                : 'text-muted-foreground group-hover:text-foreground'
+                                ? 'Super admins bypass per-permission flags via is_super_admin() — always granted regardless of role config'
+                                : undefined
                             }
                           >
-                            {alwaysGrants
-                              ? `· always · ${meta.userCount}`
-                              : `(${meta.userCount})`}
-                          </span>
-                        </Badge>
-                      </Link>
+                            {meta.name}
+                            <span
+                              className={
+                                alwaysGrants
+                                  ? 'opacity-80'
+                                  : 'text-muted-foreground group-hover:text-foreground'
+                              }
+                            >
+                              {alwaysGrants
+                                ? `· always · ${meta.userCount}`
+                                : `(${meta.userCount})`}
+                            </span>
+                          </Badge>
+                        </Link>
+                        {/* No Assign on the super-admin bypass chip: assigning
+                            super_admin from a permission-scoped lens would grant
+                            EVERYTHING, not the scoped action the auditor is looking
+                            at — a footgun. Genuine super-admin grants belong in
+                            Role Management, with full context. */}
+                        {isSuperAdmin && !alwaysGrants && (
+                          <button
+                            type='button'
+                            title={`Assign a user to ${meta.name}`}
+                            aria-label={`Assign a user to ${meta.name}`}
+                            onClick={() =>
+                              setAssignFor({ roleKey: role, roleName: meta.name })
+                            }
+                            className='ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors'
+                          >
+                            <Plus className='h-3 w-3' />
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                   {rolesGranted.length === 1 && rolesGranted[0]?.alwaysGrants && (
                     <div className='text-xs text-muted-foreground italic mt-1'>
                       Only super admins have this. No other role grants it.
+                    </div>
+                  )}
+                  {isSuperAdmin && permKeys.length > 0 && (
+                    <div className='mt-2'>
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        className='h-7 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground'
+                        onClick={() =>
+                          setCreateFor({
+                            moduleLabel: moduleLabel(module),
+                            actionLabel: verb.label,
+                            permKeys
+                          })
+                        }
+                      >
+                        <Plus className='h-3 w-3' /> Create a role for &ldquo;
+                        {verb.label}&rdquo; only
+                      </Button>
                     </div>
                   )}
                   {perms.length > 0 && (
@@ -682,6 +865,35 @@ export function ModuleAccessTab() {
             );
           })}
         </div>
+      )}
+
+      {assignFor && (
+        <AssignUserDialog
+          open={!!assignFor}
+          onOpenChange={(o) => {
+            if (!o) setAssignFor(null);
+          }}
+          roleKey={assignFor.roleKey}
+          roleName={assignFor.roleName}
+          onAssigned={loadMatrix}
+        />
+      )}
+
+      {createFor && (
+        <CreateScopedRoleDialog
+          open={!!createFor}
+          onOpenChange={(o) => {
+            if (!o) setCreateFor(null);
+          }}
+          moduleLabel={createFor.moduleLabel}
+          actionLabel={createFor.actionLabel}
+          permKeys={createFor.permKeys}
+          onCreated={(role) => {
+            loadMatrix();
+            // Chain straight into assigning a user to the freshly-created role.
+            setAssignFor({ roleKey: role.roleKey, roleName: role.roleName });
+          }}
+        />
       )}
     </div>
   );

@@ -85,7 +85,7 @@ export function DashboardFilters({
   return (
     <Card>
       <CardHeader className='pb-3'>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <CardTitle className='text-lg flex items-center gap-2'>
             <Filter className='h-5 w-5' />
             Dashboard Filters

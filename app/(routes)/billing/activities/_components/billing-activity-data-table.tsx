@@ -7,6 +7,7 @@ import { BillingActivityService } from '@/lib/services/billing/billing-activity-
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { BillingActivityFilterValues } from './billing-activity-filters';
+import type { BillingActivityLog } from '@/types/billing-activity';
 
 interface BillingActivityDataTableProps {
   filters: BillingActivityFilterValues;
@@ -110,14 +111,28 @@ export function BillingActivityDataTable({
           { wch: 50 },
           { wch: 25 }
         ],
+        // DATA KEYS, not the labels above — the export resolves these against
+        // each row; columnMapping supplies the heading. Labels here matched
+        // nothing and downloaded a blank file.
         headers: [
-          'Time',
-          'User',
-          'Action',
-          'Resource',
-          'Description',
-          'Institution'
-        ]
+          'created_at',
+          'user',
+          'action_type',
+          'resource_type',
+          'description',
+          'institution'
+        ],
+        // `user` and `institution` are not row fields — they live on the
+        // `profiles` / `institutions` relations.
+        transformFunction: ((row: BillingActivityLog) => ({
+          created_at: row.created_at ?? '',
+          user: row.profiles?.full_name || row.profiles?.email || '',
+          action_type: row.action_type ?? '',
+          resource_type: row.resource_type ?? '',
+          description: row.description ?? '',
+          institution: row.institutions?.name ?? ''
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        })) as any
       }}
       idField='id'
       config={{
