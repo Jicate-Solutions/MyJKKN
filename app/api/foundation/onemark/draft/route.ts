@@ -219,24 +219,22 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
-    // Max-lane payload convention: the seat runner substitutes payload._ctx
-    // into the prompt template's {{payload}} slot and payload.prompt into
-    // {{prompt}}. Sending these fields at the top level renders an EMPTY
-    // payload slot — measured 2026-09-06 (ai_jobs 1096542b): the model replied
-    // "I don't see the actual input payload". Every working job type on this
-    // lane nests under _ctx; so does this one now.
-    const payload = {
-      _ctx: {
-        exam_definition_id: examDefinitionId,
-        exam_key: exam.config_key,
-        topic_id: topicId,
-        tag_keys: uniqueTags,
-        count,
-        bloom_level: bloomLevel,
-      },
-      prompt:
-        'Draft the items described by the payload above. Return only the JSON object described in the OUTPUT section.',
-    };
+    // The Max seat runner validates input_schema keys at the TOP LEVEL and
+    // substitutes exactly one slot, {{prompt}}, from payload.prompt. Sending
+    // the fields flat left that slot empty (the model replied "I don't see the
+    // actual input payload", ai_jobs 1096542b); sending them only under _ctx
+    // was refused outright ("missing required input(s)", ai_jobs bbbf0cbc).
+    // buildDraftPayload composes the run's data into the prompt text and keeps
+    // the fields under _ctx for the collect pass. Migration 20260918150000
+    // aligns the job type's template and input_schema with this.
+    const payload = buildDraftPayload({
+      exam_definition_id: examDefinitionId,
+      exam_key: exam.config_key,
+      topic_id: topicId,
+      tag_keys: uniqueTags,
+      count,
+      bloom_level: bloomLevel,
+    });
     const { data: enq, error: enqError } = await (supabase as any).rpc('fn_ai_enqueue', {
       p_job_type: JOB_TYPE,
       p_payload: payload,
