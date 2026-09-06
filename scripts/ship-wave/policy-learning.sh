@@ -75,8 +75,11 @@ def total(key):
     return t
 held = total("held")
 # a migration-CAUSED freeze = the applied SQL itself failed; the two tooling classes (stale ref, dead workflow) are not that
+# a migration-CAUSED freeze = the applied SQL itself failed. Tooling classes (stale ref, dead workflow) and the
+# destructive-statement REFUSAL (the gate doing its job, later allowed by hand) are not evidence against P1.
 mig_freezes = [f for f in freezes if "migration" in f["class"]
-               and "files on jicate main match" not in f["class"] and "apply failed run" not in f["class"]]
+               and "files on jicate main match" not in f["class"] and "apply failed run" not in f["class"]
+               and "destructive statement" not in f["class"]]
 out = []
 if "AUTO_APPROVE_ADDITIVE_MIGRATIONS" not in ratified:
     ev = f"{held} HELD merges on record, {len(mig_freezes)} migration-caused freeze(s); every HELD approval so far was typed by hand"
