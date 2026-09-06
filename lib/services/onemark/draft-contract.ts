@@ -78,9 +78,44 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Lane I's route already validated this shape at enqueue; re-checking here
  *  keeps the runner honest when a job arrives from anywhere else. */
+/** Build the ai_jobs payload for a drafting run.
+ *
+ *  The Max seat runner VALIDATES the job type's input_schema keys at the TOP
+ *  LEVEL and SUBSTITUTES exactly one slot, {{prompt}}, from `payload.prompt`.
+ *  It fills no other slot — measured 2026-09-06 across every working job type
+ *  on the lane, and the hard way twice on this one: a flat payload left the
+ *  template's {{payload}} slot empty and the model replied "I don't see the
+ *  actual input payload" (ai_jobs 1096542b); an _ctx-only payload was refused
+ *  before the model saw it, "missing required input(s)" (ai_jobs bbbf0cbc).
+ *
+ *  So the run's data is composed INTO the prompt text, and the same fields ride
+ *  along under `_ctx` for the collect pass (parsePayload reads them there).
+ *  Migration 20260918150000 makes the template and input_schema match this.
+ */
+export function buildDraftPayload(ctx: DraftJobPayload): {
+  _ctx: DraftJobPayload;
+  prompt: string;
+} {
+  return { _ctx: ctx, prompt: JSON.stringify(ctx, null, 2) };
+}
+
 export function parsePayload(raw: unknown): DraftJobPayload | null {
   if (!raw || typeof raw !== 'object') return null;
-  const p = raw as Record<string, unknown>;
+  const outer = raw as Record<string, unknown>;
+  // The estate's Max-lane convention is payload._ctx: every working job type on
+  // the lane (accreditation.naac_narrative_draft, ai_pulse.domain_starter,
+  // learner.360_verdict, loops.charter_draft, improvement.rank_ideas,
+  // induction.session_effectiveness) sends {_ctx: {...}, prompt: '...'} and the
+  // seat runner substitutes _ctx into the template's {{payload}} slot. Lane I
+  // originally sent its fields at the TOP level; the runner then rendered an
+  // EMPTY payload slot and the model replied "I don't see the actual input
+  // payload" (measured: ai_jobs 1096542b, 2026-09-06 06:09Z). Read _ctx when it
+  // is there, fall back to the flat shape so any job queued before the route
+  // change still files.
+  const p =
+    outer._ctx && typeof outer._ctx === 'object' && !Array.isArray(outer._ctx)
+      ? (outer._ctx as Record<string, unknown>)
+      : outer;
   const examDefinitionId = p.exam_definition_id;
   const examKey = p.exam_key;
   const topicId = p.topic_id ?? null;

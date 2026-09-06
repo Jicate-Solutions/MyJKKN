@@ -9,6 +9,13 @@
 //     never assumes either mode — it renders whichever the database reports.
 // D5  A batch that filled between apply and accept refuses with a sentence
 //     naming the batches that still have room. Nothing over-fills silently.
+//     When the programme keeps a waiting list instead of turning people away,
+//     the people on it appear here — per batch, oldest first, with when they
+//     joined — and a coordinator promotes somebody by ACCEPTING them, which is
+//     the same path as any other acceptance (including the A3/A7 full-batch
+//     confirmation below). Nothing is promoted automatically: an application on
+//     the waiting list has never been read by anybody, and this programme
+//     admits people by decision (D3), not by queue order.
 // A3  A coordinator MAY go over soi.batch_capacity — but only from a separate,
 //     deliberate confirmation, and the database records who did it and how full
 //     the batch already was. Full batches are therefore listed and selectable
@@ -35,8 +42,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ClipboardList,
+  ListOrdered,
   Loader2,
   RefreshCw,
+  UserCheck,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -70,7 +79,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { usePermissions } from '@/hooks/use-permissions';
 
-import { ApplicationsTable } from './applications-table';
+import { ApplicationsTable, audienceLabel, whenParts } from './applications-table';
 import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 import {
   SoiReviewService,
@@ -79,6 +88,7 @@ import {
   type SoiReviewContext,
   type SoiReviewScope,
   type SoiWaitingCount,
+  type SoiWaitingListEntry,
 } from '@/lib/services/school-of-influence/review-service';
 
 function messageOf(error: unknown): string {
@@ -124,6 +134,8 @@ export function ApplicationsWorkspace({ eventId }: Props) {
   const [context, setContext] = useState<SoiReviewContext | null>(null);
   const [batches, setBatches] = useState<SoiReviewBatch[]>([]);
   const [waiting, setWaiting] = useState<SoiWaitingCount[]>([]);
+  /** D5 — who is on the waiting list, in the order the database read it. */
+  const [waitingList, setWaitingList] = useState<SoiWaitingListEntry[]>([]);
   const [scope, setScope] = useState<SoiReviewScope>('awaiting');
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState<string | null>(null);
@@ -162,26 +174,30 @@ export function ApplicationsWorkspace({ eventId }: Props) {
         setDenied(NO_ACCESS_MESSAGE);
         setBatches([]);
         setWaiting([]);
+        setWaitingList([]);
         return;
       }
 
       // The APPLICATION rows are not fetched here — ApplicationsTable owns that
       // call, so the table's own search, sort and pagination drive it. This
       // refresh covers everything AROUND the queue (the batch strip, the waiting
-      // counts, the scope tallies) and then bumps the table's refetch key so the
-      // two stay in step after a decision.
-      const [batchRows, waitingRows] = await Promise.all([
+      // counts, the waiting list itself, the scope tallies) and then bumps the
+      // table's refetch key so they all stay in step after a decision.
+      const [batchRows, waitingRows, waitingListRows] = await Promise.all([
         SoiReviewService.listBatches(eventId),
         SoiReviewService.listWaitingCounts(eventId),
+        SoiReviewService.listWaitingList(eventId),
       ]);
       setBatches(batchRows);
       setWaiting(waitingRows);
+      setWaitingList(waitingListRows);
       setTableRefetchKey((k) => k + 1);
     } catch (error) {
       if (isDenied(error)) setDenied(messageOf(error));
       else toast.error(messageOf(error));
       setBatches([]);
       setWaiting([]);
+      setWaitingList([]);
     } finally {
       setLoading(false);
     }
@@ -206,6 +222,65 @@ export function ApplicationsWorkspace({ eventId }: Props) {
     (cohortId: string | null | undefined) =>
       waiting.find((w) => w.cohort_id === cohortId) ?? null,
     [waiting]
+  );
+
+  /**
+   * How many places are free across the programme right now, and whether any
+   * batch is over its capacity.
+   *
+   * Both come from the database's own occupancy count, never from anything
+   * counted here. Over-capacity is surfaced rather than hidden: two coordinators
+   * can accept into the last free seat at the same moment — each one's check
+   * passes before the other's enrolment lands — and the honest thing is to name
+   * it so somebody moves a person to another batch, not to quietly show 51 of 50.
+   */
+  const seatsFree = useMemo(
+    () => batches.reduce((total, b) => total + Math.max(b.capacity - b.occupancy, 0), 0),
+    [batches]
+  );
+  const overFilled = useMemo(
+    () => batches.filter((b) => b.occupancy > b.capacity),
+    [batches]
+  );
+
+  /** The waiting list, split into the queues the database grouped it into. */
+  const waitingGroups = useMemo(() => {
+    const groups: { key: string; batchName: string | null; entries: SoiWaitingListEntry[] }[] = [];
+    for (const entry of waitingList) {
+      const key = entry.requested_batch_id ?? '__unassigned';
+      const found = groups.find((g) => g.key === key);
+      if (found) found.entries.push(entry);
+      else groups.push({ key, batchName: entry.requested_batch_name, entries: [entry] });
+    }
+    return groups;
+  }, [waitingList]);
+
+  /**
+   * A waiting-list entry IS an application, so offering a place goes through
+   * the same handleAccept as the queue — including the A3/A7 full-batch
+   * confirmation. The entry is shaped into the row that handler reads
+   * (application_id, requested_batch_id, applicant_name); nothing else on the
+   * row is consulted on the accept path.
+   */
+  const rowForWaitingEntry = useCallback(
+    (entry: SoiWaitingListEntry): SoiApplicationRow => ({
+      application_id: entry.application_id,
+      applicant_name: entry.applicant_name,
+      applicant_email: entry.applicant_email,
+      profile_id: entry.profile_id,
+      institution_name: entry.institution_name,
+      audiences: entry.audiences,
+      requested_batch_id: entry.requested_batch_id,
+      requested_batch_name: entry.requested_batch_name,
+      application_status: 'waitlisted',
+      submitted_at: entry.joined_waiting_list_at,
+      decision: null,
+      decision_reason: null,
+      decided_at: null,
+      decided_by_name: null,
+      answers: [],
+    }),
+    []
   );
 
   const doAccept = useCallback(
@@ -433,6 +508,142 @@ export function ApplicationsWorkspace({ eventId }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {/* D5 — the waiting list. Shown only when somebody is actually on it, so a
+          programme that turns full-batch applicants away never grows an empty
+          card explaining a queue it does not keep. */}
+      {waitingList.length > 0 && (
+        <Card className="border-amber-200">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ListOrdered className="h-4 w-4 text-amber-600" /> Waiting list (
+              {waitingList.length})
+            </CardTitle>
+            <CardDescription>
+              These applications were held because every batch they could join was
+              full — nobody was turned away. Offer a place by accepting somebody
+              below; that is the same acceptance as any other, and nothing is
+              promoted on its own. The order is by when each person applied, and a
+              coordinator may accept out of it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {overFilled.length > 0 && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                <p className="font-medium">More people than places</p>
+                <p className="mt-1">
+                  {overFilled
+                    .map(
+                      (b) => `${soiDisplayName(b.batch_name)} holds ${b.occupancy} of ${b.capacity}`
+                    )
+                    .join('; ')}
+                  . Two coordinators can accept into the same last place at the same
+                  moment. Move somebody to another batch to put this right.
+                </p>
+              </div>
+            )}
+
+            <p className="text-sm text-muted-foreground">
+              {seatsFree > 0
+                ? `${seatsFree} ${seatsFree === 1 ? 'place is' : 'places are'} free across the batches right now.`
+                : 'No place is free in any batch at the moment. Accepting somebody from this list goes over a batch limit, which has to be confirmed separately and is recorded — or raise the capacity of a batch in the programme settings.'}
+            </p>
+
+            {waitingGroups.map((group) => (
+              <div key={group.key} className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {group.batchName
+                    ? `${soiDisplayName(group.batchName)} — ${group.entries.length} waiting`
+                    : `No batch chosen — a coordinator assigns one · ${group.entries.length} waiting`}
+                </p>
+                {group.entries.map((entry) => {
+                  const busy = busyId === entry.application_id;
+                  const picked = chosenBatch[entry.application_id];
+                  const blocked = !!entry.already_placed_batch_name;
+                  const canAccept =
+                    !blocked && (!reviewerPicksBatch || !!picked) && batches.length > 0;
+                  const joined = whenParts(entry.joined_waiting_list_at);
+
+                  return (
+                    <div
+                      key={entry.application_id}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border p-2.5"
+                    >
+                      <Badge variant="secondary" className="text-[11px] font-normal">
+                        {entry.waiting_position} of {entry.waiting_group_size}
+                      </Badge>
+                      <div className="min-w-[180px] flex-1 space-y-0.5">
+                        <p className="text-sm font-medium">
+                          {entry.applicant_name ?? 'Unnamed applicant'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {entry.applicant_email ?? 'no address on record'}
+                          {entry.institution_name ? ` · ${entry.institution_name}` : ''} · joined
+                          the list {joined.day}
+                          {joined.time ? `, ${joined.time}` : ''}
+                        </p>
+                      </div>
+
+                      {entry.audiences.map((a) => (
+                        <Badge key={a} variant="outline" className="text-[10px] font-normal">
+                          {audienceLabel(a)}
+                        </Badge>
+                      ))}
+
+                      {blocked ? (
+                        // D10 — one place per person per programme. Say so before
+                        // the click, not after the database refuses it.
+                        <p className="text-xs text-amber-700">
+                          Already has a place in {soiDisplayName(entry.already_placed_batch_name)},
+                          so they cannot be given a second one. Take them off this list,
+                          or move them between batches.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {reviewerPicksBatch && (
+                            <Select
+                              value={picked ?? ''}
+                              onValueChange={(v) => handleChooseBatch(entry.application_id, v)}
+                            >
+                              <SelectTrigger className="h-8 w-[220px]">
+                                <SelectValue placeholder="Choose a batch" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {/* A3 — full batches stay listed and marked; picking one
+                                    routes through the over-limit confirmation. */}
+                                {batches.map((b) => (
+                                  <SelectItem key={b.cohort_id} value={b.cohort_id}>
+                                    {soiDisplayName(b.batch_name)} —{' '}
+                                    {b.is_full
+                                      ? `full (${b.occupancy} of ${b.capacity})`
+                                      : `${b.capacity - b.occupancy} of ${b.capacity} left`}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          <Button
+                            size="sm"
+                            disabled={!canAccept || busy}
+                            onClick={() => void handleAccept(rowForWaitingEntry(entry))}
+                          >
+                            {busy ? (
+                              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                            ) : (
+                              <UserCheck className="mr-1.5 h-4 w-4" />
+                            )}
+                            Offer a place
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* The queue itself. Advanced data table (2026-08-17) — it replaced a
           one-card-per-applicant list that put each person on most of a screen,

@@ -20,12 +20,22 @@
 //   summarised, softened or re-worded: the coordinator's text is rendered
 //   exactly as typed, whitespace and line breaks included.
 //
+// THE WAITING LIST (Director decision, 2026-08-02)
+//   A second gap sat beside the first: somebody held on the waiting list read
+//   the SAME sentence as somebody merely awaiting review — "your application is
+//   with a coordinator". True, and it hides the one fact that explains the
+//   silence, which is that every batch was full when they applied. They are now
+//   told they are on the list, where they stand on it, and what happens next.
+//   The position comes from fn_soi_my_waiting_list_place, which answers for
+//   auth.uid() alone, so a number is returned without exposing anybody else.
+//
 // WHY THIS READS THE TABLE DIRECTLY AND IMPORTS NO SERVICE
-//   The coordinator-side service that also exposes this data is part of an
-//   unmerged branch. Importing it would make this a stacked pull request, which
-//   in this repository runs ZERO continuous-integration checks and merges into
-//   that branch rather than into main. A direct read has no such coupling, and
-//   the applicant's own row is the authoritative record either way.
+//   The coordinator-side service that also exposes this data builds a browser
+//   Supabase client at MODULE scope. This component is server-rendered for the
+//   initial HTML, so importing it would construct that client off-browser on
+//   every render of a public apply page. Building the client inside each query
+//   instead keeps it to the browser, where it belongs — and the applicant's own
+//   row is the authoritative record either way.
 //
 //   The source token 'soi_apply' is spelled out below rather than imported from
 //   apply-service.ts: that module builds a server Supabase client at import
@@ -42,7 +52,7 @@
 //   browser could be talked into supplying. One person, one row, their own.
 
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, ListOrdered, XCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Card,
@@ -65,13 +75,36 @@ const UNDER_REVIEW_STATUSES = ['pending', 'waitlisted'];
  * entitled to be told. `reason` is null when the coordinator recorded none —
  * it is never an empty string, so the screen can say so plainly instead of
  * drawing an empty box.
+ *
+ * 'waiting' is separated from 'pending' deliberately. Both mean no coordinator
+ * has decided, but they are not the same situation and were being shown the same
+ * sentence: a waiting applicant's batch was FULL when they applied, and telling
+ * them only "your application is with a coordinator" hides the one fact that
+ * explains why they have heard nothing.
  */
 export interface SoiOwnApplicationOutcome {
-  state: 'pending' | 'accepted' | 'rejected';
+  state: 'pending' | 'waiting' | 'accepted' | 'rejected';
   submittedAt: string | null;
   decidedAt: string | null;
   reason: string | null;
   batchName: string | null;
+}
+
+/**
+ * The applicant's own place on the waiting list, as the database derives it.
+ *
+ * Nothing here is stored: the position is counted over the applications that are
+ * waitlisted at the moment of the read, so somebody ahead withdrawing or being
+ * accepted moves this person up with no queue to repair.
+ */
+export interface SoiOwnWaitingPlace {
+  onWaitingList: boolean;
+  position: number | null;
+  groupSize: number | null;
+  joinedAt: string | null;
+  batchName: string | null;
+  intakeClosed: boolean;
+  intakeClosesAt: string | null;
 }
 
 const formatDay = (value: string | null) => {
@@ -118,6 +151,7 @@ function toOutcome(row: {
   let state: SoiOwnApplicationOutcome['state'] | null = null;
   if (decision === 'accepted') state = 'accepted';
   else if (decision === 'rejected') state = 'rejected';
+  else if (status === 'waitlisted') state = 'waiting';
   else if (UNDER_REVIEW_STATUSES.includes(status)) state = 'pending';
   else if (status === 'confirmed') state = 'accepted';
   else if (status === 'disqualified') state = 'rejected';
@@ -127,7 +161,8 @@ function toOutcome(row: {
   return {
     state,
     submittedAt: cleanText(row.created_at),
-    decidedAt: state === 'pending' ? null : cleanText(review?.decided_at),
+    decidedAt:
+      state === 'pending' || state === 'waiting' ? null : cleanText(review?.decided_at),
     reason: state === 'rejected' ? cleanText(review?.reason) : null,
     // The stored batch name still carries the programme's old spelling on rows
     // written before the 2026-08-13 rename, so it is printed under the current
@@ -179,20 +214,155 @@ export function useOwnApplicationOutcome(eventId: string, enabled: boolean) {
 }
 
 /**
+ * Where this person stands on the waiting list, read through
+ * fn_soi_my_waiting_list_place.
+ *
+ * An RPC rather than a table read, because a position is a fact about the WHOLE
+ * queue: counting it needs to see other people's applications, which this
+ * applicant cannot read and must not be able to. The function takes no user id
+ * at all — it answers for auth.uid() and nobody else — so it returns a number
+ * without ever handing over a name, an address or anybody else's place.
+ *
+ * The client is built inside the query, not at module scope, for the same reason
+ * the row read above does it: this component is server-rendered for the initial
+ * HTML, and a browser Supabase client constructed off-browser is not safe to
+ * assume works.
+ */
+export function useOwnWaitingListPlace(eventId: string, enabled: boolean) {
+  return useQuery<SoiOwnWaitingPlace | null>({
+    queryKey: ['soi-own-waiting-place', eventId],
+    enabled: enabled && !!eventId,
+    // A place in a queue moves whenever anybody ahead is accepted or withdraws.
+    // A cached number is a wrong number.
+    staleTime: 0,
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc('fn_soi_my_waiting_list_place', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      const row = (data ?? [])[0];
+      if (!row) return null;
+      return {
+        onWaitingList: !!row.on_waiting_list,
+        position: row.waiting_position ?? null,
+        groupSize: row.waiting_group_size ?? null,
+        joinedAt: row.joined_waiting_list_at ?? null,
+        batchName: row.requested_batch_name ?? null,
+        intakeClosed: !!row.intake_closed,
+        intakeClosesAt: row.intake_closes_at ?? null,
+      };
+    },
+  });
+}
+
+/**
+ * What somebody on the waiting list is told: that they are on it, where they
+ * stand, and what happens next. Never a dead end (CLAUDE.md rule 27).
+ *
+ * The position is stated with what it IS — the order people applied in — and
+ * with what it is NOT: a coordinator decides who is offered a free place, so it
+ * is not a ticket number. If the place cannot be read for any reason the panel
+ * still says they are on the list; a missing number is not a reason to leave
+ * somebody wondering whether their application went anywhere.
+ */
+function WaitingListPanel({
+  place,
+  submittedOn,
+}: {
+  place: SoiOwnWaitingPlace | null;
+  submittedOn: string | null;
+}) {
+  const closesOn = formatDay(place?.intakeClosesAt ?? null);
+
+  return (
+    <>
+      <Alert>
+        <ListOrdered className="h-4 w-4" />
+        <AlertTitle>You are on the waiting list</AlertTitle>
+        <AlertDescription>
+          {submittedOn ? `You applied on ${submittedOn}. ` : ''}
+          Every batch was full when you applied, so your application was held
+          rather than turned down. It is still open.
+        </AlertDescription>
+      </Alert>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">
+            {place?.position && place?.groupSize
+              ? `You are number ${place.position} of ${place.groupSize} waiting`
+              : 'Your place on the list'}
+          </CardTitle>
+          <CardDescription>
+            {place?.batchName
+              ? `This is the waiting list for ${place.batchName}.`
+              : 'A coordinator assigns the batch, so this is one waiting list for the whole programme.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            {place?.position
+              ? 'That number is the order people applied in. It is not a ticket: a ' +
+                'coordinator decides who is offered a free place, and may not go ' +
+                'strictly down the list.'
+              : 'You are on the list. Your exact place could not be read just now — ' +
+                'reload the page to see it.'}
+          </p>
+          <p>
+            When somebody leaves a batch, a coordinator offers the free place from
+            this list. Nothing happens automatically, and you will be told either
+            way. You do not need to apply again, and nothing is lost by waiting.
+          </p>
+          {place?.intakeClosed ? (
+            <p className="text-muted-foreground">
+              {closesOn
+                ? `Applications for this programme closed on ${closesOn}, so no new `
+                : 'Applications for this programme have closed, so no new '}
+              applications are being taken. You are still on the waiting list — a
+              coordinator can still offer you a place if one frees up. To ask about
+              the next round, contact the programme coordinator.
+            </p>
+          ) : closesOn ? (
+            <p className="text-muted-foreground">
+              Applications for this programme close on {closesOn}. Being on the list
+              does not expire on that date.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+/**
  * The applicant-facing account of their own application. Replaces the generic
  * refusal on this screen whenever there is something truer to say — and says
  * nothing it cannot support from the record.
  */
 export function SoiApplicationOutcome({
+  eventId,
   outcome,
   fallbackBatchName,
 }: {
+  /** The programme, needed to read this person's own place on the waiting list. */
+  eventId: string;
   outcome: SoiOwnApplicationOutcome;
   /** The batch from the apply context, used only if the decision record has none. */
   fallbackBatchName?: string | null;
 }) {
   const submittedOn = formatDay(outcome.submittedAt);
   const decidedOn = formatDay(outcome.decidedAt);
+
+  // Only somebody actually waiting costs this query.
+  const { data: waitingPlace } = useOwnWaitingListPlace(
+    eventId,
+    outcome.state === 'waiting'
+  );
+
+  if (outcome.state === 'waiting') {
+    return <WaitingListPanel place={waitingPlace ?? null} submittedOn={submittedOn} />;
+  }
 
   if (outcome.state === 'pending') {
     return (

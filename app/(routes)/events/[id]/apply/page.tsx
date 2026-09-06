@@ -173,6 +173,7 @@ export default function SchoolOfInfluenceApplyPage() {
               </div>
             ) : outcome ? (
               <SoiApplicationOutcome
+                eventId={eventId}
                 outcome={outcome}
                 fallbackBatchName={context.existingMembership?.batchName ?? null}
               />
