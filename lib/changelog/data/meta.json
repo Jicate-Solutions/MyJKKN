@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-09-05",
+  "generatedAt": "2026-09-06",
   "ref": "jicate/main",
-  "total": 4753,
+  "total": 4746,
   "first": "2026-03-25",
-  "latest": "2026-09-05",
+  "latest": "2026-09-06",
   "months": [
     "2026-09",
     "2026-08",
@@ -13,29 +13,25 @@
     "2026-04",
     "2026-03"
   ],
-  "recentFrom": "2026-06-07",
-  "recentCount": 2545,
-  "archiveCount": 2208,
+  "recentFrom": "2026-06-08",
+  "recentCount": 2547,
+  "archiveCount": 2199,
   "contributors": [
     {
       "name": "Ommsharravana",
-      "count": 1954
+      "count": 1975
     },
     {
       "name": "Boobalan",
-      "count": 1717
+      "count": 1713
     },
     {
       "name": "JKKN AI Engineering",
-      "count": 465
-    },
-    {
-      "name": "trial2",
-      "count": 198
+      "count": 693
     },
     {
       "name": "Viswanathan Shanmugam",
-      "count": 181
+      "count": 156
     },
     {
       "name": "Roja Sundharam",
@@ -44,10 +40,6 @@
     {
       "name": "Sangeetha V",
       "count": 77
-    },
-    {
-      "name": "t",
-      "count": 29
     },
     {
       "name": "Janani",
@@ -158,6 +150,11 @@
       "perm": "ceo_rounds",
       "href": "/ceo-rounds"
     },
+    "cohort-programmes": {
+      "label": "Cohort Programmes",
+      "perm": "cohort",
+      "href": null
+    },
     "courses": {
       "label": "Courses",
       "perm": "courses",
@@ -172,6 +169,11 @@
       "label": "Events",
       "perm": "events",
       "href": "/events"
+    },
+    "external-api": {
+      "label": "External API",
+      "perm": "system.api",
+      "href": "/system/api-management"
     },
     "faculty": {
       "label": "Faculty",
@@ -239,6 +241,11 @@
       "perm": "ims",
       "href": "/ims"
     },
+    "learn": {
+      "label": "Learn",
+      "perm": "learn",
+      "href": "/learn"
+    },
     "learners": {
       "label": "Learners",
       "perm": "learners",
@@ -278,6 +285,11 @@
       "label": "Organisation",
       "perm": "organizations",
       "href": "/organizations/dashboard"
+    },
+    "parent-portal": {
+      "label": "Parent Portal",
+      "perm": "academic.parent_portal",
+      "href": "/parent"
     },
     "pde": {
       "label": "PDE",
@@ -379,6 +391,11 @@
       "label": "Value-Added Courses",
       "perm": "vac",
       "href": "/vac"
+    },
+    "what-s-new": {
+      "label": "What's New",
+      "perm": null,
+      "href": "/whats-new"
     },
     "work-pulse": {
       "label": "Work Pulse",
