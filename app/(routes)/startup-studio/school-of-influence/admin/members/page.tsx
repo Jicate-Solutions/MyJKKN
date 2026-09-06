@@ -35,9 +35,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { MembersWorkspace } from './_components/members-workspace';
 
 export const metadata: Metadata = {
-  title: 'School of Influence — Members',
+  title: 'School of Influencer — Members',
   description:
-    'See who holds a place in each School of Influence batch, and take somebody off a batch with a written reason that stays on their record.',
+    'See who holds a place in each School of Influencer batch, and take somebody off a batch with a written reason that stays on their record.',
 };
 
 interface PageProps {
@@ -48,12 +48,12 @@ export default async function SoiMembersPage({ searchParams }: PageProps) {
   const { event } = await searchParams;
 
   return (
-    <ContentLayout title="School of Influence">
+    <ContentLayout title="School of Influencer">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Startup Studio', href: '/startup-studio' },
-          { label: 'School of Influence' },
+          { label: 'School of Influencer' },
           { label: 'Members' },
         ]}
       />

@@ -534,6 +534,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // /hr/admin landing (see PermissionGuard in app/(routes)/hr/admin/page.tsx).
   '/hr/admin': 'hr.dashboard.view',
   '/hr/admin/automation-rules': 'hr.dashboard.view',
+  // Sorting a job title rewrites hr_staff_details for everyone who carries it,
+  // so this mirrors the page's own PermissionGuard (hr.employees.edit) rather
+  // than the cluster's read-only hr.dashboard.view.
+  '/hr/admin/designation-mapping': 'hr.employees.edit',
   '/hr/admin/disciplinary': 'hr.dashboard.view',
   '/hr/admin/fdp': 'hr.dashboard.view',
   '/hr/admin/forms': 'hr.dashboard.view',
@@ -2899,6 +2903,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/hr/admin', label: 'Dashboard', active: pathname === '/hr/admin' },
             { href: '/hr/admin/automation-rules', label: 'Automation Rules', active: pathname.startsWith('/hr/admin/automation-rules') },
+            { href: '/hr/admin/designation-mapping', label: 'Designation Mapping', active: pathname.startsWith('/hr/admin/designation-mapping') },
             { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
             { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
             { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
@@ -3646,7 +3651,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           // appointment for nav purposes only (see
           // hooks/school-of-influence/use-soi-coordinator-nav-access.ts).
           href: '/startup-studio/school-of-influence/admin/applications',
-          label: 'School of Influence',
+          label: 'School of Influencer',
           active: pathname.startsWith('/startup-studio/school-of-influence'),
           icon: GraduationCap,
           submenus: []

@@ -31,8 +31,44 @@ import {
 } from '@/lib/services/cohort-core/lifecycle';
 import type { Cohort, MembershipStatus } from '@/lib/types/cohort-core';
 
-/** cohorts.kind for a School of Influence batch. */
+/** cohorts.kind for a School of Influencer batch. */
 export const SOI_COHORT_KIND = 'school_of_influence' as const;
+
+/**
+ * The programme's name as a person reads it (Director decision, 2026-08-13).
+ *
+ * The live public event is already called "JKKN School of Influencer"; only the
+ * platform's own display strings still said "School of Influence", so a learner
+ * met two different names for one programme.
+ *
+ * This is a DISPLAY value and nothing else. SOI_COHORT_KIND above stays
+ * 'school_of_influence': ~23 database functions and every batch row are keyed on
+ * it, and renaming a key for a spelling is a large migration for no visible
+ * gain.
+ */
+export const SOI_PROGRAMME_DISPLAY_NAME = 'School of Influencer' as const;
+
+/** The name rows written before the rename still carry. */
+const SOI_LEGACY_DISPLAY_NAME = 'School of Influence';
+
+/**
+ * Print a stored name under the programme's current name.
+ *
+ * The three live `cohorts.name` rows still read "School of Influence — Batch A/
+ * B/C", and this lane deliberately does not rewrite them (that is a Director
+ * decision about data, not a display fix), so the swap happens on the way to the
+ * screen.
+ *
+ * The negative lookahead is load-bearing: "School of Influencer" CONTAINS
+ * "School of Influence", so a plain replace applied twice would produce
+ * "School of Influencerr". With it the function is idempotent, which matters
+ * because a name can pass through more than one surface.
+ */
+export function soiDisplayName(raw: string | null | undefined): string {
+  const text = String(raw ?? '').trim();
+  if (!text) return SOI_PROGRAMME_DISPLAY_NAME;
+  return text.replace(/School of Influence(?!r)/g, SOI_PROGRAMME_DISPLAY_NAME);
+}
 
 /**
  * events.event_type for the programme's front door (spec §6 P3).
