@@ -2013,6 +2013,8 @@ export const PERMISSION_CATEGORIES = [
       // either unregistered would make the table permanently super-admin-only.
       { key: 'solutions.societal.view', label: 'View Community Engagements' },
       { key: 'solutions.societal.record', label: 'Record Community Engagements' },
+      { key: 'solutions.societal.submit', label: 'Submit Community Engagements' },
+      { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
