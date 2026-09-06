@@ -18,12 +18,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getRoutineById } from '@/lib/ai-routines/registry';
+import { summarizeRoutineResult } from '@/lib/ai-routines/summarize-routine-result';
+import { withCronRun } from '@/lib/cron/run-log';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-export async function GET(request: NextRequest) {
+// Run-logged (2026-09-10). The dispatcher is the single clock for ~45 routines,
+// so its OWN silence is the most expensive failure on the platform — and it was
+// the one fire nothing recorded: fn_ai_routine_record_fire logs the routines it
+// fires, never the tick that fired them. withCronRun opens a cron_run_log row
+// before the claim and closes it after, so a dispatcher that dies mid-tick
+// leaves an unclosed row rather than no trace at all.
+async function handler(request: NextRequest) {
   // 1) Authorize — same CRON_SECRET pattern as every other cron.
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -56,33 +64,21 @@ export async function GET(request: NextRequest) {
 
   // Compact one-line summary of a routine's OWN JSON result, appended to the
   // HTTP status so "last run" says what the routine DID (e.g.
-  // "HTTP 200 · generated 3, measured 2, skipped 5"), not just that its
-  // endpoint answered 200. Reads a fixed allowlist of common numeric result
-  // keys; falls back to the bare HTTP status if the body isn't JSON or carries
-  // no known keys. Never throws — status logging must not fail the tick.
-  const SUMMARY_KEYS = [
-    'generated', 'measured', 'skipped', 'created', 'sent', 'updated',
-    'concerns', 'candidates', 'processed', 'recorded', 'escalations',
-    'nudged', 'tipped', 'delivered', 'flagged', 'events', 'count',
-    // metaloop-charter-drafts / -collect: without these, its "last run" line
-    // could only ever say "skipped 0, candidates 3" — the same
-    // allowlist-discards-the-story failure the BOS scheduler audit found.
-    'collected', 'filed', 'insufficient', 'enqueued',
-  ];
+  // "HTTP 200 · generated 0, skipped 0, courses 142, skipped_no_taxonomy 142"),
+  // not just that its endpoint answered 200. The judgement lives in
+  // summarizeRoutineResult so it can be driven by a fixture in a test — a
+  // route file cannot export a helper for one to import. This wrapper only
+  // parses the body; it never throws, because status logging must not be able
+  // to fail the tick.
+  //
+  // The allowlist that used to sit here is gone; its entries live on as
+  // HEADLINE_KEYS in that module, including the metaloop keys (collected,
+  // filed, insufficient, enqueued) added to it on main.
   const summarize = async (resp: Response): Promise<string> => {
-    const base = `HTTP ${resp.status}`;
     try {
-      const body = (await resp.clone().json()) as Record<string, unknown> | null;
-      if (!body || typeof body !== 'object') return base;
-      if (body.ok === false && typeof body.error === 'string') {
-        return `${base} · error: ${body.error}`.slice(0, 190);
-      }
-      const parts = SUMMARY_KEYS.filter((k) => typeof body[k] === 'number').map(
-        (k) => `${k} ${body[k]}`,
-      );
-      return parts.length ? `${base} · ${parts.join(', ')}`.slice(0, 190) : base;
+      return summarizeRoutineResult(resp.status, await resp.clone().json());
     } catch {
-      return base; // non-JSON body / already consumed → bare status
+      return `HTTP ${resp.status}`; // non-JSON body / already consumed → bare status
     }
   };
 
@@ -133,3 +129,5 @@ export async function GET(request: NextRequest) {
     elapsed_ms: Date.now() - started,
   });
 }
+
+export const GET = withCronRun('ai-routine-dispatcher', handler);

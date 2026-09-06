@@ -24,7 +24,6 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { FRIDAY_REFLECTION_ANCHOR, buildIdempotencyKey } from '@/lib/habits/anchor-schedule';
-import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 const REFLECTION_ROLES = ['faculty', 'student'] as const;
 type ReflectionRole = (typeof REFLECTION_ROLES)[number];
@@ -63,6 +62,9 @@ export async function GET(request: NextRequest) {
     eligible_users: 0,
     cards_created: 0,
     cards_skipped_duplicate: 0,
+    // Link rows actually written. cards_created counts composition; this counts
+    // DELIVERY. They diverge only if the fan-out half of the emit is broken.
+    cards_delivered: 0,
     errors: [] as string[]
   };
 
@@ -80,64 +82,83 @@ export async function GET(request: NextRequest) {
   const typedUsers = (users as ReflectionUser[]) ?? [];
   results.eligible_users = typedUsers.length;
 
-  for (const user of typedUsers) {
-    const idempKey = buildIdempotencyKey(FRIDAY_REFLECTION_ANCHOR, week, user.id);
-
-    const { data: existing } = await serviceClient
-      .from('notifications')
-      .select('id')
-      .eq('idempotency_key', idempKey)
-      .maybeSingle();
-
-    if (existing) {
-      results.cards_skipped_duplicate++;
-      continue;
-    }
-
-    const title = 'Friday Reflection';
-    const body =
+  // 2026-08-17: this used to loop over every profile and make TWO sequential
+  // round-trips per user (a SELECT on idempotency_key, then an INSERT). At 6,705
+  // eligible users that is 13,410 round-trips, and the AI-routine dispatcher
+  // aborts any routine at 120s, so the loop was cut off mid-way and the run
+  // recorded "The operation was aborted due to timeout". It was not dead, it was
+  // PARTIAL: 6,703 users served on 08-14 but only 51 on 07-10, with no signal in
+  // the output that anyone had been missed.
+  //
+  // Now: build every card in memory, then hand whole batches to
+  // fn_doctrines_emit_cards, which does the dedupe in ONE statement.
+  //
+  // It has to be an RPC. notifications' unique index on idempotency_key is
+  // PARTIAL (WHERE idempotency_key IS NOT NULL), Postgres will not infer a
+  // partial index from a bare ON CONFLICT (col), and PostgREST's on_conflict
+  // parameter cannot express the predicate — so a plain
+  // .upsert(rows, { onConflict: 'idempotency_key' }) raises 42P10 on every call.
+  // Verified against production before this was written.
+  const cards = typedUsers.map((user) => ({
+    title: 'Friday Reflection',
+    body:
       user.role === 'faculty'
         ? 'Log one learning from this week. What will you try differently next week? Set your weekend intent.'
-        : 'What did you learn this week? What is your intent for the weekend? Capture one thing you would do differently next week.';
+        : 'What did you learn this week? What is your intent for the weekend? Capture one thing you would do differently next week.',
+    url: '/dashboard?reflection=open',
+    icon: '/icons/icon-192x192.png',
+    created_by: user.id,
+    targeting: { user_ids: [user.id] },
+    priority: 'normal',
+    category: `doctrines:${FRIDAY_REFLECTION_ANCHOR.key}`,
+    // 2026-04-25: doctrines:* are cron-emitted operational reminders, not user-composed
+    // announcements. Tagging as work_item keeps them out of /notifications/admin page
+    // (which filters to kind='announcement'). User dashboard surfaces still pick them up.
+    kind: 'work_item',
+    idempotency_key: buildIdempotencyKey(FRIDAY_REFLECTION_ANCHOR, week, user.id),
+    expires_at: expiresAt,
+    metadata: {
+      role: user.role,
+      week,
+      source: `cron:${FRIDAY_REFLECTION_ANCHOR.key}`
+    }
+  }));
 
-    // Delivering an in-app card takes TWO writes, not one. The bell and inbox
-    // read `user_notifications` with an `!inner` join back to `notifications`
-    // (lib/services/notification/notification-service.ts), and there is no DB
-    // trigger that fans out — so a `notifications` row with no matching
-    // `user_notifications` link row is invisible to its recipient forever.
-    // Until 2026-08-25 this route wrote only the parent row: every reflection
-    // card it has ever composed reached nobody. fanoutNotification does both
-    // writes (and is the canonical helper — see its header).
-    try {
-      await fanoutNotification(serviceClient, {
-        title,
-        body,
-        userIds: [user.id],
-        createdBy: user.id,
-        url: '/dashboard?reflection=open',
-        icon: '/icons/icon-192x192.png',
-        priority: 'normal',
-        category: `doctrines:${FRIDAY_REFLECTION_ANCHOR.key}`,
-        // 2026-04-25: doctrines:* are cron-emitted operational reminders, not
-        // user-composed announcements. Tagging as work_item keeps them out of
-        // the /notifications/admin page (which filters to kind='announcement').
-        kind: 'work_item',
-        idempotencyKey: idempKey,
-        // expires_at is a real production column with no first-class option on
-        // the helper; the 7-day TTL above is what stops these piling up unread.
-        extraColumns: { expires_at: expiresAt },
-        source: `cron:${FRIDAY_REFLECTION_ANCHOR.key}`,
-        metadata: {
-          role: user.role,
-          week
-        }
-      });
-    } catch (err) {
-      results.errors.push(`${user.id}: ${err instanceof Error ? err.message : String(err)}`);
+  // Delivering an in-app card takes TWO writes, not one. The bell and inbox read
+  // `user_notifications` with an `!inner` join back to `notifications`
+  // (lib/services/notification/notification-service.ts), and no DB trigger fans
+  // out — so a `notifications` row with no matching `user_notifications` link row
+  // is invisible to its recipient forever. Until 2026-08-25 this route wrote only
+  // the parent row: 91,069 reflection cards naming real people reached nobody.
+  //
+  // #3199 fixed that by routing the per-user loop through fanoutNotification.
+  // This route no longer HAS a per-user loop, so the second write moved down with
+  // the first: fn_doctrines_emit_cards inserts the notifications rows AND their
+  // user_notifications links in the same statement, and back-fills the links of a
+  // card that already existed (the heal fanoutNotification does on its idempotent
+  // path). `linked` comes back so delivery is COUNTED, not assumed — the whole
+  // point of the 2026-08-25 postmortem was that this route reported
+  // `cards_created: N` for four months while delivering zero.
+  //
+  // Chunked so one run never posts a multi-megabyte body. 6,705 cards is 4 calls
+  // instead of 13,410.
+  const EMIT_CHUNK = 2000;
+  for (let i = 0; i < cards.length; i += EMIT_CHUNK) {
+    const batch = cards.slice(i, i + EMIT_CHUNK);
+    const { data, error } = await serviceClient.rpc('fn_doctrines_emit_cards', {
+      p_cards: batch
+    });
+
+    if (error) {
+      console.error('[cron/friday-reflection] emit failed:', error);
+      results.errors.push(`emit rows ${i}-${i + batch.length - 1}: ${error.message}`);
       continue;
     }
 
-    results.cards_created++;
+    const r = (data ?? {}) as { inserted?: number; skipped_duplicate?: number; linked?: number };
+    results.cards_created += r.inserted ?? 0;
+    results.cards_skipped_duplicate += r.skipped_duplicate ?? 0;
+    results.cards_delivered += r.linked ?? 0;
   }
 
   return NextResponse.json({
