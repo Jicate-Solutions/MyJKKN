@@ -5636,12 +5636,6 @@ CREATE INDEX IF NOT EXISTS idx_upgrade_fee_room ON public.hostel_category_upgrad
 CREATE INDEX IF NOT EXISTS idx_upgrade_fee_mess ON public.hostel_category_upgrade_fees
   (hostel_year_id, from_mess_category_id, to_mess_category_id) WHERE is_active;
 
--- 20260611180000: idempotency for housekeeping task generation — one task per
--- schedule per day (cron + creation trigger both upsert through this).
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cleaning_task_schedule_date
-  ON public.hostel_cleaning_tasks (schedule_id, date)
-  WHERE schedule_id IS NOT NULL;
-
 -- =====================================================
 -- 20260711000000: Family Moments engine (2026-06-12)
 -- Campaign-based parent engagement — Father's Day 2026
@@ -8637,38 +8631,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_global
   ON public.billing_receipt_cancel_approval_flows ((institution_id IS NULL))
   WHERE is_active AND institution_id IS NULL;
 
--- =====================================================
--- 20260827100000: Housekeeping booking assignment
--- (Base table hostel_cleaning_bookings + its 5 RPCs were created in
---  migrations 20260610190000 / 20260825120000 and were never mirrored
---  here — see those files for the full DDL. This block is the
---  assignment-flow delta.)
--- =====================================================
-
-ALTER TABLE public.hostel_cleaning_bookings
-  ADD COLUMN IF NOT EXISTS assigned_profile_id uuid REFERENCES public.profiles(id),
-  ADD COLUMN IF NOT EXISTS assigned_staff_name text,
-  ADD COLUMN IF NOT EXISTS assigned_at         timestamptz,
-  ADD COLUMN IF NOT EXISTS assigned_by         uuid REFERENCES public.profiles(id);
-
-CREATE INDEX IF NOT EXISTS idx_hostel_cleaning_bookings_assigned_profile
-  ON public.hostel_cleaning_bookings (assigned_profile_id);
-CREATE INDEX IF NOT EXISTS idx_hostel_cleaning_bookings_assigned_by
-  ON public.hostel_cleaning_bookings (assigned_by);
-
--- status gains 'assigned' (booked → assigned → completed/no_show)
-ALTER TABLE public.hostel_cleaning_bookings
-  DROP CONSTRAINT IF EXISTS hostel_cleaning_bookings_status_check;
-ALTER TABLE public.hostel_cleaning_bookings
-  ADD CONSTRAINT hostel_cleaning_bookings_status_check
-  CHECK (status IN ('booked','assigned','completed','cancelled','no_show'));
-
--- 'assigned' is still a LIVE booking for the room+slot
-DROP INDEX IF EXISTS public.hostel_cleaning_bookings_room_slot_uq;
-CREATE UNIQUE INDEX hostel_cleaning_bookings_room_slot_uq
-  ON public.hostel_cleaning_bookings (room_id, booking_date, slot_start)
-  WHERE status IN ('booked','assigned');
-
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260827160000_hr_comp_off_claim_documents.sql
 -- =============================================================================
@@ -9263,3 +9225,276 @@ CREATE INDEX IF NOT EXISTS idx_aiu_trails_open
 REVOKE ALL ON TABLE public.aiu_prompt_trails FROM anon, authenticated, PUBLIC;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.aiu_prompt_trails TO authenticated;
 ALTER TABLE public.aiu_prompt_trails ENABLE ROW LEVEL SECURITY;
+
+
+-- ==========================================================================
+-- Campus Living - Housekeeping (rebuilt 2026-09-07)
+-- Migration: 20260907090100_housekeeping_schema.sql
+-- Replaces the old hostel_cleaning_schedules / _tasks / _bookings module.
+-- ==========================================================================
+
+-- ==========================================================================
+-- 1. hostel_cleaning_types
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_types (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id    uuid NOT NULL REFERENCES public.institutions(id),
+  name              text NOT NULL,
+  description       text,
+  duration_minutes  integer NOT NULL CHECK (duration_minutes > 0 AND duration_minutes <= 480),
+  usage_limit_count integer NOT NULL CHECK (usage_limit_count >= 1),
+  usage_period      text    NOT NULL CHECK (usage_period IN ('day','week','month')),
+  is_active         boolean NOT NULL DEFAULT true,
+  sort_order        integer NOT NULL DEFAULT 0,
+  created_by        uuid REFERENCES public.profiles(id),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_hk_types_institution ON public.hostel_cleaning_types (institution_id);
+
+CREATE INDEX idx_hk_types_created_by  ON public.hostel_cleaning_types (created_by);
+
+CREATE UNIQUE INDEX ux_hk_types_name_per_institution
+  ON public.hostel_cleaning_types (institution_id, lower(name));
+
+ALTER TABLE public.hostel_cleaning_types ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- 2. hostel_cleaning_type_expenses
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_type_expenses (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  type_id        uuid NOT NULL REFERENCES public.hostel_cleaning_types(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES public.institutions(id),
+  item_name      text NOT NULL,
+  unit           text,
+  quantity       numeric(10,2) NOT NULL CHECK (quantity > 0),
+  unit_cost_inr  numeric(10,2) NOT NULL CHECK (unit_cost_inr >= 0),
+  line_total_inr numeric(12,2) GENERATED ALWAYS AS (quantity * unit_cost_inr) STORED,
+  sort_order     integer NOT NULL DEFAULT 0,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_hk_type_expenses_type        ON public.hostel_cleaning_type_expenses (type_id);
+
+CREATE INDEX idx_hk_type_expenses_institution ON public.hostel_cleaning_type_expenses (institution_id);
+
+ALTER TABLE public.hostel_cleaning_type_expenses ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- 3. hostel_cleaning_type_categories  (eligibility junction)
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_type_categories (
+  type_id     uuid NOT NULL REFERENCES public.hostel_cleaning_types(id) ON DELETE CASCADE,
+  category_id uuid NOT NULL REFERENCES public.hostel_categories(id),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (type_id, category_id)
+);
+
+CREATE INDEX idx_hk_type_categories_category ON public.hostel_cleaning_type_categories (category_id);
+
+ALTER TABLE public.hostel_cleaning_type_categories ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- 4. hostel_cleaners  (directory records;
+
+NO login, NO profile link)
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaners (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES public.institutions(id),
+  full_name      text NOT NULL,
+  phone          text,
+  gender         text CHECK (gender IN ('Male','Female','Other')),
+  employee_code  text,
+  -- Postgres DOW: 0=Sunday .. 6=Saturday. Default is Mon-Sat.
+  working_days   integer[] NOT NULL DEFAULT '{1,2,3,4,5,6}',
+  shift_start    time,
+  shift_end      time,
+  is_active      boolean NOT NULL DEFAULT true,
+  notes          text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_hk_cleaners_shift
+    CHECK (shift_end IS NULL OR shift_start IS NULL OR shift_end > shift_start),
+  CONSTRAINT ck_hk_cleaners_working_days
+    CHECK (working_days <@ ARRAY[0,1,2,3,4,5,6])
+);
+
+CREATE INDEX idx_hk_cleaners_institution ON public.hostel_cleaners (institution_id);
+
+ALTER TABLE public.hostel_cleaners ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- 5. hostel_cleaner_blocks
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaner_blocks (
+  cleaner_id uuid NOT NULL REFERENCES public.hostel_cleaners(id) ON DELETE CASCADE,
+  block_id   uuid NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (cleaner_id, block_id)
+);
+
+CREATE INDEX idx_hk_cleaner_blocks_block ON public.hostel_cleaner_blocks (block_id);
+
+ALTER TABLE public.hostel_cleaner_blocks ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- 6. hostel_cleaning_availability  (per block, per weekday)
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_availability (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES public.institutions(id),
+  block_id       uuid NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
+  weekday        integer NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+  is_open        boolean NOT NULL DEFAULT true,
+  window_start   time NOT NULL DEFAULT '09:00',
+  window_end     time NOT NULL DEFAULT '17:00',
+  capacity       integer NOT NULL DEFAULT 1 CHECK (capacity >= 1),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_hk_availability_window CHECK (window_end > window_start),
+  CONSTRAINT ux_hk_availability_block_weekday UNIQUE (block_id, weekday)
+);
+
+CREATE INDEX idx_hk_availability_institution ON public.hostel_cleaning_availability (institution_id);
+
+ALTER TABLE public.hostel_cleaning_availability ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- 7. hostel_cleaning_bookings  (the core record)
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_bookings (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id    uuid NOT NULL REFERENCES public.institutions(id),
+  block_id          uuid NOT NULL REFERENCES public.hostel_blocks(id),
+  room_id           uuid NOT NULL REFERENCES public.hostel_rooms(id),
+  allocation_id     uuid NOT NULL REFERENCES public.hostel_allocations(id),
+  -- profiles(id), matching hostel_allocations.learner_id. See header note.
+  learner_id        uuid NOT NULL REFERENCES public.profiles(id),
+  type_id           uuid NOT NULL REFERENCES public.hostel_cleaning_types(id) ON DELETE RESTRICT,
+
+  booking_date      date NOT NULL,
+  slot_start        time NOT NULL,
+  slot_end          time NOT NULL,
+  status            text NOT NULL DEFAULT 'booked'
+    CHECK (status IN ('booked','assigned','in_progress','awaiting_feedback','completed','cancelled')),
+
+  cleaner_id        uuid REFERENCES public.hostel_cleaners(id),
+  cleaner_name      text,
+  assigned_at       timestamptz,
+  assigned_by       uuid REFERENCES public.profiles(id),
+
+  started_at        timestamptz,
+  finished_at       timestamptz,
+
+  -- Display + notification scheduling only. The hold predicate is
+  -- booking_date < p_date (fn_cl_housekeeping_feedback_holds), the authority.
+  feedback_due_at   timestamptz NOT NULL,
+
+  -- Snapshots, frozen at booking / assign time.
+  type_name         text NOT NULL,
+  duration_minutes  integer NOT NULL,
+  expected_cost_inr numeric(12,2) NOT NULL DEFAULT 0,
+
+  waived_at         timestamptz,
+  waived_by         uuid REFERENCES public.profiles(id),
+  waive_reason      text,
+
+  cancelled_at      timestamptz,
+  cancelled_by      uuid REFERENCES public.profiles(id),
+  cancel_reason     text,
+
+  notes             text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT ck_hk_bookings_slot  CHECK (slot_end > slot_start),
+  CONSTRAINT ck_hk_bookings_waive CHECK (waived_at IS NULL OR waive_reason IS NOT NULL)
+);
+
+-- THE ROOM LOCK. One live booking per room, enforced by the database.
+CREATE UNIQUE INDEX ux_hk_one_live_booking_per_room
+  ON public.hostel_cleaning_bookings (room_id)
+  WHERE status IN ('booked','assigned','in_progress','awaiting_feedback');
+
+CREATE INDEX idx_hk_bookings_institution_date ON public.hostel_cleaning_bookings (institution_id, booking_date);
+
+CREATE INDEX idx_hk_bookings_block_date       ON public.hostel_cleaning_bookings (block_id, booking_date);
+
+CREATE INDEX idx_hk_bookings_room_date        ON public.hostel_cleaning_bookings (room_id, booking_date);
+
+CREATE INDEX idx_hk_bookings_cleaner_date     ON public.hostel_cleaning_bookings (cleaner_id, booking_date);
+
+CREATE INDEX idx_hk_bookings_learner          ON public.hostel_cleaning_bookings (learner_id);
+
+CREATE INDEX idx_hk_bookings_allocation       ON public.hostel_cleaning_bookings (allocation_id);
+
+CREATE INDEX idx_hk_bookings_type             ON public.hostel_cleaning_bookings (type_id);
+
+CREATE INDEX idx_hk_bookings_assigned_by      ON public.hostel_cleaning_bookings (assigned_by);
+
+CREATE INDEX idx_hk_bookings_waived_by        ON public.hostel_cleaning_bookings (waived_by);
+
+CREATE INDEX idx_hk_bookings_cancelled_by     ON public.hostel_cleaning_bookings (cancelled_by);
+
+-- The attendance-hold lookup. Deliberately narrow: only a handful of rows sit
+-- in awaiting_feedback at any moment, which is what keeps the hostel_attendance
+-- trigger cheap on a 15,822-row hot table.
+CREATE INDEX idx_hk_bookings_awaiting_feedback
+  ON public.hostel_cleaning_bookings (room_id, booking_date)
+  WHERE status = 'awaiting_feedback';
+
+ALTER TABLE public.hostel_cleaning_bookings ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- 8. hostel_cleaning_booking_photos
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_booking_photos (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id     uuid NOT NULL REFERENCES public.hostel_cleaning_bookings(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES public.institutions(id),
+  phase          text NOT NULL CHECK (phase IN ('before','after')),
+  drive_file_id  text NOT NULL,
+  drive_url      text NOT NULL,
+  file_name      text,
+  mime_type      text,
+  size_bytes     bigint,
+  uploaded_by    uuid NOT NULL REFERENCES public.profiles(id),
+  uploaded_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_hk_photos_booking     ON public.hostel_cleaning_booking_photos (booking_id);
+
+CREATE INDEX idx_hk_photos_institution ON public.hostel_cleaning_booking_photos (institution_id);
+
+CREATE INDEX idx_hk_photos_uploader    ON public.hostel_cleaning_booking_photos (uploaded_by);
+
+ALTER TABLE public.hostel_cleaning_booking_photos ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- 9. hostel_cleaning_feedback
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_feedback (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id     uuid NOT NULL REFERENCES public.hostel_cleaning_bookings(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES public.institutions(id),
+  room_id        uuid NOT NULL REFERENCES public.hostel_rooms(id),
+  learner_id     uuid NOT NULL REFERENCES public.profiles(id),
+  rating         integer NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment        text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ux_hk_feedback_one_per_learner UNIQUE (booking_id, learner_id)
+);
+
+CREATE INDEX idx_hk_feedback_booking     ON public.hostel_cleaning_feedback (booking_id);
+
+CREATE INDEX idx_hk_feedback_institution ON public.hostel_cleaning_feedback (institution_id);
+
+CREATE INDEX idx_hk_feedback_room        ON public.hostel_cleaning_feedback (room_id);
+
+CREATE INDEX idx_hk_feedback_learner     ON public.hostel_cleaning_feedback (learner_id);
+
+ALTER TABLE public.hostel_cleaning_feedback ENABLE ROW LEVEL SECURITY;

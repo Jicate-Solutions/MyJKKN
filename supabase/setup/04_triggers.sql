@@ -1351,11 +1351,6 @@ AFTER INSERT OR UPDATE OF referral_type, referred_by_id, referred_by_name, learn
 ON public.admission_leads
 FOR EACH ROW EXECUTE FUNCTION public.sync_lead_referral_to_learner_profile();
 
--- 20260611180000: seed today's hostel_cleaning_tasks row when a due cleaning
--- schedule is created (daily plans appear on the Tasks page immediately).
-CREATE TRIGGER trg_cleaning_schedule_seed_task AFTER INSERT ON hostel_cleaning_schedules
-    FOR EACH ROW EXECUTE FUNCTION _on_cleaning_schedule_seed_task();
-
 -- 20260611190000: sync learners_profiles room/mess categories from the room
 -- whenever an allocation becomes active (single enforcement point for manual,
 -- batch-approval, auto-allocate and upgrade allocation paths).
@@ -2596,3 +2591,25 @@ DROP TRIGGER IF EXISTS trg_aiu_prompt_trails_guard ON public.aiu_prompt_trails;
 CREATE TRIGGER trg_aiu_prompt_trails_guard
   BEFORE UPDATE ON public.aiu_prompt_trails
   FOR EACH ROW EXECUTE FUNCTION public.tg_aiu_prompt_trails_guard();
+
+
+-- ==========================================================================
+-- Campus Living - Housekeeping (rebuilt 2026-09-07)
+-- Migration: 20260907090100_housekeeping_schema.sql
+-- Replaces the old hostel_cleaning_schedules / _tasks / _bookings module.
+-- ==========================================================================
+
+CREATE TRIGGER t_hk_types_touch BEFORE UPDATE ON public.hostel_cleaning_types
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TRIGGER t_hk_type_expenses_touch BEFORE UPDATE ON public.hostel_cleaning_type_expenses
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TRIGGER t_hk_cleaners_touch BEFORE UPDATE ON public.hostel_cleaners
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TRIGGER t_hk_availability_touch BEFORE UPDATE ON public.hostel_cleaning_availability
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TRIGGER t_hk_bookings_touch BEFORE UPDATE ON public.hostel_cleaning_bookings
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
