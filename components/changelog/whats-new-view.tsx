@@ -12,7 +12,7 @@
  * rest of the app uses — this screen invents no access rules of its own.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Sparkles,
@@ -23,6 +23,7 @@ import {
   ArrowRight,
   AlertCircle,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
