@@ -33,19 +33,65 @@
  * and its later reversal.
  *
  * Run:  SUPABASE_DB_URL=… node scripts/sync-changelog-db.mjs
- *       CHANGELOG_REF=origin/main   which history to read (default origin/main)
+ *       CHANGELOG_REF=jicate/main   which history to read (default: whichever of
+ *                                  origin/main, jicate/main, main, HEAD is newest)
  *       --dry-run                   parse and report, touch no database
  *
  * Scheduled by .github/workflows/whats-new-refresh.yml, which is also what the
  * super admin's refresh button dispatches.
  */
+import { execSync } from 'node:child_process';
 import { collectChangelog } from './generate-changelog.mjs';
 
-const REF = process.env.CHANGELOG_REF || 'origin/main';
+/**
+ * Which history to read.
+ *
+ * NOT a fixed default, because the right answer differs by machine and getting it
+ * wrong is silent. In CI, actions/checkout names the production remote `origin`.
+ * On a developer's Mac `origin` is often a fork or a stale cache — in the worktree
+ * this was written in, `origin/main` was five weeks behind and produced 602
+ * entries covering Dec-March instead of 4,741 covering March-September.
+ *
+ * The staleness guard below would refuse that on any later run, but NOT on the
+ * first: an empty table has nothing to compare against, so a wrong ref would have
+ * seeded the whole page with the wrong history and looked like a success.
+ *
+ * So: take the candidate whose newest commit is most recent, and print which one
+ * won and what it covers. An explicit CHANGELOG_REF always wins.
+ */
+function resolveRef() {
+  const explicit = process.env.CHANGELOG_REF;
+  if (explicit) return explicit;
+
+  const candidates = ['origin/main', 'jicate/main', 'main', 'HEAD'];
+  let best = null;
+  for (const ref of candidates) {
+    try {
+      const at = execSync(`git log -1 --format=%ct ${ref}`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      const when = Number(at);
+      if (Number.isFinite(when) && (best === null || when > best.when)) best = { ref, when };
+    } catch {
+      // ref does not exist here — normal, candidates differ per machine
+    }
+  }
+  if (!best) {
+    fail('No usable git ref.', `Tried: ${candidates.join(', ')}.`);
+    process.exit(1);
+  }
+  return best.ref;
+}
+
+const REF = resolveRef();
 const DRY_RUN = process.argv.includes('--dry-run');
 
 /** Below this fraction of the rows already stored, refuse to write. */
 const STALENESS_FLOOR = 0.9;
+
+/** Absolute floor for a FIRST sync — see the guard for why a ratio cannot work there. */
+const FIRST_SEED_FLOOR = 1000;
 
 /** Rows per INSERT. 8 columns × 500 = 4,000 parameters, well inside Postgres's
  *  65,535 limit, and ten round trips for the whole history instead of 4,746. */
@@ -132,6 +178,21 @@ async function main() {
     );
     const { total: existing, hidden: hiddenBefore } = before.rows[0];
     console.log(`Table currently holds ${existing} entries (${hiddenBefore} hidden).`);
+
+    // A first seed has nothing to compare against, so the ratio guard below is
+    // inert exactly when a wrong ref would do the most damage — it would fill an
+    // empty table with the wrong history and report success. This floor is the
+    // backstop. It is deliberately far below any real history (the changelog has
+    // held 4,700+ entries since it was built) and only ever fires on a ref that
+    // is plainly not this project's main line.
+    if (existing === 0 && entries.length < FIRST_SEED_FLOOR) {
+      fail(
+        `Refusing to seed an empty table with only ${entries.length} entries from ${REF}.`,
+        `A first sync of this project should carry thousands. ${REF} is probably a stale or ` +
+        `wrong remote — check it, then re-run with CHANGELOG_REF set explicitly.`
+      );
+      return;
+    }
 
     if (existing > 0 && entries.length < existing * STALENESS_FLOOR) {
       fail(

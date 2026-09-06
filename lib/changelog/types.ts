@@ -1,4 +1,5 @@
-// Shape of the generated changelog files in lib/changelog/data/.
+// Shape of the payloads served by /api/whats-new, assembled from the
+// changelog_entries / changelog_modules / changelog_sync tables.
 // Written by scripts/generate-changelog.mjs — keep the two in step.
 
 /** How a change reads to a person. */

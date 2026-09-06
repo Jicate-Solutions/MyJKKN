@@ -454,9 +454,17 @@ export function WhatsNewView() {
       {filtered.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center">
-            <p className="font-medium">No changes match that</p>
+            <p className="font-medium">
+              {meta.total === 0 ? 'The changelog has not been built yet' : 'No changes match that'}
+            </p>
+            {/* An empty table and an over-narrow filter look identical to a reader,
+                and blaming their search for a list that was simply never synced sends
+                them hunting for a mistake they did not make. The first deploy after
+                the move to the database hits this for real, until the sync runs. */}
             <p className="mt-1 text-sm text-muted-foreground">
-              Try a different area, or clear the search.
+              {meta.total === 0
+                ? 'No changes have been loaded yet. This fills in the first time the changelog syncs.'
+                : 'Try a different area, or clear the search.'}
             </p>
           </CardContent>
         </Card>
@@ -565,26 +573,33 @@ export function WhatsNewView() {
           </Button>
         )}
         {/* The age is shown ALWAYS, not only when it is bad (Director, 2026-09-06).
-            This list is generated and committed, so it can silently stop moving
-            while still looking perfectly healthy — a plain date gives a reader no
-            way to tell. Past a week we say so outright rather than leaving them to
-            do the arithmetic. */}
-        <p className="text-center text-xs text-muted-foreground">
-          Updated {formatDay(meta.generatedAt)} ·{' '}
-          <span
-            className={cn(
-              daysSince(meta.generatedAt) >= 7 && 'font-medium text-amber-700 dark:text-amber-400'
+            The list can stop moving while still looking perfectly healthy, and a
+            plain date gives a reader no way to tell. Past a week we say so outright
+            rather than leaving them to do the arithmetic.
+
+            `generatedAt` is empty until the first sync has ever run — the route
+            falls back to '' when changelog_sync holds no row. Rendering that
+            unguarded produced "Updated Invalid Date · NaN days ago", which is how
+            the very first deploy after the move to the database would have looked. */}
+        {meta.generatedAt ? (
+          <p className="text-center text-xs text-muted-foreground">
+            Updated {formatDay(meta.generatedAt)} ·{' '}
+            <span
+              className={cn(
+                daysSince(meta.generatedAt) >= 7 && 'font-medium text-amber-700 dark:text-amber-400'
+              )}
+            >
+              {ageLabel(daysSince(meta.generatedAt))}
+            </span>
+            {daysSince(meta.generatedAt) >= 7 && (
+              <> — newer changes have shipped but are not shown here yet.</>
             )}
-          >
-            {ageLabel(daysSince(meta.generatedAt))}
-          </span>
-          {daysSince(meta.generatedAt) >= 7 && (
-            <>
-              {' '}
-              — newer changes have shipped but are not shown here yet.
-            </>
-          )}
-        </p>
+          </p>
+        ) : (
+          <p className="text-center text-xs text-muted-foreground">
+            Never updated — the changelog has not synced yet.
+          </p>
+        )}
         {/* Directly under the age line: that line is where a reader decides the
             page is stale, so the one control that can do something about it
             belongs there. Renders for super admins only. */}
