@@ -225,8 +225,10 @@ async function readEntries(
  * DISTINCT, no GROUP BY), and deriving every number from a single read is what
  * keeps total / recentCount / archiveCount from disagreeing with the lists this
  * same route serves. changelog_sync.entry_count is deliberately NOT used as
- * `total`: it counts what the sync wrote, hidden rows included, and this reader
- * must not be told those exist.
+ * `total` even though it is the visible count: it is only rewritten inside a
+ * sync (scripts/sync-changelog-db.mjs), so an entry hidden between syncs — a
+ * person's takedown, the thing `hidden` exists for — leaves it overstating what
+ * this reader can actually see.
  */
 async function readMeta(supabase: Db, cutoff: string): Promise<ChangelogMeta> {
   const [scan, moduleRows, sync] = await Promise.all([
