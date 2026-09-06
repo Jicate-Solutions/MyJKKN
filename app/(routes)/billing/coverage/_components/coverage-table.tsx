@@ -28,6 +28,7 @@ interface CoverageTableProps {
 const COVERAGE_EXPORT_LABELS: Record<string, string> = {
   generated: 'Generated',
   not_generated: 'Not Generated',
+  not_applicable: 'Programme Ended',
   cannot_evaluate: 'Cannot Evaluate'
 };
 
@@ -42,13 +43,29 @@ function transformCoverageForExport(
     institution: r.institution_name ?? '',
     programme: r.program_name ?? '',
     semesterSection: r.semester_section ?? '',
-    academicYear: r.academic_year_name ?? '',
+    // Two DIFFERENT years, both needed. learnerYear is the year on the profile;
+    // coverageYear is the year the Coverage verdict was measured against. They
+    // routinely differ, and a sheet showing only the first makes a "Not
+    // Generated" row impossible to reconcile against the learner's bills.
+    learnerYear: r.academic_year_name ?? '',
+    // A third year on the same row, and the only one that never rolls over.
+    // Stays a raw number so the sheet can be grouped and sorted by cohort.
+    admissionYear: r.admission_year ?? '',
     accommodation: r.accommodation_type ?? '',
     transport: r.uses_transport ? 'Bus' : '',
     lifecycleStatus: r.lifecycle_status,
     bills: r.bill_count,
+    // Both stay raw numbers, never formatCurrency strings — the point of the
+    // sheet is that accounts can SUM these columns and subtract one from the
+    // other to get the balance. A "₹1,40,000" cell is text to Excel.
     totalBilled: r.total_billed,
-    coverage: COVERAGE_EXPORT_LABELS[r.coverage_state] ?? r.coverage_state
+    totalPaid: r.total_paid,
+    coverage: COVERAGE_EXPORT_LABELS[r.coverage_state] ?? r.coverage_state,
+    coverageYear: r.target_academic_year_name ?? '',
+    // Without these a "Programme Ended" row in the sheet is an assertion the
+    // reader cannot check. Duration stays a raw number so it can be sorted.
+    programmeDuration: r.program_duration_yrs ?? '',
+    programmeEnds: r.programme_end_year ?? ''
   };
 }
 
@@ -61,6 +78,7 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
     () =>
       JSON.stringify([
         filters.academic_year_id ?? null,
+        filters.admission_year ?? null,
         filters.institution_ids ?? null,
         filters.lifecycle_statuses ?? null,
         filters.billing_category_id ?? null,
@@ -79,6 +97,7 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
       ]),
     [
       filters.academic_year_id,
+      filters.admission_year,
       filters.institution_ids,
       filters.lifecycle_statuses,
       filters.billing_category_id,
@@ -137,19 +156,28 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           institution: 'Institution',
           programme: 'Programme',
           semesterSection: 'Semester · Section',
-          academicYear: 'Academic Year',
+          learnerYear: 'Learner Year',
+          admissionYear: 'Admission Year',
           accommodation: 'Accommodation',
           transport: 'Transport',
           lifecycleStatus: 'Lifecycle Status',
           bills: 'Bills',
           totalBilled: 'Total Billed',
-          coverage: 'Coverage'
+          totalPaid: 'Total Paid',
+          coverage: 'Coverage',
+          coverageYear: 'Measured For (AY)',
+          programmeDuration: 'Programme Duration (Yrs)',
+          programmeEnds: 'Programme Ends'
         },
+        // One entry per header, in the same order — the widths are applied by
+        // INDEX, so inserting a header without inserting its width here shifts
+        // every column after it.
         columnWidths: [
           { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 10 },
           { wch: 28 }, { wch: 26 }, { wch: 20 }, { wch: 14 },
-          { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 8 },
-          { wch: 14 }, { wch: 16 }
+          { wch: 15 }, { wch: 16 }, { wch: 12 }, { wch: 16 },
+          { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
+          { wch: 18 }, { wch: 22 }, { wch: 16 }
         ],
         headers: [
           'rollNumber',
@@ -159,13 +187,18 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           'institution',
           'programme',
           'semesterSection',
-          'academicYear',
+          'learnerYear',
+          'admissionYear',
           'accommodation',
           'transport',
           'lifecycleStatus',
           'bills',
           'totalBilled',
-          'coverage'
+          'totalPaid',
+          'coverage',
+          'coverageYear',
+          'programmeDuration',
+          'programmeEnds'
         ],
         transformFunction: transformCoverageForExport
       }}

@@ -29,83 +29,103 @@ export class AllocationBatchService {
     }>;
   }
 
+  // PostgrestError extends Error, so JSON.stringify(err) is "{}" — logging the
+  // raw object hid a 57014 statement timeout behind an empty payload and cost a
+  // whole debugging session. Always log this shape, never the bare error.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private static rpcErr(error: any) {
+    return {
+      message: error?.message ?? String(error),
+      code: error?.code ?? null,
+      details: error?.details ?? null,
+      hint: error?.hint ?? null,
+    };
+  }
+
   // ── Auto-allocation engine RPCs ──
-  // p_floor null = all floors; a number restricts to that floor of the block.
-  static async preview(blockId: string, floor: number | null = null): Promise<AllocatePreview> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_preview', { p_block_id: blockId, p_floor: floor });
-    if (error) { logger.error(LOG, 'preview failed', error); throw new Error(error.message || 'Failed to preview allocation'); }
+  // Scoped by hostel TYPE ('boys' | 'girls'), never by block or floor: the
+  // physical-room rules already decide which block/room a cohort may enter, so
+  // the engine sweeps every block of the type. institutionId / programId /
+  // semesterId narrow WHICH learners are considered (null = no filter).
+  static async preview(
+    hostelType: string,
+    institutionId: string | null = null,
+    programId: string | null = null,
+    semesterId: string | null = null,
+  ): Promise<AllocatePreview> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_preview', {
+      p_hostel_type: hostelType,
+      p_institution_id: institutionId, p_program_id: programId, p_semester_id: semesterId,
+    });
+    if (error) { logger.error(LOG, 'preview failed', this.rpcErr(error)); throw new Error(error.message || 'Failed to preview allocation'); }
     const row = Array.isArray(data) ? data[0] : data;
     return (row ?? { cohort_eligible: 0, no_profile: 0, already_allocated: 0, available_beds: 0, rules_set: false }) as AllocatePreview;
   }
 
   // strict=true → only learners whose cohort matches a physical-room rule are eligible
   // (open/rule-free rooms are NOT used as a catch-all). Physical rule first, then category.
-  // institutionId / programId / semesterId narrow WHICH learners are considered
-  // (null = no filter); the block's rooms remain the destination either way.
+  //
+  // allowOverflow=true → when every room RESERVED for the learner's cohort in
+  // their eligible category is full, fall back to rooms of that SAME category
+  // that no rule reserves. Category is never changed and no other cohort's
+  // reserved room is ever used. Pass false to reproduce the pre-2026-08-10
+  // behaviour exactly — useful for proving a run changed nothing else.
   static async previewCandidates(
-    blockId: string,
-    strict = false,
-    floor: number | null = null,
+    hostelType: string,
+    strict = true,
     institutionId: string | null = null,
     programId: string | null = null,
     semesterId: string | null = null,
+    allowOverflow = true,
   ): Promise<AllocationCandidate[]> {
     const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', {
-      p_block_id: blockId, p_strict: strict, p_floor: floor,
+      p_hostel_type: hostelType, p_strict: strict,
       p_institution_id: institutionId, p_program_id: programId, p_semester_id: semesterId,
+      p_allow_overflow: allowOverflow,
     });
-    if (error) { logger.error(LOG, 'previewCandidates failed', error); throw new Error(error.message || 'Failed to preview candidates'); }
+    if (error) { logger.error(LOG, 'previewCandidates failed', this.rpcErr(error)); throw new Error(error.message || 'Failed to preview candidates'); }
     return (Array.isArray(data) ? data : []) as AllocationCandidate[];
   }
 
+  // Produces ONE batch spanning every block of the type. The hostel year is
+  // omitted on purpose — the RPC defaults to hostel_years.is_current.
+  // allowOverflow must match whatever the operator previewed with, or Generate
+  // places a different set than the preview showed.
   static async generate(
-    blockId: string,
-    hostelYearId: string,
-    strict = false,
-    floor: number | null = null,
+    hostelType: string,
+    strict = true,
     institutionId: string | null = null,
     programId: string | null = null,
     semesterId: string | null = null,
+    allowOverflow = true,
   ): Promise<string> {
     const { data, error } = await this.rpcCall('fn_auto_allocate_classic', {
-      p_block_id: blockId, p_hostel_year_id: hostelYearId, p_strict: strict, p_floor: floor,
+      p_hostel_type: hostelType, p_strict: strict,
       p_institution_id: institutionId, p_program_id: programId, p_semester_id: semesterId,
+      p_allow_overflow: allowOverflow,
     });
-    if (error) { logger.error(LOG, 'generate failed', error); throw new Error(error.message || 'Failed to generate allocation batch'); }
+    if (error) { logger.error(LOG, 'generate failed', this.rpcErr(error)); throw new Error(error.message || 'Failed to generate allocation batch'); }
     return data as string;
   }
 
-  // Distinct floors that have student rooms in a block — drives the floor-scope picker.
-  static async getBlockFloors(blockId: string): Promise<number[]> {
-    if (!blockId) return [];
-    const { data, error } = await this.supabase
-      .from('hostel_rooms')
-      .select('floor')
-      .eq('block_id', blockId)
-      .eq('room_purpose', 'student');
-    if (error) { logger.error(LOG, 'getBlockFloors failed', error); throw new Error(error.message || 'Failed to load floors'); }
-    const floors = [...new Set((data ?? [])
-      .map((r: Record<string, unknown>) => r.floor as number)
-      .filter((f) => f != null))];
-    return floors.sort((a, b) => a - b);
-  }
-
-  // Institutions the chosen block serves — scopes the auto-allocate Institution
-  // filter so an operator only picks institutions the block actually houses
-  // (matches the engine's cohort scope: hostel_block_institutions).
-  static async getBlockInstitutions(blockId: string): Promise<{ id: string; name: string }[]> {
-    if (!blockId) return [];
+  // Institutions housed by ANY block of this hostel type — scopes the
+  // Institution cohort filter to what the engine can actually place.
+  static async getInstitutionsByHostelType(hostelType: string): Promise<{ id: string; name: string }[]> {
+    if (!hostelType) return [];
     const { data, error } = await this.supabase
       .from('hostel_block_institutions')
-      .select('institution_id, institutions(name)')
-      .eq('block_id', blockId);
-    if (error) { logger.error(LOG, 'getBlockInstitutions failed', error); throw new Error(error.message || 'Failed to load block institutions'); }
-    return (data ?? [])
-      .map((r: Record<string, unknown>) => ({
-        id: r.institution_id as string,
-        name: (r.institutions as { name?: string } | null)?.name ?? '—',
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .select('institution_id, institutions(name), hostel_blocks!inner(hostel_type)')
+      .eq('hostel_blocks.hostel_type', hostelType);
+    if (error) { logger.error(LOG, 'getInstitutionsByHostelType failed', this.rpcErr(error)); throw new Error(error.message || 'Failed to load institutions'); }
+    // A college can be served by several blocks of the same type — dedupe by id.
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const id = r.institution_id as string;
+      if (id && !byId.has(id)) {
+        byId.set(id, { id, name: (r.institutions as { name?: string } | null)?.name ?? '—' });
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   static async approve(batchId: string): Promise<void> {

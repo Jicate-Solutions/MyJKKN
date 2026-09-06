@@ -1,5 +1,5 @@
 // ============================================================================
-// PREMIUM STAY — TIER POLICY (Super-Admin / Chief-Warden)
+// PREMIUM ROOM — TIER POLICY (Super-Admin / Chief-Warden)
 // ============================================================================
 // Created: 2026-05-16
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
@@ -7,7 +7,7 @@
 // This page lets super_admin / admin (and chief_warden via the
 // campus_living.premium.configure_tier permission) manage the
 // hostel_tier_policy table — the 3-tier ladder (standard / premium /
-// premium_plus) for the paid Premium Stay SKU. Edit fee uplift %, feature
+// premium_plus) for the paid Premium Room SKU. Edit fee uplift %, feature
 // bundle, and activation state globally or per-institution without a code
 // deploy.
 //
@@ -28,7 +28,7 @@ export default function CampusLivingTierPolicyPage() {
         <ContentLayout title="Campus Living — Tier Policy">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
             This page is restricted to super administrators. Tier policy drives
-            the Premium Stay SKU — fees, feature bundles, room access. Chief
+            the Premium Room SKU — fees, feature bundles, room access. Chief
             wardens with the right permission can edit per-college overrides
             from the Campus Living admin panel.
           </div>
@@ -39,7 +39,7 @@ export default function CampusLivingTierPolicyPage() {
         <div className="mb-6 rounded-lg border border-border bg-muted/30 p-5">
           <h3 className="mb-2 text-sm font-semibold">What does this control?</h3>
           <p className="text-sm text-muted-foreground">
-            The Premium Stay SKU has 3 tiers:{' '}
+            The Premium Room SKU has 3 tiers:{' '}
             <strong>standard</strong> (default, no extra fee) →{' '}
             <strong>premium</strong> (self-pick block / room / bed / roommate) →{' '}
             <strong>premium plus</strong> (premium + extended curfew + premium

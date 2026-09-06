@@ -37,6 +37,7 @@ import type {
   HRJobApplication,
   HRJobApplicationInsert,
   JobApplicationStatus,
+  PurgeRejectedApplicantResponse,
   HRRecruitmentCandidateComment,
   HRRecruitmentJobNote,
   ApprovalsJobOverviewRow,
@@ -46,8 +47,8 @@ import type {
   MonthlySalaryBand,
   OnboardToStaffPayload,
   RoleCategory,
-  InterviewMode,
 } from '@/types/hr-recruitment';
+import type { LeaveApprovalStep } from '@/types/hr';
 
 const BASE = '/api/hr/recruitment';
 
@@ -707,6 +708,23 @@ export function useJobApplications(filters: JobApplicationFilters = {}) {
   });
 }
 
+/** One application for the screening detail page (pre-promotion applicants). */
+export function useApplication(id: string | undefined) {
+  return useQuery({
+    queryKey: ['hr-job-application', id],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/applications/${id}`);
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Application fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as HRJobApplication;
+    },
+    enabled: !!id,
+  });
+}
+
 export function useReviewApplication() {
   const qc = useQueryClient();
   return useMutation({
@@ -765,6 +783,42 @@ export function usePromoteApplication() {
       qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
+    },
+  });
+}
+
+/**
+ * Permanently erase a REJECTED applicant — super admins only, irreversible.
+ *
+ * Pass whichever id the row has: `applicationId` for a screening rejection,
+ * `candidateId` for one rejected inside the approval pipeline. The server follows
+ * promoted_candidate_id to clean up the other side, so a promoted-then-rejected
+ * person is fully removed either way.
+ *
+ * The super-admin and rejected-only checks are enforced server-side; the UI gate
+ * only decides whether the button is shown.
+ */
+export function usePurgeRejectedApplicant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { applicationId?: string; candidateId?: string }) => {
+      const path = payload.applicationId
+        ? `${BASE}/applications/${payload.applicationId}`
+        : `${BASE}/candidates/${payload.candidateId}`;
+      const res = await fetch(path, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Delete failed');
+      }
+      return ((await res.json()).data) as PurgeRejectedApplicantResponse;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-interviews'] });
     },
   });
 }
@@ -873,6 +927,32 @@ export function useCandidatesForJob(jobId: string | undefined) {
         throw new Error(err.error || `Candidates fetch failed: ${res.status}`);
       }
       return ((await res.json()).data) as HRRecruitmentCandidate[];
+    },
+    enabled: !!jobId,
+  });
+}
+
+/**
+ * The approval chain this job's applicants will enter when promoted.
+ *
+ * Read straight after someone applies — there is no candidate row (and so no
+ * frozen chain) until Promote, and the workspace still needs to show reviewers
+ * the configured route. `reason` distinguishes "no flows for this org" from
+ * "flows exist but none routes this role category" so the UI can name the gap.
+ */
+export function useJobApprovalFlow(jobId: string | undefined) {
+  return useQuery({
+    queryKey: ['hr-recruitment-job-approval-flow', jobId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/jobs/${jobId}/approval-flow`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Approval flow fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as {
+        steps: LeaveApprovalStep[];
+        reason: 'ok' | 'no_flows' | 'no_match';
+      };
     },
     enabled: !!jobId,
   });

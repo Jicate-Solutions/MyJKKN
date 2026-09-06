@@ -1,5 +1,5 @@
 // ============================================================================
-// PREMIUM STAY — CHIEF WARDEN OVERRIDE (Super-Admin / Chief-Warden view)
+// PREMIUM ROOM — CHIEF WARDEN OVERRIDE (Super-Admin / Chief-Warden view)
 // ============================================================================
 // Created: 2026-05-19 (Phase 2)
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html (decision-#13)
@@ -13,7 +13,7 @@
 // Companion migration: supabase/migrations/20260519101705_create_hostel_premium_audit_log.sql
 // ============================================================================
 
-export const navMeta = { label: 'Premium Stay — Chief Warden Override', icon: 'ShieldCheck' } as const;
+export const navMeta = { label: 'Premium Room — Chief Warden Override', icon: 'ShieldCheck' } as const;
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -33,7 +33,7 @@ export default function PremiumStayOverridePage() {
     <AdminPermissionGuard
       adminRoles={OVERRIDE_ROLES}
       fallback={
-        <ContentLayout title="Premium Stay — Chief Warden Override">
+        <ContentLayout title="Premium Room — Chief Warden Override">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
             This page is restricted to chief wardens, wardens, and platform
             administrators. The override path additionally requires the{' '}
@@ -44,7 +44,7 @@ export default function PremiumStayOverridePage() {
         </ContentLayout>
       }
     >
-      <ContentLayout title="Premium Stay — Chief Warden Override">
+      <ContentLayout title="Premium Room — Chief Warden Override">
         <div className="mb-6 rounded-lg border border-border bg-muted/30 p-5">
           <h3 className="mb-2 text-sm font-semibold">When to use this page</h3>
           <p className="text-sm text-muted-foreground">

@@ -10,8 +10,9 @@
 //   the exact subpath in advance.
 //
 // What's here:
-//   18 ActionCards grouped into 6 categories:
+//   20 ActionCards grouped into 7 categories:
 //     - Policies & Configuration  (5 cards)
+//     - Attendance                (3 cards)   <- added 2026-08-09
 //     - Recruitment               (2 cards)
 //     - Payroll                   (2 cards)
 //     - People & Performance      (4 cards)
@@ -49,6 +50,7 @@ import {
   ShieldCheck,
   Sparkles,
   TrendingUp,
+  Upload,
   UserMinus,
   UserX,
   Wallet,
@@ -101,13 +103,6 @@ const SECTIONS: Section[] = [
           'Step-by-step joining workflows assigned per role category.',
       },
       {
-        href: '/hr/admin/shift-templates',
-        icon: ClipboardList,
-        title: 'Shift Templates',
-        description:
-          'Pre-defined working-hour patterns for attendance scheduling.',
-      },
-      {
         href: '/hr/admin/automation-rules',
         icon: Workflow,
         title: 'Automation Rules',
@@ -120,6 +115,40 @@ const SECTIONS: Section[] = [
         title: 'Sanctioned Posts',
         description:
           'Sanctioned Senior Learner posts per cadre and academic year — feeds NAAC 2.2.1 accreditation evidence.',
+      },
+    ],
+  },
+  {
+    // Added 2026-08-09. /hr/attendance became the employee-facing My Attendance
+    // page (Attendance Log + Calendar), so the three admin-facing cards it used
+    // to host moved here. Shift Timings joined them from "Policies &
+    // Configuration": it is the config the biometric evaluator reads to decide
+    // present vs half day vs absent, so it belongs beside the import that
+    // consumes it rather than beside document checklists.
+    title: 'Attendance',
+    description:
+      'The shift timings punches are judged against, the biometric import that loads them, and the correction queue.',
+    cards: [
+      {
+        href: '/hr/admin/shift-timings',
+        icon: ClipboardList,
+        title: 'Shift Timings',
+        description:
+          'Working hours per institution, staff category and weekday — first/second half windows and morning grace. Punch evaluation reads this; a month with no timing in force imports as exceptions, not attendance.',
+      },
+      {
+        href: '/hr/attendance/import',
+        icon: Upload,
+        title: 'Import Biometric Punches',
+        description:
+          'Upload the machine’s Monthly Performance Report (.xls / .xlsx). Present, half day and absent are recomputed from IN and OUT against the configured shift timings.',
+      },
+      {
+        href: '/hr/attendance/regularize/approvals',
+        icon: ShieldCheck,
+        title: 'Regularize Approvals',
+        description:
+          'Review queue for missed-punch and device-failure corrections raised by staff from their own attendance log.',
       },
     ],
   },

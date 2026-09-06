@@ -92,6 +92,65 @@ export function isGeneralEventActive(status: string): boolean {
   return status !== 'draft';
 }
 
+// ── Induction ────────────────────────────────────────────────────────────────
+// Added 2026-08-18. Until now the induction module had NO status writer at all:
+// fn_induction_create_program hardcodes `status = 'draft'` and nothing anywhere
+// — no service, no RPC, no UI — ever wrote another value. Every induction
+// created through the module was stuck in Draft permanently, and the detail
+// console only rendered the badge. Exactly the hole GeneralEventService was
+// created to close for wizard events.
+//
+// Its OWN map, for two reasons:
+//
+//   • EVENT_STATUS_TRANSITIONS has no draft -> live edge (draft goes to
+//     'planning'), so validating a one-click activation against it rejects every
+//     attempt. That bug already shipped twice here — tournaments, then general
+//     events. The note above it says not to widen it, and this does not.
+//
+//   • Not GENERAL_EVENT_STATUS_TRANSITIONS either, despite the identical shape
+//     today. That map belongs to wizard-created events; sharing it would couple
+//     two lifecycles that have no reason to move together, and the first time
+//     one needed a state the other didn't, the change would land on both.
+//
+// Draft <-> Live is the whole model on purpose: those are the only two values
+// any induction has ever held. If the programme later needs a "Completed" phase
+// (the Scorecard and Loop Playbook sections would be its natural home), it is
+// one entry here plus one label below — not a redesign.
+
+/** The DB value an induction stores while it is running. Shown as "Live". */
+export const INDUCTION_ACTIVE_STATUS = 'live' as const satisfies EventStatus;
+
+/**
+ * Induction transitions. The legacy arms exist so a row that reached another
+ * status before this model shipped can be moved onto it — under the shared map
+ * `archived` is terminal, which would strand such a row with no reachable
+ * status at all. Same tolerance GENERAL_EVENT_STATUS_TRANSITIONS documents.
+ */
+export const INDUCTION_STATUS_TRANSITIONS: Partial<Record<EventStatus, EventStatus[]>> = {
+  draft: ['live'],
+  live: ['draft'],
+  planning: ['draft', 'live'],
+  preparation: ['draft', 'live'],
+  execution: ['draft', 'live'],
+  post_event: ['draft', 'live'],
+  archived: ['draft', 'live'],
+  cancelled: ['draft', 'live'],
+};
+
+/**
+ * Label for an induction status.
+ *
+ * NOT generalEventStatusLabel(): that collapses every non-draft value to
+ * "Active", which would report a legacy `archived` or `cancelled` induction as
+ * running. Draft and Live get their own words; anything else keeps its real
+ * EVENT_STATUS_LABELS name so the row cannot lie about where it is.
+ */
+export function inductionStatusLabel(status: string): string {
+  if (status === 'draft') return 'Draft';
+  if (status === INDUCTION_ACTIVE_STATUS) return 'Live';
+  return EVENT_STATUS_LABELS[status as EventStatus] ?? status;
+}
+
 // ============================================================================
 // Core Entities
 // ============================================================================
@@ -268,6 +327,9 @@ export interface CreateEventDto {
   tagline?: string;
   event_date?: string;
   start_time?: string;
+  /** Pairs with start_time. Both are `time` columns — the hours the event runs
+   *  on each of its days, and the hours the room is held for. */
+  end_time?: string;
   venue?: string;
   venue_address?: string;
   year?: number;
@@ -299,6 +361,26 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   hero_image_url?: string;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
+}
+
+/**
+ * What deleting an event would take with it, counted past RLS by
+ * fn_event_delete_blockers. Counting these in the browser reports 0 for anyone
+ * who can't see the child rows — a false "safe to delete" on the one check that
+ * exists to stop data loss — so the numbers only ever come from that RPC.
+ */
+export interface EventDeleteBlockers {
+  registrations: number;
+  payments: number;
+  /**
+   * Enrolled induction learners. A separate count because an induction never
+   * writes events_registrations — freshers arrive through
+   * fn_induction_auto_enroll — so the other two are always 0 for one, and the
+   * guard used to wave it through with hundreds of learners attached.
+   */
+  induction_learners: number;
+  /** True when the DB will refuse the delete outright (the trigger, not the UI). */
+  blocked: boolean;
 }
 
 export interface EventFilters {

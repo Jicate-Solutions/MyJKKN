@@ -2,8 +2,13 @@
 // Updated: 2026-02-21 — Multi-store support (store_id as primary scope),
 // optimistic stock validation, new sale number format (PREFIX-YYMMDD-XXXX).
 // Updated: 2026-04-28 — Phase F: activity log integration on sale create.
+// Updated: 2026-07-30 — POS go-live. createSale/cancelSale now delegate to the
+//   ims_pos_checkout / ims_pos_cancel_sale RPCs so the whole sale is one
+//   transaction (see 20260730120000_ims_pos_checkout_engine.sql), and every
+//   "today" window is anchored to the IST business day instead of UTC.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { istDayBounds } from '@/lib/utils/date-format';
 import { ImsStockAdjustmentService } from './stock-adjustment-service';
 import { ImsActivityLogService } from './activity-log-service';
 import type {
@@ -40,9 +45,16 @@ export class ImsSalesService {
         );
 
       if (filters.search) {
-        query = query.or(
-          `sale_number.ilike.%${filters.search}%,customer_name.ilike.%${filters.search}%`
-        );
+        // PostgREST parses .or() as a comma-separated expression list, so an
+        // unescaped `,` `(` or `)` in the search box does not search for those
+        // characters — it rewrites the filter. Strip the structural characters and
+        // the PostgREST wildcards, then wrap in quotes so spaces survive.
+        const term = filters.search.replace(/[,()*"\\]/g, '').trim();
+        if (term) {
+          query = query.or(
+            `sale_number.ilike."%${term}%",customer_name.ilike."%${term}%"`
+          );
+        }
       }
 
       if (filters.status) {
@@ -142,30 +154,98 @@ export class ImsSalesService {
   }
 
   /**
-   * Get items available for sale (sellable, in-stock items).
+   * The gateway payment behind a sale, or null for a cash/manual sale.
    *
-   * Catalog is institution-scoped (ims_items is UNIQUE(institution_id, code));
-   * the quantity shown is strictly the ACTIVE STORE's balance.
+   * Read through the caller's session, so the payment table's institution-scoped
+   * RLS decides visibility — a sale you can open is a payment you can see.
+   *
+   * Note what is NOT selected: nothing from razorpay_accounts. That table is
+   * service_role-only, so "paid to" is the denormalised publishable key id on the
+   * payment row rather than a join.
+   */
+  static async getGatewayPaymentForSale(saleId: string): Promise<{
+    id: string;
+    status: string;
+    amount: number;
+    captured_amount_paise: number | null;
+    transaction_ref: string;
+    gateway_method: string | null;
+    payer_vpa: string | null;
+    payer_contact: string | null;
+    payer_email: string | null;
+    payer_bank: string | null;
+    payer_wallet: string | null;
+    bank_rrn: string | null;
+    upi_transaction_id: string | null;
+    razorpay_payment_id: string | null;
+    razorpay_order_id: string | null;
+    razorpay_key_id: string | null;
+    gateway_fee_paise: number | null;
+    late_credit: boolean;
+    paid_at: string | null;
+  } | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('ims_gateway_payments')
+        .select(
+          `id, status, amount, captured_amount_paise, transaction_ref,
+           gateway_method, payer_vpa, payer_contact, payer_email, payer_bank,
+           payer_wallet, bank_rrn, upi_transaction_id, razorpay_payment_id,
+           razorpay_order_id, razorpay_key_id, gateway_fee_paise, late_credit, paid_at`
+        )
+        .eq('sale_id', saleId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data ?? null;
+    } catch (error) {
+      console.error('[ImsSalesService] Error in getGatewayPaymentForSale:', error);
+      // A missing payment panel must not take the sale page down with it.
+      return null;
+    }
+  }
+
+  /**
+   * Get items available for sale at a store.
+   *
+   * The catalogue row is institution-wide (ims_items is UNIQUE(institution_id, code)),
+   * but WHICH of those items this counter sells is per-store (ims_store_items), and
+   * so is the quantity (ims_stock_summary).
    */
   static async getSellableItems(
     storeId: string,
     institutionId?: string
   ): Promise<ImsSellableItem[]> {
+    // No store, no counter. Previously an empty storeId still returned the whole
+    // institution's sellable items with every quantity at 0 — a till full of
+    // things that cannot be sold.
+    if (!storeId) return [];
+
     try {
+      // What is on THIS counter, not what is on some counter in this institution.
+      //
+      // This used to read ims_items.is_sellable_to_students, which is an
+      // institution-wide column: flagging an item at the student store put it on
+      // the warehouse's and the patient store's tills too. The flag now lives on
+      // the store's listing, so the inner join answers both questions at once —
+      // does this store carry it, and does this store sell it.
       let query = this.supabase
         .from('ims_items')
         .select(
           `id, name, code, selling_price, cost_price, image_url,
            base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation),
-           category:ims_item_categories(name)`
+           category:ims_item_categories(name),
+           store_link:ims_store_items!inner(store_id)`
         )
         .eq('is_active', true)
-        .eq('is_sellable_to_students', true);
+        .eq('store_link.store_id', storeId)
+        .eq('store_link.is_sellable_to_students', true)
+        .eq('store_link.is_active', true);
 
+      // Belt and braces: the listing already implies the institution, but RLS and
+      // the caller both expect the filter, and it keeps the plan on the index.
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
-      } else if (storeId) {
-        query = query.eq('store_id', storeId);
       }
 
       const { data, error } = await query;
@@ -252,182 +332,87 @@ export class ImsSalesService {
   }
 
   /**
-   * Create a sale (header + items), deduct stock for each item.
-   * Uses store_id for all stock operations.
+   * Create a sale.
+   *
+   * Everything that must not half-happen — the header, the lines, the
+   * ims_stock_summary decrement, the FEFO batch deduction, the
+   * ims_stock_movements ledger and the financial transaction — is delegated to
+   * the ims_pos_checkout RPC so it runs in ONE database transaction.
+   *
+   * This replaced ~150 lines of client-side orchestration that had four
+   * structural problems (see 20260730120000_ims_pos_checkout_engine.sql):
+   *   - the stock decrement was a read-modify-write, so two cashiers selling the
+   *     same item silently lost one of the deductions, and nothing stopped the
+   *     quantity going negative;
+   *   - nothing was transactional, so a failure mid-loop left a
+   *     status='completed' sale with only some lines deducted;
+   *   - it called ims_deduct_batch_fefo, which does not exist, and never read
+   *     the error — so batch quantities were never decremented at all;
+   *   - totals and tendered amounts were whatever the browser sent.
+   *
+   * The two steps that genuinely SHOULD survive a failure stay out here: the UPI
+   * back-link and the activity log are audit conveniences, and a completed sale
+   * must never be rolled back because one of them failed.
    */
   static async createSale(
     data: CreateImsSaleDto,
     userId: string
   ): Promise<ImsSale> {
     try {
-      // Validate inputs before processing
+      // Cheap client-side pre-checks so the cashier gets an instant message for
+      // obvious mistakes. The RPC re-validates all of this server-side — these
+      // are for latency, not for safety.
       if (!data.items || data.items.length === 0) {
         throw new Error('Sale must contain at least one item');
       }
-      for (const item of data.items) {
-        if (item.quantity <= 0) throw new Error(`Item ${item.item_id}: quantity must be > 0`);
-        if (item.unit_price < 0) throw new Error(`Item ${item.item_id}: unit_price must be >= 0`);
-        if (item.cost_price < 0) throw new Error(`Item ${item.item_id}: cost_price must be >= 0`);
-        const dp = item.discount_percent ?? 0;
-        if (dp < 0 || dp > 100) throw new Error(`Item ${item.item_id}: discount_percent must be 0-100`);
-      }
-      if ((data.additional_discount ?? 0) < 0) {
-        throw new Error('additional_discount must be >= 0');
+      if (!data.store_id) {
+        throw new Error('No store selected — pick a store before billing');
       }
 
-      const storeId = data.store_id || null;
-      const saleNumber = await this.generateSaleNumber(
-        storeId,
-        data.institution_id
-      );
-
-      // Calculate totals
-      let subtotal = 0;
-      let totalDiscount = 0;
-      let totalTax = 0;
-      let totalProfit = 0;
-
-      const saleItemsData = data.items.map((item) => {
-        const discountPercent = item.discount_percent || 0;
-        // Keep full precision per line — round only at grand total
-        const discountAmount = (item.unit_price * item.quantity * discountPercent) / 100;
-        const itemTotal = item.unit_price * item.quantity - discountAmount;
-        const itemProfit = (item.unit_price - item.cost_price) * item.quantity - discountAmount;
-
-        subtotal += item.unit_price * item.quantity;
-        totalDiscount += discountAmount;
-        totalProfit += itemProfit;
-
-        return {
-          item_id: item.item_id,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          cost_price: item.cost_price,
-          discount_percent: discountPercent,
-          discount_amount: discountAmount,
-          tax_percent: 0,
-          tax_amount: 0,
-          total: itemTotal,
-          profit: itemProfit,
-        };
+      const { data: result, error: rpcError } = await this.supabase.rpc('ims_pos_checkout', {
+        p_store_id:               data.store_id,
+        p_institution_id:         data.institution_id,
+        p_customer_type:          data.customer_type,
+        p_customer_name:          data.customer_name || null,
+        p_customer_id:            data.customer_id || null,
+        p_payment_method:         data.payment_method,
+        p_cash_amount:            data.cash_amount || 0,
+        p_gpay_amount:            data.gpay_amount || 0,
+        p_card_amount:            data.card_amount || 0,
+        p_upi_qr_amount:          data.upi_qr_amount || 0,
+        p_gpay_transaction_id:    data.gpay_transaction_id || null,
+        p_upi_qr_transaction_ref: data.upi_qr_transaction_ref || null,
+        p_additional_discount:    data.additional_discount || 0,
+        p_lines: data.items.map((item) => ({
+          item_id:          item.item_id,
+          quantity:         item.quantity,
+          unit_price:       item.unit_price,
+          cost_price:       item.cost_price,
+          discount_percent: item.discount_percent ?? 0,
+        })),
       });
 
-      const additionalDiscount = data.additional_discount || 0;
-      totalDiscount += additionalDiscount;
+      // The error MUST be read. The bug this file used to carry was a bare
+      // `await supabase.rpc(...)` — supabase-js returns {data, error} and never
+      // throws, so an un-destructured call swallows every failure silently.
+      if (rpcError) {
+        throw new Error(rpcError.message || 'Checkout failed');
+      }
+      if (!result?.sale_id) {
+        throw new Error('Checkout returned no sale — nothing was recorded');
+      }
 
-      // Round once at the final payable amount — avoids accumulated rounding errors
-      const totalAmount = Math.round((subtotal - totalDiscount) * 100) / 100;
-      totalProfit -= additionalDiscount;
-
-      // Insert sale header
-      const { data: sale, error: saleError } = await this.supabase
+      // Re-read the committed row so callers keep receiving a full ImsSale
+      // (the receipt builder and the success toast both rely on it).
+      const { data: sale, error: readError } = await this.supabase
         .from('ims_sales')
-        .insert({
-          sale_number: saleNumber,
-          customer_type: data.customer_type,
-          customer_name: data.customer_name || null,
-          customer_id: data.customer_id || null,
-          payment_method: data.payment_method,
-          cash_amount: data.cash_amount || 0,
-          gpay_amount: data.gpay_amount || 0,
-          card_amount: data.card_amount || 0,
-          gpay_transaction_id: data.gpay_transaction_id || null,
-          upi_qr_amount: data.upi_qr_amount || 0,
-          upi_qr_transaction_ref: data.upi_qr_transaction_ref || null,
-          subtotal,
-          discount_amount: totalDiscount,
-          tax_amount: totalTax,
-          total_amount: totalAmount,
-          profit_amount: totalProfit,
-          status: 'completed',
-          cashier_id: userId,
-          institution_id: data.institution_id,
-          store_id: storeId,
-        })
-        .select()
+        .select('*')
+        .eq('id', result.sale_id)
         .single();
 
-      if (saleError) throw saleError;
+      if (readError) throw readError;
 
-      // Insert sale items
-      const saleItems = saleItemsData.map((item) => ({
-        ...item,
-        sale_id: sale.id,
-        batch_id: null,
-      }));
-
-      const { error: itemsError } = await this.supabase
-        .from('ims_sale_items')
-        .insert(saleItems);
-
-      if (itemsError) throw itemsError;
-
-      // Deduct stock — use store_id for scoping
-      for (const item of data.items) {
-        let stockQuery = this.supabase
-          .from('ims_stock_summary')
-          .select('id, current_quantity, available_quantity, total_value')
-          .eq('item_id', item.item_id);
-
-        if (storeId) {
-          stockQuery = stockQuery.eq('store_id', storeId);
-        } else {
-          stockQuery = stockQuery.eq('institution_id', data.institution_id);
-        }
-
-        const { data: stock } = await stockQuery.maybeSingle();
-
-        if (stock) {
-          const deductValue = item.cost_price * item.quantity;
-          const { error: stockError } = await this.supabase
-            .from('ims_stock_summary')
-            .update({
-              current_quantity: stock.current_quantity - item.quantity,
-              available_quantity: stock.available_quantity - item.quantity,
-              total_value: stock.total_value - deductValue,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', stock.id);
-          if (stockError) {
-            throw new Error(`Stock deduction failed for item ${item.item_id}: ${stockError.message}`);
-          }
-
-          // FEFO batch deduction — only if this item has active batches
-          if (storeId) {
-            const { count: batchCount } = await this.supabase
-              .from('ims_stock_batches')
-              .select('id', { count: 'exact', head: true })
-              .eq('item_id', item.item_id)
-              .eq('store_id', storeId)
-              .gt('quantity_available', 0);
-
-            if (batchCount && batchCount > 0) {
-              await this.supabase.rpc('ims_deduct_batch_fefo', {
-                p_item_id:  item.item_id,
-                p_quantity: item.quantity,
-                p_store_id: storeId,
-              });
-            }
-          }
-        } else {
-          console.warn('[ImsSalesService] No stock row found for item:', item.item_id, '— skipping deduction');
-        }
-      }
-
-      // Record financial transaction
-      const { error: finError } = await this.supabase.from('ims_financial_transactions').insert({
-        transaction_type: 'sale',
-        reference_id: sale.id,
-        reference_type: 'sale',
-        amount: totalAmount,
-        description: `Sale ${saleNumber}`,
-        created_by: userId,
-        institution_id: data.institution_id,
-        store_id: storeId,
-      });
-      if (finError) {
-        console.error('[ImsSalesService] Financial transaction insert failed:', finError);
-      }
+      const saleNumber: string = result.sale_number;
 
       // Back-link the UPI QR payment row to this sale (completes skill step 6).
       // At QR-generation time the payment row was created with sale_id = NULL,
@@ -440,10 +425,11 @@ export class ImsSalesService {
       //  - Guard on `data.upi_qr_transaction_ref` (truthy), NOT payment_method ===
       //    'upi_qr', so a 'mixed' cash+UPI sale still links its UPI row.
       //  - Match the payment row by `transaction_ref === data.upi_qr_transaction_ref`.
-      //  - RLS allows this client-side UPDATE (policy is TO authenticated USING (true)).
-      //  - NON-FATAL: a completed sale + stock deduction must never be lost over a
-      //    missing audit pointer. Mirror the financial-transaction pattern above —
-      //    log the error and continue; do NOT throw. Also set updated_at.
+      //  - RLS permits this client-side UPDATE (ims_upi_qr_payments policies are
+      //    scoped through ims_stores to the caller's accessible institutions).
+      //  - NON-FATAL: the sale and its stock deduction are already committed by the
+      //    RPC and must never be undone over a missing audit pointer. Log and
+      //    continue; do NOT throw. Also set updated_at.
       //
       if (data.upi_qr_transaction_ref) {
         const { error: linkError } = await this.supabase
@@ -465,8 +451,10 @@ export class ImsSalesService {
         notes: data.customer_name ? `Sale to ${data.customer_name}` : null,
         metadata: {
           sale_number: saleNumber,
-          item_count: saleItems.length,
-          total_amount: totalAmount,
+          item_count: data.items.length,
+          // Read back from the committed row rather than recomputed here, so the
+          // audit trail can never disagree with what was actually billed.
+          total_amount: sale.total_amount,
           payment_method: data.payment_method,
           customer_type: data.customer_type,
         },
@@ -481,9 +469,17 @@ export class ImsSalesService {
   }
 
   /**
-   * Cancel a sale. Stock behavior depends on itemsReturned:
-   * - true (default): restore stock to inventory (existing behavior)
-   * - false: do NOT restore stock; create write-off adjustments instead
+   * Cancel a sale. Stock behaviour depends on itemsReturned:
+   * - true (default): restore stock, batch by batch
+   * - false: leave stock deducted and raise write-off adjustments instead
+   *
+   * The restore runs inside the ims_pos_cancel_sale RPC, which replays this
+   * sale's ims_stock_movements rows in reverse. That matters for two reasons the
+   * old client-side loop got wrong: it never touched ims_stock_batches at all
+   * (so every cancellation permanently inflated batch stock relative to summary
+   * stock), and a failure part-way through left the sale marked cancelled with
+   * only some lines restored — unrecoverable, because the 'already cancelled'
+   * guard then blocked every retry.
    */
   static async cancelSale(
     id: string,
@@ -491,9 +487,12 @@ export class ImsSalesService {
     itemsReturned = true
   ): Promise<ImsSale> {
     try {
+      // Read the header first: the write-off branch below needs the line items
+      // and the original cashier, and both are gone from reach once the RPC has
+      // flipped the status.
       const { data: sale, error: saleError } = await this.supabase
         .from('ims_sales')
-        .select('*, institution_id, store_id, cashier_id')
+        .select('*')
         .eq('id', id)
         .single();
 
@@ -510,51 +509,23 @@ export class ImsSalesService {
 
       if (itemsError) throw itemsError;
 
-      const { data: updatedSale, error: updateError } = await this.supabase
-        .from('ims_sales')
-        .update({
-          status: 'cancelled',
-          cancellation_reason: reason,
-          items_returned: itemsReturned,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id)
-        .select()
-        .single();
+      // Status flip + stock/batch restore + reversing financial entry, atomically.
+      const { error: rpcError } = await this.supabase.rpc('ims_pos_cancel_sale', {
+        p_sale_id:        id,
+        p_reason:         reason,
+        p_items_returned: itemsReturned,
+      });
 
-      if (updateError) throw updateError;
+      if (rpcError) {
+        throw new Error(rpcError.message || 'Failed to cancel the sale');
+      }
 
-      if (itemsReturned) {
-        // Restore stock — existing behavior
-        for (const item of saleItems || []) {
-          let stockQuery = this.supabase
-            .from('ims_stock_summary')
-            .select('id, current_quantity, available_quantity, total_value')
-            .eq('item_id', item.item_id);
-
-          if (sale.store_id) {
-            stockQuery = stockQuery.eq('store_id', sale.store_id);
-          } else {
-            stockQuery = stockQuery.eq('institution_id', sale.institution_id);
-          }
-
-          const { data: stock } = await stockQuery.maybeSingle();
-
-          if (stock) {
-            const restoreValue = item.cost_price * item.quantity;
-            await this.supabase
-              .from('ims_stock_summary')
-              .update({
-                current_quantity: stock.current_quantity + item.quantity,
-                available_quantity: stock.available_quantity + item.quantity,
-                total_value: stock.total_value + restoreValue,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', stock.id);
-          }
-        }
-      } else {
-        // Items NOT returned — create write-off adjustments
+      if (!itemsReturned) {
+        // Items were NOT handed back, so the stock stays deducted and we record
+        // WHY it left. Kept out of the RPC deliberately: createAdjustment has its
+        // own numbering, audit trail and financial posting, and a failed write-off
+        // must not undo a cancellation the cashier has already told the customer
+        // about.
         const writeOffErrors: string[] = [];
         for (const item of saleItems || []) {
           try {
@@ -588,15 +559,32 @@ export class ImsSalesService {
         }
       }
 
+      // Read back the committed row rather than trusting a locally patched copy.
+      const { data: updatedSale, error: readError } = await this.supabase
+        .from('ims_sales')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (readError) throw readError;
+
       return updatedSale as ImsSale;
     } catch (error) {
-      console.error('[ImsSalesService] Error in cancelSale:', error);
+      const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
+      console.error('[ImsSalesService] Error in cancelSale:', errDetail, error);
       throw error;
     }
   }
 
   /**
-   * Get a summary of sales for a specific date.
+   * Get a summary of sales for one IST business day.
+   *
+   * `date` is an IST calendar date (YYYY-MM-DD). The bounds are built with an
+   * explicit +05:30 offset rather than `Z`: the previous version asked for
+   * 00:00Z..23:59Z, which for an Indian store is 05:30 today to 05:30 tomorrow,
+   * so an evening bill landed in the NEXT day's total and the first 5.5 hours of
+   * each reported day belonged to the previous business day. Day-close figures
+   * could not be tied to the cash drawer.
    */
   static async getDailySalesSummary(
     storeId: string,
@@ -604,8 +592,7 @@ export class ImsSalesService {
     institutionId?: string
   ): Promise<ImsSalesSummary> {
     try {
-      const dayStart = `${date}T00:00:00.000Z`;
-      const dayEnd = `${date}T23:59:59.999Z`;
+      const { from: dayStart, to: dayEnd } = istDayBounds(date);
 
       let query = this.supabase
         .from('ims_sales')
@@ -647,89 +634,17 @@ export class ImsSalesService {
     }
   }
 
-  /**
-   * Generate the next sequential sale number.
-   * Format: PREFIX-YYMMDD-XXXX (e.g., INV-260224-0001)
-   *
-   * Uses atomic counter (ims_next_sale_number RPC) when storeId is available,
-   * preventing duplicate numbers under concurrent cashier usage.
-   * Falls back to COUNT(*)+1 for legacy paths without storeId.
-   */
-  private static async generateSaleNumber(
-    storeId: string | null,
-    institutionId: string
-  ): Promise<string> {
-    try {
-      // Get store prefix
-      let prefix = 'INV';
-      if (storeId) {
-        const { data: store } = await this.supabase
-          .from('ims_stores')
-          .select('sale_number_prefix')
-          .eq('id', storeId)
-          .maybeSingle();
-
-        if (store?.sale_number_prefix) {
-          prefix = store.sale_number_prefix;
-        }
-      }
-
-      const now = new Date();
-      const yy = String(now.getFullYear()).slice(-2);
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const dd = String(now.getDate()).padStart(2, '0');
-      const dateStr = `${yy}${mm}${dd}`;
-
-      let nextNumber: number;
-
-      if (storeId) {
-        // Atomic counter via RPC — race-condition-free
-        const { data: nextNum, error: rpcError } = await this.supabase.rpc(
-          'ims_next_sale_number',
-          { p_store_id: storeId, p_date: now.toISOString().split('T')[0] }
-        );
-
-        if (rpcError || nextNum == null) {
-          console.warn('[ImsSalesService] Atomic counter failed, falling back to COUNT:', rpcError);
-          nextNumber = await this.fallbackSaleCount(storeId, institutionId, now);
-        } else {
-          nextNumber = nextNum;
-        }
-      } else {
-        // Legacy fallback for paths without storeId
-        nextNumber = await this.fallbackSaleCount(storeId, institutionId, now);
-      }
-
-      return `${prefix}-${dateStr}-${String(nextNumber).padStart(4, '0')}`;
-    } catch (error) {
-      console.error('[ImsSalesService] Error generating sale number:', error);
-      const yymmdd = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-      return `INV-${yymmdd}-${String(Date.now()).slice(-4)}`;
-    }
-  }
-
-  /**
-   * Fallback sale count using COUNT(*)+1 for legacy paths without storeId.
-   */
-  private static async fallbackSaleCount(
-    storeId: string | null,
-    institutionId: string,
-    now: Date
-  ): Promise<number> {
-    const dayStart = `${now.toISOString().split('T')[0]}T00:00:00.000Z`;
-
-    let countQuery = this.supabase
-      .from('ims_sales')
-      .select('id', { count: 'exact', head: true })
-      .gte('created_at', dayStart);
-
-    if (storeId) {
-      countQuery = countQuery.eq('store_id', storeId);
-    } else {
-      countQuery = countQuery.eq('institution_id', institutionId);
-    }
-
-    const { count } = await countQuery;
-    return (count || 0) + 1;
-  }
+  // Sale-number generation moved into the ims_pos_checkout RPC (migration
+  // 20260730120000). The old generateSaleNumber()/fallbackSaleCount() pair is gone
+  // deliberately:
+  //   - it allocated the number BEFORE the header insert, so any failure in
+  //     between burnt a number and left a gap in the invoice sequence;
+  //   - the printed YYMMDD came from the browser's LOCAL clock while the counter
+  //     was keyed on the UTC date, so the two disagreed between 00:00 and 05:30 IST;
+  //   - on any RPC hiccup it degraded to COUNT(*)+1, reintroducing exactly the
+  //     race the atomic counter existed to remove — and since ims_sales.sale_number
+  //     is UNIQUE, a collision blocked the cashier mid-sale with a 23505.
+  // Inside the RPC the number is drawn in the same transaction as the sale, from
+  // the server's IST business date, with no fallback needed: a failure rolls the
+  // whole thing back, number included.
 }

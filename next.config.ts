@@ -43,6 +43,11 @@ const nextConfig: NextConfig = {
     // the PDF call letter. Keep externalised — never remove.
     '@sparticuz/chromium',
     'puppeteer-core',
+    // Full `puppeteer` is only ever imported lazily, in the local-dev branch of
+    // the PDF launchers. Bundling it crashed the Next dev render worker on the
+    // BoS minutes-pdf route ("Jest worker encountered 2 child process
+    // exceptions") — the route 500'd before its own try/catch could run.
+    'puppeteer',
     // `pg` (node-postgres) does dynamic require()s for optional native bindings +
     // connection internals that webpack/turbopack cannot bundle. Without this it
     // fails to bundle (dev: "can't resolve 'pg'") and can fail at runtime in prod.
@@ -64,12 +69,34 @@ const nextConfig: NextConfig = {
   //
   // Pattern verified against COE app's vercel-chromium-fix.md. The `*`
   // matches the [id] dynamic segment in the App Router file paths.
+  //
+  // public/fonts/pdf rides along for the same reason: lib/utils/bos/pdf-fonts.ts
+  // reads those .woff2 files at runtime through a path built from
+  // process.cwd(), which the tracer cannot follow either. Drop them and the
+  // deployed renderer falls back to the only font @sparticuz/chromium ships
+  // (Open Sans), which is what made the minutes' narrative box overflow in
+  // production while looking correct locally.
   outputFileTracingIncludes: {
     '/api/bos/meetings/*/notify-members': [
       './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
     ],
     '/api/bos/meetings/*/preview-pdf': [
       './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
+    ],
+    '/api/bos/meetings/*/minutes-pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
+    ],
+    // OneMark board-format paper + answer key (lib/onemark/pdf). Same Chromium
+    // and body fonts as the BoS sheets, plus KaTeX's own faces for notation —
+    // without this entry the deployed function prints Tamil and every
+    // superscript as boxes while looking correct locally.
+    '/api/foundation/onemark/paper/*/pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
+      './node_modules/katex/dist/**/*',
     ],
   },
 
@@ -140,6 +167,13 @@ const nextConfig: NextConfig = {
 
   async redirects() {
     return [
+      // Route-budget note (2026-09-03): Vercel caps a deployment at 2048 routes
+      // (rewrites + redirects + dynamic routes). Deploy dpl_2jgr failed at 2051.
+      // Next.js ':path*' matches ZERO or more segments, so '/x/:path*' already
+      // covers bare '/x' — do NOT re-add a separate bare-path twin for these.
+      // Two exceptions are intentional: '/iqac' has a different destination from
+      // '/iqac/:path*', and '/admin/pde/naac-evidence' must stay ahead of the
+      // '/admin/pde/:path*' catch-all.
       // Learners nav consolidation (2026-07-06): "My Attendance Feedback" was
       // merged into the single "Learning Studio Feedback" tab. This config-level
       // redirect keeps old bookmarks / in-app deep-links working AND removes the
@@ -155,11 +189,6 @@ const nextConfig: NextConfig = {
       // /solutions/compliance/* → /solutions/ai-solution-compliance/*
       // Disambiguates AI-solution compliance from accreditation compliance
       // (NAAC/NIRF/NBA/etc.) under /accreditation/*.
-      {
-        source: '/solutions/compliance',
-        destination: '/solutions/ai-solution-compliance',
-        permanent: true
-      },
       {
         source: '/solutions/compliance/:path*',
         destination: '/solutions/ai-solution-compliance/:path*',
@@ -201,28 +230,13 @@ const nextConfig: NextConfig = {
       // out 2026-06-09). The 3 subtrees now live under a unified /pde/* module.
       // 308 (permanent) preserves bookmarks + in-flight email links indefinitely.
       {
-        source: '/admin/pde',
-        destination: '/pde/admin',
-        permanent: true
-      },
-      {
         source: '/admin/pde/:path*',
         destination: '/pde/admin/:path*',
         permanent: true
       },
       {
-        source: '/faculty/pde',
-        destination: '/pde/faculty',
-        permanent: true
-      },
-      {
         source: '/faculty/pde/:path*',
         destination: '/pde/faculty/:path*',
-        permanent: true
-      },
-      {
-        source: '/learn/pde',
-        destination: '/pde/learn',
         permanent: true
       },
       {
@@ -236,11 +250,6 @@ const nextConfig: NextConfig = {
       // for module cohesion. 307 (non-permanent) preserves bookmarks while the new
       // canonical path stabilizes.
       {
-        source: '/admin/internship-policy',
-        destination: '/internships/policy',
-        permanent: false
-      },
-      {
         source: '/admin/internship-policy/:path*',
         destination: '/internships/policy/:path*',
         permanent: false
@@ -250,39 +259,19 @@ const nextConfig: NextConfig = {
       // URL prefix"). 307 (non-permanent) preserves bookmarks while the new
       // canonical path stabilizes.
       {
-        source: '/admin/consultants',
-        destination: '/admission/consultants/admin',
-        permanent: false
-      },
-      {
         source: '/admin/consultants/:path*',
         destination: '/admission/consultants/admin/:path*',
         permanent: false
       },
       // 2026-06-10 admin-cluster relocation — admission (counselors + policies)
       {
-        source: '/admin/counselors',
-        destination: '/admission/counselors/admin',
-        permanent: false
-      },
-      {
         source: '/admin/counselors/:path*',
         destination: '/admission/counselors/admin/:path*',
         permanent: false
       },
       {
-        source: '/admin/lead-stages-policy',
-        destination: '/admission/settings/lead-stages-policy',
-        permanent: false
-      },
-      {
         source: '/admin/lead-stages-policy/:path*',
         destination: '/admission/settings/lead-stages-policy/:path*',
-        permanent: false
-      },
-      {
-        source: '/admin/telephony-policies',
-        destination: '/admission/settings/telephony-policies',
         permanent: false
       },
       {
@@ -292,11 +281,6 @@ const nextConfig: NextConfig = {
       },
       // 2026-06-10 admin-cluster relocation — social → admission CRM
       {
-        source: '/admin/social',
-        destination: '/admission/social',
-        permanent: false
-      },
-      {
         source: '/admin/social/:path*',
         destination: '/admission/social/:path*',
         permanent: false
@@ -305,21 +289,11 @@ const nextConfig: NextConfig = {
       // /admin/cdc/* → /cdc/admin/* (module URL consolidation; 307 non-permanent
       // preserves bookmarks while the new canonical path stabilizes).
       {
-        source: '/admin/cdc',
-        destination: '/cdc/admin',
-        permanent: false
-      },
-      {
         source: '/admin/cdc/:path*',
         destination: '/cdc/admin/:path*',
         permanent: false
       },
       // 2026-06-10 admin-cluster relocation — HR
-      {
-        source: '/admin/hr',
-        destination: '/hr/admin',
-        permanent: false
-      },
       {
         source: '/admin/hr/:path*',
         destination: '/hr/admin/:path*',
@@ -327,39 +301,19 @@ const nextConfig: NextConfig = {
       },
       // 2026-06-11 admin-cluster relocation wave-2 — departments (HoD assignment)
       {
-        source: '/admin/departments',
-        destination: '/organizations/departments/hod-assignment',
-        permanent: false
-      },
-      {
         source: '/admin/departments/:path*',
         destination: '/organizations/departments/hod-assignment/:path*',
         permanent: false
       },
       // 2026-06-11 admin-cluster relocation wave-2 — lifecycle + ai-query + ai-pulse config
       {
-        source: '/admin/lifecycle',
-        destination: '/learners/lifecycle',
-        permanent: false
-      },
-      {
         source: '/admin/lifecycle/:path*',
         destination: '/learners/lifecycle/:path*',
         permanent: false
       },
       {
-        source: '/admin/ai-query-tools',
-        destination: '/ai-query/admin',
-        permanent: false
-      },
-      {
         source: '/admin/ai-query-tools/:path*',
         destination: '/ai-query/admin/:path*',
-        permanent: false
-      },
-      {
-        source: '/admin/config/ai-pulse',
-        destination: '/ai-pulse/admin/policies',
         permanent: false
       },
       {
@@ -369,18 +323,8 @@ const nextConfig: NextConfig = {
       },
       // 2026-06-11 admin-cluster relocation wave-2 — admission (attribution + meta integrations + telephony)
       {
-        source: '/admin/instagram-attribution',
-        destination: '/admission/social/attribution',
-        permanent: false
-      },
-      {
         source: '/admin/instagram-attribution/:path*',
         destination: '/admission/social/attribution/:path*',
-        permanent: false
-      },
-      {
-        source: '/admin/integrations/meta-pixel',
-        destination: '/admission/social/meta-pixel',
         permanent: false
       },
       {
@@ -389,18 +333,8 @@ const nextConfig: NextConfig = {
         permanent: false
       },
       {
-        source: '/admin/integrations/meta-audiences',
-        destination: '/admission/social/meta-audiences',
-        permanent: false
-      },
-      {
         source: '/admin/integrations/meta-audiences/:path*',
         destination: '/admission/social/meta-audiences/:path*',
-        permanent: false
-      },
-      {
-        source: '/admin/voice-memo-monitor',
-        destination: '/admission/settings/voice-memo-monitor',
         permanent: false
       },
       {
@@ -409,21 +343,11 @@ const nextConfig: NextConfig = {
         permanent: false
       },
       {
-        source: '/admin/exophone-mapping',
-        destination: '/admission/settings/exophone-mapping',
-        permanent: false
-      },
-      {
         source: '/admin/exophone-mapping/:path*',
         destination: '/admission/settings/exophone-mapping/:path*',
         permanent: false
       },
       // 2026-06-11 admin-cluster relocation wave-2 — notifications
-      {
-        source: '/admin/notifications',
-        destination: '/notifications/admin',
-        permanent: false
-      },
       {
         source: '/admin/notifications/:path*',
         destination: '/notifications/admin/:path*',

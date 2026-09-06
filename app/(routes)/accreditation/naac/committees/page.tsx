@@ -64,10 +64,12 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { findUmbrellaRow } from './_lib/umbrella-row';
+import { decideCommitteeListAccess } from './_lib/committee-access';
 import {
   useNAACCommittees,
   useCreateNAACCommittee,
 } from '@/hooks/accreditation/use-naac-committees';
+import { useMyCommitteeRoster } from '@/hooks/accreditation/use-my-committee-roster';
 import { usePermissions } from '@/hooks/use-permissions';
 import type {
   AccreditationCommittee,
@@ -125,8 +127,28 @@ export default function NAACCommitteesPage() {
   const { isSuperAdmin, userProfile, can, isLoading: permsLoading } =
     usePermissions();
 
-  const canView = isSuperAdmin || can('accreditation.naac.committees.view');
+  const hasViewPermission =
+    isSuperAdmin || can('accreditation.naac.committees.view');
   const canCreate = isSuperAdmin || can('accreditation.naac.committees.create');
+
+  // Director decision 8: the roster opens the page, not the job title. Only
+  // asked for when the permission did NOT already open it — for a permission
+  // holder this read would return every roster row on the platform and change
+  // nothing about the answer.
+  const { data: mySeats, isLoading: rosterLoading } =
+    useMyCommitteeRoster({ enabled: !permsLoading && !hasViewPermission });
+
+  // The gate is derived from that read, so it can never open wider than the
+  // data: if RLS returned nothing, the viewer gets the refusal panel below
+  // rather than an empty list that reads as "no committees exist". Director
+  // decision 7: a seat whose term has ended does not open the page either, and
+  // the panel names the date instead of pretending they were never appointed.
+  const access = decideCommitteeListAccess({
+    hasViewPermission,
+    seats: mySeats ?? [],
+  });
+  const canView = access.allowed;
+  const isRosterOnlyViewer = access.via === 'roster';
 
   const { data: institutions } = useJKKNInstitutions();
 
@@ -145,9 +167,18 @@ export default function NAACCommitteesPage() {
   // rows actually fetched instead of reading '—' against an unfiltered list.
   const superAdminScope = scope || 'all';
 
+  // A roster-only viewer is NOT filtered to their own institution. A committee
+  // is filed against one institution, but the people appointed to it need not
+  // sit in it — the single IQAC on production today is filed under Arts and
+  // Science (Self) while its chair's profile belongs to a different college.
+  // Filtering such a viewer to their own institution_id would hand them an
+  // empty list for a committee they chair. RLS already narrows this to exactly
+  // the committees they are on, so let it.
   const effectiveScope = isSuperAdmin
     ? superAdminScope
-    : userProfile?.institution_id ?? '';
+    : isRosterOnlyViewer
+      ? 'all'
+      : userProfile?.institution_id ?? '';
 
   const { data: committees, isLoading } = useNAACCommittees(
     effectiveScope === '' ? 'all' : effectiveScope,
@@ -157,13 +188,17 @@ export default function NAACCommitteesPage() {
   // filter whatsoever. It is not "the 8 colleges"; it is every institution the
   // viewer's RLS lets through, schools and Main Office included. Say that.
   const activeInstitutionName = useMemo(() => {
+    // A roster-only viewer is not looking at "all institutions" — they are
+    // looking at the committees they were appointed to, wherever those are
+    // filed. Saying "All institutions" to them would overstate what they see.
+    if (isRosterOnlyViewer) return 'Committees you are on';
     if (effectiveScope === 'all') {
       return institutions
         ? `All institutions (${institutions.length})`
         : 'All institutions';
     }
     return institutions?.find((i) => i.id === effectiveScope)?.name ?? '—';
-  }, [effectiveScope, institutions]);
+  }, [effectiveScope, institutions, isRosterOnlyViewer]);
 
   // A cluster council spans institutions; it is only FILED against one of them.
   // Listing it inside the per-institution table makes it read as belonging to
@@ -191,7 +226,9 @@ export default function NAACCommitteesPage() {
     router.replace(`/accreditation/naac/committees?${params.toString()}`);
   };
 
-  if (permsLoading) {
+  // rosterLoading matters: refusing while the roster read is still in flight
+  // would flash "no access" at a member who does have it.
+  if (permsLoading || rosterLoading) {
     return (
       <ContentLayout title="NAAC IQAC Committees">
         <Skeleton className="h-40 w-full" />
@@ -203,8 +240,14 @@ export default function NAACCommitteesPage() {
     return (
       <ContentLayout title="NAAC IQAC Committees">
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            You do not have permission to view IQAC committees.
+          <CardContent className="space-y-3 py-10 text-center">
+            <p className="text-base font-semibold">{access.title}</p>
+            <p className="mx-auto max-w-xl text-sm text-muted-foreground">
+              {access.detail}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Who to ask: <span className="font-medium">{access.contact}</span>
+            </p>
           </CardContent>
         </Card>
       </ContentLayout>

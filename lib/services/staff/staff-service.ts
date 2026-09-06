@@ -4,6 +4,7 @@ import {
   createClientSupabaseClient,
   createAdminClient
 } from '@/lib/supabase/client';
+import { normalizeStaffNameFields } from '@/lib/utils/staff-name';
 import type {
   Staff,
   StaffFilters,
@@ -21,8 +22,9 @@ import type {
   StaffProfileAnalytics
 } from '@/types/staff';
 import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/utils';
 import {
-  buildStaffSearchConditions,
+  buildStaffSearchTokenGroups,
   resolveStaffFiltersForUser
 } from '@/lib/utils/staff-search';
 import { RESERVED_STAFF_ROLE_KEYS } from '@/types/staff';
@@ -70,6 +72,140 @@ export class StaffService {
   private static supabase = createClientSupabaseClient();
   private static adminClient = createAdminClient();
 
+  /**
+   * Who already holds this biometric code on this machine?
+   *
+   * `staff_biometric_uq` is UNIQUE on (biometric_institution_id,
+   * fn_norm_biometric_code(biometric_id)), and the normaliser strips leading
+   * zeros from all-digit codes — so 00002, 002 and 2 are one code. That makes
+   * the 23505 genuinely baffling from the form: the operator typed a value
+   * they have never seen before and the raw Postgres message names an index,
+   * not a person. Resolving the holder turns it into an answer.
+   *
+   * Best-effort by design. Called only from an error path, so a failure here
+   * must degrade to the generic message rather than mask the real error.
+   */
+  static async findBiometricConflict(
+    biometricId: string,
+    biometricInstitutionId: string
+  ): Promise<{ id: string; staff_id: string | null; name: string } | null> {
+    if (!biometricId?.trim() || !biometricInstitutionId) return null;
+
+    // Normalise client-side with the same rule as fn_norm_biometric_code so
+    // the lookup finds 00002 when the operator typed 2. Digit-only codes lose
+    // leading zeros; anything else is upper-cased.
+    const trimmed = biometricId.trim();
+    const normalized = /^[0-9]{1,18}$/.test(trimmed)
+      ? String(BigInt(trimmed))
+      : trimmed.toUpperCase();
+
+    const { data, error } = await this.supabase
+      .from('staff')
+      .select('id, staff_id, first_name, last_name, biometric_id')
+      .eq('biometric_institution_id', biometricInstitutionId)
+      .not('biometric_id', 'is', null)
+      .limit(500);
+
+    if (error) {
+      console.warn('[StaffService] biometric conflict lookup failed:', error);
+      return null;
+    }
+
+    const match = (data ?? []).find((row: Record<string, unknown>) => {
+      const raw = String(row.biometric_id ?? '').trim();
+      if (!raw) return false;
+      const norm = /^[0-9]{1,18}$/.test(raw) ? String(BigInt(raw)) : raw.toUpperCase();
+      return norm === normalized;
+    });
+
+    if (!match) return null;
+    return {
+      id: match.id as string,
+      staff_id: (match.staff_id as string) ?? null,
+      name:
+        [match.first_name, match.last_name].filter(Boolean).join(' ').trim() ||
+        'another staff member'
+    };
+  }
+
+  /**
+   * Resolve who already holds an ID, for the 23505 on `staff_staff_id_key`.
+   *
+   * `staff_id` is GLOBALLY unique, but the table's SELECT policy is
+   * institution-scoped. So an HR user on 'own_institution' scope can collide
+   * with a row they are not allowed to see — a plain table lookup
+   * returns nothing and the operator is left retyping against an invisible
+   * wall. `fn_staff_id_conflict` is SECURITY DEFINER and permission-gated, so
+   * it can name the holder across that boundary.
+   *
+   * Best-effort by design, exactly like findBiometricConflict: called only
+   * from an error path, so any failure degrades to the generic message.
+   */
+  static async findStaffIdConflict(
+    staffId: string
+  ): Promise<{ staff_id: string; name: string; institution: string; is_active: boolean } | null> {
+    if (!staffId?.trim()) return null;
+
+    const { data, error } = await (this.supabase as any).rpc('fn_staff_id_conflict', {
+      p_staff_id: staffId.trim()
+    });
+
+    if (error) {
+      console.warn('[StaffService] staff_id conflict lookup failed:', error);
+      return null;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+
+    return {
+      staff_id: row.staff_id,
+      name: row.full_name ?? 'another team member',
+      institution: row.institution_name ?? 'another institution',
+      is_active: !!row.is_active
+    };
+  }
+
+  /**
+   * Resolve who already holds an email, for the 23505 on staff_email_key or
+   * staff_institution_email_key. Same RLS-blindness problem as
+   * findStaffIdConflict — see that method's note.
+   *
+   * `matched_field` tells the caller WHICH column the address was found in,
+   * which is not always the field the operator typed it into.
+   */
+  static async findStaffEmailConflict(
+    email: string
+  ): Promise<{
+    matchedField: 'email' | 'institution_email';
+    staff_id: string | null;
+    name: string;
+    institution: string;
+    is_active: boolean;
+  } | null> {
+    if (!email?.trim()) return null;
+
+    const { data, error } = await (this.supabase as any).rpc('fn_staff_email_conflict', {
+      p_email: email.trim()
+    });
+
+    if (error) {
+      console.warn('[StaffService] email conflict lookup failed:', error);
+      return null;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+
+    return {
+      matchedField: row.matched_field === 'email' ? 'email' : 'institution_email',
+      staff_id: row.staff_id ?? null,
+      name: row.full_name ?? 'another team member',
+      institution: row.institution_name ?? 'another institution',
+      is_active: !!row.is_active
+    };
+  }
+
   static async createStaff(
     data: CreateStaffDto,
     suppressToast: boolean = false
@@ -80,6 +216,13 @@ export class StaffService {
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
+
+      // Canonical staff name (UPPERCASE, trimmed, single-spaced). Applied here
+      // rather than at the call site so BOTH the direct insert below and the
+      // API-route fallback send the same value. The DB is still the guarantee
+      // (trg_normalize_staff_names + the staff_*_name_canonical CHECKs); doing
+      // it here keeps the returned record consistent with what was submitted.
+      data = normalizeStaffNameFields(data);
 
       // Role key validation: must exist, must not be reserved.
       // Added: 2026-04-14 for dynamic staff role onboarding.
@@ -106,18 +249,29 @@ export class StaffService {
           data.institution_email = generateSyntheticEmail('institution', data.staff_id, data.phone);
         }
       } else {
-        // Login staff require personal email. Institution email is optional —
-        // many non-teaching staff (drivers, lab techs, admin assistants) don't
-        // have @jkkn.ac.in addresses. The DB trigger already handles
-        // institution_email IS NULL gracefully (skips profile-link).
-        // Fixes: BUG-003989, BUG-003980, BUG-003962.
+        // Login staff require BOTH emails.
+        //
+        // 2026-08-28: institution_email used to be optional here, on the
+        // reasoning that "the DB trigger already handles institution_email IS
+        // NULL gracefully (skips profile-link)" (BUG-003989/3980/3962). It does
+        // skip — and that is the bug, not the mitigation.
+        // sync_staff_to_profiles wraps its whole body in a non-empty check on
+        // institution_email and creates the profile with
+        // `email = NEW.institution_email`, so a blank one means NO profile row,
+        // profile_id stays NULL, and a staff member flagged login_enabled=true
+        // silently has no login. Five staff were created that way between
+        // 2026-08-17 and 2026-08-27.
+        //
+        // A staff member with no @jkkn.ac.in address belongs in the view-only
+        // branch above, which mints a synthetic institution email precisely so
+        // the trigger still runs.
         if (!data.email) {
           throw new Error('Email is required for login-enabled staff');
         }
-        // Normalize blank institution_email to null so Postgres UNIQUE index
-        // doesn't collide on ''.
         if (!data.institution_email || data.institution_email.trim() === '') {
-          data.institution_email = null as any;
+          throw new Error(
+            'Institution email is required for login-enabled staff — it becomes their login identity. Turn off "Login user" to create a view-only record instead.'
+          );
         }
       }
       // Persist the flag through to the DB (default true if undefined).
@@ -304,6 +458,11 @@ export class StaffService {
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
+
+      // Canonical staff name — see createStaff. normalizeStaffNameFields only
+      // touches keys that are PRESENT, so a partial update that omits
+      // last_name does not gain an undefined last_name and blank a surname.
+      data = normalizeStaffNameFields(data);
 
       // Normalize empty optional unique fields to null so the
       // staff_staff_id_not_empty CHECK constraint doesn't reject blanks
@@ -523,6 +682,18 @@ export class StaffService {
 
       // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
       // 'estimated' uses Postgres statistics instead of counting all rows
+      //
+      // The institutions embed is qualified with !staff_institution_id_fkey on
+      // purpose, here and at every other staff -> institutions embed in the app.
+      // PostgREST resolves embeds by RELATIONSHIP, not by column, so the moment
+      // `staff` holds a second FK to `institutions` the bare `institutions(...)`
+      // form becomes ambiguous and fails at query-planning time with PGRST201 —
+      // no rows, no build error, ~20 call sites at once. That happened on
+      // 2026-08-06 when staff.biometric_institution_id was added as an FK
+      // (see 20260806140000_staff_biometric_drop_institution_fk.sql). The
+      // constraint is gone, but the column is not, and the hint is what keeps
+      // this query correct whether or not a second FK ever comes back — and
+      // even while PostgREST is still serving a stale schema cache.
       let query = (this.supabase as any).from('staff').select(
         `
           *,
@@ -531,7 +702,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -553,14 +724,12 @@ export class StaffService {
 
       // Apply other filters AFTER institution filter
       if (filters.search) {
-        const searchConditions = buildStaffSearchConditions(filters.search, {
-          caseSensitive: filters.search_case_sensitive,
-          exactMatch: filters.search_exact_match,
-          searchFields: filters.search_fields
-        });
-
-        if (searchConditions.length > 0) {
-          query = query.or(searchConditions.join(','));
+        // ONE .or() PER TOKEN, chained — PostgREST ANDs successive .or() calls,
+        // which is what lets "DHINESHKUMAR B" match a row whose first_name and
+        // last_name hold those words separately. A single flat .or() with the
+        // whole term cannot match a full name at all.
+        for (const group of buildStaffSearchTokenGroups(filters.search)) {
+          query = query.or(group.join(','));
         }
       }
 
@@ -639,7 +808,12 @@ export class StaffService {
         }
       };
     } catch (error) {
-      console.error('Error fetching staff:', error);
+      // Log the MESSAGE, not the object. A Supabase PostgrestError is a plain
+      // object and prints fine, but an Error instance (e.g. the 30s timeout
+      // reject above) has non-enumerable message/stack and console.error prints
+      // it as `{}` — which left the UI saying "check the console for details"
+      // when the console had none.
+      console.error('Error fetching staff:', getErrorMessage(error), error);
       throw error;
     }
   }
@@ -699,7 +873,11 @@ export class StaffService {
       // Use the existing getStaff method with enhanced filters
       return await this.getStaff(effectiveFilters);
     } catch (error) {
-      console.error('Error fetching staff with role-based filtering:', error);
+      console.error(
+        'Error fetching staff with role-based filtering:',
+        getErrorMessage(error),
+        error
+      );
       throw error;
     }
   }
@@ -723,7 +901,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -781,7 +959,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -799,14 +977,12 @@ export class StaffService {
 
       // Apply other filters
       if (filters.search) {
-        const searchConditions = buildStaffSearchConditions(filters.search, {
-          caseSensitive: filters.search_case_sensitive,
-          exactMatch: filters.search_exact_match,
-          searchFields: filters.search_fields
-        });
-
-        if (searchConditions.length > 0) {
-          query = query.or(searchConditions.join(','));
+        // ONE .or() PER TOKEN, chained — PostgREST ANDs successive .or() calls,
+        // which is what lets "DHINESHKUMAR B" match a row whose first_name and
+        // last_name hold those words separately. A single flat .or() with the
+        // whole term cannot match a full name at all.
+        for (const group of buildStaffSearchTokenGroups(filters.search)) {
+          query = query.or(group.join(','));
         }
       }
 
@@ -909,7 +1085,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -1107,6 +1283,52 @@ export class StaffService {
 
   // Dashboard Analytics Methods
 
+  // Column union required by all nine dashboard sections. Kept explicit (never
+  // select('*')) so the 13 JSONB array columns (badges, qualifications, specialisations,
+  // experience_entries, research_focus_areas, publications, funded_projects,
+  // certifications, awards, memberships, phd_scholars_list, faqs, achievements) and the
+  // markdown text fields (qualification_summary, professional_summary,
+  // mentoring_description) added by the staff-extended-faculty-fields work stay out of
+  // the payload. Measured: `select *` is 872 KB across 856 rows; this list is ~90 KB.
+  private static readonly DASHBOARD_STAFF_COLUMNS = [
+    // grouping / filter dimensions
+    'is_active',
+    'institution_id',
+    'department_id',
+    'category_id',
+    // dates (tenure, age groups, hiring trends)
+    'date_of_joining',
+    'date_of_birth',
+    // profile-completion required fields
+    'first_name',
+    'last_name',
+    'email',
+    'phone',
+    'designation',
+    // profile-completion optional fields — includes blood_group: removing
+    // it here silently reintroduces a completion-calculation bug (Task 11),
+    // since getOverviewStats/getProfileAnalytics read it as a completion field.
+    'staff_id',
+    'profile_picture',
+    'address',
+    'state',
+    'district',
+    'pincode',
+    'institution_email',
+    // attendance enrolment — a missing code means this person's punches cannot be
+    // resolved by the biometric import, so the Profiles tab tracks them as fields.
+    'biometric_id',
+    'biometric_institution_id',
+    'blood_group',
+    // demographics
+    'gender',
+    'marital_status',
+    // embedded display names
+    'institution:institutions!staff_institution_id_fkey(id, name)',
+    'department:departments(id, department_name)',
+    'category:employment_categories(id, category_name)'
+  ].join(', ');
+
   static async getDashboardStats(
     filters: StaffDashboardFilters = {}
   ): Promise<StaffDashboardStats> {
@@ -1114,39 +1336,40 @@ export class StaffService {
       // Use the standard client to respect RLS policies
       const supabase = createClientSupabaseClient();
 
-      // Execute all queries in parallel for better performance
-      const [
-        overview,
-        registrationTrends,
-        institutionStats,
-        departmentStats,
-        categoryStats,
-        geographicStats,
-        demographicStats,
-        tenureAnalytics,
-        profileAnalytics
-      ] = await Promise.all([
-        this.getOverviewStats(filters, supabase),
-        this.getRegistrationTrends(filters, supabase),
-        this.getInstitutionStats(filters, supabase),
-        this.getDepartmentStats(filters, supabase),
-        this.getCategoryStats(filters, supabase),
-        this.getGeographicStats(filters, supabase),
-        this.getDemographicStats(filters, supabase),
-        this.getTenureAnalytics(filters, supabase),
-        this.getProfileAnalytics(filters, supabase)
+      // ONE unfiltered staff read; all nine sections are then derived in memory.
+      //
+      // This used to be nine parallel SELECTs against `staff`. Each was an unbounded
+      // full-table scan, and an unbounded `staff` scan is expensive because of the
+      // table's SELECT RLS policies -- measured at 1245 ms / 33,766 shared buffers for
+      // an own_institution user (hod / principal / office_assistant, the page's primary
+      // audience) and 408 ms for a super admin, on a table that is only ~154 pages.
+      // The dashboard paid that nine times over, which is what produced the multi-second
+      // "Loading Dashboard..." overlay. The RLS side is fixed in
+      // supabase/migrations/optimize_staff_select_rls_dashboard_perf.sql; this collapses
+      // the 9x fan-out that multiplied it.
+      //
+      // Why the fetch is UNFILTERED: six sections apply the full filter set, but three
+      // deliberately drop their own dimension -- institutionStats ignores institutionId,
+      // departmentStats ignores departmentId, categoryStats ignores categoryId -- so
+      // each chart still shows every slice of its own axis. Fetching the superset once
+      // and re-applying each section's filters in memory reproduces all nine result sets
+      // exactly, at the cost of a single scan. Filtering 856 objects in JS is
+      // sub-millisecond; another RLS scan is not.
+      const [allStaff, profileActiveByEmail] = await Promise.all([
+        this.fetchDashboardStaff(supabase),
+        this.fetchProfileActiveByEmail(supabase)
       ]);
 
       return {
-        overview,
-        registrationTrends,
-        institutionStats,
-        departmentStats,
-        categoryStats,
-        geographicStats,
-        demographicStats,
-        tenureAnalytics,
-        profileAnalytics
+        overview: this.getOverviewStats(filters, allStaff, profileActiveByEmail),
+        registrationTrends: this.getRegistrationTrends(filters, allStaff),
+        institutionStats: this.getInstitutionStats(filters, allStaff),
+        departmentStats: this.getDepartmentStats(filters, allStaff),
+        categoryStats: this.getCategoryStats(filters, allStaff),
+        geographicStats: this.getGeographicStats(filters, allStaff),
+        demographicStats: this.getDemographicStats(filters, allStaff),
+        tenureAnalytics: this.getTenureAnalytics(filters, allStaff),
+        profileAnalytics: this.getProfileAnalytics(filters, allStaff)
       };
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
@@ -1154,64 +1377,81 @@ export class StaffService {
     }
   }
 
-  private static async getOverviewStats(
-    filters: StaffDashboardFilters,
+  /** Single RLS-scoped read backing every dashboard section. */
+  private static async fetchDashboardStaff(
     supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffOverviewStats> {
-    // Tightened from select('*') to an explicit column list so the dashboard
-    // does NOT pull the 13 new JSONB array columns (badges, qualifications,
-    // specialisations, experience_entries, research_focus_areas, publications,
-    // funded_projects, certifications, awards, memberships, phd_scholars_list,
-    // faqs, achievements) or the markdown text fields (qualification_summary,
-    // professional_summary, mentoring_description) added in the staff-extended-
-    // faculty-fields work. The columns enumerated below are the union of every
-    // property accessed downstream in this function:
-    //   - is_active                                            (active/inactive count)
-    //   - date_of_joining                                      (newHires + averageTenure)
-    //   - institution_email                                    (staffWithProfiles)
-    //   - requiredFields:  first_name, last_name, email, phone,
-    //                      designation, date_of_birth, date_of_joining
-    //   - optionalFields:  staff_id, profile_picture, address, state,
-    //                      district, pincode, institution_email
-    let query = (supabase as any).from('staff').select(
-      [
-        'is_active',
-        'date_of_joining',
-        'first_name',
-        'last_name',
-        'email',
-        'phone',
-        'designation',
-        'date_of_birth',
-        'staff_id',
-        'profile_picture',
-        'address',
-        'state',
-        'district',
-        'pincode',
-        'institution_email'
-      ].join(', ')
-    );
-
-    // Apply filters
-    if (filters.institutionId) {
-      query = query.eq('institution_id', filters.institutionId);
-    }
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
-    }
-    if (filters.categoryId) {
-      query = query.eq('category_id', filters.categoryId);
-    }
-    if (filters.status && filters.status.length > 0) {
-      query = query.in(
-        'is_active',
-        filters.status.map((s) => s === 'active')
-      );
-    }
-
-    const { data: staff, error } = await query;
+  ): Promise<any[]> {
+    const { data, error } = await (supabase as any)
+      .from('staff')
+      .select(this.DASHBOARD_STAFF_COLUMNS);
     if (error) throw error;
+    return (data as any[]) || [];
+  }
+
+  /**
+   * profiles.is_active keyed by email — backs overview's staffWithProfiles /
+   * staffWithoutProfiles / inactiveProfiles counts. Separate table, cheap scan
+   * (7220 rows, ~3 ms: the profiles SELECT policy is just an auth.uid() null check),
+   * so it stays its own round trip and runs alongside the staff read.
+   */
+  private static async fetchProfileActiveByEmail(
+    supabase: ReturnType<typeof createClientSupabaseClient>
+  ): Promise<Map<string, boolean>> {
+    const { data, error } = await supabase.from('profiles').select('email, is_active');
+    if (error) throw error;
+    return new Map((data || []).map((p: any) => [p.email, p.is_active]));
+  }
+
+  /**
+   * In-memory equivalent of the `.eq()` chains the nine per-section queries used to
+   * build. `dims` names which dimensions this section filters on — sections omit their
+   * own grouping dimension on purpose (see getDashboardStats).
+   */
+  private static filterDashboardStaff(
+    staff: any[],
+    filters: StaffDashboardFilters,
+    dims: {
+      institution?: boolean;
+      department?: boolean;
+      category?: boolean;
+      status?: boolean;
+    }
+  ): any[] {
+    // .in('is_active', ['active'] -> [true]) semantics; no staff row has a NULL
+    // is_active, so a plain boolean compare matches the SQL exactly.
+    const allowedActive =
+      dims.status && filters.status && filters.status.length > 0
+        ? filters.status.map((s) => s === 'active')
+        : null;
+
+    return staff.filter((s: any) => {
+      if (dims.institution && filters.institutionId && s.institution_id !== filters.institutionId) {
+        return false;
+      }
+      if (dims.department && filters.departmentId && s.department_id !== filters.departmentId) {
+        return false;
+      }
+      if (dims.category && filters.categoryId && s.category_id !== filters.categoryId) {
+        return false;
+      }
+      if (allowedActive && !allowedActive.includes(!!s.is_active)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private static getOverviewStats(
+    filters: StaffDashboardFilters,
+    allStaff: any[],
+    profileActiveByEmail: Map<string, boolean>
+  ): StaffOverviewStats {
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      department: true,
+      category: true,
+      status: true
+    });
 
     const currentDate = new Date();
     const currentMonth = new Date(
@@ -1247,7 +1487,10 @@ export class StaffService {
       'state',
       'district',
       'pincode',
-      'institution_email'
+      'institution_email',
+      'blood_group',
+      'biometric_id',
+      'biometric_institution_id'
     ];
 
     let totalFieldsExpected = 0;
@@ -1279,16 +1522,7 @@ export class StaffService {
 
     const averageTenure = totalStaff > 0 ? totalTenure / totalStaff : 0;
 
-    // Get staff with/without profiles
-    const { data: profiles, error: profileError } = await supabase
-      .from('profiles')
-      .select('email, is_active');
-
-    if (profileError) throw profileError;
-
-    const profileActiveByEmail = new Map(
-      (profiles || []).map((p: any) => [p.email, p.is_active])
-    );
+    // Get staff with/without profiles (map is fetched once in getDashboardStats)
     const staffWithProfiles =
       staff?.filter(
         (s: any) => s.institution_email && profileActiveByEmail.has(s.institution_email)
@@ -1316,25 +1550,15 @@ export class StaffService {
     };
   }
 
-  private static async getRegistrationTrends(
+  private static getRegistrationTrends(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffRegistrationTrend[]> {
-    let query = (supabase as any).from('staff').select('date_of_joining');
-
-    // Apply filters
-    if (filters.institutionId) {
-      query = query.eq('institution_id', filters.institutionId);
-    }
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
-    }
-    if (filters.categoryId) {
-      query = query.eq('category_id', filters.categoryId);
-    }
-
-    const { data: staff, error } = await query;
-    if (error) throw error;
+    allStaff: any[]
+  ): StaffRegistrationTrend[] {
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      department: true,
+      category: true
+    });
 
     // Group by date and calculate trends for the last 30 days
     const trends: { [key: string]: number } = {};
@@ -1372,25 +1596,17 @@ export class StaffService {
       });
   }
 
-  private static async getInstitutionStats(
+  private static getInstitutionStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffInstitutionStats[]> {
-    let query = (supabase as any).from('staff').select(`
-        institution_id,
-        institution:institutions(id, name)
-      `).eq('is_active', true);
-
-    // Apply filters
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
-    }
-    if (filters.categoryId) {
-      query = query.eq('category_id', filters.categoryId);
-    }
-
-    const { data: staff, error } = await query;
-    if (error) throw error;
+    allStaff: any[]
+  ): StaffInstitutionStats[] {
+    // institutionId is intentionally NOT applied: this chart is the institution axis,
+    // so it keeps showing every institution even while one is selected.
+    // Active-only, matching the previous .eq('is_active', true).
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      department: true,
+      category: true
+    }).filter((s: any) => s.is_active === true);
 
     return this.calculateDistribution(
       staff || [],
@@ -1407,28 +1623,15 @@ export class StaffService {
     }));
   }
 
-  private static async getDepartmentStats(
+  private static getDepartmentStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffDepartmentStats[]> {
-    let query = (supabase as any).from('staff').select(`
-        department_id,
-        institution_id,
-        is_active,
-        department:departments(id, department_name),
-        institution:institutions(id, name)
-      `);
-
-    // Apply filters
-    if (filters.institutionId) {
-      query = query.eq('institution_id', filters.institutionId);
-    }
-    if (filters.categoryId) {
-      query = query.eq('category_id', filters.categoryId);
-    }
-
-    const { data: staff, error } = await query;
-    if (error) throw error;
+    allStaff: any[]
+  ): StaffDepartmentStats[] {
+    // departmentId is intentionally NOT applied: this chart is the department axis.
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      category: true
+    });
 
     return this.calculateDistribution(
       staff || [],
@@ -1451,27 +1654,15 @@ export class StaffService {
     }));
   }
 
-  private static async getCategoryStats(
+  private static getCategoryStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffCategoryStats[]> {
-    let query = (supabase as any).from('staff').select(`
-        category_id,
-        is_active,
-        date_of_joining,
-        category:employment_categories(id, category_name)
-      `);
-
-    // Apply filters
-    if (filters.institutionId) {
-      query = query.eq('institution_id', filters.institutionId);
-    }
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
-    }
-
-    const { data: staff, error } = await query;
-    if (error) throw error;
+    allStaff: any[]
+  ): StaffCategoryStats[] {
+    // categoryId is intentionally NOT applied: this chart is the category axis.
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      department: true
+    });
 
     const currentDate = new Date();
 
@@ -1504,52 +1695,28 @@ export class StaffService {
     });
   }
 
-  private static async getGeographicStats(
+  private static getGeographicStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffGeographicStats> {
-    let query = (supabase as any).from('staff').select('state, district');
-
-    // Apply filters
-    if (filters.institutionId) {
-      query = query.eq('institution_id', filters.institutionId);
-    }
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
-    }
-    if (filters.categoryId) {
-      query = query.eq('category_id', filters.categoryId);
-    }
-
-    const { data: staff, error } = await query;
-    if (error) throw error;
+    allStaff: any[]
+  ): StaffGeographicStats {
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      department: true,
+      category: true
+    });
 
     return this.calculateGeographicStats(staff || []);
   }
 
-  private static async getDemographicStats(
+  private static getDemographicStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffDemographicStats> {
-    let query = supabase
-      .from('staff')
-      .select(
-        'gender, marital_status, blood_group, date_of_birth, designation'
-      );
-
-    // Apply filters
-    if (filters.institutionId) {
-      query = query.eq('institution_id', filters.institutionId);
-    }
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
-    }
-    if (filters.categoryId) {
-      query = query.eq('category_id', filters.categoryId);
-    }
-
-    const { data: staff, error } = await query;
-    if (error) throw error;
+    allStaff: any[]
+  ): StaffDemographicStats {
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      department: true,
+      category: true
+    });
 
     const currentDate = new Date();
 
@@ -1566,30 +1733,15 @@ export class StaffService {
     };
   }
 
-  private static async getTenureAnalytics(
+  private static getTenureAnalytics(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffTenureAnalytics> {
-    let query = (supabase as any).from('staff').select(`
-        date_of_joining,
-        category:employment_categories(category_name),
-        department:departments(department_name),
-        institution:institutions(name)
-      `);
-
-    // Apply filters
-    if (filters.institutionId) {
-      query = query.eq('institution_id', filters.institutionId);
-    }
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
-    }
-    if (filters.categoryId) {
-      query = query.eq('category_id', filters.categoryId);
-    }
-
-    const { data: staff, error } = await query;
-    if (error) throw error;
+    allStaff: any[]
+  ): StaffTenureAnalytics {
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      department: true,
+      category: true
+    });
 
     const currentDate = new Date();
 
@@ -1718,28 +1870,18 @@ export class StaffService {
     };
   }
 
-  private static async getProfileAnalytics(
+  private static getProfileAnalytics(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createClientSupabaseClient>
-  ): Promise<StaffProfileAnalytics> {
-    let query = (supabase as any).from('staff').select(`
-        *,
-        category:employment_categories(category_name)
-      `);
-
-    // Apply filters
-    if (filters.institutionId) {
-      query = query.eq('institution_id', filters.institutionId);
-    }
-    if (filters.departmentId) {
-      query = query.eq('department_id', filters.departmentId);
-    }
-    if (filters.categoryId) {
-      query = query.eq('category_id', filters.categoryId);
-    }
-
-    const { data: staff, error } = await query;
-    if (error) throw error;
+    allStaff: any[]
+  ): StaffProfileAnalytics {
+    // Previously `select('*')` — the single heaviest payload on the page (872 KB for
+    // 856 rows) even though only the field list below plus category.category_name is
+    // ever read. DASHBOARD_STAFF_COLUMNS covers all of them.
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      department: true,
+      category: true
+    });
 
     const requiredFields = [
       'first_name',
@@ -1758,7 +1900,13 @@ export class StaffService {
       'district',
       'pincode',
       'institution_email',
-      'blood_group'
+      'blood_group',
+      // Both halves of the biometric enrolment are tracked, not just the code.
+      // staff_biometric_scope_chk only forces a machine when a code is present, so
+      // "machine set, code blank" is a legal state the pair-count exposes; today
+      // the two numbers are identical, and any divergence is a real gap.
+      'biometric_id',
+      'biometric_institution_id'
     ];
     const allFields = [...requiredFields, ...optionalFields];
 

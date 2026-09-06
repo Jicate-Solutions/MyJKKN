@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getQueryClient } from '@/providers/query-client-provider';
 import type { Profile } from '@/types/auth';
 
 interface AuthContextValue {
@@ -43,6 +44,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Memoize the supabase client to prevent re-creation
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
+  // True while a loadUserAndProfile pass is running. On every page load the
+  // initial effect kicks off a load AND supabase-js fires SIGNED_IN as it
+  // restores the cookie session — the profileRef guard below can't catch that
+  // because the first load hasn't set profileRef yet. Result (measured
+  // 2026-08-02): the profiles select ran twice on EVERY page, platform-wide.
+  // The in-flight pass reads getSession() itself, so the concurrent trigger
+  // is pure duplication — skip it.
+  const loadInFlightRef = useRef(false);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -52,6 +62,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.location.pathname.startsWith('/auth/');
 
     const loadUserAndProfile = async () => {
+      if (loadInFlightRef.current) return;
+      loadInFlightRef.current = true;
       try {
         // 1. Get User from Supabase Auth
         const {
@@ -94,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfile(null);
         }
       } finally {
+        loadInFlightRef.current = false;
         if (isMounted) {
           setIsLoading(false);
         }
@@ -141,6 +154,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // stale body can't be served to the new user.
       if (event === 'SIGNED_IN') {
         purgeApiCache();
+        // The browser-singleton QueryClient survives layout unmounts (2026-08-02
+        // dedupe); non-user-keyed entries could otherwise serve the prior
+        // user's rows for up to their staleTime after an in-tab user switch.
+        getQueryClient().clear();
       }
 
       setIsLoading(true);

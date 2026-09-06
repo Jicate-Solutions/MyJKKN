@@ -194,6 +194,7 @@ export const POLICY_KEYS = {
   NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
   NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
   NAV_ADMIN_PDE_DEFAULT_LANDING: 'nav.admin.pde.default_landing',
+  NAV_CAMPUS_WALK_SCOREBOARD_DEFAULT_LANDING: 'nav.campus_walk.scoreboard.default_landing',
   NAV_ADMIN_PDE_RUBRICS_DEFAULT_LANDING: 'nav.admin.pde.rubrics.default_landing',
   NAV_ADMIN_PDE_ACCREDITATION_EVIDENCE_DEFAULT_LANDING: 'nav.admin.pde.accreditation_evidence.default_landing',
   NAV_ADMIN_PDE_TRANSCRIPT_DEFAULT_LANDING: 'nav.admin.pde.transcript.default_landing',
@@ -279,6 +280,35 @@ export const POLICY_KEYS = {
   // (server-only — runs in the vacancy-price-drops cron, never client).
   FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT: 'fractional_occupancy.empty_vacancy_drop_pct',
   FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS: 'fractional_occupancy.empty_vacancy_drop_interval_days',
+
+  // Hostel Fees — Settle Then Bill (Director 2026-08-09) ---------------------
+  // Don't bill at move-in: let the room fill for WINDOW_DAYS (restarting on
+  // each new joiner, capped at OUTER_LIMIT_DAYS from first open, and short-
+  // circuited the moment the room is full), then bill everyone at the
+  // occupancy that exists at that moment. Seeded global rows by
+  // supabase/migrations/20260815060000_hostel_settle_then_bill.sql:
+  // false / 5 / 20 / 5.
+  // HOSTEL_SETTLE_BILL_ENABLED is the MASTER SWITCH — while false the whole
+  // mechanism is inert (no window opens, nothing is billed, nothing credited).
+  HOSTEL_SETTLE_BILL_ENABLED: 'hostel.settle_bill.enabled',
+  HOSTEL_SETTLE_BILL_WINDOW_DAYS: 'hostel.settle_bill.window_days',
+  HOSTEL_SETTLE_BILL_OUTER_LIMIT_DAYS: 'hostel.settle_bill.outer_limit_days',
+  HOSTEL_SETTLE_BILL_BILL_DUE_DAYS: 'hostel.settle_bill.bill_due_days',
+  // Hours every current resident has to agree to a room buyout before the
+  // request lapses. A sole occupant never waits.
+  // supabase/migrations/20260819032000_hostel_room_buyout.sql seeds 48.
+  HOSTEL_SETTLE_BILL_BUYOUT_CONSENT_HOURS: 'hostel.settle_bill.buyout_consent_hours',
+
+  // Empty-bed intimation — tell a resident her room is under-filled and what it
+  // is costing her, so she can invite someone before the settle window closes.
+  // Seeded by supabase/migrations/20260815060001_empty_bed_intimation.sql:
+  // false / 2 / <template>. ENABLED is its own master switch, separate from
+  // HOSTEL_SETTLE_BILL_ENABLED — notices can be armed first, since they move no
+  // money, and that is the intended order.
+  HOSTEL_EMPTY_BED_NOTICE_ENABLED: 'hostel.empty_bed_notice.enabled',
+  HOSTEL_EMPTY_BED_NOTICE_REMINDER_INTERVAL_DAYS:
+    'hostel.empty_bed_notice.reminder_interval_days',
+  HOSTEL_EMPTY_BED_NOTICE_MESSAGE_TEMPLATE: 'hostel.empty_bed_notice.message_template',
 
   // Bed Economics — scalar tunables (Bed Economics PR A, 2026-06-07) ---------
   // Seeded as global system rows by

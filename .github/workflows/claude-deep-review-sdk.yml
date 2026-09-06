@@ -26,10 +26,38 @@ name: Claude Deep Review (SDK multi-agent)
 # can never go red means nothing was checked. Before this change the job posted
 # "Inconclusive — treat as NOT reviewed" and reported success anyway; every PR
 # from 2026-07-26 onward got that comment under a green tick.
+#
+# HONESTY CONTRACT, PART 2 (2026-08-04): the 07-28 contract only covered PRs the
+# router SENT to the panel. A PR the router did NOT send got nothing at all —
+# "Deep-tier router" went green, "SDK multi-agent review" showed as *skipped*,
+# and no status, comment or annotation anywhere said the words "not reviewed".
+# Absence of review was pixel-identical to a passed review. Measured on
+# 2026-08-04: of 52 open non-draft PRs, 19 carried ZERO review comment of any
+# kind (#2773 #2775 #2776 #2786 #2787 #2788 #2789 #2791 #2798 #2806 #2811 #2706
+# #2708 #2709 #2715 #2724 #2725 #2726 #2753) — every one of them green.
+#
+# The `verdict` job below now ALWAYS publishes a `Deep review status` check run
+# whose text distinguishes the three real outcomes:
+#   success  "REVIEWED — 3-lens panel completed"       (findings advisory)
+#   neutral  "NOT REVIEWED — outside the deep surface" (grey, not red: a
+#            legitimately-skipped PR must not be trained-away noise)
+#   failure  "NOT REVIEWED — the panel did not complete"
+# plus an unmissable PR comment in both NOT-REVIEWED cases, self-deleted the
+# moment the PR does get reviewed.
+#
+# ESCAPE HATCH, deliberately opt-in and one PR at a time: label a PR
+# `deep-review` and the panel runs on it regardless of paths. The router surface
+# is NOT widened — each deep run spawns 3 concurrent Opus lens agents out of the
+# shared Claude Max Agent SDK pool, and ~30 concurrent agents exhausted the
+# account's session limit on the morning of 2026-08-04. Honest reporting is
+# free; reviewing everything at once is not.
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # `labeled` powers the opt-in escape hatch. The router job filters label
+    # events down to the one label that matters, so adding an unrelated label
+    # to a PR does not re-spend SDK agents on a panel that already ran.
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [main]
 
 concurrency:
@@ -39,15 +67,26 @@ concurrency:
 permissions:
   contents: read
   pull-requests: write
+  # The verdict job publishes its own check run so "not reviewed" is a row in
+  # the checks list, not a line buried in a job log nobody opens.
+  checks: write
 
 jobs:
   route:
     name: Deep-tier router
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    if: ${{ !github.event.pull_request.draft }}
+    # A `labeled` event is only interesting when the label just applied is the
+    # escape hatch. Skipping the router here also skips `verdict` (which bails
+    # when route is skipped), so a stray label cannot overwrite the standing
+    # verdict of the run that actually reviewed this commit.
+    if: >-
+      ${{ !github.event.pull_request.draft
+          && (github.event.action != 'labeled'
+              || contains(github.event.pull_request.labels.*.name, 'deep-review')) }}
     outputs:
       deep: ${{ steps.classify.outputs.deep }}
+      reason: ${{ steps.classify.outputs.reason }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -55,6 +94,9 @@ jobs:
         id: classify
         env:
           BASE_REF: ${{ github.base_ref }}
+          # Opt-in override. Kept out of the regex logic entirely so the path
+          # surface stays auditable and unchanged.
+          FORCED: ${{ contains(github.event.pull_request.labels.*.name, 'deep-review') }}
         run: |
           set -euo pipefail
           git fetch origin "$BASE_REF" --quiet
@@ -64,8 +106,38 @@ jobs:
           MONEY_REGEX='(^|[/_.-])(fees?|billing|payments?|invoices?|scholarships?|payroll)([/_.-]|$)'
           NON_DOCS=$(echo "$CHANGED" | grep -vE "$DOCS_REGEX" || true)
           DEEP=$( { echo "$NON_DOCS" | grep -E "$RISK_REGEX" || true; echo "$NON_DOCS" | grep -iE "$MONEY_REGEX" || true; } | grep -ivE '\.(png|jpe?g|gif|svg|webp)$' | grep -v '^$' | sort -u || true )
-          if [[ -n "$DEEP" ]]; then echo "deep=true" >> "$GITHUB_OUTPUT"; else echo "deep=false" >> "$GITHUB_OUTPUT"; fi
-          echo "::notice::deep=$([[ -n "$DEEP" ]] && echo true || echo false)"
+
+          if [[ -n "$DEEP" ]]; then
+            REASON="changed files match the deep surface (migrations / auth / money)"
+            IS_DEEP=true
+          elif [[ "$FORCED" == "true" ]]; then
+            REASON="forced by the \`deep-review\` label"
+            IS_DEEP=true
+          else
+            REASON="no changed file is under supabase/migrations, supabase/setup, lib/auth, app/auth, app/api/auth, utils/supabase, middleware.ts, proxy.ts, school-defaults-service, and none carries a money path segment (fee/billing/payment/invoice/scholarship/payroll)"
+            IS_DEEP=false
+          fi
+
+          echo "deep=$IS_DEEP" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          echo "::notice::deep=$IS_DEEP — $REASON"
+
+          {
+            if [[ "$IS_DEEP" == "true" ]]; then
+              echo "### 🔬 Deep-tier router: \`deep\` — the SDK panel WILL review this PR"
+              echo ""
+              echo "Reason: $REASON"
+              if [[ -n "$DEEP" ]]; then
+                echo ""; echo '```'; echo "$DEEP" | head -30; echo '```'
+              fi
+            else
+              echo "### ⚪ Deep-tier router: \`skip\` — this PR will **NOT** be deep-reviewed"
+              echo ""
+              echo "This is a routing decision, **not** a passed review. Reason: $REASON"
+              echo ""
+              echo "To send it to the panel anyway, add the \`deep-review\` label."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deep-review:
     name: SDK multi-agent review
@@ -219,3 +291,135 @@ jobs:
             fail "The reviewer exited ${REVIEW_EXIT:-<it never ran>}, meaning no complete review was produced."
 
           echo "::notice::A complete review was produced and posted. (Findings, if any, are advisory and never fail this job.)"
+
+  # ---------------------------------------------------------------------------
+  # The whole point of this job: make "this PR was not deep-reviewed" a thing a
+  # human can SEE, without making it red. It is a pure reporter — it never fails
+  # the workflow itself; the state it found is carried in the check run it
+  # publishes and in the PR comment. (The genuine-failure red signal already
+  # exists on `SDK multi-agent review` above; duplicating it here would just be
+  # two reds for one fact.)
+  # ---------------------------------------------------------------------------
+  verdict:
+    name: Publish review verdict
+    needs: [route, deep-review]
+    # `always()` so a skipped or failed panel is still reported. Bails when the
+    # router was skipped (draft PR, or an unrelated label event) — in those
+    # cases the previously published verdict for this commit is still correct
+    # and must not be clobbered.
+    if: ${{ always() && needs.route.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish honest verdict (check run + PR comment)
+        env:
+          GH_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          ROUTE_RESULT:  ${{ needs.route.result }}
+          DEEP:          ${{ needs.route.outputs.deep }}
+          REASON:        ${{ needs.route.outputs.reason }}
+          # Bracket form, not needs.deep-review.result: a hyphen in a job id is
+          # ambiguous with subtraction in the expression grammar, and this repo
+          # has no other hyphenated `needs.` reference to prove the dot form.
+          REVIEW_RESULT: ${{ needs['deep-review'].result }}
+          HEAD_SHA:      ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER:     ${{ github.event.pull_request.number }}
+          RUN_URL:       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IS_FORK:       ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Fork PRs get a read-only GITHUB_TOKEN: neither a check run nor a
+          # comment can be written. Say so in the log rather than dying.
+          if [ "$IS_FORK" = "true" ]; then
+            echo "::notice::Fork PR — GITHUB_TOKEN is read-only, so no verdict can be published. This PR was NOT deep-reviewed (secrets are withheld from forks by design)."
+            exit 0
+          fi
+
+          NOT_REVIEWED=true
+          if [ "$ROUTE_RESULT" != "success" ]; then
+            CONCLUSION=failure
+            TITLE="NOT REVIEWED — the deep-tier router did not complete"
+            BODY="The router job ended \`$ROUTE_RESULT\`, so no routing decision was made and **no review of any kind ran**. This is a CI fault, not a verdict on the code."
+          elif [ "$DEEP" != "true" ]; then
+            CONCLUSION=neutral
+            TITLE="NOT REVIEWED — outside the deep-review surface"
+            BODY="The 3-lens SDK panel **did not look at this PR**. That is a routing decision, not an approval, and it says nothing about whether the code is correct.\n\n**Why:** $REASON"
+          elif [ "$REVIEW_RESULT" = "success" ]; then
+            CONCLUSION=success
+            TITLE="REVIEWED — 3-lens SDK panel completed"
+            BODY="The panel reviewed this PR and posted its findings as a PR comment. Findings are advisory and never block a merge."
+            NOT_REVIEWED=false
+          else
+            CONCLUSION=failure
+            TITLE="NOT REVIEWED — the panel did not complete"
+            BODY="This PR was routed to the deep panel, but the reviewer job ended \`$REVIEW_RESULT\`, so **no complete review exists**. Common cause on this repo: the shared Claude Max Agent SDK session pool is exhausted (each deep run spawns 3 concurrent Opus agents)."
+          fi
+
+          # Multi-line text is assembled with \n escapes and printf %b: a bare
+          # newline inside these strings would sit at column 0 and silently
+          # terminate this YAML block scalar.
+          HATCH="**What did happen instead:** the sibling \`Claude Risk Review (advisory)\` workflow may have run a single-skeptic review — look for a review comment on this PR. If this PR carries no review comment at all, then nothing reviewed it.\n\n**To send it to the panel:** add the \`deep-review\` label to this PR. The panel is opt-in rather than automatic on purpose — each run spawns 3 concurrent Opus lens agents from the shared Claude Max Agent SDK pool, which this repo exhausted on 2026-08-04 by running ~30 at once."
+
+          if [ "$NOT_REVIEWED" = "true" ]; then
+            printf '%b\n\n%b\n\n[Workflow run](%s)\n' "$BODY" "$HATCH" "$RUN_URL" > /tmp/verdict-summary.md
+          else
+            printf '%b\n\n[Workflow run](%s)\n' "$BODY" "$RUN_URL" > /tmp/verdict-summary.md
+          fi
+
+          jq -n \
+            --arg sha "$HEAD_SHA" \
+            --arg conclusion "$CONCLUSION" \
+            --arg title "$TITLE" \
+            --rawfile summary /tmp/verdict-summary.md \
+            '{name:"Deep review status", head_sha:$sha, status:"completed",
+              conclusion:$conclusion, output:{title:$title, summary:$summary}}' \
+            > /tmp/check-run.json
+
+          gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" --input /tmp/check-run.json > /dev/null
+          echo "::notice::Published check run 'Deep review status' = $CONCLUSION — $TITLE"
+
+          # ---- Unmissable channel: a PR comment, but only while it is true. ----
+          # Marker is distinct from the panel's own `<!-- claude-deep-review-sdk -->`
+          # (that one dedups on an exact prefix ending in a space, so these two
+          # never collide).
+          MARKER='<!-- claude-deep-review-sdk:verdict -->'
+          # Plain read loop rather than `mapfile`, and indexed access rather
+          # than "${IDS[@]}", so this is safe on bash 3 and under `set -u` with
+          # an empty array — which is also what makes it runnable outside CI.
+          IDS=()
+          while IFS= read -r id; do
+            [ -n "$id" ] && IDS+=("$id")
+          done < <(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" 2>/dev/null || true)
+          COUNT=${#IDS[@]}
+
+          if [ "$NOT_REVIEWED" != "true" ]; then
+            # Reviewed now — retract any stale "not reviewed" note so the PR
+            # never carries a claim that has stopped being true.
+            i=0
+            while [ "$i" -lt "$COUNT" ]; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[$i]}" > /dev/null 2>&1 \
+                && echo "::notice::Retracted stale not-reviewed comment #${IDS[$i]}" || true
+              i=$((i+1))
+            done
+            exit 0
+          fi
+
+          {
+            printf '%s\n' "$MARKER"
+            printf '## ⚪ This PR was NOT deep-reviewed\n\n'
+            cat /tmp/verdict-summary.md
+          } > /tmp/verdict-comment.md
+
+          if [ "$COUNT" -eq 0 ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/verdict-comment.md
+            echo "::notice::Posted not-reviewed notice"
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[0]}" -F body=@/tmp/verdict-comment.md > /dev/null
+            echo "::notice::Updated not-reviewed notice #${IDS[0]}"
+            i=1
+            while [ "$i" -lt "$COUNT" ]; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[$i]}" > /dev/null 2>&1 || true
+              i=$((i+1))
+            done
+          fi

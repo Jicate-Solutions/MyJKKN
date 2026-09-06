@@ -7,7 +7,7 @@
 // Shared by /learners/class-feedback and /learners/my-attendance.
 // Spec: specs/faculty-feedback-exam-link-2026-07-05.md
 
-import { ShieldCheck, TrendingDown, TrendingUp, Info } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, Info } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   useMyConfirmedAttendance,
@@ -93,9 +93,9 @@ export function MyConfirmedAttendanceCard() {
         <CardContent className="flex items-start gap-3 py-4">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" style={{ color: BRAND }} />
           <div className="text-sm">
-            <p className="font-medium">Confirming your classes with feedback starts fresh from {fmtDate(enforcement_start)}.</p>
+            <p className="font-medium">Tracking feedback for your sessions starts fresh from {fmtDate(enforcement_start)}. Your attendance itself is unaffected.</p>
             <p className="text-muted-foreground">
-              From now on, a class counts as <strong>confirmed</strong> once you give the
+              From now on, a class counts as <strong>feedback given</strong> once you give the
               quick 10-second feedback <strong>within {CONFIRM_WINDOW_HOURS} hours</strong> of it.
               Keep it up to stay comfortably above the {pass_line}% line.
             </p>
@@ -112,7 +112,7 @@ export function MyConfirmedAttendanceCard() {
         <CardContent className="flex items-start gap-3 py-4">
           <TrendingUp className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div className="text-sm">
-            <p className="font-medium">Building your feedback confirmations…</p>
+            <p className="font-medium">Building your feedback record…</p>
             <p className="text-muted-foreground">
               {confirmed_present} of your {total_marks} attended classes so far are confirmed with feedback.
               Your confirmed-with-feedback % starts counting toward the {pass_line}% line after {min_marks} classes —
@@ -144,8 +144,8 @@ export function MyConfirmedAttendanceCard() {
   const headline = atRisk
     ? `${confirmed_pct}% of your classes are confirmed with feedback — below the ${pass_line}% line.`
     : close
-      ? `${confirmed_pct}% of your classes are confirmed with feedback — just above the ${pass_line}% line.`
-      : `${confirmed_pct}% of your classes are confirmed with feedback — above the ${pass_line}% line.`;
+      ? `You've given feedback for ${confirmed_pct}% of your sessions — just above the ${pass_line}% line.`
+      : `You've given feedback for ${confirmed_pct}% of your sessions — above the ${pass_line}% line.`;
   // The at-risk band used to end with "Give feedback on each class to raise it back
   // above {pass_line}%" — an instruction the learner cannot carry out. confirmed_pct
   // is computed over EVERY Present+Absent mark since enforcement_start, but a class
@@ -191,14 +191,14 @@ export function MyConfirmedAttendanceCard() {
                 </span>
               </div>
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Confirmed with feedback</p>
+                <p className="text-xs font-medium text-muted-foreground">Feedback given</p>
                 <span className="text-2xl font-semibold tabular-nums" style={{ color: accent }}>
                   {confirmed_pct}%
                 </span>
               </div>
             </div>
             {/* Track: how much of your attendance is confirmed with feedback. */}
-            <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-muted" title={`Attendance ${official_pct}% · Confirmed with feedback ${confirmed_pct}%`}>
+            <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-muted" title={`Attendance ${official_pct}% · Feedback given ${confirmed_pct}%`}>
               <div className="h-full rounded-full" style={{ width: `${Math.min(100, confirmed_pct)}%`, backgroundColor: accent }} />
             </div>
             <p className="mt-2 text-sm font-medium" style={{ color: accent }}>{headline}</p>

@@ -52,6 +52,9 @@ concurrency:
 permissions:
   contents: read
   pull-requests: write
+  # A crashed advisory reviewer must publish "NOT REVIEWED" as a visible check
+  # run, not just a ::warning:: in a log. See the 2026-08-04 note below.
+  checks: write
   # claude-code-action exchanges a GitHub OIDC token for its app token at
   # startup; without id-token:write it dies with "Unable to get
   # ACTIONS_ID_TOKEN_REQUEST_URL" (caught on smoke-test PR #1336).
@@ -161,6 +164,7 @@ jobs:
 
       # ---- STANDARD tier: one adversarial skeptic ----
       - name: Claude skeptic review (standard tier)
+        id: skeptic
         if: steps.token.outputs.has_token == 'true' && needs.route.outputs.tier == 'standard'
         continue-on-error: true  # advisory — quota/model failures must not redden PRs
         timeout-minutes: 40
@@ -216,6 +220,7 @@ jobs:
 
       # ---- DEEP tier: ultracode multi-agent panel ----
       - name: Claude ultracode panel review (deep tier)
+        id: panel
         if: steps.token.outputs.has_token == 'true' && needs.route.outputs.tier == 'deep'
         continue-on-error: true  # advisory — quota/model failures must not redden PRs
         timeout-minutes: 40
@@ -279,15 +284,62 @@ jobs:
             + one line saying so — DO NOT invent findings to seem useful.
             Do not post comments yourself; a later step posts the file.
 
+      # 2026-08-04: this step used to end green with only a ::warning:: when the
+      # reviewer produced nothing — and the reviewer HAS been producing nothing.
+      # Evidence, PR #2798 run 30778778022: the action died in 576 ms with
+      # `{"subtype":"success","is_error":true,"num_turns":1,"total_cost_usd":0}`
+      # and `##[error]Claude execution failed: result is_error:true`;
+      # continue-on-error swallowed it and the job reported *pass* in 47 s.
+      # Across the 52 open non-draft PRs on 2026-08-04, 19 carried no review
+      # comment of any kind. The job stays green (it is advisory, and a red that
+      # fires on every PR gets ignored), but "NOT REVIEWED" is now a visible
+      # check run instead of a log line.
       - name: Post review comment (idempotent)
         if: steps.token.outputs.has_token == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TIER: ${{ needs.route.outputs.tier }}
+          SKEPTIC_OUTCOME: ${{ steps.skeptic.outcome }}
+          PANEL_OUTCOME: ${{ steps.panel.outcome }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+
+          # Publishes "Advisory review status" so a crashed reviewer is legible
+          # in the checks list. `neutral` (grey), never red: this tier is
+          # advisory, and a red on every PR is a red nobody reads.
+          publish_status() {
+            jq -n --arg sha "$HEAD_SHA" --arg conclusion "$1" --arg title "$2" --arg summary "$3" \
+              '{name:"Advisory review status", head_sha:$sha, status:"completed",
+                conclusion:$conclusion, output:{title:$title, summary:$summary}}' > /tmp/risk-check.json
+            if [ "$IS_FORK" = "true" ]; then
+              echo "::notice::Fork PR — read-only token, cannot publish '$2'."
+              return 0
+            fi
+            gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" --input /tmp/risk-check.json > /dev/null
+            echo "::notice::Published check run 'Advisory review status' = $1 — $2"
+          }
+
           if [ ! -s /tmp/claude-review.md ]; then
-            echo "::warning::Claude produced no review file (quota/model error?). Advisory job ends green by design — check the step above."
+            # Both are reported by name: only one of the two tiers runs, and
+            # concatenating them produced the unreadable "successskipped".
+            # `success` here with no review file is its own failure mode — the
+            # reviewer claimed to finish but wrote nothing — and is distinct
+            # from the `failure` case where the action itself crashed.
+            OUTCOME="skeptic=${SKEPTIC_OUTCOME:-not-run}, panel=${PANEL_OUTCOME:-not-run}"
+            echo "::warning::Claude produced no review file. Advisory job stays green by design, but the PR is now marked NOT REVIEWED."
+            # \n escapes + printf %b: a bare newline inside this string would sit
+            # at column 0 and terminate the enclosing YAML block scalar.
+            # Name the known causes as candidates to check — do NOT assert one.
+            # Both have been observed on this repo and they are unrelated, so a
+            # status that picks one would send triage the wrong way.
+            NO_REVIEW_MSG="The \`$TIER\`-tier reviewer ran but wrote no review, so **this PR has not been reviewed by this workflow**. Absence of a review is not a passed review.\n\nReviewer step outcome: \`${OUTCOME:-did-not-run}\`. The job itself stays green because this tier is advisory. **Read the step log for the actual cause** — two unrelated ones have been seen here:\n\n1. \`Skipping action due to workflow validation\` — the action refuses to run when the PR edits a workflow file, because the file differs from the default branch. **Expected and harmless on workflow PRs**; it starts working again once merged.\n2. An immediate exit with \`is_error:true\`, 1 turn and \$0 cost — nothing was actually reviewed; points at the configured model or the token being rejected.\n\n[Workflow run]($RUN_URL)"
+            publish_status neutral \
+              "NOT REVIEWED — the advisory reviewer produced nothing" \
+              "$(printf '%b\n' "$NO_REVIEW_MSG")"
             exit 0
           fi
           # Idempotency must not depend on the model emitting the marker as
@@ -310,3 +362,8 @@ jobs:
             gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/claude-review.md
             echo "::notice::Posted new review comment"
           fi
+
+          REVIEWED_MSG="An advisory review was produced and posted as a PR comment. Findings are advisory and never block a merge.\n\n[Workflow run]($RUN_URL)"
+          publish_status success \
+            "REVIEWED — advisory \`$TIER\` tier completed" \
+            "$(printf '%b\n' "$REVIEWED_MSG")"

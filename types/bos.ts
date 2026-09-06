@@ -48,6 +48,21 @@ export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'h
 
 export type BosAttendanceStatus = 'present' | 'absent' | 'leave_of_absence';
 
+/**
+ * How a member attended — the dimension the SOP's sitting charges are quoted
+ * against (20260805120000). Recorded PER ATTENDEE, not per meeting: the
+ * `online`/`hybrid` values on BosMeetingType describe the meeting's format but
+ * can't coexist with `academic_council`/`governing_body`, and a hybrid meeting
+ * has attendees on both sides regardless. Online attendance always pays zero
+ * travel allowance.
+ */
+export type BosAttendanceMode = 'offline' | 'online';
+
+export const BOS_ATTENDANCE_MODE_LABELS: Record<BosAttendanceMode, string> = {
+  offline: 'Offline',
+  online: 'Online',
+};
+
 export type BosResolutionStatus =
   | 'pending'
   | 'in_progress'
@@ -673,7 +688,7 @@ export interface BosLlcConferenceData {
 //                semester + credits + coded courses, Theory/Lab/Clinical workload
 //                split, per-unit outline, a PARALLEL clinical outline, and CO →
 //                10 INC core-competency mapping INSTEAD of CO-PO-PSO/Bloom.
-export type AcademicModel = 'anna_univ' | 'mgr_ahs' | 'mgr_pharmd' | 'pci_pharm' | 'inc_nursing';
+export type AcademicModel = 'anna_univ' | 'mgr_ahs' | 'mgr_pharmd' | 'pci_pharm' | 'inc_nursing' | 'mgr_bds';
 
 // ── Exam scheme (PCI / Dr. MGR) ──────────────────────────────────────
 // Replaces the Anna CO-PO/Bloom assessment blocks for pharmacy/AHS models.
@@ -1508,6 +1523,12 @@ export interface BosMeetingAttendee {
   meeting_id: string;
   member_id: string;
   attendance_status: BosAttendanceStatus;
+  /**
+   * Offline (in person) or online. Optional on the interface because rows
+   * written before 20260805120000 are read back with the column's 'offline'
+   * default — treat undefined as 'offline'.
+   */
+  attendance_mode?: BosAttendanceMode;
   absence_reason?: string;
   ta_da_eligible: boolean;
   created_at: string;
@@ -1579,6 +1600,23 @@ export interface BosCourseReview {
 // ── TA/DA Rate Settings ───────────────────────────────────────────────────────
 
 /**
+ * How a member type's travel allowance is computed (20260805120000):
+ *   • distance — round-trip km × ta_per_km (the University Nominee's
+ *     "as per the distance"; the only basis that existed before this).
+ *   • flat     — travel_flat_amount regardless of distance (the external
+ *     Academic/Industry members' fixed ₹1,500).
+ *   • none     — sitting charge only, no travel component.
+ * Online attendance pays zero under every basis.
+ */
+export type BosTaDaTravelBasis = 'distance' | 'flat' | 'none';
+
+export const BOS_TA_DA_TRAVEL_BASIS_LABELS: Record<BosTaDaTravelBasis, string> = {
+  distance: 'As per distance',
+  flat: 'Flat amount',
+  none: 'No travel',
+};
+
+/**
  * Configurable per-council / per-member-type claim rates (bos_ta_da_rates,
  * 20260710130000). Keyed by committee NAME (a council kind — every
  * composition's 'Curriculum Development Cell' shares one rate set) and the
@@ -1593,8 +1631,20 @@ export interface BosTaDaRate {
   institutions_id: string;
   committee_name: string;
   member_type: string;
+  /** Sitting charge when the member attends offline (in person). */
   honorarium_amount: number;
+  /** Sitting charge when the member attends online. NULL = same as offline. */
+  honorarium_amount_online?: number | null;
+  /** Per-km rate — used only under the 'distance' travel basis. */
   ta_per_km: number;
+  /**
+   * How travel is computed for this member type (20260805120000). Optional on
+   * the interface for reads of rows written before the migration; absent means
+   * 'distance', the only basis that previously existed.
+   */
+  travel_basis?: BosTaDaTravelBasis | null;
+  /** Fixed travel allowance under the 'flat' basis; ignored otherwise. */
+  travel_flat_amount?: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

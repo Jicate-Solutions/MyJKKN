@@ -24,6 +24,15 @@ export function useMyRoommates(enabled = true) {
   });
 }
 
+/** Bed count + fee band of the resident's own room (own-allocation RLS). */
+export function useMyRoomDetails(roomId?: string | null) {
+  return useQuery({
+    queryKey: ['campus-living', 'my-room-details', roomId ?? ''],
+    queryFn: () => MyHostelService.getMyRoomDetails(roomId!),
+    enabled: !!roomId,
+  });
+}
+
 export function useMyCategoryFees(categoryId?: string | null) {
   return useQuery({
     queryKey: queryKeys.campusLiving.myHostel.fees(categoryId ?? ''),

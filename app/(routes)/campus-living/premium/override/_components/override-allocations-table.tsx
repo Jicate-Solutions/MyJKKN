@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay Phase 2 — Override Allocations Table
+// Premium Room Phase 2 — Override Allocations Table
 // ============================================================================
 // Lists current premium / premium_plus active allocations with filters.
 // Override button opens OverrideAllocationDialog.

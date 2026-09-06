@@ -1,12 +1,18 @@
 'use client';
 
-import { CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
+import { CheckCircle2, AlertCircle, ArrowRight, IndianRupee } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import type { BulkEditPreviewResult } from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
 
 export function BulkEditPreviewTable({ result }: { result: BulkEditPreviewResult }) {
+  // Amount edits move money and cascade into balance + status, so they get
+  // their own callout rather than blending into the generic change list.
+  const amountRows = result.rows.filter((r) =>
+    r.changes.some((c) => c.field === 'final_amount')
+  );
+
   return (
     <div className='space-y-4'>
       <Card>
@@ -32,6 +38,21 @@ export function BulkEditPreviewTable({ result }: { result: BulkEditPreviewResult
           )}
         </CardContent>
       </Card>
+
+      {amountRows.length > 0 && (
+        <Alert className='border-amber-300 bg-amber-50'>
+          <IndianRupee className='h-4 w-4 text-amber-700' />
+          <AlertDescription>
+            <p className='font-medium text-amber-900'>
+              {amountRows.length} bill{amountRows.length !== 1 ? 's' : ''} will have {amountRows.length !== 1 ? 'their' : 'its'} amount changed.
+            </p>
+            <p className='text-xs text-amber-800 mt-1'>
+              Each one&apos;s balance and status are recalculated from the payments already receipted against it — a raised
+              amount reopens a paid bill as partially paid, and a lowered one can settle it. This is recorded in Billing Activities.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {result.errorCount > 0 && (
         <Alert variant='destructive'>
@@ -79,7 +100,14 @@ export function BulkEditPreviewTable({ result }: { result: BulkEditPreviewResult
                           <span className='inline-flex items-center gap-1.5'>
                             <Badge variant='outline' className='font-normal text-muted-foreground line-through'>{c.old ?? '(empty)'}</Badge>
                             <ArrowRight className='h-3 w-3 text-muted-foreground' />
-                            <Badge variant='outline' className='font-normal border-violet-300 text-violet-800'>{c.new ?? '(empty)'}</Badge>
+                            <Badge
+                              variant='outline'
+                              className={`font-normal ${c.field === 'final_amount'
+                                ? 'border-amber-400 bg-amber-50 text-amber-900 font-medium'
+                                : 'border-violet-300 text-violet-800'}`}
+                            >
+                              {c.new ?? '(empty)'}
+                            </Badge>
                           </span>
                         </td>
                       </tr>

@@ -104,11 +104,22 @@ export function NewRequestSlideover({
     );
   }, [destStoresData, storeId]);
 
-  // ── Step 3: Items catalog at chosen destination store ────────────────────────
+  // ── Step 3: What the SUPPLYING store can actually send ───────────────────────
+  //
+  // destinationStoreId is the supplier, not the recipient — ims_indent_requests
+  // names its columns the physical opposite way round (see 20260801002400).
+  //
+  // This used to filter ims_items.store_id, i.e. which store created the row, so
+  // it showed an empty list for any supplier that had never created an item —
+  // including every Dental store except the one that happened to run the import.
+  // What a supplier can send is what it holds.
   const { data: itemsData } = useImsItems({
     store_id: destinationStoreId || undefined,
+    scope: 'store',
+    has_stock: true,
     is_distributable: true,
     is_bundle: false,
+    limit: 200,
   });
 
   const items = useMemo(() => {

@@ -134,7 +134,18 @@ const HEADING_LEVELS = [
   { label: 'Heading 4', level: 4 },
 ];
 
-const FONT_SIZES = ['10', '11', '12', '14', '16', '18', '20', '24', '28', '32'];
+const FONT_SIZES = [
+  '8', '9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48',
+];
+
+// Radix <SelectItem> forbids an empty-string value, so "no explicit font /
+// size" needs a sentinel. Picking it clears the mark instead of writing it.
+const INHERIT = '__inherit__';
+
+// Browsers normalise `style.fontFamily` (quotes, spacing) differently from the
+// literal we store, so dropdown matching compares a normalised form.
+const normalizeFont = (value: unknown) =>
+  String(value ?? '').replace(/["']/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const TEXT_COLORS = ['#000000', '#374151', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0284c7', '#2563eb', '#7c3aed', '#db2777'];
 const HIGHLIGHT_COLORS = ['#fff59d', '#fde68a', '#fca5a5', '#a7f3d0', '#bae6fd', '#c4b5fd', '#f9a8d4'];
@@ -152,6 +163,17 @@ export function SopRibbon(props: SopRibbonProps) {
   }
 
   const chain = () => editor.chain().focus();
+
+  // Font dropdowns mirror the textStyle mark at the cursor/selection, so they
+  // read like Word's — move the caret into 20pt Georgia text and the controls
+  // follow. useEditorRerender() above re-renders on every selection change.
+  const textStyle = editor.getAttributes('textStyle');
+  const activeFontFamily =
+    FONT_FAMILIES.find(
+      (f) => f.value && normalizeFont(f.value) === normalizeFont(textStyle.fontFamily)
+    )?.value ?? INHERIT;
+  const rawFontSize = String(textStyle.fontSize ?? '').replace(/pt$/i, '');
+  const activeFontSize = FONT_SIZES.includes(rawFontSize) ? rawFontSize : INHERIT;
 
   // ── Helper: file-pick + insert image ─────────────────────────────────────
   const insertImage = () => {
@@ -242,23 +264,38 @@ export function SopRibbon(props: SopRibbonProps) {
             </Group>
 
             <Group label='Font'>
-              <Select onValueChange={(v) => chain().setFontFamily(v).run()}>
+              <Select
+                value={activeFontFamily}
+                onValueChange={(v) =>
+                  v === INHERIT
+                    ? chain().unsetFontFamily().run()
+                    : chain().setFontFamily(v).run()
+                }
+              >
                 <SelectTrigger className='h-8 w-36 text-xs'>
                   <SelectValue placeholder='Font' />
                 </SelectTrigger>
                 <SelectContent>
                   {FONT_FAMILIES.map((f) => (
-                    <SelectItem key={f.value} value={f.value || 'default'}>
+                    <SelectItem key={f.value || INHERIT} value={f.value || INHERIT}>
                       <span style={{ fontFamily: f.value || undefined }}>{f.label}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <Select onValueChange={(v) => chain().setMark('textStyle', { fontSize: `${v}pt` }).run()}>
-                <SelectTrigger className='h-8 w-16 text-xs'>
+              <Select
+                value={activeFontSize}
+                onValueChange={(v) =>
+                  v === INHERIT
+                    ? chain().unsetFontSize().run()
+                    : chain().setFontSize(`${v}pt`).run()
+                }
+              >
+                <SelectTrigger className='h-8 w-[4.5rem] text-xs'>
                   <SelectValue placeholder='Size' />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={INHERIT}>Auto</SelectItem>
                   {FONT_SIZES.map((s) => (
                     <SelectItem key={s} value={s}>{s}</SelectItem>
                   ))}

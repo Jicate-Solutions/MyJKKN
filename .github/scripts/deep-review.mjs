@@ -40,7 +40,12 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { writeFileSync, readFileSync } from "node:fs";
 
-const MODEL = process.env.REVIEW_MODEL || "claude-opus-4-8";
+// Family alias, not a dated id — the reviewer should always run on the CURRENT
+// Opus, the same way ai_job_types names models ('sonnet' x43, 'opus' x11 on
+// production, zero dated ids). Pinning "claude-opus-4-8" here meant this job
+// kept reviewing on 4.8 long after Opus 5 shipped, and every future release
+// would need a PR to this line.
+const MODEL = process.env.REVIEW_MODEL || "opus";
 const DIFF_CAP_BYTES = 200_000;
 const LENS_TIMEOUT_MS = 8 * 60_000;
 const OUT = "/tmp/claude-review.md";
@@ -63,7 +68,14 @@ function inconclusive(reason) {
 }
 
 async function main() {
-  if (!MODEL || !/^claude-/.test(MODEL)) throw new Error(`Invalid REVIEW_MODEL: ${JSON.stringify(MODEL)}`);
+  // Accept either a family alias (opus / sonnet / haiku — always-latest, the
+  // house convention) or a fully-qualified dated id (claude-*), so REVIEW_MODEL
+  // can still pin an exact build when a run needs to be reproducible.
+  // NOTE: this guard used to demand /^claude-/, which would have REJECTED the
+  // bare "opus" default above and thrown on every run.
+  if (!MODEL || !/^(opus|sonnet|haiku|claude-[a-z0-9.-]+)$/.test(MODEL)) {
+    throw new Error(`Invalid REVIEW_MODEL: ${JSON.stringify(MODEL)} — use a family alias (opus/sonnet/haiku) or a claude-* id`);
+  }
 
   const rawDiff = readFileSync(process.env.DIFF_FILE, "utf8");
   const rawBytes = Buffer.byteLength(rawDiff, "utf8");

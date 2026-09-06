@@ -74,7 +74,9 @@ export function ModelChip({
   featureKey,
   configMap,
 }: {
-  featureKey?: string;
+  // null = explicitly unlinked (AIRoutine.featureKeyNote says why); the
+  // falsy check below renders nothing for both null and undefined.
+  featureKey?: string | null;
   configMap: Map<string, ModelConfigEntry>;
 }) {
   if (!featureKey) return null;

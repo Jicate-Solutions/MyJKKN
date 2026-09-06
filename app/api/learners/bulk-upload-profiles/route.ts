@@ -46,6 +46,11 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'caste': ['Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
+  // Must stay in sync with the identical block in lib/utils/bulk-upload-validation.ts,
+  // or a column that validates cleanly in preview is dropped on the real upload.
+  'abc_id': ['ABC ID', 'abc_id', 'ABC', 'Academic Bank of Credits ID'],
+  'emis': ['EMIS Number', 'EMIS', 'emis', 'emis_number'],
+  'umis': ['UMIS Number', 'UMIS', 'umis', 'umis_number'],
   'admission_year': ['Admission Year', 'admission_year'],
 
   // SECTION 2: Parent/Guardian Information
@@ -280,6 +285,17 @@ export async function POST(request: NextRequest) {
         caste: sanitizeValue(mappedData.caste, 'text'),
         aadhar_number: sanitizeValue(mappedData.aadhar_number, 'number'),
         blood_group: normalizeDropdownValue(mappedData.blood_group, BLOOD_GROUP_VALUES),
+        // 'text' trims + upper-cases; the extra replace also strips internal
+        // spaces, so "ED 4538 7190 9686" pasted from a PDF matches what the
+        // form's IdentifierField would have stored. NOT sanitized as 'number':
+        // that drops every letter, which would gut an ID like ED453871909686.
+        // Trailing `|| null` matters: sanitizeValue returns '' for a blank cell
+        // and bulk-learner-upload-service spreads ...rest straight into the
+        // insert, so a blank would store '' — a value distinct from NULL that
+        // defeats "IS NULL" back-fill reporting and the partial indexes.
+        abc_id: sanitizeValue(mappedData.abc_id, 'text').replace(/\s+/g, '') || null,
+        emis: sanitizeValue(mappedData.emis, 'text').replace(/\s+/g, '') || null,
+        umis: sanitizeValue(mappedData.umis, 'text').replace(/\s+/g, '') || null,
         // 2026-05-02 (Phase D): integer column dropped. Legacy
         // admission_year input from Excel is parsed only to resolve the FK.
         _admission_year_input: mappedData.admission_year ? parseInt(mappedData.admission_year) : undefined,

@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { istBusinessDate, istRangeBounds } from '@/lib/utils/date-format';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -96,9 +97,18 @@ function SalesHistoryPageInner() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const today = useMemo(() => new Date().toISOString().split('T')[0], []);
+  // IST, not UTC: toISOString() rolls the date over at 05:30 IST, so before that
+  // the "today" summary card showed the previous business day.
+  const today = useMemo(() => istBusinessDate(), []);
 
-  // Build filters
+  // Build filters. The date pickers hand us IST calendar dates, so the range has
+  // to be closed at IST midnight — a `Z` suffix cut the day off at 05:30 IST and
+  // silently hid the whole evening's bills from the history list.
+  const dateBounds = useMemo(
+    () => (dateFrom || dateTo ? istRangeBounds(dateFrom || dateTo, dateTo || dateFrom) : null),
+    [dateFrom, dateTo]
+  );
+
   const filters: ImsSaleFilters = {
     institution_id: institutionId,
     store_id: storeId || undefined,
@@ -106,8 +116,8 @@ function SalesHistoryPageInner() {
     status: statusFilter !== 'all' ? (statusFilter as ImsSaleStatus) : undefined,
     payment_method:
       paymentFilter !== 'all' ? (paymentFilter as ImsPaymentMethod) : undefined,
-    date_from: dateFrom || undefined,
-    date_to: dateTo ? `${dateTo}T23:59:59.999Z` : undefined,
+    date_from: dateFrom ? dateBounds?.from : undefined,
+    date_to: dateTo ? dateBounds?.to : undefined,
     page,
     limit,
   };

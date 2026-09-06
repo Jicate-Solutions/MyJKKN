@@ -11,7 +11,9 @@ import TableRow from '@tiptap/extension-table-row';
 import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
 import TextAlign from '@tiptap/extension-text-align';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import TextStyle from '@tiptap/extension-text-style';
+import FontFamily from '@tiptap/extension-font-family';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   Bold, Italic, Underline as UnderlineIcon, Subscript as SubIcon, Superscript as SupIcon,
   Sigma, Table as TableIcon, Rows3, Columns3, Trash2, Grid2x2Plus, Grid2x2X,
@@ -29,6 +31,31 @@ interface Props {
   disabled?: boolean;
   placeholder?: string;
   className?: string;
+  /**
+   * Paper-wide default language/font, chosen once in the paper header. Applied as
+   * the editor body's base font so every question renders in it live — there is
+   * NO per-question font picker. Font marks stored on older papers still render
+   * (the FontFamily extension stays loaded) and override this, which keeps the
+   * on-screen look in step with the PDF: the renderer reads the same column.
+   */
+  defaultFontFamily?: string | null;
+  /**
+   * 'compact' is the MCQ-option flavour: the same authoring contract as a
+   * question (bold/italic/underline, sub/superscript, inline equations) minus the
+   * table and alignment tools, on a single-line-height box.
+   */
+  variant?: 'full' | 'compact';
+}
+
+/**
+ * The empty-document HTML TipTap emits. Normalising all three to '' matters: the
+ * completion validator tests for visible text, so an untouched question must
+ * stay GENUINELY empty rather than holding a stray '<p></p>'.
+ */
+const EMPTY_HTML = new Set(['', '<p></p>', '<p><br></p>']);
+
+function normalizeHtml(html: string): string {
+  return EMPTY_HTML.has(html) ? '' : html;
 }
 
 function TB({
@@ -57,7 +84,15 @@ function TB({
   );
 }
 
-function Toolbar({ editor, onOpenEquation }: { editor: Editor; onOpenEquation: () => void }) {
+function Toolbar({
+  editor,
+  onOpenEquation,
+  compact,
+}: {
+  editor: Editor;
+  onOpenEquation: () => void;
+  compact?: boolean;
+}) {
   const inTable = editor.isActive('table');
   return (
     <div className='flex items-center gap-0.5 flex-wrap border-b bg-muted/30 px-1.5 py-1'>
@@ -85,28 +120,34 @@ function Toolbar({ editor, onOpenEquation }: { editor: Editor; onOpenEquation: (
         <Sigma className='h-3.5 w-3.5' /> Equation
       </Button>
 
-      <div className='w-px h-5 bg-border mx-1' />
-
-      {/* Alignment — position the line (and any equation on it) left / center / right */}
-      <TB icon={AlignLeft} label='Align left' active={editor.isActive({ textAlign: 'left' })}
-        onClick={() => editor.chain().focus().setTextAlign('left').run()} />
-      <TB icon={AlignCenter} label='Align center' active={editor.isActive({ textAlign: 'center' })}
-        onClick={() => editor.chain().focus().setTextAlign('center').run()} />
-      <TB icon={AlignRight} label='Align right' active={editor.isActive({ textAlign: 'right' })}
-        onClick={() => editor.chain().focus().setTextAlign('right').run()} />
-
-      <div className='w-px h-5 bg-border mx-1' />
-
-      {/* Table controls */}
-      <TB icon={TableIcon} label='Insert table (2×2)'
-        onClick={() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()} />
-      {inTable && (
+      {/* An MCQ option is one line of an answer list — alignment and tables would
+          only produce output the paper cannot use, so the compact variant stops here. */}
+      {!compact && (
         <>
-          <TB icon={Columns3} label='Add column' onClick={() => editor.chain().focus().addColumnAfter().run()} />
-          <TB icon={Rows3} label='Add row' onClick={() => editor.chain().focus().addRowAfter().run()} />
-          <TB icon={Grid2x2X} label='Delete column' onClick={() => editor.chain().focus().deleteColumn().run()} />
-          <TB icon={Grid2x2Plus} label='Delete row' onClick={() => editor.chain().focus().deleteRow().run()} />
-          <TB icon={Trash2} label='Delete table' onClick={() => editor.chain().focus().deleteTable().run()} />
+          <div className='w-px h-5 bg-border mx-1' />
+
+          {/* Alignment — position the line (and any equation on it) left / center / right */}
+          <TB icon={AlignLeft} label='Align left' active={editor.isActive({ textAlign: 'left' })}
+            onClick={() => editor.chain().focus().setTextAlign('left').run()} />
+          <TB icon={AlignCenter} label='Align center' active={editor.isActive({ textAlign: 'center' })}
+            onClick={() => editor.chain().focus().setTextAlign('center').run()} />
+          <TB icon={AlignRight} label='Align right' active={editor.isActive({ textAlign: 'right' })}
+            onClick={() => editor.chain().focus().setTextAlign('right').run()} />
+
+          <div className='w-px h-5 bg-border mx-1' />
+
+          {/* Table controls */}
+          <TB icon={TableIcon} label='Insert table (2×2)'
+            onClick={() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()} />
+          {inTable && (
+            <>
+              <TB icon={Columns3} label='Add column' onClick={() => editor.chain().focus().addColumnAfter().run()} />
+              <TB icon={Rows3} label='Add row' onClick={() => editor.chain().focus().addRowAfter().run()} />
+              <TB icon={Grid2x2X} label='Delete column' onClick={() => editor.chain().focus().deleteColumn().run()} />
+              <TB icon={Grid2x2Plus} label='Delete row' onClick={() => editor.chain().focus().deleteRow().run()} />
+              <TB icon={Trash2} label='Delete table' onClick={() => editor.chain().focus().deleteTable().run()} />
+            </>
+          )}
         </>
       )}
     </div>
@@ -115,7 +156,9 @@ function Toolbar({ editor, onOpenEquation }: { editor: Editor; onOpenEquation: (
 
 export function QuestionRichEditor({
   value, onChange, onBlur, disabled = false, placeholder = 'Enter the question…', className,
+  defaultFontFamily, variant = 'full',
 }: Props) {
+  const compact = variant === 'compact';
   const [eqOpen, setEqOpen] = useState(false);
   // LaTeX pre-fill when the caret is on an existing formula (edit vs insert).
   const [eqInitial, setEqInitial] = useState('');
@@ -139,6 +182,12 @@ export function QuestionRichEditor({
       TableHeader,
       TableCell,
       MathInline,
+      // TextStyle carries the font mark FontFamily sets. Neither is exposed as a
+      // toolbar control — the font is a PAPER-level choice — but they must stay
+      // loaded so inline font marks saved on older papers still render here
+      // exactly as the PDF prints them.
+      TextStyle,
+      FontFamily,
       // Left / center / right alignment for question lines (incl. any inline
       // equation on that line). Emits `style="text-align:…"`, which the COE PDF
       // sanitizer preserves for that one property. Paragraphs only — headings are off.
@@ -153,7 +202,7 @@ export function QuestionRichEditor({
     content: value || '',
     editable: !disabled,
     onUpdate: ({ editor }) => {
-      const html = editor.isEmpty ? '' : editor.getHTML();
+      const html = normalizeHtml(editor.getHTML());
       lastEmittedRef.current = html;
       onChange(html);
     },
@@ -161,7 +210,8 @@ export function QuestionRichEditor({
     editorProps: {
       attributes: {
         class: cn(
-          'prose prose-sm max-w-none focus:outline-none min-h-[60px] px-3 py-2',
+          'prose prose-sm max-w-none focus:outline-none',
+          compact ? 'min-h-[34px] px-2 py-1' : 'min-h-[70px] px-3 py-2',
           'prose-p:my-1',
           // Tables — visible grid inside the editor
           '[&_table]:border-collapse [&_table]:w-full [&_table]:my-2',
@@ -184,10 +234,12 @@ export function QuestionRichEditor({
     // NEVER overwrite while the user is typing — background cache updates must not
     // clobber in-progress edits or jump the cursor. Only sync when unfocused.
     if (editor.isFocused) return;
-    const current = editor.isEmpty ? '' : editor.getHTML();
+    const current = normalizeHtml(editor.getHTML());
     // v2 signature: setContent(content, emitUpdate=false) — don't fire onUpdate
     // on external sync, or a server reload would re-mark the row dirty.
-    if (value !== current) {
+    // (COE runs TipTap v3, whose signature is setContent(value, { emitUpdate: false });
+    // this is the one place the two ports legitimately differ.)
+    if (normalizeHtml(value || '') !== current) {
       editor.commands.setContent(value || '', false);
       lastEmittedRef.current = value;
     }
@@ -231,9 +283,27 @@ export function QuestionRichEditor({
   };
 
   return (
-    <div className={cn('rounded-md border bg-background', disabled && 'opacity-60', className)}>
-      {editor && !disabled && <Toolbar editor={editor} onOpenEquation={openEquation} />}
-      <EditorContent editor={editor} />
+    <div
+      className={cn(
+        'rounded-md border bg-background qp-rich-editor-root',
+        disabled && 'opacity-60',
+        className
+      )}
+    >
+      {editor && !disabled && (
+        <Toolbar editor={editor} onOpenEquation={openEquation} compact={compact} />
+      )}
+      {/* The paper default cascades onto the content through --qp-editor-font;
+          inline font marks saved on older papers still override it. */}
+      <div
+        style={
+          defaultFontFamily
+            ? ({ ['--qp-editor-font']: `'${defaultFontFamily}'` } as CSSProperties)
+            : undefined
+        }
+      >
+        <EditorContent editor={editor} className='qp-rich-editor-body' />
+      </div>
       <EquationEditorDialog
         open={eqOpen}
         onOpenChange={setEqOpen}

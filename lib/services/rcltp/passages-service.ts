@@ -42,6 +42,28 @@ import {
 export class RcltpPassagesService {
   private static supabase = createClientSupabaseClient();
 
+  /**
+   * The signed-in user's profile id, for attribution columns.
+   *
+   * auth.users.id == profiles.id (1:1), so the session user's id IS the
+   * profiles.id that created_by FKs to.
+   *
+   * getSession(), NOT getUser(): getUser() revalidates the token against the
+   * auth server on every call and can stall the mutation that awaits it
+   * (bug #1205 — change-request create hung on "Creating…" indefinitely). For
+   * "who is logged in right now" the locally-cached session is the correct
+   * source. Never throws — an unauthenticated client returns null so a missing
+   * actor degrades to a null column instead of blocking the write.
+   */
+  private static async currentUserId(): Promise<string | null> {
+    try {
+      const { data } = await this.supabase.auth.getSession();
+      return data.session?.user?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   // -------------------------------------------------------------------------
   // PASSAGES — reads (RLS-scoped; library table also exposes global rows)
   // -------------------------------------------------------------------------
@@ -104,10 +126,19 @@ export class RcltpPassagesService {
   // PASSAGES — staff/admin writes (RLS: rcltp.config.manage; global = admin only)
   // -------------------------------------------------------------------------
 
+  /**
+   * created_by is stamped from the session because nothing else fills it: the
+   * column has no DB default and rcltp_set_updated_at is the table's only
+   * trigger. Director decision 7 (2026-07-28) notifies the person who added a
+   * non-English passage, and that recipient does not exist unless it is
+   * recorded here. Pre-existing rows keep created_by NULL and correctly fall
+   * back to the school head — their author is genuinely unknown.
+   */
   static async createPassage(input: CreateRcltpPassageDto): Promise<RcltpPassage> {
+    const createdBy = input.created_by ?? (await this.currentUserId());
     const { data, error } = await (this.supabase as any)
       .from('rcltp_passages')
-      .insert([{ language: 'en', ...input }])
+      .insert([{ language: 'en', ...input, created_by: createdBy }])
       .select()
       .single();
     if (error) throw error;

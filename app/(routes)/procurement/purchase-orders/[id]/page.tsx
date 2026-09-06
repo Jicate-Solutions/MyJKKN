@@ -21,6 +21,9 @@ import { useUpdateImsSupplier } from '@/hooks/ims/use-ims-settings';
 import { PO_STATUS_CONFIG, type ProcurementPoFormat } from '@/types/procurement';
 import { downloadPurchaseOrderPdf } from '@/lib/procurement/purchase-order-pdf';
 import { downloadPurchaseOrderDocx } from '@/lib/procurement/purchase-order-docx';
+import { StatusBadge } from '@/components/procurement/status-badge';
+import { formatDateDMY } from '@/lib/utils/date-format';
+import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -53,6 +56,7 @@ import {
 import { ArrowLeft, FileDown, FileText, Send, Check, X, PackageCheck } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 /** item_extra.<key> -> <key> */
 function extraFieldKey(source: string): string {
@@ -83,7 +87,7 @@ export default function PurchaseOrderDetailPage() {
   const canCreate = isSuperAdmin || canAccess('procurement', 'po_create');
   const canReceive = isSuperAdmin || canAccess('procurement', 'grn_create');
 
-  const { data: po, isLoading } = usePurchaseOrder(id);
+  const { data: po, isLoading, isError } = usePurchaseOrder(id);
   const submitPO = useSubmitPO();
   const approvePO = useApprovePO();
   const rejectPO = useRejectPO();
@@ -171,7 +175,7 @@ export default function PurchaseOrderDetailPage() {
 
   const handleItemExtraBlur = (itemId: string, key: string, value: string) => {
     updateItemExtra.mutateAsync({ poId: id, itemId, extraFields: { [key]: value } }).catch((e) => {
-      toast.error(e instanceof Error ? e.message : 'Failed to save field');
+      toast.error(errorMessage(e, 'Failed to save field'));
     });
   };
 
@@ -179,7 +183,7 @@ export default function PurchaseOrderDetailPage() {
     const unitPrice = Number(value);
     if (!(unitPrice >= 0)) return;
     updateItemPrice.mutateAsync({ poId: id, itemId, unitPrice }).catch((e) => {
-      toast.error(e instanceof Error ? e.message : 'Failed to save price');
+      toast.error(errorMessage(e, 'Failed to save price'));
     });
   };
 
@@ -192,6 +196,15 @@ export default function PurchaseOrderDetailPage() {
       </ContentLayout>
     );
   }
+  if (isError) {
+    return (
+      <ContentLayout title="Purchase Order">
+        <div className="py-12">
+          <AlertBox type="error" message="Failed to load this purchase order. Please try again." />
+        </div>
+      </ContentLayout>
+    );
+  }
   if (!po) {
     return (
       <ContentLayout title="Purchase Order">
@@ -200,23 +213,38 @@ export default function PurchaseOrderDetailPage() {
     );
   }
 
+  // The badge names the state; this says what it means and who moves it on.
+  // 'rejected' is omitted — it already has its own card carrying the reason.
+  const STATUS_HINT: Record<string, string> = {
+    draft: 'Not yet sent for approval. Submitting sends it to a Super Admin.',
+    pending_approval: 'Waiting for a Super Admin to approve before it can go to the vendor.',
+    approved: 'Approved. Send it to the vendor, then record deliveries as goods receipts.',
+    sent: 'With the vendor. Record each delivery as a goods receipt against this order.',
+    partially_received: 'Some goods have arrived. The order stays open until every line is received.',
+    completed: 'Everything ordered has been received and verified.',
+    closed: 'Closed. No further deliveries are expected.',
+    cancelled: 'Cancelled. This order will not be fulfilled.',
+  };
+  const statusHint = STATUS_HINT[po.status];
+
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 
   return (
     <ContentLayout title={po.po_number}>
-      <div className="space-y-6 max-w-4xl">
+      <div className="space-y-6 max-w-5xl">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="sm"
+              aria-label="Back to purchase orders"
               onClick={() => router.push('/procurement/purchase-orders')}
             >
               <ArrowLeft className="h-4 w-4" />
@@ -225,65 +253,22 @@ export default function PurchaseOrderDetailPage() {
               <h2 className="text-2xl font-bold tracking-tight">{po.po_number}</h2>
               <p className="text-muted-foreground">
                 {po.supplier?.name ?? po.supplier_id} · ₹{Number(po.total_amount).toLocaleString()}
+                {po.created_at ? ` · raised ${formatDateDMY(po.created_at)}` : ''}
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {canCreate ? (
-              <div className="flex w-full flex-col items-end gap-1 sm:w-auto">
-                <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
-                  <SelectTrigger className="w-full sm:w-[220px]">
-                    <SelectValue placeholder="Document format" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Standard (default)</SelectItem>
-                    {(formats ?? []).map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {(formats ?? []).length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => router.push('/procurement/purchase-orders/formats/new')}
-                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-                  >
-                    No custom formats for this institution — create one
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <Checkbox
-                      id="set-as-vendor-default"
-                      checked={setAsVendorDefault}
-                      onCheckedChange={(c) => handleToggleSetAsDefault(!!c)}
-                    />
-                    <Label htmlFor="set-as-vendor-default" className="text-xs text-muted-foreground cursor-pointer">
-                      Also use for {po.supplier?.name ?? 'this vendor'} going forward
-                    </Label>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <Badge variant="secondary">{activeFormat?.name ?? 'Standard'} format</Badge>
-            )}
-            <Badge variant="outline" className="text-sm">
-              {PO_STATUS_CONFIG[po.status].label}
-            </Badge>
-          </div>
+          <StatusBadge status={po.status} config={PO_STATUS_CONFIG} className="text-sm" />
         </div>
 
-        {/* Actions */}
+        {statusHint && (
+          <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            {statusHint}
+          </p>
+        )}
+
+        {/* Actions — the workflow only. Producing the printed document lives in
+            the Document card below, so downloads no longer outrank Approve. */}
         <div className="flex flex-wrap gap-3">
-          <Button variant="outline" onClick={() => downloadPurchaseOrderPdf(po)}>
-            <FileDown className="mr-2 h-4 w-4" />
-            Download PO (PDF)
-          </Button>
-          <Button variant="outline" onClick={() => downloadPurchaseOrderDocx(po)}>
-            <FileText className="mr-2 h-4 w-4" />
-            Download PO (DOCX)
-          </Button>
           {po.status === 'draft' && canCreate && (
             <Button
               onClick={() => run(() => submitPO.mutateAsync({ id, userId: profile!.id }), 'Submitted for approval')}
@@ -300,7 +285,11 @@ export default function PurchaseOrderDetailPage() {
                 <Check className="mr-2 h-4 w-4" />
                 Approve
               </Button>
-              <Button variant="outline" onClick={() => setRejectOpen(true)}>
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive sm:ml-auto"
+                onClick={() => setRejectOpen(true)}
+              >
                 <X className="mr-2 h-4 w-4" />
                 Reject
               </Button>
@@ -328,30 +317,98 @@ export default function PurchaseOrderDetailPage() {
           )}
         </div>
 
-        {/* Accreditation classification — tagged POs auto-emit NAAC library
-            purchase-bill evidence once approved (DB trigger, Wave 2D). */}
-        {canCreate ? (
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="is-library-resource"
-              checked={!!po.is_library_resource}
-              onCheckedChange={(c) =>
-                run(
-                  () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
-                  c
-                    ? 'Tagged as library resource — counts as accreditation evidence once approved'
-                    : 'Library-resource tag removed'
-                )
-              }
-            />
-            <Label htmlFor="is-library-resource" className="text-sm cursor-pointer">
-              Library resource purchase{' '}
-              <span className="text-muted-foreground">(accreditation evidence)</span>
-            </Label>
-          </div>
-        ) : po.is_library_resource ? (
-          <Badge variant="secondary">Library resource</Badge>
-        ) : null}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Document</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Choose the layout this order prints with, then download it to send to the vendor.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {canCreate ? (
+              <div className="space-y-2">
+                <Label className="text-xs">Print format</Label>
+                <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
+                  <SelectTrigger className="w-full sm:w-[260px]">
+                    <SelectValue placeholder="Document format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Standard (default)</SelectItem>
+                    {(formats ?? []).map((f) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(formats ?? []).length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push('/procurement/purchase-orders/formats/new')}
+                    className="block text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  >
+                    No custom formats for this institution — create one
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <Checkbox
+                      id="set-as-vendor-default"
+                      checked={setAsVendorDefault}
+                      onCheckedChange={(c) => handleToggleSetAsDefault(!!c)}
+                    />
+                    <Label htmlFor="set-as-vendor-default" className="text-xs text-muted-foreground cursor-pointer">
+                      Also use for {po.supplier?.name ?? 'this vendor'} going forward
+                    </Label>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Prints with the{' '}
+                <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>{' '}
+                format.
+              </p>
+            )}
+
+            {/* Accreditation classification — tagged POs auto-emit NAAC library
+                purchase-bill evidence once approved (DB trigger, Wave 2D). */}
+            {canCreate ? (
+              <div className="flex items-center gap-2 border-t pt-4">
+                <Checkbox
+                  id="is-library-resource"
+                  checked={!!po.is_library_resource}
+                  onCheckedChange={(c) =>
+                    run(
+                      () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
+                      c
+                        ? 'Tagged as library resource — counts as accreditation evidence once approved'
+                        : 'Library-resource tag removed'
+                    )
+                  }
+                />
+                <Label htmlFor="is-library-resource" className="text-sm cursor-pointer">
+                  Library resource purchase{' '}
+                  <span className="text-muted-foreground">
+                    (counts as accreditation evidence once approved)
+                  </span>
+                </Label>
+              </div>
+            ) : po.is_library_resource ? (
+              <Badge variant="secondary">Library resource</Badge>
+            ) : null}
+
+            <div className="flex flex-wrap gap-3 border-t pt-4">
+              <Button variant="outline" onClick={() => downloadPurchaseOrderPdf(po)}>
+                <FileDown className="mr-2 h-4 w-4" />
+                Download PDF
+              </Button>
+              <Button variant="outline" onClick={() => downloadPurchaseOrderDocx(po)}>
+                <FileText className="mr-2 h-4 w-4" />
+                Download Word
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {po.status === 'rejected' && po.rejection_reason && (
           <Card className="border-destructive/40">
@@ -367,7 +424,7 @@ export default function PurchaseOrderDetailPage() {
         {(canCreate && activeFormat && (headerFieldDefs.length > 0 || footerFieldDefs.length > 0)) || hasSavedDocDetails ? (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Document Details</CardTitle>
+              <CardTitle className="text-base">Format fields</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {canCreate ? (

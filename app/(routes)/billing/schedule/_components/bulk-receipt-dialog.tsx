@@ -7,7 +7,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Download,
-  Receipt,
+  ReceiptIndianRupee,
   ChevronRight,
   Loader2,
   Filter,
@@ -64,13 +64,19 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import type { BillingCategory } from '@/types/billing';
 
 // Filter keys owned by the dialog (override scheduleFilters passthrough).
 // The six hierarchy levels cascade (Institution → Section); item_category_id
-// sits alongside them as an independent scope filter. Anything not listed
-// here (date range, status, academic_year_id) still flows from
-// scheduleFilters untouched.
+// and academic_year_id sit alongside them as independent scope filters that
+// target the BILL's own columns rather than the learner's. Anything not
+// listed here (date range, status) still flows from scheduleFilters
+// untouched.
+//
+// academic_year_id must be listed here, not left as passthrough: otherwise
+// the schedule page's year always wins and clearing it in the dialog has no
+// effect on the downloaded file.
 interface HierarchyFilters {
   institution_id?: string;
   degree_id?: string;
@@ -79,6 +85,7 @@ interface HierarchyFilters {
   semester_id?: string;
   section_id?: string;
   item_category_id?: string;
+  academic_year_id?: string;
 }
 
 interface HierarchyOption {
@@ -127,7 +134,8 @@ export function BulkReceiptDialog({
     program_id: scheduleFilters.program_id,
     semester_id: scheduleFilters.semester_id,
     section_id: scheduleFilters.section_id,
-    item_category_id: scheduleFilters.item_category_id
+    item_category_id: scheduleFilters.item_category_id,
+    academic_year_id: scheduleFilters.academic_year_id
   });
   const [hierarchy, setHierarchy] = useState<HierarchyFilters>(initialHierarchy);
 
@@ -174,7 +182,8 @@ export function BulkReceiptDialog({
       'program_id',
       'semester_id',
       'section_id',
-      'item_category_id'
+      'item_category_id',
+      'academic_year_id'
     ]);
     Object.entries(scheduleFilters).forEach(([k, v]) => {
       if (v && !HIERARCHY_KEYS.has(k as keyof HierarchyFilters)) {
@@ -272,7 +281,8 @@ export function BulkReceiptDialog({
     hierarchy.program_id,
     hierarchy.semester_id,
     hierarchy.section_id,
-    hierarchy.item_category_id
+    hierarchy.item_category_id,
+    hierarchy.academic_year_id
   ]);
 
   const handleOpenChange = (next: boolean) => {
@@ -439,15 +449,13 @@ export function BulkReceiptDialog({
       <DialogContent className='max-w-4xl max-h-[90vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
-            <Receipt className='h-5 w-5 text-emerald-600' />
+            <ReceiptIndianRupee className='h-5 w-5 text-emerald-600' />
             Bulk Generate Receipts
-            <Badge variant='outline' className='ml-2 border-emerald-600 text-emerald-700'>
-              Super Admin
-            </Badge>
           </DialogTitle>
           <DialogDescription>
             Generate payment receipts in bulk for outstanding student bills.
             One receipt is created per student covering all their filled rows.
+            Results are limited to the institutions you have access to.
           </DialogDescription>
         </DialogHeader>
 
@@ -646,7 +654,8 @@ export function BulkReceiptDialog({
                     'program_id',
                     'semester_id',
                     'section_id',
-                    'item_category_id'
+                    'item_category_id',
+                    'academic_year_id'
                   ].includes(k)
               )}
               onResetToSchedule={() => setHierarchy(initialHierarchy())}
@@ -871,6 +880,10 @@ function HierarchyFilterPanel({
   // never invalidated by hierarchy changes, so keep them in their own slot.
   const [categories, setCategories] = useState<BillingCategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
+  // Academic years hang off the institution only (academic_years.institution_id),
+  // not off the degree→section cascade, so they get their own slot too.
+  const [academicYears, setAcademicYears] = useState<HierarchyOption[]>([]);
+  const [loadingAcademicYears, setLoadingAcademicYears] = useState(false);
 
   // Normalize service responses (which use *_name fields) into {id, name}.
   const normalize = (rows: any[]): HierarchyOption[] =>
@@ -922,6 +935,33 @@ function HierarchyFilterPanel({
       cancelled = true;
     };
   }, []);
+
+  // Academic years for the selected institution. Keyed on institution only —
+  // it is NOT part of the degree→section chain, so changing a lower level
+  // must not refetch or clear it.
+  useEffect(() => {
+    let cancelled = false;
+    if (!value.institution_id) {
+      setAcademicYears([]);
+      return;
+    }
+    setLoadingAcademicYears(true);
+    AcademicYearService.getAcademicYearsByInstitution(value.institution_id)
+      .then((rows) => {
+        if (!cancelled) {
+          setAcademicYears(
+            rows.map((r: any) => ({ id: r.id, name: r.academic_year_name }))
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoadingAcademicYears(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [value.institution_id]);
 
   // Cascade loaders. Each fires when its parent id changes, clears its
   // own options when the parent is cleared.
@@ -1033,12 +1073,18 @@ function HierarchyFilterPanel({
   // the API never receives an orphaned child id.
   const CLEAR_MAP: Record<keyof HierarchyFilters, (keyof HierarchyFilters)[]> =
     {
+      // academic_year_id is cleared by an institution change because
+      // academic_years rows are institution-scoped: "2025-2026" exists as a
+      // separate row per institution, so a year id from institution A matches
+      // zero bills under institution B. Mirrors CASCADE_CLEAR_MAP in
+      // advanced-billing-schedule-filters.tsx.
       institution_id: [
         'degree_id',
         'department_id',
         'program_id',
         'semester_id',
-        'section_id'
+        'section_id',
+        'academic_year_id'
       ],
       degree_id: ['department_id', 'program_id', 'semester_id', 'section_id'],
       department_id: ['program_id', 'semester_id', 'section_id'],
@@ -1047,7 +1093,8 @@ function HierarchyFilterPanel({
       section_id: [],
       // Category is orthogonal to the hierarchy: changing it clears nothing,
       // and changing any hierarchy level shouldn't clear the category either.
-      item_category_id: []
+      item_category_id: [],
+      academic_year_id: []
     };
 
   const handleChange = (
@@ -1113,17 +1160,43 @@ function HierarchyFilterPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className='space-y-3'>
-        {/* Billing category sits above the cascade — it's an orthogonal
-            scope filter (any hierarchy slice ✕ any category), not a parent
-            of the cascade levels. Full-width row visually separates it. */}
-        <HierarchySelect
-          label='Billing category'
-          value={value.item_category_id}
-          options={categories.map((c) => ({ id: c.id, name: c.category_name }))}
-          loading={loadingCategories}
-          onChange={(v) => handleChange('item_category_id', v)}
-          placeholder='All categories'
-        />
+        {/* Bill-level filters. These two describe the BILL (what it is for,
+            which year it belongs to); the cascade below describes the
+            LEARNER. Kept in their own row because they're orthogonal to the
+            hierarchy — any hierarchy slice ✕ any category ✕ any year. */}
+        <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+          <HierarchySelect
+            label='Billing category'
+            value={value.item_category_id}
+            options={categories.map((c) => ({
+              id: c.id,
+              name: c.category_name
+            }))}
+            loading={loadingCategories}
+            onChange={(v) => handleChange('item_category_id', v)}
+            placeholder='All categories'
+          />
+          <HierarchySelect
+            label='Academic year (of the bill)'
+            value={value.academic_year_id}
+            // 'unspecified' mirrors the schedule page's magic value for bills
+            // with no academic year set (23 of ~6,600 outstanding bills).
+            options={[
+              ...academicYears,
+              { id: 'unspecified', name: 'Unspecified (no year on bill)' }
+            ]}
+            loading={loadingAcademicYears}
+            onChange={(v) => handleChange('academic_year_id', v)}
+            placeholder={
+              value.institution_id
+                ? 'All academic years'
+                : 'Select institution first'
+            }
+            // Academic year rows are per-institution, so a year can only be
+            // resolved unambiguously once an institution is chosen.
+            disabled={!value.institution_id}
+          />
+        </div>
         <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
           <HierarchySelect
             label='Institution'
@@ -1534,7 +1607,7 @@ function PreviewPanel({
             </>
           ) : (
             <>
-              <Receipt className='mr-2 h-4 w-4' />
+              <ReceiptIndianRupee className='mr-2 h-4 w-4' />
               Confirm &amp; Generate {result.totalReceipts} receipt
               {result.totalReceipts !== 1 ? 's' : ''}
             </>

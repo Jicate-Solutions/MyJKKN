@@ -4,6 +4,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { quoteUpfrontFee } from '@/lib/services/campus-living/hostel-fee-compute-service';
 import type { QuoteUpfrontFeeInput } from '@/types/hostel-fee-compute';
+import {
+  learnerFacingError,
+  logWithReference,
+} from '@/lib/services/campus-living/error-sanitize';
 
 /**
  * POST /api/campus-living/fee-quote
@@ -52,8 +56,17 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Internal server error';
-    const status = msg === 'Hostel year not found' || msg === 'Room not found' ? 404 : 500;
-    return NextResponse.json({ error: msg }, { status });
+    // These two are hand-written sentences thrown by quoteUpfrontFee — safe.
+    const msg = e instanceof Error ? e.message : '';
+    if (msg === 'Hostel year not found' || msg === 'Room not found') {
+      return NextResponse.json({ error: msg }, { status: 404 });
+    }
+    // Anything else may carry raw database/driver text — log full server-side,
+    // return a plain sentence + reference (2026-08-07).
+    const reference = logWithReference('campus-living', 'fee-quote route error', e);
+    return NextResponse.json(
+      { error: learnerFacingError('preparing your fee quote', reference), reference },
+      { status: 500 }
+    );
   }
 }

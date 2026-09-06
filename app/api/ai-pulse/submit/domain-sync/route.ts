@@ -95,8 +95,7 @@ async function authorize(): Promise<
   }
 
   const { data: canSubmit } = await (supabase as any).rpc('user_has_permission', {
-    user_id: user.id,
-    permission_key: PERMISSION_KEY,
+    permission_name: PERMISSION_KEY,
   });
   if (!canSubmit) {
     return {

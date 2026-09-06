@@ -23,9 +23,108 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { enqueueJobsLane, awaitJobsLaneResults } from '@/lib/services/platform/ai-jobs-lane';
 import { buildAuthorPrompt, parseDraft, type PmsExport } from '@/lib/services/pde/case-author-draft';
 import { requireCaseAuthor } from '@/lib/services/pde/require-case-author';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type { CreateClinicalCaseInput, ImportedPmsImage } from '@/types/pde';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// ─── option ids: forward-protection at the ingest boundary ──────────────────
+// The AI draft returns MCQ options as { text, is_correct, feedback } with NO
+// `id`. An id-less option is fatal in TWO independent places downstream, so a
+// case must never be able to enter the system in that state:
+//
+//   • MCQWarmupQuestion tracks the chosen option as `selectedId === o.id` with
+//     selectedId starting at null. Once an id-less option is clicked, selectedId
+//     becomes undefined and `undefined === undefined` is true for EVERY option —
+//     all of them render selected and `disabled={!selectedId}` leaves "Submit
+//     answer" permanently dead. The learner can never answer.
+//   • fn_pde_mark_objective falls back to the id of the `is_correct` option when
+//     correct_answer is null, so a missing id also stops the server identifying
+//     the right answer and every submission grades wrong.
+//
+// The learner-side contract (MCQWarmupOption in types/pde-clinical-reasoning)
+// requires `id: string`; the authoring-side MCQOption has no id field at all.
+// Stamping here is what reconciles the two.
+
+/** An option as it arrives from the AI draft — `id` may be absent. */
+type DraftOption = { id?: unknown; text?: unknown; is_correct?: unknown; feedback?: unknown };
+/** Only the two question fields this step reads or rewrites. */
+type DraftQuestion = { question_type?: unknown; options?: unknown };
+
+export interface OptionIdStampResult<Q> {
+  questions: Q[];
+  /** Contract violations found while stamping — logged AND returned, never silent. */
+  warnings: string[];
+}
+
+const nonEmptyId = (v: unknown): string | null =>
+  typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
+
+/**
+ * Give every option of every question a stable, unique, non-empty id, using the
+ * `opt<N>` 1-based array-order convention that the repair of the already-imported
+ * rows uses, so the two do not disagree.
+ *
+ * - An id the source already supplied is preserved and never renumbered.
+ * - Option `text` and `is_correct` are never altered.
+ * - Generated ids skip any id already taken: a DUPLICATE id breaks the learner
+ *   UI's `selectedId === o.id` check exactly like a missing one does.
+ * - A question whose `options` key is present but unusable (not an array, or an
+ *   empty array) is cleared and reported instead of silently imported, and — if
+ *   it was typed `mcq_warmup` — degraded to `free_text_socratic` so the question
+ *   and its ground truth stay answerable. That mirrors the fallback parseDraft
+ *   already applies to an unusable MCQ.
+ */
+export function stampQuestionOptionIds<Q extends DraftQuestion>(
+  questions: readonly Q[]
+): OptionIdStampResult<Q> {
+  const warnings: string[] = [];
+
+  const stamped = questions.map((q, qi): Q => {
+    const label = `question ${qi + 1}`;
+    // A text-only question legitimately carries no options — leave it untouched.
+    if (q.options === undefined || q.options === null) return q;
+
+    if (!Array.isArray(q.options) || q.options.length === 0) {
+      const isMcq = q.question_type === 'mcq_warmup';
+      warnings.push(
+        `${label}: "options" was present but ${Array.isArray(q.options) ? 'empty' : 'not an array'} — cleared` +
+          (isMcq ? ' and re-typed as free_text_socratic (an MCQ with no options is unanswerable)' : '')
+      );
+      return {
+        ...q,
+        options: null,
+        ...(isMcq ? { question_type: 'free_text_socratic' } : {}),
+      } as Q;
+    }
+
+    const source = q.options as DraftOption[];
+    const taken = new Set<string>();
+    for (const o of source) {
+      const supplied = nonEmptyId(o?.id);
+      if (!supplied) continue;
+      if (taken.has(supplied)) {
+        warnings.push(`${label}: the source supplied duplicate option id "${supplied}".`);
+      }
+      taken.add(supplied);
+    }
+
+    let next = 1;
+    const options = source.map((o) => {
+      const supplied = nonEmptyId(o?.id);
+      if (supplied) return { ...o, id: supplied };
+      while (taken.has(`opt${next}`)) next += 1;
+      const id = `opt${next}`;
+      taken.add(id);
+      next += 1;
+      return { ...o, id };
+    });
+
+    return { ...q, options } as Q;
+  });
+
+  return { questions: stamped, warnings };
+}
 
 function pmsConfig(): { base: string; headers: Record<string, string> } | null {
   const base = (process.env.PMS_EXPORT_URL ?? '').replace(/\/+$/, '');
@@ -175,6 +274,17 @@ export async function POST(request: NextRequest) {
   const draft = parseDraft(text);
   if (!draft) return NextResponse.json({ error: 'The AI returned a draft we couldn’t read. Please try again.' }, { status: 502 });
 
+  // 2b. Stamp stable option ids BEFORE the draft can become a case. The model
+  //     never supplies them, and an id-less option is unanswerable and
+  //     ungradeable — see stampQuestionOptionIds.
+  const { questions, warnings } = stampQuestionOptionIds(draft.questions);
+  if (warnings.length > 0) {
+    logger.warn('pde/case-import', 'Repaired option contract violations in the AI draft', {
+      casesheet_id: casesheetId,
+      warnings,
+    });
+  }
+
   // 3. Assemble — but DO NOT write. Faculty reviews in the builder, then saves.
   const assembled: Partial<CreateClinicalCaseInput> = {
     course_id: courseId,
@@ -185,8 +295,13 @@ export async function POST(request: NextRequest) {
     // PMS supplies these fields at runtime; the form builder validates before save.
     case_scenario: exported.case_scenario as unknown as CreateClinicalCaseInput['case_scenario'],
     metadata: { domain_weights: draft.domain_weights, discipline: 'Dentistry', source: 'pms+ai' },
-    questions: draft.questions,
+    questions,
     pass_threshold: 60,
   };
-  return NextResponse.json({ data: assembled, images, sufficiency: exported.source?.sufficiency ?? 'ok' });
+  return NextResponse.json({
+    data: assembled,
+    images,
+    sufficiency: exported.source?.sufficiency ?? 'ok',
+    warnings,
+  });
 }

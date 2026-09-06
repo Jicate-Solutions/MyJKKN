@@ -172,6 +172,10 @@ export default function AlumniEditPage({ params }: AlumniEditPageProps) {
             onSuccess={(updatedLearner) => {
               router.push(`/learners/alumni/${updatedLearner.id}`);
             }}
+            // Alumni have already graduated: their entry_type is history, so the
+            // admission-capture rules must not hide their department or reset
+            // their semester. Same reasoning as /learners/profiles/[id]/edit.
+            enforceAdmissionRules={false}
           />
         </Card>
       </div>

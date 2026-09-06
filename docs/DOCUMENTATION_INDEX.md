@@ -23,6 +23,8 @@ Architecture and design specs live under `specs/` at the repo root (not under `d
 - [docs/SPEC-CALL-INTELLIGENCE-PIPELINE.md](SPEC-CALL-INTELLIGENCE-PIPELINE.md) — Call intelligence pipeline
 - [docs/SPEC-EXOTEL-ADVANCED.md](SPEC-EXOTEL-ADVANCED.md) — Exotel advanced integration
 - [docs/architecture/ai-max-lane-recovery-runbook.md](architecture/ai-max-lane-recovery-runbook.md) — AI Max-lane Windows box: how it's wired, health checks & recovery runbook
+- [docs/architecture/2026-08-12-MIGRATION-ledger-drift-unrecorded-applied-versions.md](architecture/2026-08-12-MIGRATION-ledger-drift-unrecorded-applied-versions.md) — Seven `20260809*` accreditation migrations are live on production but absent from `supabase_migrations.schema_migrations`; the catalog evidence for each, why a blanket `db push` must never be used to reconcile it, and why backfilling the ledger was rejected as a one-way door
+- [docs/architecture/2026-09-03-MIGRATION-duplicate-version-backlog.md](architecture/2026-09-03-MIGRATION-duplicate-version-backlog.md) — The other half of the ledger's unreliability: 349 versions on `main` are carried by more than one file, so 632 files can never own a ledger row and are silently skipped on apply (this is why `20260504_instasolver_substrate.sql` never ran); full per-version census, what a cleanup would actually touch, and why it is a Director decision rather than a pull request
 
 ---
 
@@ -35,6 +37,15 @@ See `docs/features/` for per-feature docs (admission CRM handoff, marathon ops, 
 ## Fixes
 
 See `docs/fixes/` for bug-fix writeups, organized by month (`YYYY-MM/`).
+
+---
+
+## Audits
+
+- [docs/audit/2026-08-06-AUDIT-campus-living-permission-keys-by-area.md](audit/2026-08-06-AUDIT-campus-living-permission-keys-by-area.md) — Director decision 12, area 1 of N: the closed `campus_living` permission keys grouped by area, with distinct real holders counted live on production. 215 keys; 0 ungrantable, 0 effective-but-invisible, 61 ungranted, 1 granted to an empty role. Includes the "open these first" shortlist and the keys that need a Director call.
+- [Test-pattern accounts and active academic years (2026-08-06)](audits/2026-08-06-AUDIT-test-accounts-and-active-academic-years.md) — read-only production audit, two sections. (A) 48 test-pattern accounts checked for real roles; revoking takes TWO layers because `is_admin()` (1,295 policies) reads `profiles.role`, which a `user_roles` delete never clears. (B) `academic_years.is_active` is true on 38 of 42 rows; the `ORDER BY start_date DESC LIMIT 1` idiom resolves 4 years wrong at Pharmacy and 2 at Dental, the enquiry importer throws PGRST116 and reports "not found", and ₹9.54 cr of deliberate forward bills means the extra years must NOT simply be deactivated.
+
+See `docs/audit/` and `docs/audits/` for earlier audit writeups.
 
 ---
 
@@ -61,4 +72,12 @@ See `docs/plans/` for implementation plans and `docs/modules/` for per-module do
 
 ### ID Cards module (2026-07-24)
 - `docs/modules/id-cards/2026-07-24-MODULE-id-cards.md` — ID Cards module doc: what it is, plain-words architecture (MyJKKN queue → Windows bridge polls every 5 s → Evolis Primacy 2 at the office), job statuses + how failures surface to the registrar, ops pointers (service `JKKNPrintBridge` on the BIOMETRIC box, log `C:\jkkn-bridge\bridge-service.log`), Evolis SDK license-review section with a ready-to-send confirmation ask for the Director, and CARRE candidate-evidence pointers for a future human-run audit (no scores assigned — interview required).
-- `docs/modules/id-cards/2026-07-25-OPS-idcard-runbooks.md` — ID Cards ops runbooks: AGENT_PRINT_TOKEN rotation (placeholders only — generate → Vercel Sensitive env → no-op PR deploy → box `.ps1` via Notepad → 3-way verify) and bridge `get_state()` v0.4 prep (Python diff sketch, paste-shuttle apply/rollback `.ps1`, no-test-print verification) — PREPARED, Director-executed at the Windows box only.
+- `docs/modules/id-cards/2026-07-25-OPS-idcard-runbooks.md` — ID Cards ops runbooks (3): AGENT_PRINT_TOKEN rotation (placeholders only — generate → Vercel Sensitive env → no-op PR deploy → box `.ps1` via Notepad → 3-way verify); bridge `get_state()` v0.4 prep (Python diff sketch, paste-shuttle apply/rollback `.ps1`, no-print verification); and **duplex enable / both sides** (§3, refreshed 2026-08-14 — the cloud half is DONE, two production templates now carry a back and one has been rendered and eyeballed, so only the front-only `evolis_bridge.py` v0.3.1 remains, plus the YMCKO-vs-YMCKOK ribbon decision and one on-plastic flip-direction check; §3.5 records the 80-character address truncation that blocks any cohort batch). All three PREPARED, Director-executed at the Windows box only.
+
+## Design System — read before any UI work
+
+- [design-system/MASTER.md](../design-system/MASTER.md) — **Source of truth for tokens, surfaces, colour, radius and the shipped `components/ui` primitives. Read it BEFORE styling any page, component, or Tailwind class.** ⚠️ **Light is the shipped default theme** (`app/layout.tsx:232` sets `defaultTheme='light'`); dark is secondary, and **both must be checked before shipping**. Several tokens are theme-traps — `--secondary` is saturated yellow `#FACC15` in light, `--input` is a border not a fill, and `<Card>` uses `bg-background` not `bg-card`.
+
+> This row exists because the repo-root `CLAUDE.md` is **gitignored** and therefore absent from `jicate/main` and from every worktree that `/ship-myjkkn` and `parallel-ship` create. This index **is** tracked, so it is the pointer that actually reaches worktree agents.
+
+---

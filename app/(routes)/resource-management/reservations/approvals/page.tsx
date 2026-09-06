@@ -319,7 +319,13 @@ export default function ApprovalsPage() {
               variant='outline'
               className='gap-1'
               onClick={() =>
-                router.push(`/resource-management/reservations/${reservation.id}`)
+                router.push(
+                  // Carry the queue we came from so the detail page sends the
+                  // approver back here, not to My Reservations.
+                  `/resource-management/reservations/${reservation.id}?returnTo=${encodeURIComponent(
+                    '/resource-management/reservations/approvals'
+                  )}`
+                )
               }
             >
               <Eye className='h-3 w-3' />

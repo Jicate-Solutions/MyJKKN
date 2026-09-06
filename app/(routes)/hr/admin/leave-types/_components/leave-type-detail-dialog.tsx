@@ -13,7 +13,7 @@
 // what "mobile" means.
 
 import { format } from 'date-fns';
-import { Pencil, Users } from 'lucide-react';
+import { AlertTriangle, Loader2, Pencil, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +35,10 @@ import {
   DrawerTitle,
 } from '@/components/ui/drawer';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
+import {
+  useLeaveApprovalFlow,
+  useLeaveApproverRoles,
+} from '@/hooks/hr/use-leave-approval-flows';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 import {
@@ -44,6 +48,7 @@ import {
   STO_LIMIT_MODE_LABELS,
   STO_LIMIT_PERIOD_LABELS,
   type HRLeaveType,
+  type LeaveApprovalFlowStep,
 } from '@/types/hr-leave-types';
 
 /** Renders '—' for null/undefined/'' so an empty column never looks like a bug. */
@@ -76,6 +81,135 @@ function formatDate(value: string | null): string | null {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? value : format(d, 'dd MMM yyyy');
+}
+
+/**
+ * Who signs this leave type off, resolved the same way buildApprovalChain does:
+ * a flow naming this type wins, otherwise the organisation's catch-all, and if
+ * neither exists applying for the type FAILS — so that case is called out
+ * rather than left blank.
+ */
+function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
+  const { data, isLoading } = useLeaveApprovalFlow(t.hr_organization_id, t.id);
+  // Shared ['hr-leave-approval-flows','roles'] query, already warm from the
+  // flow editor. Steps store a role_key; this turns it into the role's name.
+  const { data: roles } = useLeaveApproverRoles();
+
+  if (isLoading) {
+    return (
+      <Section title="Approval flow">
+        <div className="col-span-full flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Resolving who approves this…
+        </div>
+      </Section>
+    );
+  }
+
+  const effective = data?.effective ?? null;
+  const isOwn = data?.own != null;
+
+  if (!effective) {
+    return (
+      <Section title="Approval flow">
+        <div className="col-span-full flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            No approval flow resolves for this leave type, so applying for it
+            fails outright. Set one with <strong>Who approves this</strong> on the
+            row menu, or give the organisation a catch-all flow.
+          </span>
+        </div>
+      </Section>
+    );
+  }
+
+  const roleName = (key: string | null) =>
+    key ? (roles?.find((r) => r.role_key === key)?.role_name ?? null) : null;
+
+  const steps = [...(effective.steps ?? [])].sort(
+    (a, b) => Number(a.chain_order ?? 0) - Number(b.chain_order ?? 0),
+  );
+
+  return (
+    <Section title="Approval flow">
+      <Field label="Source">
+        {isOwn ? (
+          <Badge variant="secondary">Own flow</Badge>
+        ) : (
+          <span className="text-muted-foreground">
+            Organisation default — no flow of its own
+          </span>
+        )}
+      </Field>
+      <Field label="Flow name">{effective.flow_name}</Field>
+      <Field label="Escalates after">
+        {effective.escalate_after_hours > 0
+          ? `${effective.escalate_after_hours} hours`
+          : 'Never'}
+      </Field>
+
+      <div className="col-span-full">
+        <p className="mb-1 text-xs text-muted-foreground">
+          Approvers, in order
+        </p>
+        {steps.length === 0 ? (
+          // A flow with no steps cannot complete; buildApprovalChain treats it
+          // as a configuration error rather than an auto-approval.
+          <p className="text-sm text-destructive">
+            This flow has no steps, so it can never complete.
+          </p>
+        ) : (
+          <ol className="space-y-1">
+            {steps.map((step: LeaveApprovalFlowStep, i: number) => {
+              /*
+               * PRECEDENCE MIRRORS hr_trig_leave_enforce_approver: it reads
+               * approver_user_id first and only falls through to approver_role
+               * when that is null.
+               *
+               * approver_name alone is NOT the test. The seeded organisation
+               * catch-alls carry approver_name 'HR / Approving Authority' with
+               * approver_user_id null and approver_role 'principal' — a generic
+               * label, not a person. Preferring the name would tell all 58
+               * inheriting types that a specific individual approves them, when
+               * the Principal role is what actually gates the step.
+               */
+              const pinned = step.approver_user_id ? step.approver_name : null;
+              const role = roleName(step.approver_role);
+              return (
+                <li
+                  key={`${step.chain_order}-${i}`}
+                  className="flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5 text-sm"
+                >
+                  <span className="text-xs text-muted-foreground">{i + 1}</span>
+                  <span className="font-medium">
+                    {pinned ?? role ?? 'Any permitted approver'}
+                  </span>
+                  {pinned ? (
+                    // A pinned person acts regardless of role, so the role is
+                    // context, not the gate.
+                    role && (
+                      <span className="text-xs text-muted-foreground">({role})</span>
+                    )
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      {role ? 'anyone holding this role' : 'any approver permitted to decide'}
+                    </span>
+                  )}
+                  <Badge
+                    variant={step.step_type === 'final' ? 'default' : 'outline'}
+                    className="ml-auto text-[10px]"
+                  >
+                    {step.step_type === 'final' ? 'Approves' : 'Reviews'}
+                  </Badge>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </div>
+    </Section>
+  );
 }
 
 function LeaveTypeDetailContent({ t }: { t: HRLeaveType }) {
@@ -185,6 +319,8 @@ function LeaveTypeDetailContent({ t }: { t: HRLeaveType }) {
           </Field>
         )}
       </Section>
+
+      <ApprovalFlowSection t={t} />
 
       <Section title="Eligibility and validity">
         <Field label="Applies to">

@@ -39,7 +39,7 @@ import type { CategorySyncPreviewRow } from '@/types/program-eligibility';
 
 const REASON_LABEL: Record<CategorySyncPreviewRow['reason'], string> = {
   band_match: 'Fee band matched',
-  classic_default_fee_unknown: 'Classic default — fee unknown',
+  classic_default_fee_unknown: 'Classic default — no usable academic fee',
   classic_default_no_band: 'Classic default — no band covers fee',
   no_academic_bill: 'Skipped — no academic bill',
 };
@@ -293,7 +293,7 @@ export function SyncCategoriesButton() {
                       <TableHead>Program</TableHead>
                       <TableHead>Semester</TableHead>
                       <TableHead>Quota</TableHead>
-                      <TableHead className='text-right'>Fee (AY)</TableHead>
+                      <TableHead className='text-right'>Admission-year fee</TableHead>
                       <TableHead>Condition</TableHead>
                       <TableHead>Room Category</TableHead>
                       <TableHead>Mess Category</TableHead>
@@ -321,7 +321,12 @@ export function SyncCategoriesButton() {
                           <TableCell className='text-sm'>{r.semester_name ?? '—'}</TableCell>
                           <TableCell className='text-sm'>{r.quota_name ?? 'Any'}</TableCell>
                           <TableCell className='text-right text-sm tabular-nums'>
-                            {inr(r.current_year_fee)}
+                            {inr(r.band_fee)}
+                            {r.band_academic_year_name && (
+                              <span className='block text-xs font-normal text-muted-foreground'>
+                                {r.band_academic_year_name}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <Badge variant='outline' className={`font-normal ${REASON_BADGE[r.reason]}`}>

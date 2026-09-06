@@ -39,7 +39,8 @@ export function EligibilityDetailDialog({ open, onOpenChange, row }: Props) {
           <DialogTitle>Eligibility Rule Details</DialogTitle>
           <DialogDescription>
             Read-only view of this category-eligibility rule — which room and mess
-            categories a cohort may use for the matched academic-fee band.
+            categories a cohort may use for the matched academic-fee band. Learners
+            are matched on their admission-year academic fee.
           </DialogDescription>
         </DialogHeader>
 

@@ -87,6 +87,39 @@ export interface RosterEntry {
   student: FoundationStudent | null;
 }
 
+export interface FoundationEnrollment {
+  id: string;
+  student_id: string;
+  cohort_id: string;
+  status: string | null;
+  enrolled_at: string | null;
+}
+
+/**
+ * Creating a learner on the programme.
+ *
+ * `profile_id` and `learner_profile_id` are BOTH optional and are NOT
+ * interchangeable: `profile_id` is a `profiles.id` (a platform login),
+ * `learner_profile_id` is a `learners_profiles.id` (an enrolled learner
+ * record). Foundation deliberately admits a child who has neither — see the
+ * note above the roster-write methods.
+ */
+export interface CreateStudentInput {
+  full_name: string;
+  school_id?: string | null;
+  institution_id?: string | null;
+  profile_id?: string | null;
+  parent_profile_id?: string | null;
+  learner_profile_id?: string | null;
+  grade?: string | null;
+  parental_consent_at?: string | null;
+  status?: string | null;
+}
+
+export interface AddLearnerToCohortInput extends CreateStudentInput {
+  cohort_id: string;
+}
+
 export interface FoundationItem {
   id: string;
   exam_definition_id: string;
@@ -170,6 +203,38 @@ export interface RecordAttemptResponse {
   item_id: string;
   chosen: any;
   time_ms?: number;
+}
+
+/**
+ * A raised concern about one question. `open` suppresses the question from
+ * mastery scoring (fn_fp_recompute_weakness skips it); `dismissed` and `fixed`
+ * both restore it on the next recompute. Nothing is ever deleted — the row is
+ * the record that the question was looked at.
+ */
+export type ItemFlagStatus = 'open' | 'dismissed' | 'fixed';
+/** The two ways a reviewer may close a report. */
+export type ItemFlagResolution = Exclude<ItemFlagStatus, 'open'>;
+
+export interface ItemFlag {
+  id: string;
+  item_id: string;
+  flagged_by: string | null;
+  reason: string | null;
+  status: ItemFlagStatus;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at?: string;
+  updated_at?: string;
+  item?: Pick<
+    FoundationItem,
+    'id' | 'exam_definition_id' | 'topic_id' | 'difficulty' | 'stem' | 'is_active'
+  > | null;
+}
+
+export interface ListItemFlagsFilters {
+  status?: ItemFlagStatus;
+  examDefinitionId?: string;
+  itemId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +335,158 @@ export class FoundationService {
       enrolled_at: row.enrolled_at,
       student: row.student ?? null,
     })) as RosterEntry[];
+  }
+
+  // =========================================================================
+  // Roster writes — putting a learner on the programme
+  //
+  // Every layer under this already existed: the fp_students / fp_enrollments /
+  // fp_cohorts tables, their RLS write policies (fp_students_insert,
+  // fp_enrollments_write, fp_cohorts_write — each gated on
+  // foundation.students.manage or foundation.cohorts.manage), the permission
+  // keys themselves, and both screens that READ a roster. What did not exist
+  // was any path that could CREATE one. Before this, every reference to these
+  // three tables anywhere in the codebase was a read, so the only rows that had
+  // ever reached production were three `[PILOT]` fixtures inserted by hand —
+  // every one of them with a NULL identity.
+  //
+  // `profile_id` stays NULLABLE on purpose, and that is a design decision, not
+  // an oversight: Foundation is aimed at school children who mostly hold no
+  // account here, so a learner exists on the programme without a login and the
+  // cohort's resource person runs the session for them. Linking a platform
+  // identity is therefore OPTIONAL.
+  //
+  // The two identity columns are carried separately and are NOT
+  // interchangeable — `profile_id` is a `profiles.id`, `learner_profile_id` is
+  // a `learners_profiles.id`. Conflating those two id spaces has silently
+  // broken features in this codebase before.
+  // =========================================================================
+
+  static async createStudent(
+    input: CreateStudentInput,
+  ): Promise<FoundationStudent> {
+    const { data, error } = await getSupabase()
+      .from('fp_students')
+      .insert({
+        full_name: input.full_name,
+        school_id: input.school_id ?? null,
+        institution_id: input.institution_id ?? null,
+        profile_id: input.profile_id ?? null,
+        parent_profile_id: input.parent_profile_id ?? null,
+        learner_profile_id: input.learner_profile_id ?? null,
+        grade: input.grade ?? null,
+        parental_consent_at: input.parental_consent_at ?? null,
+        status: input.status ?? 'active',
+      })
+      .select(
+        `id, school_id, institution_id, profile_id, parent_profile_id,
+         learner_profile_id, full_name, grade, parental_consent_at, status`,
+      )
+      .single();
+
+    if (error) {
+      logger.error(LOG, 'createStudent failed', error);
+      throw error;
+    }
+    logger.dev(LOG, 'student created', { id: data?.id });
+    return data as FoundationStudent;
+  }
+
+  static async enrollStudent(
+    studentId: string,
+    cohortId: string,
+  ): Promise<FoundationEnrollment> {
+    const { data, error } = await getSupabase()
+      .from('fp_enrollments')
+      .insert({
+        student_id: studentId,
+        cohort_id: cohortId,
+        status: 'active',
+        enrolled_at: new Date().toISOString(),
+      })
+      .select('id, student_id, cohort_id, status, enrolled_at')
+      .single();
+
+    if (error) {
+      logger.error(LOG, 'enrollStudent failed', error);
+      throw error;
+    }
+    return data as FoundationEnrollment;
+  }
+
+  /**
+   * Create a learner AND put them in a cohort.
+   *
+   * There is no transaction available from the browser client, so if the
+   * enrolment fails the just-created student would otherwise be left orphaned —
+   * invisible on every roster and impossible to find again. We attempt to undo
+   * it and, either way, the thrown error NAMES the student id so the row can be
+   * recovered by hand rather than silently stranded.
+   */
+  static async addLearnerToCohort(
+    input: AddLearnerToCohortInput,
+  ): Promise<{ student: FoundationStudent; enrollment: FoundationEnrollment }> {
+    const { cohort_id, ...learnerInput } = input;
+    const learner = await FoundationService.createStudent(learnerInput);
+
+    try {
+      const enrollment = await FoundationService.enrollStudent(
+        learner.id,
+        cohort_id,
+      );
+      return { student: learner, enrollment };
+    } catch (enrollError) {
+      // Compensating delete. If it also fails the row survives with no
+      // enrolment, which is harmless but invisible — so we say the id out loud.
+      const { error: cleanupError } = await getSupabase()
+        .from('fp_students')
+        .delete()
+        .eq('id', learner.id);
+
+      if (cleanupError) {
+        logger.error(LOG, 'addLearnerToCohort: cleanup failed too', {
+          learnerId: learner.id,
+          cleanupError,
+        });
+        throw new Error(
+          `${learner.full_name ?? 'The learner'} was created (id ${learner.id}) ` +
+            `but could not be enrolled, and could not be removed either. ` +
+            `Enrol or delete that row by hand.`,
+        );
+      }
+      throw enrollError;
+    }
+  }
+
+  /**
+   * Assign a cohort's resource person.
+   *
+   * A cohort whose `resource_person_id` is NULL is invisible to the whole
+   * facilitation flow: /api/foundation/practice/facilitate scopes its query to
+   * `resource_person_id = the caller`, so nobody can ever open it. The one
+   * cohort in production was in exactly that state — active, with a school and
+   * an exam, and unreachable by every screen built to run it.
+   */
+  static async setCohortResourcePerson(
+    cohortId: string,
+    resourcePersonId: string | null,
+  ): Promise<FoundationCohort> {
+    const { data, error } = await getSupabase()
+      .from('fp_cohorts')
+      .update({ resource_person_id: resourcePersonId })
+      .eq('id', cohortId)
+      .select()
+      .single();
+
+    if (error) {
+      logger.error(LOG, 'setCohortResourcePerson failed', error);
+      throw error;
+    }
+    logger.dev(LOG, 'cohort resource person set', {
+      cohortId,
+      resourcePersonId,
+    });
+    return data as FoundationCohort;
   }
 
   static async getStudent(studentId: string): Promise<FoundationStudent | null> {
@@ -559,5 +776,69 @@ export class FoundationService {
       throw error;
     }
     return data;
+  }
+
+  // =========================================================================
+  // Reported questions (fp_item_flags)
+  // =========================================================================
+  // Unlike the rest of this file these go through /api/foundation/item-flags
+  // rather than the browser client. Raising a report is open to anyone signed
+  // in while closing one needs foundation.items.manage, and a route is where
+  // that asymmetry produces an explicit, readable 403 instead of an empty
+  // result set. The database policies enforce it either way.
+
+  static async listItemFlags(
+    filters: ListItemFlagsFilters = {},
+  ): Promise<ItemFlag[]> {
+    const qs = new URLSearchParams();
+    if (filters.status) qs.set('status', filters.status);
+    if (filters.examDefinitionId)
+      qs.set('examDefinitionId', filters.examDefinitionId);
+    if (filters.itemId) qs.set('itemId', filters.itemId);
+
+    const res = await fetch(`/api/foundation/item-flags?${qs.toString()}`, {
+      cache: 'no-store',
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      logger.error(LOG, 'listItemFlags failed', json);
+      throw new Error(json?.error ?? 'Could not load reported questions');
+    }
+    return (json?.data ?? []) as ItemFlag[];
+  }
+
+  static async raiseItemFlag(
+    itemId: string,
+    reason?: string | null,
+  ): Promise<ItemFlag> {
+    const res = await fetch('/api/foundation/item-flags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: itemId, reason: reason ?? null }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      logger.error(LOG, 'raiseItemFlag failed', json);
+      throw new Error(json?.error ?? 'Could not record the report');
+    }
+    logger.dev(LOG, 'question reported', { itemId });
+    return json.data as ItemFlag;
+  }
+
+  static async resolveItemFlag(
+    flagId: string,
+    status: ItemFlagResolution,
+  ): Promise<ItemFlag> {
+    const res = await fetch(`/api/foundation/item-flags/${flagId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      logger.error(LOG, 'resolveItemFlag failed', json);
+      throw new Error(json?.error ?? 'Could not close the report');
+    }
+    return json.data as ItemFlag;
   }
 }

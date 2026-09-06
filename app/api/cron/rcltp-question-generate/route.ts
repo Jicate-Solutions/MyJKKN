@@ -33,6 +33,23 @@
 // because the passage still has zero questions and so re-qualifies for the next
 // nightly sweep.
 //
+// WHO IS TOLD (Director decisions 2, 3 and 7 of 2026-07-28):
+//   • empty nights → the HEAD of the school whose reading material is missing,
+//     resolved by the rcltp.config.manage permission, NOT by role name; falls
+//     back to system administrators when that school has no active head or when
+//     nothing owns the material. Both paths run through the single resolver in
+//     lib/services/rcltp/notify-targets.ts and report `via` so an operator can
+//     tell the two apart. This changed WHO hears — the 3-night threshold and the
+//     weekly repeat are deliberately unchanged. The idempotency key gained the
+//     drought's start date, because once WHO can differ between droughts a key
+//     scoped only to the night count back-fills a stale notice onto the new
+//     recipient (see reportEmptyStreak).
+//   • non-English material → the person who added it (rcltp_passages.created_by),
+//     told plainly that AI drafting does not cover that language and the
+//     questions need writing by hand. Keyed on the passage id, so one passage
+//     yields at most one such message ever. Inert until a non-English passage
+//     exists; there are none in production today.
+//
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` OR `?secret=`.
 // Created: 2026-07-25 (rank-2 of the Senior-Learner⇄AI offload decisions).
 
@@ -58,6 +75,10 @@ import {
   type QGenContext,
   type QKeyCheckContext,
 } from '@/lib/services/rcltp/question-generation-service';
+import {
+  resolveRcltpNotifyTargets,
+  resolveRcltpProgrammeInstitutionId,
+} from '@/lib/services/rcltp/notify-targets';
 
 const NIGHTLY_CAP_CEILING = 25;
 const COLLECT_CAP = 25;
@@ -131,19 +152,47 @@ async function reportEmptyStreak(admin: Admin, dry: boolean) {
     (nights - EMPTY_ALERT_AFTER_NIGHTS) % EMPTY_ALERT_REPEAT_NIGHTS === 0;
   if (!due) return { checked: true, nights, alerted: false };
 
-  // No owner is recorded for the reading programme yet, so this goes to the
-  // people who can actually act on it. Narrow this the day an owner exists.
-  const { data: recipientRows } = await admin
-    .from('profiles')
-    .select('id')
-    .eq('is_super_admin', true)
-    .eq('is_active', true);
-  const userIds = (recipientRows ?? []).map((r: { id: string }) => r.id);
+  // The key has to identify THIS drought, not just how many nights in we are.
+  // `last` is the drought's start — the moment the sweep last had something to
+  // do — so the UTC date of it is stable for the whole drought and changes the
+  // instant a stage-1 job resets the streak. Keying on nights alone meant a
+  // SECOND drought reaching night 3 collided with the first drought's row:
+  // fanoutNotification's idempotency pre-check would find it and fan the OLD,
+  // weeks-stale notification out to the NEW recipient, while reportEmptyStreak
+  // reported alerted:true. Harmless when every notice went to the same 14
+  // administrators; a real mis-dated delivery now that WHO can change.
+  const streakStartedOn = new Date(last).toISOString().slice(0, 10);
+
+  // Director decision 2 + 3 (2026-07-28): the head of the school whose reading
+  // material is missing, falling back to system administrators when that school
+  // has no active head or nothing owns the material. This replaces the shipped
+  // "every super admin" list — WHO changes here, never whether or when. The
+  // threshold, the weekly repeat and the idempotency key below are untouched.
+  const institutionId = await resolveRcltpProgrammeInstitutionId(admin);
+  const targets = await resolveRcltpNotifyTargets(admin, { institutionId });
+  const userIds = targets.userIds;
   if (userIds.length === 0) {
     console.error('[cron/rcltp-question-generate] empty streak but no recipient resolved');
-    return { checked: true, nights, alerted: false, reason: 'no recipients' };
+    return {
+      checked: true,
+      nights,
+      alerted: false,
+      reason: 'no recipients',
+      via: targets.via,
+      institution_id: targets.institutionId,
+    };
   }
-  if (dry) return { checked: true, nights, alerted: false, would_notify: userIds.length };
+  if (dry) {
+    return {
+      checked: true,
+      nights,
+      streak_started_on: streakStartedOn,
+      alerted: false,
+      would_notify: userIds.length,
+      via: targets.via,
+      institution_id: targets.institutionId,
+    };
+  }
 
   const outcome = await fanoutNotification(admin, {
     title: 'Reading question drafting has had nothing to do',
@@ -157,17 +206,206 @@ async function reportEmptyStreak(admin: Admin, dry: boolean) {
     kind: 'work_item',
     priority: 'normal',
     category: 'rcltp',
-    idempotencyKey: `rcltp-qgen-empty-${nights}`,
-    metadata: { nights_empty: nights, route: 'rcltp-question-generate' },
+    idempotencyKey: `rcltp-qgen-empty-${streakStartedOn}-${nights}`,
+    metadata: {
+      nights_empty: nights,
+      streak_started_on: streakStartedOn,
+      recipient_path: targets.via,
+      institution_id: targets.institutionId,
+      route: 'rcltp-question-generate',
+    },
     source: EMPTY_ALERT_SOURCE,
   });
 
   return {
     checked: true,
     nights,
+    streak_started_on: streakStartedOn,
     alerted: outcome.notified > 0 || outcome.skipped === 'idempotent',
     recipients: userIds.length,
+    via: targets.via,
+    institution_id: targets.institutionId,
   };
+}
+
+const NON_ENGLISH_ALERT_SOURCE = 'rcltp-question-generate-non-english';
+const NON_ENGLISH_SCAN_CAP = 25;
+
+/**
+ * 'ta' is not a plain word. Decision 7 asks that the person be told PLAINLY, so
+ * render the language code as its name where the runtime can, and fall back to
+ * the raw code rather than losing the sentence.
+ */
+function languageName(code: string): string {
+  try {
+    const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(code);
+    return name && name !== code ? name : code;
+  } catch {
+    return code;
+  }
+}
+
+interface NonEnglishPassage {
+  id: string;
+  title: string;
+  language: string;
+  institution_id: string | null;
+  created_by: string | null;
+}
+
+/**
+ * Director decision 7 (2026-07-28) — reading material in a language other than
+ * English.
+ *
+ * findCandidatePassages() filters on language='en', so a passage in any other
+ * language is skipped in TOTAL SILENCE: it never gets questions and nobody is
+ * ever told why. This says so, once, to the person who added it — they are the
+ * one who can write the questions by hand.
+ *
+ * Bounds that make this safe to run every night:
+ *   • idempotencyKey is keyed on the passage id, and notifications has a UNIQUE
+ *     partial index on it, so one passage produces at most one such message EVER.
+ *   • It reads a disjoint set from the sweep (language != 'en'), so it cannot
+ *     change `candidates`, the empty-streak threshold, or the weekly repeat.
+ *   • A passage that already has questions is skipped — someone wrote them by
+ *     hand and there is nothing left to say.
+ *
+ * INERT ON ARRIVAL: production has zero non-English passages today, so this
+ * sends nothing until one is added. Verify what it WOULD send with ?dry=1.
+ */
+async function reportNonEnglishPassages(admin: Admin, dry: boolean) {
+  // Select ALL, filter by coverage, THEN cap — the same shape as
+  // findCandidatePassages() above, and for the same reason. Capping the RAW
+  // scan would starve the tail permanently: a passage that has already been
+  // notified still matches the raw filter, so it holds its place in the window
+  // for ever and passage 26 onward would never be reached on any night. The cap
+  // has to sit AFTER the ones with nothing left to say are dropped.
+  const { data, error } = await admin
+    .from('rcltp_passages')
+    .select('id, title, language, institution_id, created_by')
+    .eq('is_active', true)
+    .eq('status', 'approved')
+    .neq('language', 'en')
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('[cron/rcltp-question-generate] non-English scan failed:', error.message);
+    return { checked: false, reason: 'scan failed' };
+  }
+
+  const rows = (data ?? []) as NonEnglishPassage[];
+  if (rows.length === 0) return { checked: true, found: 0, notified: 0, already_sent: 0 };
+
+  // Drop the ones somebody already wrote questions for by hand.
+  const { data: covered, error: qErr } = await admin
+    .from('rcltp_part_b_questions')
+    .select('passage_id')
+    .in(
+      'passage_id',
+      rows.map((r) => r.id),
+    );
+  if (qErr) {
+    console.error('[cron/rcltp-question-generate] non-English coverage read failed:', qErr.message);
+    return { checked: false, reason: 'coverage read failed' };
+  }
+  const coveredIds = new Set((covered ?? []).map((r: { passage_id: string }) => r.passage_id));
+  const pending = rows.filter((r) => !coveredIds.has(r.id)).slice(0, NON_ENGLISH_SCAN_CAP);
+
+  const summary = {
+    checked: true,
+    found: rows.length,
+    pending: pending.length,
+    notified: 0,
+    already_sent: 0,
+    no_recipients: 0,
+    errors: 0,
+    would_notify: [] as Array<{ passage_id: string; language: string; via: string; recipients: number }>,
+  };
+
+  for (const passage of pending) {
+    try {
+      // The person who added it, when that account is still active; otherwise
+      // decision 2/3's resolver, so the message lands rather than evaporating.
+      let userIds: string[] = [];
+      let via = 'creator';
+      if (passage.created_by) {
+        const { data: creator } = await admin
+          .from('profiles')
+          .select('id')
+          .eq('id', passage.created_by)
+          .eq('is_active', true)
+          .maybeSingle();
+        if (creator?.id) userIds = [creator.id as string];
+      }
+      if (userIds.length === 0) {
+        const targets = await resolveRcltpNotifyTargets(admin, {
+          institutionId: passage.institution_id,
+        });
+        userIds = targets.userIds;
+        via = targets.via;
+      }
+      if (userIds.length === 0) {
+        summary.no_recipients++;
+        console.error(
+          '[cron/rcltp-question-generate] non-English passage with no recipient:',
+          passage.id,
+        );
+        continue;
+      }
+
+      if (dry) {
+        summary.would_notify.push({
+          passage_id: passage.id,
+          language: passage.language,
+          via,
+          recipients: userIds.length,
+        });
+        continue;
+      }
+
+      const outcome = await fanoutNotification(admin, {
+        title: 'This reading passage needs its questions written by hand',
+        body:
+          `"${passage.title}" is saved in ${languageName(passage.language)}. The overnight helper only drafts ` +
+          'comprehension questions for English passages, so it will never pick this one up and ' +
+          'no questions will appear for it on their own. Add them under Reading (RCLTP) → ' +
+          'Content Authoring, or save an English version of the passage.',
+        url: '/rcltp/admin/content',
+        userIds,
+        kind: 'work_item',
+        priority: 'normal',
+        category: 'rcltp',
+        idempotencyKey: `rcltp-qgen-lang-${passage.id}`,
+        metadata: {
+          passage_id: passage.id,
+          language: passage.language,
+          recipient_path: via,
+          route: 'rcltp-question-generate',
+        },
+        source: NON_ENGLISH_ALERT_SOURCE,
+      });
+
+      if (outcome.skipped === 'idempotent') summary.already_sent++;
+      else if (outcome.notified > 0) summary.notified++;
+      else {
+        summary.errors++;
+        console.error(
+          '[cron/rcltp-question-generate] non-English notice delivered nothing:',
+          passage.id,
+          outcome.skipped ?? 'no notification row returned',
+        );
+      }
+    } catch (e) {
+      summary.errors++;
+      console.error(
+        '[cron/rcltp-question-generate] non-English notice failed:',
+        passage.id,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  const { would_notify, ...sent } = summary;
+  return dry ? { ...sent, would_notify } : sent;
 }
 
 /** Guard against a duplicate set landing on a passage that already has one. */
@@ -252,10 +490,13 @@ export async function GET(request: NextRequest) {
     // ran. Director edge ruling (2026-07-25): say something after a few empty
     // nights rather than stay silent. Only the nightly sweep evaluates this —
     // an on-demand ?passageId= run returned above.
-    const emptyRun =
-      candidates.length === 0
-        ? await reportEmptyStreak(admin, request.nextUrl.searchParams.get('dry') === '1')
-        : null;
+    const dry = request.nextUrl.searchParams.get('dry') === '1';
+    const emptyRun = candidates.length === 0 ? await reportEmptyStreak(admin, dry) : null;
+
+    // Director decision 7 — the silently-skipped non-English passages. Reads a
+    // set disjoint from `candidates` (language != 'en'), so it can never change
+    // the empty-streak threshold or the weekly repeat above.
+    const nonEnglish = await reportNonEnglishPassages(admin, dry);
 
     return NextResponse.json({
       ok: true,
@@ -266,6 +507,7 @@ export async function GET(request: NextRequest) {
       in_flight: inFlight,
       failed,
       empty_streak: emptyRun,
+      non_english: nonEnglish,
       elapsed_ms: Date.now() - started,
     });
   }

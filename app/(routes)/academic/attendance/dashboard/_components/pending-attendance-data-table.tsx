@@ -239,18 +239,21 @@ export function PendingAttendanceDataTable({
             { wch: 15 }, // Academic Year
             { wch: 20 }  // Primary Staff
           ],
+          // DATA KEYS, not the labels above — the export resolves these
+          // against each row and columnMapping supplies the heading. Passing
+          // the labels here matched nothing and downloaded a blank file.
           headers: [
-            'Date',
-            'Period',
-            'Course',
-            'Institution',
-            'Degree',
-            'Department',
-            'Program',
-            'Semester',
-            'Section',
-            'Academic Year',
-            'Primary Staff'
+            'attendance_date',
+            'period_name',
+            'course_name',
+            'institution_name',
+            'degree_name',
+            'department_name',
+            'program_name',
+            'semester_name',
+            'section_name',
+            'academic_year_name',
+            'primary_staff_name'
           ]
         }}
         idField='period_id'

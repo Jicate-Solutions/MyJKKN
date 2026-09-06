@@ -145,8 +145,66 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
   },
 ];
 
-function tabVisible(tab: EventLogisticsTab, eventType: string): boolean {
-  return tab.eventTypes === 'all' || tab.eventTypes.includes(eventType);
+/**
+ * Tabs whose boards expose money or incident detail. `canManage={false}` makes
+ * every board READ-ONLY, not hidden — which is fine on a console that already
+ * gates who may open it at all (the tournament page checks access.canView
+ * first), and not fine on one that doesn't.
+ *
+ * RLS does not cover this: `event_sponsors` / `event_budget_items` are readable
+ * far more broadly than any event's access model implies. So a host page with
+ * no gate of its own passes `hideSensitiveWithoutManage` and these three
+ * disappear for non-managers rather than merely going read-only.
+ */
+const SENSITIVE_TAB_KEYS = ['sponsors', 'budget', 'incidents'] as const;
+
+/**
+ * The event's primary record. Always shown, even when `enabledTools` names a
+ * narrower set — an event whose registrations you cannot reach is not a console.
+ */
+const ALWAYS_ON_TAB_KEY = 'registrations';
+
+function tabVisible(
+  tab: EventLogisticsTab,
+  eventType: string,
+  enabledTools: string[] | null | undefined,
+  canManage: boolean,
+  hideSensitiveWithoutManage: boolean,
+): boolean {
+  if (tab.eventTypes !== 'all' && !tab.eventTypes.includes(eventType)) return false;
+
+  if (
+    hideSensitiveWithoutManage &&
+    !canManage &&
+    (SENSITIVE_TAB_KEYS as readonly string[]).includes(tab.key)
+  ) {
+    return false;
+  }
+
+  // An ABSENT or EMPTY selection means "every tool" — events created before the
+  // tools picker existed have no key at all, and writing [] to mean "none" would
+  // silently blank the console for them.
+  if (!enabledTools?.length) return true;
+
+  return tab.key === ALWAYS_ON_TAB_KEY || enabledTools.includes(tab.key);
+}
+
+/** Exported for tests — the filter above with no React around it. */
+export function visibleLogisticsTabs(opts: {
+  eventType: string;
+  enabledTools?: string[] | null;
+  canManage?: boolean;
+  hideSensitiveWithoutManage?: boolean;
+}): EventLogisticsTab[] {
+  return EVENT_LOGISTICS_TABS.filter((t) =>
+    tabVisible(
+      t,
+      opts.eventType,
+      opts.enabledTools,
+      opts.canManage ?? true,
+      opts.hideSensitiveWithoutManage ?? false,
+    ),
+  );
 }
 
 export function EventLogistics({
@@ -154,14 +212,33 @@ export function EventLogistics({
   eventType,
   canManage = true,
   canEditTasks,
+  enabledTools,
+  hideSensitiveWithoutManage = false,
 }: {
   eventId: string;
   eventType: string;
   canManage?: boolean;
   /** Defaults to canManage — pass true to let non-managers tick committee tasks. */
   canEditTasks?: boolean;
+  /**
+   * `events.config.enabled_tools` — the tools chosen when the event was created.
+   * Absent/empty shows every tab (see tabVisible).
+   */
+  enabledTools?: string[] | null;
+  /**
+   * Hide Sponsors / Budget / Incidents from viewers who cannot manage the event.
+   * Pass `true` from any console that does NOT gate access before rendering.
+   * Defaults to false so the tournament console keeps showing committee members
+   * every board read-only, as it does today.
+   */
+  hideSensitiveWithoutManage?: boolean;
 }) {
-  const tabs = EVENT_LOGISTICS_TABS.filter((t) => tabVisible(t, eventType));
+  const tabs = visibleLogisticsTabs({
+    eventType,
+    enabledTools,
+    canManage,
+    hideSensitiveWithoutManage,
+  });
   if (tabs.length === 0) return null;
   const tasksEditable = canEditTasks ?? canManage;
 

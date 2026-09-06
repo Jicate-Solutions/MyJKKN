@@ -105,6 +105,38 @@ export function SyllabusTab({
     [institutions, institutionsId],
   );
 
+  // CAS / CET institution UUID sets, resolved via the COE institution_code =
+  // MyJKKN counselling_code bridge — mirrors syllabus-data-table.tsx, which is
+  // where the main /bos/syllabus list builds them.
+  //
+  // These MUST be forwarded to createSyllabusColumns: without them the row's
+  // PDF button falls back to the course_code/stream heuristics in
+  // buildSyllabusPdfData, which only recognise an Anna-University code shape
+  // ("EC3354"). A CET course whose code starts with digits (the MBA set —
+  // "26MBC02", "26MBC08") then silently rendered the Arts & Science table
+  // layout instead of the Engineering one, dropping the per-unit hour markers
+  // and the "TOTAL: N PERIODS" line that only the CET renderer prints.
+  // Institution identity is the reliable signal; the code shape is not.
+  const casInstitutionIds = useMemo(
+    () =>
+      new Set(
+        institutions
+          .filter((i) => (i.institution_code ?? '').toUpperCase() === 'CAS')
+          .flatMap((i) => i.myjkkn_institution_ids),
+      ),
+    [institutions],
+  );
+
+  const cetInstitutionIds = useMemo(
+    () =>
+      new Set(
+        institutions
+          .filter((i) => (i.institution_code ?? '').toUpperCase() === 'CET')
+          .flatMap((i) => i.myjkkn_institution_ids),
+      ),
+    [institutions],
+  );
+
   // Augment the shared syllabus columns with a visible pencil-icon Edit button
   // ahead of the kebab menu. Edit is already available inside DataTableRowActions
   // on the main /bos/syllabus list page, but in the meeting-tab context users
@@ -127,9 +159,11 @@ export function SyllabusTab({
       enableResizing: false,
       size: 60,
     };
-    const base = createSyllabusColumns(institutionName).filter(
-      (col) => col.id !== 'select',
-    );
+    const base = createSyllabusColumns(
+      institutionName,
+      casInstitutionIds,
+      cetInstitutionIds,
+    ).filter((col) => col.id !== 'select');
     const augmented = base.map((col) => {
       if (col.id !== 'actions') return col;
       const originalCell = col.cell;
@@ -161,7 +195,7 @@ export function SyllabusTab({
       };
     });
     return [serialColumn, ...augmented];
-  }, [institutionName, isSyllabusEditingFrozen]);
+  }, [institutionName, casInstitutionIds, cetInstitutionIds, isSyllabusEditingFrozen]);
 
   // The /api/bos/syllabus endpoint accepts boardId, regulationId, institutionsId,
   // search — but NOT compositionId. We pull a large page (composition course

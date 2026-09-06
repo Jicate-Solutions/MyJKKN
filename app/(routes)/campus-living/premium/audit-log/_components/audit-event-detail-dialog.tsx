@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay Phase 2 — Audit Event Detail Dialog
+// Premium Room Phase 2 — Audit Event Detail Dialog
 // ============================================================================
 // Shows a single audit row with full before/after JSON diff. Read-only.
 // ============================================================================

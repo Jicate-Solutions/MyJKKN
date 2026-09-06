@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
   useRoomEligibilityRules,
@@ -68,7 +68,10 @@ export function RoomEligibilityFormDialog({
   const [degreeId, setDegreeId] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [programId, setProgramId] = useState('');
-  const [semesterId, setSemesterId] = useState('');
+  // ORDERED. Position 1 is the semester auto-allocation fills first; the array
+  // order is persisted as-is and read back by fn_auto_allocate_classic, so it
+  // must never be sorted for display. Empty = any semester.
+  const [semesterIds, setSemesterIds] = useState<string[]>([]);
   const [ruleName, setRuleName] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -103,7 +106,7 @@ export function RoomEligibilityFormDialog({
       setDegreeId(rule.degree_id ?? '');
       setDepartmentId(rule.department_id ?? '');
       setProgramId(rule.program_id ?? '');
-      setSemesterId(rule.semester_id ?? '');
+      setSemesterIds(rule.semester_ids ?? []);
       setRuleName(rule.rule_name ?? '');
       setIsActive(rule.is_active);
     } else {
@@ -115,7 +118,7 @@ export function RoomEligibilityFormDialog({
       setDegreeId('');
       setDepartmentId('');
       setProgramId('');
-      setSemesterId('');
+      setSemesterIds([]);
       setRuleName('');
       setIsActive(true);
     }
@@ -128,7 +131,7 @@ export function RoomEligibilityFormDialog({
     setDegreeId('');
     setDepartmentId('');
     setProgramId('');
-    setSemesterId('');
+    setSemesterIds([]);
   };
 
   // Block drives BOTH the rooms that exist and which colleges are offered
@@ -143,7 +146,7 @@ export function RoomEligibilityFormDialog({
     setDegreeId('');
     setDepartmentId('');
     setProgramId('');
-    setSemesterId('');
+    setSemesterIds([]);
   };
 
   // Institution options = ONLY the colleges this block serves
@@ -237,6 +240,37 @@ export function RoomEligibilityFormDialog({
     };
   }, [rooms, roomIds]);
 
+  // Semester picker helpers. Selection order IS the fill order, so `add`
+  // appends and the arrows swap neighbours — nothing here sorts the list.
+  const addSemester = (id: string) =>
+    setSemesterIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  const removeSemester = (id: string) =>
+    setSemesterIds((prev) => prev.filter((x) => x !== id));
+  const moveSemester = (index: number, delta: number) =>
+    setSemesterIds((prev) => {
+      const target = index + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+
+  // Edit mode renders the chips before the program cascade has loaded its
+  // options, so seed labels from the names the rule already carries.
+  const semesterLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    rule?.semester_ids?.forEach((id, i) =>
+      m.set(id, rule.semester_names?.[i] ?? 'Unknown semester')
+    );
+    semesters.forEach((s) => m.set(s.id, s.label));
+    return m;
+  }, [rule, semesters]);
+
+  const unpickedSemesters = useMemo(
+    () => semesters.filter((s) => !semesterIds.includes(s.id)),
+    [semesters, semesterIds]
+  );
+
   const canSave =
     !!selectedInstitution &&
     !!blockId &&
@@ -252,7 +286,7 @@ export function RoomEligibilityFormDialog({
         degree_id: degreeId || null,
         department_id: departmentId || null,
         program_id: programId || null,
-        semester_id: semesterId || null,
+        semester_ids: semesterIds,
         rule_name: ruleName.trim() || null,
         is_active: isActive,
       };
@@ -452,7 +486,7 @@ export function RoomEligibilityFormDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Degree <span className="text-muted-foreground font-normal">(optional)</span></Label>
-              <Select value={degreeId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setDegreeId(nv); setDepartmentId(''); setProgramId(''); setSemesterId(''); }}>
+              <Select value={degreeId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setDegreeId(nv); setDepartmentId(''); setProgramId(''); setSemesterIds([]); }}>
                 <SelectTrigger><SelectValue placeholder="Any degree" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ANY}>Any degree</SelectItem>
@@ -463,7 +497,7 @@ export function RoomEligibilityFormDialog({
 
             <div className="space-y-2">
               <Label>Department <span className="text-muted-foreground font-normal">(optional)</span></Label>
-              <Select value={departmentId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setDepartmentId(nv); setProgramId(''); setSemesterId(''); }} disabled={!degreeId}>
+              <Select value={departmentId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setDepartmentId(nv); setProgramId(''); setSemesterIds([]); }} disabled={!degreeId}>
                 <SelectTrigger><SelectValue placeholder="Any department" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ANY}>Any department</SelectItem>
@@ -474,7 +508,7 @@ export function RoomEligibilityFormDialog({
 
             <div className="space-y-2">
               <Label>Program <span className="text-muted-foreground font-normal">(optional)</span></Label>
-              <Select value={programId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setProgramId(nv); setSemesterId(''); }} disabled={!departmentId}>
+              <Select value={programId || ANY} onValueChange={(v) => { const nv = v === ANY ? '' : v; setProgramId(nv); setSemesterIds([]); }} disabled={!departmentId}>
                 <SelectTrigger><SelectValue placeholder="Any program" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ANY}>Any program</SelectItem>
@@ -482,17 +516,105 @@ export function RoomEligibilityFormDialog({
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
-            <div className="space-y-2">
-              <Label>Semester (year) <span className="text-muted-foreground font-normal">(optional)</span></Label>
-              <Select value={semesterId || ANY} onValueChange={(v) => setSemesterId(v === ANY ? '' : v)} disabled={!programId}>
-                <SelectTrigger><SelectValue placeholder="Any semester" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ANY}>Any semester</SelectItem>
-                  {semesters.map((s) => <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Semesters (year) — a rule may cover SEVERAL, and the order is the
+              auto-allocation fill order, so this is a list rather than a select.
+              Full width: it sits outside the two-column academic grid above. */}
+          <div className="space-y-2">
+            <Label>
+              Semesters (year){' '}
+              <span className="text-muted-foreground font-normal">
+                (optional — fill order)
+              </span>
+            </Label>
+            {!programId ? (
+              <p className="text-sm text-muted-foreground">
+                Pick a program first — semesters belong to a program.
+              </p>
+            ) : semesters.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No active semesters on this program.
+              </p>
+            ) : (
+              <div className="space-y-3 rounded-md border p-3">
+                {semesterIds.length > 0 && (
+                  <ol className="space-y-1.5">
+                    {semesterIds.map((id, i) => (
+                      <li
+                        key={id}
+                        className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5"
+                      >
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-[11px] font-semibold text-primary-foreground">
+                          {i + 1}
+                        </span>
+                        <span className="flex-1 text-sm">
+                          {semesterLabel.get(id) ?? 'Unknown semester'}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          onClick={() => moveSemester(i, -1)}
+                          disabled={i === 0}
+                          aria-label={`Move ${semesterLabel.get(id) ?? 'semester'} earlier`}
+                        >
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          onClick={() => moveSemester(i, 1)}
+                          disabled={i === semesterIds.length - 1}
+                          aria-label={`Move ${semesterLabel.get(id) ?? 'semester'} later`}
+                        >
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                          onClick={() => removeSemester(id)}
+                          aria-label={`Remove ${semesterLabel.get(id) ?? 'semester'}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {unpickedSemesters.length > 0 && (
+                  <div className="space-y-1.5">
+                    {semesterIds.length > 0 && (
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Add another
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {unpickedSemesters.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => addSemester(s.id)}
+                          className="rounded-md border px-2 py-1.5 text-left text-sm hover:bg-muted"
+                        >
+                          + {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {semesterIds.length === 0
+                ? 'None selected — the rule applies to any semester of this program.'
+                : `Auto-allocation places ${semesterLabel.get(semesterIds[0]) ?? 'the first semester'} into these rooms first, then works down the list.`}
+            </p>
           </div>
 
           <div className="space-y-2">

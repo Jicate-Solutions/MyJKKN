@@ -24,6 +24,7 @@ import {
   CalendarClock,
   PauseCircle,
   History,
+  AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -180,6 +181,96 @@ function summarize(result: unknown): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// "Has not run when it said it would" detector.
+//
+// Every routine on this screen states its own schedule, and the dispatcher
+// stamps last_fired_at each time it fires one. Until now the screen never
+// compared the two, so a routine that quietly stopped firing looked exactly
+// like one that fired on time — the row simply showed an older status line that
+// nobody had a reason to re-read.
+//
+// This compares ELAPSED TIME against the longest gap the routine's own
+// day-of-week pattern allows. It deliberately never asks "which calendar day
+// should it have fired on": last_fired_at is UTC while minute_of_day is IST, so
+// a 04:37 IST routine stamps a timestamp dated the PREVIOUS UTC day, and any
+// day-matching rule has to get that conversion right to be correct. Comparing
+// two absolute instants has no timezone in it at all, so there is nothing to
+// get wrong.
+//
+// Note what this signal is and is not. It reports only WHEN the platform last
+// fired the routine. It says nothing about whether the run did useful work —
+// a routine's own output counts cannot support that claim (see the PR body),
+// so this screen does not make it.
+// ---------------------------------------------------------------------------
+
+/** Slack past a routine's own longest scheduled gap before we call it overdue.
+ *  Half a day: long enough that a late dispatcher tick or a long run never
+ *  trips it, short enough that a missed daily slot surfaces the same day. */
+const OVERDUE_GRACE_HOURS = 12;
+
+/**
+ * The longest gap, in hours, that a day-of-week pattern allows between two
+ * consecutive runs. Every day → 24. Mon+Thu → 96 (Thu back round to Mon).
+ * A single day → 168. Returns null when nothing is scheduled.
+ */
+export function maxScheduledGapHours(daysOfWeek: number[] | null | undefined): number | null {
+  const days = [...new Set(daysOfWeek ?? [])]
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    .sort((a, b) => a - b);
+  if (days.length === 0) return null;
+  let maxGapDays = 0;
+  for (let i = 0; i < days.length; i++) {
+    const next = days[(i + 1) % days.length];
+    // The last entry wraps into next week; a lone day wraps onto itself (7).
+    const gapDays = i === days.length - 1 ? 7 - days[i] + next : next - days[i];
+    maxGapDays = Math.max(maxGapDays, gapDays);
+  }
+  return maxGapDays * 24;
+}
+
+export type RunFreshness =
+  /** Fired longer ago than its own schedule allows, plus grace. */
+  | { verdict: 'overdue'; hoursSince: number; expectedGapHours: number }
+  /** Fired within the window its schedule allows. */
+  | { verdict: 'on-time' }
+  /** Paused, unscheduled, never fired, or not dispatcher-managed — say nothing. */
+  | { verdict: 'unknown' };
+
+/**
+ * Pure classifier over a schedule row and the current instant. Exported (and
+ * unit-tested) so the rule can be checked without rendering.
+ */
+export function classifyRunFreshness(
+  schedule: ScheduleRow | undefined | null,
+  nowMs: number,
+): RunFreshness {
+  // A paused routine is already badged "paused"; don't badge it twice. A row the
+  // cloud dispatcher does not own (managed=false, e.g. the maxlane: twins) is
+  // not its clock to keep, so its silence proves nothing here.
+  if (!schedule || !schedule.enabled || !schedule.managed) return { verdict: 'unknown' };
+  // Never fired at all is a different state with its own handling; leave it be.
+  if (!schedule.last_fired_at) return { verdict: 'unknown' };
+
+  const expectedGapHours = maxScheduledGapHours(schedule.days_of_week);
+  if (expectedGapHours === null) return { verdict: 'unknown' };
+
+  const firedMs = new Date(schedule.last_fired_at).getTime();
+  if (!Number.isFinite(firedMs)) return { verdict: 'unknown' };
+
+  const hoursSince = (nowMs - firedMs) / 3_600_000;
+  // A future timestamp means a clock disagreement, not a late routine.
+  if (hoursSince < 0) return { verdict: 'unknown' };
+
+  if (hoursSince <= expectedGapHours + OVERDUE_GRACE_HOURS) return { verdict: 'on-time' };
+  return { verdict: 'overdue', hoursSince, expectedGapHours };
+}
+
+/** "24 hours" / "4 days" — how often the routine is meant to run, in words. */
+function fmtGap(hours: number): string {
+  return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
+}
+
 function TypeBadge({ type }: { type: AIRoutine['type'] }) {
   const map: Record<AIRoutine['type'], string> = {
     cron: 'Scheduled',
@@ -225,6 +316,9 @@ function RoutineRow({
   const [histLoading, setHistLoading] = useState(false);
 
   const runnable = r.type === 'cron' && r.safeToManualTrigger;
+  // Evaluated at render. The threshold is measured in hours, so a clock that
+  // only advances when the page re-renders is precise enough.
+  const freshness = classifyRunFreshness(schedule, Date.now());
 
   async function toggleHistory() {
     const next = !histOpen;
@@ -316,7 +410,9 @@ function RoutineRow({
                 </span>
               )}
               {r.maxLane ? (
-                <MaxLaneNote />
+                // Renders nothing unless this routine's cloud cron provably
+                // consults shouldDeferToMaxLane — see MaxLaneNote.
+                <MaxLaneNote routineId={r.id} schedule={maxSchedule} />
               ) : !r.callsClaude ? (
                 <span className="text-xs text-muted-foreground">
                   rules-based — no AI calls, so there&apos;s nothing to shift to the Max lane
@@ -362,6 +458,22 @@ function RoutineRow({
               </button>
               {schedule?.last_status ? (
                 <span className="text-muted-foreground/70">last run: {schedule.last_status}</span>
+              ) : null}
+              {freshness.verdict === 'overdue' && schedule ? (
+                <span
+                  className="flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400"
+                  title={
+                    `Needs a look. Scheduled ${fmtDays(schedule.days_of_week)} at ` +
+                    `${fmtTime(schedule.minute_of_day)} IST, so it should run at least every ` +
+                    `${fmtGap(freshness.expectedGapHours)}. The platform last recorded it firing ` +
+                    `${fmtAge(Math.floor(freshness.hoursSince * 60))} ago. ` +
+                    `This reports only WHEN it last ran — not whether that run did anything useful. ` +
+                    `Open the 7-day history to see the pattern.`
+                  }
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  needs attention — last ran {fmtAge(Math.floor(freshness.hoursSince * 60))} ago
+                </span>
               ) : null}
               <button
                 type="button"

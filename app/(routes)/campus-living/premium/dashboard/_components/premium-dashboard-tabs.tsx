@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay — Dashboard Tabs
+// Premium Room — Dashboard Tabs
 // ============================================================================
 // Created: 2026-05-16
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html (decision-#14)

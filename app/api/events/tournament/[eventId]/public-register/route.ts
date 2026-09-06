@@ -44,6 +44,8 @@ interface PublicRegisterBody {
   participant_gender?: string | null;
   participant_age?: number | null;
   members?: CreateTeamMemberDto[];
+  /** Which registration form on this event the answers below came from. */
+  form_id?: string | null;
   custom_fields?: Record<string, unknown> | null;
 }
 
@@ -150,16 +152,54 @@ export async function POST(
     // Skip validation entirely when the form exists but is explicitly disabled —
     // matches the guest page (Task 9), which renders no custom fields in that case,
     // so a registrant should never be 422'd for a field they were never shown.
-    const { data: formRow } = await (svc as any)
-      .from('event_registration_forms')
-      .select('is_enabled')
-      .eq('event_id', eventId)
-      .maybeSingle();
-    if (!formRow || formRow.is_enabled !== false) {
+    // An event holds many forms. Resolve the one the client submitted; never
+    // trust it blindly — it must belong to THIS event, or a caller could point a
+    // submission at another event's form and be validated against the wrong
+    // questions. Without a form_id (an old client), fall back to the first open
+    // form, which is what the public page would have rendered.
+    let formRow: { id: string; is_enabled: boolean } | null = null;
+    if (dto.form_id) {
+      const { data } = await (svc as any)
+        .from('event_registration_forms')
+        .select('id, is_enabled')
+        .eq('id', dto.form_id)
+        .eq('event_id', eventId)
+        .maybeSingle();
+      if (!data) {
+        return NextResponse.json(
+          { error: 'That registration form does not belong to this event.' },
+          { status: 422 },
+        );
+      }
+      formRow = data;
+    } else {
+      const { data } = await (svc as any)
+        .from('event_registration_forms')
+        .select('id, is_enabled')
+        .eq('event_id', eventId)
+        .eq('is_enabled', true)
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(1);
+      formRow = data?.[0] ?? null;
+    }
+
+    // A closed form must not accept entries — last month's link stays dead
+    // rather than quietly collecting this month's registrations.
+    if (formRow && formRow.is_enabled === false) {
+      return NextResponse.json(
+        { error: 'This registration form is closed.' },
+        { status: 422 },
+      );
+    }
+
+    if (formRow) {
+      // By form_id, NOT event_id: validating against every field on the event
+      // would demand answers to other months' questions.
       const { data: customFieldDefs } = await (svc as any)
         .from('event_registration_form_fields')
         .select('*')
-        .eq('event_id', eventId);
+        .eq('form_id', formRow.id);
       const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
       if (customFieldsError) {
         return NextResponse.json({ error: customFieldsError }, { status: 422 });
@@ -175,6 +215,9 @@ export async function POST(
       .from('events_registrations')
       .insert({
         event_id: eventId,
+        // Which form asked these questions — without it custom_fields becomes
+        // uninterpretable as soon as two forms use the same field_key.
+        form_id: formRow?.id ?? null,
         category_id: null,
         participant_type: dto.is_external ? 'external' : 'internal',
         participant_name: dto.entry_name.trim(),

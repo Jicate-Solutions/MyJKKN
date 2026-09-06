@@ -33,9 +33,15 @@ import {
   reconcileExplanations,
   bookPendingMeetings,
   sendWeeklyCalendarConnectSummary,
+  sweepCalendarConnectLock,
   type BookingResult,
-  type WeeklyConnectSummaryResult
+  type WeeklyConnectSummaryResult,
+  type CalendarLockSweepResult
 } from '@/lib/services/meetings/meeting-trigger-service';
+import {
+  reconcileHandoverExplanations,
+  type HandoverReconcileResult
+} from '@/lib/services/director-desk/handover-chase-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -55,6 +61,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const result = await reconcileExplanations();
+
+    // Director's Desk (2026-08-05) — the handover half of the SAME valve, run
+    // here rather than only on its own nightly cron because "explain within 24
+    // hours" checked once a night is in practice a window of 24 to 48 hours,
+    // which is not the decision that was made. It must run BEFORE the booking
+    // pass below: this is what moves a silent handover to meeting_pending, and
+    // bookPendingMeetings is what then books the Director and the grantee. Its
+    // own try/catch, like every other rider on this cron — a failure here must
+    // not take down the attendance valve, which is the live part.
+    let handovers: HandoverReconcileResult | { failed: string };
+    try {
+      handovers = await reconcileHandoverExplanations();
+    } catch (hoErr: any) {
+      logger.error(
+        'meetings/triggers',
+        'reconcileHandoverExplanations failed',
+        hoErr
+      );
+      handovers = { failed: hoErr?.message ?? 'Internal error' };
+    }
 
     // PR1c — book what the valve escalated. Isolated in its own try/catch so a
     // booking-side failure (Google outage, unapplied migration) can never take
@@ -81,11 +107,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       weekly = { failed: weeklyErr?.message ?? 'Internal error' };
     }
 
+    // Calendar-connect lock sweep (Director decision 2026-08-18). Same isolation
+    // as every other pass: this one can hold people out of MyJKKN entirely, so a
+    // failure must not take the reconcile down with it — and must surface in the
+    // response rather than disappear. No-op returning zeroes while the master
+    // switch is off, which is how it ships.
+    let calendarLock: CalendarLockSweepResult | { failed: string };
+    try {
+      calendarLock = await sweepCalendarConnectLock();
+    } catch (lockErr: any) {
+      logger.error('meetings/triggers', 'sweepCalendarConnectLock failed', lockErr);
+      calendarLock = { failed: lockErr?.message ?? 'Internal error' };
+    }
+
     return NextResponse.json({
       success: true,
       ...result,
+      handovers,
       booking,
       weekly,
+      calendarLock,
       duration_ms: Date.now() - startTime
     });
   } catch (error: any) {

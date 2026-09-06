@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { RotateCcw, Filter, X } from 'lucide-react';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
@@ -105,11 +106,39 @@ export function AdvancedBillingScheduleFilters({
   });
 
   const [isCollapsed, setIsCollapsed] = useState(false);
+  // Kept outside filterState: admission years are global (not dependent on the
+  // institution → degree → … cascade the rest of that object models), and the
+  // list is de-duplicated to NAMES because admission_years holds one row per
+  // year per institution (79 rows / 9 names).
+  const [admissionYearNames, setAdmissionYearNames] = useState<string[]>([]);
   const { canAccess } = usePermissions();
+
+  useEffect(() => {
+    async function loadAdmissionYears() {
+      try {
+        const rows = await AdmissionYearService.listAllActiveYearNames();
+        // Service orders year-descending; Set preserves insertion order.
+        setAdmissionYearNames([
+          ...new Set(rows.map((r) => r.admission_year_name).filter(Boolean))
+        ]);
+      } catch (error) {
+        console.error('Error loading admission years:', error);
+      }
+    }
+    loadAdmissionYears();
+  }, []);
   const {
-    institutions: accessibleInstitutions,
+    institutions: allAccessibleInstitutions,
     loading: loadingAccessibleInstitutions,
   } = useInstitutionsWithAccess({ isActive: true });
+
+  // College-only, same rule as the basic filter bar and the students page:
+  // the hook forces entityType 'all' for super admins, so the restriction has
+  // to be applied to the RESULT or schools/offices leak into this dropdown.
+  const accessibleInstitutions = useMemo(
+    () => allAccessibleInstitutions.filter((i) => i.entity_type === 'institution'),
+    [allAccessibleInstitutions]
+  );
   const hasMultiInstitutionAccess = accessibleInstitutions.length > 1;
 
   // Smart filter validation that checks hierarchy consistency
@@ -448,6 +477,15 @@ export function AdvancedBillingScheduleFilters({
       });
     }
 
+    // Value IS the display label here — the filter carries the year name.
+    if (searchParams.admission_year) {
+      filters.push({
+        key: 'admission_year',
+        value: searchParams.admission_year,
+        label: `Admission Year: ${searchParams.admission_year}`
+      });
+    }
+
     return filters;
   }, [searchParams, filterState]);
 
@@ -730,6 +768,34 @@ export function AdvancedBillingScheduleFilters({
                   {ACCOMMODATION_TYPE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Admission year = the cohort the learner joined in. Distinct from
+                Academic Year above, which is the year the BILL belongs to.
+                Keyed by name because admission_years is per-institution. */}
+            <div className='space-y-2'>
+              <Label>Admission Year</Label>
+              <Select
+                value={searchParams.admission_year || 'all'}
+                onValueChange={(value) =>
+                  handleSmartFilterChange(
+                    'admission_year',
+                    value === 'all' ? undefined : value
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder='Select admission year' />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Admission Years</SelectItem>
+                  {admissionYearNames.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -505,10 +505,26 @@ function rowsCourseContent(data: CourseSyllabusDOCXData): TableRow[] {
 
 		if (paragraphs.length === 0) paragraphs.push(new Paragraph({ spacing: COMPACT_SPACING }))
 
+		// Per-unit period marker (BosUnit.hours) — "9" or an Anna-University
+		// "9 + 3" theory+tutorial split. The CET PDF prints it right-aligned on
+		// the unit heading; this table has no second content column to spare, so
+		// it sits under the unit numeral in the narrow label column. Word's
+		// paragraph tab stops are avoided deliberately — `run()` collapses all
+		// whitespace, so an embedded tab would not survive.
+		const unitCellParagraphs: Paragraph[] = [
+			p(unit.unit_id, { bold: true, alignment: AlignmentType.CENTER }),
+		]
+		const hoursLabel = (unit.hours ?? '').trim()
+		if (hoursLabel) {
+			unitCellParagraphs.push(
+				p(`${hoursLabel} Hrs`, { bold: true, size: SUB_SIZE, alignment: AlignmentType.CENTER }),
+			)
+		}
+
 		rows.push(
 			new TableRow({
 				children: [
-					tc([p(unit.unit_id, { bold: true, alignment: AlignmentType.CENTER })], {
+					tc(unitCellParagraphs, {
 						valign: VerticalAlign.TOP,
 					}),
 					tc(paragraphs, { columnSpan: 4, valign: VerticalAlign.TOP }),

@@ -45,6 +45,7 @@ import {
   ChevronDown,
   ChevronRight
 } from 'lucide-react';
+import { PersonPicker } from '@/app/(routes)/learners-council/structure/members/person-picker';
 import {
   useCreateChapter,
   useVerticalMembers,
@@ -595,14 +596,15 @@ function AssignVerticalMemberDialog({
             </Select>
           </div>
           <div>
-            <Label>Learner User ID</Label>
-            <Input
-              placeholder="Enter the learner's user ID"
+            <Label htmlFor="yuva-assign-learner">Learner</Label>
+            <PersonPicker
+              id="yuva-assign-learner"
               value={userId}
-              onChange={(e) => setUserId(e.target.value)}
+              onChange={setUserId}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              The UUID of the learner from the profiles table
+              Search by name or email. Only learners from institutions you can
+              access are listed.
             </p>
           </div>
         </div>

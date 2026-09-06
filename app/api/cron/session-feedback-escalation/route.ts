@@ -6,7 +6,10 @@
 // For every (faculty + course) that escalated last week (>= 3 responses AND
 // avg understanding < 3), it:
 //   1. fn_scf_compute_weekly_escalations(week_start) → the escalated classes +
-//      their anonymized free_texts (SERVICE-ROLE-ONLY read).
+//      their anonymized free_texts (SERVICE-ROLE-ONLY read). Classes with no
+//      resolvable faculty are excluded here — they have no addressee — and
+//      fn_scf_unattributed_escalations reports them so the loss is COUNTED
+//      rather than silent (top-level `skipped` in the response).
 //   2. For each, Claude writes a 2-3 sentence aggregate summary for leadership
 //      (theme-level, never a verbatim quote or individual student — same
 //      anonymity invariant as ai-suggest-improvement). Floor/no-key → numeric
@@ -109,6 +112,50 @@ type Escalation = {
   free_texts: string[] | null;
 };
 
+// A class that DID cross the escalation threshold but carries no faculty
+// identity, so there is nobody to address the digest to. These are excluded
+// from the digest — an escalation names a teacher to their HOD, and naming the
+// wrong teacher is a worse failure than naming none. They are NOT discarded
+// quietly: see readUnattributed below.
+type Unattributed = {
+  institution_id: string;
+  course_code: string;
+  course_name: string | null;
+  responses: number;
+  avg_understood: number | null;
+};
+
+/**
+ * The classes this run could not escalate because no faculty could be resolved.
+ *
+ * fn_scf_compute_weekly_escalations and fn_scf_apply_weekly_escalation_digest
+ * both filter faculty_email IS NULL, so without this read those classes vanish
+ * with no count, no log and no trace — which is exactly how the problem stayed
+ * invisible for weeks. Reported, never guessed: recovery from the timetable was
+ * measured wrong on 31.8% of rows where the truth is known, so it is not used.
+ *
+ * Never throws — a failure to *report* the excluded classes must not sink the
+ * digest that carries the ones we CAN deliver.
+ */
+async function readUnattributed(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  weekStart: string,
+): Promise<{ rows: Unattributed[]; error: string | null }> {
+  try {
+    const { data, error } = await admin.rpc('fn_scf_unattributed_escalations', {
+      p_week_start: weekStart,
+    });
+    if (error) {
+      console.error('[cron/session-feedback-escalation] unattributed read failed:', error);
+      return { rows: [], error: error.message };
+    }
+    return { rows: (Array.isArray(data) ? data : []) as Unattributed[], error: null };
+  } catch (err) {
+    console.error('[cron/session-feedback-escalation] unattributed read threw:', err);
+    return { rows: [], error: err instanceof Error ? err.message : 'unattributed read failed' };
+  }
+}
+
 async function summarize(
   anthropic: Anthropic | null,
   modelId: string,
@@ -204,12 +251,51 @@ export async function GET(request: NextRequest) {
   }
 
   const escalations = (Array.isArray(escData) ? escData : []) as Escalation[];
+
+  // 1b) The counterpart to the compute: the classes that crossed the threshold
+  // but have no faculty to send to. They are excluded from the digest, so they
+  // are surfaced here instead of disappearing.
+  const unattributed = await readUnattributed(supabase, weekStart);
+  if (unattributed.rows.length > 0) {
+    console.warn(
+      `[cron/session-feedback-escalation] ${unattributed.rows.length} escalation(s) ` +
+        'could not be attributed to a team member and were excluded: ' +
+        unattributed.rows
+          .map((u) => `${u.course_code} (${u.responses} responses, avg ${u.avg_understood}/5)`)
+          .join('; '),
+    );
+  }
+  // 'skipped' and 'flagged' are on the ai-routine-dispatcher's summarize()
+  // allowlist, so these numbers reach ai_routine_schedules.last_status and the
+  // /admin/loops page. Neither `classes_flagged` nor `recipients_notified` is on
+  // that allowlist, which is why every successful run of this routine has only
+  // ever shown a bare "HTTP 200".
+  //
+  // `skipped` is emitted ONLY when the count is actually known. If the read
+  // failed — including the window after this code deploys but before the
+  // migration that creates the RPC is applied — reporting `skipped: 0` would
+  // put a false zero in last_status, i.e. rebuild the exact silent-drop this
+  // change exists to remove. An unknown count says so with `unattributed_error`.
+  const unattributedReport = unattributed.error
+    ? { unattributed_error: unattributed.error }
+    : {
+        skipped: unattributed.rows.length,
+        unattributed_classes: unattributed.rows.map((u) => ({
+          course_code: u.course_code,
+          course_name: u.course_name,
+          responses: u.responses,
+          avg_understood: u.avg_understood,
+        })),
+      };
+
   if (escalations.length === 0) {
     return NextResponse.json({
       ok: true,
       week_start: weekStart,
       classes_flagged: 0,
+      flagged: 0,
       recipients_notified: 0,
+      ...unattributedReport,
       elapsed_ms: Date.now() - started,
     });
   }
@@ -287,7 +373,9 @@ export async function GET(request: NextRequest) {
     generation_lane: lane,
     week_start: weekStart,
     classes_flagged: summary?.classes_flagged ?? escalations.length,
+    flagged: summary?.classes_flagged ?? escalations.length,
     recipients_notified: summary?.recipients_notified ?? 0,
+    ...unattributedReport,
     enqueued,
     ai_used: lane === 'jobs' ? aiFilled > 0 : Boolean(anthropic),
     elapsed_ms: Date.now() - started,

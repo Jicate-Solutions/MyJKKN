@@ -97,7 +97,7 @@ function NaacSection() {
             </Select>
           </div>
           <div className="flex items-end">
-            <PermissionGuard module="cdc.exports" action="download">
+            <PermissionGuard module="cdc.exports" action="download" fallback={null}>
               <Button
                 onClick={() => exportNaac(cycle, format)}
                 disabled={loading}
@@ -131,7 +131,7 @@ function NaacSection() {
                 a single ZIP — the supporting evidence for NAAC 8.2 (Graduate Progression) / AICTE submission.
               </p>
             </div>
-            <PermissionGuard module="cdc.exports" action="download">
+            <PermissionGuard module="cdc.exports" action="download" fallback={null}>
               <Button
                 variant="outline"
                 onClick={downloadProofsZip}
@@ -206,7 +206,7 @@ function AicteSection() {
             </Select>
           </div>
           <div className="flex items-end">
-            <PermissionGuard module="cdc.exports" action="download">
+            <PermissionGuard module="cdc.exports" action="download" fallback={null}>
               <Button
                 onClick={() => exportAicte(year, format)}
                 disabled={loading}
@@ -370,7 +370,7 @@ function FlexSection() {
           </Alert>
         )}
 
-        <PermissionGuard module="cdc.exports" action="download">
+        <PermissionGuard module="cdc.exports" action="download" fallback={null}>
           <Button
             onClick={handleExport}
             disabled={loading || columns.length === 0 || !dateFrom || !dateTo}

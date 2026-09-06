@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ReassignLeaderDialog } from '../_components/reassign-leader-dialog';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800 border-green-200',
@@ -118,6 +119,11 @@ export default async function YUVAMembersPage() {
 
   const chaptersCovered = new Set(rows.map((r) => r.institution_id)).size;
 
+  // Same gate the rest of the YUVA and LC structure surfaces use.
+  const canManage = ['admin', 'super_admin', 'staff', 'hod', 'principal'].includes(
+    profile.role || ''
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -175,6 +181,7 @@ export default async function YUVAMembersPage() {
                   <TableHead>Chapter</TableHead>
                   <TableHead>Term</TableHead>
                   <TableHead>Status</TableHead>
+                  {canManage && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -219,6 +226,22 @@ export default async function YUVAMembersPage() {
                         {row.status.replace('_', ' ')}
                       </Badge>
                     </TableCell>
+                    {canManage && (
+                      <TableCell className="text-right">
+                        <ReassignLeaderDialog
+                          memberId={row.id}
+                          currentName={row.user?.full_name || 'This leader'}
+                          roleLabel={
+                            categoryLabels[row.position?.category || ''] ||
+                            row.position?.title ||
+                            'Chapter role'
+                          }
+                          positionId={row.position?.id ?? null}
+                          termId={row.term?.id ?? null}
+                          institutionId={row.institution_id}
+                        />
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

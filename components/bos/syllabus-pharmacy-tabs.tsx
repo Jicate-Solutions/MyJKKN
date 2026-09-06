@@ -18,6 +18,8 @@ import type {
   BosExamQuestionSection,
   BosInternshipPostings,
   BosInternshipPosting,
+  BosAhsContent,
+  BosAhsSubject,
 } from '@/types/bos';
 
 // ── Scope (B.Pharm "Scope" paragraph) ────────────────────────────────
@@ -375,6 +377,244 @@ export function PharmacyInternshipCard({
             rows={2}
           />
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── AHS / Pharm.D content tree (year → subject/paper → flat topics | units) ──
+// Edits BosAhsContent { intro?, subjects: BosAhsSubject[] }. Distinct from the
+// Anna Unit I–V ContentEditor (which reads course_content). One AHS syllabus row
+// is one paper, so `subjects` typically holds a single entry — but the editor
+// supports many so a year-bundled subject can be authored too.
+//
+// Note: topics are stored as a string list here. Rows imported from PDF may hold
+// a few {title, content} topic objects; those are coerced to "title: content"
+// strings on first edit (display is lossless; a later edit flattens them).
+const topicToStr = (t: unknown): string =>
+  typeof t === 'string'
+    ? t
+    : t && typeof t === 'object'
+      ? [((t as Record<string, unknown>).title ?? '') as string,
+         ((t as Record<string, unknown>).content ?? '') as string]
+          .filter(Boolean).join(': ')
+      : String(t ?? '');
+
+function StringListEditor({
+  items,
+  onChange,
+  addLabel,
+  placeholder,
+  rows = 2,
+}: {
+  items: string[];
+  onChange: (next: string[]) => void;
+  addLabel: string;
+  placeholder?: string;
+  rows?: number;
+}) {
+  return (
+    <div className="space-y-2">
+      {items.map((val, i) => (
+        <div key={i} className="grid grid-cols-[1fr_auto] items-start gap-2">
+          <Textarea
+            value={val}
+            rows={rows}
+            placeholder={placeholder}
+            onChange={(e) => onChange(items.map((x, idx) => (idx === i ? e.target.value : x)))}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => onChange(items.filter((_, idx) => idx !== i))}
+            aria-label="Remove"
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...items, ''])}>
+        <Plus className="mr-1 h-3.5 w-3.5" /> {addLabel}
+      </Button>
+    </div>
+  );
+}
+
+export function AhsContentCard({
+  value,
+  onChange,
+}: {
+  value?: BosAhsContent;
+  onChange: (v: BosAhsContent) => void;
+}) {
+  const data: BosAhsContent = value ?? {};
+  const subjects: BosAhsSubject[] = data.subjects ?? [];
+  const patch = (p: Partial<BosAhsContent>) => onChange({ ...data, ...p });
+  const setSubject = (i: number, p: Partial<BosAhsSubject>) =>
+    patch({ subjects: subjects.map((s, idx) => (idx === i ? { ...s, ...p } : s)) });
+  const addSubject = () =>
+    patch({ subjects: [...subjects, { title: '', mode: 'flat', topics: [], units: [], reference_books: [] }] });
+  const removeSubject = (i: number) =>
+    patch({ subjects: subjects.filter((_, idx) => idx !== i) });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Content</CardTitle>
+        <CardDescription>
+          Paper / subject topics for the year-based (Dr. M.G.R. / AHS) model. Use
+          &quot;flat&quot; for a straight topic list, or &quot;units&quot; for a Unit-grouped paper.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div>
+          <label className="text-xs text-muted-foreground">Intro / objectives (optional)</label>
+          <Textarea
+            value={data.intro ?? ''}
+            onChange={(e) => patch({ intro: e.target.value })}
+            rows={2}
+          />
+        </div>
+
+        {subjects.length === 0 && (
+          <p className="text-xs text-muted-foreground">No paper yet — add one.</p>
+        )}
+
+        {subjects.map((s, i) => {
+          const topics = (s.topics ?? []).map(topicToStr);
+          const units = s.units ?? [];
+          return (
+            <div key={i} className="space-y-3 rounded-md border p-3">
+              <div className="grid grid-cols-[8rem_1fr_6rem_7rem_auto] items-end gap-2">
+                <div>
+                  <label className="text-xs text-muted-foreground">Paper / No.</label>
+                  <Input
+                    value={s.subject_no ?? ''}
+                    onChange={(e) => setSubject(i, { subject_no: e.target.value })}
+                    placeholder="Paper I"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Title</label>
+                  <Input
+                    value={s.title}
+                    onChange={(e) => setSubject(i, { title: e.target.value })}
+                    placeholder="Anatomy & Physiology"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Lecture hrs</label>
+                  <Input
+                    inputMode="numeric"
+                    value={s.lecture_hours ?? ''}
+                    onChange={(e) => setSubject(i, { lecture_hours: numOrNull(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Mode</label>
+                  <select
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    value={s.mode ?? 'flat'}
+                    onChange={(e) => setSubject(i, { mode: e.target.value as 'flat' | 'units' })}
+                  >
+                    <option value="flat">flat</option>
+                    <option value="units">units</option>
+                  </select>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeSubject(i)}
+                  aria-label="Remove paper"
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+
+              {(s.mode ?? 'flat') === 'flat' ? (
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Topics</h4>
+                  <StringListEditor
+                    items={topics}
+                    onChange={(next) => setSubject(i, { topics: next })}
+                    addLabel="Add topic"
+                    placeholder="Anatomy of the Upper and Lower airways"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Units</h4>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setSubject(i, { units: [...units, { unit_no: '', topics: [] }] })
+                      }
+                    >
+                      <Plus className="mr-1 h-3.5 w-3.5" /> Add unit
+                    </Button>
+                  </div>
+                  {units.map((u, ui) => (
+                    <div key={ui} className="space-y-2 rounded border-l-2 border-muted pl-3">
+                      <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+                        <div>
+                          <label className="text-xs text-muted-foreground">Unit</label>
+                          <Input
+                            value={u.unit_no ?? ''}
+                            onChange={(e) =>
+                              setSubject(i, {
+                                units: units.map((x, xi) => (xi === ui ? { ...x, unit_no: e.target.value } : x)),
+                              })
+                            }
+                            placeholder="Unit 1"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() =>
+                            setSubject(i, { units: units.filter((_, xi) => xi !== ui) })
+                          }
+                          aria-label="Remove unit"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                      <StringListEditor
+                        items={(u.topics ?? []).map(topicToStr)}
+                        onChange={(next) =>
+                          setSubject(i, {
+                            units: units.map((x, xi) => (xi === ui ? { ...x, topics: next } : x)),
+                          })
+                        }
+                        addLabel="Add topic"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div>
+                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference books</h4>
+                <StringListEditor
+                  items={(s.reference_books ?? []).map(topicToStr)}
+                  onChange={(next) => setSubject(i, { reference_books: next })}
+                  addLabel="Add reference"
+                  rows={1}
+                />
+              </div>
+            </div>
+          );
+        })}
+
+        <Button type="button" variant="outline" size="sm" onClick={addSubject}>
+          <Plus className="mr-1 h-3.5 w-3.5" /> Add paper / subject
+        </Button>
       </CardContent>
     </Card>
   );

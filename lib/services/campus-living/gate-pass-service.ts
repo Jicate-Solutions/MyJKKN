@@ -6,6 +6,23 @@ import type {
   GatePassStatus,
 } from '@/types/campus-living';
 
+/**
+ * The two statuses the request workflow runs on.
+ *
+ * They are absent from `GatePassStatus` and from the generated Supabase types
+ * because `gate_pass_status_enum` did not carry them: the live type was
+ * exactly issued | active | returned | overdue | cancelled, so every
+ * `status: 'requested'` insert died on 22P02 and the Pending tab filtered on a
+ * value no row could ever hold. Migration
+ * `20260907020000_gate_pass_request_workflow.sql` adds both labels.
+ *
+ * Declared here, once, so the `as any` casts below have a single documented
+ * reason rather than being scattered lore — and so the test suite can assert
+ * these exact strings against the enum the migration builds.
+ */
+export const GATE_PASS_REQUESTED = 'requested';
+export const GATE_PASS_REJECTED = 'rejected';
+
 export class GatePassService {
   // ── List gate passes ──────────────────────────────────────────────
   static async getGatePasses(
@@ -18,7 +35,11 @@ export class GatePassService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_gate_passes')
-        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' });
+        // No block embed: hostel_gate_passes has NO block_id column (see the
+        // table DDL in 20260222000015). Asking PostgREST to embed on it fails
+        // the WHOLE query with PGRST200, so the list page errored on every
+        // load — invisible only because the table is still empty.
+        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)', { count: 'exact' });
 
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.status) query = query.eq('status', filters.status as any);
@@ -47,9 +68,16 @@ export class GatePassService {
   static async getGatePass(id: string) {
     try {
       const supabase = createClientSupabaseClient();
+      // The learner embed is the same one getGatePasses uses and is the only
+      // embed this table supports (see the note there: it has no block_id, so
+      // a block embed fails the whole query with PGRST200). The detail page
+      // needs it — without it, `pass.learner` is undefined and the page reads
+      // a name off nothing.
       const { data, error } = await supabase
         .from('hostel_gate_passes')
-        .select('*, hostel_leave_requests(*)')
+        .select(
+          '*, hostel_leave_requests(*), learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)'
+        )
         .eq('id', id)
         .maybeSingle();
 
@@ -106,14 +134,76 @@ export class GatePassService {
     }
   }
 
+  /**
+   * Resolve whatever id the caller has into the id `hostel_gate_passes`
+   * will actually accept.
+   *
+   * `hostel_gate_passes.learner_id` is FOREIGN KEY ... REFERENCES profiles(id).
+   * But every resident picker in this module reads `v_learner_hostelites`,
+   * whose `id` is a `learners_profiles.id`. Those two id spaces are DISJOINT —
+   * sampling 200 rows of the view found 200 matches in learners_profiles and
+   * ZERO in profiles. Passing the picker's value straight through is therefore
+   * a guaranteed 23503, which is the same defect that kept
+   * `mess_meal_records` empty until 20260903020000's companion fix.
+   *
+   * Resolution order mirrors lib/services/campus-living/mess-scan-resolver.ts
+   * so the module has ONE rule, not two:
+   *   1. treat it as learners_profiles.id → the profiles row that links to it
+   *   2. fall back to it already BEING a profiles.id (a team member's pass)
+   *   3. otherwise refuse, loudly and by name
+   *
+   * Step 3 is not theoretical: of 698 hostel residents, 697 have a profiles
+   * row and one does not. That person must be told they cannot be issued a
+   * pass and why — never handed a silent failure.
+   */
+  private static async resolveLearnerProfileId(rawId: string): Promise<string> {
+    const supabase = createClientSupabaseClient();
+
+    const { data: viaLearner, error: viaLearnerError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('learner_id', rawId)
+      .maybeSingle();
+
+    if (viaLearnerError) {
+      logger.error('campus-living/gate-pass', 'Failed resolving learner to profile', viaLearnerError);
+      throw viaLearnerError;
+    }
+    if (viaLearner?.id) return viaLearner.id as string;
+
+    const { data: asProfile, error: asProfileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', rawId)
+      .maybeSingle();
+
+    if (asProfileError) {
+      logger.error('campus-living/gate-pass', 'Failed checking id as profile', asProfileError);
+      throw asProfileError;
+    }
+    if (asProfile?.id) return asProfile.id as string;
+
+    throw new Error(
+      'This resident has no login profile yet, so a gate pass cannot be issued ' +
+        'in their name. Ask the office to complete their profile first.',
+    );
+  }
+
   // ── Generate gate pass with QR ────────────────────────────────────
   static async generateGatePass(payload: CreateHostelGatePassDTO) {
     try {
       const supabase = createClientSupabaseClient();
 
+      // See resolveLearnerProfileId: the picker hands us a learners_profiles.id
+      // but the column is FK'd to profiles(id).
+      const learnerProfileId = payload.learner_id
+        ? await GatePassService.resolveLearnerProfileId(payload.learner_id as string)
+        : payload.learner_id;
+
       // Generate unique pass number and QR code if not provided
       const passPayload = {
         ...payload,
+        learner_id: learnerProfileId,
         pass_number: payload.pass_number || `GP-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
         qr_code: payload.qr_code || `QR-${crypto.randomUUID()}`,
         status: payload.status || 'issued',
@@ -301,11 +391,41 @@ export class GatePassService {
     }
   }
 
+  // ── Passes a gate scan must consider for one learner ──────────────
+  // Wider than getActivePassesForLearner on purpose: that one omits
+  // 'overdue', and an overdue learner is precisely the one standing at the
+  // gate wanting to come back in. Returned/cancelled passes are excluded —
+  // the scan screen decides from live passes only.
+  static async getScannablePassesForLearner(learnerId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .select('*')
+        .eq('learner_id', learnerId)
+        .in('status', ['issued', 'active', 'overdue'])
+        .order('expected_return', { ascending: true });
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to fetch scannable passes', error);
+        throw error;
+      }
+      return (data ?? []) as HostelGatePass[];
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in getScannablePassesForLearner', error);
+      throw error;
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // REQUEST WORKFLOW — Student requests, Staff approves/rejects
   // ══════════════════════════════════════════════════════════════════
 
-  // ── Student submits a gate pass request ─────────────────────────
+  // ── Learner submits a gate pass request ─────────────────────────
+  // Deliberately does NOT set pass_number, qr_code or approved_by: a pass that
+  // has only been asked for has no number, no QR and no approver. Those three
+  // were NOT NULL until 20260907020000 moved that guarantee onto a CHECK that
+  // binds only once the pass is issued.
   static async requestGatePass(payload: {
     institution_id: string;
     learner_id: string;
@@ -317,17 +437,27 @@ export class GatePassService {
   }) {
     try {
       const supabase = createClientSupabaseClient();
+
+      // Same id-space problem the issue path hit: the column is FK'd to
+      // profiles(id) while every resident picker in this module hands out a
+      // learners_profiles.id. The request lane in RLS also compares
+      // learner_id = auth.uid(), which is a profiles.id — so resolving here is
+      // what makes the resident's own insert pass its own policy.
+      const learnerProfileId = await GatePassService.resolveLearnerProfileId(
+        payload.learner_id
+      );
+
       const { data, error } = await supabase
         .from('hostel_gate_passes')
         .insert({
           institution_id: payload.institution_id,
-          learner_id: payload.learner_id,
+          learner_id: learnerProfileId,
           pass_type: payload.pass_type,
           expected_return: payload.expected_return,
-          destination: payload.destination,
-          reason: payload.reason,
+          destination: payload.destination.trim(),
+          reason: payload.reason.trim(),
           leave_request_id: payload.leave_request_id || null,
-          status: 'requested',
+          status: GATE_PASS_REQUESTED,
           parent_notified: false,
         } as any)
         .select()
@@ -345,6 +475,9 @@ export class GatePassService {
   }
 
   // ── Staff approves a gate pass request ──────────────────────────
+  // Scoped to a row that is still pending. Without that filter, a second click
+  // on a stale tab would re-issue an already-active pass a NEW pass_number and
+  // a NEW qr_code, invalidating the QR the learner is carrying at the gate.
   static async approveGatePass(id: string, approverId: string) {
     try {
       const supabase = createClientSupabaseClient();
@@ -360,12 +493,21 @@ export class GatePassService {
           qr_code: qrCode,
         } as any)
         .eq('id', id)
+        .eq('status', GATE_PASS_REQUESTED as any)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to approve gate pass', error);
         throw error;
+      }
+      if (!data) {
+        // RLS denial and "somebody already decided this" both land here and
+        // both must be said out loud. A silent no-op that reports success is
+        // how the Approve button looked like it worked for a year.
+        throw new Error(
+          'This request could not be approved — it is no longer pending, or you do not have permission to approve gate passes for this institution.'
+        );
       }
       return data as HostelGatePass;
     } catch (error) {
@@ -377,21 +519,34 @@ export class GatePassService {
   // ── Staff rejects a gate pass request ───────────────────────────
   static async rejectGatePass(id: string, rejectedBy: string, rejectionReason: string) {
     try {
+      const reason = rejectionReason.trim();
+      if (!reason) {
+        // The learner is told their request was refused; refusing without a
+        // reason gives them nothing to act on.
+        throw new Error('A rejection needs a reason the learner can read.');
+      }
+
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_gate_passes')
         .update({
-          status: 'rejected',
+          status: GATE_PASS_REJECTED,
           rejected_by: rejectedBy,
-          rejection_reason: rejectionReason,
+          rejection_reason: reason,
         } as any)
         .eq('id', id)
+        .eq('status', GATE_PASS_REQUESTED as any)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to reject gate pass', error);
         throw error;
+      }
+      if (!data) {
+        throw new Error(
+          'This request could not be rejected — it is no longer pending, or you do not have permission to reject gate passes for this institution.'
+        );
       }
       return data as HostelGatePass;
     } catch (error) {
@@ -611,7 +766,7 @@ export class GatePassService {
       let q = supabase
         .from('hostel_gate_passes')
         .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)')
-        .eq('status', 'requested' as any)
+        .eq('status', GATE_PASS_REQUESTED as any)
         .order('created_at', { ascending: true });
       if (institutionId) q = q.eq('institution_id', institutionId);
       const { data, error } = await q;

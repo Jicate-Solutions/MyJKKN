@@ -39,12 +39,28 @@ COMMENT ON COLUMN public.ims_stores.is_central_supply_store IS
 --    BECOMES its institution's warehouse, keeping everything it already holds).
 --    Predicate-based rather than hardcoded ids: the oldest active store of each
 --    institution becomes that institution's warehouse. Idempotent.
+--
+--    Only institutions with NO warehouse at all are promoted. Without that guard
+--    an institution whose existing central store is not its oldest would get a
+--    SECOND one, violating idx_ims_stores_one_warehouse_per_institution and
+--    aborting this migration — which would never show up on the environment it
+--    was written against, only on a fresh or differently-ordered one.
+--
+--    The guard deliberately does NOT filter on is_active: the unique index is
+--    ON (institution_id) WHERE is_central_supply_store = true, with no activity
+--    predicate, so even a deactivated warehouse still occupies the slot.
 UPDATE public.ims_stores s
    SET is_central_supply_store = true,
        updated_at = now()
  WHERE s.is_active
    AND s.institution_id IS NOT NULL
    AND s.is_central_supply_store = false
+   AND NOT EXISTS (
+         SELECT 1
+           FROM public.ims_stores w
+          WHERE w.institution_id = s.institution_id
+            AND w.is_central_supply_store
+       )
    AND s.id = (
          SELECT x.id
            FROM public.ims_stores x

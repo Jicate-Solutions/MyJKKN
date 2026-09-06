@@ -1,0 +1,150 @@
+name: Migration rename vs applied source
+
+# One check: a PR may not RENAME a migration to a new version when the SOURCE
+# version has ALREADY BEEN APPLIED to production.
+#
+# WHY THIS IS NOT ALREADY COVERED. Its sibling,
+# .github/workflows/migration-version-collision.yml, checks the other end of the
+# rename — "is the TARGET version free?". Necessary, and not sufficient. It says
+# nothing about whether the file being renumbered has already run. Renaming an
+# applied migration moves nothing in the database; it only changes what the repo
+# claims. `supabase db push` keys the applied ledger on the filename's version, so
+# after the rename the new version is unrecorded and the file reads as PENDING.
+# The next session applies it, and every DROP + CREATE inside is rolled back to
+# whatever the file said the day it was written.
+#
+# THE INCIDENT (verified live 2026-08-04). PR #2782 renames 32 migrations to break
+# August version collisions. Replaying those renames locally and asking production
+# object-by-object: 27 of the 32 have every object they declare already in place,
+# and not one of the 32 could be shown unapplied. One of them,
+# 20260801002300_ims_transfer_stock_engine.sql, carried
+#
+#     CREATE POLICY ims_stock_movements_insert ON public.ims_stock_movements
+#       FOR INSERT TO authenticated WITH CHECK (true);
+#
+# against a production policy that enforces super_admin OR the caller's own
+# institution. Applying the renamed file would have swapped a tenant boundary for
+# `true`.
+#
+# THE LEDGER CANNOT ANSWER THIS ON ITS OWN. supabase_migrations.schema_migrations
+# held no row for 20260801002300 and none for the proposed 20260801002301, while
+# pg_class, pg_proc and pg_policies all carried that migration's objects — much of
+# this repo's SQL reached production through the Management API, which records
+# nothing. So a ledger HIT is definitive and a ledger MISS proves nothing; the
+# load-bearing signal is whether the OBJECTS are already there.
+#
+# NOT EVERY OBJECT IS EVIDENCE (2026-09-04). An object's presence shows THIS
+# migration ran only if this migration is the only thing that could have put it
+# there. A file that says `DROP POLICY IF EXISTS p ON t; CREATE POLICY p ON t …`
+# is saying the opposite out loud — `p` may already exist because an earlier
+# migration created it — so objects a file DROPs or CREATE-OR-REPLACEs are now
+# subtracted before the verdict is taken. Without that subtraction every
+# policy-replacing migration reads as partially applied forever. It wrongly
+# blocked PR #3263, whose "5 of 59 objects present" were four grievance_tickets
+# policies owned by 20260423_unification_crud_retrofit.sql plus one deliberate
+# compatibility wrapper, while all 8 tables that file creates were absent from
+# production. The guard keeps its teeth: the 2026-08-04 file above still fails,
+# on the columns, indexes and policies it creates outright.
+#
+# COST TO AN ORDINARY PR: zero database round-trips. Rename detection is pure git.
+# The database is contacted only when a version-changing rename actually exists,
+# which is a handful of PRs a year. That is why this can gate on pull_request at
+# all, and why it is scoped to renames rather than "every migration in the diff".
+#
+# NOT COVERED HERE: a migration applied to production by hand that this repo has
+# never seen; two PRs racing on the same rename; and any question about whether
+# the SQL is correct. This guard answers exactly one question.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity that
+# branch protection matches on. Renaming either string silently orphans a rule
+# pointing at the old name.
+#
+# Sibling of migration-version-collision.yml and anon-exposure-live.yml. Kept as a
+# SEPARATE workflow on purpose so it reports as its own status check and cannot
+# change the pass/fail meaning of an existing one.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/ci/check-migration-rename-applied.mjs'
+      - '__tests__/ci/check-migration-rename-applied.test.ts'
+      - '.github/workflows/migration-rename-applied.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-rename-applied-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: No rename of an already-applied migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - name: Checkout PR head (full history — renames are found against the merge base)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # The guard's own tests run on every invocation. They drive the real script
+      # against fixture state, so the decision logic is exercised on PRs that
+      # rename nothing and on forks that hold no secret. A guard whose logic is
+      # never executed is a guard that has quietly stopped guarding.
+      - name: Test the guard
+        run: npx vitest run __tests__/ci/check-migration-rename-applied.test.ts
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      # Exits 0 immediately, without opening a connection, when the PR renames no
+      # migration to a new version — which is almost every PR.
+      #
+      # When a rename IS present and no credential is available (a fork, or the
+      # secret unset), the script FAILS rather than passing. That is deliberate:
+      # an unchecked rename that reports success is the exact failure this job
+      # exists to prevent. The documented escape is a `-- RENAME-SAFE: <old> ->
+      # <new> — <evidence>` line in the renamed file's header, which clears only
+      # the unreachable-database case and never a positive finding.
+      - name: Check renames against production
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: node scripts/ci/check-migration-rename-applied.mjs --base "origin/${{ github.base_ref }}"
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::A migration this PR renumbers has already run in production."
+          echo "Renaming it does not change the database — it makes finished work look"
+          echo "pending, and the next apply rolls that file's DROP + CREATE statements"
+          echo "back to whatever they said when it was written."
+          echo ""
+          echo "Fix: leave the applied file's version alone and renumber the OTHER file"
+          echo "in the colliding pair — the one that has not run — then record the"
+          echo "pairing in supabase/SQL_FILE_INDEX.md."
+          echo ""
+          echo "If the failure reads 'no-credentials', the guard could not reach the"
+          echo "database and is refusing to guess. Re-run with the secret available, or"
+          echo "state the evidence in the file header:"
+          echo "  -- RENAME-SAFE: <old-version> -> <new-version> — <how you know it never ran>"
+          echo ""
+          echo "Read the object lists in the log before arguing with the verdict. Only"
+          echo "objects the file CREATES OUTRIGHT count as evidence; ones it DROPs or"
+          echo "CREATE-OR-REPLACEs are listed separately as 'excluded as replaced',"
+          echo "because an earlier migration explains those equally well. If the"
+          echo "failure reads 'evidence-all-replaced', every object the file declares"
+          echo "is a replacement, so object existence cannot decide the rename at all"
+          echo "and a human has to."

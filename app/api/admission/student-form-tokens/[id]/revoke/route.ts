@@ -24,8 +24,7 @@ export async function POST(
   // counselors don't get this).
   const { data: hasPerm } = await (supabase as any)
     .rpc('user_has_permission', {
-      user_id: user.id,
-      permission_key: 'admission.leads.student_form.revoke',
+      permission_name: 'admission.leads.student_form.revoke',
     });
   if (!hasPerm) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 

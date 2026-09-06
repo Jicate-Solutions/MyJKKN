@@ -137,7 +137,13 @@ export interface ExamAuditStudentDetailRow {
   avg_internal_pct: number | null;
   /** JKKN continuous attendance over the audit window (null = no record). */
   att_present: number | null;
+  /** Days marked absent that an approved tournament permission or full-day
+   *  on-duty application excuses. Counted into att_pct, reported separately so
+   *  a protected day can be explained rather than just improving a number. */
+  att_protected: number | null;
   att_total: number | null;
+  /** (att_present + att_protected) / att_total — the figure eligibility bands
+   *  are read against. Raw attendance is att_present / att_total. */
   att_pct: number | null;
   att_bucket: ExamAuditAttendanceBucket;
 }
@@ -212,7 +218,12 @@ export interface MyRunningAttendanceRow {
   course_name: string | null;
   present: number;
   total: number;
+  /** (present + protected) / total — the same rule the Registrar's audit uses,
+   *  so the learner's own card and the audit can never show different bands. */
   pct: number | null;
   first_session: string | null;
   last_session: string | null;
+  /** Days marked absent that an approved on-duty or tournament permission
+   *  excuses. Read-time only: withdrawing the approval withdraws the credit. */
+  protected: number;
 }

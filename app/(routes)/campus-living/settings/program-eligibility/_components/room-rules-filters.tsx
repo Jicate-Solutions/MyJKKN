@@ -64,7 +64,10 @@ export function roomRuleMatchesFilters(
   if (f.degree_id && r.degree_id !== f.degree_id) return false;
   if (f.department_id && r.department_id !== f.department_id) return false;
   if (f.program_id && r.program_id !== f.program_id) return false;
-  if (f.semester_id && r.semester_id !== f.semester_id) return false;
+  // A rule may name several semesters — filtering by one means "rules that
+  // include this semester", so it's membership, not equality.
+  if (f.semester_id && !(r.semester_ids ?? []).includes(f.semester_id))
+    return false;
   if (f.status && (r.is_active ? 'active' : 'inactive') !== f.status)
     return false;
 
@@ -77,7 +80,7 @@ export function roomRuleMatchesFilters(
       r.degree_name,
       r.department_name,
       r.program_name,
-      r.semester_name,
+      ...(r.semester_names ?? []),
     ]
       .filter(Boolean)
       .join(' ')
@@ -158,14 +161,21 @@ export function RoomRulesFiltersPanel({
     [rows]
   );
 
-  const semesterOptions = useMemo(
-    () =>
-      distinctOptions(rows, (r) => ({
-        value: r.semester_id,
-        label: r.semester_name,
-      })),
-    [rows]
-  );
+  // distinctOptions reads ONE value per row, but a rule carries a whole list of
+  // semesters — so flatten the index-aligned (id, name) pairs across every rule
+  // first, then dedupe. Sorted by label for the dropdown; the rules' own fill
+  // order is irrelevant here.
+  const semesterOptions = useMemo<Option[]>(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      (r.semester_ids ?? []).forEach((id, i) => {
+        if (id && !m.has(id)) m.set(id, r.semester_names?.[i] ?? 'Unknown semester');
+      });
+    }
+    return Array.from(m, ([value, label]) => ({ value, label })).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
+  }, [rows]);
 
   const set = (patch: Partial<RoomRuleAdvancedFilters>) =>
     onChange({ ...value, ...patch });

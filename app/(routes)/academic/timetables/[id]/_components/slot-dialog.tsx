@@ -1144,6 +1144,10 @@ export function SlotDialog({
                   value={practicalConfig || undefined}
                   onChange={(config) => setPracticalConfig(config)}
                   semesterId={timetable?.semester_id || ''}
+                  // Added: 2026-08-17 (BUG-005826) - scope for the manual learner
+                  // picker; a per-learner split spans the programme cohort, not
+                  // the sections listed above it.
+                  programId={timetable?.program_id || ''}
                   sections={filteredSections || []}
                   courses={courses || []}
                   availableStaff={practicalModeStaff || []}

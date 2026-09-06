@@ -158,7 +158,7 @@ export async function GET(request: NextRequest) {
       .select(
         `id, first_name, last_name, staff_id, email, institution_email, phone, designation,
          institution_id,
-         institution:institutions ( id, name ),
+         institution:institutions!staff_institution_id_fkey ( id, name ),
          department:departments ( id, department_name ),
          category:employment_categories!inner ( id, category_name, is_teaching )`
       )

@@ -92,8 +92,7 @@ export async function GET(request: NextRequest) {
     // proof URLs) across institutions. "Logged in" is NOT sufficient; require
     // the NAAC-evidence permission (super-admin bypass is built into the RPC).
     const { data: canExport } = await (supabase as any).rpc('user_has_permission', {
-      user_id: user.id,
-      permission_key: 'aiPulse:naac.evidence_export',
+      permission_name: 'aiPulse:naac.evidence_export',
     });
     if (!canExport) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

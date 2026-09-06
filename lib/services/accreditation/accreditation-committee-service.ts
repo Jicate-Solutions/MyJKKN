@@ -122,12 +122,19 @@ export interface UpdateCommitteePayload {
   metadata?: Record<string, unknown> | null;
 }
 
+/**
+ * Director decision 7 (2026-08-05): a term end date is REQUIRED when adding a
+ * member, because committee access is cut off automatically on that date. It
+ * is `string`, not `string | null` — omitting it is a compile error rather
+ * than a seat that quietly never expires. The date is the LAST day of the
+ * term, inclusive, as `YYYY-MM-DD`.
+ */
 export interface AddInternalMemberPayload {
   committee_id: string;
   user_id: string;
   role: CommitteeMemberRole;
   joined_at?: string;
-  term_end?: string | null;
+  term_end: string;
 }
 
 export interface AddExternalMemberPayload {
@@ -137,7 +144,7 @@ export interface AddExternalMemberPayload {
   external_org?: string | null;
   external_email?: string | null;
   joined_at?: string;
-  term_end?: string | null;
+  term_end: string;
 }
 
 // ----------------------------------------------------------------------------
@@ -268,7 +275,10 @@ export class AccreditationCommitteeService {
         user_id: payload.user_id,
         role: payload.role,
         joined_at: payload.joined_at ?? new Date().toISOString().split('T')[0],
-        term_end: payload.term_end ?? null,
+        // Required — see AddInternalMemberPayload. Sent verbatim so a caller
+        // that somehow supplies an empty string is refused by the column's
+        // NOT NULL rather than silently given an endless term.
+        term_end: payload.term_end,
         is_active: true,
         is_external: false,
       })
@@ -288,7 +298,9 @@ export class AccreditationCommitteeService {
         user_id: null,
         role: payload.role,
         joined_at: payload.joined_at ?? new Date().toISOString().split('T')[0],
-        term_end: payload.term_end ?? null,
+        // Required — see AddExternalMemberPayload. An external expert's term
+        // ends on a date too; is_external only decides how they are named.
+        term_end: payload.term_end,
         is_active: true,
         is_external: true,
         external_name: payload.external_name,

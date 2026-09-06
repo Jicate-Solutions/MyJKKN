@@ -1,6 +1,9 @@
 // lib/services/ims/financial-service.ts
+// Updated: 2026-07-30 — POS go-live. "Today" is the IST business day, and
+//   revenue nets the sale-reversal rows that ims_pos_cancel_sale posts.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { istBusinessDate, istDayBounds } from '@/lib/utils/date-format';
 import type {
   ImsFinancialTransaction,
   ImsFinancialFilters,
@@ -123,7 +126,7 @@ export class ImsFinancialService {
     try {
       let query = this.supabase
         .from('ims_financial_transactions')
-        .select('transaction_type, amount');
+        .select('transaction_type, reference_type, amount');
 
       // Primary: store_id; Fallback: institution_id
       if (storeId) {
@@ -145,8 +148,21 @@ export class ImsFinancialService {
 
       const transactions = data || [];
 
+      // Revenue nets sale reversals. ims_pos_cancel_sale posts a compensating
+      // 'return' row with a NEGATIVE amount and reference_type='sale' for every
+      // cancelled bill, so adding those rows in subtracts them.
+      //
+      // Without this, cancelled bills stayed in reported revenue forever — the
+      // 'sale' row was never deleted, negated or flagged — while getTodayMetrics
+      // and getDashboardStats read ims_sales with .eq('status','completed') and
+      // correctly excluded them. The Sales Report and the dashboard therefore
+      // disagreed the moment anything was cancelled.
       const totalRevenue = transactions
-        .filter((t) => t.transaction_type === 'sale')
+        .filter(
+          (t) =>
+            t.transaction_type === 'sale' ||
+            (t.transaction_type === 'return' && t.reference_type === 'sale')
+        )
         .reduce((sum, t) => sum + (t.amount || 0), 0);
 
       const totalCosts = transactions
@@ -314,9 +330,10 @@ export class ImsFinancialService {
    */
   static async getTodayMetrics(institution_id: string, storeId?: string): Promise<ImsTodayMetrics> {
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const dayStart = `${today}T00:00:00.000Z`;
-      const dayEnd = `${today}T23:59:59.999Z`;
+      // IST business day — see istDayBounds in lib/utils/date-format.ts for why
+      // a UTC window cannot be tied to an Indian store's cash drawer.
+      const today = istBusinessDate();
+      const { from: dayStart, to: dayEnd } = istDayBounds(today);
 
       let metricsQuery = this.supabase
         .from('ims_sales')

@@ -114,6 +114,40 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
           <EnquiryForm
             learner={learner}
             onSuccess={handleEditSuccess}
+            // Finance Details is admission-capture only (fee structure chosen
+            // when a lead is admitted); fees for an existing learner live in
+            // Billing. Same five tabs the Profiles create form shows. Safe to
+            // drop: every finance field is nullable+optional in the schema, so
+            // nothing required is stranded on an unreachable tab.
+            visibleTabs={[
+              'basic-details',
+              'contact-details',
+              'course-selection',
+              'academic-information',
+              'accommodation-preferences',
+            ]}
+            // Existing learners: any department stays selectable and the stored
+            // semester is left alone. The first-year => Science & Humanities
+            // rule belongs to admission capture, and applying it here hid real
+            // departments and overwrote real semesters (it also forced the
+            // Freshers holding pen, removed entirely on 2026-08-05).
+            enforceAdmissionRules={false}
+            // Tamil-script name inputs on Basic Details. Scoped to the Learner
+            // Profiles screens — the enquiry and student self-fill flows that
+            // share this form stay as they were.
+            showTamilNames
+            // ABC ID / EMIS / UMIS — same Profiles-only scoping.
+            showLearnerIdentifiers
+            // Two explicit choices on every step, nothing else:
+            //   "Save & Next"      — commit this step, advance to the next tab
+            //   "Update & Finish"  — validate every tab, commit, redirect to
+            //                        the detail page via handleEditSuccess
+            // hideDraft removes the third "Update" button, which saved without
+            // validating and without redirecting — indistinguishable from the
+            // other two at a glance and the reason edits felt half-applied.
+            allowSubmitFromAnyTab
+            hideDraft
+            submitLabel="Update & Finish"
           />
         </Card>
       </div>

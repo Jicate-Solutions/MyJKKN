@@ -14,7 +14,7 @@
 // ============================================
 
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { UseFormReturn, useWatch } from 'react-hook-form';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -63,9 +63,15 @@ const postalFetchers: PostalCodeFetchers = {
 
 interface ContactDetailsProps {
   form: UseFormReturn<any>;
+  /**
+   * Staff-only. College email is the learner's institutional identity, so it
+   * stays off the self-service My Profile form — which reaches this section
+   * with the course-selection tab (its previous home) hidden.
+   */
+  showCollegeEmail?: boolean;
 }
 
-export function ContactDetailsSection({ form }: ContactDetailsProps) {
+export function ContactDetailsSection({ form, showCollegeEmail = false }: ContactDetailsProps) {
   // State for dropdown open/close states
   const [stateOpen, setStateOpen] = useState(false);
   const [districtOpen, setDistrictOpen] = useState(false);
@@ -102,11 +108,23 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
   );
 
   // Reset dependent fields when parent changes (but preserve values in edit mode)
+  // These effects drop a child value that doesn't belong to the newly chosen
+  // parent. They must fire ONLY on a real user change: legacy rows store
+  // free-text the dataset never had (taluk 'KANAGAGRI' under SALEM), and
+  // clearing on mount blanked a required field, which then forced the operator
+  // to overwrite the stored value just to save. Seeded from the hydrated
+  // values, so the first render is a no-op. defaultValues are complete at mount
+  // (the edit page waits for the query, and the form never reset()s).
+  const prevStateIdRef = useRef(selectedStateId);
+  const prevDistrictIdRef = useRef(selectedDistrictId);
+
   useEffect(() => {
+    if (prevStateIdRef.current === selectedStateId) return;
+    prevStateIdRef.current = selectedStateId;
+
     if (selectedStateId) {
       // Check if current district is valid for the selected state
       const currentDistrict = form.getValues('permanent_address_district');
-      const currentTaluk = form.getValues('permanent_address_taluk');
 
       if (currentDistrict) {
         const isDistrictValid = availableDistricts.some(d => d.id === currentDistrict);
@@ -119,6 +137,9 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
   }, [selectedStateId, form, availableDistricts]);
 
   useEffect(() => {
+    if (prevDistrictIdRef.current === selectedDistrictId) return;
+    prevDistrictIdRef.current = selectedDistrictId;
+
     if (selectedDistrictId) {
       // Check if current taluk is valid for the selected district
       const currentTaluk = form.getValues('permanent_address_taluk');
@@ -186,7 +207,7 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
                         {field.value
                           ? indianStates.find(
                               (state) => state.id === field.value
-                            )?.name
+                            )?.name || field.value
                           : 'Select state...'}
                         <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
                       </Button>
@@ -251,7 +272,7 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
                         {field.value
                           ? availableDistricts.find(
                               (district) => district.id === field.value
-                            )?.name
+                            )?.name || field.value
                           : selectedStateId
                           ? 'Select district...'
                           : 'First select state'}
@@ -318,10 +339,13 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
                           !field.value && 'text-muted-foreground'
                         )}
                       >
+                        {/* Fall back to the raw value: rows predating the taluk
+                            dataset store names it doesn't contain, and showing
+                            nothing made real data look missing. */}
                         {field.value
                           ? availableTaluks.find(
                               (taluk) => taluk.id === field.value
-                            )?.name
+                            )?.name || field.value
                           : selectedDistrictId
                           ? 'Select taluk...'
                           : 'First select district'}
@@ -452,6 +476,33 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
               </FormItem>
             )}
           />
+
+          {/* Sits here, next to the other two contact addresses, so the form
+              matches the profile detail page's Contact Information block. */}
+          {showCollegeEmail && (
+            <FormField
+              control={form.control}
+              name='college_email'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>College Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      value={field.value || ''}
+                      type='email'
+                      placeholder='student@jkkn.ac.in (optional)'
+                      inputMode='email'
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    College email must use @jkkn.ac.in domain (optional)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -246,6 +246,11 @@ export async function PUT(
         exam_scheme: body.exam_scheme,
         internship_postings: body.internship_postings,
         ahs_content: body.ahs_content,
+        // Nursing (inc_nursing) fields.
+        course_description: body.course_description,
+        nursing_workload: body.nursing_workload,
+        clinical_outline: body.clinical_outline,
+        competency_mappings: body.competency_mappings,
         notes: body.notes,
         last_modified_by: user.id,
         last_modified_at: new Date().toISOString(),

@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescription } from '@/components/ui/form';
-import { admissionStatusFormSchema, type AdmissionStatusFormInput, type AdmissionStatus, type AdmissionStatusScope } from '@/types/admission-status';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { admissionStatusFormSchema, THRESHOLD_BASIS_LABELS, type AdmissionStatusFormInput, type AdmissionStatus, type AdmissionStatusScope, type ThresholdBasis } from '@/types/admission-status';
 import { useCreateAdmissionStatus, useUpdateAdmissionStatus } from '@/hooks/admission/use-admission-statuses';
 
 interface Props {
@@ -37,6 +38,7 @@ export function StatusFormDialog({ scope, initial, open, onOpenChange }: Props) 
       is_terminal: false,
       is_seat_filled: false,
       fee_paid_threshold_percent: scope === 'learner' ? null : null,
+      threshold_basis: 'due_to_date',
       gates_login: false,
     },
   });
@@ -207,6 +209,29 @@ export function StatusFormDialog({ scope, initial, open, onOpenChange }: Props) 
                       <FormDescription>
                         A learner&apos;s paid-% (excluding application_fee bills) must meet this to enter the status.
                         Leave blank for no gate.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField name="threshold_basis" control={form.control} render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Threshold counts…</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Bills due as on date" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {(Object.keys(THRESHOLD_BASIS_LABELS) as ThresholdBasis[]).map((k) => (
+                            <SelectItem key={k} value={k}>{THRESHOLD_BASIS_LABELS[k]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        What the paid-% is measured against. &quot;Bills due as on date&quot; is the default:
+                        a learner is never behind on money whose due date has not arrived. The legacy
+                        &quot;All bills to date&quot; pools every year&apos;s bills the moment they are raised.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

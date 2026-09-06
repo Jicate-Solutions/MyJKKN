@@ -8,16 +8,18 @@ import { usePurchaseOrder } from '@/hooks/procurement/use-purchase-orders';
 import { useCreateGrn } from '@/hooks/procurement/use-grns';
 import { matchLine } from '@/lib/services/procurement/three-way-match';
 import { GRN_MATCH_CONFIG, type GrnLineInput } from '@/types/procurement';
+import { StatusBadge } from '@/components/procurement/status-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ArrowLeft, Sparkles } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { ArrowLeft, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 // One editable row of the receiving form. Seeded from a PO line; the receiver fills
 // in what actually arrived. ordered_remaining = PO ordered − already received.
@@ -27,15 +29,6 @@ interface LineDraft extends GrnLineInput {
   unit_label: string | null;
   po_unit_price: number | null;
 }
-
-// Match-badge accent by GRN_MATCH_CONFIG.color.
-const MATCH_COLOR: Record<string, string> = {
-  green: 'border-green-500 text-green-700',
-  amber: 'border-amber-500 text-amber-700',
-  blue: 'border-blue-400 text-blue-700',
-  orange: 'border-orange-500 text-orange-700',
-  red: 'border-red-500 text-red-700',
-};
 
 export default function NewGrnPage() {
   const router = useRouter();
@@ -54,6 +47,26 @@ export default function NewGrnPage() {
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [reading, setReading] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // What the receiver EXPECTS on this invoice. Declared before the check runs, so the
+  // comparison is measured against their intent instead of a hardcoded threshold. These
+  // drive the live badges below and ride along on the AI read request.
+  const [expectOpen, setExpectOpen] = useState(false);
+  const [tolerancePct, setTolerancePct] = useState('0');
+  const [requireBatchExpiry, setRequireBatchExpiry] = useState(false);
+  const [maxInvoiceAgeDays, setMaxInvoiceAgeDays] = useState('');
+  const [watchFor, setWatchFor] = useState('');
+
+  const tolerance = Math.min(100, Math.max(0, Number(tolerancePct) || 0));
+  const expectations = {
+    tolerance_pct: tolerance || null,
+    require_batch_expiry: requireBatchExpiry,
+    max_invoice_age_days: Number(maxInvoiceAgeDays) || null,
+    watch_for: watchFor.trim() || null,
+  };
+  /** True when the receiver has actually set something — drives the "on" hint on the toggle. */
+  const hasExpectations =
+    tolerance > 0 || requireBatchExpiry || !!expectations.max_invoice_age_days || !!expectations.watch_for;
 
   // Seed drafts once the PO loads. Default received = full outstanding qty, all accepted.
   const drafts = useMemo<LineDraft[]>(() => {
@@ -117,6 +130,47 @@ export default function NewGrnPage() {
     );
   }
 
+  // Check the invoice date against what the receiver expects. A WARNING only — the goods are
+  // already at the dock, so an odd date must never block recording what arrived. It exists to
+  // catch a back-dated or stale bill before it is accepted, not to stop receipt.
+  const poDate = po.created_at?.slice(0, 10) ?? null;
+  const invoiceAgeDays =
+    invoiceDate && !Number.isNaN(Date.parse(invoiceDate))
+      ? Math.floor((Date.now() - Date.parse(invoiceDate)) / 86_400_000)
+      : null;
+  const invoiceDateWarning: string | null = !invoiceDate
+    ? null
+    : poDate && invoiceDate < poDate
+      ? `This invoice is dated before the purchase order (${poDate}) — check you have the right bill.`
+      : expectations.max_invoice_age_days &&
+          invoiceAgeDays != null &&
+          invoiceAgeDays > expectations.max_invoice_age_days
+        ? `This invoice is ${invoiceAgeDays} days old — you expected one within ${expectations.max_invoice_age_days} days.`
+        : null;
+
+  /** A line the receiver's traceability rule leaves incomplete. */
+  const missingTrace = (l: LineDraft) =>
+    requireBatchExpiry &&
+    Number(l.accepted_quantity) > 0 &&
+    (!l.batch_number?.trim() || !l.expiry_date);
+
+  // One-glance verdict, so the receiver doesn't have to scan every badge to know whether this
+  // delivery met what they declared. Recomputes on every keystroke, same inputs as the badges.
+  const scored = drafts.map((l) => ({
+    flagged: matchLine({
+      orderedRemaining: l.ordered_remaining,
+      invoiceQty: l.invoice_quantity,
+      receivedQty: Number(l.received_quantity),
+      poUnitPrice: l.po_unit_price,
+      invoiceUnitPrice: l.cost != null && Number(l.cost) > 0 ? Number(l.cost) : null,
+      tolerancePct: tolerance,
+    }).mismatch_flag,
+    trace: missingTrace(l),
+  }));
+  const flaggedCount = scored.filter((s) => s.flagged).length;
+  const traceGapCount = scored.filter((s) => s.trace).length;
+  const cleanCount = scored.filter((s) => !s.flagged && !s.trace).length;
+
   // Read the uploaded invoice PDF via Claude and pre-fill the header + line fields.
   const handleReadInvoice = async () => {
     if (!invoiceFile || !po) return;
@@ -125,6 +179,9 @@ export default function NewGrnPage() {
       const fd = new FormData();
       fd.append('file', invoiceFile);
       fd.append('items', JSON.stringify(po.items.map((i) => ({ id: i.id, item_name: i.item_name }))));
+      // The reader is told what this receiver expects, so the extraction is checked against
+      // their intent rather than read in a vacuum.
+      fd.append('expectations', JSON.stringify(expectations));
       const res = await fetch('/api/procurement/grn/extract-invoice', { method: 'POST', body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Invoice reading failed');
@@ -173,7 +230,7 @@ export default function NewGrnPage() {
           (unmatched?.length ? ` · ${unmatched.length} unmatched` : '')
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not read the invoice');
+      toast.error(errorMessage(e, 'Could not read the invoice'));
     } finally {
       setReading(false);
     }
@@ -213,6 +270,18 @@ export default function NewGrnPage() {
       return;
     }
 
+    // The receiver asked for full traceability — hold the receipt until every accepted line
+    // carries batch + expiry. Opt-in, so this only ever fires when they switched it on.
+    if (requireBatchExpiry) {
+      const incomplete = drafts.filter((l) => Number(l.received_quantity) > 0 && missingTrace(l));
+      if (incomplete.length) {
+        toast.error(
+          `Batch no. and expiry are required on every line — ${incomplete.length} still incomplete.`
+        );
+        return;
+      }
+    }
+
     try {
       // Persist the invoice document to Drive (best-effort record on the GRN).
       let invoice_document_url: string | null = null;
@@ -240,6 +309,7 @@ export default function NewGrnPage() {
           invoice_amount: invoiceAmount ? Number(invoiceAmount) : null,
           invoice_document_url,
           notes: notes || null,
+          expectations,
           lines: payload,
         },
         userId: profile!.id,
@@ -248,7 +318,7 @@ export default function NewGrnPage() {
       router.push(`/procurement/grn/${grn.id}`);
     } catch (e) {
       setUploading(false);
-      toast.error(e instanceof Error ? e.message : 'Failed to create GRN');
+      toast.error(errorMessage(e, 'Failed to create GRN'));
     }
   };
 
@@ -256,7 +326,12 @@ export default function NewGrnPage() {
     <ContentLayout title="Receive Goods">
       <div className="space-y-6 max-w-5xl">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Back to purchase order"
+            onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -294,6 +369,97 @@ export default function NewGrnPage() {
               </p>
             </div>
 
+            {/*
+              Tell the check what "correct" means BEFORE it runs. These are this receipt's
+              expectations — they re-score the badges below as you type, and are sent to the
+              AI reader so it is checking against your intent, not a fixed threshold.
+            */}
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+              <button
+                type="button"
+                onClick={() => setExpectOpen((v) => !v)}
+                aria-expanded={expectOpen}
+                className="flex w-full items-center gap-2 text-left"
+              >
+                {expectOpen ? (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="text-sm font-medium">What you expect on this invoice</span>
+                <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
+                  {hasExpectations ? 'Set — checks below use it' : 'Optional · exact match'}
+                </span>
+              </button>
+
+              {expectOpen && (
+                <div className="space-y-3 pt-1">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Allowed variance (%)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        value={tolerancePct}
+                        onChange={(e) => setTolerancePct(e.target.value)}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        A price or quantity gap this small is expected, not a mismatch. 0 = exact.
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs">Invoice dated within (days)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        placeholder="No limit"
+                        value={maxInvoiceAgeDays}
+                        onChange={(e) => setMaxInvoiceAgeDays(e.target.value)}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Warns on a stale or back-dated bill. Never blocks the receipt.
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs">Traceability</Label>
+                      <div className="flex items-center gap-2 pt-2">
+                        <Switch
+                          checked={requireBatchExpiry}
+                          onCheckedChange={setRequireBatchExpiry}
+                          aria-label="Require batch number and expiry on every line"
+                        />
+                        <Label className="text-xs text-muted-foreground">
+                          Require batch &amp; expiry
+                        </Label>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Applies to every accepted line, not just chemicals. Blocks the receipt
+                        until filled.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs">What should we watch for?</Label>
+                    <Textarea
+                      rows={2}
+                      placeholder="e.g. this vendor bills freight on a separate line — check the total excludes it"
+                      value={watchFor}
+                      onChange={(e) => setWatchFor(e.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Passed to the AI reader as your instruction, and kept on the GRN for the
+                      verifier.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1">
                 <Label>Invoice number <span className="text-destructive">*</span></Label>
@@ -313,6 +479,11 @@ export default function NewGrnPage() {
                   onChange={(e) => setInvoiceDate(e.target.value)}
                   aria-invalid={!invoiceDate}
                 />
+                {invoiceDateWarning && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                    {invoiceDateWarning}
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <Label>Invoice amount (₹)</Label>
@@ -330,6 +501,12 @@ export default function NewGrnPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Items received</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              For each line: <b>Invoice qty</b> is what the supplier billed, <b>Received</b> is what
+              you physically counted. Split what arrived into <b>Accepted</b> (goes into stock) and
+              <b> Rejected</b> (does not, and can be replaced later) — together these must not exceed
+              Received. A gap between Invoice qty and Received is flagged as a mismatch.
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
             {drafts.map((l, idx) => {
@@ -339,24 +516,25 @@ export default function NewGrnPage() {
                 receivedQty: Number(l.received_quantity),
                 poUnitPrice: l.po_unit_price,
                 invoiceUnitPrice: l.cost != null && Number(l.cost) > 0 ? Number(l.cost) : null,
+                tolerancePct: tolerance,
               });
-              const cfg = GRN_MATCH_CONFIG[match.match_status];
               const overSplit =
                 Number(l.accepted_quantity) + Number(l.rejected_quantity) >
                 Number(l.received_quantity) + 0.001;
+              const traceGap = missingTrace(l);
               return (
                 <div key={l.po_item_id} className="rounded-lg border p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{l.item_name}</p>
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{l.item_name}</p>
                       <p className="text-xs text-muted-foreground">
                         Outstanding on PO: {l.ordered_remaining} {l.unit_label || ''}
                       </p>
                     </div>
-                    <Badge variant="outline" className={MATCH_COLOR[cfg.color]}>{cfg.label}</Badge>
+                    <StatusBadge status={match.match_status} config={GRN_MATCH_CONFIG} />
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                     <div className="space-y-1">
                       <Label className="text-xs">Invoice qty</Label>
                       <Input
@@ -406,20 +584,32 @@ export default function NewGrnPage() {
                   )}
 
                   {/* Batch tracking — required for chemicals at verification */}
-                  <div className="grid gap-3 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div className="space-y-1">
-                      <Label className="text-xs">Batch no. <span className="text-muted-foreground">(chemicals)</span></Label>
+                      <Label className="text-xs">
+                        Batch no.{' '}
+                        <span className="text-muted-foreground">
+                          {requireBatchExpiry ? '(required)' : '(chemicals)'}
+                        </span>
+                      </Label>
                       <Input
                         value={l.batch_number ?? ''}
                         onChange={(e) => update(idx, { batch_number: e.target.value || null })}
+                        aria-invalid={traceGap && !l.batch_number?.trim()}
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Expiry date <span className="text-muted-foreground">(chemicals)</span></Label>
+                      <Label className="text-xs">
+                        Expiry date{' '}
+                        <span className="text-muted-foreground">
+                          {requireBatchExpiry ? '(required)' : '(chemicals)'}
+                        </span>
+                      </Label>
                       <Input
                         type="date"
                         value={l.expiry_date ?? ''}
                         onChange={(e) => update(idx, { expiry_date: e.target.value || null })}
+                        aria-invalid={traceGap && !l.expiry_date}
                       />
                     </div>
                     <div className="space-y-1">
@@ -459,12 +649,35 @@ export default function NewGrnPage() {
                     </div>
                   )}
 
+                  {traceGap && (
+                    <p className="text-xs text-destructive">
+                      You required batch &amp; expiry on every line — this one is incomplete.
+                    </p>
+                  )}
+
                   {match.reason && (
                     <p className="text-xs text-muted-foreground">{match.reason}</p>
                   )}
                 </div>
               );
             })}
+
+            {/* Roll-up against the declared expectations — the answer to "are we good?" */}
+            {drafts.length > 0 && (
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <span className="font-medium">
+                  {cleanCount} of {drafts.length} line{drafts.length === 1 ? '' : 's'} meet what you
+                  expect
+                </span>
+                {(flaggedCount > 0 || traceGapCount > 0) && (
+                  <span className="text-muted-foreground">
+                    {flaggedCount > 0 &&
+                      ` · ${flaggedCount} flagged${tolerance > 0 ? ` beyond ±${tolerance}%` : ''}`}
+                    {traceGapCount > 0 && ` · ${traceGapCount} missing batch/expiry`}
+                  </span>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -475,13 +688,19 @@ export default function NewGrnPage() {
           </CardContent>
         </Card>
 
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={createGrn.isPending || uploading}>
-            {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Create GRN'}
-          </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Nothing reaches inventory yet. The receipt is saved for verification — a Super Admin
+            checks it against the order and the invoice, and only then does accepted stock post.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={createGrn.isPending || uploading}>
+              {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Create GRN'}
+            </Button>
+          </div>
         </div>
       </div>
     </ContentLayout>

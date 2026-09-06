@@ -34,16 +34,32 @@ export const metadata = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Policy reader — pulls lifetime_attempts_per_case via the RPC.
-// Defaults to 5 if RPC unavailable (matches platform_policies seed).
+// Attempt-cap resolution — two sources, the per-case number wins.
+//
+//   1. pde_assessments.max_attempts — the number the Senior Learner typed for
+//      THIS case. Authoritative whenever it is a positive whole number.
+//   2. platform policy clinical_reasoning.lifetime_attempts_per_case — the
+//      fallback for cases that set no per-case number.
+//   3. 5 — last-resort default (matches the platform_policies seed).
+//
+// Only (2) was read before, so a case capped at 3 still rendered "Attempt 1 of
+// 5 · 5 attempts remaining" and offered a learner attempts the Senior Learner
+// never granted. The resolved value is what flows into bundle.attemptsCap, so
+// the counter, the remaining-attempts text and the cap-reached screen all agree.
 // ──────────────────────────────────────────────────────────────────────────────
-async function readAttemptsCap(supabase: any): Promise<number> {
+async function readPolicyAttemptsCap(supabase: any): Promise<number> {
   const { data, error } = await supabase.rpc('fn_get_policy_clinical_reasoning', {
     p_key: 'lifetime_attempts_per_case',
   });
   if (error || data === null || data === undefined) return 5;
   const n = typeof data === 'number' ? data : Number(data);
   return Number.isFinite(n) && n > 0 ? n : 5;
+}
+
+/** null unless `value` is a positive whole number — 0, NULL and junk all fall back. */
+function positiveIntOrNull(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 interface CasePageProps {
@@ -67,7 +83,7 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
   const sb = supabase as any;
   const { data: assessment, error: aErr } = await sb
     .from('pde_assessments')
-    .select('id, title, description, course_id, lesson_id, version, time_limit_minutes, status, assessment_type, visibility_mode')
+    .select('id, title, description, course_id, lesson_id, version, time_limit_minutes, max_attempts, status, assessment_type, visibility_mode')
     .eq('id', caseSlug)
     .eq('assessment_type', 'clinical_case')
     .maybeSingle();
@@ -175,7 +191,9 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
 
   const prior: ClinicalSubmissionSummary[] = priorRows ?? [];
   const attemptsUsed = prior.length;
-  const attemptsCap = await readAttemptsCap(supabase);
+  // Per-case number first; the policy RPC is only consulted when the case set none.
+  const perCaseCap = positiveIntOrNull(assessment.max_attempts);
+  const attemptsCap = perCaseCap ?? (await readPolicyAttemptsCap(supabase));
 
   const bestSubmission: ClinicalSubmissionSummary | null = prior.length
     ? prior.reduce<ClinicalSubmissionSummary | null>((best, cur) => {

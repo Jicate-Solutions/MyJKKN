@@ -783,6 +783,7 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
                 canEdit={canEdit}
                 meetingStatus={meeting.status}
                 committeeId={meeting.committee_id}
+                meetingType={meeting.meeting_type}
               />
             </TabsContent>
 

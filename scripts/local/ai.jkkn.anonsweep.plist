@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Live anon-exposure sweep, on this Mac.
+
+  Install:
+    cp scripts/local/ai.jkkn.anonsweep.plist ~/Library/LaunchAgents/
+    launchctl unload ~/Library/LaunchAgents/ai.jkkn.anonsweep.plist 2>/dev/null
+    launchctl load  ~/Library/LaunchAgents/ai.jkkn.anonsweep.plist
+    launchctl start ai.jkkn.anonsweep          # prove it runs, do not wait 6h
+
+  Check it is still alive:
+    bash scripts/local/anon-sweep-mac.sh --check-heartbeat
+
+  StartInterval, not a calendar time, matching the sibling ai.jkkn.maxlane.*
+  agents. 21600s = 6 hours. launchd fires a missed StartInterval once shortly
+  after wake, so a closed lid delays the sweep rather than skipping it silently —
+  but a machine that is OFF still runs nothing, which is what the heartbeat is
+  there to expose.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>ai.jkkn.anonsweep</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/omm/myjkkn-dev-3104/scripts/local/anon-sweep-mac.sh</string>
+  </array>
+  <key>StartInterval</key><integer>21600</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/omm/jkkn-max-lane/logs/anon-sweep.launchd.log</string>
+  <key>StandardErrorPath</key><string>/Users/omm/jkkn-max-lane/logs/anon-sweep.launchd.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/Users/omm/.local/bin</string>
+  </dict>
+</dict>
+</plist>

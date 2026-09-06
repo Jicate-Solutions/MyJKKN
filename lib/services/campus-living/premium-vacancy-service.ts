@@ -15,6 +15,25 @@
 //   on hostel_rooms.category_id). "Premium" = category name ILIKE '%Premium%'
 //   (covers "Premium Room" + "Premium Plus Room"). "Classic" = name 'Classic Room'.
 //   ("Deluxe Room" is neither — not in the upgrade pool, not a Premium vacancy.)
+//
+// ── 2026-08-10: SUPERSEDES the name-matching rule above ─────────────────────
+// The `/premium/i` name test excluded "Deluxe Room" BY DESIGN (locked decision
+// 2026-05-28, quoted above). That is now reversed on operator instruction: nine
+// learners had been waiting since 2026-08-05 for a Deluxe upgrade while 76 free
+// Deluxe beds sat idle, because a Deluxe bed could never open a vacancy.
+//
+// Eligibility is now RANK-BASED, not name-based:
+//     hostel_categories.upgrades_enabled = true
+//     AND sort_order > (sort_order of 'Classic Room' for the SAME type)
+// so adding or renaming a category no longer needs a code change. The upgrade
+// POOL is still Classic residents only (resolveUpgradePool, unchanged).
+//
+// DATA QUIRK worth knowing: 'Deluxe Plus Room' currently has sort_order = 0,
+// i.e. BELOW Classic (1), so it does not qualify as an upgrade target. It has
+// zero rooms today so nothing is affected, but if rooms are ever added to it
+// its sort_order must be corrected first. isUpgradeTargetCategory logs a
+// warning when an upgrades_enabled category ranks at or below Classic, so the
+// misconfiguration surfaces instead of silently dropping beds.
 // - hostel_blocks has NO cluster column and NO institution_id. Gender on a block
 //   is hostel_type (boys|girls|...). Institution scope flows through the
 //   hostel_block_institutions junction. CLUSTER (FLAGGED, needs Director
@@ -66,6 +85,67 @@ function genderToHostelType(gender: string | null | undefined): string | null {
   if (g === 'male' || g === 'boy' || g === 'boys' || g === 'm') return 'boys';
   if (g === 'female' || g === 'girl' || g === 'girls' || g === 'f') return 'girls';
   return null;
+}
+
+// ─── Category eligibility (rank-based) ───────────────────────────────────────
+
+interface CategoryRow {
+  id: string;
+  name: string;
+  type: string | null;
+  sort_order: number | null;
+  upgrades_enabled: boolean | null;
+  is_active: boolean | null;
+}
+
+/**
+ * The set of hostel_categories ids that count as an UPGRADE TARGET for a
+ * Classic resident: upgrades_enabled, active, and ranked strictly above the
+ * 'Classic Room' row of the SAME gender type.
+ *
+ * Replaces the old `/premium/i` name test — see the 2026-08-10 note in the file
+ * header. Rank comes from hostel_categories.sort_order, so a new category needs
+ * no code change; it only needs a sort_order above Classic and upgrades_enabled.
+ *
+ * A category that is upgrades_enabled but ranks at or below Classic is a
+ * MISCONFIGURATION, not a silent exclusion: it is logged so it can be fixed.
+ */
+export async function loadUpgradeTargetCategoryIds(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from('hostel_categories')
+    .select('id, name, type, sort_order, upgrades_enabled, is_active');
+  if (error) throw error;
+
+  const rows = (data ?? []) as CategoryRow[];
+
+  // Classic's rank per gender type — the floor every target must beat.
+  const classicRank = new Map<string, number>();
+  for (const c of rows) {
+    if (c.name?.trim().toLowerCase() === 'classic room' && c.type && c.sort_order != null) {
+      classicRank.set(c.type, c.sort_order);
+    }
+  }
+
+  const ids = new Set<string>();
+  for (const c of rows) {
+    if (!c.is_active || !c.upgrades_enabled || !c.type) continue;
+    const floor = classicRank.get(c.type);
+    if (floor == null || c.sort_order == null) continue;
+    if (c.name?.trim().toLowerCase() === 'classic room') continue;
+    if (c.sort_order > floor) {
+      ids.add(c.id);
+    } else {
+      logger.warn(
+        LOG,
+        'Category is upgrades_enabled but ranks at or below Classic — it will never be offered as an upgrade. Fix its sort_order.',
+        { category: c.name, type: c.type, sort_order: c.sort_order, classic_sort_order: floor },
+      );
+    }
+  }
+  return ids;
 }
 
 // ─── Detection ──────────────────────────────────────────────────────────────
@@ -126,9 +206,14 @@ export async function detectVacancyOnVacate(
 
   const category = room?.hostel_categories ?? null;
   const categoryName: string = category?.name ?? '';
-  const isPremium = /premium/i.test(categoryName);
-  if (!isPremium) {
-    // Not a premium bed — nothing to open.
+  // Rank-based, replacing the old `/premium/i` name test which excluded Deluxe
+  // by design — see the 2026-08-10 note in the file header.
+  const upgradeTargets = await loadUpgradeTargetCategoryIds(supabase);
+  if (!room?.category_id || !upgradeTargets.has(room.category_id)) {
+    // Freed bed is not an upgrade target for a Classic resident — nothing to open.
+    logger.info(LOG, 'Vacated bed is not an upgrade-target category; no vacancy opened', {
+      vacateRequestId, category: categoryName,
+    });
     return null;
   }
 
@@ -168,6 +253,190 @@ export async function detectVacancyOnVacate(
     cluster_key: inserted.cluster_key,
   });
   return inserted as PremiumVacancy;
+}
+
+// ─── Sweep: open vacancies for beds that are simply FREE ────────────────────
+
+export interface SweepResult {
+  /** Free beds found in upgrade-target categories, before any filtering. */
+  scanned: number;
+  /** Skipped because an OPEN vacancy already exists for that bed. */
+  alreadyOpen: number;
+  /** Vacancy rows inserted. Always 0 when dryRun. */
+  opened: number;
+  /** Eligible beds left untouched because `limit` was reached. */
+  capped: number;
+  dryRun: boolean;
+  /** Eligible free-bed counts keyed by category name — for the operator. */
+  byCategory: Record<string, number>;
+}
+
+/**
+ * Open upgrade vacancies for beds that are ALREADY FREE, rather than waiting for
+ * a vacate to finalize.
+ *
+ * WHY THIS EXISTS: `detectVacancyOnVacate` is the only other producer of
+ * hostel_premium_vacancies rows, and it fires from exactly one call site —
+ * HostelVacateRequestService.finalize(). With no vacate request ever finalized,
+ * that table stayed empty forever, so 145 free upgrade-category beds generated
+ * no offers and 162 waitlist entries expired unoffered.
+ *
+ * ── THIS FUNCTION NEVER NOTIFIES ────────────────────────────────────────────
+ * It opens rows and returns counts. Notification stays a separate, explicit
+ * step (notifyUpgradePool per vacancy). That separation is deliberate and load
+ * bearing: measured 2026-08-10, a full sweep would open 145 vacancies against a
+ * pool of 210 Classic girls residents = **30,450 in-app notifications**. Wiring
+ * notify into the sweep would make one call fire all of them irreversibly.
+ *
+ * Defaults are chosen so an accidental call is harmless:
+ *   dryRun = TRUE  — counts only, writes nothing
+ *   limit  = 25    — even a deliberate run opens a bounded number
+ *
+ * Idempotent: a bed with an OPEN vacancy is skipped, so re-running does not
+ * duplicate. Beds holding an active/pending allocation are never eligible.
+ */
+export async function sweepFreeBedsForVacancies(opts?: {
+  /** 'boys' | 'girls' — restrict to one hostel type. */
+  hostelType?: string;
+  institutionId?: string;
+  /** Max vacancies to open in one run. Default 25. */
+  limit?: number;
+  /** Default TRUE — count without writing. */
+  dryRun?: boolean;
+  /** Service-role client for cron/server call sites (RLS). */
+  client?: SupabaseClient;
+}): Promise<SweepResult> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (opts?.client ?? createClientSupabaseClient()) as any;
+  const limit = opts?.limit ?? 25;
+  const dryRun = opts?.dryRun ?? true;
+
+  const upgradeTargets = await loadUpgradeTargetCategoryIds(supabase);
+  if (upgradeTargets.size === 0) {
+    return { scanned: 0, alreadyOpen: 0, opened: 0, capped: 0, dryRun, byCategory: {} };
+  }
+
+  // Free beds in upgrade-target rooms. `status = 'available'` is not sufficient
+  // on its own — a bed can read available while a pending_approval allocation
+  // holds it — so the allocation check below is a second gate.
+  const { data: bedRows, error: bedErr } = await supabase
+    .from('hostel_beds')
+    .select(
+      'id, room_id, status, ' +
+        'room:hostel_rooms!hostel_beds_room_id_fkey(' +
+        'id, block_id, category_id, room_purpose, ' +
+        'block:hostel_blocks!hostel_rooms_block_id_fkey(id, hostel_type), ' +
+        'category:hostel_categories!hostel_rooms_category_id_fkey(id, name))',
+    )
+    .eq('status', 'available');
+  if (bedErr) throw bedErr;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const eligible: any[] = [];
+  const byCategory: Record<string, number> = {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const b of (bedRows ?? []) as any[]) {
+    const room = b.room;
+    if (!room || room.room_purpose !== 'student') continue;
+    if (!room.category_id || !upgradeTargets.has(room.category_id)) continue;
+    const htype = room.block?.hostel_type ?? null;
+    if (opts?.hostelType && htype !== opts.hostelType) continue;
+    eligible.push({ ...b, hostel_type: htype });
+    const cname = room.category?.name ?? 'unknown';
+    byCategory[cname] = (byCategory[cname] ?? 0) + 1;
+  }
+
+  if (eligible.length === 0) {
+    return { scanned: 0, alreadyOpen: 0, opened: 0, capped: 0, dryRun, byCategory };
+  }
+
+  const bedIds = eligible.map((b) => b.id);
+
+  // Beds already held by a live allocation are not free, whatever their status.
+  const { data: heldRows, error: heldErr } = await supabase
+    .from('hostel_allocations')
+    .select('bed_id')
+    .in('bed_id', bedIds)
+    .in('status', ['active', 'pending_approval']);
+  if (heldErr) throw heldErr;
+  const held = new Set(((heldRows ?? []) as Array<{ bed_id: string }>).map((r) => r.bed_id));
+
+  // Beds that already have an OPEN vacancy — idempotency.
+  const { data: openRows, error: openErr } = await supabase
+    .from('hostel_premium_vacancies')
+    .select('bed_id')
+    .in('bed_id', bedIds)
+    .eq('status', 'open');
+  if (openErr) throw openErr;
+  const alreadyOpenSet = new Set(
+    ((openRows ?? []) as Array<{ bed_id: string | null }>).map((r) => r.bed_id).filter(Boolean) as string[],
+  );
+
+  const candidates = eligible.filter((b) => !held.has(b.id) && !alreadyOpenSet.has(b.id));
+  const scanned = candidates.length;
+  const take = candidates.slice(0, limit);
+  const capped = Math.max(0, scanned - take.length);
+
+  if (dryRun || take.length === 0) {
+    logger.info(LOG, 'Free-bed vacancy sweep (dry run — nothing written)', {
+      scanned, alreadyOpen: alreadyOpenSet.size, capped, byCategory,
+    });
+    return { scanned, alreadyOpen: alreadyOpenSet.size, opened: 0, capped, dryRun: true, byCategory };
+  }
+
+  // institution_id is NOT NULL on the vacancy table, and a block can serve
+  // several institutions, so it is resolved per block from the junction. A bed
+  // whose block serves no institution is skipped rather than guessed at.
+  const blockIds = [...new Set(take.map((b) => b.room?.block_id).filter(Boolean))] as string[];
+  const { data: bi, error: biErr } = await supabase
+    .from('hostel_block_institutions')
+    .select('block_id, institution_id, is_primary')
+    .in('block_id', blockIds);
+  if (biErr) throw biErr;
+  const instForBlock = new Map<string, string>();
+  for (const row of (bi ?? []) as Array<{ block_id: string; institution_id: string; is_primary: boolean | null }>) {
+    if (!instForBlock.has(row.block_id) || row.is_primary) instForBlock.set(row.block_id, row.institution_id);
+  }
+
+  const payload = take
+    .map((b) => {
+      const blockId = b.room?.block_id ?? null;
+      const institutionId = opts?.institutionId ?? (blockId ? instForBlock.get(blockId) : undefined);
+      if (!institutionId) return null;
+      return {
+        institution_id: institutionId,
+        room_id: b.room_id,
+        bed_id: b.id,
+        block_id: blockId,
+        room_category_id: b.room?.category_id ?? null,
+        hostel_type: b.hostel_type,
+        cluster_key: clusterKeyFor(institutionId, b.hostel_type),
+        status: 'open' as const,
+      };
+    })
+    .filter(Boolean);
+
+  if (payload.length === 0) {
+    return { scanned, alreadyOpen: alreadyOpenSet.size, opened: 0, capped, dryRun: false, byCategory };
+  }
+
+  const { data: inserted, error: insErr } = await supabase
+    .from('hostel_premium_vacancies')
+    .insert(payload)
+    .select('id');
+  if (insErr) throw insErr;
+
+  logger.info(LOG, 'Free-bed vacancy sweep opened vacancies (NO notifications sent)', {
+    opened: inserted?.length ?? 0, scanned, capped,
+  });
+  return {
+    scanned,
+    alreadyOpen: alreadyOpenSet.size,
+    opened: inserted?.length ?? 0,
+    capped,
+    dryRun: false,
+    byCategory,
+  };
 }
 
 // ─── Upgrade-pool resolution ─────────────────────────────────────────────────
@@ -212,6 +481,30 @@ export async function resolveUpgradePool(
     .not('learner_id', 'is', null);
   if (allocErr) throw allocErr;
 
+  // profiles.gender is the LOGIN SHADOW and can be blank while the
+  // learners_profiles master record has a perfectly good value — the same split
+  // brain that made auto-allocate blame a missing room rule (20260810190000) and
+  // then abort whole batches from the validation trigger (20260810220000).
+  // Unfixed here, a blank shadow silently drops that resident from the upgrade
+  // pool. One batched lookup, only for the rows that actually need it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blankGenderIds = ((allocs ?? []) as any[])
+    .map((a) => a.learner)
+    .filter((l) => l?.id && !String(l.gender ?? '').trim())
+    .map((l) => l.id as string);
+  const masterGender = new Map<string, string>();
+  if (blankGenderIds.length > 0) {
+    const { data: mg } = await supabase
+      .from('profiles')
+      .select('id, learners_profiles:learner_id(gender)')
+      .in('id', [...new Set(blankGenderIds)]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const row of (mg ?? []) as any[]) {
+      const g = row?.learners_profiles?.gender;
+      if (g) masterGender.set(row.id, g);
+    }
+  }
+
   const pool: UpgradePoolMember[] = [];
   const seen = new Set<string>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -219,8 +512,10 @@ export async function resolveUpgradePool(
     const learner = a.learner;
     if (!learner?.id) continue;
 
-    // Gender match against the vacancy's hostel_type pool key.
-    const learnerType = genderToHostelType(learner.gender);
+    // Gender match against the vacancy's hostel_type pool key. Shadow first,
+    // master record fills a blank — same precedence as the allocation engine.
+    const effGender = String(learner.gender ?? '').trim() || masterGender.get(learner.id) || null;
+    const learnerType = genderToHostelType(effGender);
     if (vacancy.hostel_type && learnerType !== vacancy.hostel_type) continue;
 
     // Classic-category only.

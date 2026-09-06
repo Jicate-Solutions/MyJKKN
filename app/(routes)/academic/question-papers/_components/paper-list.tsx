@@ -5,10 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { FileText, Loader2, ChevronRight, Download, CheckCircle2 } from 'lucide-react';
+import {
+  FileText, Loader2, ChevronRight, Download, CheckCircle2, Copy, FileArchive,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuestionPapers, useApprovePapers } from '@/hooks/question-papers/use-question-papers';
-import { IaPaperService } from '@/lib/services/question-papers/ia-paper-service';
+import { IaPaperService, papersZipName } from '@/lib/services/question-papers/ia-paper-service';
 import { PAPER_STATUS_META } from '@/types/ia-question-paper';
 import { isPracticalCategory } from '@/lib/utils/question-papers/course-category';
 import type { IaQuestionPaper } from '@/types/ia-question-paper';
@@ -17,6 +19,15 @@ import type { QuestionPaperFilterState } from './question-paper-filters';
 /** Papers an approver may still act on (not yet approved/locked). */
 function isApprovable(p: IaQuestionPaper): boolean {
   return p.status === 'draft' || p.status === 'submitted';
+}
+
+/**
+ * Only an AUTHORED paper is worth selecting: it is the precondition for every
+ * bulk action here. A PDF of an empty scaffold is a blank form, and approving one
+ * would be refused server-side by the completeness check anyway.
+ */
+function isSelectable(p: IaQuestionPaper): boolean {
+  return !!p.authored;
 }
 
 /**
@@ -74,11 +85,16 @@ export function PaperList({ institutionId, filters, canExport, canApprove, onOpe
   const practicalCount = allPapers.filter(isPracticalPaper).length;
   const visiblePapers = theoryOnly ? allPapers.filter((p) => !isPracticalPaper(p)) : allPapers;
 
-  // Approval selection (approvers only): draft/submitted papers can be approved.
-  const approvablePapers = visiblePapers.filter(isApprovable);
-  const selectedApprovable = approvablePapers.filter((p) => selected.has(p.id));
-  const allApprovableSelected =
-    approvablePapers.length > 0 && approvablePapers.every((p) => selected.has(p.id));
+  // One selection drives both bulk actions; each filters it to what it can act on.
+  const selectablePapers = visiblePapers.filter(isSelectable);
+  const selectedPapers = selectablePapers.filter((p) => selected.has(p.id));
+  const selectedApprovable = selectedPapers.filter(isApprovable);
+  const allSelected =
+    selectablePapers.length > 0 && selectablePapers.every((p) => selected.has(p.id));
+  const showSelection = (canApprove || canExport) && selectablePapers.length > 0;
+  // Nothing ticked falls back to every authored paper currently listed — the
+  // common case is "give me this whole screen as a ZIP".
+  const zipTargets = selectedPapers.length > 0 ? selectedPapers : selectablePapers;
   const toggleOne = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -87,7 +103,9 @@ export function PaperList({ institutionId, filters, canExport, canApprove, onOpe
       return next;
     });
   const toggleAll = () =>
-    setSelected(allApprovableSelected ? new Set() : new Set(approvablePapers.map((p) => p.id)));
+    setSelected(allSelected ? new Set() : new Set(selectablePapers.map((p) => p.id)));
+  const downloadZip = (layout: 'single' | '2up') =>
+    IaPaperService.downloadPapersZip(zipTargets, layout, papersZipName(filters.cia_round, layout));
   const doApprove = (list: IaQuestionPaper[]) =>
     approve.mutate(
       list.map((p) => ({ id: p.id, base_updated_at: p.updated_at })),
@@ -124,23 +142,58 @@ export function PaperList({ institutionId, filters, canExport, canApprove, onOpe
         </div>
       </div>
 
-      {/* Bulk approve — approvers only. Select all / N, then Approve. */}
-      {canApprove && approvablePapers.length > 0 && (
+      {/* Bulk bar: one selection, two actions. Only authored papers are selectable. */}
+      {showSelection && (
         <div className='flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2'>
-          <label className='flex items-center gap-2 text-sm cursor-pointer select-none'>
-            <Checkbox checked={allApprovableSelected} onCheckedChange={toggleAll} />
-            Select all approvable ({approvablePapers.length})
+          <label className='flex cursor-pointer select-none items-center gap-2 text-sm'>
+            <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
+            Select all authored ({selectablePapers.length})
+            {selected.size > 0 && (
+              <span className='text-xs text-muted-foreground'>· {selectedPapers.length} selected</span>
+            )}
           </label>
-          <Button
-            size='sm'
-            disabled={selectedApprovable.length === 0 || approve.isPending}
-            onClick={() => doApprove(selectedApprovable)}
-          >
-            {approve.isPending
-              ? <Loader2 className='h-4 w-4 mr-1 animate-spin' />
-              : <CheckCircle2 className='h-4 w-4 mr-1' />}
-            Approve ({selectedApprovable.length})
-          </Button>
+          <div className='flex flex-wrap items-center gap-2'>
+            {canExport && (
+              <>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  className='h-8'
+                  disabled={zipTargets.length === 0}
+                  title={
+                    selectedPapers.length > 0
+                      ? `Download ${selectedPapers.length} selected paper(s) as a ZIP`
+                      : 'Download every authored paper listed as a ZIP'
+                  }
+                  onClick={() => downloadZip('single')}
+                >
+                  <FileArchive className='mr-1 h-4 w-4' /> ZIP ({zipTargets.length})
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  className='h-8'
+                  disabled={zipTargets.length === 0}
+                  title='A4 landscape, two identical copies side by side (cut down the middle)'
+                  onClick={() => downloadZip('2up')}
+                >
+                  <FileArchive className='mr-1 h-4 w-4' /> ZIP (2-up)
+                </Button>
+              </>
+            )}
+            {canApprove && (
+              <Button
+                size='sm'
+                disabled={selectedApprovable.length === 0 || approve.isPending}
+                onClick={() => doApprove(selectedApprovable)}
+              >
+                {approve.isPending
+                  ? <Loader2 className='h-4 w-4 mr-1 animate-spin' />
+                  : <CheckCircle2 className='h-4 w-4 mr-1' />}
+                Approve ({selectedApprovable.length})
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -174,8 +227,8 @@ export function PaperList({ institutionId, filters, canExport, canApprove, onOpe
                 }}
                 className='w-full text-left rounded-md border p-3 hover:bg-muted/50 transition-colors flex items-center gap-3 cursor-pointer'
               >
-                {canApprove && isApprovable(p) && (
-                  <span onClick={(e) => e.stopPropagation()} className='shrink-0 flex'>
+                {(canApprove || canExport) && isSelectable(p) && (
+                  <span onClick={(e) => e.stopPropagation()} className='flex shrink-0'>
                     <Checkbox
                       checked={selected.has(p.id)}
                       onCheckedChange={() => toggleOne(p.id)}
@@ -201,16 +254,35 @@ export function PaperList({ institutionId, filters, canExport, canApprove, onOpe
                   {p.max_marks != null ? `${p.max_marks} marks` : ''}
                 </span>
                 {canExport && (
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    className='h-8 px-2 shrink-0'
-                    title={p.authored ? 'Download PDF' : 'Author the paper before exporting'}
-                    disabled={!p.authored}
-                    onClick={(e) => { e.stopPropagation(); IaPaperService.downloadPaperPdf(p.id); }}
-                  >
-                    <Download className='h-4 w-4' />
-                  </Button>
+                  <>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='h-8 shrink-0 px-2'
+                      title={p.authored ? 'Download PDF' : 'Author the paper before exporting'}
+                      disabled={!p.authored}
+                      onClick={(e) => { e.stopPropagation(); IaPaperService.downloadPaperPdf(p.id); }}
+                    >
+                      <Download className='h-4 w-4' />
+                    </Button>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='h-8 shrink-0 px-2'
+                      title={
+                        p.authored
+                          ? 'Download PDF (2-up) — two identical copies per A4 sheet'
+                          : 'Author the paper before exporting'
+                      }
+                      disabled={!p.authored}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        IaPaperService.downloadPaperPdf(p.id, '2up');
+                      }}
+                    >
+                      <Copy className='h-4 w-4' />
+                    </Button>
+                  </>
                 )}
                 {canApprove && isApprovable(p) && (
                   <Button

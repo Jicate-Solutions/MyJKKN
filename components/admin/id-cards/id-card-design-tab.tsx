@@ -27,19 +27,24 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
   backgroundImageUrlOf,
   currentProfileId,
   fetchTemplatesWithLayout,
+  setTemplateActive,
   setTemplateBackground,
   uploadCardBackground,
   type TemplateDesignRow
 } from '@/lib/services/id-cards/template-design-client';
+import { pickPreferredAdminTemplateId } from '@/lib/services/id-cards/template-picker';
 
 export function IdCardDesignTab() {
   const [templates, setTemplates] = useState<TemplateDesignRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string>('');
-  const [busy, setBusy] = useState<'upload' | 'remove' | 'preview' | null>(null);
+  const [busy, setBusy] = useState<
+    'upload' | 'remove' | 'preview' | 'activate' | null
+  >(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -47,10 +52,10 @@ export function IdCardDesignTab() {
     try {
       const rows = await fetchTemplatesWithLayout();
       setTemplates(rows);
-      setSelectedId((prev) => {
-        if (prev && rows.some((r) => r.id === prev)) return prev;
-        return rows[0]?.id ?? '';
-      });
+      // Admin keeps every template, dark ones included — you cannot design a
+      // template you are not allowed to open. Only the DEFAULT prefers an
+      // active one, so a test template no longer opens the tab by sort order.
+      setSelectedId((prev) => pickPreferredAdminTemplateId(rows, prev));
     } catch (err) {
       console.error('[id-cards/design] template load failed:', err);
       setTemplates([]);
@@ -101,6 +106,26 @@ export function IdCardDesignTab() {
       await reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not remove artwork');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onToggleActive = async (next: boolean) => {
+    if (!selected) return;
+    setBusy('activate');
+    try {
+      await setTemplateActive(selected, next);
+      toast.success(
+        next
+          ? 'Template switched on — it now appears in every print picker'
+          : 'Template switched off — it is no longer offered for printing'
+      );
+      await reload();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Could not change availability'
+      );
     } finally {
       setBusy(null);
     }
@@ -167,6 +192,29 @@ export function IdCardDesignTab() {
             {artworkUrl ? 'Custom artwork' : 'Standard design'}
           </Badge>
         )}
+        {selected && !selected.active && (
+          <Badge variant="destructive">
+            Not switched on — will not be offered for printing
+          </Badge>
+        )}
+      </div>
+
+      {/* Availability for printing */}
+      <div className="flex items-center gap-3 rounded-md border p-4">
+        <Switch
+          checked={selected?.active ?? false}
+          onCheckedChange={onToggleActive}
+          disabled={busy !== null || !selected}
+        />
+        <div className="text-sm">
+          <div className="font-medium">Available for printing</div>
+          <div className="text-muted-foreground">
+            Off = this template is hidden from every print picker — the office
+            cannot choose it and cards cannot be queued against it. Design and
+            preview keep working while it is off, so leave it off until the
+            verification print looks right, then switch it on.
+          </div>
+        </div>
       </div>
 
       {/* Current artwork */}

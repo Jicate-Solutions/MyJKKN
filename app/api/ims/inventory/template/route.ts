@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
     // with no column-style inheritance. eachCell is then reliable over all 24.
     // Height 40 accommodates wrapped long headers (e.g. "Sellable to Students").
     const headerRow = ws.addRow([
-      'Item Code *', 'Item Name *', 'Description', 'Category Name',
+      'Item Code', 'Item Name *', 'Description', 'Category Name',
       'Item Type', 'Base Unit', 'Purchase Unit', 'Sale Unit', 'Indent Unit',
       'HSN Code', 'GST Rate (%)', 'Cost Price', 'MRP', 'Selling Price',
       'Reorder Level', 'Max Stock Level', 'Track Batch', 'Track Expiry',
@@ -127,7 +127,9 @@ export async function GET(request: NextRequest) {
     const sampleUnit = unitDisplayStrings[0] || 'Piece (pcs)';
 
     ws.addRow({
-      code:           'ITM-001',
+      // Blank on purpose: the sample row demonstrates the default, which is now
+      // "leave it and one will be assigned".
+      code:           '',
       name:           'Sample Item Name',
       description:    'Optional description of the item',
       category_name:  sampleCategory,
@@ -365,8 +367,11 @@ export async function GET(request: NextRequest) {
       'IMS INVENTORY BULK IMPORT — INSTRUCTIONS',
       '',
       '1. REQUIRED FIELDS (marked with * in the header):',
-      '   A  Item Code         — Unique code per store (letters, numbers, _ or -)',
       '   B  Item Name         — Full item name',
+      '',
+      '   A  Item Code         — LEAVE BLANK to have one assigned automatically.',
+      '                          Fill it in only to keep a code you already use.',
+      '                          Letters, numbers, _ or - ; unique per INSTITUTION.',
       '',
       '2. RECOMMENDED FIELDS (leave blank for defaults):',
       '   D  Category Name     — Must match an existing category if provided (use dropdown). Default: none',
@@ -395,8 +400,9 @@ export async function GET(request: NextRequest) {
       '   X  Expiry Date       — Format: YYYY-MM-DD. Used if Opening Stock > 0',
       '',
       '4. IMPORTANT NOTES:',
-      '   - Only Code and Name are required — all other fields have defaults',
-      '   - Item Codes must be unique within the store (case-insensitive)',
+      '   - Only Name is required — Item Code is assigned if you leave it blank,',
+      '     and every other field has a default',
+      '   - A supplied Item Code must be unique within the INSTITUTION (case-insensitive)',
       '   - Categories in the dropdown are scoped to this store',
       '   - Units are global across all stores',
       '   - Opening Stock (col V) creates initial stock records; Batch Number and Expiry Date are ignored if Opening Stock = 0',

@@ -22,6 +22,9 @@ import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
 
+import { selectBusyCalendarIds, FREEBUSY_MAX_CALENDARS } from './google-busy-calendars';
+import type { GoogleCalendarListEntry } from './google-busy-calendars';
+
 const LOG_PREFIX = '[google-calendar]';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -33,6 +36,11 @@ const SCOPES = [
   'email',
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/calendar.freebusy',
+  // Lists WHICH calendars the host has, so busy-checking is not limited to
+  // 'primary'. The narrowest of the four scopes Google accepts for
+  // calendarList.list — it grants the list only, not the events inside them
+  // (calendar.readonly would have granted both).
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
 ].join(' ');
 
 /** OAuth state tokens older than this are rejected. */
@@ -71,6 +79,15 @@ export type HostBusyResult =
   | { status: 'none' }
   /** Connection exists but the check failed — caller must FAIL CLOSED (D19). */
   | { status: 'failed' };
+
+// The calendar-selection rule lives in its own dependency-free module so it can
+// be unit-tested without importing this service's transitive graph. Re-exported
+// here so existing call sites keep working.
+export {
+  selectBusyCalendarIds,
+  FREEBUSY_MAX_CALENDARS,
+  type GoogleCalendarListEntry,
+} from './google-busy-calendars';
 
 export interface CreateEventInput {
   summary: string;
@@ -250,6 +267,15 @@ export class GoogleCalendarService {
       .eq('host_profile_id', hostProfileId)
       .eq('auto_hidden', true);
 
+    // Re-consent may have granted the calendar-list scope, so forget any earlier
+    // "no" and let the next busy-check find out. Without this reset a host who
+    // reconnects specifically to fix their coverage stays stuck on primary-only
+    // forever — silently, since reduced protection still returns slots.
+    await supabase
+      .from('meeting_host_google_connections')
+      .update({ calendar_list_scope: null })
+      .eq('host_profile_id', hostProfileId);
+
     // Start the inbound push-notification watch so calendar-side edits sync
     // back immediately. Best-effort: a watch failure (e.g. unverified webhook
     // domain) must not fail the connection — the daily cron retries it.
@@ -333,22 +359,54 @@ export class GoogleCalendarService {
     const token = await this.accessTokenForHost(supabase, hostProfileId);
     if (!token) return { status: 'failed' };
 
+    // Which calendars count as busy? Everything the host owns and shows — not
+    // just 'primary'. A meeting kept on a second calendar used to be invisible
+    // here, so the engine called the host free and offered the slot to a
+    // stranger. `calendarIdsForHost` returns ['primary'] for connections that
+    // predate the calendarList scope, which is exactly the old behaviour.
+    const { ids, reduced } = await this.calendarIdsForHost(supabase, hostProfileId, token);
+
     const res = await fetch(`${CAL_BASE}/freeBusy`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timeMin: fromIso, timeMax: toIso, items: [{ id: 'primary' }] }),
+      body: JSON.stringify({
+        timeMin: fromIso,
+        timeMax: toIso,
+        items: ids.map((id) => ({ id })),
+      }),
     });
     if (!res.ok) {
       console.error(`${LOG_PREFIX} freeBusy failed for ${hostProfileId}:`, res.status);
       return { status: 'failed' };
     }
     const json = (await res.json()) as {
-      calendars?: { primary?: { busy?: GoogleBusyRange[]; errors?: unknown[] } };
+      calendars?: Record<string, { busy?: GoogleBusyRange[]; errors?: unknown[] }>;
     };
-    const cal = json.calendars?.primary;
-    if (!cal || (cal.errors && cal.errors.length)) {
-      console.error(`${LOG_PREFIX} freeBusy returned errors for ${hostProfileId}`);
-      return { status: 'failed' };
+
+    const calendars = json.calendars ?? {};
+    const busy: GoogleBusyRange[] = [];
+
+    for (const id of ids) {
+      const cal = calendars[id];
+      // Fail CLOSED on any calendar we asked about but could not read. Skipping
+      // it would mean treating "unknown" as "free", which is the exact bug this
+      // change exists to remove — now with the calendar NAMED, so the failure is
+      // diagnosable instead of a mystery empty slot list.
+      if (!cal || (cal.errors && cal.errors.length)) {
+        console.error(
+          `${LOG_PREFIX} freeBusy could not read calendar ${id} for ${hostProfileId} — failing closed`,
+        );
+        return { status: 'failed' };
+      }
+      busy.push(...(cal.busy ?? []));
+    }
+
+    if (reduced) {
+      // Not an error, but never silent: this host is protected on one calendar
+      // only until they reconnect and grant the calendar-list scope.
+      console.warn(
+        `${LOG_PREFIX} ${hostProfileId} checked PRIMARY ONLY — reconnect Google to cover every calendar`,
+      );
     }
 
     // Health bookkeeping (best effort — never blocks the read).
@@ -357,7 +415,89 @@ export class GoogleCalendarService {
       .update({ last_ok_at: new Date().toISOString() })
       .eq('host_profile_id', hostProfileId);
 
-    return { status: 'ok', busy: cal.busy ?? [] };
+    return { status: 'ok', busy };
+  }
+
+  /**
+   * The calendar ids to busy-check for this host.
+   *
+   * Connections created before the calendar-list scope existed cannot call
+   * calendarList.list at all, and /meet slots is a public hot path — probing
+   * Google for a guaranteed 403 on every page load would be a wasted round trip
+   * per visitor. So the answer is cached on the connection row:
+   *
+   *   NULL   not yet probed → try once, record what happened
+   *   true   list it every time
+   *   false  do not try again until the host reconnects (which resets it to NULL)
+   *
+   * Never throws. Any failure degrades to ['primary'] — today's behaviour — with
+   * `reduced` set so the caller can say so out loud.
+   */
+  private static async calendarIdsForHost(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    token: string,
+  ): Promise<{ ids: string[]; reduced: boolean }> {
+    const PRIMARY_ONLY = { ids: ['primary'], reduced: true };
+
+    try {
+      const { data: conn } = await supabase
+        .from('meeting_host_google_connections')
+        .select('calendar_list_scope')
+        .eq('host_profile_id', hostProfileId)
+        .maybeSingle();
+
+      // Known not to have the scope — skip the round trip.
+      if (conn?.calendar_list_scope === false) return PRIMARY_ONLY;
+
+      const res = await fetch(
+        `${CAL_BASE}/users/me/calendarList?minAccessRole=owner&showHidden=false&maxResults=250`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      if (res.status === 401 || res.status === 403) {
+        // The connection predates the scope. Record it so this costs one call
+        // per host, ever — not one per booking-page visit.
+        await supabase
+          .from('meeting_host_google_connections')
+          .update({ calendar_list_scope: false })
+          .eq('host_profile_id', hostProfileId);
+        console.warn(
+          `${LOG_PREFIX} ${hostProfileId} cannot list calendars (${res.status}) — primary only until reconnect`,
+        );
+        return PRIMARY_ONLY;
+      }
+
+      if (!res.ok) {
+        // A transient failure is NOT recorded as "no scope" — that would
+        // permanently downgrade a host over one bad minute.
+        console.error(`${LOG_PREFIX} calendarList failed for ${hostProfileId}:`, res.status);
+        return PRIMARY_ONLY;
+      }
+
+      const json = (await res.json()) as { items?: GoogleCalendarListEntry[] };
+      const { ids, truncated } = selectBusyCalendarIds(json.items ?? []);
+
+      if (truncated > 0) {
+        // Never cap silently: the calendars we dropped are ones the engine will
+        // treat as free.
+        console.warn(
+          `${LOG_PREFIX} ${hostProfileId} has more than ${FREEBUSY_MAX_CALENDARS} eligible calendars — ${truncated} not checked`,
+        );
+      }
+
+      if (conn?.calendar_list_scope !== true) {
+        await supabase
+          .from('meeting_host_google_connections')
+          .update({ calendar_list_scope: true })
+          .eq('host_profile_id', hostProfileId);
+      }
+
+      return { ids, reduced: false };
+    } catch (err) {
+      console.error(`${LOG_PREFIX} calendarList threw for ${hostProfileId}:`, err);
+      return PRIMARY_ONLY;
+    }
   }
 
   /** Calendar event for a booking; attendee is invited by Google itself. */
@@ -437,6 +577,126 @@ export class GoogleCalendarService {
   }
 
   /**
+   * Add Google Meet conferencing to an EXISTING event, optionally moving it in
+   * the same call. This is what turns a face-to-face booking into an online one
+   * without cancelling and re-inviting.
+   *
+   * Why a sibling of patchEventTime rather than a flag on it: patchEventTime
+   * PATCHes with `?sendUpdates=all` but no `conferenceDataVersion=1`, and
+   * without that parameter Google IGNORES conferenceData entirely — the method
+   * structurally cannot add conferencing. The version parameter changes how the
+   * whole request body is interpreted, so it is a different call, not an option.
+   *
+   * Start/end are patched in the SAME request when supplied. That is deliberate:
+   * a switch that also moves the meeting must be all-or-nothing, and one PATCH
+   * either lands or does not — two calls can half-fail and leave an online
+   * meeting at the old time (or a moved meeting with no link).
+   *
+   * `sendUpdates=all` makes Google update the attendee's EXISTING calendar entry
+   * in place and notify them, which is exactly the "one email, no cancellation"
+   * behaviour this feature promises. Do not follow this with a cancel.
+   *
+   * Returns { ok, meetUrl }. A patch that succeeds but yields no Meet link is
+   * reported as ok:true with meetUrl:null — the caller decides what that means
+   * (for the mode switch it is a failure; see meeting-mode-switch-service.ts).
+   */
+  static async patchEventToOnline(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    opts: { startIso?: string | null; endIso?: string | null; timezone?: string | null } = {},
+  ): Promise<{ ok: boolean; meetUrl: string | null }> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return { ok: false, meetUrl: null };
+
+    const body: Record<string, unknown> = {
+      conferenceData: {
+        createRequest: {
+          requestId: crypto.randomBytes(8).toString('hex'),
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        },
+      },
+    };
+    if (opts.startIso && opts.endIso) {
+      const tz = opts.timezone ?? undefined;
+      body.start = { dateTime: opts.startIso, timeZone: tz };
+      body.end = { dateTime: opts.endIso, timeZone: tz };
+    }
+
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}` +
+        `?conferenceDataVersion=1&sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(`${LOG_PREFIX} event online-patch failed:`, res.status, text.slice(0, 200));
+      return { ok: false, meetUrl: null };
+    }
+    const json = (await res.json()) as {
+      hangoutLink?: string;
+      conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
+    };
+    return { ok: true, meetUrl: extractMeetUrl(json) };
+  }
+
+  /**
+   * Undo patchEventToOnline: strip the conferencing back off an event and, when
+   * the same patch moved it, put it back at its original time.
+   *
+   * This exists for ONE caller — the mode switch's rollback. patchEventToOnline
+   * can succeed and still yield no Meet link, and at that point Google has
+   * already been changed and (via sendUpdates=all) has already emailed the
+   * visitor. Reverting only the database would leave the calendar saying "video
+   * call" while the booking says "in person", so the rollback has to reach both.
+   *
+   * `conferenceData: null` is how conferencing is REMOVED, and it needs
+   * conferenceDataVersion=1 exactly as adding it does — without that parameter
+   * Google ignores the field and the conferencing silently stays.
+   *
+   * sendUpdates=all again, deliberately: the visitor was already told the
+   * meeting moved online, so correcting their calendar entry in place is the
+   * honest close. It is a second mail only on this rare failure path — the
+   * successful switch is still the one email decision 9 promises.
+   */
+  static async revertEventFromOnline(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    opts: { startIso?: string | null; endIso?: string | null; timezone?: string | null } = {},
+  ): Promise<boolean> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return false;
+
+    const body: Record<string, unknown> = { conferenceData: null };
+    if (opts.startIso && opts.endIso) {
+      const tz = opts.timezone ?? undefined;
+      body.start = { dateTime: opts.startIso, timeZone: tz };
+      body.end = { dateTime: opts.endIso, timeZone: tz };
+    }
+
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}` +
+        `?conferenceDataVersion=1&sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(`${LOG_PREFIX} event online-revert failed:`, res.status, text.slice(0, 200));
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Mark a cancelled booking's event as cancelled but KEEP it on the host's
    * calendar — renamed ("Cancelled: …") and freed (transparent so it no longer
    * blocks time), for record-keeping. Mirrors the old Calendly behaviour the
@@ -465,6 +725,47 @@ export class GoogleCalendarService {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Rename an existing event WITHOUT notifying anybody.
+   *
+   * Every other write in this file sends `sendUpdates=all`, deliberately: they
+   * each change something the attendee agreed to — the time, the place, whether
+   * it still exists — so telling them is the honest close. A rename is the one
+   * change that is purely for the host. The meeting is at the same hour, in the
+   * same place, with the same people; only the words on the host's row differ.
+   * Mailing an external guest "your meeting was updated" for that is noise that
+   * costs their trust and tells them nothing, so this method sends
+   * `sendUpdates=none` and that is the whole reason it is a separate method
+   * rather than a flag on markEventCancelled.
+   *
+   * Built for the guest-first retitle backfill
+   * (scripts/retitle-calendar-events-guest-first.ts), which walks events booked
+   * before the title order was fixed. Best effort: 404/410 means the event is
+   * already gone, which needs no rename and is not an error.
+   */
+  static async patchEventSummarySilently(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    summary: string,
+  ): Promise<boolean> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return false;
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary }),
+      },
+    );
+    if (!res.ok && res.status !== 410 && res.status !== 404) {
+      console.error(`${LOG_PREFIX} event retitle failed:`, res.status);
+      return false;
+    }
+    return res.ok;
   }
 
   /** Delete the calendar event for a cancelled booking (best effort). */
@@ -788,13 +1089,28 @@ export class GoogleCalendarService {
    * a confirmed booking directly. Returns:
    *   'gone'  — 404/410 or status=cancelled (the event no longer exists);
    *   null    — transient failure (caller must NOT change the booking);
-   *   object  — the live start/end.
+   *   object  — the live start/end, plus the Meet link if the event has one.
+   *
+   * meetUrl and summary are additive: the reconcile cron ignores both, the mode
+   * switch uses this call to re-read an event whose PATCH response carried no
+   * link yet (Google often provisions conferenceData a moment after it
+   * answers), and the guest-first retitle backfill reads summary to see what an
+   * event is called today before deciding whether to touch it.
    */
   static async getEvent(
     supabase: SupabaseClient,
     hostProfileId: string,
     eventId: string,
-  ): Promise<{ startIso: string | null; endIso: string | null } | 'gone' | null> {
+  ): Promise<
+    | {
+        startIso: string | null;
+        endIso: string | null;
+        meetUrl: string | null;
+        summary: string | null;
+      }
+    | 'gone'
+    | null
+  > {
     const token = await this.accessTokenForHost(supabase, hostProfileId);
     if (!token) return null;
     const res = await fetch(
@@ -805,11 +1121,19 @@ export class GoogleCalendarService {
     if (!res.ok) return null;
     const ev = (await res.json()) as {
       status?: string;
+      summary?: string;
       start?: { dateTime?: string };
       end?: { dateTime?: string };
+      hangoutLink?: string;
+      conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
     };
     if (ev.status === 'cancelled') return 'gone';
-    return { startIso: ev.start?.dateTime ?? null, endIso: ev.end?.dateTime ?? null };
+    return {
+      startIso: ev.start?.dateTime ?? null,
+      endIso: ev.end?.dateTime ?? null,
+      meetUrl: extractMeetUrl(ev),
+      summary: ev.summary ?? null,
+    };
   }
 }
 

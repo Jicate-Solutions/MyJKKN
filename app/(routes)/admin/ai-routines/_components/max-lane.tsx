@@ -105,11 +105,90 @@ function statusText(request: MaxLaneRequest): string {
   }
 }
 
-/** One-line muted note shown near the schedule line on Max-lane cards. */
-export function MaxLaneNote() {
+/**
+ * What MaxLaneNote reads off the routine's `maxlane:<id>` schedule row.
+ *
+ * `max_only` is not declared on the exported `ScheduleRow` type (schedule-editor.tsx),
+ * but it IS delivered to the browser: GET /api/admin/ai-routines/schedule returns
+ * fn_ai_routine_schedules_list's rows unchanged, and that function is
+ * `RETURNS SETOF ai_routine_schedules` — every column of the table ships, and
+ * `max_only boolean DEFAULT false` is one of them. Declared optional here so a
+ * plain ScheduleRow satisfies this shape without editing the shared type.
+ */
+export type MaxLaneNoteSchedule = {
+  enabled: boolean;
+  max_only?: boolean | null;
+};
+
+/**
+ * Routine ids whose OWN cloud handler calls `shouldDeferToMaxLane(<id>)`
+ * UNCONDITIONALLY and, when it answers true, returns having done none of the
+ * routine's work. For exactly these routines the `maxlane:<id>` row decides
+ * whether the cloud path runs at all, so the row can be described honestly.
+ *
+ * Derived by grepping every call site in the repo (2026-07-30):
+ *
+ *   app/api/cron/ai-pulse-anomaly-scan/route.ts:99
+ *     if (await shouldDeferToMaxLane('ai-pulse-anomaly-scan')) {   ← unconditional
+ *
+ * Every OTHER call site is deliberately excluded, because the row does NOT
+ * decide the cloud path there:
+ *
+ *   • Six are gated on a platform policy the browser cannot see —
+ *     `if (lane === 'direct' && (await shouldDeferToMaxLane('<id>')))` in
+ *     scf-learner-notes:242, curriculum-lesson-spine-generate:472,
+ *     scf-generate-suggestions:663, session-feedback-escalation:175,
+ *     induction-generate-playbook:316, induction-session-effectiveness:171.
+ *     All six `loops.*.generation_lane` policies are 'jobs' in production, so
+ *     the guard is never reached and the cloud cron runs regardless of the row.
+ *   • analyze-voice-memos:380 defers only its SENTIMENT stage; the cloud cron
+ *     still runs and still transcribes, so "the cloud path stands down" is false.
+ *   • The remaining `maxLane: true` routines never call the guard at all (e.g.
+ *     admission-counselor-briefing is a plain vercel.json cron), so `max_only`
+ *     on their row changes nothing about the cloud path.
+ *
+ * For anything not in this set the honest answer is "unknown", and MaxLaneNote
+ * renders nothing rather than asserting a fallback that may not exist. If a
+ * routine's cron later gains an unconditional guard, add its id here.
+ */
+const CLOUD_CRON_DEFERS_TO_MAX_LANE = new Set<string>(['ai-pulse-anomaly-scan']);
+
+/**
+ * The note text, mirroring lib/services/platform/max-lane-deferral.ts exactly:
+ *   • row missing or disabled → `if (!laneRow?.enabled) return false` → cloud runs.
+ *   • max_only = true         → guard returns true unconditionally → cloud stands down.
+ *   • max_only = false        → heartbeat-gated → cloud is a live backup that
+ *                               reclaims the work as soon as the pulse goes stale.
+ * Returns null when the routine's cloud path does not consult the guard.
+ */
+function maxLaneNoteText(routineId: string, schedule?: MaxLaneNoteSchedule): string | null {
+  if (!CLOUD_CRON_DEFERS_TO_MAX_LANE.has(routineId)) return null;
+  if (!schedule?.enabled) return 'Max lane not scheduled — the cloud cron runs this';
+  if (schedule.max_only === true) return 'Max lane only — the cloud cron stands down';
+  return 'Max lane, with the cloud cron as a live backup';
+}
+
+/**
+ * One-line muted note shown near the schedule line on Max-lane cards.
+ *
+ * This used to be the fixed string "Max lane: scheduled + fallback API cron" on
+ * every Max-lane card, with no props and no data behind it. It was false in the
+ * dangerous direction — it promised an operator that a dead Max lane would be
+ * covered by a cloud cron, for routines where no such fallback relationship
+ * exists in either direction. It now renders only where the code proves it.
+ */
+export function MaxLaneNote({
+  routineId,
+  schedule,
+}: {
+  routineId: string;
+  schedule?: MaxLaneNoteSchedule;
+}) {
+  const text = maxLaneNoteText(routineId, schedule);
+  if (!text) return null;
   return (
     <span className="flex items-center gap-1 text-muted-foreground/80">
-      <Zap className="h-3.5 w-3.5" /> Max lane: scheduled + fallback API cron
+      <Zap className="h-3.5 w-3.5" /> {text}
     </span>
   );
 }

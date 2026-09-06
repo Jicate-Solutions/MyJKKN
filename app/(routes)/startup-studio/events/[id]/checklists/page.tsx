@@ -38,17 +38,18 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
   const { id } = use(params);
   const router = useRouter();
 
-  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params
+  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params.
+  //
+  // THE EARLY RETURN FOR THIS LIVES AT THE BOTTOM, BELOW EVERY HOOK. It used to
+  // sit here, which is a rules-of-hooks violation: React tags each fiber with
+  // static flags recording which hook KINDS a component uses and treats them as
+  // immutable, so a render that returns here followed by one that reaches the
+  // hooks trips "Internal React error: Expected static flag was missing".
+  //
+  // Running the hooks with a placeholder id is free — useEvent and every query
+  // below gate their own `enabled` on isValidUUID / isValidId, so nothing
+  // fetches until the real id arrives.
   const isValidId = !!id && !id.includes('%%drp:') && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-  if (!isValidId) {
-    return (
-      <ContentLayout title="Checklists">
-        <div className="flex items-center justify-center min-h-[40vh]">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      </ContentLayout>
-    );
-  }
 
   const { data: event } = useEvent(id);
   const { profile, isLoading: authLoading } = useAuth();
@@ -62,7 +63,9 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
   const { data: checklists = [], isLoading } = useQuery({
     queryKey: ['event-checklists', id],
     queryFn: () => EventChecklistService.getChecklists(id),
-    enabled: !authLoading && !!id,
+    // isValidId, not just !!id: a '%%drp:...' placeholder is truthy and would
+    // otherwise fire a request for an id that is not a UUID.
+    enabled: isValidId && !authLoading,
     staleTime: 15 * 1000,
   });
 
@@ -109,6 +112,18 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
     },
     onError: () => toast.error('Failed to add item'),
   });
+
+  // Every hook has now run, so the placeholder-id bail-out is safe here and
+  // nowhere above. See the note beside isValidId.
+  if (!isValidId) {
+    return (
+      <ContentLayout title="Checklists">
+        <div className="flex items-center justify-center min-h-[40vh]">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   // Flatten all items grouped by phase with counts
   const phaseCounts: Record<ChecklistPhase, { total: number; done: number }> = {

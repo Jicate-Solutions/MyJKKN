@@ -45,13 +45,17 @@ const RESIDENT_EXPORT_COLUMNS: ReadonlyArray<{
   { key: 'gender', label: 'Gender', width: 10 },
   { key: 'student_email', label: 'Student Email', width: 28 },
   { key: 'college_email', label: 'College Email', width: 28 },
+  { key: 'student_mobile', label: 'Student Mobile', width: 16 },
   { key: 'father_name', label: 'Father Name', width: 22 },
+  { key: 'father_mobile', label: 'Father Mobile', width: 16 },
   { key: 'mother_name', label: 'Mother Name', width: 22 },
+  { key: 'mother_mobile', label: 'Mother Mobile', width: 16 },
   { key: 'institution_name', label: 'Institution', width: 28 },
   { key: 'program', label: 'Program', width: 26 },
   { key: 'degree', label: 'Degree', width: 18 },
   { key: 'semester', label: 'Semester', width: 14 },
   { key: 'academic_year', label: 'Academic Year', width: 16 },
+  { key: 'admission_year', label: 'Admission Year', width: 14 },
   { key: 'year_of_study', label: 'Year of Study', width: 12 },
   { key: 'block', label: 'Block', width: 20 },
   { key: 'block_code', label: 'Block Code', width: 12 },
@@ -70,15 +74,29 @@ const RESIDENT_EXPORT_COLUMNS: ReadonlyArray<{
   { key: 'bill_academic_year', label: 'Billing Academic Year', width: 18 },
 ];
 
-// PDF gets a printable SUBSET of the 28 spreadsheet columns — an A4 page can't
-// carry the full detail set legibly (emails, parent names and the billing
-// rollup collapse to unreadable slivers). These are the roster fields a warden
-// actually needs on paper: who they are, where they live, and whether they've
-// paid. CSV/XLSX still export everything.
+// PDF gets a printable SUBSET of the spreadsheet columns — an A4 page can't
+// carry the full detail set legibly (emails and the billing rollup collapse to
+// unreadable slivers). These are the roster fields a warden actually needs on
+// paper: who they are, how to reach them and their parents, where they live,
+// and whether they've paid. CSV/XLSX still export everything.
+//
+// Contact numbers added 2026-09-02 on request. Note the cost: exportToPDF sizes
+// its font off the column count (`keys.length > 14 ? 5.5 : > 10 ? 6.5 : …` in
+// components/data-table/utils/export-utils.ts), so going from 12 keys to 15
+// crosses the >14 threshold and drops the body text from 6.5pt to 5.5pt. That
+// is the whole reason this list is curated rather than just being every column.
+// If the print is too small, dropping ONE key here (mess_category_name is the
+// least load-bearing on a call-list) puts it back at 6.5pt. autoTable assigns
+// no fixed cellWidth and uses overflow:'linebreak', so nothing overflows the
+// page either way — it only gets denser.
 const RESIDENT_PDF_KEYS = [
   'roll_no',
   'full_name',
   'gender',
+  'student_mobile',
+  'father_name',
+  'father_mobile',
+  'mother_mobile',
   'institution_name',
   'program',
   'year_of_study',
@@ -86,9 +104,17 @@ const RESIDENT_PDF_KEYS = [
   'room',
   'bed',
   'room_category_name',
-  'mess_category_name',
   'payment_status',
 ];
+
+// Contact numbers are stored as '' rather than NULL on a few rows (6 of the 754
+// current residents have no parent mobile at all), and an empty string exports
+// as a cell that reads as populated. Collapse both to null so a blank is
+// visibly blank in the sheet and on the printed roster.
+const blankToNull = (v: string | null | undefined): string | null => {
+  const t = v?.trim();
+  return t ? t : null;
+};
 
 const RESIDENT_EXPORT_HEADERS = RESIDENT_EXPORT_COLUMNS.map((c) => c.key);
 const RESIDENT_EXPORT_MAPPING: Record<string, string> = Object.fromEntries(
@@ -159,6 +185,11 @@ export function LearnersTab() {
     if (g('room_id')) f.room_id = g('room_id');
     const y = g('year_of_study');
     if (y) f.year_of_study = Number(y);
+    // Cohort year. Guarded on Number.isInteger rather than truthiness so a
+    // hand-edited ?admission_year=abc becomes "no filter" instead of a NaN that
+    // PostgREST would reject.
+    const ay = Number(g('admission_year'));
+    if (Number.isInteger(ay)) f.admission_year = ay;
     return f;
   }, [searchParams, isSuperAdmin]);
 
@@ -245,13 +276,20 @@ export function LearnersTab() {
           gender: row.gender ?? null,
           student_email: row.student_email ?? null,
           college_email: row.college_email ?? null,
+          // `??` is wrong for these three: a handful of learners_profiles rows
+          // store '' rather than NULL, and an empty string would export as a
+          // cell that looks filled. blankToNull collapses both to a real blank.
+          student_mobile: blankToNull(row.student_mobile),
           father_name: row.father_name ?? null,
+          father_mobile: blankToNull(row.father_mobile),
           mother_name: row.mother_name ?? null,
+          mother_mobile: blankToNull(row.mother_mobile),
           institution_name: inst && inst !== '—' ? inst : null,
           program: row.program_name ?? null,
           degree: row.degree_name ?? null,
           semester: row.semester_name ?? null,
           academic_year: row.academic_year_name ?? null,
+          admission_year: row.program_start_year ?? null,
           year_of_study: row.year_of_study ?? null,
           block: row.current_block_name ?? null,
           block_code: row.current_block_code ?? null,

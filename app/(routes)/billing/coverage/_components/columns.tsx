@@ -18,7 +18,8 @@ import type { BillCoverageRow } from '@/types/billing-coverage';
 // Any column outside the whitelist is therefore enableSorting: false.
 // Whitelist: full_name, roll_number, register_number, institution_name,
 // program_name, semester_section, academic_year_name, accommodation_type,
-// lifecycle_status, gender, coverage_state, bill_count, total_billed.
+// lifecycle_status, gender, coverage_state, bill_count, total_billed,
+// total_paid, admission_year.
 
 // ── Sizing ─────────────────────────────────────────────────────────────────
 // Widths are set per column rather than left to auto so the grid is readable
@@ -26,26 +27,54 @@ import type { BillCoverageRow } from '@/types/billing-coverage';
 // people actually scan, so they get the most room; identifiers and counts are
 // kept narrow to buy that space back. All remain resizable.
 
-/** Coverage is the column the page exists for — highest-contrast treatment. */
-function coverageBadge(state: BillCoverageRow['coverage_state']) {
-  if (state === 'generated') {
-    return (
+/**
+ * Coverage is the column the page exists for — highest-contrast treatment.
+ *
+ * The measured year rides underneath the badge on purpose. "Not generated" is
+ * meaningless without the year it is relative to, and the row's own Academic
+ * Year column is the LEARNER's year, which can differ. Showing only that is how
+ * the 2026-08-08 bug stayed invisible: rows read "2025-2026 / Not generated"
+ * while the bill sat in 2026-2027, and looked perfectly self-consistent.
+ */
+function coverageBadge(row: BillCoverageRow) {
+  const badge =
+    row.coverage_state === 'generated' ? (
       <Badge className='border-transparent bg-emerald-600 text-white hover:bg-emerald-700'>
         Generated
       </Badge>
-    );
-  }
-  if (state === 'cannot_evaluate') {
-    return (
+    ) : row.coverage_state === 'cannot_evaluate' ? (
       <Badge className='border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300'>
         Cannot evaluate
       </Badge>
+    ) : row.coverage_state === 'not_applicable' ? (
+      // Not a gap and not a pass: the measured year is simply outside this
+      // learner's course. Muted so it never competes with the orange that
+      // marks actual work.
+      <Badge className='border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400'>
+        Programme ended
+      </Badge>
+    ) : (
+      <Badge className='border-transparent bg-orange-500 text-white hover:bg-orange-600'>
+        Not generated
+      </Badge>
     );
-  }
+
   return (
-    <Badge className='border-transparent bg-orange-500 text-white hover:bg-orange-600'>
-      Not generated
-    </Badge>
+    <div className='space-y-0.5'>
+      {badge}
+      {row.target_academic_year_name && (
+        <div className='text-[11px] text-muted-foreground'>
+          for {row.target_academic_year_name}
+        </div>
+      )}
+      {/* The reason the badge above says what it says. Without the end year on
+          the row, "Programme ended" is an assertion the reader cannot check. */}
+      {row.coverage_state === 'not_applicable' && row.programme_end_year && (
+        <div className='text-[11px] text-muted-foreground'>
+          course ran to {row.programme_end_year}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -151,7 +180,7 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
     size: 165,
     minSize: 145,
     maxSize: 220,
-    cell: ({ row }) => coverageBadge(row.original.coverage_state)
+    cell: ({ row }) => coverageBadge(row.original)
   },
   {
     accessorKey: 'institution_name',
@@ -207,8 +236,12 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
   {
     accessorKey: 'academic_year_name',
     id: 'academic_year_name',
+    // "Learner Year", not "Academic Year": this is the year on the LEARNER's
+    // profile, which routinely lags the year their bills are raised for. The
+    // year coverage is measured against sits under the Coverage badge. The id
+    // must stay academic_year_name — it is in the RPC's sort whitelist.
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Academic Year' />
+      <DataTableColumnHeader column={column} title='Learner Year' />
     ),
     size: 135,
     minSize: 115,
@@ -218,6 +251,63 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
         {row.original.academic_year_name ?? '—'}
       </span>
     )
+  },
+  {
+    accessorKey: 'admission_year',
+    id: 'admission_year',
+    // The third year on this row, and the only one that never rolls over — it
+    // is what the Admission Year filter narrows on. Kept next to Learner Year
+    // so a mismatch between the two (a 2023 cohort still sitting in a first-year
+    // academic year) is visible rather than something you have to go looking for.
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Admission Year' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 180,
+    cell: ({ row }) => (
+      <span className='whitespace-nowrap tabular-nums'>
+        {row.original.admission_year ?? '—'}
+      </span>
+    )
+  },
+  {
+    // Sits beside Admission Year because the two together are the whole rule:
+    // cohort + duration is what decides whether a year is owed at all. Not
+    // sortable — outside the RPC's sort whitelist.
+    accessorKey: 'programme_end_year',
+    id: 'programme_end_year',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Programme Ends' />
+    ),
+    size: 150,
+    minSize: 125,
+    maxSize: 190,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const r = row.original;
+      if (!r.programme_end_year) {
+        return (
+          <span
+            className='text-xs text-muted-foreground'
+            title='programs.program_duration_yrs is not set for this programme, so its end year cannot be derived'
+          >
+            No duration set
+          </span>
+        );
+      }
+      return (
+        <span className='whitespace-nowrap tabular-nums'>
+          {r.programme_end_year}
+          {r.program_duration_yrs != null && (
+            <span className='text-muted-foreground'>
+              {' '}
+              ({r.program_duration_yrs}y)
+            </span>
+          )}
+        </span>
+      );
+    }
   },
   {
     accessorKey: 'accommodation_type',
@@ -305,6 +395,29 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
       <div className='text-right font-medium tabular-nums'>
         {row.original.total_billed > 0 ? (
           formatCurrency(row.original.total_billed)
+        ) : (
+          <span className='font-normal text-muted-foreground'>—</span>
+        )}
+      </div>
+    )
+  },
+  {
+    accessorKey: 'total_paid',
+    id: 'total_paid',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Total Paid' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 190,
+    // Settled against the SAME bills Total Billed sums, so the two read as a
+    // pair and the balance is the difference. A learner with bills but no
+    // receipt shows ₹0, not an em dash — "nothing paid yet" is a real finding
+    // on this screen, while "no bill at all" is what the dash means.
+    cell: ({ row }) => (
+      <div className='text-right font-medium tabular-nums'>
+        {row.original.bill_count > 0 ? (
+          formatCurrency(row.original.total_paid)
         ) : (
           <span className='font-normal text-muted-foreground'>—</span>
         )}

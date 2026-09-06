@@ -9,7 +9,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // ── Mock ActivityService so we never touch the DB ────────────────────────────
-const createActivity = vi.fn();
+// `vi.mock` is hoisted above every top-level statement, so a plain
+// `const createActivity = vi.fn()` is still in its temporal dead zone when the
+// factory runs — the whole file then dies at import with "Cannot access
+// 'createActivity' before initialization" and every test in it silently stops
+// existing. `vi.hoisted` is the supported way to build a mock value that the
+// factory can legally reach.
+const { createActivity } = vi.hoisted(() => ({ createActivity: vi.fn() }));
 vi.mock('@/lib/services/admission/activity-service', () => ({
   ActivityService: { createActivity },
 }));

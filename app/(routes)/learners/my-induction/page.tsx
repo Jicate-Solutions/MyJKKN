@@ -13,6 +13,7 @@ import { SessionsLedCard } from './_components/sessions-led-card';
 import { SeniorPeerMentorCard } from './_components/senior-peer-mentor-card';
 import { InductionPulseBanner } from './_components/induction-pulse-banner';
 import { SessionPollBanner } from './_components/session-poll-banner';
+import { SessionQuestionBanner } from './_components/session-question-banner';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -148,6 +149,8 @@ export default function MyInductionPage() {
             <InductionPulseBanner />
             {/* Session poll — answer open opinion polls for this induction */}
             <SessionPollBanner />
+            {/* Question board — ask the host a question and upvote other learners' */}
+            <SessionQuestionBanner />
 
             {/* Header — induction + my completion */}
             <Card>

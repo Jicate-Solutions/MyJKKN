@@ -10,6 +10,7 @@ import type {
   EventCategory,
   CreateEventDto,
   UpdateEventDto,
+  EventDeleteBlockers,
   EventFilters,
 } from '@/types/events';
 
@@ -188,14 +189,62 @@ export class EventBaseService {
   }
 
   /**
+   * What a delete would cascade away — read before offering the confirm.
+   *
+   * Goes through fn_event_delete_blockers rather than counting the child tables
+   * here: both are RLS-gated, so a client-side count returns 0 for any caller
+   * who cannot see the registrations and would report "safe to delete" on the
+   * exact rows the check exists to protect. The RPC self-authorizes on
+   * events.delete, so a caller without the key gets 42501 rather than a count.
+   *
+   * `.rpc` is typed against the generated Database map, which doesn't carry this
+   * function yet; the narrow structural cast is the same one used by
+   * lib/services/events/tournament/organizer-access.ts.
+   */
+  static async getEventDeleteBlockers(id: string): Promise<EventDeleteBlockers> {
+    const client = this.supabase as unknown as {
+      rpc: (
+        fn: string,
+        args?: Record<string, unknown>
+      ) => PromiseLike<{ data: unknown; error: { message?: string } | null }>;
+    };
+
+    const { data, error } = await client.rpc('fn_event_delete_blockers', {
+      p_event_id: id,
+    });
+
+    if (error) {
+      logger.error('events/core', 'Failed to read event delete blockers', {
+        id,
+        message: error.message,
+      });
+      throw new Error(error.message || 'Could not check what this delete would remove');
+    }
+
+    return data as EventDeleteBlockers;
+  }
+
+  /**
    * Delete an event record by ID.
+   *
+   * Gated by the events_auth_delete RLS policy (events.delete + institution
+   * access) and refused outright by trg_events_block_delete_with_dependents when
+   * the event holds registrations or payment transactions — 43 child tables
+   * cascade off this row. A blocked delete arrives here as a P0001 error.
+   *
+   * The `.select('id')` is load-bearing, not decoration. A DELETE that RLS
+   * refuses is not an error — PostgREST reports success and removes nothing, so
+   * checking only `error` would toast "Event deleted" over a row that is still
+   * there. Chaining select() returns the rows actually deleted; an empty array
+   * is how a denied delete announces itself.
    */
   static async deleteEvent(id: string): Promise<void> {
     try {
-      const { error } = await (this.supabase as unknown as ReturnType<typeof createClientSupabaseClient>)
+      const { data, error } = await (this.supabase as unknown as ReturnType<typeof createClientSupabaseClient>)
         .from('events')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select('id');
 
       if (error) {
         logger.error('events/core', 'Failed to delete event', {
@@ -206,6 +255,13 @@ export class EventBaseService {
           hint: error.hint,
         });
         throw new Error(error.message || 'Failed to delete event');
+      }
+
+      if (!data || data.length === 0) {
+        logger.error('events/core', 'Delete removed no rows (RLS denied)', { id });
+        throw new Error(
+          'You do not have permission to delete this event. It needs the "Delete Events" permission on one of your roles.'
+        );
       }
     } catch (error) {
       if (error instanceof Error) {

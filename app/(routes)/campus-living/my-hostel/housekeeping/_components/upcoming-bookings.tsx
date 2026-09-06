@@ -24,6 +24,8 @@ function StatusChip({ status }: { status: string }) {
   switch (status) {
     case 'booked':
       return <Badge variant='success'>Booked</Badge>;
+    case 'assigned':
+      return <Badge variant='success'>Cleaner assigned</Badge>;
     case 'completed':
       return <Badge variant='secondary'>Completed</Badge>;
     case 'cancelled':
@@ -68,7 +70,10 @@ export function UpcomingBookings({ bookings, isLoading, cutoffMinutes }: Props) 
                 start.getTime() - cutoffMinutes * 60 * 1000
               );
               const withinCutoff = now.getTime() > cancelDeadline.getTime();
-              const cancellable = b.status === 'booked' && !withinCutoff;
+              // 'assigned' is still an upcoming booking — cancellable up to
+              // the same cutoff (the RPC enforces the same rule).
+              const upcoming = b.status === 'booked' || b.status === 'assigned';
+              const cancellable = upcoming && !withinCutoff;
               const isCancelling =
                 cancelBooking.isPending && cancelBooking.variables === b.id;
 
@@ -84,7 +89,12 @@ export function UpcomingBookings({ bookings, isLoading, cutoffMinutes }: Props) 
                     <p className='text-xs text-muted-foreground'>
                       {formatBookingDate(b.booking_date)}
                     </p>
-                    {b.status === 'booked' && withinCutoff && (
+                    {b.assigned_staff_name && b.status !== 'cancelled' && (
+                      <p className='text-xs text-muted-foreground mt-0.5'>
+                        Cleaner: {b.assigned_staff_name}
+                      </p>
+                    )}
+                    {upcoming && withinCutoff && (
                       <p className='text-xs text-amber-700 mt-0.5'>
                         Cancellation window closed (within {cutoffMinutes} min
                         of the slot)
@@ -93,7 +103,7 @@ export function UpcomingBookings({ bookings, isLoading, cutoffMinutes }: Props) 
                   </div>
                   <div className='flex shrink-0 items-center gap-2'>
                     <StatusChip status={b.status} />
-                    {b.status === 'booked' && (
+                    {upcoming && (
                       <Button
                         variant='outline'
                         size='sm'

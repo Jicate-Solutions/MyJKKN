@@ -33,8 +33,16 @@ interface DivisionLite {
   eligibility: Record<string, unknown>;
 }
 
-export default async function PublicRegisterPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PublicRegisterPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  // ?form=<slug> selects which of the event's registration forms this link is for.
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const sp = await searchParams;
 
   const Empty = ({ title, msg }: { title: string; msg: string }) => (
     <main className="mx-auto max-w-xl px-4 py-16 text-center">
@@ -86,11 +94,41 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
     return <Empty title="No events to register for yet" msg="The organizer hasn't published any divisions yet." />;
   }
 
-  const { data: formRow } = await svc
+  // WHICH form? An event holds many (one per monthly run), addressed by ?form=<slug>.
+  // No slug — an old link printed before the event had more than one form — falls
+  // back to the first OPEN form, so those links keep working. maybeSingle() on
+  // event_id is deliberately gone: it errors the moment a second form exists.
+  const requestedSlug = typeof sp?.form === 'string' ? sp.form : undefined;
+
+  const formQuery = svc
     .from('event_registration_forms')
-    .select('id, is_enabled')
-    .eq('event_id', id)
-    .maybeSingle();
+    .select('id, slug, name, is_enabled')
+    .eq('event_id', id);
+
+  const { data: formRows } = requestedSlug
+    ? await formQuery.eq('slug', requestedSlug).limit(1)
+    : await formQuery
+        .eq('is_enabled', true)
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+  const formRow = formRows?.[0] ?? null;
+
+  // A slug that names a real but closed form is a "closed" answer, not a
+  // "collect nothing" one — otherwise last month's link would silently accept
+  // this month's entries.
+  if (requestedSlug && formRow && formRow.is_enabled === false) {
+    return (
+      <Empty
+        title="Registration closed"
+        msg={`"${formRow.name}" is no longer accepting entries. Ask the organizer for the current registration link.`}
+      />
+    );
+  }
+  if (requestedSlug && !formRow) {
+    return <Empty title="Registration form not found" msg="This registration link is not valid for this event." />;
+  }
 
   let sections: { id: string; title: string; display_order: number; fields: any[] }[] = [];
   if (formRow && formRow.is_enabled !== false) {
@@ -99,10 +137,12 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
       .select('*')
       .eq('form_id', formRow.id)
       .order('display_order', { ascending: true });
+    // By form_id, NOT event_id — filtering by event here would render every
+    // other month's questions on this month's form.
     const { data: rawFields } = await svc
       .from('event_registration_form_fields')
       .select('*')
-      .eq('event_id', id)
+      .eq('form_id', formRow.id)
       .order('display_order', { ascending: true });
     sections = (rawSections ?? []).map((s) => ({
       ...s,
@@ -152,6 +192,7 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
 
       <RegisterForm
         eventId={id}
+        formId={formRow?.id ?? null}
         divisions={divisions as DivisionLite[]}
         signedInName={signedInName}
         isLearner={isLearner}

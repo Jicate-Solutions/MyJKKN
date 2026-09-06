@@ -58,6 +58,9 @@ interface AttendanceRow {
   present: number;
   total: number;
   pct: number | null;
+  /** Absences excused by an approved tournament permission or full-day on-duty
+   *  application (fn_attendance_protected_days). Counted into eligibility. */
+  protected: number;
 }
 
 export async function GET(request: NextRequest) {

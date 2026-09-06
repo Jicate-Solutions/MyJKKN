@@ -14,6 +14,42 @@
 --
 -- Safe to rewrite in place: ims_supply_shipments, ims_supply_shipment_items and
 -- ims_supply_distribution_events all have 0 rows — this engine has never run.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STATUS: APPLIED TO PRODUCTION. Verified 2026-08-04 by OBJECT, not by ledger:
+--   pg_class has ims_stock_movements, pg_proc has ims_pick_fefo_batches, and
+--   pg_policies carries every policy below. supabase_migrations.schema_migrations
+--   holds NO row for version 20260801002300 (nor for 20260801002301, the version
+--   PR #2782 proposes to rename this file to) — the ledger is simply not a
+--   reliable index of this repo, so absence there is not evidence of "pending".
+--
+-- 2026-08-04 CORRECTION — two RLS predicates in this file were WEAKER than the
+-- boundary production actually enforces, so re-running the file (which a rename
+-- invites, by making an applied migration look pending) would have DOWNGRADED a
+-- live tenant boundary:
+--
+--   · ims_stock_movements_insert was `WITH CHECK (true)`. Live enforces
+--     super_admin OR institution_id = the caller's own institution.
+--   · ims_supply_shipment_item_batches carried a FOR ALL policy with
+--     USING (true) WITH CHECK (true). Live carries a SELECT-only policy scoped
+--     through shipment_item -> shipment -> store -> institution. RLS policies are
+--     OR'd, so re-adding the permissive one would have made every tenant's batch
+--     cost_price / expiry / quantity readable by any authenticated user — and
+--     unlike the movements hole, no table GRANT stands in the way of that read
+--     (authenticated holds SELECT on both tables).
+--
+-- A third predicate, ims_stock_movements_select, diverged the OTHER way: this
+-- file narrowed it and would have revoked the cross-institution store grants set
+-- two days earlier by 20260730130000. A lockout, not a leak, but the same defect
+-- shape — a file that no longer describes the boundary production runs. It is
+-- now the live predicate too.
+--
+-- All three are now written to match the live predicates verbatim, as installed by
+-- 20260801002800_ims_transfer_engine_auth_hardening.sql. Re-applying this file
+-- is therefore a no-op against production rather than a regression. Ordering is
+-- unchanged: the hardening migration still runs after this one and still ends at
+-- the same state, on a fresh replay as well as against production.
+-- ─────────────────────────────────────────────────────────────────────────────
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1. Idempotency stamps. A retried status update must not move stock twice.
@@ -55,11 +91,32 @@ CREATE INDEX IF NOT EXISTS idx_ims_shipment_item_batches_item
 
 ALTER TABLE public.ims_supply_shipment_item_batches ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS ims_supply_shipment_item_batches_all ON public.ims_supply_shipment_item_batches;
-CREATE POLICY ims_supply_shipment_item_batches_all
+-- Tenant-scoped, SELECT only, reached through the shipment the batch hangs off.
+-- Reproduces the live pg_policies row verbatim (policy
+-- ims_supply_shipment_item_batches_select, read 2026-08-04). Writes go through
+-- the SECURITY DEFINER functions below, which run as owner and ignore this.
+--
+-- This file previously created ims_supply_shipment_item_batches_all with
+-- USING (true) WITH CHECK (true). Do not restore it: authenticated holds SELECT
+-- on this table, policies are OR'd, and one permissive true policy therefore
+-- publishes every tenant's batch cost_price, expiry and quantities.
+DROP POLICY IF EXISTS ims_supply_shipment_item_batches_all    ON public.ims_supply_shipment_item_batches;
+DROP POLICY IF EXISTS ims_supply_shipment_item_batches_select ON public.ims_supply_shipment_item_batches;
+CREATE POLICY ims_supply_shipment_item_batches_select
   ON public.ims_supply_shipment_item_batches
-  FOR ALL TO authenticated
-  USING (true) WITH CHECK (true);
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.get_current_user_role()) = 'super_admin'
+    OR EXISTS (
+      SELECT 1
+        FROM public.ims_supply_shipment_items sit
+        JOIN public.ims_supply_shipments sh ON sh.id = sit.shipment_id
+        JOIN public.ims_stores s
+          ON s.id IN (sh.source_store_id, sh.destination_store_id)
+       WHERE sit.id = ims_supply_shipment_item_batches.shipment_item_id
+         AND s.institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = (SELECT auth.uid()))
+    )
+  );
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 3. Stock movement ledger.
@@ -94,17 +151,36 @@ CREATE INDEX IF NOT EXISTS idx_ims_stock_movements_ref
 
 ALTER TABLE public.ims_stock_movements ENABLE ROW LEVEL SECURITY;
 
+-- Reproduces the live pg_policies.qual verbatim (read 2026-08-04).
+--
+-- This file used to narrow the predicate to `institution_id = my own institution
+-- OR role = super_admin`, dropping both ims_accessible_institution_ids() (the
+-- cross-institution store grants added by 20260728103119) and is_super_admin().
+-- That is a LOCKOUT rather than a leak — strictly fewer rows, not more — but it
+-- silently reverted the wider scope 20260730130000 had set two days earlier, so
+-- re-running this file would break every cross-institution store grant in IMS.
 DROP POLICY IF EXISTS ims_stock_movements_select ON public.ims_stock_movements;
 CREATE POLICY ims_stock_movements_select ON public.ims_stock_movements
   FOR SELECT TO authenticated
   USING (
-    institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = auth.uid())
-    OR public.get_current_user_role() = 'super_admin'
+    institution_id IN (SELECT public.ims_accessible_institution_ids())
+    OR (SELECT public.get_current_user_role()) = 'super_admin'
+    OR (SELECT public.is_super_admin())
   );
 
+-- Reproduces the live pg_policies.with_check verbatim (read 2026-08-04). This
+-- was `WITH CHECK (true)`, i.e. any signed-in user could forge ledger rows
+-- against any college. Today a table GRANT (authenticated holds SELECT only,
+-- set by 20260801002800) independently blocks the write — but that is the second
+-- layer, not this one, and on a fresh replay this file runs BEFORE that revoke
+-- while Supabase's default privileges still hand authenticated INSERT.
 DROP POLICY IF EXISTS ims_stock_movements_insert ON public.ims_stock_movements;
 CREATE POLICY ims_stock_movements_insert ON public.ims_stock_movements
-  FOR INSERT TO authenticated WITH CHECK (true);
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.get_current_user_role()) = 'super_admin'
+    OR institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = (SELECT auth.uid()))
+  );
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4. FEFO pick list (read-only, reusable).

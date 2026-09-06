@@ -17,21 +17,37 @@ import {
   type FeedbackVolunteer,
   type MentorMentee,
   type UnassignedFresher,
-  type AssignablePeerMentor,
   type MentorHelpfulnessCrosscheckRow,
+  type MentorCover,
+  type AutobalanceMode,
 } from '@/lib/services/induction/induction-volunteer-service';
+import { AppointMentorDialog } from '../_components/appoint-mentor-dialog';
+import { MentorIdentity } from '../_components/mentor-identity';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-  GraduationCap, ChevronDown, ChevronRight, ShieldCheck, X, UserPlus, Search,
-  Scale, CalendarClock, Users, CheckCircle2, Loader2, AlertTriangle, ShieldAlert,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
+  GraduationCap, ChevronDown, ChevronRight, ShieldCheck, X,
+  CalendarClock, Users, CheckCircle2, AlertTriangle, ShieldAlert,
+  Shuffle, UserPlus, ArrowRightLeft, Undo2, Clock, Phone,
 } from 'lucide-react';
+
+/** Today as yyyy-mm-dd, for the cover-date input's min. */
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
+/** dd Mon yyyy — cover dates are read at a glance, not parsed. */
+const fmtDate = (d: string | null) =>
+  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 export default function SeniorPeerMentorConsolePage() {
   const params = useParams();
@@ -44,6 +60,7 @@ export default function SeniorPeerMentorConsolePage() {
   const [mentees, setMentees] = useState<MentorMentee[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedFresher[]>([]);
   const [crosscheck, setCrosscheck] = useState<MentorHelpfulnessCrosscheckRow[]>([]);
+  const [covers, setCovers] = useState<MentorCover[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [capacity, setCapacity] = useState(20);
   const [busy, setBusy] = useState<string | null>(null); // a label for the in-flight action
@@ -52,16 +69,18 @@ export default function SeniorPeerMentorConsolePage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [v, m, u, c] = await Promise.all([
+      const [v, m, u, c, cv] = await Promise.all([
         InductionVolunteerService.listVolunteers(eventId),
         InductionVolunteerService.adminMentorMentees(eventId),
         InductionVolunteerService.adminUnassignedFreshers(eventId),
         InductionVolunteerService.mentorHelpfulnessCrosscheck(eventId),
+        InductionVolunteerService.adminMentorCovers(eventId),
       ]);
       setMentors(v);
       setMentees(m);
       setUnassigned(u);
       setCrosscheck(c);
+      setCovers(cv);
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       if (/not authorized|permission denied|forbidden/i.test(msg)) setHidden(true);
@@ -93,11 +112,25 @@ export default function SeniorPeerMentorConsolePage() {
       return next;
     });
 
+  // Sets ONLY the admin leg of the 3-legged is_trained generated column
+  // (guide_read_at AND self_ack_at AND admin_trained_at). The mentor's own two
+  // legs can't be written by an admin, so don't promise unlocked tools blindly.
   const setTrained = async (learnerId: string, name: string, trained: boolean) => {
     setBusy(`trained:${learnerId}`);
+    const mentor = mentors.find((m) => m.learner_id === learnerId);
+    const mentorLegsDone = Boolean(mentor?.guide_read && mentor?.self_ack);
     try {
       await InductionVolunteerService.adminSetTrained(eventId, learnerId, trained);
-      toast.success(trained ? `${name} marked trained — their tools are unlocked.` : `${name} marked untrained.`);
+      if (!trained) {
+        toast.success(`${name} marked untrained.`);
+      } else if (mentorLegsDone) {
+        toast.success(`${name} is fully trained — their tools are unlocked.`);
+      } else {
+        toast.warning(
+          `${name}: your training sign-off is recorded, but their tools stay LOCKED. ` +
+          `${name} must open My Induction Feedback and complete the guide + acknowledgement themselves.`,
+        );
+      }
       await load();
     } catch (e: any) { toast.error(`Couldn't update: ${e.message ?? e}`); }
     finally { setBusy(null); }
@@ -113,17 +146,72 @@ export default function SeniorPeerMentorConsolePage() {
     finally { setBusy(null); }
   };
 
-  const autobalance = async () => {
+  const autobalance = async (mode: AutobalanceMode) => {
     setBusy('autobalance');
     try {
-      const r = await InductionVolunteerService.autobalanceVolunteers(eventId, capacity);
+      const r = await InductionVolunteerService.autobalanceVolunteers(eventId, capacity, mode);
+      if (mode === 'rebalance') {
+        toast.success(`Re-dealt all ${r.assigned} freshers across ${activeMentors.length} mentor(s).`);
+      } else if (r.newly_assigned === 0 && r.unassigned === 0) {
+        toast.success('Every fresher already has a mentor — nothing to assign.');
+      } else if (r.newly_assigned > 0) {
+        toast.success(
+          `Assigned ${r.newly_assigned} pending fresher${r.newly_assigned === 1 ? '' : 's'}. ` +
+          `${r.kept} existing assignment${r.kept === 1 ? '' : 's'} left untouched.`,
+        );
+      }
       if (r.unassigned > 0) {
-        toast.warning(`Assigned ${r.assigned}/${r.enrolled}. ${r.unassigned} fresher(s) still have NO mentor — raise the cap or appoint more mentors.`);
-      } else {
-        toast.success(`Assigned all ${r.assigned} freshers across ${activeMentors.length} mentor(s).`);
+        toast.warning(`${r.unassigned} fresher(s) still have NO mentor (${r.assigned}/${r.enrolled} covered) — raise the cap or appoint more mentors.`);
       }
       await load();
     } catch (e: any) { toast.error(`Couldn't auto-balance: ${e.message ?? e}`); }
+    finally { setBusy(null); }
+  };
+
+  /**
+   * Move a mentor's whole group to a stand-in.
+   *
+   * coverUntil null = permanent handover; a date = the stand-in holds them until
+   * that date (inclusive), after which the nightly sweep hands them back. The
+   * target's capacity is reported, never enforced — an absent mentor's group
+   * usually overflows the stand-in, and blocking would leave freshers unowned.
+   */
+  const reassignAll = async (
+    fromId: string, fromName: string, toId: string, toName: string,
+    coverUntil: string | null, note: string | null,
+  ) => {
+    setBusy(`reassign:${fromId}`);
+    try {
+      const r = await InductionVolunteerService.adminBulkReassignMentees(eventId, fromId, toId, {
+        coverUntil, note,
+      });
+      if (r.moved === 0) {
+        toast.warning(`${fromName} has no freshers to move.`);
+      } else {
+        toast.success(
+          coverUntil
+            ? `${toName} is covering ${r.moved} of ${fromName}'s freshers until ${fmtDate(coverUntil)}. They revert automatically.`
+            : `Moved ${r.moved} fresher${r.moved === 1 ? '' : 's'} from ${fromName} to ${toName} permanently.`,
+        );
+        if (r.over_capacity) {
+          toast.warning(
+            `${toName} now has ${r.target_group_size} freshers, over their cap of ${r.target_capacity}. ` +
+            `The move went through — raise their cap or split the group.`,
+          );
+        }
+      }
+      await load();
+    } catch (e: any) { toast.error(`Couldn't reassign: ${e.message ?? e}`); }
+    finally { setBusy(null); }
+  };
+
+  const endCover = async (originalLearnerId: string, name: string) => {
+    setBusy(`endcover:${originalLearnerId}`);
+    try {
+      const n = await InductionVolunteerService.adminEndMentorCover(eventId, originalLearnerId);
+      toast.success(`Handed ${n} fresher${n === 1 ? '' : 's'} back to ${name}.`);
+      await load();
+    } catch (e: any) { toast.error(`Couldn't end the cover: ${e.message ?? e}`); }
     finally { setBusy(null); }
   };
 
@@ -213,7 +301,7 @@ export default function SeniorPeerMentorConsolePage() {
           </div>
 
           <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
-            <AppointMentorDialog eventId={eventId} onAppointed={load} />
+            <AppointMentorDialog eventId={eventId} onAppointed={load} triggerLabel="Appoint mentor" />
             <div className="flex items-end gap-2">
               <div className="space-y-1">
                 <Label htmlFor="cap" className="text-xs text-muted-foreground">Per-mentor cap</Label>
@@ -221,9 +309,34 @@ export default function SeniorPeerMentorConsolePage() {
                   onChange={(e) => setCapacity(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
                   className="h-8 w-20" />
               </div>
-              <Button size="sm" variant="outline" onClick={autobalance} disabled={busy !== null || activeMentors.length === 0}>
-                <Scale className="h-3.5 w-3.5 mr-1" /> {busy === 'autobalance' ? 'Balancing…' : 'Auto-balance'}
+              {/* Additive and safe to repeat: never moves a fresher who already
+                  has a mentor, so this is the button to press after an intake. */}
+              <Button size="sm" onClick={() => autobalance('incremental')} disabled={busy !== null || activeMentors.length === 0}>
+                <UserPlus className="h-3.5 w-3.5 mr-1" /> {busy === 'autobalance' ? 'Assigning…' : 'Assign pending'}
               </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="outline" disabled={busy !== null || activeMentors.length === 0}>
+                    <Shuffle className="h-3.5 w-3.5 mr-1" /> Rebalance all
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Re-deal every fresher from scratch?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This breaks <strong>all {assignedCount} existing mentor assignments</strong> and deals
+                      the cohort again. Freshers a mentor has already walked will likely land with someone
+                      else, and any temporary cover in force is discarded.
+                      <br /><br />
+                      To place only freshers who have no mentor yet, use <strong>Assign pending</strong>.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => autobalance('rebalance')}>Yes, re-deal everyone</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
             <Button size="sm" variant="outline" onClick={generateCheckins} disabled={busy !== null}>
               <CalendarClock className="h-3.5 w-3.5 mr-1" /> {busy === 'checkins' ? 'Scheduling…' : 'Schedule monthly check-ins'}
@@ -231,6 +344,46 @@ export default function SeniorPeerMentorConsolePage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Temporary covers in force. Shown above everything else because it is
+          the one thing that makes the mentor list below read differently: a
+          stand-in's group is temporarily larger, and someone else's is empty. */}
+      {covers.length > 0 && (
+        <Card className="mt-4 border-blue-400 dark:border-blue-500/60">
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2 text-blue-700 dark:text-blue-400">
+              <Clock className="h-4 w-4" /> {covers.length} temporary cover{covers.length === 1 ? '' : 's'} in force
+            </CardTitle>
+            <CardDescription>
+              A stand-in is walking another mentor&apos;s freshers. Each hands back automatically the day
+              after its end date &mdash; or hand them back now.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {covers.map((c) => (
+              <div key={`${c.covering_learner_id}:${c.original_learner_id}`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate">
+                    <span className="font-medium">{c.covering_name}</span>
+                    <span className="text-muted-foreground"> is covering </span>
+                    <span className="font-medium">{c.original_name}</span>
+                    <span className="text-muted-foreground"> &middot; {c.fresher_count} fresher{c.fresher_count === 1 ? '' : 's'}</span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Until {fmtDate(c.cover_until)}{c.cover_note ? ` · ${c.cover_note}` : ''}
+                  </div>
+                </div>
+                <Button size="sm" variant="outline" className="h-7 text-xs shrink-0"
+                  disabled={busy !== null}
+                  onClick={() => endCover(c.original_learner_id, c.original_name)}>
+                  <Undo2 className="h-3.5 w-3.5 mr-1" /> Hand back now
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Unassigned pool */}
       {unassigned.length > 0 && (
@@ -271,14 +424,13 @@ export default function SeniorPeerMentorConsolePage() {
             return (
               <Card key={m.learner_id}>
                 <button type="button" onClick={() => toggle(m.learner_id)}
-                  className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-muted/40 rounded-t-xl">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {isOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                    <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{m.full_name || 'Unnamed'}</div>
-                      <div className="text-xs text-muted-foreground">{m.register_number ?? '—'} · cap {m.capacity}</div>
-                    </div>
+                  className="w-full flex items-start justify-between gap-3 p-3 text-left hover:bg-muted/40 rounded-t-xl">
+                  <div className="flex items-start gap-2 min-w-0">
+                    {isOpen
+                      ? <ChevronDown className="h-4 w-4 shrink-0 mt-0.5" />
+                      : <ChevronRight className="h-4 w-4 shrink-0 mt-0.5" />}
+                    <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <MentorIdentity mentor={m} />
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge variant={m.group_size > 0 && m.captured >= m.group_size ? 'default' : 'secondary'} className="tabular-nums">
@@ -309,6 +461,17 @@ export default function SeniorPeerMentorConsolePage() {
                           <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Mark trained
                         </Button>
                       )}
+                      {/* Bulk hand-off. The point of the whole cover feature:
+                          one action moves this mentor's entire group when they
+                          are absent, instead of N individual Move-to picks. */}
+                      <ReassignAllDialog
+                        fromName={m.full_name}
+                        groupSize={list.length}
+                        targets={activeMentors.filter((x) => x.learner_id !== m.learner_id)}
+                        disabled={busy !== null}
+                        onConfirm={(toId, toName, coverUntil, note) =>
+                          reassignAll(m.learner_id, m.full_name, toId, toName, coverUntil, note)}
+                      />
                       <Button size="sm" variant="outline" className="h-7 text-xs text-destructive hover:text-destructive"
                         disabled={busy !== null} onClick={() => removeMentor(m.learner_id, m.full_name)}>
                         <X className="h-3.5 w-3.5 mr-1" /> Remove mentor
@@ -327,8 +490,47 @@ export default function SeniorPeerMentorConsolePage() {
                               <span className={`h-2 w-2 rounded-full shrink-0 ${f.has_feedback ? 'bg-green-500' : 'bg-muted-foreground/30'}`}
                                 title={f.has_feedback ? 'Feedback captured' : 'No feedback yet'} />
                               <div className="min-w-0">
-                                <div className="truncate">{f.fresher_name || 'Unnamed'}</div>
-                                <div className="text-[11px] text-muted-foreground">{f.fresher_register ?? '—'}</div>
+                                <div className="truncate">
+                                  {f.fresher_name || 'Unnamed'}
+                                  {/* Shown inline only when it exists — most
+                                      freshers have no register number yet, and a
+                                      lone em-dash told the reader nothing. */}
+                                  {f.fresher_register && (
+                                    <span className="ml-2 text-[11px] font-normal text-muted-foreground tabular-nums">
+                                      {f.fresher_register}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                                  {f.program_name && (
+                                    <span className="inline-flex items-center gap-1 min-w-0">
+                                      <GraduationCap className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">{f.program_name}</span>
+                                    </span>
+                                  )}
+                                  {/* The fresher's own number first — this is the
+                                      mentor's contact list. Parent's number is the
+                                      fallback and is labelled as such, so nobody
+                                      calls a parent thinking it is the student. */}
+                                  {(f.student_mobile || f.father_mobile) && (
+                                    <a
+                                      href={`tel:${f.student_mobile || f.father_mobile}`}
+                                      className="inline-flex items-center gap-1 tabular-nums hover:text-foreground hover:underline"
+                                      title={f.student_mobile ? 'Student mobile' : "Parent's mobile"}
+                                    >
+                                      <Phone className="h-3 w-3 shrink-0" />
+                                      {f.student_mobile || f.father_mobile}
+                                      {!f.student_mobile && <span className="ml-0.5">(parent)</span>}
+                                    </a>
+                                  )}
+                                  {/* Says WHY this fresher sits in a group they do
+                                      not normally belong to, and when that ends. */}
+                                  {f.is_cover && (
+                                    <span className="text-blue-600 dark:text-blue-400">
+                                      covering for {f.original_mentor_name ?? 'another mentor'} until {fmtDate(f.cover_until)}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -413,6 +615,137 @@ function Stat({ label, value, warn }: { label: string; value: string; warn?: boo
   );
 }
 
+/**
+ * Move one mentor's whole group to a stand-in, in a single action.
+ *
+ * The choice that matters is temporary vs permanent, so it is a radio pair
+ * rather than a checkbox: "cover until <date>" and "permanent" are different
+ * decisions with different consequences, and a checkbox labelled "temporary"
+ * would leave the permanent case unnamed. A cover records the original mentor
+ * and reverts automatically; a permanent move does not.
+ */
+function ReassignAllDialog({
+  fromName, groupSize, targets, disabled, onConfirm,
+}: {
+  fromName: string;
+  groupSize: number;
+  targets: FeedbackVolunteer[];
+  disabled?: boolean;
+  onConfirm: (toId: string, toName: string, coverUntil: string | null, note: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [toId, setToId] = useState('');
+  const [temporary, setTemporary] = useState(true);
+  const [until, setUntil] = useState('');
+  const [note, setNote] = useState('');
+
+  const target = targets.find((t) => t.learner_id === toId);
+  // A temporary cover with no end date has nothing to revert on, so the date is
+  // required in that mode — otherwise "temporary" would silently be permanent.
+  const ready = Boolean(toId) && (!temporary || Boolean(until));
+
+  const reset = () => { setToId(''); setTemporary(true); setUntil(''); setNote(''); };
+
+  const submit = () => {
+    if (!ready || !target) return;
+    onConfirm(
+      toId,
+      target.full_name || 'the new mentor',
+      temporary ? until : null,
+      note.trim() || null,
+    );
+    setOpen(false);
+    reset();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="h-7 text-xs" disabled={disabled || groupSize === 0 || targets.length === 0}>
+          <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Reassign all
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reassign {fromName}&apos;s freshers</DialogTitle>
+          <DialogDescription>
+            Moves all {groupSize} fresher{groupSize === 1 ? '' : 's'} to another Senior Peer Mentor in one step
+            &mdash; for when {fromName} is absent.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="reassign-to" className="text-xs text-muted-foreground">Move to</Label>
+            <select
+              id="reassign-to"
+              value={toId}
+              onChange={(e) => setToId(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+            >
+              <option value="" disabled>Choose a mentor…</option>
+              {targets.map((t) => (
+                <option key={t.learner_id} value={t.learner_id}>
+                  {t.full_name || t.register_number || 'Mentor'} ({t.group_size}/{t.capacity})
+                </option>
+              ))}
+            </select>
+            {/* Reported, not enforced — the move is allowed to overflow, because
+                leaving freshers with nobody is worse than an oversized group. */}
+            {target && groupSize + target.group_size > target.capacity && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                This takes {target.full_name} to {groupSize + target.group_size} freshers, over their cap of {target.capacity}.
+                The move is still allowed.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1.5 rounded-md border p-2.5">
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input type="radio" checked={temporary} onChange={() => setTemporary(true)} className="mt-1" />
+              <span>
+                <span className="font-medium">Temporary cover</span>
+                <span className="block text-xs text-muted-foreground">
+                  They hand back to {fromName} automatically after the end date.
+                </span>
+              </span>
+            </label>
+            {temporary && (
+              <div className="pl-6 space-y-1">
+                <Label htmlFor="cover-until" className="text-xs text-muted-foreground">Cover until (inclusive)</Label>
+                <Input id="cover-until" type="date" min={todayISO()} value={until}
+                  onChange={(e) => setUntil(e.target.value)} className="h-8" />
+              </div>
+            )}
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input type="radio" checked={!temporary} onChange={() => setTemporary(false)} className="mt-1" />
+              <span>
+                <span className="font-medium">Permanent</span>
+                <span className="block text-xs text-muted-foreground">
+                  The new mentor owns them outright. Nothing reverts.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="cover-note" className="text-xs text-muted-foreground">Reason (optional)</Label>
+            <Input id="cover-note" value={note} onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. on leave this week" className="h-8" />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={submit} disabled={!ready}>
+            {temporary ? `Cover ${groupSize}` : `Move ${groupSize} permanently`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** A tiny mentor dropdown for move/assign. Native select — 20-ish mentors, no need for a combobox. */
 function MentorPicker({
   mentors, onPick, label = 'Assign to', disabled,
@@ -435,79 +768,5 @@ function MentorPicker({
         <option key={m.learner_id} value={m.learner_id}>{m.full_name || m.register_number || 'Mentor'}</option>
       ))}
     </select>
-  );
-}
-
-function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppointed: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<AssignablePeerMentor[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [appointing, setAppointing] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setSearching(true);
-    const t = setTimeout(async () => {
-      try {
-        const r = await InductionVolunteerService.assignablePeerMentors(eventId, query);
-        if (active) setResults(r);
-      } catch { /* surfaced on appoint */ }
-      finally { if (active) setSearching(false); }
-    }, 300);
-    return () => { active = false; clearTimeout(t); };
-  }, [open, query, eventId]);
-
-  const appoint = async (m: AssignablePeerMentor) => {
-    setAppointing(m.learner_id);
-    try {
-      await InductionVolunteerService.appointVolunteer(eventId, m.learner_id);
-      toast.success(`${m.full_name} is now a Senior Peer Mentor.`);
-      setOpen(false);
-      onAppointed();
-    } catch (e: any) { toast.error(`Couldn't appoint: ${e.message ?? e}`); }
-    finally { setAppointing(null); }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline"><UserPlus className="h-3.5 w-3.5 mr-1" /> Appoint mentor</Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Appoint a Senior Peer Mentor</DialogTitle>
-          <DialogDescription>
-            Only 3rd-year students (or final-year of a 2-year PG) can be mentors — the list is already filtered to them.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Search by name or register number…"
-            value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
-        </div>
-        <div className="max-h-72 overflow-auto space-y-1">
-          {searching ? (
-            <p className="text-sm text-muted-foreground py-2">Searching…</p>
-          ) : results.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No appointable mentors found.</p>
-          ) : (
-            results.map((m) => (
-              <button key={m.learner_id} type="button" onClick={() => appoint(m)} disabled={!!appointing}
-                className="w-full flex items-center justify-between gap-2 rounded-md border p-2 text-left hover:border-primary disabled:opacity-50">
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{m.full_name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{m.register_number ?? '—'}</div>
-                </div>
-                {appointing === m.learner_id
-                  ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                  : <UserPlus className="h-4 w-4 text-primary shrink-0" />}
-              </button>
-            ))
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

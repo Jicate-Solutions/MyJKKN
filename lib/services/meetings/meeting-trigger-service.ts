@@ -42,6 +42,15 @@ const ATTENDANCE_METRIC = 'attendance_rate_daily';
 const MISSING_DATA_METRIC = 'attendance_missing_data';
 /** Decision #6: the Principal has 24h to explain before a meeting is scheduled. */
 const EXPLANATION_WINDOW_HOURS = 24;
+/**
+ * Director decision 2026-07-30 #4: nudge once before the window closes rather
+ * than putting a meeting on someone's calendar with no warning. Most people
+ * answer after a reminder, so this should mean far fewer auto-booked meetings —
+ * and nobody can say a review meeting appeared out of nowhere while they were
+ * travelling. Sent AT MOST ONCE per event, enforced by the DB's idempotency
+ * index rather than a read-then-write check.
+ */
+const REMINDER_BEFORE_DEADLINE_HOURS = 4;
 /** Re-check the last N days each run so late-marked attendance is still caught (decision E4). */
 const LOOKBACK_DAYS = 3;
 const MIN_EXPLANATION_LENGTH = 20;
@@ -207,8 +216,14 @@ async function getInstitutionName(
  * Create an in-app bell notification the live way: insert `notifications` THEN
  * `user_notifications` rows (the bell reads the junction table). Returns the
  * notification id, or null on failure (logged, non-fatal).
+ *
+ * EXPORTED (2026-08-05, Director's Desk chase engine). The handover chase is a
+ * new SUBJECT TYPE on this same engine, not a second engine, so it must send
+ * down this exact path — the same `notifications` + `user_notifications` pair,
+ * the same idempotency index. A copy in another file is how two "identical"
+ * senders drift until one of them stops reaching the bell.
  */
-async function createBellNotification(
+export async function createBellNotification(
   db: SupabaseClient,
   opts: {
     recipientIds: string[];
@@ -237,6 +252,22 @@ async function createBellNotification(
      * database, not a read-then-write check, is the arbiter.
      */
     idempotencyKey?: string;
+    /**
+     * ISO timestamp written to `notifications.expires_at`. OPT-IN: when omitted
+     * (the default, and what every other caller in this file does) the column
+     * stays NULL and the row never expires — today's behaviour, unchanged.
+     *
+     * Set it only for a row that RESTATES a fact on a fixed cycle under a
+     * per-cycle idempotency key, per the rule in
+     * supabase/migrations/20260816040000_notification_expiry_director_categories.sql:
+     * expiring such a row hides nothing, because the next cycle restates it and
+     * the real work lives on a page. A row that is the ONLY record of a specific
+     * un-actioned item must NOT get one.
+     *
+     * Honoured by liveNotificationOrFilter() in the bell / inbox / rollup read
+     * path; admin/manage/stats reads deliberately still show lapsed rows.
+     */
+    expiresAt?: string;
   }
 ): Promise<string | null> {
   const row: Record<string, unknown> = {
@@ -257,6 +288,7 @@ async function createBellNotification(
     row.action_config = opts.action.config;
   }
   if (opts.idempotencyKey) row.idempotency_key = opts.idempotencyKey;
+  if (opts.expiresAt) row.expires_at = opts.expiresAt;
 
   const { data: notif, error } = await db
     .from('notifications')
@@ -720,6 +752,8 @@ export async function evaluateMissingDataTriggers(
 
 export interface ReconcileResult {
   explained: number;
+  /** Nudged once because the explanation window was about to close. */
+  reminded: number;
   escalated: number;
   errors: string[];
 }
@@ -745,7 +779,7 @@ export interface ReconcileResult {
  */
 const SUPER_ADMIN_FANOUT_CAP = 10;
 
-async function getSuperAdminIds(db: SupabaseClient): Promise<string[]> {
+export async function getSuperAdminIds(db: SupabaseClient): Promise<string[]> {
   const { data } = await db
     .from('profiles')
     .select('id')
@@ -831,6 +865,161 @@ async function getExecutiveAdminOfficerIds(
   return (byEmail ?? []).map((r: any) => r.id).filter(Boolean);
 }
 
+/** The standing project that holds cross-college operational follow-ups. */
+const CAMPUS_OPS_PROJECT_CODE = 'CAMPUS-OPS';
+
+/**
+ * profile_id → staff.id. The Projects module keys on staff, the meetings engine
+ * on profiles; `staff.profile_id` is the ONLY correct bridge. Matching on email
+ * is wrong and quietly lossy — measured 2026-07-30, email matched 5 of 10
+ * principals while staff.profile_id matched all 10.
+ */
+async function mapProfilesToStaff(
+  db: SupabaseClient,
+  profileIds: Array<string | null | undefined>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(profileIds.filter(Boolean))] as string[];
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+  const { data } = await db
+    .from('staff')
+    .select('id, profile_id, is_active')
+    .in('profile_id', ids);
+  for (const r of (data ?? []) as any[]) {
+    if (r.profile_id && r.is_active && !map.has(r.profile_id)) {
+      map.set(r.profile_id, r.id);
+    }
+  }
+  return map;
+}
+
+/**
+ * Raise a follow-up task in the standing Campus Operations project.
+ *
+ * Director decisions 2026-07-30: chase-ups are a REAL task (not only a bell), in
+ * ONE standing project rather than one per college, carrying RACI — the EAO is
+ * Accountable, the college's Principal is Consulted.
+ *
+ * Fails soft on purpose. The Projects module has never been used in anger
+ * (0 tasks on prod at time of writing), so a schema or permissions surprise here
+ * must NOT take down the accountability loop that already works. Every path
+ * returns null instead of throwing, and the caller still sends its bell.
+ *
+ * Decision #7 — "let it queue": when there is no active EAO the task is still
+ * CREATED, just unassigned. Queuing means waiting for somebody, never silently
+ * dropping the work.
+ */
+async function createCampusOpsTask(
+  db: SupabaseClient,
+  opts: {
+    title: string;
+    description: string;
+    /** The EAO — Accountable. Null when the post is vacant (task still created). */
+    accountableProfileId?: string | null;
+    /** The college's principal(s) — Consulted. */
+    consultedProfileIds?: string[];
+    /** Days from today for the due date. */
+    dueInDays?: number;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<string | null> {
+  try {
+    const { data: project } = await db
+      .from('projects')
+      .select('id')
+      .eq('code', CAMPUS_OPS_PROJECT_CODE)
+      .maybeSingle();
+    if (!project?.id) {
+      console.warn(
+        `[meeting-trigger] ${CAMPUS_OPS_PROJECT_CODE} project not found — skipping task creation`
+      );
+      return null;
+    }
+
+    const consulted = opts.consultedProfileIds ?? [];
+    const staffByProfile = await mapProfilesToStaff(db, [
+      opts.accountableProfileId,
+      ...consulted
+    ]);
+    const accountableStaffId = opts.accountableProfileId
+      ? staffByProfile.get(opts.accountableProfileId) ?? null
+      : null;
+
+    const dueDate = opts.dueInDays
+      ? new Date(Date.now() + opts.dueInDays * 86_400_000).toISOString().slice(0, 10)
+      : null;
+
+    const { data: task, error: taskError } = await db
+      .from('project_tasks')
+      .insert({
+        project_id: project.id,
+        title: opts.title.slice(0, 300),
+        description: opts.description,
+        task_type: 'task',
+        status_key: 'todo',
+        owner_staff_id: accountableStaffId,
+        due_date: dueDate,
+        metadata: { ...(opts.metadata ?? {}), source: 'meetings:accountability-engine' }
+      })
+      .select('id')
+      .single();
+
+    if (taskError || !task?.id) {
+      console.error('[meeting-trigger] campus-ops task insert failed:', taskError?.message);
+      return null;
+    }
+
+    // RACI. Rows are best-effort: a task with no assignee is still a visible,
+    // actionable task, whereas throwing here would lose it entirely.
+    const rows: Array<{ task_id: string; staff_id: string; role: string }> = [];
+    if (accountableStaffId) {
+      rows.push({ task_id: task.id, staff_id: accountableStaffId, role: 'accountable' });
+    }
+    for (const pid of consulted) {
+      const sid = staffByProfile.get(pid);
+      if (sid && sid !== accountableStaffId) {
+        rows.push({ task_id: task.id, staff_id: sid, role: 'consulted' });
+      }
+    }
+    if (rows.length > 0) {
+      const { error: assigneeError } = await db.from('project_task_assignees').insert(rows);
+      if (assigneeError) {
+        console.error(
+          '[meeting-trigger] campus-ops assignees failed:',
+          assigneeError.message
+        );
+      }
+    }
+
+    return task.id as string;
+  } catch (e: any) {
+    console.error('[meeting-trigger] createCampusOpsTask threw:', e?.message ?? e);
+    return null;
+  }
+}
+
+/**
+ * Does this explanation amount to "that day was not a working day for us"?
+ *
+ * Director decision 2026-07-28: JKKN does NOT encode recurring weekly holidays
+ * in code — colleges record their off-days in the leave calendar, and the
+ * attendance engine already honours APPROVED `institution_leaves`. The gap was
+ * that a principal's reply saying exactly that went nowhere, so the identical
+ * false alert fired again the following week. This is the detector that turns
+ * such a reply into a task for the EAO to file the off-day.
+ *
+ * Deliberately conservative: a miss simply means no task is raised (the
+ * explanation is still recorded and still routed to the Director as before),
+ * whereas a false positive would ask the EAO to mark a real teaching day as a
+ * holiday. The EAO is a human check on that either way.
+ */
+function looksLikeOffDayClaim(text: string): boolean {
+  const t = (text ?? '').toLowerCase();
+  return /\b(off[- ]?day|holiday|holidays|non[- ]?working|not a working day|no class(es)?|no working|leave day|vacation|closed)\b/.test(
+    t
+  );
+}
+
 /**
  * Reconcile open breach events against the explanation valve:
  *  - a Principal explanation (action_responses.text_response) → status
@@ -844,12 +1033,12 @@ export async function reconcileExplanations(
 ): Promise<ReconcileResult> {
   const db = opts.client ?? createServiceRoleClient();
   const nowISO = (opts.now ?? new Date()).toISOString();
-  const result: ReconcileResult = { explained: 0, escalated: 0, errors: [] };
+  const result: ReconcileResult = { explained: 0, reminded: 0, escalated: 0, errors: [] };
 
   const { data: events, error } = await db
     .from('meeting_trigger_events')
     .select(
-      'id, rule_id, institution_id, metric_key, observed_value, threshold, breach_date, notification_id, explanation_deadline, status'
+      'id, rule_id, institution_id, metric_key, observed_value, threshold, breach_date, notification_id, explanation_deadline, status, notified_profile_ids'
     )
     .eq('status', 'notified')
     // Attendance events only — project (subject-scoped) events are reconciled by
@@ -862,6 +1051,8 @@ export async function reconcileExplanations(
   }
 
   const admins = await getSuperAdminIds(db);
+  // The EAO is Accountable for the off-day follow-ups raised below.
+  const eaoIds = await getExecutiveAdminOfficerIds(db);
 
   for (const ev of (events ?? []) as any[]) {
     try {
@@ -919,13 +1110,116 @@ export async function reconcileExplanations(
               }
             });
           }
+          // The reply says "that day was not a working day for us" → close the
+          // loop. Without this the SAME false alert fires again next week: the
+          // engine honours only APPROVED institution_leaves, and nothing was
+          // turning a principal's answer into a calendar entry. Measured
+          // 2026-07-30: Arts & Science had filed and approved its Saturdays and
+          // correctly fired nothing, while Nursing (filed but left pending) and
+          // Allied Health (never filed) would both false-fire.
+          if (looksLikeOffDayClaim(r.text_response)) {
+            const instName = await getInstitutionName(db, ev.institution_id);
+            const { recipientIds: principalIds } = ev.institution_id
+              ? await resolveRecipients(db, ev.institution_id)
+              : { recipientIds: [] as string[] };
+
+            const taskId = await createCampusOpsTask(db, {
+              title: `Add ${ev.breach_date} to ${instName}'s leave calendar`,
+              description:
+                `${instName} was flagged on ${ev.breach_date} and the reply was:\n\n` +
+                `"${r.text_response}"\n\n` +
+                `If that day was genuinely an off-day, add it to the college's leave ` +
+                `calendar and APPROVE it. The attendance engine only honours approved ` +
+                `entries, so an unapproved one still raises the same alert next time.`,
+              accountableProfileId: eaoIds[0] ?? null,
+              consultedProfileIds: principalIds,
+              dueInDays: 7,
+              metadata: {
+                event_id: ev.id,
+                institution_id: ev.institution_id,
+                breach_date: ev.breach_date,
+                kind: 'off_day_claim'
+              }
+            });
+
+            // Bell as well as task (Director decision 2026-07-30 #1): the
+            // Projects module had 0 tasks on prod, so a task alone would sit
+            // unseen. Idempotency key makes this at-most-once per event even if
+            // the hourly cron reconciles the same row twice.
+            if (eaoIds.length > 0) {
+              await createBellNotification(db, {
+                recipientIds: eaoIds,
+                createdBy: eaoIds[0],
+                title: `Off-day to file — ${instName}`,
+                body:
+                  `${instName} says ${ev.breach_date} was not a working day:\n\n` +
+                  `"${r.text_response}"\n\n` +
+                  `Please add it to their leave calendar and approve it, so the same ` +
+                  `alert doesn't repeat.`,
+                url: taskId ? `/projects` : '/academic/attendance',
+                category: 'meetings:off-day-followup',
+                idempotencyKey: `meetings:off-day-followup:${ev.id}`,
+                metadata: {
+                  event_id: ev.id,
+                  institution_id: ev.institution_id,
+                  breach_date: ev.breach_date,
+                  task_id: taskId,
+                  source: 'cron:meeting-trigger-reconcile'
+                }
+              });
+            }
+          }
+
           result.explained++;
           explained = true;
         }
       }
       if (explained) continue;
 
-      // 2. Deadline passed with no explanation → escalate to a meeting.
+      // 2a. Deadline approaching, still no explanation → ONE reminder first.
+      // Sent to the people who were actually asked, not to the Director.
+      if (ev.explanation_deadline && nowISO <= ev.explanation_deadline) {
+        const remindFromISO = new Date(
+          new Date(ev.explanation_deadline).getTime() -
+            REMINDER_BEFORE_DEADLINE_HOURS * 3_600_000
+        ).toISOString();
+
+        if (nowISO >= remindFromISO) {
+          let askedIds: string[] = (ev.notified_profile_ids ?? []).filter(Boolean);
+          if (askedIds.length === 0 && ev.institution_id) {
+            askedIds = (await resolveRecipients(db, ev.institution_id)).recipientIds;
+          }
+          if (askedIds.length > 0) {
+            const instName = await getInstitutionName(db, ev.institution_id);
+            // At-most-once per event: a duplicate insert hits
+            // idx_notifications_idempotency and returns null, so the hourly cron
+            // re-reading this row cannot nag the same person repeatedly.
+            await createBellNotification(db, {
+              recipientIds: askedIds,
+              createdBy: askedIds[0],
+              title: `Reminder — ${instName} attendance note due soon`,
+              body:
+                `We still haven't had a note about ${instName} on ${ev.breach_date}. ` +
+                `If we don't hear back within about ${REMINDER_BEFORE_DEADLINE_HOURS} hours, ` +
+                `a short ${REVIEW_MEETING_MIN}-minute review meeting will be scheduled ` +
+                `automatically. A sentence or two is enough to close this off.`,
+              url: '/academic/attendance',
+              category: 'attendance:breach-reminder',
+              idempotencyKey: `meetings:explanation-reminder:${ev.id}`,
+              metadata: {
+                event_id: ev.id,
+                institution_id: ev.institution_id,
+                breach_date: ev.breach_date,
+                source: 'cron:meeting-trigger-reconcile'
+              }
+            });
+            result.reminded++;
+          }
+        }
+        continue; // window still open — nothing to escalate yet
+      }
+
+      // 2b. Deadline passed with no explanation → escalate to a meeting.
       if (ev.explanation_deadline && nowISO > ev.explanation_deadline) {
         await db
           .from('meeting_trigger_events')
@@ -1037,7 +1331,7 @@ export interface ProjectTriggerResult {
 }
 
 /** Today in campus time — project breaches are "as of now", not yesterday. */
-function todayIST(now: Date): string {
+export function todayIST(now: Date): string {
   const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(
     ist.getDate()
@@ -1534,7 +1828,7 @@ export async function reconcileProjectExplanations(
 ): Promise<ReconcileResult> {
   const db = opts.client ?? createServiceRoleClient();
   const nowISO = (opts.now ?? new Date()).toISOString();
-  const result: ReconcileResult = { explained: 0, escalated: 0, errors: [] };
+  const result: ReconcileResult = { explained: 0, reminded: 0, escalated: 0, errors: [] };
 
   const { data: events, error } = await db
     .from('meeting_trigger_events')
@@ -1542,7 +1836,22 @@ export async function reconcileProjectExplanations(
       'id, subject_type, subject_id, subject_label, observed_value, threshold, breach_date, notification_id, explanation_deadline, status, judge_profile_id'
     )
     .eq('status', 'notified')
-    .not('subject_id', 'is', null);
+    .not('subject_id', 'is', null)
+    // 2026-08-05 — the Director's-Desk chase engine writes 'handover' events to
+    // this same ledger, and they are reconciled by
+    // reconcileHandoverExplanations() in handover-chase-service, NOT here.
+    // Two reasons this filter is load-bearing rather than tidy:
+    //   1. a handover explanation is a progress note in director_handover_audit
+    //      (fn_director_handover_progress), not an action_responses row, so this
+    //      function would never find one and would escalate every handover to a
+    //      meeting at the 24h mark no matter how diligently the person answered;
+    //   2. the copy here says "the Accountable person" and points at /projects,
+    //      which is wrong for someone who was handed a page.
+    // Written as an .or() rather than .neq() on purpose: `subject_type <>
+    // 'handover'` evaluates to NULL — i.e. excluded — for a row whose
+    // subject_type is NULL, which would silently drop legacy rows this function
+    // handles today.
+    .or('subject_type.is.null,subject_type.neq.handover');
   if (error) {
     result.errors.push(`load subject events: ${error.message}`);
     return result;
@@ -1828,6 +2137,8 @@ const BOOKING_MIN_NOTICE_MIN = 120;
 const CAMPUS_TZ = 'Asia/Kolkata';
 /** Where an un-connected participant goes to connect Google Calendar. */
 const CONNECT_CALENDAR_URL = '/meetings/availability';
+/** 1.5x the daily re-nudge cycle — see the expiresAt note at the fanout. */
+const CONNECT_NUDGE_TTL_MS = Math.round(24 * 3600_000 * 1.5);
 /** Free slots to try before giving up on a concurrent-booking race (23P01). */
 const SLOT_ATTEMPTS = 5;
 /** Bound the work of one cron pass. */
@@ -1910,7 +2221,7 @@ interface Interval {
  * refuses to put a time on an un-connected person's day). Used to keep the
  * notification copy honest — see review fix #7.
  */
-async function canAutoBookFor(
+export async function canAutoBookFor(
   db: SupabaseClient,
   profileIds: string[]
 ): Promise<boolean> {
@@ -2300,6 +2611,17 @@ async function nudgeToConnectCalendar(
     url: CONNECT_CALENDAR_URL,
     category: 'meetings:calendar-connect-needed',
     idempotencyKey: nudgeKey,
+    // 2026-08-10 expiry: this row is re-emitted for every NEW day the breach
+    // stays unbooked (see the cap above), so it is a daily restatement, not the
+    // only record of the breach — the breach itself lives on
+    // meeting_trigger_events and surfaces in Meetings. Without a TTL, 47 of
+    // these accumulated unexpired in 14 days and never left anyone's bell.
+    // TTL = 1.5x the daily cadence, the same margin and the same reasoning as
+    // 20260816040000: 24h would kill the row at the moment its replacement is
+    // due, so any slip empties the bell. A literal is safe here (unlike the
+    // dispatcher-run routines) because this producer's cadence is pinned in
+    // vercel.json ('23 * * * *'), so a cadence change ships in the same deploy.
+    expiresAt: new Date(now.getTime() + CONNECT_NUDGE_TTL_MS).toISOString(),
     metadata: {
       event_ids: group.events.map((e) => e.id),
       institution_id: group.institutionId,
@@ -2586,27 +2908,35 @@ export async function bookPendingMeetings(
       const staleBefore = new Date(
         now.getTime() - BOOKING_CLAIM_TTL_MIN * 60_000
       ).toISOString();
-      const { data: claimedRows, error: claimErr } = await db
-        .from('meeting_trigger_events')
-        .update({
-          booking_claimed_at: now.toISOString(),
-          booking_claim_token: claimToken
-        })
-        .in(
-          'id',
-          group.events.map((e) => e.id)
-        )
-        .eq('status', 'meeting_pending')
-        .is('booking_id', null)
-        .or(`booking_claimed_at.is.null,booking_claimed_at.lt.${staleBefore}`)
-        .select('id');
+      // Claimed through an RPC, not a PostgREST UPDATE. PostgREST re-applies the
+      // request's filters to an UPDATE's RETURNING projection — and this claim
+      // WRITES the very column it FILTERS on (booking_claimed_at). The new value
+      // fails the staleness predicate, so the row is filtered out of its own
+      // response body: the UPDATE commits, the caller gets [], concludes another
+      // worker owns the row (skipped_claimed++), and the claim it just wrote
+      // blocks every later run for BOOKING_CLAIM_TTL_MIN. A livelock in which
+      // nothing books and nothing is reported. Reproduced on prod 2026-08-18:
+      //   before 02:18:44Z (stale) -> PATCH … or=(is.null,lt.02:33:07Z) -> body []
+      //   after  02:48:44Z         -> the write LANDED anyway
+      // In SQL, UPDATE … RETURNING returns exactly the rows touched, so the
+      // function returns the truth. Atomicity is unchanged: Postgres serialises
+      // concurrent writers on the row and re-evaluates the predicate against the
+      // winner's version, so the loser matches 0 rows and walks away.
+      const { data: claimedRows, error: claimErr } = await db.rpc(
+        'fn_meeting_claim_pending_events',
+        {
+          p_event_ids: group.events.map((e) => e.id),
+          p_claim_token: claimToken,
+          p_stale_before: staleBefore
+        }
+      );
 
       if (claimErr) {
         result.errors.push(`claim ${group.key}: ${claimErr.message}`);
         continue;
       }
       const claimedIds = new Set(
-        ((claimedRows ?? []) as any[]).map((r) => r.id)
+        ((claimedRows ?? []) as any[]).map((r) => r.claimed_id)
       );
       if (claimedIds.size === 0) {
         // Someone else owns every event in this group right now.
@@ -2978,6 +3308,8 @@ export async function bookPendingMeetings(
 // unindexed containment scan over 220,289 notification rows every hour.)
 
 const WEEKLY_SUMMARY_CATEGORY = 'meetings:calendar-connect-weekly';
+/** 1.5x the weekly restatement cycle — see the expiresAt note at the fanout. */
+const WEEKLY_SUMMARY_TTL_MS = Math.round(7 * 24 * 3600_000 * 1.5);
 
 export interface WeeklyConnectSummaryResult {
   ran: boolean;
@@ -3113,7 +3445,15 @@ export async function sendWeeklyCalendarConnectSummary(
       try {
         const { recipientIds, createdBy, fallbackToAdmin } =
           await resolveRecipients(db, institutionId);
-        const audience = [...new Set([...recipientIds, ...eaoIds])];
+        // Director decision 2026-07-30 #5: this summary goes ONLY to principals
+        // who are themselves connected, plus the EAO. Previously an unconnected
+        // principal received a list of other unconnected people and reasonably
+        // concluded the message was not about them — which is a large part of
+        // why 9 of 11 principals were still unconnected. The unconnected are now
+        // chased by the EAO in person, not by a note they discount.
+        const audience = [
+          ...new Set([...recipientIds.filter((id) => healthy.has(id)), ...eaoIds])
+        ];
         if (audience.length === 0 || !createdBy) continue;
 
         const instName = await getInstitutionName(db, institutionId);
@@ -3136,6 +3476,16 @@ export async function sendWeeklyCalendarConnectSummary(
               : ''),
           url: CONNECT_CALENDAR_URL,
           category: WEEKLY_SUMMARY_CATEGORY,
+          // 2026-08-10 expiry: a weekly restatement of who is still
+          // unconnected, keyed per ISO week — next Monday's edition recomputes
+          // the same list, and the list itself is on the Meetings surface. 37 of
+          // these had accumulated unexpired. TTL = 1.5x the WEEKLY cycle (not
+          // the hourly producer's tick): the row must outlive the gap to the
+          // next edition, so the cadence that matters is the one the
+          // idempotency key encodes.
+          expiresAt: new Date(
+            now.getTime() + WEEKLY_SUMMARY_TTL_MS
+          ).toISOString(),
           metadata: {
             iso_week: isoWeek,
             institution_id: institutionId,
@@ -3159,5 +3509,58 @@ export async function sendWeeklyCalendarConnectSummary(
     logger.error(MODULE, 'sendWeeklyCalendarConnectSummary failed', e);
   }
 
+  return result;
+}
+
+// ============================================================================
+// CALENDAR-CONNECT LOCK SWEEP (Director decision 2026-08-18)
+// ============================================================================
+// 16 review meetings could not be scheduled because the people in them had never
+// connected Google Calendar. The daily bell nudge above had already fired on all
+// 16 without effect, and the weekly Principal summary had gone out too — so the
+// Director escalated: anyone holding a booking page connects, or MyJKKN stops
+// for them after a 3-day warning.
+//
+// The state machine itself is `fn_calendar_lock_sweep` in SQL, deliberately NOT
+// here: the rule decides who loses access to a multi-tenant platform, so it is
+// one auditable object that a migration has to change, rather than logic spread
+// across a service. This wrapper exists only so the hourly cron can call it the
+// same way it calls every other pass, and so a failure is reported rather than
+// swallowed.
+//
+// While the master switch is off — which is how it ships — this returns zeroes.
+
+export interface CalendarLockSweepResult {
+  /** People who entered the 3-day grace window on this pass. */
+  warned: number;
+  /** People whose grace expired on this pass and who are now held. */
+  locked: number;
+  /** People released because they connected (or the switch went off). */
+  cleared: number;
+}
+
+export async function sweepCalendarConnectLock(
+  opts: { client?: SupabaseClient } = {}
+): Promise<CalendarLockSweepResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const { data, error } = await (db as any).rpc('fn_calendar_lock_sweep');
+  if (error) throw new Error(error.message);
+
+  const row = Array.isArray(data) ? data[0] : data;
+  const result: CalendarLockSweepResult = {
+    warned: Number(row?.warned ?? 0),
+    locked: Number(row?.locked ?? 0),
+    cleared: Number(row?.cleared ?? 0),
+  };
+
+  // Locking someone out of the whole platform is not routine traffic — it should
+  // be findable in the logs on the day someone asks "why can't I get in?".
+  if (result.locked > 0) {
+    logger.warn(
+      MODULE,
+      `calendar-connect lock: ${result.locked} person(s) now held at /auth/connect-calendar`,
+      result
+    );
+  }
   return result;
 }

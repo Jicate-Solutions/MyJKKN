@@ -150,7 +150,7 @@ function IdpDetailContent({ params }: PageProps) {
           {!editing && (
             <div className="flex items-center gap-2 flex-wrap">
               {status !== 'approved' && (
-                <PermissionGuard module="cdc.idp" action="edit">
+                <PermissionGuard module="cdc.idp" action="edit" fallback={null}>
                   <Button onClick={handleApprove} disabled={approveIdp.isPending}>
                     {approveIdp.isPending
                       ? <Loader2 className="w-4 h-4 mr-1 animate-spin" />
@@ -159,7 +159,7 @@ function IdpDetailContent({ params }: PageProps) {
                   </Button>
                 </PermissionGuard>
               )}
-              <PermissionGuard module="cdc.idp" action="edit">
+              <PermissionGuard module="cdc.idp" action="edit" fallback={null}>
                 <Button onClick={startEdit} variant="outline">Edit</Button>
               </PermissionGuard>
             </div>

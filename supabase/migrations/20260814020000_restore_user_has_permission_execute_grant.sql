@@ -1,0 +1,58 @@
+-- NO-OP. This migration is intentionally empty. Do not restore its body.
+--
+-- It previously read:
+--     GRANT EXECUTE ON FUNCTION public.user_has_permission(uuid, text)
+--       TO authenticated;
+--
+-- It was never applied to any environment (absent from
+-- supabase_migrations.schema_migrations), and it must never be. Neutralised
+-- 2026-08-08 rather than deleted so the version stays claimed and a future
+-- `db push` cannot resurrect the file.
+--
+-- WHY IT WAS WRONG
+-- ----------------
+-- Its premise was that 20260811100100 lost the grant accidentally, via
+-- DROP FUNCTION + CREATE FUNCTION discarding the ACL. That is a real hazard in
+-- this repo, but it is not what happened here. 20260811100100 line 273 issues
+-- an explicit, reasoned
+--     REVOKE EXECUTE ON FUNCTION public.user_has_permission(uuid, text)
+--       FROM authenticated, anon, PUBLIC;
+-- backed by an apply-time assert, to close a permission oracle: that overload
+-- is SECURITY DEFINER, accepts a CALLER-SUPPLIED uuid, and never compares it to
+-- auth.uid(), so any signed-in account could POST
+--     {"user_id":"<anybody>","permission_key":"<anything>"}
+-- and read back true/false — a complete map of who holds what across ~7,231
+-- profiles x ~1,393 keys, director-handover delegations included, harvested by
+-- an account holding nothing itself.
+--
+-- Re-granting would reopen exactly that hole. The author of this file could not
+-- have seen the reasoning: they noted "there is still none for
+-- user_has_permission_reads_handovers" under supabase/migrations. That file
+-- exists now, and its comment block is the authority on this decision.
+--
+-- WHAT THE REAL DEFECT WAS, AND HOW IT WAS FIXED
+-- ----------------------------------------------
+-- 20260811100100's safety evidence claimed:
+--     "TypeScript/PostgREST callers of the 2-arg form ... 0"
+-- That count was wrong. There were 18 call sites; 16 of them ran through a
+-- cookie/session-scoped client (i.e. as `authenticated`) and so began returning
+-- 42501 -> 403/500 for every user, including super admins. The user-visible
+-- symptom was "Move to Counselor" on /admission/leads/<id> failing with
+-- "Permission check failed. Please report this to support."
+--
+-- Fixed 2026-08-08 in application code, not by widening the grant: those 16
+-- callers now use the ONE-ARG overload user_has_permission(permission_name text),
+-- which resolves auth.uid() internally and retains its grant to `authenticated`.
+-- Every one of them was passing user.id -- the caller's own id -- so the two
+-- forms are semantically identical there. Verified before the change: 0 profiles
+-- sit in the super-admin gap between the overloads (all 14 rows with
+-- role = 'super_admin' also carry is_super_admin = true).
+--
+-- The two legitimate 2-arg callers run under service_role, which kept EXECUTE,
+-- and are deliberately unchanged:
+--     app/api/admission/leads/program-counts/route.ts
+--     lib/auth/bulk-receipt-access.ts
+-- They must keep the 2-arg form: under service_role auth.uid() is NULL, so the
+-- one-arg overload would answer false for everyone.
+
+SELECT 1 WHERE false;

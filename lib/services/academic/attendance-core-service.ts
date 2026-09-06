@@ -4,6 +4,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { LeaveCalendarService } from './leave-calendar-service';
+import { isStaffAssignedToRawSlot } from '@/lib/utils/academic/slot-staff-assignment';
 import type {
   StudentAttendance,
   UpdateStudentAttendanceDto,
@@ -11,6 +12,7 @@ import type {
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
   ConsolidatedAttendanceStudent,
+  ConsolidatedAttendancePeriod,
   UpsertConsolidatedAttendanceDto,
   AttendanceAuditEntry
 } from '@/types/attendance';
@@ -38,6 +40,32 @@ export function computeAttendanceDiff(
       old_status: old.status,
       new_status: newMap.get(old.student_id)!,
     }))
+}
+
+/**
+ * Merges an incoming attendance period into the existing stored period,
+ * unioning `students` by student_id instead of replacing the array.
+ * Practical periods split students across batches that all share one
+ * period_id — each batch only submits its own students, so a plain
+ * object-replace here would let the second batch's write wipe out the
+ * first batch's Present markers.
+ */
+function mergeAttendancePeriod(
+  existing: ConsolidatedAttendancePeriod | undefined,
+  incoming: ConsolidatedAttendancePeriod
+): ConsolidatedAttendancePeriod {
+  if (!existing) return incoming;
+
+  const studentMap = new Map<string, ConsolidatedAttendanceStudent>(
+    (existing.students || []).map((s) => [s.student_id, s])
+  );
+  (incoming.students || []).forEach((s) => studentMap.set(s.student_id, s));
+
+  return {
+    ...existing,
+    ...incoming,
+    students: Array.from(studentMap.values())
+  };
 }
 
 /**
@@ -294,6 +322,17 @@ export class AttendanceCoreService {
         return { isAuthorized: true, reason: `Assigned ${authType} member`, authorizationType: 'assigned_faculty' };
       }
 
+      // STEP 8.5: Faculty with the general attendance-marking permission (e.g. covering
+      // a period outside their own department/timetable, such as a library/study hour)
+      // are already let past the roster-level gate by canMarkAttendanceForSlot's third
+      // tier (checkFacultyAttendancePermission) — mirror that here, otherwise the page
+      // lets them fill out and submit attendance that this save-time check then silently
+      // rejects, since they're neither specifically assigned nor HOD of that department.
+      const hasRolePermission = await this.checkFacultyAttendancePermission();
+      if (hasRolePermission) {
+        return { isAuthorized: true, reason: 'Role-based attendance permission', authorizationType: 'permission_based' };
+      }
+
       // STEP 9: For development/testing - if no assignments found, allow with warning
       if (allAssignedIds.size === 0) {
         logger.warn('academic/attendance', 'No staff/profile assignments found in timetable - allowing access for testing');
@@ -501,12 +540,18 @@ export class AttendanceCoreService {
         }
 
         // Merge new attendance data with existing data
+        // Updated: 2026-07-22 - Merge per-period (not a shallow top-level
+        // spread) so a second practical batch writing to the same period_id
+        // unions students instead of replacing the first batch's array.
         const existingAttendanceData =
           ((currentRecord as any)?.attendance_data as ConsolidatedAttendanceData) || {};
-        const mergedAttendanceData = {
-          ...existingAttendanceData, // Keep existing periods
-          ...enrichedAttendanceData // Add/update new periods with authorization_type
-        };
+        const mergedAttendanceData: ConsolidatedAttendanceData = { ...existingAttendanceData };
+        Object.keys(enrichedAttendanceData).forEach((periodKey) => {
+          mergedAttendanceData[periodKey] = mergeAttendancePeriod(
+            existingAttendanceData[periodKey],
+            enrichedAttendanceData[periodKey]
+          );
+        });
 
         // Updated: 2025-10-09 - Update section_ids array for multi-section support
         const { data: updateResult, error: updateError } = await (this.supabase
@@ -1085,50 +1130,23 @@ export class AttendanceCoreService {
         return false;
       }
 
-      // Check if staff is in the main slot staff_members
-      if (targetSlot.staff_members && Array.isArray(targetSlot.staff_members)) {
-        const isAssignedToMain = targetSlot.staff_members.some(
-          (staff: any) => staff.id === staffId
-        );
-        if (isAssignedToMain) return true;
-      }
-
-      // Check if staff is in any sub-slot staff_members (for combined classes)
-      if (targetSlot.sub_slots && Array.isArray(targetSlot.sub_slots)) {
-        for (const subSlot of targetSlot.sub_slots) {
-          if (subSlot.staff_members && Array.isArray(subSlot.staff_members)) {
-            const isAssignedToSubSlot = subSlot.staff_members.some(
-              (staff: any) => staff.id === staffId
-            );
-            if (isAssignedToSubSlot) return true;
-          }
-        }
-      }
-
-      // Added: 2026-06-29 - Practical periods (period_mode='practical') assign staff
-      // per BATCH in practical_config.batches[].staff_mapping (course_id -> staff_id[]),
-      // NOT in staff_members/sub_slots. Recognize them here so a practical-assigned
-      // faculty counts as "specifically assigned" (tier 1 of canMarkAttendanceForSlot)
-      // and can mark even without the broad faculty permission — same as a regular
-      // assigned slot. Mirrors the getFacultyTodayPeriods practical fix.
-      if (
-        targetSlot.period_mode === 'practical' &&
-        targetSlot.practical_config &&
-        Array.isArray(targetSlot.practical_config.batches)
-      ) {
-        const inPracticalBatch = targetSlot.practical_config.batches.some(
-          (batch: any) => {
-            const mapping = batch?.staff_mapping;
-            if (!mapping || typeof mapping !== 'object') return false;
-            return Object.values(mapping).some(
-              (list: any) => Array.isArray(list) && list.includes(staffId)
-            );
-          }
-        );
-        if (inPracticalBatch) return true;
-      }
-
-      return false;
+      // Updated: 2026-08-10 - Match on the fields timetable_data actually stores.
+      // This used to read `staff_members` on the slot and its sub-slots — a field
+      // synthesised by getAvailablePeriodsForDate when it hydrates staff_ids, and
+      // never persisted. Measured on production: of 12,296 slots in active
+      // timetables, 0 carry staff_members while all 12,296 carry staff_ids and
+      // primary_staff_id. Tier 1 therefore could not succeed for any standard
+      // period, for any staff member; only the practical branch (written against
+      // the stored practical_config) ever returned true. Faculty were carried by
+      // the broad role-permission tier below, so the failure stayed invisible —
+      // until a user whose profiles.role lacks academic.attendance.mark hit all
+      // three tiers and was told "You are not assigned to teach any periods for
+      // this class" about periods she is the primary staff for.
+      //
+      // The predicate is shared so this check cannot drift from the assignment
+      // rules getAvailablePeriodsForDate and getFacultyTodayPeriods use to decide
+      // which periods to SHOW.
+      return isStaffAssignedToRawSlot(targetSlot, staffId);
     } catch (error) {
       logger.error('academic/attendance', 'Error checking staff assignment to slot', error);
       return false;

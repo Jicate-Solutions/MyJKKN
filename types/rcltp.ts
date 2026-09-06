@@ -621,6 +621,14 @@ export interface CreateRcltpPassageDto {
   status?: RcltpPassageStatus;
   ai_meta?: Json | null;
   is_active?: boolean;
+  // Who added the passage. Director decision 7 (2026-07-28) tells THIS person
+  // when their material is in a language the overnight helper cannot draft for,
+  // so the column has to be populated at insert — it has no DB default and no
+  // trigger fills it. Optional here because RcltpPassagesService.createPassage
+  // supplies the signed-in user when the caller does not; a caller that has no
+  // session (or a server-side importer) leaves it null and the notice correctly
+  // falls back to the school head.
+  created_by?: string | null;
 }
 export type UpdateRcltpPassageDto = Partial<CreateRcltpPassageDto>;
 

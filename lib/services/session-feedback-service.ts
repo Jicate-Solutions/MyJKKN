@@ -38,7 +38,11 @@ import type {
   PostedSessionResource,
   PostSessionResourceInput,
   ClarificationRequestRow,
-  ClarificationOutcome,
+  ReportableClarificationOutcome,
+  ClarificationSessionCountsRow,
+  ClarificationActType,
+  ClarificationActResult,
+  ClarificationFollowupAsk,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -239,7 +243,7 @@ export class SessionFeedbackService {
   static async reportClarificationOutcome(
     attendanceDate: string,
     periodId: string,
-    outcome: Exclude<ClarificationOutcome, 'pending'>,
+    outcome: ReportableClarificationOutcome,
   ): Promise<ClarificationRequestRow> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_clarification_outcome', {
@@ -249,6 +253,78 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Could not record what happened: ${error.message}`);
     return data as ClarificationRequestRow;
+  }
+
+  /** The read side of Lane C, for the person who LED the sessions: per-session
+   *  counts of re-explanation asks over the last 30 days. Self-scoped and
+   *  count-only server-side — the RPC cannot return who asked. Decorative
+   *  surface: any failure resolves to [] so the card simply doesn't render. */
+  static async getMyClarificationSessions(): Promise<ClarificationSessionCountsRow[]> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_clarification_sessions_for_me');
+      if (error) {
+        logger.warn('academic/session-feedback', 'clarification session counts load failed', error);
+        return [];
+      }
+      return (data || []) as ClarificationSessionCountsRow[];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'clarification session counts load failed', err);
+      return [];
+    }
+  }
+
+  /** Two-sided close, the lead's half: record "I acted on this" against one
+   *  session's open asks. The server verifies the caller is the session's
+   *  attributed lead via the SHARED attribution view and is DEFENSIVE — it
+   *  returns {success:false, reason} instead of throwing, and so does this
+   *  method. Acts are CONTEXT, NEVER EVIDENCE (spec decision 4). */
+  static async recordClarificationAct(
+    attendanceDate: string,
+    periodId: string,
+    courseCode: string | null,
+    actType: ClarificationActType,
+    note?: string,
+  ): Promise<ClarificationActResult> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_clarification_act', {
+        p_attendance_date: attendanceDate,
+        p_period_id: periodId,
+        // The card shows '—' for a course-less session; the RPC keys on NULL.
+        p_course_code: courseCode && courseCode !== '—' ? courseCode : null,
+        p_act_type: actType,
+        p_note: note?.trim() ? note.trim().slice(0, 500) : null,
+      });
+      if (error) {
+        logger.warn('academic/session-feedback', 'clarification act not recorded', error);
+        return { success: false, reason: 'unavailable' };
+      }
+      return (data ?? { success: false, reason: 'empty' }) as ClarificationActResult;
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'clarification act threw', err);
+      return { success: false, reason: 'unavailable' };
+    }
+  }
+
+  /** Two-sided close, the learner's half: the ONE "did it help?" follow-up due
+   *  for the caller — their oldest pending ask that has a lead-recorded act
+   *  newer than it. Decorative surface: any failure (or the kill switch)
+   *  resolves to null and the card simply doesn't render. */
+  static async getPendingClarificationFollowup(): Promise<ClarificationFollowupAsk | null> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_clarification_followup_pending');
+      if (error) {
+        logger.warn('academic/session-feedback', 'clarification follow-up load failed', error);
+        return null;
+      }
+      const ask = (data as { ask?: ClarificationFollowupAsk | null } | null)?.ask ?? null;
+      return ask && ask.attendance_date ? ask : null;
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'clarification follow-up threw', err);
+      return null;
+    }
   }
 
   /** Anonymized aggregate over the caller faculty's own sessions. */

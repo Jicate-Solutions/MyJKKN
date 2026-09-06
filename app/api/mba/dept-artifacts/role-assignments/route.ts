@@ -7,8 +7,10 @@
 // draft, these rows are not.
 //
 // Read through the caller's own client so the table's RLS decides. That policy
-// admits board managers / admins / super admins only, so the route states the
-// requirement up front rather than silently returning an empty list.
+// admits board managers, the officers who may assign holders, admins and super
+// admins, so the route states the requirement up front rather than silently
+// returning an empty list — an empty list here is indistinguishable from "nobody
+// holds anything", and the review dialog treats those very differently.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
@@ -41,12 +43,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: canManage } = await supabase.rpc('user_has_permission', {
-      permission_name: 'improvement.board.manage',
-    });
-    if (canManage !== true) {
+    // A board manager reads holders as part of reviewing a playbook. An officer reads
+    // them because they are the only people who may CHANGE them
+    // (improvement.area_role.assign) — asking them to also hold a board manager's
+    // permission just to see what they are about to edit is the lockout this route
+    // would otherwise recreate. The table's RLS already admits both keys; only this
+    // check was narrower.
+    const [{ data: canManage }, { data: canAssign }] = await Promise.all([
+      supabase.rpc('user_has_permission', {
+        permission_name: 'improvement.board.manage',
+      }),
+      supabase.rpc('user_has_permission', {
+        permission_name: 'improvement.area_role.assign',
+      }),
+    ]);
+    if (canManage !== true && canAssign !== true) {
       return NextResponse.json(
-        { error: 'Only an improvement board manager can view role holders.' },
+        {
+          error:
+            'Only an improvement board manager, or an officer who can assign role holders, can view role holders.',
+        },
         { status: 403 },
       );
     }

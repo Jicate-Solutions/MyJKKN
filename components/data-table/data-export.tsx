@@ -163,12 +163,14 @@ export function DataTableExport<TData extends ExportableData>({
           ? headers.filter(header => visibleColumnIds.includes(header))
           : visibleColumnIds;
       } else {
-        // Allow new columns from transform function, but still filter existing columns by visibility
+        // Allow new columns from transform function, but still filter existing columns by visibility.
+        // Keep the page's declared header ORDER: `columnWidths` is applied
+        // positionally against this list, so partitioning table columns ahead
+        // of transform-only columns silently shifted every width by a column.
         if (headers && headers.length > 0) {
-          // Split headers into existing table columns (must be visible) and new transform columns (allowed)
-          const existingHeaders = headers.filter(header => allTableColumnIds.includes(header) && visibleColumnIds.includes(header));
-          const newHeaders = headers.filter(header => !allTableColumnIds.includes(header));
-          exportHeaders = [...existingHeaders, ...newHeaders];
+          exportHeaders = headers.filter(
+            header => !allTableColumnIds.includes(header) || visibleColumnIds.includes(header)
+          );
         } else {
           exportHeaders = visibleColumnIds;
         }
@@ -266,12 +268,13 @@ export function DataTableExport<TData extends ExportableData>({
           ? headers.filter(header => visibleColumnIds.includes(header))
           : visibleColumnIds;
       } else {
-        // Allow new columns from transform function, but still filter existing columns by visibility
+        // Allow new columns from transform function, but still filter existing
+        // columns by visibility — in the page's declared header order, which is
+        // what `columnWidths` is indexed against.
         if (headers && headers.length > 0) {
-          // Split headers into existing table columns (must be visible) and new transform columns (allowed)
-          const existingHeaders = headers.filter(header => allTableColumnIds.includes(header) && visibleColumnIds.includes(header));
-          const newHeaders = headers.filter(header => !allTableColumnIds.includes(header));
-          exportHeaders = [...existingHeaders, ...newHeaders];
+          exportHeaders = headers.filter(
+            header => !allTableColumnIds.includes(header) || visibleColumnIds.includes(header)
+          );
         } else {
           exportHeaders = visibleColumnIds;
         }

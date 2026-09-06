@@ -112,22 +112,20 @@ export default function MyAssignmentPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const router = useRouter();
 
-  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params
+  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params.
+  // The early return for this lives below the hooks — returning above them made
+  // useEvent/useAuth/useStaffAssignments/useMemo conditional, which trips
+  // React's "Expected static flag was missing".
   const isValidId = !!id && !id.includes('%%drp:') && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-  if (!isValidId) {
-    return (
-      <ContentLayout title="My Assignment">
-        <div className="flex items-center justify-center min-h-[40vh]">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      </ContentLayout>
-    );
-  }
 
   const { data: event } = useEvent(id);
   const { profile, isLoading: authLoading } = useAuth();
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || (profile as any)?.is_super_admin;
-  const { data: assignments = [], isLoading: assignmentsLoading } = useStaffAssignments(id, !!isAdmin, profile?.email);
+  // '' when the id is still a DRP placeholder: this hook's `enabled` only tests
+  // truthiness, and '%%drp:…' is truthy, so passing the raw id would fire a
+  // query for something that is not a UUID.
+  const { data: assignments = [], isLoading: assignmentsLoading } =
+    useStaffAssignments(isValidId ? id : '', !!isAdmin, profile?.email);
   const isLoading = authLoading || assignmentsLoading;
 
   // Group assignments by day type
@@ -140,6 +138,17 @@ export default function MyAssignmentPage({ params }: { params: Promise<{ id: str
     });
     return groups;
   }, [assignments]);
+
+  // All hooks have run; the placeholder-id bail-out is safe from here down.
+  if (!isValidId) {
+    return (
+      <ContentLayout title="My Assignment">
+        <div className="flex items-center justify-center min-h-[40vh]">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   const totalTeams = assignments.reduce((s: number, a: any) => s + (a.venue_assignment?.team_allocations?.length || 0), 0);
   const uniqueRoles = [...new Set(assignments.map((a: any) => a.role))];

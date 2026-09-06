@@ -42,12 +42,22 @@ import {
   PharmacyScopeCard,
   PharmacyExamSchemeCard,
   PharmacyInternshipCard,
+  AhsContentCard,
 } from '@/components/bos/syllabus-pharmacy-tabs';
+import {
+  NursingWorkloadCard,
+  NursingClinicalOutlineCard,
+  NursingCompetencyMappingCard,
+} from '@/components/bos/syllabus-nursing-tabs';
 import {
   resolveAcademicModel,
   isPharmacyModel,
+  isNursingModel,
+  isBdsModel,
   modelHasOutcomes,
+  modelUsesAhsContent,
 } from '@/lib/services/bos/academic-model';
+import { BdsContentCard } from '@/components/bos/bds-content-card';
 import type { AcademicModel } from '@/types/bos';
 
 interface Institution { id: string; name: string; institution_code: string; myjkkn_institution_ids: string[]; display_name?: string; }
@@ -308,7 +318,10 @@ export function SyllabusForm({
   // v3.5 sections are not in use. Underlying data/columns are untouched —
   // flip HIDE_FINKS_TABS to false to restore them.
   const HIDE_FINKS_TABS = true;
-  const isFinksBoard = !HIDE_FINKS_TABS && taxonomy?.taxonomy_type === 'finks';
+  // JABT boards get the added-half tabs too: A1-A3 ARE Fink's dimensions, renamed.
+  const isFinksBoard =
+    !HIDE_FINKS_TABS &&
+    (taxonomy?.taxonomy_type === 'finks' || taxonomy?.taxonomy_type === 'jkkn_advanced');
 
   // If the taxonomy resolves to non-Fink's while the user sits on a Fink's-only
   // tab (e.g. regulation/board changed mid-edit), bounce back to PO Mappings —
@@ -349,6 +362,20 @@ export function SyllabusForm({
   const isPharmacy = isPharmacyModel(academicModel);
   const isBPharm = academicModel === 'pci_pharm';
   const isPharmD = academicModel === 'mgr_pharmd';
+  // AHS (Dr. MGR Allied Health Sciences): year/paper, no CO-PO/Bloom. Shares the
+  // Pharm.D content/exam/internship shape (ahs_content / exam_scheme /
+  // internship_postings) via modelUsesAhsContent — so the same editors render.
+  const isAhs = academicModel === 'mgr_ahs';
+  const isAhsShaped = modelUsesAhsContent(academicModel); // mgr_ahs || mgr_pharmd
+  // Nursing (INC B.Sc Nursing): competency-based, no CO-PO/PSO/Bloom. Keeps a
+  // "Competencies" tab (the CLO editor, relabelled) but replaces PO Mappings +
+  // Pedagogy + Objectives with Clinical Outline + Competency Mapping.
+  const isNursing = isNursingModel(academicModel);
+  // Dental (BDS / DCI): year-based competency model. Content lives in bds_content
+  // (goal/objectives/competencies/MUST-DESIRABLE-NICE grid) + exam_scheme, NOT the
+  // Anna course_content/units — so the Content tab renders a dedicated read-only
+  // BdsContentCard and the Anna Objectives/CLO/Pedagogy/PO tabs are hidden.
+  const isBds = isBdsModel(academicModel);
   // Pharmacy models carry no CO/PO/PSO/Bloom — hide those tabs entirely.
   const showOutcomeTabs = modelHasOutcomes(academicModel);
 
@@ -356,10 +383,31 @@ export function SyllabusForm({
   // pharmacy model (board changed mid-edit), bounce to a visible tab so the
   // body isn't blank.
   useEffect(() => {
-    if (isPharmacy && ['clo', 'pedagogy', 'mappings'].includes(activeTab)) {
+    if ((isPharmacy || isAhs) && ['clo', 'pedagogy', 'mappings'].includes(activeTab)) {
       setActiveTab('content');
     }
-  }, [isPharmacy, activeTab]);
+  }, [isPharmacy, isAhs, activeTab]);
+
+  // Nursing hides objectives/pedagogy/mappings; bounce off them if parked there.
+  useEffect(() => {
+    if (isNursing && ['objectives', 'pedagogy', 'mappings'].includes(activeTab)) {
+      setActiveTab('content');
+    }
+  }, [isNursing, activeTab]);
+
+  // BDS hides objectives/clo/pedagogy/mappings (all captured in bds_content);
+  // bounce off them to the single Content tab if parked there.
+  useEffect(() => {
+    if (isBds && ['objectives', 'clo', 'pedagogy', 'mappings'].includes(activeTab)) {
+      setActiveTab('content');
+    }
+  }, [isBds, activeTab]);
+
+  // CO ids for the competency-mapping tab (from the Competencies/CLO list).
+  const nursingCoIds = useMemo(() => {
+    const clos = (formData.course_learning_outcomes as { clos?: { clo_number: number }[] } | undefined)?.clos ?? [];
+    return clos.map((c) => `CO${c.clo_number}`);
+  }, [formData.course_learning_outcomes]);
 
   // Update mutation's ID when we get one from creation
   const currentSyllabusId = syllabusId || formData.id;
@@ -1044,23 +1092,33 @@ export function SyllabusForm({
         {!compact && (
           <TabsList
             className={`grid w-full ${
-              isPharmacy ? 'grid-cols-6' : isFinksBoard ? 'grid-cols-9' : 'grid-cols-7'
+              isBds ? 'grid-cols-2' : isNursing ? 'grid-cols-6' : (isPharmacy || isAhs) ? 'grid-cols-6' : isFinksBoard ? 'grid-cols-9' : 'grid-cols-7'
             }`}
           >
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
             {/* B.Pharm carries a "Scope" paragraph before Objectives. */}
             {isBPharm && <TabsTrigger value="scope">Scope</TabsTrigger>}
-            <TabsTrigger value="objectives">Objectives</TabsTrigger>
-            {/* Outcome tabs (CO/PO/PSO, Pedagogy) — Anna models only; pharmacy has none. */}
-            {showOutcomeTabs && <TabsTrigger value="clo">Course Outcomes</TabsTrigger>}
-            <TabsTrigger value="content">{isPharmD ? 'Lecture Topics' : 'Content'}</TabsTrigger>
-            <TabsTrigger value="resources">Resources</TabsTrigger>
+            {/* Nursing folds the DESCRIPTION into Basic Info; BDS folds objectives
+                into the bds_content card — no separate Objectives tab. */}
+            {!isNursing && !isBds && <TabsTrigger value="objectives">Objectives</TabsTrigger>}
+            {/* Outcome tabs (CO/PO/PSO, Pedagogy) — Anna models only; pharmacy has none.
+                Nursing keeps the CLO editor, relabelled "Competencies". */}
+            {(showOutcomeTabs || isNursing) && (
+              <TabsTrigger value="clo">{isNursing ? 'Competencies' : 'Course Outcomes'}</TabsTrigger>
+            )}
+            <TabsTrigger value="content">{isPharmD ? 'Lecture Topics' : isBds ? 'Syllabus' : 'Content'}</TabsTrigger>
+            {/* Nursing clinical outline + skill-lab practicum. */}
+            {isNursing && <TabsTrigger value="clinical">Clinical</TabsTrigger>}
+            {/* BDS folds textbooks into the syllabus card — no separate Resources tab. */}
+            {!isBds && <TabsTrigger value="resources">Resources</TabsTrigger>}
             {showOutcomeTabs && <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>}
             {showOutcomeTabs && <TabsTrigger value="mappings">PO Mappings</TabsTrigger>}
-            {/* Pharmacy exam scheme (PCI / Dr. MGR) replaces the outcome mapping. */}
-            {isPharmacy && <TabsTrigger value="exam">Exam Scheme</TabsTrigger>}
-            {/* Pharm.D 6th-year internship postings. */}
-            {isPharmD && <TabsTrigger value="internship">Internship</TabsTrigger>}
+            {/* Nursing maps outcomes to the 10 INC core competencies (no PO/PSO). */}
+            {isNursing && <TabsTrigger value="competency">Competency Map</TabsTrigger>}
+            {/* Pharmacy / AHS exam scheme (PCI / Dr. MGR) replaces the outcome mapping. */}
+            {(isPharmacy || isAhs) && <TabsTrigger value="exam">Exam Scheme</TabsTrigger>}
+            {/* Pharm.D 6th-year / AHS internship postings. */}
+            {(isPharmD || isAhs) && <TabsTrigger value="internship">Internship</TabsTrigger>}
             {/* Fink's-only tabs — Bloom's boards end the flow at PO Mappings */}
             {isFinksBoard && (
               <>
@@ -1080,7 +1138,7 @@ export function SyllabusForm({
             />
           </TabsContent>
         )}
-        {isPharmacy && (
+        {(isPharmacy || isAhs) && (
           <TabsContent value="exam" className="space-y-4">
             <Card>
               <CardHeader>
@@ -1088,7 +1146,9 @@ export function SyllabusForm({
                 <CardDescription>
                   {isBPharm
                     ? 'Which semester this course belongs to (B.Pharm 1–8).'
-                    : 'Which academic year this subject belongs to (Pharm.D 1–5).'}
+                    : isAhs
+                      ? 'Which academic year this paper belongs to (AHS 1–3).'
+                      : 'Which academic year this subject belongs to (Pharm.D 1–5).'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -1104,9 +1164,11 @@ export function SyllabusForm({
                     />
                   </div>
                 )}
-                {isPharmD && (
+                {(isPharmD || isAhs) && (
                   <div>
-                    <label className="text-xs text-muted-foreground">Academic year (1–5)</label>
+                    <label className="text-xs text-muted-foreground">
+                      {isAhs ? 'Academic year (1–3)' : 'Academic year (1–5)'}
+                    </label>
                     <Input
                       inputMode="numeric"
                       value={formData.academic_year ?? ''}
@@ -1121,15 +1183,34 @@ export function SyllabusForm({
             <PharmacyExamSchemeCard
               value={formData.exam_scheme}
               onChange={(v) => updateField('exam_scheme', v)}
-              showQuestionPattern={isBPharm}
+              showQuestionPattern={isBPharm || isAhs}
             />
           </TabsContent>
         )}
-        {isPharmD && (
+        {(isPharmD || isAhs) && (
           <TabsContent value="internship" className="space-y-4">
             <PharmacyInternshipCard
               value={formData.internship_postings}
               onChange={(v) => updateField('internship_postings', v)}
+            />
+          </TabsContent>
+        )}
+
+        {/* ── Nursing (CNR / INC B.Sc Nursing) tabs ── */}
+        {isNursing && (
+          <TabsContent value="clinical" className="space-y-4">
+            <NursingClinicalOutlineCard
+              value={formData.clinical_outline}
+              onChange={(v) => updateField('clinical_outline', v)}
+            />
+          </TabsContent>
+        )}
+        {isNursing && (
+          <TabsContent value="competency" className="space-y-4">
+            <NursingCompetencyMappingCard
+              value={formData.competency_mappings}
+              onChange={(v) => updateField('competency_mappings', v)}
+              coIds={nursingCoIds}
             />
           </TabsContent>
         )}
@@ -1462,6 +1543,24 @@ export function SyllabusForm({
                   placeholder="e.g., Engineering, Pharmacy"
                 />
               </div>
+              {/* Nursing (INC): DESCRIPTION paragraph + Theory/Lab/Clinical workload. */}
+              {isNursing && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Description</label>
+                    <Textarea
+                      value={formData.course_description || ''}
+                      onChange={(e) => updateField('course_description', e.target.value)}
+                      placeholder="The course is designed to…"
+                      rows={4}
+                    />
+                  </div>
+                  <NursingWorkloadCard
+                    value={formData.nursing_workload}
+                    onChange={(v) => updateField('nursing_workload', v)}
+                  />
+                </>
+              )}
               {/* NAAC-2024 coverage tags — counted live for metrics 1.4 / 1.6 */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -1604,6 +1703,22 @@ export function SyllabusForm({
 
         {/* Course Content */}
         <TabsContent value="content" className="space-y-4">
+          {isBds ? (
+            /* Dental (BDS/DCI): goal/objectives/competencies/MUST-DESIRABLE-NICE
+               grid + exam scheme live in bds_content/exam_scheme (course_content
+               is NULL) — render the dedicated read-only card. */
+            <BdsContentCard
+              content={(formData as any).bds_content}
+              examScheme={formData.exam_scheme}
+              textbooks={formData.textbooks}
+            />
+          ) : isAhsShaped ? (
+            /* AHS / Pharm.D: year → paper/subject → topics|units tree (ahs_content). */
+            <AhsContentCard
+              value={formData.ahs_content}
+              onChange={(v) => updateField('ahs_content', v)}
+            />
+          ) : (
           <Card>
             <CardHeader>
               <CardTitle>Course Content</CardTitle>
@@ -1631,6 +1746,7 @@ export function SyllabusForm({
               </div>
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* Resources */}
@@ -2827,6 +2943,15 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
     ? 'practical'
     : 'theory';
 
+  // Escape hatch for courses whose COE category doesn't describe how the
+  // syllabus is actually written — e.g. a "Practical" lab course whose approved
+  // document is unit-wise (UNIT I … UNIT VI with hours) rather than a numbered
+  // experiment list. Without this the Theory tab is disabled and the author is
+  // forced to flatten those units into topics, which is exactly how they are
+  // then exported. Session-local: what persists is the mode the author picks
+  // (is_practical + the populated shape), so no schema change is needed.
+  const [allowAnyMode, setAllowAnyMode] = useState(false);
+
   // Which Content-Type tabs the course category permits. The category strings
   // ("Theory", "Practical", "Project", "Theory + Practical", "Theory + Project",
   // "Group Project", …) are matched by substring so combined types light up both
@@ -2844,9 +2969,14 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
     if (!c || (!modes.theory && !modes.practical && !modes.project)) {
       modes.theory = modes.practical = modes.project = true;
     }
+    if (allowAnyMode) {
+      modes.theory = modes.practical = modes.project = true;
+    }
     modes[activeMode] = true;
     return modes;
   })();
+  // Only worth offering when the category actually locks a tab.
+  const categoryRestricts = !(allowedModes.theory && allowedModes.practical && allowedModes.project);
 
   const units = content?.units || [];
   const topics: {
@@ -3116,6 +3246,19 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
             {courseCode ? <span className="font-mono">{courseCode}</span> : null} · {courseCategory}
           </span>
         ) : null}
+        {/* Unlock the tabs the course category disables — for a practical course
+            whose approved syllabus is written unit-wise (and vice versa). The
+            export follows whatever shape ends up populated. */}
+        {(categoryRestricts || allowAnyMode) && (
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
+            <Checkbox
+              checked={allowAnyMode}
+              onCheckedChange={(v) => setAllowAnyMode(v === true)}
+              aria-label="Allow all content types for this course"
+            />
+            Written differently? Allow all content types
+          </label>
+        )}
       </div>
 
       {isProject ? (

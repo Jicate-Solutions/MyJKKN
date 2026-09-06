@@ -137,6 +137,20 @@ export class LogManager {
       .map(arg => {
         if (typeof arg === 'string') return arg;
         if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
+        // Supabase/Postgrest errors are plain objects, not Error instances,
+        // but a bare JSON.stringify on them can still collapse to '{}' (e.g.
+        // when thrown/rethrown through a boundary that only preserves own
+        // enumerable string fields as getters). Pull the known
+        // message/code/details/hint shape out explicitly so the real reason
+        // survives instead of showing an empty object.
+        if (arg && typeof arg === 'object') {
+          const { message, code, details, hint } = arg as Record<string, unknown>;
+          if (message || code || details || hint) {
+            return [message, code && `(code: ${code})`, details && `details: ${details}`, hint && `hint: ${hint}`]
+              .filter(Boolean)
+              .join(' ');
+          }
+        }
         try {
           return JSON.stringify(arg);
         } catch {

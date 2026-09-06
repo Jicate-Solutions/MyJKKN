@@ -190,6 +190,53 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'School of Influencer',
+      icon: 'GraduationCap',
+      // 2026-08-13: the group href WAS the settings page, from 2026-07-31 (S2)
+      // when settings was the only screen that existed. That comment promised
+      // the rest would "add their own children here". They shipped — review
+      // queue, coordinators, attendance, lifecycle — and nobody came back, so
+      // the one tab for the whole programme pointed at the one screen a
+      // coordinator is deliberately not allowed to open
+      // (startup_studio.school_of_influence.configure is Director-level
+      // programme configuration). BUG-005799 / BUG-005800.
+      //
+      // The group now opens the REVIEW QUEUE — a coordinator's actual job — and
+      // every screen is a child. Settings is last because it is the rarest and
+      // the most consequential; it keeps its own configure key, and the other
+      // four are gated on cohort.manage, so nothing here inherits the
+      // Director's key by sitting next to it.
+      href: '/startup-studio/school-of-influence/admin/applications',
+      matchPaths: ['/startup-studio/school-of-influence'],
+      children: [
+        {
+          label: 'Applications',
+          icon: 'ClipboardList',
+          href: '/startup-studio/school-of-influence/admin/applications',
+        },
+        {
+          label: 'Coordinators',
+          icon: 'UserCheck',
+          href: '/startup-studio/school-of-influence/admin/coordinators',
+        },
+        {
+          label: 'Attendance',
+          icon: 'CheckSquare',
+          href: '/startup-studio/school-of-influence/admin/attendance',
+        },
+        {
+          label: 'Inactivity dry run',
+          icon: 'Activity',
+          href: '/startup-studio/school-of-influence/admin/lifecycle',
+        },
+        {
+          label: 'Settings',
+          icon: 'SlidersHorizontal',
+          href: '/startup-studio/school-of-influence/admin/settings',
+        },
+      ],
+    },
+    {
       label: 'NIF',
       icon: 'Sprout',
       href: '/startup-studio/nif',

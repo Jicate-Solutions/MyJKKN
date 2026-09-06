@@ -5,6 +5,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
+import { getLCAccess, getLCRole, canReviewEventProposals } from '@/lib/learners-council/lc-roles';
 import { EventDetailClient } from './event-detail-client';
 
 export default async function EventDetailPage({
@@ -53,6 +54,25 @@ export default async function EventDetailPage({
   // Check if current user is the proposer
   const isProposer = event.proposed_by === profile.id;
 
+  // Resolve reviewer standing. Without these two props the client defaults
+  // isStaffOrAdmin to false, which hid the Approve/Reject buttons from everyone —
+  // so a pending_review event had no reachable decision anywhere in the UI.
+  const { data: lcMembership } = await supabase
+    .from('lc_members')
+    .select('id, position_id, status, position:lc_positions(category, tier)')
+    .eq('user_id', profile.id)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  const membershipInfo = lcMembership
+    ? {
+        position_category: (lcMembership.position as { category?: string | null } | null)?.category,
+        tier: (lcMembership.position as { tier?: string | null } | null)?.tier,
+      }
+    : null;
+
+  const canReview = canReviewEventProposals(getLCAccess(profile, membershipInfo));
+
   return (
     <div className="space-y-6">
       <EventDetailClient
@@ -60,6 +80,8 @@ export default async function EventDetailPage({
         userId={profile.id}
         isRegistered={isRegistered}
         isProposer={isProposer}
+        isStaffOrAdmin={canReview}
+        userRole={getLCRole(profile.role || null, membershipInfo)}
       />
     </div>
   );

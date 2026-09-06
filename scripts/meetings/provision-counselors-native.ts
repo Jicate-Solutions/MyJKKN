@@ -56,8 +56,10 @@ const MEETING_TYPE = {
   slug: 'admission-counseling',
   duration_min: 30,
   min_notice_min: 120,
-  buffer_before_min: 0,
-  buffer_after_min: 0,
+  // 5-minute gap each side — see provision-leadership-native.ts for why
+  // buffer_BEFORE is the load-bearing one.
+  buffer_before_min: 5,
+  buffer_after_min: 5,
   max_days_ahead: 14,
   hidden: false,
   is_active: true,

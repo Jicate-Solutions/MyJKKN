@@ -4,6 +4,7 @@
 // Import this file ONLY from API routes / Server Actions — never from hooks or
 // client components, otherwise the build will fail with a next/headers error.
 
+import { createHash } from 'crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   buildUnitDisplay,
@@ -268,7 +269,13 @@ export class ImsInventoryServiceServer {
         : null;
 
       validItems.push({
-        code: d.code.toUpperCase(),
+        // NULL — not undefined — when the sheet's Code cell is blank. PostgREST
+        // builds a bulk INSERT's column list from the keys and rejects the batch
+        // with PGRST102 if they differ between rows, so a sheet mixing filled and
+        // blank codes must still send the key on every row. NULL is what the
+        // ims_items_autofill_code trigger looks for; NOT NULL is checked after
+        // BEFORE triggers run, so the row is complete by the time it matters.
+        code: d.code ? d.code.toUpperCase() : null,
         name: d.name,
         description: d.description,
         category_id: categoryId,
@@ -313,6 +320,9 @@ export class ImsInventoryServiceServer {
     const duplicateCodes: string[] = [];
 
     const deduped = validItems.filter((item, idx) => {
+      // A blank code is a request for a generated one, not a value — twenty blank
+      // rows are twenty new items, not nineteen duplicates of the first.
+      if (!item.code) return true;
       const key = item.code.toLowerCase();
       if (seenCodes.has(key)) {
         const firstRow = seenCodes.get(key)! + 2;
@@ -332,7 +342,9 @@ export class ImsInventoryServiceServer {
     // Codes are unique per institution (constraint: ims_items_institution_code_unique).
     // Filter the pre-flight check by institution so we match the constraint scope —
     // otherwise the check passes but the INSERT collides with rows from another store.
-    const codesToCheck = deduped.map((i) => i.code.toUpperCase());
+    const codesToCheck = deduped
+      .filter((i) => !!i.code)
+      .map((i) => i.code!.toUpperCase());
 
     let dbDupQuery = supabase
       .from('ims_items')
@@ -352,6 +364,7 @@ export class ImsInventoryServiceServer {
     );
 
     const itemsToInsert = deduped.filter((item, idx) => {
+      if (!item.code) return true;
       if (existingCodes.has(item.code.toUpperCase())) {
         allErrors.push({
           row: idx + 2,
@@ -428,6 +441,34 @@ export class ImsInventoryServiceServer {
       ])
     );
 
+    // ── List them at the importing store (non-fatal) ────────────────────────
+    // The ims_stock_summary trigger would cover the rows with opening stock, but
+    // it defaults the POS flag to false and never fires at all for the ones
+    // imported at zero. Both matter: the sheet has a "sellable" column, and an
+    // item imported with no stock still has to be visible so it can be received.
+    if (storeId) {
+      try {
+        const links = itemsToInsert
+          .map((item) => ({
+            store_id: storeId,
+            item_id: insertedCodeMap.get(item.code.toUpperCase()),
+            is_sellable_to_students: item.is_sellable_to_students ?? false,
+          }))
+          .filter((l) => !!l.item_id);
+
+        if (links.length > 0) {
+          const { error: linkError } = await supabase
+            .from('ims_store_items')
+            .upsert(links, { onConflict: 'store_id,item_id' });
+          if (linkError) {
+            console.warn('[ImsInventoryServiceServer] bulkImport store listing failed:', linkError.message);
+          }
+        }
+      } catch (e) {
+        console.warn('[ImsInventoryServiceServer] bulkImport store listing threw:', e);
+      }
+    }
+
     const stockItems = itemsToInsert.filter((item) => item.opening_stock > 0);
 
     if (stockItems.length > 0) {
@@ -483,7 +524,11 @@ export class ImsInventoryServiceServer {
       const batchItems = stockItems.filter((item) => item.batch_number);
       if (batchItems.length > 0) {
         try {
-          const todayIso = new Date().toISOString().split('T')[0];
+          // Local date, NOT UTC. entry_date is a sort key for FEFO, and
+          // toISOString() is UTC: for an IST user importing between midnight and
+          // 05:30 the UTC date is still yesterday, so the batch sorts ahead of
+          // stock that genuinely arrived earlier. en-CA renders as YYYY-MM-DD.
+          const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
           const batches = batchItems.map((item) => ({
             item_id: insertedCodeMap.get(item.code.toUpperCase()),
             batch_number: item.batch_number,
@@ -562,9 +607,9 @@ export class ImsInventoryServiceServer {
     warehouseStoreId: string,
     institutionId: string | null,
     userId: string
-  ): Promise<{ errors: ImsImportError[]; dispatched: number; storesServed: number }> {
+  ): Promise<{ errors: ImsImportError[]; dispatched: number; storesServed: number; skipped: number }> {
     const errors: ImsImportError[] = [];
-    if (rows.length === 0) return { errors, dispatched: 0, storesServed: 0 };
+    if (rows.length === 0) return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase = (await createServerSupabaseClient()) as any;
@@ -578,7 +623,7 @@ export class ImsInventoryServiceServer {
 
     if (storeErr) {
       errors.push({ row: 0, field: 'store', message: `Could not read stores: ${storeErr.message}` });
-      return { errors, dispatched: 0, storesServed: 0 };
+      return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
     }
 
     // Match on the code inside "Name (CODE)", falling back to a plain name or
@@ -608,7 +653,7 @@ export class ImsInventoryServiceServer {
 
     if (itemErr) {
       errors.push({ row: 0, field: 'item_code', message: `Could not read items: ${itemErr.message}` });
-      return { errors, dispatched: 0, storesServed: 0 };
+      return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
     }
 
     const itemByCode = new Map<string, string>();
@@ -666,17 +711,70 @@ export class ImsInventoryServiceServer {
     }
 
     // ── Dispatch: one push transfer per destination store ────────────────────
+    //
+    // Re-uploading a file must not send the stock twice. There is no natural
+    // idempotency key, so derive one from the content that defines the transfer
+    // — warehouse, destination and the exact item/quantity set — and stamp it
+    // into the request's purpose. A repeat upload produces the same key and is
+    // skipped. The window is bounded to 24h because distributing the same
+    // quantities to the same store on a LATER day is a legitimate restock, not
+    // a duplicate; within one day it is almost always a double submit or a retry
+    // after one store in the file failed.
     let dispatched = 0;
     let storesServed = 0;
+    let skipped = 0;
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     for (const [destStoreId, bucket] of grouped) {
       const lines = [...bucket.lines.entries()].map(([item_id, quantity]) => ({ item_id, quantity }));
+
+      const key = createHash('sha256')
+        .update(
+          [
+            warehouseStoreId,
+            destStoreId,
+            ...lines.map((l) => `${l.item_id}:${l.quantity}`).sort(),
+          ].join('|')
+        )
+        .digest('hex')
+        .slice(0, 12);
+
+      // Columns are INVERTED on ims_indent_requests: source_store_id is the
+      // RECEIVER and destination_store_id is the SUPPLYING warehouse.
+      const { data: priorPush, error: priorErr } = await supabase
+        .from('ims_indent_requests')
+        .select('indent_number')
+        .eq('initiation_mode', 'push')
+        .eq('destination_store_id', warehouseStoreId)
+        .eq('source_store_id', destStoreId)
+        .like('purpose', `%[${key}]%`)
+        .gte('created_at', since)
+        .limit(1);
+
+      // A failed lookup must not silently disable the guard, but it also must
+      // not block a legitimate distribution — dispatch and say what happened.
+      if (priorErr) {
+        errors.push({
+          row: 0,
+          field: 'store',
+          message: `Could not check whether ${bucket.store.name} was already sent this exact list (${priorErr.message}). Sending anyway — check ${bucket.store.name} for a duplicate transfer.`,
+        });
+      } else if (priorPush && priorPush.length > 0) {
+        skipped += 1;
+        errors.push({
+          row: 0,
+          field: 'store',
+          message: `Skipped ${bucket.store.name}: this exact list was already sent there in the last 24 hours as ${priorPush[0].indent_number}. Re-uploading does not send it again. If you really want to send more, change the quantities or wait 24 hours.`,
+        });
+        continue;
+      }
 
       const { error: pushErr } = await supabase.rpc('ims_create_push_transfer', {
         p_warehouse_store_id: warehouseStoreId,
         p_dest_store_id: destStoreId,
         p_actor: userId,
-        p_purpose: 'Distributed from inventory upload',
+        p_purpose: `Distributed from inventory upload [${key}]`,
         p_lines: lines,
         p_dispatch_now: true,
       });
@@ -696,6 +794,202 @@ export class ImsInventoryServiceServer {
       storesServed += 1;
     }
 
-    return { errors, dispatched, storesServed };
+    return { errors, dispatched, storesServed, skipped };
+  }
+
+  /**
+   * Update selling price, MRP and POS sellability on items that ALREADY EXIST.
+   *
+   * Why this exists rather than reusing bulkImport(): bulkImport is insert-only —
+   * it treats any code already present in the institution as a duplicate and
+   * rejects the row (see the pre-flight check above). So it cannot be used to fill
+   * in prices for a catalogue that has already been loaded, which is exactly the
+   * situation JKKN Pharmacy was in: 761 items, every one with selling_price = 0,
+   * mrp = 0 and is_sellable_to_students = false, which left the POS grid empty and
+   * every bill at zero.
+   *
+   * Deliberately narrow. It touches ONLY selling_price, mrp and
+   * is_sellable_to_students. A general-purpose upsert would let a price sheet
+   * silently overwrite names, units, categories or GST rates — too much blast
+   * radius for a file someone assembled in a hurry.
+   *
+   * Matching is on UPPER(code) within institution_id, mirroring the
+   * ims_items_institution_code_unique constraint scope.
+   */
+  static async bulkUpdatePrices(
+    rows: Array<{
+      row_number: number;
+      code: string;
+      selling_price: number | null;
+      mrp: number | null;
+      is_sellable: boolean | null;
+    }>,
+    institutionId: string
+  ): Promise<ImsImportResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = (await createServerSupabaseClient()) as any;
+
+    const errors: ImsImportError[] = [];
+    const totalRows = rows.length;
+
+    if (!institutionId) {
+      return {
+        success: false,
+        successCount: 0,
+        errorCount: 1,
+        totalRows,
+        errors: [{ row: 0, field: 'institution', message: 'An institution is required' }],
+      };
+    }
+
+    // ── Row-level validation ────────────────────────────────────────────────
+    const valid: typeof rows = [];
+    const seen = new Map<string, number>();
+
+    for (const r of rows) {
+      const code = r.code.trim().toUpperCase();
+
+      if (!code) {
+        errors.push({ row: r.row_number, field: 'code', message: 'Code is required' });
+        continue;
+      }
+
+      if (seen.has(code)) {
+        errors.push({
+          row: r.row_number,
+          field: 'code',
+          message: `Code "${code}" duplicated in this file (first seen row ${seen.get(code)})`,
+        });
+        continue;
+      }
+
+      if (r.selling_price !== null && (!Number.isFinite(r.selling_price) || r.selling_price < 0)) {
+        errors.push({
+          row: r.row_number,
+          field: 'selling_price',
+          message: 'Selling Price must be a number >= 0',
+        });
+        continue;
+      }
+
+      if (r.mrp !== null && (!Number.isFinite(r.mrp) || r.mrp < 0)) {
+        errors.push({ row: r.row_number, field: 'mrp', message: 'MRP must be a number >= 0' });
+        continue;
+      }
+
+      // The whole point of this import is to stop items reaching the POS at zero.
+      // An item flagged sellable with no price would bill at 0.00, so refuse it
+      // here rather than let it through and be discovered at the counter.
+      if (r.is_sellable === true && !(r.selling_price && r.selling_price > 0)) {
+        errors.push({
+          row: r.row_number,
+          field: 'selling_price',
+          message: 'Sellable items need a Selling Price greater than 0',
+        });
+        continue;
+      }
+
+      // Priced above MRP is a pricing mistake, not a rounding artefact.
+      if (
+        r.selling_price !== null &&
+        r.mrp !== null &&
+        r.mrp > 0 &&
+        r.selling_price > r.mrp
+      ) {
+        errors.push({
+          row: r.row_number,
+          field: 'selling_price',
+          message: `Selling Price (${r.selling_price}) is above MRP (${r.mrp})`,
+        });
+        continue;
+      }
+
+      seen.set(code, r.row_number);
+      valid.push({ ...r, code });
+    }
+
+    if (valid.length === 0) {
+      return {
+        success: false,
+        successCount: 0,
+        errorCount: errors.length,
+        totalRows,
+        errors,
+      };
+    }
+
+    // ── Resolve codes to ids, so an unknown code is reported per row rather
+    //    than silently matching nothing ──────────────────────────────────────
+    const { data: existing, error: lookupError } = await supabase
+      .from('ims_items')
+      .select('id, code, cost_price')
+      .eq('institution_id', institutionId)
+      .in('code', valid.map((v) => v.code));
+
+    if (lookupError) {
+      console.error('[ImsInventoryServiceServer] bulkUpdatePrices lookup:', lookupError);
+      return {
+        success: false,
+        successCount: 0,
+        errorCount: errors.length + 1,
+        totalRows,
+        errors: [...errors, { row: 0, field: 'code', message: lookupError.message }],
+      };
+    }
+
+    const byCode = new Map<string, { id: string; cost_price: number | null }>(
+      // Codes are stored upper-case by bulkImport, but normalise anyway so a
+      // legacy lower-case row still matches.
+      (existing || []).map((e: any) => [
+        (e.code as string).toUpperCase(),
+        { id: e.id, cost_price: e.cost_price },
+      ])
+    );
+
+    let successCount = 0;
+
+    for (const r of valid) {
+      const match = byCode.get(r.code);
+
+      if (!match) {
+        errors.push({
+          row: r.row_number,
+          field: 'code',
+          message: `Code "${r.code}" does not exist in this institution — add the item first`,
+        });
+        continue;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (r.selling_price !== null) patch.selling_price = r.selling_price;
+      if (r.mrp !== null) patch.mrp = r.mrp;
+      if (r.is_sellable !== null) patch.is_sellable_to_students = r.is_sellable;
+
+      const { error: updateError } = await supabase
+        .from('ims_items')
+        .update(patch)
+        .eq('id', match.id)
+        .eq('institution_id', institutionId);
+
+      if (updateError) {
+        errors.push({
+          row: r.row_number,
+          field: 'code',
+          message: `Update failed for "${r.code}": ${updateError.message}`,
+        });
+        continue;
+      }
+
+      successCount += 1;
+    }
+
+    return {
+      success: successCount > 0,
+      successCount,
+      errorCount: errors.length,
+      totalRows,
+      errors,
+    };
   }
 }

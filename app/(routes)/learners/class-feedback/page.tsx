@@ -28,6 +28,7 @@ import { MyVoiceReceipt } from './_components/my-voice-receipt';
 import { ClassPollBanner } from './_components/class-poll-banner';
 import { PreSessionMaterialsRow } from './_components/pre-session-materials-row';
 import { LoopClosureCard } from './_components/loop-closure-card';
+import { VoiceChangedTermly } from './_components/voice-changed-termly';
 import { StrugglingNoteCard } from './_components/struggling-note-card';
 import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-confirmed-attendance-card';
 
@@ -224,6 +225,12 @@ export default function LearnerSessionFeedbackPage() {
 
         {/* Receipt — your participation + whether flagged classes improved (hidden until you have history) */}
         <MyVoiceReceipt />
+
+        {/* The termly ledger — the whole history of changes your voice caused, by
+            academic year, with your own word on each. Collapsed by default and it
+            only fetches once opened, so it never competes with the pending list
+            above; the live card above stays the place the answer is ASKED for. */}
+        <VoiceChangedTermly />
 
         {/* Body */}
         <Card className="bg-[#fbfbee]/30 dark:bg-card">

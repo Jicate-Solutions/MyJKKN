@@ -34,6 +34,33 @@ export const STUDENT_BILL_TEMPLATE_HEADERS = [
 export type StudentBillTemplateHeader = (typeof STUDENT_BILL_TEMPLATE_HEADERS)[number];
 
 /**
+ * Earliest academic year offered in the billing template dropdowns.
+ *
+ * Bills are not raised against cohorts that finished long ago, and every extra
+ * entry makes the picker harder to scan. The floor is presentational only —
+ * the importer still resolves any year the table holds, so a sheet typed by
+ * hand with an older year is unaffected.
+ */
+export const MIN_ACADEMIC_YEAR_START = 2020;
+
+/**
+ * Drops academic year names starting before {@link MIN_ACADEMIC_YEAR_START},
+ * newest first. Shared by the bulk-create and bulk-edit template routes so the
+ * two pickers can never drift apart.
+ *
+ * A name that does not start with four digits is KEPT: the floor is there to
+ * hide known-old cohorts, not to swallow a name it merely failed to parse.
+ */
+export function filterBillableAcademicYears(names: string[]): string[] {
+  return Array.from(new Set(names.map((n) => String(n ?? '').trim()).filter(Boolean)))
+    .filter((name) => {
+      const startYear = Number(name.match(/^(\d{4})/)?.[1]);
+      return Number.isNaN(startYear) || startYear >= MIN_ACADEMIC_YEAR_START;
+    })
+    .sort((a, b) => b.localeCompare(a));
+}
+
+/**
  * Canonical field -> accepted header spellings, matched case/space-insensitively.
  *
  * The importer resolves columns through THIS map rather than by position.
@@ -149,3 +176,126 @@ export interface ImportResult {
   /** Per-learner detail for committed rows (absent on legacy/error responses). */
   successes?: ImportSuccessRow[];
 }
+
+// ----------------------------------------------------------------------
+// Preview / validate contract (multi-step upload flow)
+//
+// The upload used to be one click: pick file → bills committed. Every check
+// below already ran, but only ever *after* the insert, so a bad sheet was
+// discovered by reading the failure report. These types carry the same
+// analysis to the client BEFORE anything is written, so the user reviews the
+// data, then the errors, then commits.
+// ----------------------------------------------------------------------
+
+/**
+ * What kind of problem a row has. Drives the grouping on the validation step:
+ * each kind is fixed in a different place, so lumping them together makes the
+ * screen unreadable on a sheet with a few hundred rows.
+ *
+ * - `format`    — the cell itself is wrong (blank required field, unparseable
+ *                 date, non-numeric amount). Fix the spreadsheet.
+ * - `lookup`    — the value is well-formed but names nothing in the database
+ *                 (unknown roll number, inactive category, academic year that
+ *                 doesn't exist for that institution). Fix the value, or fix
+ *                 the master record.
+ * - `condition` — the row is entirely valid on its own but breaks a configured
+ *                 billing rule (today: `billing_categories.once_per_learner`).
+ *                 Nothing is wrong with the sheet; the bill simply may not
+ *                 exist. Surfaced separately because the remedy is different —
+ *                 cancel the existing bill, or turn the rule off.
+ */
+export type RowIssueKind = 'format' | 'lookup' | 'condition';
+
+export interface RowIssue {
+  kind: RowIssueKind;
+  /** Human column label ("Billing Category"), not the internal field name. */
+  field?: string;
+  message: string;
+}
+
+/**
+ * One sheet row as the preview step shows it.
+ *
+ * `raw` is deliberately what the spreadsheet literally contained, untouched by
+ * resolution — that is the whole point of the preview step: "did the importer
+ * read my file the way I meant it?" `resolved` carries what the database
+ * matched, so the same table can show the learner's real name next to the roll
+ * number they typed.
+ */
+export interface BulkCreatePreviewRow {
+  /** 1-indexed Excel row number (header is row 1, so data starts at 2). */
+  row: number;
+  status: 'valid' | 'error';
+  raw: {
+    roll_number: string;
+    first_name: string;
+    last_name: string;
+    institution_name: string;
+    academic_year_name: string;
+    billing_category_name: string;
+    bill_description: string;
+    /** Normalised to yyyy-mm-dd when parseable, else the raw text as typed. */
+    due_date: string;
+    /** Null when the cell wasn't a number — preview still shows the raw text. */
+    billing_amount: number | null;
+    billing_amount_raw: string;
+    remarks: string;
+  };
+  resolved: {
+    student_name: string | null;
+    institution_name: string | null;
+    academic_year_name: string | null;
+    billing_category_name: string | null;
+  };
+  issues: RowIssue[];
+}
+
+/**
+ * Per-category report for the rules checked on the validation step.
+ *
+ * Shown even when nothing conflicts: a clerk uploading 400 tuition bills needs
+ * to see that the once-per-learner rule *was evaluated and passed*, not just
+ * an absence of red.
+ */
+export interface CategoryConditionCheck {
+  category_name: string;
+  rule: 'once_per_learner';
+  /** Rows in this sheet that name this category. */
+  rowsChecked: number;
+  /** Rows blocked by a live bill that already exists in the database. */
+  conflictsExisting: number;
+  /** Rows blocked by an earlier row of THIS sheet claiming the same pair. */
+  conflictsInFile: number;
+}
+
+export interface BulkCreatePreviewResult {
+  /** Which worksheet was read — worth showing, since it is picked by name. */
+  sheetName: string;
+  /**
+   * File-level failure that stopped parsing entirely (no readable sheet, no
+   * data rows, a missing required column). When set, `rows` is empty and the
+   * UI shows this instead of an empty table.
+   */
+  fatal: string | null;
+  totalRows: number;
+  validRows: number;
+  errorRows: number;
+  /** Distinct learners across the valid rows. */
+  learnerCount: number;
+  /** Sum of `billing_amount` over valid rows only. */
+  totalAmount: number;
+  issueCounts: Record<RowIssueKind, number>;
+  conditionChecks: CategoryConditionCheck[];
+  categoryBreakdown: Array<{ category_name: string; rows: number; amount: number }>;
+  rows: BulkCreatePreviewRow[];
+  /**
+   * True when `rows` was capped for transport. Errors are NEVER capped, so a
+   * truncated preview still reports every problem — only the table is short.
+   */
+  rowsTruncated: boolean;
+  /** Flat error list — feeds the downloadable issues report. */
+  errors: ImportError[];
+}
+
+/** Rows returned to the client for the preview table. Errors are uncapped. */
+export const PREVIEW_ROW_CAP = 5000;

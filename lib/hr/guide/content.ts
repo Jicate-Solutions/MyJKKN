@@ -289,7 +289,7 @@ export const GUIDES: GuideBook = {
         'Read the command-centre dashboard',
         'Manage the workforce list',
         'Know the two policy systems and when to use each',
-        'Set onboarding, documents and shift templates',
+        'Set onboarding, documents and shift timings',
         'Configure recruitment needs and approval chains',
         'Run payroll, performance, promotions and training',
         'Handle compliance: memos, discipline and exits',
@@ -378,7 +378,7 @@ export const GUIDES: GuideBook = {
         },
         {
           id: 'onboarding-documents',
-          title: 'Set up onboarding, documents and shifts',
+          title: 'Set up onboarding, documents and shift timings',
           steps: [
             {
               action: 'Set the **Required Documents** every new hire must submit.',
@@ -395,10 +395,16 @@ export const GUIDES: GuideBook = {
               link: { label: 'Take me there', href: '/hr/admin/onboarding-checklists' },
             },
             {
-              action: 'Define **Shift Templates** for attendance scheduling.',
+              action: 'Set **Shift Timings** — the working hours attendance is measured against.',
               detail:
-                'Reusable working-hour patterns that attendance and scheduling draw from — set a shift once and apply it to many people.',
-              link: { label: 'Take me there', href: '/hr/admin/shift-templates' },
+                'Per institution, per staff category (teaching / non-teaching, or a specific category such as Security), and per weekday: the first-half and second-half windows, and the grace period allowed on the morning punch. Saturday can differ from Mon–Fri, Sunday can be marked non-working, and the second Saturday of each month can be set as a holiday. Changes are effective-dated, so past attendance keeps evaluating against the rules that were actually in force.',
+              link: { label: 'Take me there', href: '/hr/admin/shift-timings' },
+            },
+            {
+              action: 'Define **Work Patterns** — for staff whose week differs from the institution\'s.',
+              detail:
+                'A named week (for example "5-day Mon–Fri" or "3-day Tue/Wed/Thu") with its own hours and its own days per leave type. Assign staff to it from a date: their weekly-offs, leave day counts and the salary day-rate then follow the pattern instead of the institution week, and everyone else is unaffected. Assigning resyncs the open Casual Leave balance at once and shows what changed per person.',
+              link: { label: 'Take me there', href: '/hr/admin/work-patterns' },
             },
           ],
         },

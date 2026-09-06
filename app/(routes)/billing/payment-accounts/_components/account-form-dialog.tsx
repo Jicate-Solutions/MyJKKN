@@ -15,6 +15,7 @@ import {
   useUpsertRazorpayAccount, useCreateRazorpayDraft, useActivateRazorpayAccount, useUpdateRazorpayAccount,
   type RazorpayAccountSummary,
 } from '@/hooks/billing/use-razorpay-accounts';
+import { IMS_POS_FEE_HEAD } from '@/lib/services/payments/fee-heads';
 
 interface InstitutionOption {
   id: string;
@@ -29,6 +30,11 @@ const GLOBAL = '__global__';
 const FEE_HEAD_OPTIONS: { value: string; label: string }[] = [
   { value: DEFAULT_HEAD, label: 'Default — all other fees' },
   { value: 'transport', label: 'Transport / Bus Fee' },
+  // Counter sales in the IMS point-of-sale — not a fee head, but the vault routes
+  // on this column and store takings must resolve to their own account row. The
+  // value comes from the payments layer so the slot the admin picks here and the
+  // slot the POS service asks for cannot drift apart.
+  { value: IMS_POS_FEE_HEAD, label: 'Store / Counter Sales' },
   { value: 'university_fee', label: 'University Fee' },
   { value: 'establishment', label: 'Establishment Fee' },
   { value: 'hostel', label: 'Hostel Fee' },

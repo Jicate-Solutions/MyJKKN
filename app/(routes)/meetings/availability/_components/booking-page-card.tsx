@@ -136,6 +136,27 @@ export function BookingPageCard({
             </div>
           )}
 
+          {/* Only protected on one calendar? Say so HERE, where the Reconnect
+              button already is — the fix is one click away at the moment the
+              person reads it. A connection made before 2026-08-05 was never
+              granted permission to list calendars, so anything the host keeps on
+              a second calendar is invisible to the slot engine and that time is
+              still offered to strangers. There is no way for them to discover
+              this on their own: nothing looks broken. */}
+          {googleActive && conn?.allCalendarsChecked !== true && (
+            <div
+              role="status"
+              className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+            >
+              <strong className="font-semibold">
+                Only your main calendar is being checked.
+              </strong>{' '}
+              Meetings you keep on any other calendar are invisible here, so those
+              times can still be double-booked. Reconnect below to have every
+              calendar you own checked — it takes one click and changes nothing else.
+            </div>
+          )}
+
           {!initial.googleConfigured ? (
             <p className="text-xs text-muted-foreground">
               The Google integration is not set up on this deployment yet —

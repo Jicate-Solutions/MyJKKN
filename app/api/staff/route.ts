@@ -265,7 +265,7 @@ export async function GET(request: NextRequest) {
       ? supabaseAdmin.from('staff').select(
           `
         id, first_name, last_name, designation, institution_email, institution_id, department_id, is_active,
-        institution:institutions(id, name, counselling_code),
+        institution:institutions!staff_institution_id_fkey(id, name, counselling_code),
         department:departments(id, department_name)
       `,
           { count: 'exact' }
@@ -274,7 +274,7 @@ export async function GET(request: NextRequest) {
           `
         *,
         category:employment_categories(id, category_name, is_teaching, shows_extended_profile),
-        institution:institutions(id, name, counselling_code),
+        institution:institutions!staff_institution_id_fkey(id, name, counselling_code),
         department:departments(id, department_name),
         role:custom_roles!role_key(id, role_key, role_name, description, is_system_role)
       `,

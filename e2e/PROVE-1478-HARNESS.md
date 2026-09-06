@@ -30,6 +30,7 @@ Do not reuse a shared environment others depend on — seeding adds 21
 ```bash
 export NEXT_PUBLIC_SUPABASE_URL="<STAGING_SUPABASE_URL>"
 export SUPABASE_SERVICE_ROLE_KEY="<STAGING_SERVICE_ROLE_KEY>"
+export PERSONA_PASSWORD="<password to assign the 21 seeded test accounts>"
 
 # Refuse to continue if this is the prod ref:
 case "$NEXT_PUBLIC_SUPABASE_URL" in
@@ -37,6 +38,12 @@ case "$NEXT_PUBLIC_SUPABASE_URL" in
   *) echo "OK: non-prod target $NEXT_PUBLIC_SUPABASE_URL" ;;
 esac
 ```
+
+`PERSONA_PASSWORD` is what Step 2's seeding script reads for every account it
+creates — it isn't optional; the script has no default and will silently
+create accounts with an empty password if you skip it. Set it to whatever
+value you (or whoever owns the staging credential) have picked for that
+project; it's unrelated to production's `NEXT_PUBLIC_TEST_PASSWORD`.
 
 Shell-exported vars take precedence over `.env.local` in Next.js, so this does **not** modify
 the prod `.env.local` file.
@@ -47,8 +54,8 @@ the prod `.env.local` file.
 npx tsx scripts/create-test-accounts.ts
 ```
 
-Creates `test.<role>@jkkn.ac.in` (21 roles), all with password `Test@1234`, in the staging
-project from Step 1.
+Creates `test.<role>@jkkn.ac.in` (21 roles), all with the password from
+`PERSONA_PASSWORD` (exported in Step 1), in the staging project from Step 1.
 
 > The script's own help text suggests `source .env.local` — **ignore it**, that points at
 > prod. The explicit exports in Step 1 are what you want.
@@ -110,7 +117,7 @@ A dedicated `unit-lead` test account should therefore hold `learners_council.vie
 
 ### Reference (the moving parts)
 - Seeding: `scripts/create-test-accounts.ts` — needs `NEXT_PUBLIC_SUPABASE_URL` +
-  `SUPABASE_SERVICE_ROLE_KEY`; 21 accounts; password `Test@1234`.
+  `SUPABASE_SERVICE_ROLE_KEY` + `PERSONA_PASSWORD`; 21 accounts.
 - Login page: `app/auth/test-login/page.tsx` — blocked when `NODE_ENV === 'production'`.
 - Setup: `e2e/auth.setup.ts` — reads `GUIDE_E2E_BASE` (default `:3104`), `GUIDE_E2E_AUTH_DIR`
   (default `.auth`); no-op unless `GUIDE_E2E_AUTHED=1`.

@@ -175,6 +175,13 @@ export interface LearnerHostelite {
   gender: string | null;
   father_name: string | null;
   mother_name: string | null;
+  // Contact numbers, projected by v_learner_hostelites since migration
+  // 20260902140000. Stored on learners_profiles and populated for every current
+  // resident, but a few rows hold '' rather than NULL — normalise at the
+  // display/export boundary, not here.
+  student_mobile: string | null;
+  father_mobile: string | null;
+  mother_mobile: string | null;
   accommodation_type: LearnerAccommodationType;
   hostel_fee: number | null;
   dayscholar_fee: number | null;
@@ -196,6 +203,11 @@ export interface LearnerHostelite {
   // Surfaced from v_learner_hostelites (PR pending — bugs BUG-003325 + BUG-003326).
   // Optional so callers reading via legacy paths still type-check.
   year_of_study?: number | null;
+  /** The learner's admission cohort as a YEAR NUMBER — v_learner_hostelites
+   *  computes it from admission_years.year (the same source year_of_study is
+   *  derived from), so it is the same value the Bill Coverage page filters on.
+   *  Unlike year_of_study it never advances. */
+  program_start_year?: number | null;
   current_block_id?: string | null;
   current_room_id?: string | null;
   current_bed_id?: string | null;
@@ -228,6 +240,15 @@ export interface LearnerHostelitesFilters {
   search?: string;  // matches roll_number OR first_name OR last_name OR email
   // BUG-003325: year + gender + block filters via v_learner_hostelites view
   year_of_study?: number;
+  /**
+   * Admission cohort as a YEAR NUMBER (2025), matched against the view's
+   * program_start_year. Distinct from year_of_study, which is how far through
+   * the programme they are and advances every year — a 2023 cohort learner is
+   * year_of_study 3. Deliberately not an admission_year_id: admission_years has
+   * one row per (institution, year), so a uuid would only be meaningful once an
+   * institution was picked.
+   */
+  admission_year?: number;
   gender?: 'Male' | 'Female' | 'Other';
   block_id?: BlockFilterValue;
   // Block-scoped wardens: restrict to the warden's assigned blocks (cross-

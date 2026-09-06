@@ -15,7 +15,6 @@ import { Loader2, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Language } from './language-toggle';
 import { ENTRY_TYPE_OPTIONS } from '@/lib/constants/learner-dropdown-values';
-import { isFreshersSemester } from '@/lib/constants/semesters';
 
 interface Props {
   lang: Language;
@@ -125,13 +124,9 @@ function autoPickSemester(
   semesters: SemesterRow[],
 ): string | undefined {
   if (semesters.length === 0) return undefined;
-  // The default "Freshers" semester is org structure, not an academic term, and
-  // carries semester_order = 0. Drop it BEFORE sorting so it can never land at
-  // sorted[0] — the FIRST YEAR fallback, the /year/i year-based probe and the
-  // lateral-entry positional fallbacks all read sorted by position.
-  const sorted = [...semesters]
-    .filter((s) => !isFreshersSemester(s))
-    .sort((a, b) => (a.semester_order ?? 0) - (b.semester_order ?? 0));
+  const sorted = [...semesters].sort(
+    (a, b) => (a.semester_order ?? 0) - (b.semester_order ?? 0),
+  );
   if (entryType === 'FIRST YEAR') {
     const target = sorted.find((s) => s.initial_semester === true) ?? sorted[0];
     return target?.id;
@@ -422,16 +417,10 @@ export function StepCourseSelection({
   // the picked row otherwise, leaving a phantom selection.
   const handleEntryTypeChange = (entryType: string) => {
     set('entry_type', entryType);
-    // 2026-07-27: FIRST YEAR goes to the Freshers row, not a real term. Set it
-    // here as well as in the effect so the field doesn't flash the old value.
-    // Safe to read freshersSemester from an earlier line — this runs on click,
-    // long after render.
-    if (entryType === 'FIRST YEAR' && freshersSemester?.id) {
-      set('semester_id', freshersSemester.id);
-    } else {
-      const picked = autoPickSemester(entryType, semesters);
-      if (picked) set('semester_id', picked);
-    }
+    // Set here as well as in the effect below so the field doesn't flash the
+    // old value while the semesters list settles.
+    const picked = autoPickSemester(entryType, semesters);
+    if (picked) set('semester_id', picked);
 
     if (institutionHasShDept && v.program_id) {
       const currentProg = programs.find((p) => p.id === v.program_id);
@@ -467,60 +456,38 @@ export function StepCourseSelection({
     }
   };
 
-  // ──────────────────────────────────────────────────────────────────────
-  // FIRST YEAR → locked Freshers semester + section A (2026-07-27)
-  // ──────────────────────────────────────────────────────────────────────
-  // Mirrors the admin enquiry form. Every active program carries a structural
-  // "Freshers" semester (order 0) with a section "A"; first-year admits park
-  // there and are moved into a real term during onboarding. Other entry types
-  // keep autoPickSemester above, which filters Freshers out.
-  //
-  // Declared ahead of the effects that read it: a dependency array is
-  // evaluated during render, so a const declared further down would hit the
-  // temporal dead zone rather than simply reading stale.
-  const freshersSemester = semesters.find((s) => isFreshersSemester(s));
-  const lockToFreshers = v.entry_type === 'FIRST YEAR' && !!freshersSemester;
+  // FIRST YEAR admits get section "A" of their auto-picked semester, read-only.
+  // Declared ahead of the effects that read it: a dependency array is evaluated
+  // during render, so a const declared further down would hit the temporal dead
+  // zone rather than simply reading stale.
+  const isFirstYear = v.entry_type === 'FIRST YEAR';
 
   // When semesters list LOADS (after program change), re-apply the
   // entry-type rule if one is set. This handles the case where the user
   // picked Entry Type before picking Program — we still want auto-pick
   // to fire once semesters are available.
   useEffect(() => {
-    // FIRST YEAR is owned by the Freshers lock below — autoPickSemester
-    // deliberately excludes that row, so letting it run here would fight
-    // the lock and flip the field to a real term for one render.
-    if (lockToFreshers) return;
     if (semesters.length === 0 || !v.entry_type) return;
     // Skip if already valid in the list — don't fight a manual pick
     if (v.semester_id && semesters.some((s) => s.id === v.semester_id)) return;
     const picked = autoPickSemester(v.entry_type, semesters);
     if (picked && picked !== v.semester_id) set('semester_id', picked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [semesters, lockToFreshers]);
+  }, [semesters, v.entry_type]);
 
-  // Commit the Freshers semester. Separate from the section effect below
-  // because the section lookup is keyed on the committed semester id.
+  // Resolve section "A" under the committed semester — or clear a stale one.
+  // The clear branch matters when the student switches away from FIRST YEAR or
+  // changes semester: the old section would otherwise persist as a
+  // cross-semester reference on the learner row.
   useEffect(() => {
-    if (!lockToFreshers || !freshersSemester) return;
-    if (v.semester_id !== freshersSemester.id) {
-      set('semester_id', freshersSemester.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lockToFreshers, freshersSemester?.id, v.semester_id]);
-
-  // Resolve section "A" under the committed Freshers semester — or clear a
-  // stale one. The clear branch matters when the student switches away from
-  // FIRST YEAR: section A belongs to the Freshers semester and would otherwise
-  // persist as a cross-semester reference on the learner row.
-  useEffect(() => {
-    if (!lockToFreshers || !freshersSemester || v.semester_id !== freshersSemester.id) {
+    if (!isFirstYear || !v.semester_id) {
       setSectionA(null);
       if (v.section_id) set('section_id', '');
       return;
     }
     let alive = true;
     setLoadingSec(true);
-    fetchOptions('sections', { semester_id: freshersSemester.id }).then((d) => {
+    fetchOptions('sections', { semester_id: v.semester_id }).then((d) => {
       if (!alive) return;
       const rows = (d as SectionRow[] | null) ?? [];
       const a =
@@ -533,7 +500,7 @@ export function StepCourseSelection({
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lockToFreshers, freshersSemester?.id, v.semester_id]);
+  }, [isFirstYear, v.semester_id]);
 
   const lateralLocksSemester =
     v.entry_type === 'FIRST YEAR' || v.entry_type === 'LATERAL ENTRY';
@@ -787,9 +754,7 @@ export function StepCourseSelection({
               ? 'Select Entry Type first.'
               : lateralLocksSemester
                 ? v.entry_type === 'FIRST YEAR'
-                  ? lockToFreshers
-                    ? 'Locked — first-year admits start in the Freshers semester. To change, switch Entry Type.'
-                    : 'Locked — First Year always starts at the initial semester. To change, switch Entry Type.'
+                  ? 'Locked — First Year always starts at the initial semester. To change, switch Entry Type.'
                   : 'Locked — Lateral Entry auto-picks the appropriate semester. To change, switch Entry Type.'
                 : programType
                   ? 'Pick the semester you are joining.'
@@ -838,12 +803,12 @@ export function StepCourseSelection({
         </Field>
 
         {/* Section — read-only, and only rendered for FIRST YEAR, where it is
-         *  a derivation (section "A" of the locked Freshers semester) rather
-         *  than a placement choice. Other entry types don't show it at all:
-         *  section placement there stays an admission-staff decision made
+         *  a derivation (section "A" of the auto-picked initial semester)
+         *  rather than a placement choice. Other entry types don't show it at
+         *  all: section placement there stays an admission-staff decision made
          *  during onboarding. Added 2026-07-27.
          */}
-        {lockToFreshers && (
+        {isFirstYear && (
           <Field
             label="Section / பிரிவு"
             helper="Automatically assigned for first-year admits. Cannot be changed."

@@ -1,14 +1,21 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Save, Users, Lock } from 'lucide-react';
+import { Save, Users, Lock, Monitor, MapPin } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosAttendanceStatus, BosMeetingStatus, BOS_MEETING_STATUS_ORDER, BosMember } from '@/types/bos';
+import {
+  BosAttendanceMode,
+  BosAttendanceStatus,
+  BosMeetingStatus,
+  BosMeetingType,
+  BOS_MEETING_STATUS_ORDER,
+  BosMember,
+} from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosAttendance, useSaveBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -26,6 +33,13 @@ interface AttendanceEntry {
   isExternal: boolean;
   designation?: string;
   status: BosAttendanceStatus;
+  /**
+   * Offline (in person) or online — the dimension the SOP's sitting charges
+   * are quoted against. Per member, not per meeting: hybrid sittings routinely
+   * have the University Nominee dialling in while the rest are in the room.
+   * Online attendance pays no travel allowance.
+   */
+  mode: BosAttendanceMode;
   distanceKm?: number | null;
 }
 
@@ -36,6 +50,7 @@ interface AttendanceEntry {
 // the React-Query data refs churned).
 interface AttendanceOverride {
   status?: BosAttendanceStatus;
+  mode?: BosAttendanceMode;
 }
 
 // SOP cutover (2026-05-21): the TA/DA "eligible" toggle was removed because
@@ -68,9 +83,11 @@ function nextStatus(current: BosAttendanceStatus): BosAttendanceStatus {
 function AttendanceRow({
   entry,
   onToggle,
+  onToggleMode,
 }: {
   entry: AttendanceEntry;
   onToggle: () => void;
+  onToggleMode: () => void;
 }) {
   const statusColor: Record<BosAttendanceStatus, string> = {
     present: 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200',
@@ -79,7 +96,12 @@ function AttendanceRow({
   };
 
   const isExternal = entry.isExternal;
-  const hasNoDistance = isExternal && entry.distanceKm == null;
+  const isOnline = entry.mode === 'online';
+  // Distance only matters when an external member physically travelled. An
+  // online attendee is paid the online sitting charge and no travel, so the
+  // missing-distance block must lift — otherwise a remote University Nominee
+  // could never be marked present without a fabricated distance.
+  const hasNoDistance = isExternal && !isOnline && entry.distanceKm == null;
   const isToggleDisabled = hasNoDistance;
 
   return (
@@ -93,7 +115,9 @@ function AttendanceRow({
           <p className='text-xs text-muted-foreground truncate'>{entry.designation}</p>
         )}
         {hasNoDistance && (
-          <p className='text-xs text-amber-600 mt-1'>Distance not assigned</p>
+          <p className='text-xs text-amber-600 mt-1'>
+            Distance not assigned — or mark this member Online
+          </p>
         )}
       </div>
       <div className='flex items-center gap-2 shrink-0'>
@@ -104,19 +128,42 @@ function AttendanceRow({
         {isExternal && (
           <span
             className={`text-xs px-2 py-0.5 rounded border ${
-              hasNoDistance
-                ? 'bg-amber-100 text-amber-800 border-amber-200'
-                : 'bg-blue-100 text-blue-800 border-blue-200'
+              isOnline
+                ? 'bg-muted text-muted-foreground border-border'
+                : hasNoDistance
+                  ? 'bg-amber-100 text-amber-800 border-amber-200'
+                  : 'bg-blue-100 text-blue-800 border-blue-200'
             }`}
             title={
-              hasNoDistance
-                ? 'Distance not assigned — assign distance before marking attendance'
-                : 'External member — claim will include round-trip TA (km × 2 × Rs.5)'
+              isOnline
+                ? 'Attending online — sitting charge only, no travel allowance'
+                : hasNoDistance
+                  ? 'Distance not assigned — assign distance, or mark the member Online'
+                  : 'External member — claim will include the travel allowance for their member type'
             }
           >
-            {hasNoDistance ? 'No Distance' : 'TA/DA'}
+            {isOnline ? 'No TA' : hasNoDistance ? 'No Distance' : 'TA/DA'}
           </span>
         )}
+        {/* Offline / Online toggle. Never disabled by the distance gate — it is
+            the way OUT of that gate for a member who didn't travel. */}
+        <button
+          type='button'
+          onClick={onToggleMode}
+          className={`flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium transition-colors ${
+            isOnline
+              ? 'border-indigo-200 bg-indigo-100 text-indigo-800 hover:bg-indigo-200'
+              : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+          title={
+            isOnline
+              ? 'Attended online — online sitting charge, no travel allowance'
+              : 'Attended in person — offline sitting charge plus travel allowance'
+          }
+        >
+          {isOnline ? <Monitor className='h-3 w-3' /> : <MapPin className='h-3 w-3' />}
+          {isOnline ? 'Online' : 'Offline'}
+        </button>
         {/* Attendance status toggle */}
         <button
           type='button'
@@ -127,7 +174,11 @@ function AttendanceRow({
               ? 'opacity-50 cursor-not-allowed bg-gray-100 text-gray-500 border-gray-200'
               : statusColor[entry.status]
           }`}
-          title={isToggleDisabled ? 'Assign distance to this expert first' : undefined}
+          title={
+            isToggleDisabled
+              ? 'Assign distance to this expert, or mark them Online'
+              : undefined
+          }
         >
           {STATUS_LABELS[entry.status]}
         </button>
@@ -150,6 +201,12 @@ interface AttendanceTabProps {
    * is scoped to that committee's members instead of the whole composition.
    */
   committeeId?: string | null;
+  /**
+   * Seeds each unrecorded attendee's Offline/Online default: a meeting typed
+   * 'online' starts everyone online, everything else (including 'hybrid')
+   * starts offline. Only a default — the per-member toggle is authoritative.
+   */
+  meetingType?: BosMeetingType;
 }
 
 export function AttendanceTab({
@@ -159,6 +216,7 @@ export function AttendanceTab({
   canEdit,
   meetingStatus,
   committeeId,
+  meetingType,
 }: AttendanceTabProps) {
   const completedIndex = BOS_MEETING_STATUS_ORDER.indexOf('completed');
   const currentStatusIndex = BOS_MEETING_STATUS_ORDER.indexOf(meetingStatus);
@@ -173,6 +231,8 @@ export function AttendanceTab({
   // `entries` useMemo below. Avoid the old `useEffect → setEntries` sync,
   // which infinite-looped whenever the query data refs were re-allocated.
   const [overrides, setOverrides] = useState<Record<string, AttendanceOverride>>({});
+
+  const defaultMode: BosAttendanceMode = meetingType === 'online' ? 'online' : 'offline';
 
   const entries = useMemo<AttendanceEntry[]>(() => {
     let activeMembers = (members ?? []).filter((m) => m.is_active);
@@ -200,9 +260,15 @@ export function AttendanceTab({
         distanceKm,
         status:
           override?.status ?? existing?.attendance_status ?? 'absent',
+        // Saved rows written before 20260805120000 read back as 'offline' via
+        // the column default, so `existing.attendance_mode` is only undefined
+        // for members with no attendance row at all — those take the meeting's
+        // format as their starting point.
+        mode:
+          override?.mode ?? existing?.attendance_mode ?? defaultMode,
       };
     });
-  }, [members, savedAttendance, overrides, committeeId]);
+  }, [members, savedAttendance, overrides, committeeId, defaultMode]);
 
   const isDirty = Object.keys(overrides).length > 0;
 
@@ -216,26 +282,51 @@ export function AttendanceTab({
     }));
   };
 
+  const toggleMode = (memberId: string) => {
+    const current = entries.find((e) => e.memberId === memberId);
+    if (!current) return;
+    setOverrides((prev) => ({
+      ...prev,
+      [memberId]: {
+        ...prev[memberId],
+        mode: current.mode === 'online' ? 'offline' : 'online',
+      },
+    }));
+  };
+
   const presentCount = useMemo(
     () => entries.filter((e) => e.status === 'present').length,
+    [entries]
+  );
+
+  const onlinePresentCount = useMemo(
+    () => entries.filter((e) => e.status === 'present' && e.mode === 'online').length,
     [entries]
   );
   const totalCount = entries.length;
   const quorumThreshold = Math.floor(totalCount / 2) + 1;
   const quorumMet = presentCount >= quorumThreshold;
 
-  // Check for external members without distance
+  // Check for external members without distance. Online attendees are excluded
+  // throughout — they receive no travel allowance, so distance is irrelevant
+  // to their claim and demanding it would block a legitimate remote sitting.
   const externalMembersWithoutDistance = useMemo(
     () =>
-      entries.filter((e) => e.isExternal && e.distanceKm == null),
+      entries.filter(
+        (e) => e.isExternal && e.mode === 'offline' && e.distanceKm == null
+      ),
     [entries]
   );
 
   const handleSave = async () => {
     try {
-      // Validate external members marked as present have distance assigned
+      // Validate external members attending in person have distance assigned
       const membersWithoutDistance = entries.filter(
-        (e) => e.isExternal && e.status === 'present' && e.distanceKm == null
+        (e) =>
+          e.isExternal &&
+          e.status === 'present' &&
+          e.mode === 'offline' &&
+          e.distanceKm == null
       );
 
       if (membersWithoutDistance.length > 0) {
@@ -254,6 +345,7 @@ export function AttendanceTab({
       const records = entries.map((e) => ({
         member_id: e.memberId,
         attendance_status: e.status,
+        attendance_mode: e.mode,
         ta_da_eligible: e.isExternal,
         institutions_id: institutionsId,
       }));
@@ -319,6 +411,12 @@ export function AttendanceTab({
             Present: <strong className='text-foreground'>{presentCount}</strong> / {totalCount}
           </span>
           <span className='text-muted-foreground text-xs'>(quorum: {quorumThreshold})</span>
+          {onlinePresentCount > 0 && (
+            <span className='flex items-center gap-1 text-xs text-muted-foreground'>
+              <Monitor className='h-3 w-3' />
+              {onlinePresentCount} online
+            </span>
+          )}
         </div>
         <Badge variant={quorumMet ? 'default' : 'outline'} className='text-xs'>
           {quorumMet ? 'Quorum Met' : 'Quorum Not Met'}
@@ -332,6 +430,7 @@ export function AttendanceTab({
             key={entry.memberId}
             entry={entry}
             onToggle={() => toggle(entry.memberId)}
+            onToggleMode={() => toggleMode(entry.memberId)}
           />
         ))}
       </div>

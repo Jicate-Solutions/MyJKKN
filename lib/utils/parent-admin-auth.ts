@@ -24,12 +24,19 @@ export interface PPAuthUser {
   id: string;
   role: string; // legacy profiles.role (kept for callers/display)
   roleKeys: Set<string>; // union of profiles.role + user_roles role_keys
-  permissions: Record<string, boolean>; // merged across all the user's roles
+  permissions: Record<string, boolean>; // UNION across the user's roles: any role granting a key wins
   isSuperAdmin: boolean;
 }
 
-/** Resolve the signed-in user with the UNION of role sources + merged perms. */
-async function currentUser(): Promise<PPAuthUser | null> {
+/**
+ * Resolve the signed-in user with the UNION of role sources + merged perms.
+ *
+ * Despite this file's name the resolver itself is module-agnostic — it just
+ * answers "who is this and what may they do". Exported so other modules' gates
+ * (see lib/utils/procurement-auth.ts) can reuse it instead of re-deriving the
+ * profiles.role + user_roles union.
+ */
+export async function currentUser(): Promise<PPAuthUser | null> {
   const auth = await createClient();
   const {
     data: { user },
@@ -40,6 +47,28 @@ async function currentUser(): Promise<PPAuthUser | null> {
   const db = createServiceRoleClient();
   const roleKeys = new Set<string>();
   const permissions: Record<string, boolean> = {};
+
+  /**
+   * Merge one role's permissions into the union — a GRANT anywhere wins.
+   *
+   * Roles are additive: holding one more role may only ever widen what a user
+   * can do. Object.assign got this wrong, because custom_roles.permissions
+   * stores a non-grant as the PRESENT key `false`, not as an absent one, so
+   * last-write-wins let a role that grants nothing overwrite a role that
+   * grants. A procurement_manager whose profiles.role was 'cao' (which carries
+   * procurement.quotation_manage:false) had the grant erased and got a flat 403
+   * on every AI-extract and upload button; super_admin was unaffected only
+   * because it bypasses this map via isSuperAdmin. Order-dependence bit twice —
+   * the legacy role is merged last, and rows within user_roles arrive in no
+   * guaranteed order.
+   */
+  const grant = (perms: Record<string, boolean> | undefined | null) => {
+    if (!perms) return;
+    for (const [key, value] of Object.entries(perms)) {
+      if (value === true) permissions[key] = true;
+      else if (!(key in permissions)) permissions[key] = false;
+    }
+  };
 
   const { data: profile } = await db.from('profiles').select('role').eq('id', user.id).maybeSingle();
   const legacy = (profile?.role as string) || '';
@@ -54,13 +83,14 @@ async function currentUser(): Promise<PPAuthUser | null> {
   }>) {
     const cr = row.custom_roles;
     if (cr?.role_key) roleKeys.add(cr.role_key);
-    if (cr?.permissions) Object.assign(permissions, cr.permissions);
+    grant(cr?.permissions);
   }
 
-  // Also merge the legacy profiles.role's custom_role permissions, if any.
+  // Also merge the legacy profiles.role's custom_role permissions, if any. This
+  // runs last but can no longer take a permission away — only add one.
   if (legacy) {
     const { data: lr } = await db.from('custom_roles').select('permissions').eq('role_key', legacy).maybeSingle();
-    if (lr?.permissions) Object.assign(permissions, lr.permissions as Record<string, boolean>);
+    grant(lr?.permissions as Record<string, boolean> | undefined);
   }
 
   return {

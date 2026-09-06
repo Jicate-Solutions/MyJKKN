@@ -594,6 +594,14 @@ export interface CourseSyllabusPDFData {
 	 * total is then distributed evenly across the units.
 	 */
 	total_periods?: { theory: number; tut: number }
+	/**
+	 * The Content tab's free-text "Total Hours" box (`course_content.total_hours`)
+	 * exactly as typed — "30 + 30" for a theory+tutorial split, or a plain "45".
+	 * The CET renderer prints it verbatim as "TOTAL: <value> PERIODS", so the
+	 * document always shows the author's own total rather than a sum that can
+	 * only be derived when every unit carries a period marker.
+	 */
+	content_total_hours?: string
 
 	// Syllabus content
 	/** PCI/pharmacy "Scope" paragraph, printed above Course Objectives. */

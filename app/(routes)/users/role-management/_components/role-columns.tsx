@@ -237,6 +237,34 @@ export function getRoleColumns(
       meta: { label: 'Type' },
     },
     {
+      // Deliberately separate from Type: is_system_role is true for nearly
+      // every role here (driver and mess_caterer included), so it says nothing
+      // about how dangerous a role is. Only a super admin can assign a
+      // privileged one to a staff member.
+      id: 'privileged',
+      accessorFn: (row) => ((row as { is_privileged?: boolean }).is_privileged ? 'yes' : 'no'),
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Privileged" />
+      ),
+      cell: ({ row }) =>
+        (row.original as { is_privileged?: boolean }).is_privileged ? (
+          <Badge
+            variant="outline"
+            className="border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400"
+          >
+            Super admin only
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+      filterFn: (row, id, value: string[]) => {
+        if (!value?.length) return true;
+        const v = (row.original as { is_privileged?: boolean }).is_privileged ? 'yes' : 'no';
+        return value.includes(v);
+      },
+      meta: { label: 'Privileged' },
+    },
+    {
       accessorKey: 'created_at',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Created" />

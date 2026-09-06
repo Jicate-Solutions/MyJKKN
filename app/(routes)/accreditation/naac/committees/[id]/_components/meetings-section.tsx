@@ -74,6 +74,7 @@ import {
   MinutesPolishOffer,
   SittingProposalCard,
 } from './ai-assistant-panels';
+import { MemberNotesPanel } from './member-notes-panel';
 import { toast } from 'sonner';
 
 // ----------------------------------------------------------------------------
@@ -461,7 +462,11 @@ function MeetingRow({
             />
           )}
           {meeting.status === 'minuted' && (
-            <MinutedMeetingBody meeting={meeting} />
+            <MinutedMeetingBody
+              meeting={meeting}
+              committee={committee}
+              canManage={canManage}
+            />
           )}
           {meeting.status === 'cancelled' && (
             <p className="text-sm text-muted-foreground">
@@ -498,6 +503,11 @@ function ScheduledMeetingBody({
         <p className="text-sm text-muted-foreground">
           Scheduled{meeting.scheduled_for ? ` for ${meeting.scheduled_for}` : ''}
           . The review opens once the meeting is held.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Member accounts open at the same moment. If this sitting has already
+          taken place, ask the IQAC Coordinator to mark it held so everyone can
+          write their own account of it.
         </p>
         <AgendaDraftPanel draft={agendaDraft} isLoading={draftsLoading} canManage={false} />
       </div>
@@ -677,6 +687,16 @@ function HeldMeetingWorkview({
           </ul>
         )}
       </div>
+
+      <Separator />
+
+      {/* c. Each member's own account of the sitting — and the Chairman /
+             Coordinator's compile into the official minutes. */}
+      <MemberNotesPanel
+        meeting={meeting}
+        committee={committee}
+        canManage={canManage}
+      />
 
       {agendaDraft && (
         <>
@@ -1109,9 +1129,20 @@ function CloseMeetingDialog({
   const [minutes, setMinutes] = useState('');
   const close = useCloseMeeting();
 
+  // Minutes text may already exist before close — the Chairman/Coordinator can
+  // compile the members' own accounts into minutes_summary while the sitting is
+  // still 'held'. Seeding the box from the structural builder in that case would
+  // silently discard their work the moment this dialog opened, which is the same
+  // hazard the compile dialog guards against from the other direction. Existing
+  // text wins; the structural prefill is the fallback for an empty minute.
   const handleOpenChange = (v: boolean) => {
     if (v) {
-      setMinutes(buildMinutesSummary(meeting, reviewed, passed, profiles));
+      const existing = (meeting.minutes_summary ?? '').trim();
+      setMinutes(
+        existing.length > 0
+          ? existing
+          : buildMinutesSummary(meeting, reviewed, passed, profiles),
+      );
     }
     setOpen(v);
   };
@@ -1182,7 +1213,15 @@ function CloseMeetingDialog({
 // Minuted meeting — read-only record.
 // ----------------------------------------------------------------------------
 
-function MinutedMeetingBody({ meeting }: { meeting: CommitteeMeeting }) {
+function MinutedMeetingBody({
+  meeting,
+  committee,
+  canManage,
+}: {
+  meeting: CommitteeMeeting;
+  committee: AccreditationCommittee;
+  canManage: boolean;
+}) {
   const { data: passedHere } = useMeetingResolutions(meeting.id);
   const { data: reviewedHere } = useReviewedInMeeting(meeting.id);
 
@@ -1206,6 +1245,16 @@ function MinutedMeetingBody({ meeting }: { meeting: CommitteeMeeting }) {
           {meeting.minutes_summary ?? '—'}
         </pre>
       </div>
+
+      {/* A member may still write, and the Chairman/Coordinator may still
+          compile, after the sitting is minuted — an account written late is
+          worth more than one never written. */}
+      <Separator />
+      <MemberNotesPanel
+        meeting={meeting}
+        committee={committee}
+        canManage={canManage}
+      />
 
       {(reviewedHere ?? []).length > 0 && (
         <div>

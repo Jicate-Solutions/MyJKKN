@@ -1,5 +1,5 @@
 // ============================================================================
-// PREMIUM STAY — TierEligibilityCard
+// PREMIUM ROOM — TierEligibilityCard
 // ============================================================================
 // Per-tier card showing fee uplift, feature bundle, eligibility verdict,
 // and the "Continue" CTA that routes to /campus-living/my-hostel/premium/

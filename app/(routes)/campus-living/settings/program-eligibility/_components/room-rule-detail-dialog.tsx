@@ -98,7 +98,24 @@ export function RoomRuleDetailDialog({ open, onOpenChange, rule }: Props) {
           <Field label='Degree'>{rule.degree_name ?? <Any />}</Field>
           <Field label='Department'>{rule.department_name ?? <Any />}</Field>
           <Field label='Program'>{rule.program_name ?? <Any />}</Field>
-          <Field label='Semester (year)'>{rule.semester_name ?? <Any />}</Field>
+          <Field label='Semesters (year)'>
+            {(rule.semester_names ?? []).length === 0 ? (
+              <Any />
+            ) : rule.semester_names.length === 1 ? (
+              rule.semester_names[0]
+            ) : (
+              <>
+                <ol className='list-inside list-decimal'>
+                  {rule.semester_names.map((name, i) => (
+                    <li key={`${name}-${i}`}>{name}</li>
+                  ))}
+                </ol>
+                <span className='text-xs text-muted-foreground'>
+                  Filled in this order
+                </span>
+              </>
+            )}
+          </Field>
           <Field label='Status'>
             <Badge variant={rule.is_active ? 'default' : 'outline'}>
               {rule.is_active ? 'Active' : 'Inactive'}

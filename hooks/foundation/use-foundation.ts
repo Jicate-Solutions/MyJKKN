@@ -10,9 +10,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   FoundationService,
+  type AddLearnerToCohortInput,
   type CreateAssessmentInput,
   type CreateItemInput,
   type ExamLevel,
+  type ItemFlagResolution,
+  type ListItemFlagsFilters,
   type RecordAttemptResponse,
 } from '@/lib/services/foundation/foundation-service';
 
@@ -38,6 +41,14 @@ export const foundationKeys = {
     [...foundationKeys.all, 'revision-plans', studentId, examDefinitionId] as const,
   progress: (studentId: string, examDefinitionId: string) =>
     [...foundationKeys.all, 'progress', studentId, examDefinitionId] as const,
+  itemFlags: (filters: ListItemFlagsFilters) =>
+    [
+      ...foundationKeys.all,
+      'item-flags',
+      filters.status ?? 'any',
+      filters.examDefinitionId ?? 'any',
+      filters.itemId ?? 'any',
+    ] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -78,6 +89,46 @@ export function useRoster(cohortId: string | null) {
     queryFn: () => FoundationService.getRoster(cohortId as string),
     enabled: !!cohortId,
     staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Put a learner on the programme and into a cohort.
+ *
+ * Invalidates that cohort's roster AND the cohort list, because the list card
+ * carries an enrolled_count that is now stale.
+ */
+export function useAddLearnerToCohort() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AddLearnerToCohortInput) =>
+      FoundationService.addLearnerToCohort(input),
+    onSuccess: (_data, input) => {
+      qc.invalidateQueries({
+        queryKey: foundationKeys.roster(input.cohort_id),
+      });
+      qc.invalidateQueries({ queryKey: foundationKeys.cohorts() });
+    },
+  });
+}
+
+/**
+ * Assign (or clear) a cohort's resource person. A cohort with none is
+ * unreachable by the facilitation screen, which scopes to the caller.
+ */
+export function useSetCohortResourcePerson() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      cohortId,
+      resourcePersonId,
+    }: {
+      cohortId: string;
+      resourcePersonId: string | null;
+    }) => FoundationService.setCohortResourcePerson(cohortId, resourcePersonId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: foundationKeys.cohorts() });
+    },
   });
 }
 
@@ -269,5 +320,48 @@ export function useGenerateRevisionPlan() {
       ),
     onSuccess: (_data, vars) =>
       invalidateDiagnostic(qc, vars.studentId, vars.examDefinitionId),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Reported questions
+// ---------------------------------------------------------------------------
+
+export function useItemFlags(
+  filters: ListItemFlagsFilters,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: foundationKeys.itemFlags(filters),
+    queryFn: () => FoundationService.listItemFlags(filters),
+    enabled: options?.enabled ?? true,
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Invalidate every reported-question list, whatever filter it was read under. */
+function invalidateItemFlags(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({
+    queryKey: [...foundationKeys.all, 'item-flags'],
+  });
+}
+
+export function useRaiseItemFlag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { itemId: string; reason?: string | null }) =>
+      FoundationService.raiseItemFlag(vars.itemId, vars.reason ?? null),
+    onSuccess: () => invalidateItemFlags(qc),
+  });
+}
+
+export function useResolveItemFlag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { flagId: string; status: ItemFlagResolution }) =>
+      FoundationService.resolveItemFlag(vars.flagId, vars.status),
+    // A closed report changes what counts toward mastery, so the diagnostic
+    // caches are stale too — but only after a recompute writes the new numbers.
+    onSuccess: () => invalidateItemFlags(qc),
   });
 }

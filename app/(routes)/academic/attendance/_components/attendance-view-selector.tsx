@@ -102,6 +102,17 @@ export function AttendanceViewSelector({
   // would briefly flash the "not linked to a staff record" / "no permission"
   // fallback in the render window before their staffId resolves.
   const [staffChecked, setStaffChecked] = useState(false);
+  /**
+   * The staff lookup FAILED, as opposed to finding nothing (BUG-005820).
+   * Kept separate from `staffId === null` because the two demand opposite
+   * responses: an absent staff record is the user's administrator's problem, a
+   * failed lookup is ours. Conflating them is what printed "your account is not
+   * linked to a staff record" over a timeout and sent an admin off to change
+   * data that was already correct.
+   */
+  const [staffLookupError, setStaffLookupError] = useState<string | null>(null);
+  /** Bumped by the Retry button to re-run the staff lookup. */
+  const [staffRetry, setStaffRetry] = useState(0);
 
   // Updated: 2026-06-10 - Class incharges (any role) may mark day-wise
   // (session_wise) attendance. Detect incharge status so they reach the search
@@ -206,12 +217,21 @@ export function AttendanceViewSelector({
 
       try {
         setLoadingStaffId(true);
+        setStaffLookupError(null);
         const id = await FacultyAttendanceService.getStaffIdByEmail(
           profile.email
         );
         setStaffId(id);
       } catch (error) {
         logger.error('academic/attendance', 'Error checking faculty status', error);
+        // Record it. Before BUG-005820 this catch swallowed the failure and left
+        // staffId null, which the render below reported as "your account is not
+        // linked to a staff record" — a false statement, and an instruction to
+        // an administrator to fix data that was never wrong.
+        setStaffId(null);
+        setStaffLookupError(
+          (error as { message?: string })?.message ?? 'The lookup did not complete.'
+        );
       } finally {
         setLoadingStaffId(false);
         setStaffChecked(true);
@@ -219,7 +239,7 @@ export function AttendanceViewSelector({
     };
 
     checkIfFaculty();
-  }, [profile?.email, profile?.role, isUserSuperAdmin, isAdmin, isFaculty, isHOD, isPrincipal]);
+  }, [profile?.email, profile?.role, isUserSuperAdmin, isAdmin, isFaculty, isHOD, isPrincipal, staffRetry]);
 
   // Detect whether the current user is a class incharge (eligible to mark
   // day-wise attendance). Runs for non-super-admin/admin/hod users, who would
@@ -659,6 +679,35 @@ export function AttendanceViewSelector({
     );
   }
 
+  // The lookup FAILED. Checked before the "not linked" branch below, because
+  // both arrive here with staffId === null and only one of them is the user's
+  // problem. Says what broke and offers a retry — never blames the account.
+  if (isFaculty && staffLookupError) {
+    return (
+      <div className='space-y-6'>
+        <Alert variant='destructive'>
+          <AlertTriangle className='h-4 w-4' />
+          <AlertDescription className='space-y-3'>
+            <p>
+              We could not check your team member record just now, so your
+              sessions cannot be listed. This is a problem on our side, not with
+              your account — nothing needs changing.
+            </p>
+            <p className='text-xs opacity-80'>{staffLookupError}</p>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() => setStaffRetry((n) => n + 1)}
+              disabled={loadingStaffId}
+            >
+              {loadingStaffId ? 'Checking…' : 'Try again'}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   // For faculty without staff record or other users
   if (isFaculty && !staffId) {
     return (
@@ -666,9 +715,19 @@ export function AttendanceViewSelector({
         <Alert variant='destructive'>
           <AlertTriangle className='h-4 w-4' />
           <AlertDescription>
-            Your faculty account is not linked to a staff record. Please contact
-            the administrator to link your email ({profile?.email}) to your
-            staff profile.
+            {/* Names the column that is actually searched, and the failure mode
+                that caused BUG-005820: a record DID exist for this person, with
+                a misspelled institution email, so it could not be found. The old
+                wording ("link your email to your profile") read as "create the
+                link", and an administrator created a SECOND record — which
+                resolved this screen and still showed no sessions, because the
+                timetable assignments stayed on the original row. */}
+            No team member record was found with the institution email{' '}
+            <strong>{profile?.email}</strong>, so your sessions cannot be listed.
+            Please ask the administrator to check whether a team member record
+            already exists for you under a different or misspelled institution
+            email and correct that one — creating a new record will not carry
+            your timetable across.
           </AlertDescription>
         </Alert>
       </div>

@@ -27,9 +27,19 @@ import {
   useMarkAttendance,
   useMarkableResidents,
   useMyBlockAccess,
+  useAttendanceByDate,
 } from '@/hooks/campus-living/use-hostel-attendance';
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import type { HostelAttendanceStatus, MarkableResident } from '@/types/campus-living';
+import {
+  groupSelectionState,
+  toggleGroup,
+  pruneToVisible,
+  applyStatusToSelection,
+  countSelected,
+} from '@/lib/campus-living/attendance-selection';
+import { GroupCheckbox } from './_components/group-checkbox';
+import { BulkActionBar } from './_components/bulk-action-bar';
 import {
   ArrowLeft,
   ClipboardCheck,
@@ -40,7 +50,11 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Filter
+  Filter,
+  // Clear All previously used XCircle, which now belongs to Mark All Absent
+  // sitting immediately beside it — two identical icons on adjacent buttons
+  // that do very different things.
+  Eraser
 } from 'lucide-react';
 
 type AttendanceStatus = 'present' | 'absent' | 'on_leave' | 'late_entry' | 'medical';
@@ -166,6 +180,53 @@ export default function MarkAttendancePage() {
 
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
 
+  // Multi-select for bulk Present/Absent. Keyed by hostel_residents.id — the
+  // SAME key as `attendance` above, so the two never drift (see the keying
+  // warning on the pre-fill effect below).
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  // Pre-fill from whatever was already saved for this date — BUG-003327's fix
+  // (above) removed the existing-attendance fetch entirely because it made the
+  // whole roster disappear when nothing was marked yet. That was the wrong
+  // trade: it also meant re-opening a date that WAS already submitted (e.g.
+  // after handleSubmit's router.push away and back) always showed 0 marked,
+  // even though the records existed. This fetch is additive — the resident
+  // roster above still always renders from useMarkableResidents — it only
+  // pre-fills the local marks, keyed by the resident row (not learner_id, so
+  // it lines up with handleMarkStatus/handleSubmit's own keying).
+  // Scoped by the selected BLOCK, not the marker's own institution_id — a
+  // block can house residents from several affiliated colleges, so filtering
+  // by the marker's institution silently hid real records for residents of a
+  // different institution in the same block (confirmed bug: attendance saved
+  // correctly but never showed up on reload).
+  const { data: existingAttendance } = useAttendanceByDate(
+    profile?.institution_id ?? '',
+    attendanceDate,
+    selectedBlock !== 'all' ? selectedBlock : undefined
+  );
+  useEffect(() => {
+    if (!existingAttendance || !students) return;
+    const statusByLearnerId = new Map(
+      existingAttendance.map((r) => [r.learner_id, r.evening_status as AttendanceStatus])
+    );
+    const next: Record<string, AttendanceStatus> = {};
+    students.forEach((s) => {
+      const status = statusByLearnerId.get(s.profile_id);
+      if (status) next[s.id] = status;
+    });
+    setAttendance(next);
+    // Must re-run (and REPLACE, not merge) whenever `students` changes — that
+    // happens when the Hostel Block dropdown loads a genuinely different
+    // resident set, not just when floor/category/search narrow the CURRENT
+    // one. Without `students` here, switching blocks left the previous
+    // block's marks stuck in state — markedCount/presentCount/absentCount
+    // below intentionally sum the whole `attendance` object (so marking
+    // everyone, then searching one name, doesn't reset the count), which
+    // made the leftover marks from the old block silently keep counting
+    // toward the new block's totals, and handleSubmit would have tried to
+    // submit them under the new block's id.
+  }, [existingAttendance, attendanceDate, students]);
+
   const handleMarkStatus = useCallback((studentId: string, status: AttendanceStatus) => {
     setAttendance((prev) => ({
       ...prev,
@@ -173,14 +234,8 @@ export default function MarkAttendancePage() {
     }));
   }, []);
 
-  const handleMarkAllPresent = useCallback(() => {
-    const allPresent: Record<string, AttendanceStatus> = {};
-    students?.forEach((s) => {
-      // Residents don't carry prior-day status — default to present.
-      allPresent[s.id] = 'present';
-    });
-    setAttendance(allPresent);
-  }, [students]);
+  // NOTE: handleMarkAllPresent and the multi-select handlers live further down,
+  // after `filteredStudents`/`visibleIds` — they depend on the visible roster.
 
   const handleClearAll = useCallback(() => {
     setAttendance({});
@@ -283,6 +338,79 @@ export default function MarkAttendancePage() {
     );
   }) ?? [], [students, selectedFloor, selectedCategory, searchQuery]);
 
+  const visibleIds = useMemo(() => filteredStudents.map((s) => s.id), [filteredStudents]);
+
+  // Selection is confined to what's on screen: switching block, floor, category
+  // or search drops anything that scrolled out of scope.
+  //
+  // This is deliberately the OPPOSITE of how `attendance` behaves (which sums
+  // its whole contents so narrowing a filter doesn't reset the counts). Marks
+  // are reviewable — each shows on its card and is itemised in the confirm
+  // dialog before anything is written. A bulk apply is instant and unreviewed,
+  // so a selection surviving out of view would let one click rewrite off-screen
+  // residents with no confirmation step.
+  //
+  // pruneToVisible returns the SAME Set instance when nothing needs pruning,
+  // which is what keeps this effect from re-firing forever.
+  useEffect(() => {
+    setSelectedIds((prev) => pruneToVisible(prev, visibleIds));
+  }, [visibleIds]);
+
+  // Changing the date swaps the whole attendance context but leaves the roster
+  // (and therefore visibleIds) identical, so the prune above can't catch it.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [attendanceDate]);
+
+  const toggleResident = useCallback((residentId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(residentId)) next.delete(residentId);
+      else next.add(residentId);
+      return next;
+    });
+  }, []);
+
+  const toggleGroupSelection = useCallback((ids: string[]) => {
+    setSelectedIds((prev) => toggleGroup(ids, prev));
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  // Apply one status to everyone selected, then drop the selection so the
+  // marker moves on to the next room. The marks themselves stay put.
+  const handleBulkStatus = useCallback((status: AttendanceStatus) => {
+    setAttendance((prev) => applyStatusToSelection(prev, selectedIds, status));
+    setSelectedIds(new Set());
+  }, [selectedIds]);
+
+  // Scoped to the VISIBLE roster, not every loaded resident. It previously
+  // iterated all of `students` and replaced the whole map, so filtering to one
+  // floor and pressing this silently marked the other floors too — while the
+  // counter beside it read `{markedCount}/{filteredStudents.length}`. With
+  // "Select all → Present" now sitting next to it, two adjacent controls that
+  // disagreed about filters would be a trap.
+  const handleMarkAllPresent = useCallback(() => {
+    setAttendance((prev) => applyStatusToSelection(prev, new Set(visibleIds), 'present'));
+  }, [visibleIds]);
+
+  // Counterpart to Mark All Present, same visible-roster scoping. Useful when
+  // a whole floor is out on a trip and only the handful who stayed back get
+  // corrected to Present afterwards.
+  const handleMarkAllAbsent = useCallback(() => {
+    setAttendance((prev) => applyStatusToSelection(prev, new Set(visibleIds), 'absent'));
+  }, [visibleIds]);
+
+  const selectedCount = useMemo(
+    () => countSelected(selectedIds, visibleIds),
+    [selectedIds, visibleIds]
+  );
+
+  const visibleSelectionState = useMemo(
+    () => groupSelectionState(visibleIds, selectedIds),
+    [visibleIds, selectedIds]
+  );
+
   // Roll-call grouping: Block -> Floor -> Room, mirroring the physical walk
   // a warden does through the hostel. Relies on filteredStudents already
   // being sorted Block/Floor/Room/Name by getMarkableResidents — grouping is
@@ -318,20 +446,32 @@ export default function MarkAttendancePage() {
       floorGroup.rooms.get(roomKey)!.students.push(s);
     }
 
-    return Array.from(blocks.entries()).map(([key, b]) => ({
-      key,
-      label: b.label,
-      floors: Array.from(b.floors.entries()).map(([fKey, f]) => ({
-        key: fKey,
-        label: f.label,
-        rooms: Array.from(f.rooms.entries()).map(([rKey, r]) => ({ key: rKey, ...r })),
-      })),
-    }));
+    // Each level carries the resident ids beneath it so its select-all
+    // checkbox can toggle the whole group. Built by rolling ids upward
+    // (room -> floor -> block) rather than re-walking filteredStudents, so the
+    // groups and their ids can never disagree.
+    return Array.from(blocks.entries()).map(([key, b]) => {
+      const floors = Array.from(b.floors.entries()).map(([fKey, f]) => {
+        const rooms = Array.from(f.rooms.entries()).map(([rKey, r]) => ({
+          key: rKey,
+          ...r,
+          ids: r.students.map((s) => s.id),
+        }));
+        return { key: fKey, label: f.label, rooms, ids: rooms.flatMap((r) => r.ids) };
+      });
+      return { key, label: b.label, floors, ids: floors.flatMap((f) => f.ids) };
+    });
   }, [filteredStudents]);
 
   const markedCount = Object.values(attendance).filter(Boolean).length;
   const presentCount = Object.values(attendance).filter((s) => s === 'present').length;
-  const absentCount = Object.values(attendance).filter((s) => s === 'absent').length;
+  // Summary bar only ever shows Present/Absent (no separate On Leave slot),
+  // so On Leave is folded into the Absent count here — otherwise those
+  // students counted toward "Marked" with no visible bucket, which read as
+  // "vanished". Each resident's own status button still shows the real
+  // 'On Leave' state, and the submitted record still saves evening_status
+  // as 'on_leave' distinctly — only this rolled-up display number merges it.
+  const absentCount = Object.values(attendance).filter((s) => s === 'absent' || s === 'on_leave').length;
 
   // Confirmation-report breakdown — counts EVERY marked status (not just the
   // filtered view) because handleSubmit submits all of `attendance`, including
@@ -478,13 +618,33 @@ export default function MarkAttendancePage() {
 
         {/* Quick Actions & Summary */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Covers the case the per-group checkboxes can't: the Block
+                heading only renders when more than one block is in view, so a
+                single-block roster would otherwise have no select-all at all. */}
+            {filteredStudents.length > 0 && (
+              <div
+                className="flex cursor-pointer select-none items-center gap-2 pr-1 text-sm"
+                onClick={() => toggleGroupSelection(visibleIds)}
+              >
+                <GroupCheckbox
+                  state={visibleSelectionState}
+                  onToggle={() => toggleGroupSelection(visibleIds)}
+                  label="Select all visible residents"
+                />
+                <span>Select all ({filteredStudents.length})</span>
+              </div>
+            )}
             <Button variant="outline" size="sm" onClick={handleMarkAllPresent}>
               <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
               Mark All Present
             </Button>
+            <Button variant="outline" size="sm" onClick={handleMarkAllAbsent}>
+              <XCircle className="mr-2 h-4 w-4 text-red-600" />
+              Mark All Absent
+            </Button>
             <Button variant="outline" size="sm" onClick={handleClearAll} disabled={markedCount === 0}>
-              <XCircle className="mr-2 h-4 w-4 text-muted-foreground" />
+              <Eraser className="mr-2 h-4 w-4 text-muted-foreground" />
               Clear All
             </Button>
           </div>
@@ -511,16 +671,37 @@ export default function MarkAttendancePage() {
             {groupedStudents.map((block) => (
               <div key={block.key} className="space-y-4">
                 {groupedStudents.length > 1 && (
-                  <h2 className="text-base font-semibold border-b pb-1">{block.label}</h2>
+                  <h2 className="flex items-center gap-2 text-base font-semibold border-b pb-1">
+                    <GroupCheckbox
+                      state={groupSelectionState(block.ids, selectedIds)}
+                      onToggle={() => toggleGroupSelection(block.ids)}
+                      label={`Select all in ${block.label}`}
+                    />
+                    {block.label}
+                  </h2>
                 )}
                 {block.floors.map((floor) => (
                   <div key={floor.key} className="space-y-3">
-                    <h3 className="text-sm font-semibold text-foreground">{floor.label}</h3>
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <GroupCheckbox
+                        state={groupSelectionState(floor.ids, selectedIds)}
+                        onToggle={() => toggleGroupSelection(floor.ids)}
+                        label={`Select all on ${floor.label}`}
+                      />
+                      {floor.label}
+                    </h3>
                     {floor.rooms.map((room) => (
                       <div key={room.key} className="space-y-1.5 pl-2 border-l-2 border-muted">
-                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide pl-2">
-                          {room.label}{' '}
-                          <span className="normal-case font-normal">({room.students.length})</span>
+                        <h4 className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide pl-2">
+                          <GroupCheckbox
+                            state={groupSelectionState(room.ids, selectedIds)}
+                            onToggle={() => toggleGroupSelection(room.ids)}
+                            label={`Select all in ${room.label}`}
+                          />
+                          <span>
+                            {room.label}{' '}
+                            <span className="normal-case font-normal">({room.students.length})</span>
+                          </span>
                         </h4>
                         <div className="space-y-2">
                           {room.students.map((student) => {
@@ -532,6 +713,12 @@ export default function MarkAttendancePage() {
                                 <CardContent className="p-4">
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                     <div className="flex items-center gap-3">
+                                      <Checkbox
+                                        checked={selectedIds.has(student.id)}
+                                        onCheckedChange={() => toggleResident(student.id)}
+                                        aria-label={`Select ${student.profile?.full_name ?? 'resident'}`}
+                                        className="h-5 w-5"
+                                      />
                                       <Avatar className="h-10 w-10">
                                         <AvatarImage
                                           src={student.profile?.avatar_url ?? student.student_photo_url ?? undefined}
@@ -625,23 +812,34 @@ export default function MarkAttendancePage() {
           </Card>
         )}
 
-        {/* Submit */}
+        {/* Submit. The bulk bar lives INSIDE this sticky container, above the
+            submit row — two independently pinned bars would overlap at the
+            bottom of the viewport. It renders nothing when nothing is
+            selected. */}
         {filteredStudents.length > 0 && (
-          <div className="flex justify-end gap-3 sticky bottom-4 bg-background/80 backdrop-blur-sm p-4 rounded-lg border">
-            <div className="flex-1 text-sm text-muted-foreground flex items-center gap-2">
-              <ClipboardCheck className="h-4 w-4" />
-              {markedCount} of {filteredStudents.length} students marked
+          <div className="sticky bottom-4 space-y-3 bg-background/80 backdrop-blur-sm p-4 rounded-lg border">
+            <BulkActionBar
+              count={selectedCount}
+              onMarkPresent={() => handleBulkStatus('present')}
+              onMarkAbsent={() => handleBulkStatus('absent')}
+              onClearSelection={clearSelection}
+            />
+            <div className="flex justify-end gap-3">
+              <div className="flex-1 text-sm text-muted-foreground flex items-center gap-2">
+                <ClipboardCheck className="h-4 w-4" />
+                {markedCount} of {filteredStudents.length} students marked
+              </div>
+              <Button variant="outline" asChild>
+                <Link href="/campus-living/attendance">Cancel</Link>
+              </Button>
+              <Button
+                onClick={() => setConfirmOpen(true)}
+                disabled={isSubmitting || markedCount === 0}
+              >
+                <Save className="mr-2 h-4 w-4" />
+                Review &amp; Submit
+              </Button>
             </div>
-            <Button variant="outline" asChild>
-              <Link href="/campus-living/attendance">Cancel</Link>
-            </Button>
-            <Button
-              onClick={() => setConfirmOpen(true)}
-              disabled={isSubmitting || markedCount === 0}
-            >
-              <Save className="mr-2 h-4 w-4" />
-              Review &amp; Submit
-            </Button>
           </div>
         )}
       </div>

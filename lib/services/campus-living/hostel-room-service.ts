@@ -32,6 +32,25 @@ export type HostelRoomWithBedsAndOccupancy = HostelRoomWithOccupancy & {
   hostel_categories: { name: string } | null;
 };
 
+// ─── Delete outcome (mirrors fn_delete_hostel_room's jsonb return) ─────────
+// A blocked delete is a business outcome, not a Postgres error, so it arrives
+// as data with a message the operator can act on.
+export interface RoomDeleteResult {
+  ok: boolean;
+  reason?:
+    | 'not_found'
+    | 'active_residents'
+    | 'has_deposits'
+    | 'has_vacate_requests'
+    | 'open_maintenance';
+  count?: number;
+  message?: string;
+  room_number?: string;
+  purged_allocations?: number;
+  purged_maintenance?: number;
+  purged_cleaning?: number;
+}
+
 const EMPTY_OCCUPANCY: RoomOccupancySnapshot = {
   active_residents: 0,
   beds_available: 0,
@@ -359,22 +378,41 @@ export class HostelRoomService {
   }
 
   // ── Delete ────────────────────────────────────────────────────────
+  // Goes through fn_delete_hostel_room, NOT a bare DELETE. hostel_allocations
+  // .room_id is NO ACTION, so deleting the row directly raises 23503 whenever
+  // the room has ANY allocation — including stays that ended months ago. The
+  // RPC removes the room's own history with it and blocks only on records that
+  // outlive a room (current residents, deposits, vacate requests, open
+  // maintenance), returning that outcome as data so callers can state the real
+  // reason instead of guessing one from a constraint name.
   static async deleteRoom(id: string) {
+    let result: RoomDeleteResult | null = null;
     try {
       const supabase = createClientSupabaseClient();
-      const { error } = await supabase
-        .from('hostel_rooms')
-        .delete()
-        .eq('id', id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_delete_hostel_room', {
+        p_room_id: id,
+      });
 
       if (error) {
         logger.error('campus-living/rooms', 'Failed to delete room', error);
         throw error;
       }
+      result = data as RoomDeleteResult | null;
     } catch (error) {
       logger.error('campus-living/rooms', 'Unexpected error in deleteRoom', error);
       throw error;
     }
+
+    // A blocked delete is an expected answer, not a fault, so it sits outside
+    // the catch above — routing it through there logged every refusal twice,
+    // once as "Failed" and once as "Unexpected error".
+    if (!result?.ok) {
+      logger.warn('campus-living/rooms', 'Room delete blocked', result);
+      throw new Error(result?.message ?? 'This room could not be deleted.');
+    }
+
+    return result;
   }
 
   // ── Check room availability (via v_hostel_room_occupancy) ─────────

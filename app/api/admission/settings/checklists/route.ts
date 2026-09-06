@@ -24,8 +24,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!user || authErr) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data: canView } = await (supabase as any).rpc('user_has_permission', {
-    user_id: user.id,
-    permission_key: 'admission.settings.checklists.view',
+    permission_name: 'admission.settings.checklists.view',
   });
   if (!canView) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
@@ -115,8 +114,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!user || authErr) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data: canManage } = await (supabase as any).rpc('user_has_permission', {
-    user_id: user.id,
-    permission_key: 'admission.settings.checklists.manage',
+    permission_name: 'admission.settings.checklists.manage',
   });
   if (!canManage) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 

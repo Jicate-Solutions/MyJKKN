@@ -59,6 +59,8 @@ interface EditableField {
   max_value: number | null;
   pattern: string | null;
   condition: FormFieldCondition | null;
+  /** Public image URL for an 'image_display' field; null for every other type. */
+  media_url: string | null;
 }
 
 interface EditableSection {
@@ -100,6 +102,7 @@ function toEditableField(f: EventRegistrationFormField): EditableField {
     max_value: f.max_value,
     pattern: f.pattern,
     condition: f.condition,
+    media_url: f.media_url ?? null,
   };
 }
 
@@ -119,6 +122,7 @@ function newField(): EditableField {
     max_value: null,
     pattern: null,
     condition: null,
+    media_url: null,
   };
 }
 
@@ -159,6 +163,9 @@ function serialize(sections: EditableSection[]): SaveFormSectionPayload[] {
       pattern: f.pattern,
       options: f.options && f.options.length > 0 ? f.options : null,
       condition: f.condition,
+      // Without this the save RPC (which DELETEs and reinserts every field)
+      // would wipe the organizer's image on any unrelated edit.
+      media_url: f.media_url,
     })),
   }));
 }
@@ -168,6 +175,7 @@ function toPreviewField(f: EditableField, index: number): EventRegistrationFormF
   return {
     id: f.uid,
     section_id: '',
+    form_id: '',
     event_id: '',
     field_key: f.field_key ?? `preview_${index}`,
     field_label: f.field_label || 'Untitled field',
@@ -183,9 +191,84 @@ function toPreviewField(f: EditableField, index: number): EventRegistrationFormF
     pattern: f.pattern,
     options: f.options,
     condition: f.condition,
+    media_url: f.media_url,
     created_at: '',
     updated_at: '',
   };
+}
+
+// ── Display-image picker ─────────────────────────────────────────────────────
+
+/**
+ * Uploads the image an 'image_display' field shows and hands back its PUBLIC
+ * URL. Organizer-side only: this posts to the authenticated /form-media route
+ * and the public `event-form-media` bucket — never the private bucket that
+ * holds registrants' documents.
+ */
+function FormMediaPicker({
+  eventId,
+  formId,
+  value,
+  onChange,
+}: {
+  eventId: string;
+  formId: string;
+  value: string | null;
+  onChange: (url: string | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      body.append('form_id', formId);
+      const res = await fetch(`/api/events/${eventId}/form-media`, { method: 'POST', body });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Upload failed (${res.status})`);
+      onChange(json.url as string);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label>Image shown to registrants</Label>
+      {value ? (
+        <div className="flex items-start gap-3 rounded-md border p-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={value} alt="Form image" className="h-20 w-20 rounded object-cover" />
+          <div className="flex-1 space-y-1.5">
+            <p className="text-xs text-muted-foreground break-all">{value}</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => onChange(null)}>
+              Remove image
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          disabled={busy}
+          onChange={(e) => pick(e.target.files?.[0])}
+        />
+      )}
+      {busy && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> Uploading…
+        </p>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {!value && <p className="text-xs text-muted-foreground">JPG, PNG, WebP or GIF · max 5 MB</p>}
+    </div>
+  );
 }
 
 // ── Field row ────────────────────────────────────────────────────────────────
@@ -197,6 +280,8 @@ function FieldRow({
   onMove,
   onUpdate,
   onDelete,
+  eventId,
+  formId,
 }: {
   field: EditableField;
   isFirst: boolean;
@@ -204,10 +289,16 @@ function FieldRow({
   onMove: (direction: 'up' | 'down') => void;
   onUpdate: (updates: Partial<EditableField>) => void;
   onDelete: () => void;
+  /** Needed to upload a display image against the right form. */
+  eventId: string;
+  formId: string;
 }) {
   const needsOptions =
     field.field_type === 'select' || field.field_type === 'multi_select' || field.field_type === 'radio';
   const optionsText = (field.options ?? []).map((o) => o.label).join('\n');
+  // Display-only: it publishes an image instead of asking a question, so the
+  // answer-shaped settings (Required, validation) are meaningless for it.
+  const isDisplayImage = field.field_type === 'image_display';
 
   return (
     <div className="space-y-3 rounded-lg border bg-background p-3">
@@ -230,7 +321,11 @@ function FieldRow({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {FORM_FIELD_TYPES.filter((t) => t.value !== 'file').map((t) => (
+              {/* 'file' used to be filtered out here, so an organizer could
+                  never actually add one — the type existed in the union, the DB
+                  constraint and the renderer, but not in this list. It stays now
+                  that uploads really store the file. */}
+              {FORM_FIELD_TYPES.map((t) => (
                 <SelectItem key={t.value} value={t.value}>
                   {t.label}
                 </SelectItem>
@@ -260,6 +355,15 @@ function FieldRow({
         </div>
       )}
 
+      {isDisplayImage && (
+        <FormMediaPicker
+          eventId={eventId}
+          formId={formId}
+          value={field.media_url}
+          onChange={(url) => onUpdate({ media_url: url })}
+        />
+      )}
+
       <div className="space-y-1.5">
         <Label>Help text (optional)</Label>
         <Input
@@ -271,8 +375,19 @@ function FieldRow({
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Switch checked={field.is_required} onCheckedChange={(v) => onUpdate({ is_required: v })} />
-          <Label className="text-sm">Required</Label>
+          {isDisplayImage ? (
+            <p className="text-xs text-muted-foreground">
+              Shown to everyone — collects no answer.
+            </p>
+          ) : (
+            <>
+              <Switch
+                checked={field.is_required}
+                onCheckedChange={(v) => onUpdate({ is_required: v })}
+              />
+              <Label className="text-sm">Required</Label>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <Button type="button" variant="ghost" size="icon" disabled={isFirst} onClick={() => onMove('up')} title="Move up">
@@ -294,10 +409,18 @@ function FieldRow({
 
 export function RegistrationFormEditor({
   eventId,
+  formId,
   variant = 'tournament',
   backHref,
 }: {
   eventId: string;
+  /**
+   * WHICH form on the event is being edited. An event holds many named forms
+   * (one per monthly run, say), so the builder is addressed by form, not by
+   * event — keying it on eventId is what used to make every form show every
+   * other form's fields.
+   */
+  formId: string;
   /**
    * Which event this builder is editing. 'tournament' shows the built-in
    * division / roster / entry-fee panels; 'general' hides them, because a
@@ -312,7 +435,7 @@ export function RegistrationFormEditor({
   const router = useRouter();
   const isTournament = variant === 'tournament';
   const backTo = backHref ?? `/events/tournament/${eventId}`;
-  const { data: form, isLoading } = useRegistrationForm(eventId);
+  const { data: form, isLoading } = useRegistrationForm(formId);
   const save = useSaveRegistrationForm(eventId);
 
   const [sections, setSections] = useState<EditableSection[]>([]);
@@ -427,7 +550,7 @@ export function RegistrationFormEditor({
       })
     );
 
-    await save.mutateAsync({ isEnabled: enabledSnapshot, sections: payload });
+    await save.mutateAsync({ formId, isEnabled: enabledSnapshot, sections: payload });
 
     // Inputs and the enable switch stay live during a save, so anything changed
     // in that window was never sent. Every local edit replaces the sections
@@ -572,6 +695,8 @@ export function RegistrationFormEditor({
                     onMove={(dir) => moveField(section.uid, fIdx, dir)}
                     onUpdate={(updates) => updateField(section.uid, field.uid, updates)}
                     onDelete={() => deleteField(section.uid, field.uid)}
+                    eventId={eventId}
+                    formId={formId}
                   />
                 ))}
               </div>

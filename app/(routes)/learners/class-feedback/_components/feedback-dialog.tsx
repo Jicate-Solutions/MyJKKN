@@ -28,6 +28,8 @@ import {
   NBLM_NONE_KEY,
 } from '@/lib/session-feedback/notebooklm-features';
 import { ClarificationTouchpoint } from './clarification-touchpoint';
+import { ClarificationFollowupCard } from './clarification-followup-card';
+import { ClassroomPracticeMicro } from './classroom-practice-micro';
 
 const BRAND = '#0b6d41';
 
@@ -335,6 +337,22 @@ export function FeedbackDialog({
               </span>
             </p>
             <ClarificationTouchpoint
+              attendanceDate={session.attendance_date}
+              timetableId={session.timetable_id}
+              periodId={session.period_id}
+            />
+            {/* Two-sided close — the learner's own "did it help?" follow-up,
+                due only when a lead recorded an act on one of THEIR pending
+                asks. ⚠️ ONE-TAP INVARIANT AS AMENDED (Director, 2026-07-30,
+                deliberate — do not "fix" back): when both this follow-up AND
+                the practice question below are due, the learner sees BOTH,
+                follow-up FIRST. The cap is one rotation question + (when due)
+                the learner's own follow-up. */}
+            <ClarificationFollowupCard />
+            {/* Classroom Practice L2 — at most ONE sealed micro-item, and only
+                when the server has one to give. Renders nothing otherwise, and
+                cannot affect the submit or close flow above. */}
+            <ClassroomPracticeMicro
               attendanceDate={session.attendance_date}
               timetableId={session.timetable_id}
               periodId={session.period_id}

@@ -81,6 +81,7 @@ import { PreSessionMaterialsControl } from '../_components/pre-session-materials
 import { MyLoopNotesCard } from '../_components/my-loop-notes-card';
 import { MyPulseCard } from '../_components/my-pulse-card';
 import { FreetextCarryCountsCard } from '../_components/freetext-carry-counts-card';
+import { ClarificationAsksCard } from '../_components/clarification-asks-card';
 import {
   UnderstandingBand,
   understandingLevel,
@@ -784,6 +785,13 @@ export default function FacultySessionInsightPage() {
           being re-asked in this facilitator's courses (>=3-learner floor;
           renders nothing below it). Spec: scf-freetext-carryforward-2026-07-19 */}
       <FreetextCarryCountsCard />
+
+      {/* Re-explanation asks — per-session COUNTS of learners who asked for a
+          topic again (Lane C, 20260725133000). Count-only server-side; the
+          outcome is the learner's own self-report, so "still open" means they
+          have not answered yet — never that anyone refused. Renders nothing
+          when there are no asks. */}
+      <ClarificationAsksCard />
 
       {/* Coverage — who confirmed, who's pending */}
       <CompletionSection from={from} to={to} />

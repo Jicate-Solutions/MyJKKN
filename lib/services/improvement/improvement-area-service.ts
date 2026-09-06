@@ -52,6 +52,14 @@ export interface ManagedImprovementArea {
   analyst_view_count: number;
   rotation_slot_count: number;
   rotation_cycle_dept_count: number;
+  /**
+   * Team members currently holding a role on this board. fn_improvement_area_delete
+   * refuses on this too, so it has to be counted here or the screen offers a delete
+   * the server will reject. Named to match `AreaDependants.role_holder_count`: one
+   * count, one name, because two names for it in this file is how the omission
+   * happened in the first place.
+   */
+  role_holder_count: number;
   /** Sum of every count above — 0 means the board is safe to delete outright. */
   dependent_count: number;
 }
@@ -74,8 +82,94 @@ export function dependentBreakdown(
     { label: 'analyst assignment', count: area.posting_count },
     { label: 'analyst view', count: area.analyst_view_count },
     { label: 'rotation slot', count: area.rotation_slot_count },
-    { label: 'rotation cycle entry', count: area.rotation_cycle_dept_count }
+    { label: 'rotation cycle entry', count: area.rotation_cycle_dept_count },
+    { label: 'role holder', count: area.role_holder_count }
   ].filter((item) => item.count > 0);
+}
+
+/* -------------------------------------------------------------------------- */
+/* What is attached to one board (read fresh, before switching it off)        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Everything attached to a single board, read at the moment it is needed.
+ *
+ * This is a SUPERSET of the per-board counts in the list above: it also carries
+ * `role_holder_count`, the people recorded in `hr_additional_roles` as CURRENT
+ * holders of a role on this board. Switching the board off keeps every one of
+ * them recorded — that is the point, so switching it back on restores the board
+ * intact — but it hides the board, and the manager should be told before that
+ * happens rather than after.
+ */
+export interface AreaDependants {
+  label: string;
+  is_system: boolean;
+  is_active: boolean;
+  idea_count: number;
+  artifact_count: number;
+  artifact_version_count: number;
+  data_gap_count: number;
+  posting_count: number;
+  analyst_view_count: number;
+  rotation_slot_count: number;
+  rotation_cycle_dept_count: number;
+  role_holder_count: number;
+  /** Sum of every count above — 0 means nothing hangs off this board. */
+  dependent_count: number;
+}
+
+/**
+ * Order and wording of the attached-work list. Role holders lead because they
+ * are people, and they are the thing a manager is most likely not to know
+ * about. Plurals are spelled out rather than suffixed so "rotation cycle entry"
+ * pluralises correctly.
+ */
+const DEPENDANT_LABELS: Array<{
+  field: keyof AreaDependants;
+  one: string;
+  many: string;
+}> = [
+  { field: 'role_holder_count', one: 'role holder', many: 'role holders' },
+  {
+    field: 'artifact_count',
+    one: 'department playbook',
+    many: 'department playbooks'
+  },
+  {
+    field: 'artifact_version_count',
+    one: 'playbook version',
+    many: 'playbook versions'
+  },
+  { field: 'idea_count', one: 'improvement idea', many: 'improvement ideas' },
+  { field: 'data_gap_count', one: 'data gap', many: 'data gaps' },
+  {
+    field: 'posting_count',
+    one: 'analyst assignment',
+    many: 'analyst assignments'
+  },
+  { field: 'analyst_view_count', one: 'analyst view', many: 'analyst views' },
+  { field: 'rotation_slot_count', one: 'rotation slot', many: 'rotation slots' },
+  {
+    field: 'rotation_cycle_dept_count',
+    one: 'rotation cycle entry',
+    many: 'rotation cycle entries'
+  }
+];
+
+/** e.g. ["8 role holders", "3 department playbooks"] — non-zero counts only. */
+export function describeDependants(dependants: AreaDependants): string[] {
+  return DEPENDANT_LABELS.reduce<string[]>((parts, item) => {
+    const count = Number(dependants[item.field] ?? 0);
+    if (count > 0) parts.push(`${count} ${count === 1 ? item.one : item.many}`);
+    return parts;
+  }, []);
+}
+
+/** "a", "a and b", "a, b and c" — plain English, no Oxford comma. */
+export function joinWithAnd(parts: string[]): string {
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0];
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 export interface CreateAreaPayload {
@@ -115,6 +209,7 @@ function normaliseArea(row: any): ManagedImprovementArea {
     analyst_view_count: num(row.analyst_view_count),
     rotation_slot_count: num(row.rotation_slot_count),
     rotation_cycle_dept_count: num(row.rotation_cycle_dept_count),
+    role_holder_count: num(row.role_holder_count),
     dependent_count: num(row.dependent_count)
   };
 }
@@ -140,6 +235,48 @@ export class ImprovementAreaService {
       throw new Error(error.message || 'Failed to load the boards.');
     }
     return (data || []).map(normaliseArea);
+  }
+
+  /**
+   * Everything attached to ONE board, read fresh.
+   *
+   * Called immediately before a board is switched off, not taken from the list
+   * loaded when the page opened — another manager may have filed work against
+   * the board since, and the warning has to be honest about the board as it is
+   * right now. Read-only: it counts, it never ends an assignment.
+   */
+  static async fetchDependants(areaId: string): Promise<AreaDependants> {
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any).rpc(
+      'fn_improvement_area_dependants',
+      { p_area_id: areaId }
+    )) as { data: any[] | null; error: any };
+
+    if (error) {
+      logger.error(MODULE, 'Error reading what is attached to a board', error);
+      throw new Error(
+        error.message || 'Failed to check what is attached to this board.'
+      );
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) {
+      throw new Error('That board no longer exists. Refresh and try again.');
+    }
+    return {
+      label: row.label,
+      is_system: !!row.is_system,
+      is_active: !!row.is_active,
+      idea_count: num(row.idea_count),
+      artifact_count: num(row.artifact_count),
+      artifact_version_count: num(row.artifact_version_count),
+      data_gap_count: num(row.data_gap_count),
+      posting_count: num(row.posting_count),
+      analyst_view_count: num(row.analyst_view_count),
+      rotation_slot_count: num(row.rotation_slot_count),
+      rotation_cycle_dept_count: num(row.rotation_cycle_dept_count),
+      role_holder_count: num(row.role_holder_count),
+      dependent_count: num(row.dependent_count)
+    };
   }
 
   /**

@@ -88,19 +88,27 @@ export function institutionSkipsPartLevel(institutionCode?: string | null): bool
  */
 export function makeCourseFormSchema(model: AcademicModel = 'anna_univ') {
   const yearBased = model === 'mgr_ahs' || model === 'mgr_pharmd';
+  // Dental (BDS/DCI): year-based, real codes that carry '-'/'/' separators
+  // (e.g. 4201-P, 4223/P), no credits/category in source. Treat its Anna-only
+  // fields as optional (like the year models) and widen the code charset.
+  const dental = model === 'mgr_bds';
+  const relaxed = yearBased || dental;
   // Nursing (INC) records per-SEMESTER contact hours (Theory 40–120, Clinical
   // 160+), not the engineering weekly L-T-P triple, so the 40-cap must lift.
   const nursing = model === 'inc_nursing';
   const HOURS_CAP = nursing ? 1200 : 40;
+  // BDS course codes contain '-' and '/' (4201-P, 4223/P); every other model's
+  // codes are strictly alphanumeric.
+  const codeRe = dental ? /^[A-Z0-9/-]+$/i : /^[A-Z0-9]+$/i;
   const num = () => z.coerce.number().min(0).max(10);
   const hrs = () => z.coerce.number().int().min(0).max(HOURS_CAP);
   const mark = () => z.coerce.number().int().min(0);
   return z.object({
-    course_code:       z.string().min(3).max(50).regex(/^[A-Z0-9]+$/i, 'Letters & digits only'),
+    course_code:       z.string().min(3).max(50).regex(codeRe, dental ? 'Letters, digits, - and / only' : 'Letters & digits only'),
     course_name:       z.string().min(3).max(255),
     board_id:          z.string().uuid('Select a board'),
-    // Year models (Pharm.D/AHS) have no course category in source.
-    course_category:   yearBased ? z.enum(COURSE_CATEGORY_VALUES).optional() : z.enum(COURSE_CATEGORY_VALUES),
+    // Year/dental models have no course category in source.
+    course_category:   relaxed ? z.enum(COURSE_CATEGORY_VALUES).optional() : z.enum(COURSE_CATEGORY_VALUES),
     // Optional: PG (and some non-tiered) courses don't carry a Part designation.
     course_part_master: z.enum(COURSE_PART_VALUES).optional(),
     // Optional: some courses (PG, audit, bridge, etc.) have no Type at creation.
@@ -108,17 +116,27 @@ export function makeCourseFormSchema(model: AcademicModel = 'anna_univ') {
     // Optional: non-tiered courses (Internship, Project) have no Roman level.
     course_level:      z.enum(COURSE_LEVEL_VALUES).optional(),
     exam_duration:     z.coerce.number().int().min(0).max(8),
-    // Pharm.D/AHS carry hours-per-week only, no credits → optional there.
-    credit:            yearBased ? num().optional() : num(),
-    theory_hours:      yearBased ? hrs().optional() : hrs(),
+    // Pharm.D/AHS/BDS carry hours only, no credits → optional there.
+    credit:            relaxed ? num().optional() : num(),
+    theory_hours:      relaxed ? hrs().optional() : hrs(),
     // Optional — most courses have no tutorial component; blank defaults to 0.
     tutorial_hours:    hrs().optional().default(0),
-    practical_hours:   yearBased ? hrs().optional() : hrs(),
+    practical_hours:   relaxed ? hrs().optional() : hrs(),
     // No upper cap on marks — the max total varies by subject; only floor (>=0)
-    // and integer-ness are enforced. Year models may omit marks (internal papers).
-    internal_max_mark: yearBased ? mark().optional() : mark(),
-    external_max_mark: yearBased ? mark().optional() : mark(),
-    total_max_mark:    yearBased ? mark().optional() : mark(),
+    // and integer-ness are enforced. Year/dental models may omit marks.
+    //
+    // *_max_mark is the QUESTION-PAPER ceiling (an ESE may be written for 100).
+    // It is COE-owned: the Max Marks form no longer renders it, it only carries
+    // the loaded value so an edit round-trips it untouched. Hence optional for
+    // every model — a create simply defaults it to the converted mark.
+    internal_max_mark: mark().optional(),
+    external_max_mark: mark().optional(),
+    // *_converted_mark is the WEIGHTAGE the component carries in total_max_mark
+    // (that 100-mark paper may scale down to 50). This is the pair the Max Marks
+    // form edits, so it inherits the required-ness the max pair used to have.
+    internal_converted_mark: relaxed ? mark().optional() : mark(),
+    external_converted_mark: relaxed ? mark().optional() : mark(),
+    total_max_mark:    relaxed ? mark().optional() : mark(),
     // Year models (Pharm.D 1..5, AHS 1..3) locate the course by academic year.
     academic_year:     z.coerce.number().int().min(1).max(6).optional(),
   });
@@ -157,12 +175,18 @@ export function toCoeCreatePayload(
   }
 ) {
   const model = ctx.academic_model ?? 'anna_univ';
-  const yearBased = model === 'mgr_ahs' || model === 'mgr_pharmd';
+  // Pharm.D/AHS and BDS have no Anna CIA+ESE scheme and no credits.
+  const yearBased = model === 'mgr_ahs' || model === 'mgr_pharmd' || model === 'mgr_bds';
   const theory = form.theory_hours ?? 0;
   const tutorial = form.tutorial_hours ?? 0;
   const practical = form.practical_hours ?? 0;
-  const internal = form.internal_max_mark ?? 0;
-  const external = form.external_max_mark ?? 0;
+  // The form edits the CONVERTED marks (the CIA/ESE weightage that sums to
+  // total_max_mark). On a create the paper ceiling has no independent source, so
+  // it defaults to the converted mark — they're equal for a normal course, and
+  // a Theory+Practical course's real ceiling (ESE out of 100 → 50) is set later
+  // in COE. An explicit *_max_mark only ever arrives from an edit round-trip.
+  const internal = form.internal_converted_mark ?? form.internal_max_mark ?? 0;
+  const external = form.external_converted_mark ?? form.external_max_mark ?? 0;
   return {
     institutions_id: ctx.institutions_id,
     regulation_id: ctx.regulation_id,
@@ -194,9 +218,14 @@ export function toCoeCreatePayload(
     tutorial_hours: tutorial,
     practical_hours: practical,
     class_hours: theory + tutorial + practical,
-    internal_max_mark: internal,
-    external_max_mark: external,
-    total_max_mark: form.total_max_mark ?? (internal + external),
+    internal_max_mark: form.internal_max_mark ?? internal,
+    external_max_mark: form.external_max_mark ?? external,
+    internal_converted_mark: internal,
+    external_converted_mark: external,
+    // Always derived from the converted pair — never from the paper ceilings, and
+    // never from a caller-supplied total. This is the value COE stores as the
+    // course's headline total (e.g. CIA 50 + converted ESE 50 = 100, not 150).
+    total_max_mark: internal + external,
     // Year model locator (Pharm.D 1..5, AHS 1..3). NOTE: requires the matching
     // COE `courses.academic_year` column — see the COE-repo hand-off in the COP
     // tech spec (§5.2). Harmless (ignored) until COE adds the column.

@@ -12,7 +12,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
-import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { parseExcelFile, mapColumns, sanitizeValue, hasColumn, listColumns } from '@/lib/utils/excel-parser';
 import { normalizeDropdownValue, BLOOD_GROUP_VALUES } from '@/lib/constants/learner-dropdown-values';
 
 
@@ -26,6 +26,10 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   // SECTION 1: Basic Details
   'first_name': ['First Name', 'first_name', 'firstname'],
   'last_name': ['Last Name', 'last_name', 'lastname'],
+  // Header strings must match buildBulkEditColumns() byte-for-byte — mapping is
+  // by header NAME, so a rename silently drops the column from every upload.
+  'first_name_tamil': ['First Name (Tamil)', 'first_name_tamil'],
+  'last_name_tamil': ['Last Name (Tamil)', 'last_name_tamil'],
   'date_of_birth': ['Date of Birth', 'DOB', 'date_of_birth', 'dob'],
   'gender': ['Gender', 'gender'],
   'religion': ['Religion', 'religion'],
@@ -39,6 +43,9 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'caste': ['Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
+  'abc_id': ['ABC ID', 'abc_id', 'ABC'],
+  'emis': ['EMIS Number', 'EMIS', 'emis', 'emis_number'],
+  'umis': ['UMIS Number', 'UMIS', 'umis', 'umis_number'],
   'admission_year_id': ['Admission Year ID', 'admission_year_id'],
   'admission_year': ['Admission Year', 'admission_year'],
 
@@ -101,8 +108,13 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
+  // The typed reference: Type + ID + Person resolve together into
+  // referral_type / referred_by_id / referred_by_name plus the legacy mirror.
+  // 'Reference Name' stays as an alias so templates downloaded before
+  // 2026-08-01 keep mapping to the same resolver.
   'reference_type': ['Reference Type', 'reference_type'],
-  'reference_name': ['Reference Name', 'reference_name'],
+  'referred_by_id': ['Reference ID', 'referred_by_id'],
+  'referred_by_name': ['Reference Person', 'Reference Name', 'referred_by_name', 'reference_name'],
   'reference_contact': ['Reference Contact', 'reference_contact'],
 
   // SECTION 11: Student Specific
@@ -129,6 +141,20 @@ interface PreviewRow {
   error?: string;
   /** Labels that matched no lookup row — those fields are skipped on write. */
   warnings?: string[];
+  /**
+   * Where the fix lives, so the reviewer knows what to do:
+   *  - 'format' → edit the cell (bad email domain, 9-digit mobile…)
+   *  - 'record' → wrong learner for this flow (not found / not active / other institution)
+   */
+  issueKind?: 'format' | 'record';
+  /** Per-field format failures, mirroring what the write path enforces. */
+  issues?: Array<{ field: string; message: string }>;
+  /** Present when the row changes the reference. Drives the validate-step buckets. */
+  reference?: {
+    outcome: 'linked' | 'name_only' | 'type_only';
+    nameOnly?: { type: 'consultant' | 'student' | 'faculty'; name: string };
+    attribution?: 'create' | 'replace';
+  };
 }
 
 /**
@@ -310,7 +336,7 @@ export async function POST(request: NextRequest) {
 
     // 4. Parse Excel file
     console.log('[bulk-edit-preview] Parsing file:', file.name, 'Size:', file.size);
-    const parseResult = await parseExcelFile(file, 'Active Learners');
+    const parseResult = await parseExcelFile(file, 'Active Learners', COLUMN_MAPPING.id);
 
     if (parseResult.errors.length > 0) {
       console.error('[bulk-edit-preview] Parse errors:', parseResult.errors);
@@ -335,6 +361,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The ID column - not the sheet name - is what identifies this as a bulk-edit
+    // file. Without it every row would come back "Learner not found", which reads
+    // like missing data when the real problem is the wrong file.
+    if (!hasColumn(parseResult.rows, COLUMN_MAPPING.id)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `No ID column found in the uploaded sheet (expected "ID*"). ` +
+            `Columns found: ${listColumns(parseResult.rows)}. ` +
+            `Use "Download Current Data" in this dialog and edit that file - the ` +
+            `Learners "Export" file has no ID column and cannot be used for bulk edit.`
+        },
+        { status: 400 }
+      );
+    }
+
     // 5. Process and preview changes
     const previewRows: PreviewRow[] = [];
 
@@ -349,12 +392,23 @@ export async function POST(request: NextRequest) {
       // SECTION 1: Basic Details
       if (mappedData.first_name) sanitizedData.first_name = sanitizeValue(mappedData.first_name, 'text');
       if (mappedData.last_name) sanitizedData.last_name = sanitizeValue(mappedData.last_name, 'text');
+      // Trimmed, NOT run through sanitizeValue('text'): that upper-cases, and
+      // Tamil is a caseless script — upper-casing it is meaningless at best and
+      // risks perturbing a combining sequence. Must match bulk-edit-exited.
+      if (mappedData.first_name_tamil) sanitizedData.first_name_tamil = String(mappedData.first_name_tamil).trim();
+      if (mappedData.last_name_tamil) sanitizedData.last_name_tamil = String(mappedData.last_name_tamil).trim();
       if (mappedData.date_of_birth) sanitizedData.date_of_birth = sanitizeValue(mappedData.date_of_birth, 'date');
       if (mappedData.gender) sanitizedData.gender = sanitizeValue(mappedData.gender, 'text');
       if (mappedData.religion) sanitizedData.religion = sanitizeValue(mappedData.religion, 'text');
       if (mappedData.community) sanitizedData.community = sanitizeValue(mappedData.community, 'text');
       if (mappedData.caste) sanitizedData.caste = sanitizeValue(mappedData.caste, 'text');
       if (mappedData.aadhar_number) sanitizedData.aadhar_number = sanitizeValue(mappedData.aadhar_number, 'mobile');
+      // Upper-cased + whitespace-stripped, matching the form and the bulk
+      // upload. Sanitizing these as 'mobile' would strip every letter and
+      // silently reduce ED453871909686 to 453871909686.
+      if (mappedData.abc_id) sanitizedData.abc_id = String(mappedData.abc_id).replace(/\s+/g, '').toUpperCase();
+      if (mappedData.emis) sanitizedData.emis = String(mappedData.emis).replace(/\s+/g, '').toUpperCase();
+      if (mappedData.umis) sanitizedData.umis = String(mappedData.umis).replace(/\s+/g, '').toUpperCase();
       if (mappedData.blood_group) {
         // Same shared normalizer as bulk-edit-exited, so preview matches write.
         const normalized = normalizeDropdownValue(String(mappedData.blood_group), BLOOD_GROUP_VALUES);
@@ -432,7 +486,39 @@ export async function POST(request: NextRequest) {
       if (mappedData.quota) sanitizedData.quota = sanitizeValue(mappedData.quota, 'text');
       if (mappedData.student_photo_url) sanitizedData.student_photo_url = mappedData.student_photo_url;
 
+      // SECTION 10: Reference. These were mapped but never sanitized here, so a
+      // reference edit showed NOTHING in preview while bulk-edit-exited applied
+      // it anyway — same defect the Accommodation Type block above documents.
+      // Reference ID passes through untouched: sanitizeValue upper-cases, which
+      // mangles a uuid.
+      if (mappedData.reference_type) sanitizedData.reference_type = String(mappedData.reference_type).trim();
+      if (mappedData.referred_by_id) sanitizedData.referred_by_id = String(mappedData.referred_by_id).trim();
+      if (mappedData.referred_by_name) sanitizedData.referred_by_name = sanitizeValue(mappedData.referred_by_name, 'text');
+      if (mappedData.reference_contact) sanitizedData.reference_contact = sanitizeValue(mappedData.reference_contact, 'mobile');
+
       const learnerId = sanitizedData.id;
+
+      // Field-format rules, run with the SAME service the write path uses
+      // (bulk-edit-exited calls validateBulkEditExited before processBulkEdit).
+      // Preview used to skip this entirely, so "College Email must end with
+      // @jkkn.ac.in" first appeared AFTER the update ran — the one thing a
+      // preview screen exists to prevent.
+      const fieldValidation = LearnerValidationService.validateBulkEditExited(sanitizedData);
+
+      if (!fieldValidation.isValid) {
+        previewRows.push({
+          learnerId,
+          learnerName:
+            [mappedData.first_name, mappedData.last_name].filter(Boolean).join(' ') || 'Unknown',
+          rowNumber: parsedRow.rowNumber,
+          changes: [],
+          status: 'error',
+          issueKind: 'format',
+          issues: fieldValidation.errors.map(e => ({ field: e.field, message: e.message })),
+          error: fieldValidation.errors.map(e => e.message).join(', ')
+        });
+        continue;
+      }
 
       // Validate learner exists
       const validation = await BulkLearnerEditService.previewChanges(
@@ -449,6 +535,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'Learner not found'
         });
         continue;
@@ -461,6 +548,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'Learner is not in active status'
         });
         continue;
@@ -473,6 +561,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'No access to this learner (different institution)'
         });
         continue;
@@ -497,9 +586,20 @@ export async function POST(request: NextRequest) {
         rowNumber: parsedRow.rowNumber,
         changes: validation.changes,
         status: 'valid',
-        warnings: validation.warnings
+        warnings: validation.warnings,
+        reference: validation.reference
       });
     }
+
+    // Reference roll-up. Two things the reviewer cannot get from the row list:
+    // which names will be stored WITHOUT a link (and whether each looks like a
+    // typo), and how many consultant attributions this upload will create —
+    // those feed the commission engine.
+    const nameOnlyEntries = previewRows
+      .map((r) => r.reference?.nameOnly)
+      .filter(Boolean) as Array<{ type: 'consultant' | 'student' | 'faculty'; name: string }>;
+    const nameOnlyHints = await BulkLearnerEditService.buildReferenceHints(nameOnlyEntries as any);
+    const withReference = previewRows.filter((r) => r.reference);
 
     // 6. Return preview result
     return NextResponse.json({
@@ -508,9 +608,21 @@ export async function POST(request: NextRequest) {
       valid_changes: previewRows.filter(r => r.status === 'valid').length,
       no_changes: previewRows.filter(r => r.status === 'no_changes').length,
       errors: previewRows.filter(r => r.status === 'error').length,
+      // Split by where the fix lives: a cell the uploader can edit, vs. the
+      // learner record itself. Billing's bulk-create groups issues the same way.
+      format_errors: previewRows.filter(r => r.issueKind === 'format').length,
+      record_errors: previewRows.filter(r => r.issueKind === 'record').length,
       // Rows carrying a label that matched no lookup row. Counted separately
       // from errors: the row still applies, just without that one field.
       warnings: previewRows.filter(r => (r.warnings?.length ?? 0) > 0).length,
+      reference_summary: {
+        linked: withReference.filter(r => r.reference!.outcome === 'linked').length,
+        name_only: withReference.filter(r => r.reference!.outcome === 'name_only').length,
+        type_only: withReference.filter(r => r.reference!.outcome === 'type_only').length,
+        attributions_created: withReference.filter(r => r.reference!.attribution === 'create').length,
+        attributions_replaced: withReference.filter(r => r.reference!.attribution === 'replace').length,
+        name_only_names: nameOnlyHints
+      },
       preview: previewRows
     });
 

@@ -22,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { RenameHandleButton } from './_components/rename-handle-button';
 import {
   getLeadershipAdoptionData,
   type AdoptionSummary,
@@ -141,7 +142,17 @@ function SummaryStrip({ data }: { data: AdoptionSummary }) {
 // Per-institution card
 // -----------------------------------------------------------------------
 
-function InstitutionCard({ inst }: { inst: InstitutionRollup }) {
+function InstitutionCard({
+  inst,
+  canRename,
+}: {
+  inst: InstitutionRollup;
+  /** True only for super_admin / admin. Someone holding merely
+   *  meetings.analytics.view can read this scoreboard but must not be offered a
+   *  write control — viewing adoption and changing somebody's public address are
+   *  different powers, and the server action refuses them either way. */
+  canRename: boolean;
+}) {
   const total = inst.totalPrincipals + inst.totalHods;
 
   // Sort: live first, then page_not_live, then no_page, then alpha
@@ -198,6 +209,13 @@ function InstitutionCard({ inst }: { inst: InstitutionRollup }) {
                   <span className="hidden text-xs text-muted-foreground sm:inline">
                     @{leader.handle}
                   </span>
+                )}
+                {canRename && leader.handle && (
+                  <RenameHandleButton
+                    hostProfileId={leader.id}
+                    currentHandle={leader.handle}
+                    personName={leader.name}
+                  />
                 )}
                 <StatusBadge status={leader.status} />
               </div>
@@ -310,7 +328,11 @@ export default async function MeetingsAdoptionPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
             {data.institutions.map((inst) => (
-              <InstitutionCard key={inst.institutionId} inst={inst} />
+              <InstitutionCard
+                key={inst.institutionId}
+                inst={inst}
+                canRename={!!isSuperAdmin || !!isAdmin}
+              />
             ))}
           </div>
         )}

@@ -1,54 +1,23 @@
 'use client';
 
-import {
-  QueryClient,
-  QueryClientProvider as ReactQueryClientProvider
-} from '@tanstack/react-query';
+import { QueryClientProvider as ReactQueryClientProvider } from '@tanstack/react-query';
 import { useState, ReactNode } from 'react';
+import { getQueryClient } from './query-client-provider';
 
+/**
+ * Routes-layout React Query provider (mounted by app/(routes)/layout.tsx).
+ *
+ * This used to construct its OWN QueryClient, giving the app two independent
+ * caches (see providers/query-client-provider.tsx for the full story). It now
+ * reuses the shared browser-singleton client, so queries mounted under the
+ * routes tree and queries mounted in the root layout (e.g. the notification
+ * badge) share one cache entry and one network request per key.
+ *
+ * The component is kept (rather than deleted) so app/(routes)/layout.tsx
+ * doesn't need to change; providing the same client twice is a no-op.
+ */
 export function QueryClientProvider({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh longer
-            gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
-            refetchOnWindowFocus: false, // Disabled: was causing excessive refetches on every tab switch
-            refetchOnMount: true, // Refetch on mount
-            refetchOnReconnect: true, // Refetch on network reconnect
-            retry: (failureCount, error) => {
-              // Don't retry on auth errors, RLS policy errors, or 404s
-              const errorMessage = error?.message?.toLowerCase() || '';
-              const errorStatus = (error as any)?.status;
-              if (
-                errorMessage.includes('unauthorized') ||
-                errorMessage.includes('forbidden') ||
-                errorMessage.includes('not found') ||
-                errorMessage.includes('54001') || // Stack depth error
-                errorMessage.includes('jwt') ||
-                errorMessage.includes('invalid') ||
-                errorStatus === 401 ||
-                errorStatus === 403 ||
-                errorStatus === 404 // Don't retry deleted resources
-              ) {
-                return false;
-              }
-              // Retry only once for other errors
-              return failureCount < 1;
-            },
-            retryDelay: (attemptIndex) =>
-              Math.min(1000 * 2 ** attemptIndex, 30000),
-            // Only notify components when these specific props change
-            notifyOnChangeProps: ['data', 'error', 'isLoading', 'isFetching']
-          },
-          mutations: {
-            retry: 1,
-            retryDelay: 1000
-          }
-        }
-      })
-  );
+  const [queryClient] = useState(() => getQueryClient());
 
   return (
     <ReactQueryClientProvider client={queryClient}>

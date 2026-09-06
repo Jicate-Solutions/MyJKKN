@@ -32,6 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { ExcusedNote, countedPresent } from '@/components/attendance/counted-attendance';
 import type { MyRunningAttendanceRow } from '@/types/exam-audit';
 import { useEligibilityThresholds } from '@/hooks/academic/use-eligibility-thresholds';
 import type { EligibilityThresholds } from '@/lib/services/exam-audit/compute';
@@ -118,7 +119,7 @@ export function MyRunningScoreCard() {
               <TableRow>
                 <TableHead>Course</TableHead>
                 <TableHead className="text-right">Sessions</TableHead>
-                <TableHead className="text-right">Present</TableHead>
+                <TableHead className="text-right">Counted</TableHead>
                 <TableHead className="w-[30%]">Score</TableHead>
                 <TableHead className="text-right">Standing</TableHead>
               </TableRow>
@@ -126,6 +127,15 @@ export function MyRunningScoreCard() {
             <TableBody>
               {rows.map((r) => {
                 const b = band(r.pct, thresholds);
+                // The score credits approved on-duty days, so the number this
+                // row counts is not always the number of days attended. Both
+                // are shown rather than one silently standing in for the other.
+                const att = {
+                  attended: r.present,
+                  excused: r.protected,
+                  total: r.total,
+                  pct: r.pct,
+                };
                 return (
                   <TableRow key={r.course_id ?? r.course_code ?? 'unknown'}>
                     <TableCell className="font-medium">
@@ -137,7 +147,10 @@ export function MyRunningScoreCard() {
                       ) : null}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{r.total}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.present}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <span className="block">{countedPresent(att)}</span>
+                      <ExcusedNote value={att} />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="h-2 flex-1 rounded-full bg-muted">

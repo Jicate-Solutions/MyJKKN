@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePoFormats, useDeletePoFormat, useSetDefaultPoFormat } from '@/hooks/procurement/use-po-formats';
 import { useImsSuppliers, useUpdateImsSupplier } from '@/hooks/ims/use-ims-settings';
+import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ import {
 import { Plus, MoreHorizontal, Pencil, Trash2, Star, FileStack, Truck } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function PoFormatsPage() {
   const router = useRouter();
@@ -42,11 +44,11 @@ export default function PoFormatsPage() {
   const canManage = isSuperAdmin || canAccess('procurement', 'po_create');
   const institutionId = profile?.institution_id ?? undefined;
 
-  const { data: formats, isLoading } = usePoFormats(institutionId);
+  const { data: formats, isLoading, isError } = usePoFormats(institutionId);
   const deleteFormat = useDeletePoFormat();
   const setDefault = useSetDefaultPoFormat();
 
-  const { data: suppliersList, isLoading: suppliersLoading } = useImsSuppliers({
+  const { data: suppliersList, isLoading: suppliersLoading, isError: suppliersError } = useImsSuppliers({
     institution_id: institutionId,
     is_active: true,
     limit: 100,
@@ -61,7 +63,7 @@ export default function PoFormatsPage() {
       });
       toast.success('Vendor default format updated');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update vendor default format');
+      toast.error(errorMessage(error, 'Failed to update vendor default format'));
     }
   };
 
@@ -70,7 +72,7 @@ export default function PoFormatsPage() {
       await deleteFormat.mutateAsync(id);
       toast.success(`"${name}" deactivated`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to deactivate format');
+      toast.error(errorMessage(error, 'Failed to deactivate format'));
     }
   };
 
@@ -80,7 +82,7 @@ export default function PoFormatsPage() {
       await setDefault.mutateAsync({ institutionId, formatId });
       toast.success('Default format updated');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to set default');
+      toast.error(errorMessage(error, 'Failed to set default'));
     }
   };
 
@@ -91,7 +93,7 @@ export default function PoFormatsPage() {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">PO Document Formats</h1>
+            <h2 className="text-2xl font-bold tracking-tight">PO Document Formats</h2>
             <p className="text-muted-foreground mt-1">
               Configure item columns, header fields, and footer content per vendor layout.
             </p>
@@ -105,11 +107,20 @@ export default function PoFormatsPage() {
         </div>
 
         <Card>
-          <CardContent className="pt-6">
+          <CardHeader>
+            <CardTitle className="text-base">Saved formats</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Each format is a reusable print layout. One is marked the institution default and is
+              used whenever a vendor has no format of its own.
+            </p>
+          </CardHeader>
+          <CardContent>
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
+            ) : isError ? (
+              <AlertBox type="error" message="Failed to load PO formats. Please try again." />
             ) : list.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <FileStack className="h-12 w-12 mx-auto mb-4 opacity-40" />
@@ -159,7 +170,7 @@ export default function PoFormatsPage() {
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm">
+                              <Button variant="ghost" size="sm" aria-label={`Actions for ${format.name}`}>
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -217,6 +228,10 @@ export default function PoFormatsPage() {
             {suppliersLoading ? (
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
+              </div>
+            ) : suppliersError ? (
+              <div className="p-6">
+                <AlertBox type="error" message="Failed to load vendors. Please try again." />
               </div>
             ) : (suppliersList?.data ?? []).length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">

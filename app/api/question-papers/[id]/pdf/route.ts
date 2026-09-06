@@ -1,42 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
+import { CoeApiError } from '@/lib/services/coe/coe-rest-client';
+import { resolveInternalMarksAccess } from '@/lib/utils/internal-marks/internal-marks-access';
 import {
-  resolveInternalMarksAccess,
-  resolveCoeInstitutionCode,
-  resolveCoeInstitutionById,
-  type InternalMarksAccessScope,
-} from '@/lib/utils/internal-marks/internal-marks-access';
-import type { IaQuestionPaperDetail } from '@/types/ia-question-paper';
+  loadPaperInScope,
+  coeDirectFetchConfig,
+} from '@/lib/utils/question-papers/paper-scope-guard';
 
 /**
- * /api/question-papers/[id]/pdf — streams the COE-rendered A5 question-paper PDF.
+ * /api/question-papers/[id]/pdf — streams the COE-rendered question-paper PDF.
  *
  * The COE endpoint returns raw application/pdf bytes (not JSON), so we bypass
  * CoeRestClient's JSON client and fetch directly with the same API-key headers.
- * A CAS-aware scope guard runs first via CoeRestClient so cross-institution ids
- * are rejected before we fetch the binary.
+ * A CAS-aware scope guard runs first so cross-institution ids are rejected before
+ * we fetch the binary.
+ *
+ * `?layout=2up` asks COE for the A4-landscape two-identical-copies-side-by-side
+ * sheet (cut down the middle). Anything else renders the standard A4 portrait.
+ * The layout is forwarded verbatim — COE owns the rendering, MyJKKN never
+ * re-lays-out a paper.
  */
 
-async function guardPaperScope(
-  scope: InternalMarksAccessScope,
-  coePaperInstitutionsId: string | null | undefined
-): Promise<boolean> {
-  if (scope.isSuperAdmin) return true;
-  if (!scope.institutionId || !coePaperInstitutionsId) return false;
-  const [userCode, paperInst] = await Promise.all([
-    resolveCoeInstitutionCode(scope.institutionId),
-    resolveCoeInstitutionById(coePaperInstitutionsId),
-  ]);
-  return (
-    !!userCode &&
-    !!paperInst &&
-    userCode.toUpperCase() === paperInst.institution_code.toUpperCase()
-  );
-}
-
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -52,21 +38,25 @@ export async function GET(
     const scope = await resolveInternalMarksAccess(user.id);
 
     // Scope guard via the JSON client (cheap, cached) before pulling the binary.
-    const client = CoeRestClient.create();
-    const coe = await client.get<{ data: IaQuestionPaperDetail }>(`/api/v1/ia/question-papers/${id}`);
-    if (!coe?.data || !(await guardPaperScope(scope, coe.data.institutions_id))) {
+    const paper = await loadPaperInScope(scope, id);
+    if (!paper) {
       return NextResponse.json({ error: 'Not found or not permitted' }, { status: 404 });
     }
 
-    const baseUrl = process.env.COE_API_URL;
-    const keyId = process.env.COE_API_KEY_ID;
-    const secret = process.env.COE_API_SECRET;
-    if (!baseUrl || !keyId || !secret) {
+    const config = coeDirectFetchConfig();
+    if (!config) {
       return NextResponse.json({ error: 'COE API is not configured' }, { status: 500 });
     }
 
-    const res = await fetch(`${baseUrl}/api/v1/ia/question-papers/${id}/pdf`, {
-      headers: { 'X-API-Key-Id': keyId, 'X-API-Secret': secret },
+    // Only '2up' is a real alternative layout; ignore anything else rather than
+    // forwarding an arbitrary string into the renderer.
+    const layout = request.nextUrl.searchParams.get('layout') === '2up' ? '2up' : null;
+    const upstream =
+      `${config.baseUrl}/api/v1/ia/question-papers/${id}/pdf` +
+      (layout ? `?layout=${layout}` : '');
+
+    const res = await fetch(upstream, {
+      headers: config.headers,
       cache: 'no-store',
     });
     if (!res.ok) {

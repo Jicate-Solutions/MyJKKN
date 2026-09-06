@@ -121,6 +121,16 @@ export function canSeeODChains(access: LCAccess): boolean {
   return access.isLCMember || access.isSuperAdmin || access.isStaff;
 }
 
+/**
+ * Who may act on an event proposal sitting in pending_review.
+ * Exactly the people the dashboard already tells "Awaiting Your Approval" — the
+ * leadership and advisor roles behind isStaffRole(), plus a super admin as
+ * break-glass. Council members propose events; they do not clear their own queue.
+ */
+export function canReviewEventProposals(access: LCAccess): boolean {
+  return access.isStaff || access.isSuperAdmin;
+}
+
 /** Check if a role can manage elections */
 export function canManageElections(role: LCRole): boolean {
   return isStaffRole(role);

@@ -235,8 +235,8 @@ export function ProgramEligibilityFormDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Update the scope, quota, fee band, categories or status. Institution is fixed — delete & recreate to move it.'
-              : 'Map a program + quota + fee band to the room and mess categories those students may use.'}
+              ? 'Update the scope, quota, fee band, categories or status. Institution is fixed — delete & recreate to move it. Learners are matched on their admission-year academic fee.'
+              : 'Map a program + quota + fee band to the room and mess categories those students may use. Learners are matched on their admission-year academic fee.'}
           </DialogDescription>
         </DialogHeader>
 

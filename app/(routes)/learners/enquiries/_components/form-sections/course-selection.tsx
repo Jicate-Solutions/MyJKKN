@@ -10,9 +10,10 @@
 //   that lived here was removed 2026-05-07 along with the underlying column.
 // - Added Entry Type (required); Academic Year + Section relaxed to optional
 //   2026-05-21 — counsellors set those during onboarding, not on enquiry capture.
-// - 2026-07-27: Entry Type FIRST YEAR locks Semester to the program's structural
-//   "Freshers" row and Section to its "A". Other entry types are untouched and
-//   keep the real-term auto-pick (which filters Freshers out).
+// - 2026-07-27: Entry Type FIRST YEAR locked Semester to the program's structural
+//   "Freshers" row and Section to its "A". REVERTED 2026-08-05 — the Freshers
+//   holding pen was removed entirely, so every entry type now auto-picks a real
+//   academic term and both dropdowns stay editable.
 // - 2026-07-27: Admission Year, Academic Year and Section are required again.
 //   The asterisks here reflect the enquiry form's contract; transfer-enquiry-dialog
 //   reuses this section against a schema that keeps them optional (same pre-existing
@@ -46,7 +47,6 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
-import { isFreshersSemester } from '@/lib/constants/semesters';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
@@ -68,9 +68,24 @@ import { LookupService } from '@/lib/services/admission/lookup-service';
 interface CourseSelectionProps {
   form: UseFormReturn<any>;
   showLearnerType?: boolean;
+  /**
+   * Admission-time policy (SH-only first-year departments). True for the
+   * enquiry + admission capture flow it was written for.
+   *
+   * Learner Profiles must pass FALSE. Those screens cover the whole existing
+   * population, where entry_type is a historical fact rather than a choice
+   * being made now: a FIRST YEAR learner already sitting in Semester III with a
+   * MECH department is normal, and enforcing the rule there hid their real
+   * department behind an SH-only list.
+   */
+  enforceAdmissionRules?: boolean;
 }
 
-export function CourseSelectionSection({ form, showLearnerType = false }: CourseSelectionProps) {
+export function CourseSelectionSection({
+  form,
+  showLearnerType = false,
+  enforceAdmissionRules = true,
+}: CourseSelectionProps) {
   // Watch selections for cascading filters
   const watchedInstitutionId = form.watch('institution_id');
   const watchedDegreeId = form.watch('degree_id');
@@ -197,8 +212,10 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   const institutionHasShDept = departments.some(
     (d: Department) => d.department_code === 'SH',
   );
-  const restrictToSh = institutionHasShDept && watchedEntryType === 'FIRST YEAR';
-  const hideSh = institutionHasShDept && watchedEntryType !== 'FIRST YEAR';
+  const restrictToSh =
+    enforceAdmissionRules && institutionHasShDept && watchedEntryType === 'FIRST YEAR';
+  const hideSh =
+    enforceAdmissionRules && institutionHasShDept && watchedEntryType !== 'FIRST YEAR';
   const displayedDepartments = useMemo(() => {
     if (!institutionHasShDept) return departments;
     if (restrictToSh) return departments.filter((d: Department) => d.department_code === 'SH');
@@ -263,55 +280,6 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
     ? [currentSectionToUse, ...filteredSections]
     : filteredSections;
 
-  // ──────────────────────────────────────────────────────────────────────
-  // FIRST YEAR → locked Freshers semester + section A (2026-07-27)
-  // ──────────────────────────────────────────────────────────────────────
-  // Every active program carries a structural "Freshers" semester (order 0)
-  // with a section "A" beneath it. First-year admits are parked there at
-  // capture time and moved into a real term during onboarding.
-  //
-  // This deliberately does NOT touch the entry-type auto-pick below, which
-  // still filters Freshers out — LATERAL ENTRY / RE-ADMISSION / COLLEGE
-  // TRANSFER keep targeting real academic terms and stay editable.
-  //
-  // 3 active programs (M.A. ENGLISH, M.Sc. MATHEMATICS — both Aided — and
-  // B.Ed Historical Aggregate) have NULL degree_id/department_id and so can
-  // never receive a Freshers row. `lockToFreshers` stays false for them and
-  // the dropdowns behave normally rather than locking to nothing.
-  const freshersSemester = semesters.find((s: Semester) => isFreshersSemester(s));
-  // Plain derivation, not useMemo: the result is a string id, so the effect
-  // below already gets a stable primitive dependency. Memoising an array
-  // .find() that returns a primitive buys nothing and trips the
-  // exhaustive-deps "conditional array" warning that `departments` carries.
-  const sectionAId = sections.find(
-    (s: Section) => s.section_name?.trim().toUpperCase() === 'A',
-  )?.id;
-  const lockToFreshers =
-    watchedEntryType === 'FIRST YEAR' && !!freshersSemester;
-
-  // Enforce the pair. Runs on load and on every cascade step because the
-  // lists arrive asynchronously: semester must be committed FIRST so the
-  // sections query refetches for it, then the next pass picks up section A.
-  // Both branches no-op once the value already matches, so this settles
-  // instead of looping.
-  useEffect(() => {
-    if (!lockToFreshers || !freshersSemester) return;
-    if (watchedSemesterId !== freshersSemester.id) {
-      form.setValue('semester_id', freshersSemester.id);
-      return;
-    }
-    if (sectionAId && watchedSectionId !== sectionAId) {
-      form.setValue('section_id', sectionAId);
-    }
-  }, [
-    lockToFreshers,
-    freshersSemester,
-    sectionAId,
-    watchedSemesterId,
-    watchedSectionId,
-    form,
-  ]);
-
   // Filter active academic years and include current selection if not in filtered list
   const watchedAcademicYearId = form.watch('academic_year_id');
 
@@ -335,6 +303,51 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   const activeAcademicYears = currentAcademicYearToUse && !filteredAcademicYears.find((y: AcademicYear) => y.id === watchedAcademicYearId)
     ? [currentAcademicYearToUse, ...filteredAcademicYears]
     : filteredAcademicYears;
+
+  /**
+   * Clear every course field that hangs off `from` downwards.
+   *
+   * Each picker used to clear only its immediate child (institution wiped
+   * degree/department/program and stopped; degree wiped department/program;
+   * department wiped program). Only the Program picker cleared the deep set
+   * (semester / section / admission year), and it can never run after an
+   * upstream change: an upstream cascade sets program_id via setValue, which
+   * does not fire the Program Select's onValueChange, so when the user
+   * re-picks the programme its `oldValue` is '' and the `oldValue &&` guard
+   * skips the deep clears entirely.
+   *
+   * The stale semester/section then reached the UPDATE and Postgres refused
+   * the WHOLE row (23514, from trg_validate_learner_semester_year_scope):
+   *   "semester_id <id> belongs to institution <old>, not the learner's
+   *    institution <new>"
+   * — so changing a learner's institution saved none of the course details.
+   * Clearing the whole downstream chain at the point of change is what keeps
+   * the payload internally consistent.
+   */
+  const clearDownstreamCourseFields = (
+    from: 'institution' | 'degree' | 'department' | 'program',
+  ) => {
+    if (from === 'institution') {
+      form.setValue('degree_id', '');
+      // Institution-scoped, and validated against institution_id by
+      // trg_validate_learner_semester_year_scope / _admission_year_scope.
+      form.setValue('academic_year_id', '');
+      form.setValue('regulation_id', '');
+      form.setValue('batch_id', '');
+    }
+    if (from === 'institution' || from === 'degree') {
+      form.setValue('department_id', '');
+    }
+    if (from === 'institution' || from === 'degree' || from === 'department') {
+      form.setValue('program_id', '');
+    }
+    // Programme-scoped: semester and section are FK'd to programs, and the
+    // admission-year cohort row is scoped to (institution, program).
+    form.setValue('semester_id', '');
+    form.setValue('section_id', '');
+    form.setValue('admission_year_id', '');
+    form.setValue('admission_year', undefined);
+  };
 
   console.log('[course-selection] Academic Year Debug:', {
     watchedInstitutionId,
@@ -362,7 +375,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
             name="quota_id"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Quota</FormLabel>
+                <FormLabel>
+                  Quota <span className="text-red-500">*</span>
+                </FormLabel>
                 <Select onValueChange={field.onChange} value={field.value || ''}>
                   <FormControl>
                     <SelectTrigger>
@@ -403,9 +418,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   field.onChange(value);
                   // Only reset dependent fields if institution is actually changing (not initial load)
                   if (oldValue && oldValue !== value) {
-                    form.setValue('degree_id', '');
-                    form.setValue('department_id', '');
-                    form.setValue('program_id', '');
+                    clearDownstreamCourseFields('institution');
                   }
                 }}
                 value={field.value || ''}
@@ -455,8 +468,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   field.onChange(value);
                   // Only reset dependent fields if degree is actually changing (not initial load)
                   if (oldValue && oldValue !== value) {
-                    form.setValue('department_id', '');
-                    form.setValue('program_id', '');
+                    clearDownstreamCourseFields('degree');
                   }
                 }}
                 value={field.value || ''}
@@ -535,7 +547,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   field.onChange(value);
                   // Only reset dependent field if department is actually changing (not initial load)
                   if (oldValue && oldValue !== value) {
-                    form.setValue('program_id', '');
+                    clearDownstreamCourseFields('department');
                   }
                 }}
                 value={field.value || ''}
@@ -584,6 +596,11 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 onValueChange={(value) => {
                   field.onChange(value);
 
+                  // Profiles: entry_type is a historical attribute of an
+                  // existing learner, so changing it must not clear their
+                  // department or move their semester. Record it and stop.
+                  if (!enforceAdmissionRules) return;
+
                   // 2026-05-21: SH-dept first-year rule — if the entry-type
                   // change makes the currently-picked department invalid,
                   // clear it (and program_id, which cascades from it) so
@@ -630,31 +647,14 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   //                    pick Semester III (semester_order=3). Detect
                   //                    program type by checking whether the first
                   //                    semester's name contains "Year".
-                  // 2026-07-27: FIRST YEAR no longer auto-picks a real term —
-                  // it parks the admit in the program's Freshers semester, and
-                  // the effect above commits semester + section A. Leaving
-                  // FIRST YEAR must clear section_id, because section A belongs
-                  // to the Freshers semester and would otherwise persist as a
-                  // stale cross-semester reference.
-                  if (value === 'FIRST YEAR' && freshersSemester?.id) {
-                    form.setValue('semester_id', freshersSemester.id);
-                    return;
-                  }
-                  if (watchedEntryType === 'FIRST YEAR') {
-                    form.setValue('section_id', '');
-                  }
+                  // Changing entry type repoints the semester, so any section
+                  // already chosen belongs to the previous one.
+                  form.setValue('section_id', '');
 
                   if (semesters.length === 0) return;
-                  // The default "Freshers" semester is org structure, not an
-                  // academic term, and carries semester_order = 0. Drop it
-                  // BEFORE sorting so it can never land at sorted[0] — the
-                  // FIRST YEAR fallback, the /year/i probe and the lateral-entry
-                  // positional fallbacks all read sorted by position.
-                  const sorted = [...semesters]
-                    .filter((s: any) => !isFreshersSemester(s))
-                    .sort(
-                      (a: any, b: any) => (a.semester_order ?? 0) - (b.semester_order ?? 0)
-                    );
+                  const sorted = [...semesters].sort(
+                    (a: any, b: any) => (a.semester_order ?? 0) - (b.semester_order ?? 0)
+                  );
                   if (value === 'FIRST YEAR') {
                     const target = sorted.find((s: any) => s.initial_semester === true) ?? sorted[0];
                     if (target?.id) form.setValue('semester_id', target.id);
@@ -748,15 +748,13 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   if (pickedDeptId && pickedDeptId !== watchedDepartmentId) {
                     form.setValue('department_id', pickedDeptId);
                   }
-                  // Only reset dependent fields if program is actually changing (not initial load)
+                  // Only reset dependent fields if program is actually changing
+                  // (not initial load). 2026-04-23: the admission_year cohort
+                  // row is scoped to the previous program and would be rejected
+                  // by the DB scope-validator trigger on save, so it clears too
+                  // — see clearDownstreamCourseFields.
                   if (oldValue && oldValue !== value) {
-                    form.setValue('semester_id', '');
-                    form.setValue('section_id', '');
-                    // 2026-04-23: clear admission_year selection too — old
-                    // cohort row is scoped to the previous program and would
-                    // be rejected by the DB scope-validator trigger on save.
-                    form.setValue('admission_year_id', '');
-                    form.setValue('admission_year', undefined);
+                    clearDownstreamCourseFields('program');
                   }
                 }}
                 value={field.value || ''}
@@ -884,10 +882,10 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   }
                 }}
                 value={field.value || ''}
-                disabled={!watchedProgramId || loadingSemesters || lockToFreshers}
+                disabled={!watchedProgramId || loadingSemesters}
               >
                 <FormControl>
-                  <SelectTrigger className={lockToFreshers ? 'bg-muted/40' : ''}>
+                  <SelectTrigger>
                     <SelectValue placeholder="Select semester" />
                   </SelectTrigger>
                 </FormControl>
@@ -910,9 +908,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 </SelectContent>
               </Select>
               <FormDescription>
-                {lockToFreshers
-                  ? 'Locked — first-year admits start in the Freshers semester. To change, switch Entry Type.'
-                  : 'The semester for enrollment (required)'}
+                The semester for enrollment (required)
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -935,14 +931,11 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 onValueChange={field.onChange}
                 value={field.value || ''}
                 disabled={
-                  !watchedSemesterId ||
-                  !watchedInstitutionId ||
-                  loadingSections ||
-                  lockToFreshers
+                  !watchedSemesterId || !watchedInstitutionId || loadingSections
                 }
               >
                 <FormControl>
-                  <SelectTrigger className={lockToFreshers ? 'bg-muted/40' : ''}>
+                  <SelectTrigger>
                     <SelectValue placeholder="Select section" />
                   </SelectTrigger>
                 </FormControl>
@@ -965,9 +958,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 </SelectContent>
               </Select>
               <FormDescription>
-                {lockToFreshers
-                  ? 'Locked — first-year admits start in section A of the Freshers semester. To change, switch Entry Type.'
-                  : 'The section assignment (required)'}
+                The section assignment (required)
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -996,28 +987,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           )}
         />
 
-        {/* College Email - OPTIONAL */}
-        <FormField
-          control={form.control}
-          name="college_email"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>College Email</FormLabel>
-              <FormControl>
-                <Input
-                  type="email"
-                  placeholder="student@jkkn.ac.in (optional)"
-                  {...field}
-                  value={field.value || ''}
-                />
-              </FormControl>
-              <FormDescription>
-                College email must use @jkkn.ac.in domain (optional)
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {/* College Email moved to the Contact Details tab (staff only), so the
+            edit form groups it with the other contact addresses the way the
+            profile detail page does. */}
 
         {/* Register Number - OPTIONAL */}
         <FormField
@@ -1041,13 +1013,15 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           )}
         />
 
-        {/* Regulation - OPTIONAL */}
+        {/* Regulation */}
         <FormField
           control={form.control}
           name="regulation_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Regulation</FormLabel>
+              <FormLabel>
+                Regulation <span className="text-red-500">*</span>
+              </FormLabel>
               <Select
                 onValueChange={field.onChange}
                 value={field.value || ''}
@@ -1055,7 +1029,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
               >
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select regulation (optional)" />
+                    <SelectValue placeholder="Select regulation" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
@@ -1077,7 +1051,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 </SelectContent>
               </Select>
               <FormDescription>
-                The regulation under which the student is admitted (optional)
+                The regulation under which the learner is admitted
               </FormDescription>
               <FormMessage />
             </FormItem>

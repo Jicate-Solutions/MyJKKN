@@ -13,7 +13,15 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useCalendarItems } from '@/hooks/calendar/use-calendar';
-import type { CalendarItem } from '@/types/calendar';
+import {
+  useCoeCalendarItems,
+  useExamScheduleItems,
+} from '@/hooks/calendar/use-coe-calendar-feeds';
+import {
+  COE_CALENDAR_FEED,
+  EXAM_SCHEDULE_FEED,
+  type CalendarItem,
+} from '@/types/calendar';
 import { CalendarToolbar } from './calendar-toolbar';
 import { EventDetailDialog } from './event-detail-dialog';
 
@@ -37,6 +45,16 @@ const LEAVE_FEEDS = [
   { key: 'student_leave', label: 'Student Leave' },
 ];
 
+// The two COE-backed chips. They behave exactly like the feeds above — on by
+// default, click to toggle, colour-coded in the legend — but their rows arrive
+// over HTTP from the COE app instead of the fn_calendar_items RPC, so they are
+// fetched separately and concatenated. See hooks/calendar/use-coe-calendar-feeds.
+const COE_CALENDAR_CHIP = { key: COE_CALENDAR_FEED, label: 'COE Calendar' };
+const EXAM_SCHEDULE_CHIP = { key: EXAM_SCHEDULE_FEED, label: 'Exam Schedule' };
+
+/** Keys the RPC knows nothing about — stripped before it is called. */
+const COE_FEED_KEYS: readonly string[] = [COE_CALENDAR_FEED, EXAM_SCHEDULE_FEED];
+
 interface RBCEvent {
   id: string;
   title: string;
@@ -51,10 +69,19 @@ interface RBCEvent {
 export function CalendarView() {
   const { isSuperAdmin, canAccess } = usePermissions();
   const canViewPeopleLeave = isSuperAdmin || canAccess('calendar.people_leave', 'view');
+  // COE Calendar is staff-only (granted to every role except learners); the Exam
+  // Schedule chip is open to anyone who can open this page. The API routes
+  // enforce the same split — this only decides whether the chip is drawn.
+  const canViewCoeCalendar = isSuperAdmin || canAccess('calendar.coe_calendar', 'view');
 
   const feeds = useMemo(
-    () => (canViewPeopleLeave ? [...BASE_FEEDS, ...LEAVE_FEEDS] : BASE_FEEDS),
-    [canViewPeopleLeave]
+    () => [
+      ...BASE_FEEDS,
+      ...(canViewPeopleLeave ? LEAVE_FEEDS : []),
+      ...(canViewCoeCalendar ? [COE_CALENDAR_CHIP] : []),
+      EXAM_SCHEDULE_CHIP,
+    ],
+    [canViewPeopleLeave, canViewCoeCalendar]
   );
 
   const { institutions } = useInstitutionsWithAccess({ isActive: true, entityType: 'all' });
@@ -94,11 +121,17 @@ export function CalendarView() {
   // dropping the legend aside (Month keeps it; it has far more to colour-code).
   const isTimeGrid = view === Views.WEEK || view === Views.DAY;
 
-  const [activeFeeds, setActiveFeeds] = useState<string[]>(() =>
-    canViewPeopleLeave
-      ? [...BASE_FEEDS, ...LEAVE_FEEDS].map((f) => f.key)
-      : BASE_FEEDS.map((f) => f.key)
-  );
+  // Both COE keys start active regardless of permission: the chip and the fetch
+  // are gated separately, so an inert key for a user who can't see COE Calendar
+  // costs nothing — and it means the chip is already ON the moment the async
+  // permission check resolves, instead of rendering unselected.
+  const [activeFeeds, setActiveFeeds] = useState<string[]>(() => [
+    ...(canViewPeopleLeave
+      ? [...BASE_FEEDS, ...LEAVE_FEEDS]
+      : BASE_FEEDS
+    ).map((f) => f.key),
+    ...COE_FEED_KEYS,
+  ]);
 
   // visible window (pad a month each side so multi-day items at edges render)
   const { start, end } = useMemo(() => {
@@ -107,12 +140,60 @@ export function CalendarView() {
     return { start: s, end: e };
   }, [currentDate]);
 
-  const { data: items = [], isLoading } = useCalendarItems({
-    institutionIds: selectedInstitution ? [selectedInstitution] : null,
-    start,
-    end,
-    feeds: activeFeeds.length ? activeFeeds : null,
-  });
+  // The RPC has no branch for the COE keys, so they are stripped before the call
+  // rather than passed through as no-op values.
+  const rpcFeeds = useMemo(
+    () => activeFeeds.filter((k) => !COE_FEED_KEYS.includes(k)),
+    [activeFeeds]
+  );
+
+  // `feeds: null` means "no filter" to the RPC, which is the right reading when
+  // literally every chip is off (the pre-existing "nothing selected = show all"
+  // behaviour) but the wrong one when only the COE chips are on — there it would
+  // return every local row and leak them into the legend, which is built from
+  // the unfiltered item list. Skipping the query is the honest answer.
+  const rpcEnabled = rpcFeeds.length > 0 || activeFeeds.length === 0;
+
+  const { data: rpcItems = [], isLoading: isLoadingRpc } = useCalendarItems(
+    {
+      institutionIds: selectedInstitution ? [selectedInstitution] : null,
+      start,
+      end,
+      feeds: rpcFeeds.length ? rpcFeeds : null,
+    },
+    rpcEnabled
+  );
+
+  const coeQuery = useMemo(
+    () => ({
+      institutionIds: selectedInstitution ? [selectedInstitution] : null,
+      start,
+      end,
+    }),
+    [selectedInstitution, start, end]
+  );
+
+  // Toggling a chip off disables its query outright — no request is made at all,
+  // which matters more here than for the RPC feeds because each of these is a
+  // round-trip to a second application.
+  const { data: coeCalendarItems = [], isLoading: isLoadingCoe } = useCoeCalendarItems(
+    coeQuery,
+    canViewCoeCalendar && activeFeeds.includes(COE_CALENDAR_FEED)
+  );
+
+  const { data: examScheduleItems = [], isLoading: isLoadingExams } = useExamScheduleItems(
+    coeQuery,
+    activeFeeds.includes(EXAM_SCHEDULE_FEED)
+  );
+
+  // One homogeneous list from here down — the grid, legend and detail dialog
+  // cannot tell which source a row came from.
+  const items = useMemo(
+    () => [...rpcItems, ...coeCalendarItems, ...examScheduleItems],
+    [rpcItems, coeCalendarItems, examScheduleItems]
+  );
+
+  const isLoading = isLoadingRpc || isLoadingCoe || isLoadingExams;
 
   const events: RBCEvent[] = useMemo(
     () =>
@@ -336,5 +417,9 @@ function feedKeyFor(it: CalendarItem): string {
   if (it.source_module === 'events' || it.source_module === 'lc_event' || it.source_module === 'startup_event') return 'events';
   if (it.source_module === 'bos_meeting' || it.source_module === 'meeting_booking') return 'meetings';
   if (it.source_module === 'reservation') return 'reservations';
+  // The COE proxies already stamp source_module with the feed key, so these two
+  // would fall through correctly anyway — named here so the mapping is explicit.
+  if (it.source_module === COE_CALENDAR_FEED) return COE_CALENDAR_FEED;
+  if (it.source_module === EXAM_SCHEDULE_FEED) return EXAM_SCHEDULE_FEED;
   return it.source_module;
 }
