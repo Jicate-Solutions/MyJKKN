@@ -195,7 +195,7 @@ function RefreshChangelogButton() {
         role="status"
         aria-live="polite"
         className={cn(
-          'max-w-prose text-balance text-center text-xs',
+          'max-w-prose text-center text-xs',
           phase === 'failed' ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground'
         )}
       >
