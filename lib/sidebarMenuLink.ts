@@ -206,6 +206,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // screen appoints coordinators for every programme on that spine. Mapped to
   // its own key so it does not inherit a permission from an ancestor route; the
   // page itself is super-administrator-only whatever this key says.
+  '/cohorts': 'cohort.coordinators.manage',
   '/cohorts/coordinators': 'cohort.coordinators.manage',
 
   // Improvement Board (MBA teaching-enterprise)
