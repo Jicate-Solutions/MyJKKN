@@ -102,6 +102,109 @@ function initials(name: string) {
     .join('');
 }
 
+/** idle → starting → started | failed. There is no "done": see below. */
+type RefreshPhase = 'idle' | 'starting' | 'started' | 'failed';
+
+/**
+ * "Check for new changes" — super admins only.
+ *
+ * It sits under the "Updated <date> · N days ago" line because that is the line
+ * a reader uses to judge whether the page is current; the fix belongs next to
+ * the complaint.
+ *
+ * WHAT IT HONESTLY CLAIMS. The button asks GitHub to run the job that rebuilds
+ * the changelog (POST /api/whats-new/refresh) and returns as soon as GitHub has
+ * QUEUED it — a minute or two before any new entry exists. So the success state
+ * says the update is running, never that the page is up to date, and the page is
+ * deliberately NOT re-fetched on success: re-fetching would redraw the same list
+ * and read as "nothing new shipped", which would be a lie about the state of the
+ * world rather than about the button.
+ *
+ * Its own component so that WhatsNewView keeps its existing hooks and early
+ * returns untouched. usePermissions is a React Query hook and useChangelog
+ * already calls it, so this second call is served from the same cache entry.
+ */
+function RefreshChangelogButton() {
+  const { isSuperAdmin } = usePermissions();
+  const [phase, setPhase] = useState<RefreshPhase>('idle');
+  const [message, setMessage] = useState('');
+  // A ref, not the phase: setPhase is async, so two activations inside one tick
+  // (a double-click, or Enter held down) would both see phase === 'idle' and
+  // both POST. The ref flips synchronously, so the second one returns.
+  const inFlight = useRef(false);
+
+  async function start() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setPhase('starting');
+    setMessage('');
+    try {
+      const res = await fetch('/api/whats-new/refresh', { method: 'POST' });
+      const data: { ok?: boolean; message?: string; error?: string } | null = await res
+        .json()
+        .catch(() => null);
+      if (res.ok && data?.ok) {
+        setPhase('started');
+        setMessage(
+          data.message ??
+            'Update started. It usually takes a minute or two — the newest changes appear once it finishes.'
+        );
+      } else {
+        // The route explains every refusal in words (missing credential, not a
+        // super admin, workflow not on main). Show that sentence, not a code.
+        setPhase('failed');
+        setMessage(data?.error ?? `The update could not be started (HTTP ${res.status}).`);
+      }
+    } catch {
+      setPhase('failed');
+      setMessage('The update could not be started — the request did not reach the server.');
+    } finally {
+      inFlight.current = false;
+    }
+  }
+
+  // Hooks first, then the gate: everyone else sees no control at all. This is a
+  // display rule on top of a server-side check — the route refuses a non-super
+  // admin with a 403 that says why, whether or not this button was ever drawn.
+  if (!isSuperAdmin) return null;
+
+  const busy = phase === 'starting';
+
+  return (
+    <div className="flex w-full flex-col items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={start}
+        disabled={busy}
+        aria-busy={busy}
+        className="max-w-full"
+      >
+        {busy ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+        )}
+        {busy ? 'Starting…' : 'Check for new changes'}
+      </Button>
+      {/* Always in the DOM, empty when idle: a live region inserted at the same
+          moment its text arrives is not reliably announced. max-w-prose keeps
+          the sentence readable; it wraps rather than widening at 375px. */}
+      <p
+        role="status"
+        aria-live="polite"
+        className={cn(
+          'max-w-prose text-balance text-center text-xs',
+          phase === 'failed' ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground'
+        )}
+      >
+        {message}
+      </p>
+    </div>
+  );
+}
+
 export function WhatsNewView() {
   const {
     meta,
