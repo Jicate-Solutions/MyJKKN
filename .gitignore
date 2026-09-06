@@ -147,6 +147,19 @@ __pycache__/
 # app/(routes)/academic/attendance/reports, …). git add skips them without error.
 /reports/
 
+# Local audit artifacts (contain production figures and real learner records) — keep out
+# of git. Not build output: these are self-contained HTML reports plus their JSON data
+# backups, written straight from the production database (e.g. a reading-programme audit
+# carrying 336 rows of real learner reading records). They were only ever untracked, which
+# is not protection — a repo-root `git add -A` would commit them.
+# Anchored to the repo root for the same reason as /reports/ above: an unanchored
+# `artifacts/` would match any directory named `artifacts` at any depth and silently
+# swallow real source files, with git add skipping them without error.
+/artifacts/
+
 # local secrets / config (never commit)
 env
 mcp.json
+
+# Generated per-PR by .github/workflows/typecheck-pr-scoped.yml — never committed.
+tsconfig.pr-scoped.json

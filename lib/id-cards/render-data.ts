@@ -9,6 +9,9 @@
 //     (staff has NO user_id column; the sync_staff_to_profiles trigger keys
 //     profiles.email == staff.institution_email — see lib/services/staff)
 //   • institution display name for the header band
+//   • the person's active JKKN ID from jkkn_identities, which is what the QR
+//     carries — falling back to the internal UUID for anyone the backfill has
+//     not reached yet, so no card is ever printed with a blank QR
 //   • ordered photo-candidate URLs (fallback chain) and the QR payload
 //
 // Every lookup is defensive: a missing joined row degrades the card, it never
@@ -91,7 +94,21 @@ export type CardPersonData = {
   courseName: string | null;
   departmentName: string | null;
   institutionName: string | null;
-  /** QR payload: learners_profiles.id for learners, profiles.id for employees. */
+  /**
+   * True when this card belongs to a SCHOOL (institutions.entity_type ===
+   * 'school'), not a college. Schools use different vocabulary for the same
+   * columns — lib/utils/school-label-adapter.ts maps Program → Class and
+   * Department → Wing — so a school card must not print "COURSE: Standard 12".
+   * The VALUE is correct either way; only the printed label changes.
+   * Defaults false, so an unreadable institution degrades to college wording
+   * rather than throwing.
+   */
+  isSchool: boolean;
+  /**
+   * QR payload: the person's permanent JKKN ID (e.g. '348295-7') when they
+   * hold an active one, otherwise the internal UUID the card carried before —
+   * learners_profiles.id for learners, profiles.id for employees. Never blank.
+   */
   qrValue: string;
   /** Ordered photo fallback chain (absolute URLs / data URLs, nulls removed). */
   photoCandidates: string[];
@@ -127,6 +144,14 @@ export type CardPersonData = {
   studyPeriod: string | null;
   /** Team member's staff.staff_id for the front side. null for learners. */
   staffId: string | null;
+  /**
+   * The learner's course end date — learners_profiles.batch_id → batches.end_date,
+   * ISO as stored. Drives the card's VALID UNTIL under the course_end policy.
+   * null for team members and for the learners who carry no batch (those fall
+   * back to the yearly rule). Deliberately NOT derived from studyPeriod:
+   * deriveStudyPeriodLabel short-circuits on batch_name and never reads end_date.
+   */
+  courseEndDate: string | null;
 };
 
 export type AssembleFailure = {
@@ -168,15 +193,121 @@ const MONTH_LABELS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ] as const;
 
+/** The historic academic-year end (31 May), used when policy is unreadable. */
+const DEFAULT_YEAR_END_MMDD = '05-31';
+
 /**
- * Default validity label: end of the current academic year (31 May).
- * Academic years run June→May, so from June onward the card is valid until
- * 31 May of the NEXT calendar year. Placeholder policy until a dedicated
- * id_card validity policy key exists.
+ * Parse a `MM-DD` academic-year-end string into 1-based month + day.
+ * Anything malformed falls back to 31 May — a card must always carry a date.
+ */
+export function parseYearEndMmdd(value: string | null | undefined): {
+  month: number;
+  day: number;
+} {
+  const match = /^(\d{2})-(\d{2})$/.exec((value ?? '').trim());
+  const month = match ? Number(match[1]) : 5;
+  const day = match ? Number(match[2]) : 31;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return { month: 5, day: 31 };
+  return { month, day };
+}
+
+/**
+ * The yearly rule: the next occurrence of the academic-year end on or after
+ * today. With the default 31 May that reproduces the historic behaviour
+ * exactly — academic years run June→May, so from June onward the card runs to
+ * 31 May of the NEXT calendar year.
+ */
+export function yearlyValidUntilLabel(
+  now: Date = new Date(),
+  yearEndMmdd: string = DEFAULT_YEAR_END_MMDD
+): string {
+  const { month, day } = parseYearEndMmdd(yearEndMmdd);
+  const nowMonth = now.getMonth() + 1;
+  const passed = nowMonth > month || (nowMonth === month && now.getDate() > day);
+  const year = passed ? now.getFullYear() + 1 : now.getFullYear();
+  return `${String(day).padStart(2, '0')} ${MONTH_LABELS[month - 1]} ${year}`;
+}
+
+/**
+ * The yearly rule at the built-in 31 May year end. Kept as its own export
+ * because it is the terminal branch of resolveValidUntilLabel and is pinned
+ * by tests written before the policy existed.
  */
 export function defaultValidUntilLabel(now: Date = new Date()): string {
-  const year = now.getMonth() >= 5 ? now.getFullYear() + 1 : now.getFullYear();
-  return `31 ${MONTH_LABELS[4]} ${year}`;
+  return yearlyValidUntilLabel(now, DEFAULT_YEAR_END_MMDD);
+}
+
+/**
+ * The Director's card-validity rules, held as config in platform_policies
+ * (`id_card.validity.*`) and resolved by fn_get_id_card_policy. Never a
+ * TypeScript constant — a college can be moved back to yearly learner cards
+ * with a policy row change and no deploy.
+ */
+export type IdCardValidityPolicy = {
+  /** 'course_end' = the card lasts the whole course; 'yearly' = the yearly rule. */
+  learnerMode: 'course_end' | 'yearly';
+  /** Team-member cards are re-issued every academic year. */
+  teamMemberMode: 'yearly';
+  /** Academic-year end as `MM-DD`. */
+  yearEndMmdd: string;
+};
+
+export const DEFAULT_VALIDITY_POLICY: IdCardValidityPolicy = {
+  learnerMode: 'course_end',
+  teamMemberMode: 'yearly',
+  yearEndMmdd: DEFAULT_YEAR_END_MMDD
+};
+
+/**
+ * Read the `validity` block out of the fn_get_id_card_policy JSONB. Fail-soft
+ * by design: an older database that predates this migration returns no
+ * `validity` key at all, and the built-in defaults (which ARE the Director's
+ * policy) apply. Never throws — a card must render.
+ */
+export function parseValidityPolicy(raw: unknown): IdCardValidityPolicy {
+  if (!raw || typeof raw !== 'object') return DEFAULT_VALIDITY_POLICY;
+  const block = (raw as Record<string, unknown>).validity;
+  if (!block || typeof block !== 'object') return DEFAULT_VALIDITY_POLICY;
+  const v = block as Record<string, unknown>;
+  const learnerMode = v.learner_mode === 'yearly' ? 'yearly' : 'course_end';
+  const yearEndRaw = typeof v.year_end_mmdd === 'string' ? v.year_end_mmdd : '';
+  const { month, day } = parseYearEndMmdd(yearEndRaw);
+  return {
+    learnerMode,
+    teamMemberMode: 'yearly',
+    yearEndMmdd: `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  };
+}
+
+/**
+ * The card's VALID UNTIL label.
+ *
+ *   • team member                          → the yearly rule
+ *   • learner with a course end date       → that date (the whole course)
+ *   • learner with no course end date      → the yearly rule
+ *   • learner_mode flipped back to yearly  → the yearly rule
+ *
+ * Pure and unit-tested. `courseEndDate` is batches.end_date as stored (ISO);
+ * anything that is not an ISO date is ignored rather than printed, so a junk
+ * value degrades to the yearly rule instead of putting junk on a card.
+ */
+export function resolveValidUntilLabel(input: {
+  kind: CardPersonData['kind'];
+  courseEndDate: string | null;
+  policy?: IdCardValidityPolicy | null;
+  now?: Date;
+}): string {
+  const policy = input.policy ?? DEFAULT_VALIDITY_POLICY;
+  const now = input.now ?? new Date();
+  const yearly = yearlyValidUntilLabel(now, policy.yearEndMmdd);
+
+  if (input.kind !== 'learner') return yearly;
+  if (policy.learnerMode !== 'course_end') return yearly;
+
+  const courseEnd = (input.courseEndDate ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(courseEnd)) return yearly;
+  const label = formatDateLabel(courseEnd);
+  return label || yearly;
 }
 
 /**
@@ -374,8 +505,14 @@ export function svgCoverImageDataUrl(
     radius > 0
       ? `<clipPath id="r"><rect x="0" y="0" width="${boxW}" height="${boxH}" rx="${radius}" ry="${radius}"/></clipPath>`
       : '';
+  // The bitmap is inlined as a base64 data URL, so naming it on BOTH `href` and
+  // `xlink:href` doubles the payload. A 3.6 MB photo became ~10.2 MB of XML and
+  // the SVG rasteriser refused it outright ("Buffer size limit exceeded"),
+  // 500-ing the whole card. 467 learner photos are over 2 MB, so this was not
+  // an edge case. One attribute is enough — xlink:href is the SVG 1.1 spelling
+  // every rasteriser has understood for years.
   const imageTag =
-    `<image href="${dataUrl}" xlink:href="${dataUrl}" x="${placement.left}" y="${placement.top}" ` +
+    `<image xlink:href="${dataUrl}" x="${placement.left}" y="${placement.top}" ` +
     `width="${placement.width}" height="${placement.height}" preserveAspectRatio="none"/>`;
   const body = radius > 0 ? `${clip}<g clip-path="url(#r)">${imageTag}</g>` : imageTag;
   const svg =
@@ -389,6 +526,77 @@ export function truncateForCard(value: string | null | undefined, max: number): 
   const s = (value ?? '').trim();
   if (s.length <= max) return s;
   return `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+/**
+ * How many characters at the END of an address are reserved as the
+ * DELIVERABLE TAIL. The address is joined street → taluk → district → state →
+ * PIN, so the parts that decide where a letter actually goes sit LAST.
+ * Measured over the 787 active Engineering learners on 2026-08-14: the
+ * district+state+PIN tail is at most 35 characters (p99 = 34), so 40 covers
+ * the whole estate with the joining ", " included.
+ */
+export const ADDRESS_TAIL_CHARS = 40;
+
+/**
+ * Truncate an address so its END survives.
+ *
+ * `truncateForCard` cuts from the front and keeps a prefix, which is right for
+ * a name or a course line. For an address it throws away exactly the parts
+ * that matter: 402 of 787 active Engineering learners (51.1%) joined to more
+ * than the generic 80-character cap, and the worst case (214 characters) had
+ * its district, state and PIN cut off — the card printed a street fragment
+ * ending mid-word, which no postal service can deliver to.
+ *
+ * When the value does not fit, the MIDDLE is elided instead: a head from the
+ * start, then " … ", then the tail. The tail is snapped FORWARD to the next
+ * component boundary (", ") so it starts on a whole component rather than
+ * mid-word, and the head is snapped BACK to a whole component or word for the
+ * same reason. Junk in the street field (this estate has records carrying a
+ * mobile number and a second, contradictory PIN) is what the elision eats
+ * first, which is the correct thing to sacrifice.
+ *
+ * Values within `max` are returned identically to `truncateForCard`.
+ */
+export function truncateAddressForCard(
+  value: string | null | undefined,
+  max: number,
+  tailChars: number = ADDRESS_TAIL_CHARS
+): string {
+  const s = (value ?? '').trim();
+  if (s.length <= max) return s;
+
+  const separator = ' … ';
+  // Not enough room to show a head, a separator and a tail — fall back to the
+  // plain head-only cut rather than emitting something unreadable.
+  const minHead = 8;
+  if (max < minHead + separator.length + 8) return truncateForCard(s, max);
+
+  const tailBudget = Math.min(tailChars, max - separator.length - minHead);
+  let tail = s.slice(s.length - tailBudget);
+  // Snap forward to a whole component (", ") if one is in reach, else to a
+  // whole word, so the tail never opens mid-token.
+  const compAt = tail.indexOf(', ');
+  if (compAt !== -1) tail = tail.slice(compAt + 2);
+  else {
+    const spaceAt = tail.indexOf(' ');
+    if (spaceAt !== -1) tail = tail.slice(spaceAt + 1);
+  }
+  tail = tail.trim();
+
+  const headBudget = max - separator.length - tail.length;
+  let head = s.slice(0, Math.max(minHead, headBudget));
+  // Snap back to a whole component, else a whole word, so the head never ends
+  // mid-token either.
+  const lastComp = head.lastIndexOf(', ');
+  if (lastComp >= minHead) head = head.slice(0, lastComp);
+  else {
+    const lastSpace = head.lastIndexOf(' ');
+    if (lastSpace >= minHead) head = head.slice(0, lastSpace);
+  }
+  head = head.replace(/[\s,]+$/, '');
+
+  return `${head}${separator}${tail}`;
 }
 
 /** Defensive parse of id_card_templates.field_mappings (JSONB, default '[]'). */
@@ -522,6 +730,64 @@ export async function makeQrDataUrl(value: string): Promise<string | null> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// QR payload — the permanent JKKN ID, with the internal UUID as the fallback
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Choose what the card's QR actually carries.
+ *
+ * Preference order is deliberate and one-way: the permanent JKKN ID when the
+ * person holds one, otherwise the internal UUID the card has always carried.
+ * The fallback is not a nicety — the JKKN ID register is being filled in by a
+ * backfill, so on any given day some people have a number and some do not, and
+ * BOTH must print a scannable card.
+ *
+ * jkkn_identities.jkkn_id is char(8), so PostgREST can hand back a padded or
+ * whitespace-only string. Trimming to empty is treated exactly like "no number
+ * yet" — a blank QR is the one outcome this function exists to prevent.
+ */
+export function pickQrValue(
+  jkknId: string | null | undefined,
+  fallbackUuid: string | null | undefined
+): string {
+  const permanent = (jkknId ?? '').trim();
+  if (permanent !== '') return permanent;
+  return (fallbackUuid ?? '').trim();
+}
+
+/**
+ * Read the person's ACTIVE JKKN ID, or null.
+ *
+ * Retired identities are excluded at the query (`retired_at IS NULL`). A
+ * retired number is one that was issued in error or superseded; the register
+ * keeps the row forever so the number is never handed to anyone else, but it
+ * must never be printed on a card again.
+ *
+ * Fail-soft like every other read in this file: an error degrades to null (the
+ * card then falls back to the UUID) rather than failing the render.
+ */
+async function readActiveJkknId(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  link: { column: 'learner_profile_id' | 'team_member_id'; value: string }
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('jkkn_identities')
+    .select('jkkn_id')
+    .eq(link.column, link.value)
+    .is('retired_at', null)
+    .limit(1);
+
+  if (error) {
+    console.warn('[id-cards/render] JKKN ID lookup failed, falling back to UUID:', error.message);
+    return null;
+  }
+  const rows = (data ?? []) as { jkkn_id: string | null }[];
+  const value = (rows[0]?.jkkn_id ?? '').trim();
+  return value === '' ? null : value;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Data assembly
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -555,7 +821,7 @@ type LearnerRow = {
   permanent_address_district: string | null;
   permanent_address_state: string | null;
   permanent_address_pin_code: string | null;
-  program: { program_name: string | null } | null;
+  program: { program_name: string | null; card_short_name: string | null } | null;
   department: { department_name: string | null } | null;
   // fk_learners_profiles_batch (batch_id → batches.id) — verified in prod
   // pg_constraint 2026-07-25.
@@ -642,6 +908,12 @@ export async function assembleCardData(
   let idCode: string | null = null;
   let studyPeriod: string | null = null;
   let staffId: string | null = null;
+  let courseEndDate: string | null = null;
+  // Which row in jkkn_identities (if any) belongs to this person. Set by
+  // whichever branch below identifies them; jkkn_identities keys learners on
+  // learners_profiles.id and team members on staff.id — two different identity
+  // spaces, neither of which is profiles.id.
+  let identityLink: { column: 'learner_profile_id' | 'team_member_id'; value: string } | null = null;
   const photoCandidates: string[] = [];
   const valueBag: Record<string, string> = {
     'profiles.id': p.id,
@@ -662,7 +934,7 @@ export async function assembleCardData(
          mother_mobile, student_mobile, permanent_address_street,
          permanent_address_taluk, permanent_address_district,
          permanent_address_state, permanent_address_pin_code,
-         program:programs(program_name),
+         program:programs(program_name, card_short_name),
          department:departments(department_name),
          batch:batches(batch_name, start_date, end_date)`
       )
@@ -683,6 +955,7 @@ export async function assembleCardData(
       courseName = learner.program?.program_name?.trim() || null;
       departmentName = learner.department?.department_name?.trim() || null;
       qrValue = learner.id;
+      identityLink = { column: 'learner_profile_id', value: learner.id };
       if (learner.student_photo_url) photoCandidates.push(learner.student_photo_url);
       valueBag['learners_profiles.id'] = learner.id;
       valueBag['learners_profiles.first_name'] = learner.first_name ?? '';
@@ -694,6 +967,10 @@ export async function assembleCardData(
       // (a raw UUID must never be printed on a card).
       valueBag['learners_profiles.program_id'] = courseName ?? '';
       valueBag['learners_profiles.department_id'] = departmentName ?? '';
+      // Short form for the card's narrow COURSE line ("BTECH IT"). Empty when
+      // the programme has none — resolveMappedValue then falls through to the
+      // built-in full programme name, so a card is never left blank.
+      valueBag['programs.card_short_name'] = learner.program?.card_short_name?.trim() ?? '';
 
       // Back-side data (all fail-soft; blanks stay null → block omitted).
       bloodGroup = learner.blood_group?.trim() || null;
@@ -714,6 +991,10 @@ export async function assembleCardData(
       contactPhone = learner.student_mobile?.trim() || null;
       idCode = learner.roll_number?.trim() || null;
       studyPeriod = deriveStudyPeriodLabel(learner.batch);
+      // Course end date for the VALID UNTIL line. Read straight off the batch
+      // row already in hand — batches.end_date is NOT NULL, so a batch row
+      // means a real course end. No batch → stays null → the yearly rule.
+      courseEndDate = (learner.batch?.end_date ?? '').trim() || null;
       // Display intent (like program_id/department_id): batch_id maps to the
       // derived study-period label — a raw UUID must never print on a card.
       valueBag['learners_profiles.batch_id'] = studyPeriod ?? '';
@@ -724,7 +1005,10 @@ export async function assembleCardData(
       valueBag['learners_profiles.mother_name'] = learner.mother_name ?? '';
       valueBag['learners_profiles.student_mobile'] = contactPhone ?? '';
     } else {
+      // Degraded learner path: profiles.learner_id IS learners_profiles.id, so
+      // the identity link still resolves even though the learner read failed.
       qrValue = p.learner_id;
+      identityLink = { column: 'learner_profile_id', value: p.learner_id };
     }
   } else {
     // 2b. Employee path — staff has no user_id column; the canonical bridge is
@@ -759,6 +1043,7 @@ export async function assembleCardData(
 
     if (staffRow) {
       fullName = joinName(staffRow.first_name, staffRow.last_name) || fullName;
+      identityLink = { column: 'team_member_id', value: staffRow.id };
       designation = staffRow.designation?.trim() || null;
       departmentName = staffRow.department?.department_name?.trim() || null;
       if (staffRow.profile_picture) photoCandidates.push(staffRow.profile_picture);
@@ -783,22 +1068,33 @@ export async function assembleCardData(
     }
   }
 
+  // 2c. The QR payload. Prefer the permanent JKKN ID; keep the UUID assigned
+  // above as the fallback so a card still scans for anyone the backfill has
+  // not reached yet. qrValue already holds a non-blank UUID at this point, so
+  // the QR can never come out empty.
+  if (identityLink) {
+    qrValue = pickQrValue(await readActiveJkknId(supabase, identityLink), qrValue);
+  }
+
   // 3. Remaining photo fallbacks (chain: learner photo -> staff picture -> avatar).
   if (p.avatar_url) photoCandidates.push(p.avatar_url);
 
   // 4. Institution display name for the header band (fail-soft).
   let institutionName: string | null = null;
+  let isSchool = false;
   const institutionId = templateInstitutionId ?? p.institution_id;
   if (institutionId) {
     const { data: inst, error: instError } = await supabase
       .from('institutions')
-      .select('name')
+      .select('name, entity_type')
       .eq('id', institutionId)
       .maybeSingle();
     if (instError) {
       console.warn('[id-cards/render] institution read failed, degrading:', instError.message);
     } else {
-      institutionName = (inst as { name: string | null } | null)?.name?.trim() || null;
+      const row = inst as { name: string | null; entity_type: string | null } | null;
+      institutionName = row?.name?.trim() || null;
+      isSchool = (row?.entity_type ?? '').trim() === 'school';
     }
   }
 
@@ -816,6 +1112,7 @@ export async function assembleCardData(
       courseName,
       departmentName,
       institutionName,
+      isSchool,
       qrValue,
       photoCandidates,
       valueBag,
@@ -827,7 +1124,8 @@ export async function assembleCardData(
       contactPhone,
       idCode,
       studyPeriod,
-      staffId
+      staffId,
+      courseEndDate
     }
   };
 }

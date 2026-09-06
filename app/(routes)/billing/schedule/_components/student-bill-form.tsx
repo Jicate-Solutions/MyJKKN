@@ -101,11 +101,75 @@ const studentBillSchema = z.object({
 type StudentBillFormData = z.infer<typeof studentBillSchema>;
 type BillingItem = z.infer<typeof billingItemSchema>;
 
+// ---------------------------------------------------------------------------
+// Session-lifetime caches for the two catalogs this form loads on mount.
+//
+// Both are small, effectively-static tables (the college list and the active
+// billing categories). On the /billing/schedule/new PAGE the form mounted once
+// per visit and the cost was invisible; in the quick-bill popup it mounts once
+// PER BILL, so raising ten bills meant ten institution fetches and ten
+// category fetches before the clerk could type anything.
+//
+// The cached value is the PROMISE, not the resolved array — two dialogs
+// opening in the same tick then share one in-flight request instead of racing.
+// A rejection clears the slot so the next mount retries rather than caching
+// the failure forever.
+// ---------------------------------------------------------------------------
+let institutionsCache: Promise<Institution[]> | null = null;
+let billingCategoriesCache: Promise<BillingCategory[]> | null = null;
+
+function fetchInstitutionsCached(): Promise<Institution[]> {
+  if (!institutionsCache) {
+    // College-only: the billing schedule bills entity_type='institution'.
+    // Schools are billed through /billing/school-fees, which owns its own
+    // plans, term calendar and generation run — listing them here would let
+    // a clerk raise a college bill against a school learner.
+    institutionsCache = OrganizationService.getInstitutionNames(
+      true,
+      undefined,
+      'institution'
+    ).then((rows) => rows as Institution[]);
+    institutionsCache.catch(() => {
+      institutionsCache = null;
+    });
+  }
+  return institutionsCache;
+}
+
+function fetchBillingCategoriesCached(): Promise<BillingCategory[]> {
+  if (!billingCategoriesCache) {
+    billingCategoriesCache = BillingCategoryService.getActiveBillingCategories();
+    billingCategoriesCache.catch(() => {
+      billingCategoriesCache = null;
+    });
+  }
+  return billingCategoriesCache;
+}
+
 interface StudentBillFormProps {
   bill?: StudentBill;
   preSelectedStudent?: StudentForBilling;
-  onSuccess?: () => void;
+  /**
+   * `createdBillIds` carries the rows that were just inserted, so a dialog host
+   * can chain straight into collecting payment against them. Only populated on
+   * CREATE — an edit has nothing newly billable to receipt, so hosts must not
+   * pop a payment form after one.
+   */
+  onSuccess?: (createdBillIds?: string[]) => void;
   returnTo?: string;
+  /**
+   * Cancel handler. Defaults to router.back(), which is right on the
+   * /billing/schedule/new PAGE but wrong inside a dialog — there it would
+   * navigate the whole app away instead of closing the modal. Dialog hosts
+   * pass their close function here.
+   */
+  onCancel?: () => void;
+  /**
+   * Hides the outer student summary card and the page-level heading padding.
+   * Dialog hosts render their own compact student header, so repeating the
+   * full card inside the modal wastes the little vertical space it has.
+   */
+  compact?: boolean;
 }
 
 export function StudentBillForm({
@@ -113,6 +177,8 @@ export function StudentBillForm({
   preSelectedStudent,
   onSuccess,
   returnTo,
+  onCancel,
+  compact = false,
 }: StudentBillFormProps) {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
@@ -201,8 +267,23 @@ export function StudentBillForm({
     name: 'billing_items'
   });
 
+  // Whether the learner is fixed (edit mode, or pre-selected from the search
+  // results / quick-bill popup) rather than picked in this form.
+  const isStudentPreSelected = !!(
+    bill?.student ||
+    preSelectedStudent ||
+    completeStudentData
+  );
+
+  // The student typeahead only renders when nothing is pre-selected — but it
+  // used to FETCH regardless: the pre-select path writes the display string
+  // ("Name (Roll)") into studentSearchQuery, which satisfied the hook's
+  // `enabled` guard. That is one wasted learner search plus a
+  // bulk_calculate_student_outstanding RPC on every mount of this form, i.e.
+  // on every single bill raised from the popup. Feed it an empty string
+  // instead so the query stays disabled.
   const { data: searchResults } = useSearchStudentsByQuery(
-    studentSearchQuery,
+    isStudentPreSelected ? '' : studentSearchQuery,
     form.watch('institution_id'),
     10
   );
@@ -229,13 +310,6 @@ export function StudentBillForm({
   };
 
   const { subtotal, totalTax, finalAmount } = calculateTotals();
-
-  // Check if student is pre-selected (either from bill or preSelectedStudent prop)
-  const isStudentPreSelected = !!(
-    bill?.student ||
-    preSelectedStudent ||
-    completeStudentData
-  );
 
   useEffect(() => {
     loadInstitutions();
@@ -325,12 +399,7 @@ export function StudentBillForm({
   const loadInstitutions = async () => {
     try {
       setIsLoadingInstitutions(true);
-      const institutionNames = await OrganizationService.getInstitutionNames(
-        true,
-        undefined,
-        'all'
-      );
-      setInstitutions(institutionNames as Institution[]);
+      setInstitutions(await fetchInstitutionsCached());
     } catch (error) {
       console.error('Error loading institutions:', error);
     } finally {
@@ -342,9 +411,7 @@ export function StudentBillForm({
     try {
       setIsLoadingItemCategories(true);
       // 2026-04-28: Categories are now global; institution arg ignored.
-      const categories =
-        await BillingCategoryService.getActiveBillingCategories();
-      setItemCategories(categories);
+      setItemCategories(await fetchBillingCategoriesCached());
     } catch (error) {
       console.error('Error loading billing categories:', error);
     } finally {
@@ -412,13 +479,20 @@ export function StudentBillForm({
         return;
       }
 
+      // Ids of what was actually inserted, so the caller can offer to collect
+      // payment on exactly these bills. Recurring bills contribute only their
+      // parent row here — the future instalments are not yet collectable.
+      const createdBillIds: string[] = [];
       for (const item of data.billing_items) {
-        await createStudentBill.mutateAsync(buildBillDto(item, data));
+        const created = await createStudentBill.mutateAsync(
+          buildBillDto(item, data)
+        );
+        if (created?.id) createdBillIds.push(created.id);
         createdCount += 1;
       }
 
       if (onSuccess) {
-        onSuccess();
+        onSuccess(createdBillIds);
       } else if (returnTo) {
         router.push(returnTo);
       } else if (preSelectedStudent) {
@@ -462,8 +536,9 @@ export function StudentBillForm({
 
   return (
     <div className='space-y-8'>
-      {/* Student Information Header */}
-      {selectedStudent && (
+      {/* Student Information Header. Suppressed in compact (dialog) mode —
+          the dialog already shows a one-line student header above the form. */}
+      {selectedStudent && !compact && (
         <Card className='border-2 border-blue-200 dark:border-blue-800'>
           <CardHeader className='bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950'>
             <CardTitle className='flex items-center gap-3 text-xl'>
@@ -1103,7 +1178,7 @@ export function StudentBillForm({
                 <Button
                   type='button'
                   variant='outline'
-                  onClick={() => router.back()}
+                  onClick={() => (onCancel ? onCancel() : router.back())}
                   disabled={isLoading}
                   className='w-full sm:w-auto'
                 >

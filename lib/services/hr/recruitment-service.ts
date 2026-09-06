@@ -28,6 +28,7 @@ import type {
   HRRecruitmentJobNote,
   HRJobApplication,
   JobApplicationStatus,
+  PurgeRejectedApplicantResult,
   ApprovalsJobOverviewRow,
   ApprovalFlowStepTemplate,
   HRApprovalFlow,
@@ -220,59 +221,75 @@ export class RecruitmentService {
     if (!flows || flows.length === 0) {
       throw new Error(
         'No recruitment approval flows configured for this organisation yet. ' +
-        'Open /hr/admin/policies/hr_approval_flows (or /hr/admin → HR Policies) ' +
+        'Open /hr/admin/recruitment-approval-flows (HR Admin → Recruitment Approval Flows) ' +
         'to seed at least one flow with flow_for=recruitment_approval. ' +
         'If you need a quick band-agnostic Teaching Faculty fallback, the ' +
         '/hr/admin/recruitment-maintenance page can guide you.'
       );
     }
 
-    // Parse conditions jsonb and find best match
-    // Priority: role_category + monthly_salary_band match > role_category-only match
+    // `steps` holds the flow TEMPLATE shape (chain_order, approver_role, …);
+    // toChainSteps is what turns it into the frozen LeaveApprovalStep chain.
     type ApprovalFlowRow = {
       conditions: Record<string, string> | null;
-      steps: LeaveApprovalStep[] | null;
+      steps: ApprovalFlowStepTemplate[] | null;
     };
 
-    const exactMatches = (flows as ApprovalFlowRow[]).filter((f) => {
+    const chosen = this.matchRecruitmentFlow(
+      flows as ApprovalFlowRow[],
+      roleCategory,
+      monthlySalaryBand
+    );
+
+    if (!chosen) {
+      throw new Error(
+        `No approval flow matches this candidate — nothing routes the role ` +
+        `category '${roleCategory}' in this organisation yet. ` +
+        `Open /hr/admin/recruitment-approval-flows, add an active flow for ` +
+        `'${roleCategory}', then promote again. ` +
+        `If several candidates are stuck the same way, ` +
+        `/hr/admin/recruitment-maintenance can backfill them once the flow exists.`
+      );
+    }
+
+    return this.toChainSteps((chosen.steps ?? []) as ApprovalFlowStepTemplate[]);
+  }
+
+  /**
+   * Pick the flow that routes a candidate. Most-specific match wins:
+   * role_category + monthly_salary_band beats role_category alone.
+   *
+   * Kept separate from buildApprovalChain so the workspace preview and the
+   * promote-time freeze resolve the SAME flow. A preview that disagrees with
+   * the chain actually frozen is the failure this split exists to prevent.
+   */
+  static matchRecruitmentFlow<T extends { conditions: Record<string, string> | null }>(
+    flows: T[],
+    roleCategory: RoleCategory,
+    monthlySalaryBand: MonthlySalaryBand | null
+  ): T | null {
+    const exact = flows.filter((f) => {
       const cond = f.conditions ?? {};
       return (
         cond.role_category === roleCategory &&
         cond.monthly_salary_band === (monthlySalaryBand ?? '')
       );
     });
+    if (exact.length > 0) return exact[0];
 
-    const categoryMatches = (flows as ApprovalFlowRow[]).filter((f) => {
+    const categoryOnly = flows.filter((f) => {
       const cond = f.conditions ?? {};
-      return (
-        cond.role_category === roleCategory &&
-        !cond.monthly_salary_band
-      );
+      return cond.role_category === roleCategory && !cond.monthly_salary_band;
     });
+    return categoryOnly.length > 0 ? categoryOnly[0] : null;
+  }
 
-    const chosen = exactMatches.length > 0
-      ? exactMatches[0]
-      : categoryMatches.length > 0
-        ? categoryMatches[0]
-        : null;
-
-    if (!chosen) {
-      throw new Error(
-        `No approval flow matches this candidate. ` +
-        `role_category='${roleCategory}', monthly_salary_band='${monthlySalaryBand ?? 'none (unset)'}'. ` +
-        `Either: (a) set this candidate's salary band so an existing flow matches, ` +
-        `or (b) open /hr/admin/policies/hr_approval_flows and add a flow whose ` +
-        `conditions JSONB matches '${roleCategory}' (with or without a band). ` +
-        `If you have several legacy candidates stuck the same way, ` +
-        `/hr/admin/recruitment-maintenance can backfill them after the matching flow is created.`
-      );
-    }
-
-    // steps is stored as a jsonb array in the flow; map to LeaveApprovalStep shape.
-    // Dynamic-flow fields (2026-07-06) are frozen into the snapshot too:
-    // step_type (review|final), pinned approver_user_id, interview_required.
-    const steps = (chosen.steps ?? []) as ApprovalFlowStepTemplate[];
-
+  /**
+   * Map a flow's jsonb `steps` to the frozen LeaveApprovalStep shape.
+   * Dynamic-flow fields (2026-07-06) are carried into the snapshot too:
+   * step_type (review|final), pinned approver_user_id, interview_required.
+   */
+  private static toChainSteps(steps: ApprovalFlowStepTemplate[]): LeaveApprovalStep[] {
     return steps.map((s, idx) => ({
       step_order: s.chain_order ?? idx + 1,
       approver_role: s.approver_role,
@@ -284,6 +301,45 @@ export class RecruitmentService {
       interview_required: s.interview_required ?? false,
       interview_id: null,
     }));
+  }
+
+  /**
+   * The chain an applicant WOULD get if promoted right now — same RPC, same
+   * matcher and same mapping as buildApprovalChain, but it reports failure as
+   * data instead of throwing, because the workspace renders this for people
+   * who may never be promoted.
+   *
+   * `reason` lets the UI say which of the two setup gaps applies rather than
+   * showing an empty box: 'no_flows' = nothing configured for the org at all,
+   * 'no_match' = flows exist but none routes this role category.
+   */
+  static async previewApprovalChain(
+    supabase: SupabaseClient,
+    hrOrgId: string,
+    roleCategory: RoleCategory,
+    monthlySalaryBand: MonthlySalaryBand | null = null
+  ): Promise<{ steps: LeaveApprovalStep[]; reason: 'ok' | 'no_flows' | 'no_match' }> {
+    const { data: flows, error } = await supabase.rpc(
+      'fn_list_active_approval_flows',
+      { p_hr_org_id: hrOrgId, p_flow_for: 'recruitment_approval' }
+    );
+    if (error) throw error;
+    if (!flows || flows.length === 0) return { steps: [], reason: 'no_flows' };
+
+    const chosen = this.matchRecruitmentFlow(
+      flows as Array<{
+        conditions: Record<string, string> | null;
+        steps: ApprovalFlowStepTemplate[] | null;
+      }>,
+      roleCategory,
+      monthlySalaryBand
+    );
+    if (!chosen) return { steps: [], reason: 'no_match' };
+
+    return {
+      steps: this.toChainSteps((chosen.steps ?? []) as ApprovalFlowStepTemplate[]),
+      reason: 'ok',
+    };
   }
 
   /**
@@ -695,6 +751,26 @@ export class RecruitmentService {
     };
   }
 
+  /**
+   * One application for the screening detail page. Mirrors the list's job embed
+   * so the page gets its job context without a second round-trip.
+   *
+   * maybeSingle, not single: a row hidden by RLS (or already purged) must render
+   * "not found" rather than surface a PGRST116 as a 500.
+   */
+  static async getJobApplication(
+    supabase: SupabaseClient,
+    id: string
+  ): Promise<HRJobApplication | null> {
+    const { data, error } = await supabase
+      .from('hr_job_applications')
+      .select('*, job:hr_recruitment_jobs(id, title, role_category, institution_id, hr_organization_id)')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as unknown as HRJobApplication) ?? null;
+  }
+
   /** Screening decision: shortlist / reject / mark reviewed, with optional notes. */
   static async reviewJobApplication(
     supabase: SupabaseClient,
@@ -794,6 +870,51 @@ export class RecruitmentService {
     if (updateError) throw updateError;
 
     return { application: updated as HRJobApplication, candidate };
+  }
+
+  // ----- Purge a rejected applicant (super-admin only, 2026-08-05) -----------------
+  //
+  // Erases the person entirely: the application row, the promoted candidate row
+  // (interviews / scorecards / packages / comments cascade), and — via the caller —
+  // the resume in Google Drive. Delegated to a SECURITY DEFINER RPC because:
+  //   * hr_job_applications has NO delete policy, so a PostgREST .delete() would
+  //     silently affect 0 rows rather than error;
+  //   * promoted_candidate_id is ON DELETE NO ACTION, so the application must be
+  //     deleted before the candidate, and both in one transaction;
+  //   * the RPC self-authorizes on is_super_admin() and refuses non-rejected rows.
+
+  /**
+   * Permanently delete a REJECTED applicant. Pass whichever id the UI has —
+   * the RPC follows the link to the other side itself.
+   *
+   * Returns the Drive file ids the caller must delete, each paired with the
+   * purge-log row to clear once the file is confirmed gone.
+   */
+  static async purgeRejectedApplicant(
+    supabase: SupabaseClient,
+    target: { applicationId?: string | null; candidateId?: string | null }
+  ): Promise<PurgeRejectedApplicantResult> {
+    if (!target.applicationId && !target.candidateId) {
+      throw new Error('Provide an application id or a candidate id.');
+    }
+
+    const { data, error } = await supabase.rpc('fn_purge_rejected_recruitment_applicant', {
+      p_application_id: target.applicationId ?? null,
+      p_candidate_id: target.candidateId ?? null,
+    });
+    if (error) throw error;
+    return data as PurgeRejectedApplicantResult;
+  }
+
+  /** Record that a purged applicant's Drive resume is confirmed deleted. */
+  static async clearPurgedResumeRef(
+    supabase: SupabaseClient,
+    logId: string
+  ): Promise<void> {
+    const { error } = await supabase.rpc('fn_clear_recruitment_purge_drive_ref', {
+      p_log_id: logId,
+    });
+    if (error) throw error;
   }
 
   // ----- Candidate discussion thread (hr_recruitment_candidate_comments) -----

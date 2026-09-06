@@ -126,6 +126,30 @@ export async function uploadResumeToJobFolder(opts: ResumeUploadOptions): Promis
   };
 }
 
+/**
+ * Permanently delete a Drive file (skips the trash — a trashed resume is still a
+ * readable resume). Used by the super-admin purge of a rejected applicant.
+ *
+ * Returns false instead of throwing when the file is already gone (404) or Drive
+ * isn't configured, so a purge is never blocked by the storage side. The caller
+ * keeps the file id in hr_recruitment_purge_log until this returns true.
+ */
+export async function deleteDriveFile(fileId: string): Promise<boolean> {
+  if (!isDriveConfigured() || !fileId) return false;
+
+  try {
+    await createDriveClient().files.delete({ fileId, supportsAllDrives: true });
+    return true;
+  } catch (err) {
+    const status = (err as { code?: number; status?: number })?.code
+      ?? (err as { status?: number })?.status;
+    // Already deleted — the desired end state either way.
+    if (status === 404) return true;
+    console.error(`[drive] delete failed for file ${fileId}`, err);
+    return false;
+  }
+}
+
 export interface UploadOptions {
   feature: PPFeature;
   institutionName: string;
@@ -372,6 +396,142 @@ export async function uploadProcurementInvoice(
     supportsAllDrives: true,
   });
 
+  return {
+    name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}
+
+export interface LeaveDocumentUploadOptions {
+  /** HR organisation the applicant belongs to — the top grouping in Drive. */
+  organizationName: string;
+  /** Leave start date (yyyy-mm-dd). Only the yyyy-mm is used, for the folder. */
+  startDate: string;
+  /** staff.staff_id, the human-facing code. Goes in the filename. */
+  staffCode: string | null;
+  /** e.g. 'OD'. Goes in the filename so a folder listing is readable. */
+  leaveTypeCode: string;
+  file: File;
+}
+
+export interface LeaveDocumentUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/**
+ * Upload a leave supporting document to
+ *   HR Leave / {Organisation} / {yyyy-mm} / {ts}-{staffCode}-{TYPE}-{filename}
+ *
+ * WHY MONTH FOLDERS AND NOT PER-STAFF. These are read through the approval
+ * screen, by application, not by browsing Drive — the folder tree only has to
+ * stay navigable for the occasional audit. A folder per staff member would
+ * create 658 of them and grow with every hire; a folder per month tops out at
+ * twelve a year per organisation. The staff code goes in the FILENAME instead,
+ * so one glance at a month folder still tells you whose document is whose.
+ *
+ * NO PUBLIC PERMISSION, deliberately. Medical certificates and duty orders are
+ * PII; every other upload helper in this file that calls permissions.create is
+ * handling something already public. The bytes reach an approver through
+ * /api/hr/leave/documents/[fileId], which authorises the viewer against the
+ * application first. The returned `url` is a convenience for someone who
+ * already has Drive access — it is NOT a shareable link, and nothing in the UI
+ * should treat it as one.
+ */
+export async function uploadLeaveDocument(
+  opts: LeaveDocumentUploadOptions,
+): Promise<LeaveDocumentUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured for this server.');
+  const drive = createDriveClient();
+
+  // Slice rather than parse: the value is already a yyyy-mm-dd date column, and
+  // new Date() here would drag the server's timezone into a folder name.
+  const monthFolder = /^\d{4}-\d{2}/.test(opts.startDate)
+    ? opts.startDate.slice(0, 7)
+    : 'undated';
+
+  const folderId = await ensureFolderPath(drive, [
+    'HR Leave',
+    opts.organizationName,
+    monthFolder,
+  ]);
+
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'document').replace(/[\r\n]/g, ' ').slice(0, 160);
+  const who = (opts.staffCode || 'unknown').replace(/[\r\n/]/g, '').slice(0, 32);
+  const storedName = `${Date.now()}-${who}-${opts.leaveTypeCode}-${safeName}`;
+
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: {
+      mimeType: opts.file.type || 'application/octet-stream',
+      body: Readable.from(buffer),
+    },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  return {
+    name: opts.file.name || safeName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+    mimeType: opts.file.type || 'application/octet-stream',
+    sizeBytes: buffer.byteLength,
+  };
+}
+
+export interface BillCancellationAttachmentUploadOptions {
+  institutionName: string;
+  billRef: string; // bill id, or a short human ref for the folder name
+  file: File;
+}
+
+/**
+ * Upload a bill-cancellation supporting document to
+ * <ROOT>/Bill Cancellations/<Institution>/<BillRef>.
+ *
+ * Cancelling a bill writes off money, so the evidence has to outlive the
+ * session that raised it: fn_cancel_student_bill refuses to cancel without at
+ * least one of these. Shared-readable like refund attachments, because the
+ * links are opened straight from the audit strip by whoever reviews the
+ * cancellation later.
+ */
+export async function uploadBillCancellationAttachment(
+  opts: BillCancellationAttachmentUploadOptions
+): Promise<{ name: string; driveFileId: string; url: string }> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+  const folderId = await ensureFolderPath(drive, [
+    'Bill Cancellations',
+    opts.institutionName,
+    opts.billRef,
+  ]);
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'file').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: {
+      mimeType: opts.file.type || 'application/octet-stream',
+      body: Readable.from(buffer),
+    },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
   return {
     name: opts.file.name || storedName,
     driveFileId: fileId,

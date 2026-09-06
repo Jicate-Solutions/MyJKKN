@@ -121,8 +121,21 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
                 theory_hours: course.theory_hours ?? 0,
                 tutorial_hours: course.tutorial_hours ?? 0,
                 practical_hours: course.practical_hours ?? 0,
-                internal_max_mark: course.internal_max_mark ?? 25,
-                external_max_mark: course.external_max_mark ?? 75,
+                // Carried through, not edited: these are COE's question-paper
+                // ceilings. Feeding them into form state means the PUT
+                // round-trips them unchanged instead of dropping them.
+                internal_max_mark: course.internal_max_mark,
+                external_max_mark: course.external_max_mark,
+                // What the Max Marks inputs actually bind to — the converted
+                // (weightage) marks, so Total reconciles with COE's
+                // total_max_mark. COE's mapper coerces a NULL converted column
+                // to 0, so 0 is indistinguishable from unset: fall back to the
+                // paper ceiling, which is the right value for the legacy rows
+                // written before the converted columns were populated.
+                internal_converted_mark:
+                  course.internal_converted_mark || course.internal_max_mark || 0,
+                external_converted_mark:
+                  course.external_converted_mark || course.external_max_mark || 0,
                 total_max_mark: course.total_max_mark ?? 100,
               }}
               onSubmit={async (form) => {

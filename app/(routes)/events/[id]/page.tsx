@@ -28,7 +28,10 @@ import {
   Pencil,
   Loader2,
   ChevronRight,
+  Eye,
   Globe,
+  ShieldCheck,
+  Star,
   Users,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -46,6 +49,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
+import { EventLogistics } from '@/components/events/shared/event-logistics';
 import {
   useGeneralEvent,
   useUpdateGeneralEvent,
@@ -60,7 +64,11 @@ import {
 import type { Event, EventStatus } from '@/types/events';
 import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
+import { canEditEvent } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
+import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 /** 'cultural' → 'Cultural', 'sports_day' → 'Sports Day' (raw types render readable). */
@@ -130,7 +138,13 @@ function Fact({
  * here — it has no draft -> live edge, so a one-click activation gated on it
  * would be rejected server-side.
  */
-function GeneralEventStatusControl({ event }: { event: Event }) {
+function GeneralEventStatusControl({
+  event,
+  canEdit,
+}: {
+  event: Event;
+  canEdit: boolean;
+}) {
   const updateStatus = useUpdateGeneralEventStatus();
   const active = isGeneralEventActive(event.status);
   const target: EventStatus = active ? 'draft' : GENERAL_EVENT_ACTIVE_STATUS;
@@ -150,6 +164,8 @@ function GeneralEventStatusControl({ event }: { event: Event }) {
           <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
         )}
       </Badge>
+      {/* Read-only viewers keep the status badge and lose the lever. */}
+      {canEdit && (
       <Button
         size="sm"
         variant="outline"
@@ -165,6 +181,7 @@ function GeneralEventStatusControl({ event }: { event: Event }) {
         {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
         {active ? 'Move to Draft' : 'Make Active'}
       </Button>
+      )}
     </div>
   );
 }
@@ -175,7 +192,13 @@ function GeneralEventStatusControl({ event }: { event: Event }) {
  * create wizard files every general event with is_public = false — so
  * activating alone never makes an event publicly visible.
  */
-function PublicVisibilityToggle({ event }: { event: Event }) {
+function PublicVisibilityToggle({
+  event,
+  canEdit,
+}: {
+  event: Event;
+  canEdit: boolean;
+}) {
   const update = useUpdateGeneralEvent();
   const active = isGeneralEventActive(event.status);
 
@@ -197,7 +220,8 @@ function PublicVisibilityToggle({ event }: { event: Event }) {
       <Switch
         id="ge-public"
         checked={event.is_public}
-        disabled={update.isPending}
+        // Non-owners still see the current visibility — they just can't move it.
+        disabled={!canEdit || update.isPending}
         onCheckedChange={(next) =>
           update.mutate({ id: event.id, dto: { is_public: next } })
         }
@@ -213,7 +237,22 @@ export default function GeneralEventDetailPage() {
 
   const { data: event, isLoading, isError } = useGeneralEvent(id);
   const { institutions } = useInstitutionsWithAccess();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Whoever created the event edits it; everyone else reads it. Mirrors the
+  // events_auth_update policy — see canEditEvent. Every write lever on this page
+  // (status, public visibility, the Edit dialog) hangs off this one flag.
+  // profile.id is the auth uid (profiles.id = auth.uid()), so it is what
+  // events.created_by is compared against.
+  const canEdit =
+    !!event &&
+    canEditEvent(event, {
+      userId: profile?.id,
+      institutionId: profile?.institution_id,
+      isSuperAdmin,
+    });
 
   // A specialised event type reached through this URL belongs to its own
   // console — this page cannot manage divisions, sessions or race ops.
@@ -289,9 +328,33 @@ export default function GeneralEventDetailPage() {
   const hostName =
     institutions.find((i) => i.id === event.institution_id)?.name ?? null;
 
-  const home = (event.config as Record<string, unknown> | null)?.home as
-    | string
-    | undefined;
+  const config = event.config as Record<string, unknown> | null;
+  const home = config?.home as string | undefined;
+  // Which Event Logistics tabs this event was created with. Absent (every event
+  // made before the tools picker existed) means "all of them" — see tabVisible.
+  const enabledTools = Array.isArray(config?.enabled_tools)
+    ? (config.enabled_tools as unknown[]).filter(
+        (t): t is string => typeof t === 'string',
+      )
+    : null;
+
+  // In-charges are an ACCESS GRANT, not a label: fn_is_event_incharge() matches
+  // auth.uid() against config->incharges[].member_id to back the RLS policies
+  // and API gates. Showing them here is how an organizer can see who currently
+  // holds that grant.
+  const incharges = Array.isArray(config?.incharges)
+    ? (config.incharges as { member_id?: string; name?: string }[]).filter(
+        (i) => i && typeof i.name === 'string',
+      )
+    : [];
+  // Chief guests are display data only (see the create form's People tab).
+  const chiefGuests = Array.isArray(config?.chief_guests)
+    ? (config.chief_guests as {
+        name?: string;
+        designation?: string;
+        organization?: string;
+      }[]).filter((g) => g && typeof g.name === 'string')
+    : [];
   // Compared as a string, like formatEventType above: events.event_type is free
   // text in the database (spec §6 P3 — no CHECK constrains it), so the TS union
   // is a convenience listing rather than the real vocabulary.
@@ -324,16 +387,25 @@ export default function GeneralEventDetailPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <GeneralEventStatusControl event={event} />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5"
-              onClick={() => setDialogOpen(true)}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </Button>
+            <GeneralEventStatusControl event={event} canEdit={canEdit} />
+            {canEdit ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => setDialogOpen(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </Button>
+            ) : (
+              // Say why the lever is missing. An absent Edit button with no
+              // explanation reads as a broken page, not as a permission.
+              <Badge variant="outline" className="gap-1.5 text-[10px] font-normal">
+                <Eye className="h-3 w-3 opacity-60" />
+                View only — owned by its creator
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -381,6 +453,61 @@ export default function GeneralEventDetailPage() {
                 )}
               </div>
 
+              {/* People — who runs it (an access grant) and who is honoured at
+                  it (display only). Both are set on the create wizard's People
+                  tab and live in events.config. */}
+              {(incharges.length > 0 || chiefGuests.length > 0) && (
+                <div className="grid grid-cols-1 gap-4 border-t pt-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      In-charge
+                    </p>
+                    {incharges.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {incharges.map((i, idx) => (
+                          <Badge
+                            key={i.member_id ?? idx}
+                            variant="secondary"
+                            className="text-[11px] font-normal"
+                          >
+                            {i.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Nobody — only holders of the events manage permission can run it.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Star className="h-3.5 w-3.5" />
+                      Chief guest
+                    </p>
+                    {chiefGuests.length > 0 ? (
+                      <ul className="space-y-0.5 text-sm">
+                        {chiefGuests.map((g, idx) => (
+                          <li key={idx}>
+                            <span className="font-medium">{g.name}</span>
+                            {(g.designation || g.organization) && (
+                              <span className="text-muted-foreground">
+                                {' — '}
+                                {[g.designation, g.organization].filter(Boolean).join(', ')}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Not recorded.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <Hash className="h-3.5 w-3.5" />
@@ -400,7 +527,7 @@ export default function GeneralEventDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <PublicVisibilityToggle event={event} />
+              <PublicVisibilityToggle event={event} canEdit={canEdit} />
               <div className="space-y-2 rounded-lg border p-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-muted-foreground">External registration</span>
@@ -433,10 +560,39 @@ export default function GeneralEventDetailPage() {
 
         {isSchoolOfInfluence && (
           <p className="text-xs text-muted-foreground">
-            These forms are what applicants answer on the School of Influence
+            These forms are what applicants answer on the School of Influencer
             application page below.
           </p>
         )}
+
+        {/* Post-event feedback. Deliberately NOT gated on `canEdit`: that rule
+            (canEditEvent) recognises only the creator, the super admin and
+            same-institution rows, while the DB's fn_can_manage_event_feedback
+            also counts the event in-charge from events.config->'incharges'.
+            Gating on canEdit hid the card outright from the appointed
+            coordinator. Consistent with this page's header decision — the DB
+            is the authority, and a denial surfaces as an error toast. */}
+        <EventFeedbackLinkCard eventId={event.id} />
+
+        {/* Shared event logistics — sponsors, budget, committees, check-in, QR,
+            volunteers, incidents, certificates, bulk import, analytics, kit.
+            Tournaments have had these since Events Platform PR1; a wizard-created
+            lecture or cultural programme had none of them, so it could be created
+            and then never actually run from its own console.
+
+            hideSensitiveWithoutManage: unlike the tournament console, this page
+            has NO client-side access gate (see the file header) — anyone who can
+            read the event row reads the page. `canManage={false}` only makes the
+            boards read-only, so without this flag every viewer of every general
+            event could read sponsor amounts, budget lines and incident reports.
+            RLS does not cover those tables. */}
+        <EventLogistics
+          eventId={event.id}
+          eventType={event.event_type as string}
+          canManage={canEdit}
+          enabledTools={enabledTools}
+          hideSensitiveWithoutManage
+        />
 
         {/* School of Influence — the programme's application door. Shown only
             for the SoI event type so no other event grows a stray link; the

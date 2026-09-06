@@ -21,6 +21,7 @@ import {
   ArrowUpRight,
   Loader2,
   AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Dialog,
   DialogContent,
@@ -43,7 +46,9 @@ import {
   useJobApplications,
   useReviewApplication,
   usePromoteApplication,
+  usePurgeRejectedApplicant,
 } from '@/hooks/hr/use-recruitment';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   JOB_APPLICATION_STATUS_LABELS,
   type HRJobApplication,
@@ -78,13 +83,18 @@ export function ApplicationsSection({ jobId }: { jobId: string }) {
   const { data, isLoading, error } = useJobApplications({ job_id: jobId, pageSize: 100 });
   const review = useReviewApplication();
   const promote = usePromoteApplication();
+  const purge = usePurgeRejectedApplicant();
+  const { isSuperAdmin } = usePermissions();
 
   const [rejectTarget, setRejectTarget] = useState<HRJobApplication | null>(null);
   const [rejectNotes, setRejectNotes] = useState('');
   const [promoteTarget, setPromoteTarget] = useState<HRJobApplication | null>(null);
   const [promoteEmergency, setPromoteEmergency] = useState(false);
+  const [purgeTarget, setPurgeTarget] = useState<HRJobApplication | null>(null);
+  const [purgeConfirm, setPurgeConfirm] = useState('');
 
   const applications = data?.data ?? [];
+  const purgeArmed = purgeConfirm.trim().toUpperCase() === 'DELETE';
 
   const handleReview = (
     app: HRJobApplication,
@@ -108,6 +118,27 @@ export function ApplicationsSection({ jobId }: { jobId: string }) {
         onError: (err) => toast.error(err.message),
       }
     );
+  };
+
+  // Permanent erase of a rejected applicant — super admins only. The server
+  // re-checks both the super-admin identity and the rejected status, so this
+  // gate only decides whether the affordance is visible.
+  const handlePurge = async () => {
+    if (!purgeTarget || !purgeArmed) return;
+    const name = `${purgeTarget.first_name} ${purgeTarget.last_name}`.trim();
+    try {
+      const result = await purge.mutateAsync({ applicationId: purgeTarget.id });
+      toast.success(`${name} permanently deleted`, {
+        description:
+          result.resumes_failed > 0
+            ? 'All records removed, but the resume could not be deleted from Drive — it has been logged for cleanup.'
+            : 'Application details and resume have been erased.',
+      });
+      setPurgeTarget(null);
+      setPurgeConfirm('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
   };
 
   const handlePromote = () => {
@@ -176,9 +207,12 @@ export function ApplicationsSection({ jobId }: { jobId: string }) {
                 <li key={app.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium text-foreground">
+                      <Link
+                        href={`/hr/recruitment/applications/${app.id}`}
+                        className="font-medium text-foreground hover:text-primary hover:underline"
+                      >
                         {app.first_name} {app.last_name}
-                      </span>
+                      </Link>
                       <Badge variant="outline" className={cn('text-[11px]', STATUS_BADGE[app.status])}>
                         {JOB_APPLICATION_STATUS_LABELS[app.status]}
                       </Badge>
@@ -281,6 +315,21 @@ export function ApplicationsSection({ jobId }: { jobId: string }) {
                             Re-shortlist
                           </Button>
                         )}
+                        {app.status === 'rejected' && isSuperAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                            disabled={busy || purge.isPending}
+                            onClick={() => {
+                              setPurgeTarget(app);
+                              setPurgeConfirm('');
+                            }}
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                            Delete
+                          </Button>
+                        )}
                       </>
                     )}
                   </div>
@@ -374,6 +423,74 @@ export function ApplicationsSection({ jobId }: { jobId: string }) {
             <Button disabled={promote.isPending} onClick={handlePromote}>
               {promote.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               Promote Candidate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent delete — super admin only, irreversible, typed confirmation */}
+      <Dialog
+        open={!!purgeTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPurgeTarget(null);
+            setPurgeConfirm('');
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-4 w-4" />
+              Delete {purgeTarget?.first_name} {purgeTarget?.last_name} permanently
+            </DialogTitle>
+            <DialogDescription>
+              This erases every record of this applicant. It cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <span className="block font-medium">The following will be destroyed:</span>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
+                <li>Application details — name, email, phone, qualification, experience</li>
+                <li>Screening notes and decision history</li>
+                {purgeTarget?.resume_url && <li>The resume file in Google Drive</li>}
+              </ul>
+            </AlertDescription>
+          </Alert>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="purge-confirm">
+              Type <span className="font-mono font-semibold">DELETE</span> to confirm
+            </Label>
+            <Input
+              id="purge-confirm"
+              value={purgeConfirm}
+              onChange={(e) => setPurgeConfirm(e.target.value)}
+              placeholder="DELETE"
+              autoComplete="off"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPurgeTarget(null);
+                setPurgeConfirm('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!purgeArmed || purge.isPending}
+              onClick={handlePurge}
+            >
+              {purge.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Delete Permanently
             </Button>
           </DialogFooter>
         </DialogContent>

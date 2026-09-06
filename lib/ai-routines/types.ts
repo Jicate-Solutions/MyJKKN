@@ -22,7 +22,8 @@ export type RoutineCategoryId =
   | 'admission-ai'
   | 'induction-ai'
   | 'curriculum-ai'
-  | 'misc-ai';
+  | 'misc-ai'
+  | 'platform-ops';
 
 export interface AIRoutine {
   /** stable kebab slug, unique across the registry */
@@ -125,5 +126,11 @@ export const ROUTINE_CATEGORIES: RoutineCategory[] = [
     label: 'Other AI routines',
     blurb:
       'Career guidance, exam question generation, work-pulse analysis/translation, and the attention-bar assistant.',
+  },
+  {
+    id: 'platform-ops',
+    label: 'Platform operations (scheduled)',
+    blurb:
+      'Rules-based operational crons moved off vercel.json onto the dispatcher (2026-08 cron-cap wave): nightly sweeps, role syncs, retention pruners, reminder/escalation engines, and integration health checks. No LLM calls — day/time editable here without a redeploy.',
   },
 ];

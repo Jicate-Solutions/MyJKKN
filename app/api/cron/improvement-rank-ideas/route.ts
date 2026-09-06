@@ -20,10 +20,26 @@
 //           auto-escalates via the service-role SECDEF fn (one activity row,
 //           action='escalated', idempotent per approval cycle).
 //
+//   TRIAGE — the untriaged-idea sweep (2026-08-10). An idea filed and never
+//           opened ages in 'logged' forever and the author hears nothing. This
+//           tells the department's current role holder. It is the opposite end
+//           of the pipeline from ESCALATE: that one watches approved-unapplied,
+//           which no idea on this project has ever reached, while all 18 open
+//           ideas sat untouched in 'logged'. Rides this pass for the same
+//           vercel.json cap reason as LAPSE.
+//
+//   LAPSE  — the Gemba official-lapse sweep (2026-08-01). A department playbook
+//           whose official_until has slid past stops being official silently;
+//           this tells the associates posted there. It has no cron entry of its
+//           own because vercel.json already holds exactly 100 — Vercel's hard
+//           cap — so it rides this job's DAILY pass. Same board, same night.
+//
 // Async model: RANK is enqueue-now / collect-later (the seat is not synchronous),
 // so the daily run collects the PREVIOUS run's jobs before submitting today's,
-// and a */30 collect tick drains within the hour. ESCALATE is synchronous (a DB
-// sweep, no AI) and runs once on the daily pass.
+// and a */30 collect tick drains within the hour. ESCALATE and LAPSE are
+// synchronous (DB sweeps, no AI) and run ONCE on the daily pass — never on the
+// ?mode=collect tick. That is not a detail: collect runs 48x a day, and a lapse
+// notice fired 48x a day is precisely the flood this feature exists to avoid.
 //
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` OR `?secret=` query.
 // No Anthropic key needed — the Max seat runs the model; this route only
@@ -39,7 +55,17 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
+import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  runOfficialLapseSweep,
+  type OfficialLapseSweepResult,
+} from '@/lib/services/gemba/official-lapse-sweep';
+import {
+  runUntriagedSweep,
+  type UntriagedSweepResult,
+} from '@/lib/services/improvement/untriaged-sweep';
 
+const LOG_MODULE = 'cron/improvement-rank-ideas';
 const JOB_TYPE = 'improvement.rank_ideas';
 // Rank only the un-decided triage queue — where an impact ranking adds value.
 // Approved/applied/verified ideas have already passed the priority gate.
@@ -261,7 +287,40 @@ export async function GET(request: NextRequest) {
     console.error('[cron/improvement-rank-ideas] escalation sweep failed:', escalateError);
   }
 
-  // 3) SUBMIT — enqueue one ranking job per institution with an open queue.
+  // 3) LAPSE — the Gemba official-lapse sweep, riding this daily pass because
+  //    vercel.json is full at its 100-entry cap. Fully walled off from the
+  //    ranking: ranking is this job's primary purpose and has run for weeks, so
+  //    a lapse failure reports itself in `lapse_error` and the run carries on.
+  //    Both outcomes are returned distinctly — neither half hides the other.
+  let lapse: OfficialLapseSweepResult | null = null;
+  let lapseError: string | null = null;
+  try {
+    lapse = await runOfficialLapseSweep(admin);
+  } catch (e) {
+    lapseError = e instanceof Error ? e.message : 'lapse sweep threw';
+    logger.error(LOG_MODULE, 'official-lapse sweep failed (ranking unaffected)', e);
+  }
+
+  // 3b) TRIAGE — the untriaged-idea sweep, riding this same daily pass for the
+  //     same reason LAPSE does: vercel.json is full at Vercel's 100-entry cap.
+  //     Walled off identically, so a triage-notice failure reports itself in
+  //     `triage_error` and takes neither the ranking nor the lapse sweep down.
+  //
+  //     This is the OPPOSITE end of the pipeline from ESCALATE above. ESCALATE
+  //     watches 'approved' ideas nobody has applied; this watches 'logged' ideas
+  //     nobody has opened. Measured on production 2026-08-10: all 18 open ideas
+  //     sat in the second state and not one had ever reached the first, so the
+  //     existing sweep had nothing it could find.
+  let triage: UntriagedSweepResult | null = null;
+  let triageError: string | null = null;
+  try {
+    triage = await runUntriagedSweep(admin);
+  } catch (e) {
+    triageError = e instanceof Error ? e.message : 'untriaged sweep threw';
+    logger.error(LOG_MODULE, 'untriaged sweep failed (ranking unaffected)', e);
+  }
+
+  // 4) SUBMIT — enqueue one ranking job per institution with an open queue.
   let enqueued = 0;
   let skippedInflight = 0;
   let institutionsConsidered = 0;
@@ -320,6 +379,17 @@ export async function GET(request: NextRequest) {
     // escalation sweep
     escalated,
     escalate_error: escalateError,
+    // gemba official-lapse sweep (daily pass only — never on ?mode=collect)
+    lapse_announced: lapse?.announced ?? 0,
+    lapse_notified: lapse?.notified ?? 0,
+    lapse_error: lapseError,
+    // untriaged-idea sweep (daily pass only — never on ?mode=collect).
+    // triage_longest_wait_days is the one worth watching: it is how long the
+    // most-ignored idea on the board has gone without a human opening it.
+    triage_announced: triage?.announced ?? 0,
+    triage_notified: triage?.notified ?? 0,
+    triage_longest_wait_days: triage?.longestWaitDays ?? 0,
+    triage_error: triageError,
     // submit
     institutions_considered: institutionsConsidered,
     enqueued,

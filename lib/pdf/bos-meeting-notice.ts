@@ -27,6 +27,7 @@ import chromium from '@sparticuz/chromium';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { BosMeeting, BosAgendaItem } from '@/types/bos';
+import { PDF_FONT_STACK, pdfFontFaceCss } from '@/lib/utils/bos/pdf-fonts';
 import type { InstitutionPdfHeader } from '@/lib/utils/internal-marks/institution-header';
 
 // =============================================================================
@@ -420,9 +421,14 @@ function buildCetCallLetterHtml(
 <meta charset="UTF-8" />
 <title>Call Letter - ${escapeHtml(recipient.display_name)}</title>
 <style>
+  /* Embedded faces — see lib/utils/bos/pdf-fonts.ts. The single-page budget
+     below is measured in Times; on Vercel the only installed font is Open Sans,
+     whose wider glyphs blow that budget. */
+  ${pdfFontFaceCss()}
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   @page { size: A4; }
-  html, body { width: 210mm; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; background: #fff; line-height: 1.4; }
+  html, body { width: 210mm; font-family: ${PDF_FONT_STACK}; font-size: 12pt; color: #000; background: #fff; line-height: 1.4; }
 
   /* ── SINGLE-PAGE FIT ──────────────────────────────────────────────────────
      Printable height is 297mm − 2×6mm Puppeteer margin = 285mm. The blocks
@@ -469,16 +475,23 @@ function buildCetCallLetterHtml(
   .closing { margin-top: 10pt; text-align: justify; }
   .thanks { margin-top: 8pt; text-align: center; }
 
-  /* ── Signature row: seal + stamp together at the bottom-right ───────────── */
-  /* Both are pushed to the right margin (justify-content:flex-end) with the
-     seal immediately left of the principal stamp, so they read as one
-     signed-and-sealed block. Splitting them to opposite margins made the seal
-     look stranded mid-page.
-     align-items:flex-end baselines the seal against the bottom of the stamp
-     however tall each image is. break-inside:avoid keeps the seal, the
-     signature and the valediction together — a page split here is the single
-     worst-looking failure mode of this letter. */
+  /* ── Signature row: seal centred on the page, stamp at the right ────────── */
+  /* The stamp is a normal flex child pushed to the right margin. The seal is
+     taken OUT of flow (position:absolute, left:50% + translateX(-50%)) so it
+     lands on the page's true horizontal centre — with it in flow, any change to
+     the stamp's width would drag the seal off-centre.
+     bottom:0 baselines the seal against the bottom of the row however tall each
+     image is. break-inside:avoid keeps the seal, the signature and the
+     valediction together — a page split here is the single worst-looking
+     failure mode of this letter.
+     The row's left/right padding is symmetric (14mm each), so the content-box
+     centre coincides with the page centre — the seal is centred on both.
+     Overlap check (measured at 96dpi, 210mm page = 793.7px): the 78pt seal
+     spans 344.8–448.8px; the stamp is right-aligned to the 740.8px content edge
+     and is at most 210pt (280px) wide, so it starts no earlier than 460.8px —
+     ≥12px of clearance. Widening .sig-img past 210pt would eat into that. */
   .signature-row {
+    position: relative;
     display: flex;
     justify-content: flex-end;
     align-items: flex-end;
@@ -487,12 +500,29 @@ function buildCetCallLetterHtml(
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .sig-seal { flex: 0 0 auto; width: 78pt; }
+  .sig-seal {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    width: 78pt;
+    text-align: center;
+  }
   .sig-seal img { max-width: 100%; max-height: 78pt; object-fit: contain; }
-  /* flex:0 0 auto (not 1 1 auto) so the block shrinks to its content and the
-     seal parks right next to the stamp rather than at the far-left margin. */
-  .sig-block { flex: 0 0 auto; text-align: right; line-height: 1.45; }
+  /* flex:0 0 auto (not 1 1 auto) so the block shrinks to the stamp's own width
+     rather than stretching leftwards.
+     margin-right backs the whole group (valediction + stamp) off the 14mm text
+     margin — sitting flush against it reads as cramped on the printed page.
+     It shifts the two together, so their mutual centring is unaffected. */
+  .sig-block { flex: 0 0 auto; text-align: right; line-height: 1.45; margin-right: 18pt; }
   .sig-block p { margin: 0; }
+  /* The valediction is CENTRED over the stamp, not right-aligned to the margin.
+     The signature scan carries its own visually-centered content (squiggle +
+     name + PRINCIPAL + college + town), so a right-aligned "Yours Sincerely,"
+     parks at the column's far edge and reads as detached from the signature it
+     introduces. Mirrors .signature-sign .regards in the non-CET layout. */
+  .sig-block .signoff-lead { text-align: center; margin-bottom: 2pt; }
+  .sig-block .signoff-lead p { margin: 0; }
   /* Sized so the scan's baked-in name + "PRINCIPAL / college / town" lines stay
      legible — it carries the designation, not just a squiggle, and is roughly
      3:2 so the height cap is what binds. */
@@ -559,7 +589,7 @@ function buildCetCallLetterHtml(
   <div class="signature-row">
     <div class="sig-seal">${sealHtml}</div>
     <div class="sig-block">
-      ${signoffLeadHtml}
+      <div class="signoff-lead">${signoffLeadHtml}</div>
       ${signHtml}
       ${signoffTitleHtml}
     </div>
@@ -752,10 +782,13 @@ export function buildCallLetterHtml(
 <meta charset="UTF-8" />
 <title>Call Letter - ${escapeHtml(recipient.display_name)}</title>
 <style>
+  /* Embedded faces — see lib/utils/bos/pdf-fonts.ts. */
+  ${pdfFontFaceCss()}
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     width: 210mm;
-    font-family: 'Times New Roman', serif;
+    font-family: ${PDF_FONT_STACK};
     font-size: 12pt;
     color: #000;
     background: #fff;
@@ -1150,6 +1183,9 @@ async function renderCallLetterInBrowser(
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    // The embedded faces decode off the main parse; printing before they are
+    // ready would lay the single-page budget out against fallback metrics.
+    await page.evaluate(() => document.fonts.ready);
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,

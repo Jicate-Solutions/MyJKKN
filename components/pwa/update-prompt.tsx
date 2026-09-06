@@ -10,6 +10,7 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { RefreshCw, X } from 'lucide-react';
+import { armReloadOnControllerChange } from './sw-reload';
 
 export function UpdatePrompt() {
   const [showPrompt, setShowPrompt] = useState(false);
@@ -55,10 +56,13 @@ export function UpdatePrompt() {
             }
           });
 
-          // Listen for controller changes (new SW activated)
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            window.location.reload();
-          });
+          // NOTE (2026-08-02): intentionally NO `controllerchange` listener
+          // here. The unconditional `controllerchange -> reload` listener that
+          // used to live at this spot fired on the very first SW activation
+          // (clients.claim) and on every deploy, force-reloading every open
+          // tab with no user action — the /dashboard double/triple bootstrap.
+          // The one and only reload listener is armed in handleUpdate(), after
+          // the user explicitly clicks "Update Now" (see sw-reload.ts).
         } catch (error) {
           // Handle update check error silently
         }
@@ -87,11 +91,16 @@ export function UpdatePrompt() {
 
       const registration = await navigator.serviceWorker.ready;
       if (registration.waiting) {
-        // Tell the waiting service worker to skip waiting and become active
+        // Arm the shared one-shot reload BEFORE telling the waiting service
+        // worker to activate — the reload happens exactly once, and only
+        // because the user clicked "Update Now".
+        armReloadOnControllerChange();
         registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      } else {
+        // Another tab already activated the new SW — a plain (still
+        // user-initiated) reload picks it up.
+        window.location.reload();
       }
-
-      // The controllerchange event will trigger a page reload
     } catch (error) {
       setIsUpdating(false);
       // Fallback: force reload
@@ -118,7 +127,7 @@ export function UpdatePrompt() {
   }
 
   return (
-    <Card className='fixed bottom-4 left-4 z-50 w-80 shadow-lg border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800'>
+    <Card className='fixed bottom-nav-safe lg:bottom-4 left-4 z-50 w-80 shadow-lg border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800'>
       <CardHeader className='pb-2'>
         <div className='flex items-center justify-between'>
           <div className='flex items-center gap-2'>

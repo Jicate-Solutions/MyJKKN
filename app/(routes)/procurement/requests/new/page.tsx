@@ -31,10 +31,22 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 // is_new is local UI state only — never sent to the server. domain_item_id
 // (null = new item) is what the service actually derives request_type from.
 type ItemRow = CreatePurchaseRequestItemDto & { is_new: boolean };
+
+/**
+ * The domain select decides which catalog the request draws from, but "Inventory
+ * (IMS)" vs "Resource Management" is how the system is built, not how a requester
+ * thinks. They know whether the thing gets used up or lasts — so lead with that and
+ * keep the module name after it so this still matches the rest of the app.
+ */
+const DOMAIN_CHOICE: Record<string, string> = {
+  ims: 'Consumables & chemicals',
+  resource_mgmt: 'Equipment, furniture & instruments',
+};
 
 const emptyRow = (): ItemRow => ({
   domain_item_id: null,
@@ -148,15 +160,15 @@ export default function NewPurchaseRequestPage() {
       toast.success(`Purchase request ${created.request_number} created`);
       router.push(`/procurement/requests/${created.id}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create request');
+      toast.error(errorMessage(e, 'Failed to create request'));
     }
   };
 
   return (
     <ContentLayout title="New Purchase Request">
-      <div className="space-y-6 max-w-4xl">
+      <div className="space-y-6 max-w-5xl">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <Button variant="ghost" size="sm" aria-label="Go back" onClick={() => router.back()}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -179,10 +191,10 @@ export default function NewPurchaseRequestPage() {
                 // Different institution = different inventory catalog; clear picks.
                 setItems([emptyRow()]);
               }}
-              hint="Which institution’s inventory this request is raised against."
+              hint="Sets which item catalog you order from."
             />
-            <div className="space-y-2 max-w-sm">
-              <Label>Module (inventory)</Label>
+            <div className="space-y-2 max-w-md">
+              <Label>What are you buying?</Label>
               <Select
                 value={domain}
                 onValueChange={(v) => {
@@ -197,16 +209,19 @@ export default function NewPurchaseRequestPage() {
                 <SelectContent>
                   {domainOptions.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
+                      {DOMAIN_CHOICE[opt.value]
+                        ? `${DOMAIN_CHOICE[opt.value]} — ${opt.label}`
+                        : opt.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                Which module’s inventory this request draws from.
+                Consumables and chemicals are tracked by batch and expiry. Equipment and
+                furniture are tracked as assets.
               </p>
             </div>
-            {domain === 'resource_mgmt' && requestType === 'new_item' && (
+            {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
               <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
                 Buying consumables or chemicals — things that get used up or expire (reagents,
                 cotton, gloves)? Purchase those through the <b>Inventory (IMS)</b> module instead,
@@ -226,18 +241,26 @@ export default function NewPurchaseRequestPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Items</CardTitle>
-            <Button variant="outline" size="sm" onClick={addRow}>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="text-base">
+                Items{cleanedItems.length ? ` (${cleanedItems.length})` : ''}
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Pick each item from the catalog. If something is not stocked yet, choose
+                “New item” and say why it is needed.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" className="shrink-0" onClick={addRow}>
               <Plus className="mr-2 h-4 w-4" />
               Add item
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
             {items.map((item, idx) => (
-              <div key={idx} className="grid gap-3 sm:grid-cols-12 items-start border-b pb-4 last:border-0">
-                <div className="sm:col-span-2 space-y-1">
-                  <Label className="text-xs">Type</Label>
+              <div key={idx} className="grid gap-3 lg:grid-cols-12 items-start border-b pb-4 last:border-0">
+                <div className="lg:col-span-2 space-y-1">
+                  <Label className="text-xs">Source</Label>
                   <Select
                     value={item.is_new ? 'new_item' : 'restock'}
                     onValueChange={(v) => {
@@ -258,12 +281,12 @@ export default function NewPurchaseRequestPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="restock">Existing item</SelectItem>
-                      <SelectItem value="new_item">New item</SelectItem>
+                      <SelectItem value="restock">From the catalog</SelectItem>
+                      <SelectItem value="new_item">New item — not in the catalog</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="sm:col-span-2 space-y-1">
+                <div className="lg:col-span-3 space-y-1">
                   <Label className="text-xs">Item name</Label>
                   {item.is_new ? (
                     <Input
@@ -292,24 +315,33 @@ export default function NewPurchaseRequestPage() {
                           })
                         }
                       />
-                      {item.reorder_level != null && (
-                        <p className="text-[11px] text-muted-foreground">
-                          Reorder level: {item.reorder_level}
-                          {item.current_stock != null && ` · in stock: ${item.current_stock}`}
+                      {item.current_stock != null && (
+                        <p
+                          className={
+                            item.reorder_level != null && item.current_stock <= item.reorder_level
+                              ? 'text-[11px] font-medium text-amber-700 dark:text-amber-300'
+                              : 'text-[11px] text-muted-foreground'
+                          }
+                        >
+                          {item.reorder_level != null && item.current_stock <= item.reorder_level
+                            ? 'Low stock — '
+                            : ''}
+                          {item.current_stock} in stock
+                          {item.reorder_level != null ? `, reorder at ${item.reorder_level}` : ''}
                         </p>
                       )}
                     </>
                   )}
                 </div>
-                <div className="sm:col-span-3 space-y-1">
+                <div className="lg:col-span-2 space-y-1">
                   <Label className="text-xs">Specification</Label>
                   <Input
                     value={item.item_spec ?? ''}
                     onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
-                    placeholder="Optional"
+                    placeholder={item.is_new ? 'Size, grade, packaging…' : 'From catalog'}
                   />
                 </div>
-                <div className="sm:col-span-2 space-y-1">
+                <div className="lg:col-span-2 space-y-1">
                   <Label className="text-xs">Qty</Label>
                   <Input
                     type="number"
@@ -318,7 +350,7 @@ export default function NewPurchaseRequestPage() {
                     onChange={(e) => updateItem(idx, { required_quantity: Number(e.target.value) })}
                   />
                 </div>
-                <div className="sm:col-span-2 space-y-1">
+                <div className="lg:col-span-2 space-y-1">
                   <Label className="text-xs">Unit</Label>
                   <Input
                     value={item.unit_label ?? ''}
@@ -326,10 +358,11 @@ export default function NewPurchaseRequestPage() {
                     placeholder="e.g. box"
                   />
                 </div>
-                <div className="sm:col-span-1 flex items-end justify-end h-full">
+                <div className="lg:col-span-1 flex items-end justify-end h-full">
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label="Remove item"
                     onClick={() => removeRow(idx)}
                     disabled={items.length === 1}
                   >
@@ -337,7 +370,7 @@ export default function NewPurchaseRequestPage() {
                   </Button>
                 </div>
                 {item.is_new && (
-                  <div className="sm:col-span-12 space-y-1">
+                  <div className="lg:col-span-12 space-y-1">
                     <Label className="text-xs">
                       Reason for new item <span className="text-destructive">*</span>
                     </Label>
@@ -353,13 +386,18 @@ export default function NewPurchaseRequestPage() {
           </CardContent>
         </Card>
 
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={() => router.back()}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={createPR.isPending}>
-            Review &amp; create
-          </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            This saves the request as a draft. You send it for approval from the request page.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => router.back()}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={createPR.isPending}>
+              Review &amp; create
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -408,19 +446,22 @@ export default function NewPurchaseRequestPage() {
                       </td>
                       <td className="px-3 py-2">{item.required_quantity}</td>
                       <td className="px-3 py-2">{item.unit_label?.trim() || '—'}</td>
-                      <td className="px-3 py-2">{item.is_new ? 'New item' : 'Existing item'}</td>
+                      <td className="px-3 py-2">{item.is_new ? 'New item' : 'From catalog'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
+          <p className="text-sm text-muted-foreground">
+            The request is saved as a draft. Send it for approval from the request page.
+          </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPreviewOpen(false)}>
               Back to edit
             </Button>
             <Button onClick={handleConfirmCreate} disabled={createPR.isPending}>
-              {createPR.isPending ? 'Creating...' : 'Confirm & create request'}
+              {createPR.isPending ? 'Creating…' : 'Create draft request'}
             </Button>
           </DialogFooter>
         </DialogContent>

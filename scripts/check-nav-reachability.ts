@@ -57,6 +57,11 @@ const NAV_EXCLUDE = new Set<string>([
   // Reached via the "Session catalog" button on the chip-reachable /events/induction
   // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.
   '/events/induction/catalog',
+  // Campus Walk fixer screen. Reached from the bell notification the walk task
+  // raises, as `/campus-walk/fix?task=<id>` — it renders one specific ticket
+  // (see its `searchParams: { task?: string }`) and shows a "no ticket" state
+  // with no task id, so it has no standalone chip surface to be reached from.
+  '/campus-walk/fix',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',
@@ -68,6 +73,21 @@ const NAV_EXCLUDE = new Set<string>([
   '/billing/payment',
   '/billing/payment/success',
   '/billing/payment/failed',
+
+  // Billing create-forms, button-invoked from their chip-reachable list page
+  // (2026-08-25, when billing gained a nav-config and stopped rendering every
+  // manifest sibling as a flat chip). Each was verified to have a real caller:
+  //  - /billing/schedule/new         : "New Bill" from the Student Search table
+  //  - /billing/schedule/bulk-create : bulk action on the Schedule table
+  //  - /billing/receipts/new         : "New Receipt" on /billing/receipts
+  //  - /billing/school-fees/new      : plan cards on /billing/school-fees, and
+  //    it REQUIRES ?institution=&year=&program= — a bare chip would open broken.
+  // /billing/receipts/templates is deliberately NOT here: nothing links to it,
+  // so it keeps a real chip in the nav-config instead.
+  '/billing/schedule/new',
+  '/billing/schedule/bulk-create',
+  '/billing/receipts/new',
+  '/billing/school-fees/new',
 
   // SSO / admin-only one-shots
   '/admin/saml',
@@ -422,6 +442,34 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/care/new',
   '/audit/care/score',
   '/audit/care/coverage',
+
+  // ════════════════════════════════════════════════════════════
+  // 2026-08-09 attendance split. /hr/attendance became the employee-facing
+  // My Attendance page (Attendance Log + Calendar), so these two HR-ops
+  // surfaces moved to cards on the chip-reachable /hr/admin hub.
+  //
+  // Deliberately NOT re-wired as nav-config children. Two reasons, both the
+  // established convention here:
+  //  1. Config-driven children are NOT permission-filtered (resolveTiers maps
+  //     them straight to chips), so chips under the Attendance group would
+  //     advertise a biometric importer and an approval queue to all 76 roles
+  //     holding hr.attendance.view_self — the sidebar-shows/page-denies
+  //     anti-pattern. Same reasoning as the /admission/counselors/admin block.
+  //  2. They cannot move under the HR Admin group's children either: that
+  //     group deliberately has none, so deeperTiersFromManifest walks from
+  //     depth 3 and auto-surfaces all ~22 /hr/admin/* pages. Adding explicit
+  //     children there would push the walk to depth 4 and orphan every one
+  //     of them.
+  //
+  // Net unreachable count is unchanged by the split (these two were chip-
+  // reachable before, and are excluded now), so --max-unreachable stays at 58.
+  //  - /hr/attendance/import              : card on /hr/admin ("Import Biometric
+  //    Punches"); /api/hr/attendance/import enforces hr.attendance.override.
+  //  - /hr/attendance/regularize/approvals: card on /hr/admin ("Regularize
+  //    Approvals"); the page self-gates on regularize_approve/approve_team.
+  // ════════════════════════════════════════════════════════════
+  '/hr/attendance/import',
+  '/hr/attendance/regularize/approvals',
   //  - /audit/care/voice          : sealed participant scoring door (learner-
   //    gated by fn_carre_participant_context/score server-side). Unlisted by
   //    design — the Director opens a cycle's lane deliberately and shares the

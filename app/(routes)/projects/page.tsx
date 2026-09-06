@@ -6,8 +6,9 @@
  * Single route `/projects` with URL-synced view tabs:
  *   List | Board | Timeline | Portfolio
  *
- * List + Board are live (Wave 3, F1 + F13). Timeline + Portfolio remain
- * placeholders owned by sibling agents.
+ * All four tabs are live. List (F1) and Board (F13) render inline; Timeline
+ * (F2) renders the same Gantt as `/projects/[id]/timeline` once a project is
+ * picked; Portfolio links to its own dashboard route.
  *
  * Pattern: app/(routes)/hr/intelligence/page.tsx
  *   (ContentLayout + Breadcrumb + Tabs + searchParams-synced active tab).
@@ -26,12 +27,18 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+  TAP_TARGET_TABS_LIST,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { List, LayoutGrid, GanttChartSquare, FolderKanban } from 'lucide-react';
 import { ProjectList } from './_components/project-list';
 import { BoardTab } from './_components/board-tab';
+import { TimelineTab } from './_components/timeline-tab';
 
 const PROJECT_TABS = [
   { id: 'list', label: 'List', icon: List },
@@ -46,24 +53,6 @@ const DEFAULT_TAB: ProjectTabId = 'list';
 
 function isValidTab(value: string | null): value is ProjectTabId {
   return PROJECT_TABS.some((t) => t.id === value);
-}
-
-/** Generic placeholder for tabs whose UI ships in Wave 3. */
-function ComingSoonCard({ view }: { view: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{view} view</CardTitle>
-        <CardDescription>Coming in the next PR (Wave 3).</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">
-          This view is not built yet. The data layer (services + hooks) is wired
-          and ready for it.
-        </p>
-      </CardContent>
-    </Card>
-  );
 }
 
 export default function ProjectsPage() {
@@ -89,7 +78,7 @@ export default function ProjectsPage() {
   return (
     <ContentLayout title="Projects">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -107,11 +96,13 @@ export default function ProjectsPage() {
 
       <div className="mt-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
+          <TabsList
+            className={`flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0 ${TAP_TARGET_TABS_LIST}`}
+          >
             {PROJECT_TABS.map((tab) => {
               const Icon = tab.icon;
               return (
-                <TabsTrigger key={tab.id} value={tab.id} className="gap-1.5">
+                <TabsTrigger key={tab.id} value={tab.id} className={`gap-1.5 ${TAP_TARGET}`}>
                   <Icon className="h-4 w-4" />
                   {tab.label}
                 </TabsTrigger>
@@ -126,7 +117,7 @@ export default function ProjectsPage() {
             <BoardTab />
           </TabsContent>
           <TabsContent value="timeline" className="mt-6">
-            <ComingSoonCard view="Timeline" />
+            <TimelineTab />
           </TabsContent>
           <TabsContent value="portfolio" className="mt-6">
             <Card>
@@ -138,7 +129,7 @@ export default function ProjectsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button asChild className="gap-1.5">
+                <Button asChild className={`gap-1.5 ${TAP_TARGET}`}>
                   <Link href="/projects/portfolio">
                     <FolderKanban className="h-4 w-4" />
                     Open Portfolio

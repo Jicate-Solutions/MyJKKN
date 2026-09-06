@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
+  BosAttendanceMode,
   BosAttendanceStatus,
   bosMemberTypeLabel,
 } from '@/types/bos';
 import {
   computeClaimAmountsWithRate,
+  INSTITUTION_WIDE_COMMITTEE,
+  isInstitutionWideCommittee,
   TaDaRateOverride,
 } from '@/lib/utils/bos/ta-da-rates';
 import { resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
@@ -112,7 +115,8 @@ export async function GET(
         *,
         member:bos_members (
           id, display_name, display_designation, display_department, display_institution,
-          address, member_type, is_active, sort_order, expert_id
+          address, member_type, member_type_id, is_active, sort_order, expert_id,
+          member_type_rec:bos_member_types ( id, name, base_type )
         )
       `)
       .eq('meeting_id', meetingId)
@@ -141,6 +145,8 @@ export async function GET(
 interface AttendanceUpsertRecord {
   member_id: string;
   attendance_status: BosAttendanceStatus;
+  /** 'offline' | 'online' — anything else (or absent) is stored as offline. */
+  attendance_mode?: BosAttendanceMode;
   absence_reason?: string;
   ta_da_eligible?: boolean;
   institutions_id: string;
@@ -169,6 +175,10 @@ export async function POST(
       member_id: r.member_id,
       institutions_id: r.institutions_id,
       attendance_status: r.attendance_status,
+      // Whitelisted rather than passed through: the column carries a CHECK
+      // constraint, and a bad value would fail the whole batch (taking the
+      // user's attendance edits with it) instead of just this row.
+      attendance_mode: r.attendance_mode === 'online' ? 'online' : 'offline',
       absence_reason: r.absence_reason ?? null,
       ta_da_eligible: r.ta_da_eligible ?? false,
     }));
@@ -180,7 +190,8 @@ export async function POST(
         *,
         member:bos_members (
           id, display_name, display_designation, display_department, display_institution,
-          address, member_type, is_active, sort_order, expert_id
+          address, member_type, member_type_id, is_active, sort_order, expert_id,
+          member_type_rec:bos_member_types ( id, name, base_type )
         )
       `);
 
@@ -232,6 +243,7 @@ type AttendeeRow = {
   member_id: string;
   institutions_id: string;
   attendance_status: BosAttendanceStatus;
+  attendance_mode: BosAttendanceMode | null;
   ta_da_eligible: boolean;
   member: {
     staff_id: string | null;
@@ -259,6 +271,7 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
       member_id,
       institutions_id,
       attendance_status,
+      attendance_mode,
       ta_da_eligible,
       member:bos_members ( staff_id, expert_id, member_type, member_type_id )
     `)
@@ -266,13 +279,17 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
 
   if (attErr) throw attErr;
 
-  // Per-council rate settings (bos_ta_da_rates, 20260710130000): resolve the
-  // meeting's convening committee name and load the institution's configured
-  // rates for it, keyed by the MEMBER-TYPE NAME from the bos_member_types
-  // catalog (lower-cased). Missing rows (or a whole missing configuration)
-  // fall back to the flat SOP constants inside computeClaimAmountsWithRate —
-  // so this lookup failing must never block claim generation, hence the
-  // defensive try/catch.
+  // Rate settings (bos_ta_da_rates, 20260710130000): load the institution's
+  // configured rates keyed by the MEMBER-TYPE NAME from the bos_member_types
+  // catalog (lower-cased). Two tiers are read in one query and layered most-
+  // specific-last, per member type:
+  //
+  //   INSTITUTION_WIDE_COMMITTEE ('*') → applies to every council
+  //   the meeting's own committee name → overrides the above for that council
+  //
+  // Missing rows (or a whole missing configuration) fall back to the flat SOP
+  // constants inside computeClaimAmountsWithRate — so this lookup failing must
+  // never block claim generation, hence the defensive try/catch.
   const ratesByMemberType = new Map<string, TaDaRateOverride>();
   const memberTypeNameById = new Map<string, string>();
   try {
@@ -286,21 +303,45 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
     const meetingInstitutionId =
       (meetingRow as { institutions_id?: string | null } | null)?.institutions_id ?? null;
 
-    if (committeeName && meetingInstitutionId) {
+    // Institution-wide rates apply even to a meeting with no convening
+    // committee, so the institution alone is enough to run this lookup.
+    if (meetingInstitutionId) {
       // CAS-aware: rate rows may be stored under either Aided/SF sibling UUID.
       const instIds = await casExpandedIds(admin, meetingInstitutionId, []);
+      // `or` keeps both tiers in a single round-trip. The sentinel uses `eq`,
+      // NOT `ilike` — PostgREST rewrites '*' to '%' inside like/ilike, so an
+      // ilike term would match every council's rows instead of the sentinel.
+      // Real names keep ilike (case-insensitive exact match, no wildcards).
+      // Values are quoted because a council name may contain a comma, which
+      // separates PostgREST `or` terms — embedded quotes are escaped likewise.
+      const orTerms = [`committee_name.eq."${INSTITUTION_WIDE_COMMITTEE}"`];
+      if (committeeName) {
+        orTerms.push(`committee_name.ilike."${committeeName.replace(/"/g, '\\"')}"`);
+      }
       const { data: rateRows } = await admin
         .from('bos_ta_da_rates')
-        .select('member_type, honorarium_amount, ta_per_km')
+        .select(
+          'committee_name, member_type, honorarium_amount, honorarium_amount_online, ta_per_km, travel_basis, travel_flat_amount'
+        )
         .in('institutions_id', instIds)
-        .ilike('committee_name', committeeName) // case-insensitive exact match
+        .or(orTerms.join(','))
         .eq('is_active', true);
-      for (const r of (rateRows ?? []) as Array<{
-        member_type: string;
-        honorarium_amount: number;
-        ta_per_km: number;
-      }>) {
-        ratesByMemberType.set(r.member_type.trim().toLowerCase(), r);
+
+      const rows = (rateRows ?? []) as Array<
+        TaDaRateOverride & { committee_name: string; member_type: string }
+      >;
+      // Institution-wide first so a same-type council row overwrites it. Rows
+      // are partitioned rather than sorted: a council literally named '*' is
+      // impossible via the dropdown, so the sentinel test is unambiguous.
+      for (const r of rows) {
+        if (isInstitutionWideCommittee(r.committee_name)) {
+          ratesByMemberType.set(r.member_type.trim().toLowerCase(), r);
+        }
+      }
+      for (const r of rows) {
+        if (!isInstitutionWideCommittee(r.committee_name)) {
+          ratesByMemberType.set(r.member_type.trim().toLowerCase(), r);
+        }
       }
     }
 
@@ -361,8 +402,8 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
   // Per the 2026-05-21 SOP refinement: ANY present member receives a claim.
   // ta_da_eligible is no longer a gate — the column is preserved for
   // historical/reporting reasons, but auto-claim generation runs purely off
-  // attendance status. Amounts come from the council's configured rate row
-  // for the member's type when one exists (ratesByMemberType above), else
+  // attendance status. Amounts come from the member type's resolved rate row —
+  // council override, else institution-wide (ratesByMemberType above), else
   // computeClaimAmountsWithRate falls back to the flat SOP shape (external =
   // honorarium + TA, internal = honorarium only). Internal-vs-external:
   // staff_id WINS — a member with a staff record is internal (no TA, no
@@ -393,9 +434,13 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
         : undefined;
       const rateKey = (catalogName ?? labelFallback ?? '').trim().toLowerCase();
       const rate = rateKey ? ratesByMemberType.get(rateKey) ?? null : null;
+      // Mode drives which sitting charge applies and whether travel is paid at
+      // all (online → zero). Legacy rows predating 20260805120000 read back as
+      // the column's 'offline' default, so their amounts are unchanged.
       const amounts = computeClaimAmountsWithRate(rate, {
         isExternal,
         oneWayKm,
+        mode: a.attendance_mode ?? 'offline',
       });
       toInsert.push({
         institutions_id: a.institutions_id,

@@ -49,13 +49,27 @@ export class ProblemBankService extends BaseService {
       query = query.eq('status', filters.status);
     }
     if (filters?.institution_id) {
-      query = query.eq('institution_id', filters.institution_id);
+      // A NULL institution_id means "shared across the platform", not
+      // "belongs to nobody". The list API always passes the caller's
+      // institution (app/api/startup-studio/problem-bank/route.ts), so a
+      // strict equality check made every unscoped row invisible to EVERY
+      // user — 7 newspaper-sourced problems sat in the table while the page
+      // read "No problems found". A civic problem from the local paper is
+      // genuinely not owned by one college; it belongs to the shared pool.
+      query = query.or(
+        `institution_id.eq.${filters.institution_id},institution_id.is.null`
+      );
     }
     if (filters?.event_id) {
       query = query.eq('event_id', filters.event_id);
     }
     if (filters?.min_severity != null) {
-      query = query.gte('severity', filters.min_severity);
+      // The column is severity_rating. 'severity' has never existed on
+      // ss_problem_bank, so this filter sent an unknown column to Postgres
+      // and returned HTTP 500 every time it was used — the same drift that
+      // made four theme values 500 in #2977, and unreachable for the same
+      // reason: an empty table cannot fail a filter.
+      query = query.gte('severity_rating', filters.min_severity);
     }
     if (filters?.search) {
       const escaped = sanitizeSearch(filters.search);

@@ -24,31 +24,28 @@ import {
   Filter,
 } from 'lucide-react';
 import { useProblems } from '@/hooks/startup-studio';
+import { ApiError } from '@/lib/api/client';
+import { PROBLEM_THEMES, type ProblemTheme } from '@/types/startup-studio';
 
-const THEMES = [
-  'all',
-  'healthcare',
-  'education',
-  'agriculture',
-  'fintech',
-  'environment',
-  'logistics',
-  'social',
-  'energy',
-  'other',
-];
+// Built from the enum itself — see PROBLEM_THEMES. The previous hardcoded
+// list offered four themes the database has never had (fintech, logistics,
+// social, energy), each of which returned HTTP 500 when selected, and hid
+// three it does have (community, operations, productivity).
+const THEMES = ['all', ...PROBLEM_THEMES];
 
 const STATUSES = ['all', 'open', 'claimed', 'in_progress', 'solved', 'archived'];
 
-const THEME_COLORS: Record<string, string> = {
+// One colour per real enum value. Record<ProblemTheme, string> (not
+// Record<string, string>) so adding a theme to the enum without a colour is a
+// compile error rather than an unstyled chip discovered in production.
+const THEME_COLORS: Record<ProblemTheme, string> = {
   healthcare: 'bg-red-100 text-red-800',
   education: 'bg-blue-100 text-blue-800',
   agriculture: 'bg-green-100 text-green-800',
-  fintech: 'bg-amber-100 text-amber-800',
   environment: 'bg-emerald-100 text-emerald-800',
-  logistics: 'bg-purple-100 text-purple-800',
-  social: 'bg-pink-100 text-pink-800',
-  energy: 'bg-orange-100 text-orange-800',
+  community: 'bg-pink-100 text-pink-800',
+  operations: 'bg-purple-100 text-purple-800',
+  productivity: 'bg-amber-100 text-amber-800',
   other: 'bg-gray-100 text-gray-800',
 };
 
@@ -59,6 +56,57 @@ const STATUS_COLORS: Record<string, string> = {
   solved: 'bg-purple-100 text-purple-800',
   archived: 'bg-gray-100 text-gray-800',
 };
+
+// Every failure used to render "Failed to load problems. Please try
+// refreshing the page." — including the failures where refreshing can never
+// work: a signed-out session, a missing permission, or a filter naming a
+// value the problem bank has no such thing as. Telling someone to refresh a
+// request that is structurally impossible costs them minutes and costs
+// support a ticket. So say which of the two it is, and say what went wrong.
+function describeLoadError(error: unknown): {
+  headline: string;
+  detail: string;
+} {
+  const status = error instanceof ApiError ? error.status : undefined;
+  const serverMessage =
+    error instanceof Error && error.message ? ` (${error.message})` : '';
+
+  // No status at all means the request never reached the server.
+  if (status === undefined) {
+    return {
+      headline: 'Could not reach the server.',
+      detail: 'Check your internet connection, then try again.',
+    };
+  }
+  if (status === 401) {
+    return {
+      headline: 'You have been signed out.',
+      detail: 'Sign in again to open the problem bank. Refreshing will not help.',
+    };
+  }
+  if (status === 403) {
+    return {
+      headline: 'Your account cannot open the problem bank.',
+      detail:
+        'This page needs the Startup Studio problem-bank permission. Ask a ' +
+        'Startup Studio coordinator to grant it — refreshing will not help.',
+    };
+  }
+  if (status < 500) {
+    return {
+      headline: 'This search cannot be run.',
+      detail:
+        `The filters being asked for do not exist in the problem bank${serverMessage}. ` +
+        'Clear the filters and search again — refreshing will not help.',
+    };
+  }
+  return {
+    headline: 'The problem bank could not be loaded.',
+    detail:
+      `Something went wrong on our side, not yours${serverMessage}. Trying ` +
+      'again in a minute may work; if it keeps failing, report it.',
+  };
+}
 
 export function ProblemsList() {
   const [search, setSearch] = useState('');
@@ -81,11 +129,12 @@ export function ProblemsList() {
   );
 
   if (error) {
+    const { headline, detail } = describeLoadError(error);
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          Failed to load problems. Please try refreshing the page.
+          <span className="font-medium">{headline}</span> {detail}
         </AlertDescription>
       </Alert>
     );
@@ -219,7 +268,7 @@ export function ProblemsList() {
                     </TableCell>
                     <TableCell>
                       <span className="capitalize">
-                        {problem.severity ?? '-'}
+                        {problem.severity_rating ?? '-'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">

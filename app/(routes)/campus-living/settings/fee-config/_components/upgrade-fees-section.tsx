@@ -33,6 +33,10 @@ import { UpgradeFeeDialog } from './upgrade-fee-dialog';
 const inr = (n: number | null) =>
   n != null ? `₹${Number(n).toLocaleString('en-IN')}` : '—';
 
+/** Payable after discount. net_amount is generated in Postgres; fall back to the
+ *  gross so a row written before the discount migration still renders. */
+const netOf = (r: UpgradeFeeRow) => r.net_amount ?? r.amount;
+
 interface Props {
   hostelYearId: string;
   canEdit: boolean;
@@ -105,7 +109,30 @@ function UpgradeTable({
                   </div>
                   <div className="text-xs text-muted-foreground">{inr(r.to_base_fee)}</div>
                 </TableCell>
-                <TableCell className="font-semibold">{inr(r.amount)}</TableCell>
+                <TableCell>
+                  {netOf(r) < r.amount ? (
+                    <div className="space-y-1">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs text-muted-foreground line-through">
+                          {inr(r.amount)}
+                        </span>
+                        <span className="font-semibold">
+                          {netOf(r) === 0 ? 'Free' : inr(netOf(r))}
+                        </span>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className="border-emerald-500 text-emerald-700 dark:text-emerald-400"
+                      >
+                        {r.discount_type === 'percent'
+                          ? `${r.discount_value}% off`
+                          : `${inr(r.amount - netOf(r))} off`}
+                      </Badge>
+                    </div>
+                  ) : (
+                    <span className="font-semibold">{inr(r.amount)}</span>
+                  )}
+                </TableCell>
                 <TableCell>
                   <Badge variant={r.is_active ? 'default' : 'outline'}>
                     {r.is_active ? 'Active' : 'Inactive'}
@@ -242,7 +269,10 @@ export function UpgradeFeesSection({ hostelYearId, canEdit }: Props) {
                     {pendingDelete.from_name} → {pendingDelete.to_name}
                   </span>{' '}
                   upgrade fee of{' '}
-                  <span className="font-medium text-foreground">{inr(pendingDelete.amount)}</span>.
+                  <span className="font-medium text-foreground">
+                    {inr(netOf(pendingDelete))}
+                  </span>
+                  .
                   Residents upgrading this pair will then fall back to the fee difference. This
                   cannot be undone.
                 </>

@@ -685,7 +685,7 @@ export class FacultyTimetableService {
           staff_id,
           designation,
           department:departments(id, department_name),
-          institution:institutions(id, name)
+          institution:institutions!staff_institution_id_fkey(id, name)
         `
         )
         .or(`email.eq.${user.email},institution_email.eq.${user.email}`)

@@ -208,9 +208,9 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
     }
   };
 
-  // DOCX twin of generateMinutes — same payload shape, different renderer. The
-  // module is lazy-imported so the docx library (~300KB gzipped) doesn't ship
-  // in the initial bundle for users who never download a Word doc.
+  // DOCX twin of generateMinutes — same content, different renderer. The module
+  // is lazy-imported so the docx library (~300KB gzipped) doesn't ship in the
+  // initial bundle for users who never download a Word doc.
   const generateMinutesWord = async () => {
     const [{ generateMinutesDocx }, header] = await Promise.all([
       import('@/lib/utils/bos/meeting-minutes-docx'),

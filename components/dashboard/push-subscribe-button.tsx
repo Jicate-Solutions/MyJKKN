@@ -4,7 +4,7 @@
  * Dashboard v2 — Push Subscribe Button
  *
  * Client component. Handles:
- *   1. Service worker registration (/sw-dashboard.js)
+ *   1. Service worker registration (/sw-dashboard.js at scope /sw-dashboard-scope/)
  *   2. Notification permission prompt
  *   3. Push subscription (VAPID-based)
  *   4. POST to /api/dashboard/push-subscribe to persist
@@ -22,6 +22,39 @@
 import { useCallback, useEffect, useState } from 'react';
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'idle' | 'subscribed' | 'working' | 'error';
+
+const SW_DASHBOARD_URL = '/sw-dashboard.js';
+// DEDICATED narrow scope no page lives under. Registering a root-path script
+// without a scope option defaults to scope '/', which contends with the main
+// PWA worker (/sw.js) — two registrations cannot share a scope, so whichever
+// registered later replaced control. Push does not need page control:
+// pushManager operates on the registration object, so a narrow scope is safe.
+// (Same pattern as /parent-sw.js at scope '/parent' — hooks/parent/use-parent-push.ts.)
+const SW_DASHBOARD_SCOPE = '/sw-dashboard-scope/';
+
+/**
+ * Resolve the dashboard push registration at its dedicated scope, registering
+ * it if needed, and wait for it to be active before any pushManager call.
+ * register() is idempotent for an identical script+scope pair, so this is
+ * safe to call from bootstrap and both button handlers. Never uses
+ * navigator.serviceWorker.ready — that resolves the registration controlling
+ * the PAGE (root scope, i.e. /sw.js), not this one.
+ */
+async function getDashboardRegistration(): Promise<ServiceWorkerRegistration> {
+  const reg = await navigator.serviceWorker.register(SW_DASHBOARD_URL, {
+    scope: SW_DASHBOARD_SCOPE
+  });
+
+  if (reg.active) return reg;
+  await new Promise<void>((resolve) => {
+    const sw = reg.installing || reg.waiting;
+    if (!sw) return resolve();
+    sw.addEventListener('statechange', () => {
+      if (sw.state === 'activated' || sw.state === 'redundant') resolve();
+    });
+  });
+  return reg;
+}
 
 // Convert VAPID public key from base64url to Uint8Array (required by pushManager.subscribe)
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -55,9 +88,7 @@ export function PushSubscribeButton({
 
     (async () => {
       try {
-        const reg =
-          (await navigator.serviceWorker.getRegistration('/sw-dashboard.js')) ??
-          (await navigator.serviceWorker.register('/sw-dashboard.js'));
+        const reg = await getDashboardRegistration();
         // Best-effort update check. If the registration was invalidated by
         // another tab or a hot reload between register() and update(), the
         // browser throws "Not found" — that's transient, not fatal. Push
@@ -99,7 +130,7 @@ export function PushSubscribeButton({
           return;
         }
       }
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await getDashboardRegistration();
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
@@ -108,7 +139,9 @@ export function PushSubscribeButton({
       const res = await fetch('/api/dashboard/push-subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription: sub.toJSON() })
+        // `deliberate` is what clears a previous opt-out. It is set here, on a
+        // button the person pressed, and nowhere that runs on a page load.
+        body: JSON.stringify({ subscription: sub.toJSON(), deliberate: true })
       });
       const body = await res.json();
       if (!res.ok || !body.ok) throw new Error(body.error ?? 'subscribe_failed');
@@ -126,7 +159,7 @@ export function PushSubscribeButton({
   const handleDisable = useCallback(async () => {
     setState('working');
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await getDashboardRegistration();
       const sub = await reg.pushManager.getSubscription();
       if (!sub) {
         setState('idle');

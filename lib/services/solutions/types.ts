@@ -151,6 +151,47 @@ export interface ClientReferral extends BaseEntity {
 }
 
 // ============================================
+// PROPOSAL INTERFACES
+// ============================================
+
+export type ProposalStatus = 'draft' | 'sent' | 'approved' | 'signed' | 'rejected';
+
+export interface Proposal extends BaseEntity {
+  client_id: string;
+  prospect_id?: string;
+  solution_id?: string;
+  title: string;
+  amount_inr?: number;
+  status: ProposalStatus;
+  sent_at?: string;
+  approved_at?: string;
+  signed_at?: string;
+  notes?: string;
+  file_url?: string;
+  created_by?: string;
+}
+
+export interface CreateProposalInput {
+  client_id: string;
+  prospect_id?: string;
+  solution_id?: string;
+  title: string;
+  amount_inr?: number;
+  notes?: string;
+  file_url?: string;
+  created_by?: string;
+}
+
+export interface UpdateProposalInput {
+  title?: string;
+  amount_inr?: number | null;
+  prospect_id?: string | null;
+  solution_id?: string | null;
+  notes?: string;
+  file_url?: string;
+}
+
+// ============================================
 // PROSPECT INTERFACES
 // ============================================
 
@@ -412,14 +453,28 @@ export interface BugReport extends BaseEntity {
   screenshots_urls?: string[];
 }
 
+/**
+ * Refusal message for the Solutions Hub's own delivery tables
+ * (sh_solution_phases / sh_phase_deployments / sh_builder_assignments).
+ *
+ * Per the 2026-08-14 boundary ruling these tables are RETIRED IN PLACE: real
+ * delivery lives in `projects` / `project_tasks` / `project_members`. Reads are
+ * kept so the existing screens render an honest empty state; new writes are
+ * refused explicitly so a second delivery mechanism cannot come back to life.
+ */
+export const RETIRED_DELIVERY_SURFACE_MESSAGE =
+  'Solutions Hub delivery tracking is retired. Deployments are no longer recorded here — track delivery in the Projects module instead.';
+
 export interface PhaseDeployment extends BaseEntity {
   phase_id: string;
   environment: 'development' | 'staging' | 'production';
-  version?: string;
+  /** Column is `deployment_number` (integer) in sh_phase_deployments (there is no `version`). */
+  deployment_number?: number;
   vercel_url?: string;
   supabase_project_id?: string;
   custom_domain?: string;
-  deployed_date?: string;
+  /** Column is `deployed_at` in sh_phase_deployments (there is no `deployed_date`). */
+  deployed_at?: string;
   deployed_by?: string;
   status: string;
 }
@@ -765,10 +820,22 @@ export interface PublicationContributor extends BaseEntity {
 }
 
 /**
- * All 10 JKKN accreditation / ranking / regulatory bodies per Compliance
- * Unification Program (specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md).
- * Values are UPPERCASE to match sh_accreditation_metrics.metric_type and
- * quality_evidence_mappings.body_code CHECK constraints.
+ * Every JKKN accreditation / ranking / regulatory body. Values are UPPERCASE
+ * to match `sh_accreditation_metrics.metric_type` and the `body_code` column
+ * on five tables.
+ *
+ * ⚠️ THIS UNION IS A CONVENIENCE, NOT THE SOURCE OF TRUTH. From migration
+ * 20260816010000 the authority is the `accreditation_bodies` table, and the
+ * five `body_code` CHECK constraints that used to enumerate ten codes are
+ * foreign keys to it — precisely so a sixteenth body is one INSERT rather than
+ * a migration against five tables plus a deploy of this file. Code that reads
+ * bodies at runtime should read the registry (`useAccreditationBodyRegistry`)
+ * and treat an unknown code as displayable, not invalid.
+ *
+ * The union stays because ~40 call sites type a literal against it, and it is
+ * still useful for catching a typo in a hardcoded 'NACC'. It is widened here
+ * to the fifteen the Director locked on 2026-08-06 — the original ten plus
+ * NCAHP, CBSE, MATRIC, ABET and THE.
  */
 export type AccreditationBodyCode =
   | 'NAAC'
@@ -780,7 +847,13 @@ export type AccreditationBodyCode =
   | 'INC'
   | 'AICTE'
   | 'NCTE'
-  | 'UGC';
+  | 'UGC'
+  // Added 2026-08-06. None of these five has any metric defined yet.
+  | 'NCAHP'
+  | 'CBSE'
+  | 'MATRIC'
+  | 'ABET'
+  | 'THE';
 
 export interface AccreditationMetric extends BaseEntity {
   metric_type: AccreditationBodyCode;

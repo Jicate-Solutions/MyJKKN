@@ -7,8 +7,10 @@
  */
 
 import { OnboardingTableServer } from './onboarding-table-server';
+import { onboardingAdmissionYearSchema } from './data-table-schema';
 import { getOnboardingLearners } from '../_data/get-onboarding-learners';
 import type { OnboardingTier, MissingField } from '@/types/learner-onboarding';
+import { isOnboardingStatus } from '@/types/learner-onboarding';
 
 interface OnboardingContentProps {
   searchParams: {
@@ -41,12 +43,23 @@ export async function OnboardingContent({ searchParams, tier }: OnboardingConten
   const semester_id = (searchParams.semester_id as string) || undefined;
   const section_id = (searchParams.section_id as string) || undefined;
   const academic_year_id = (searchParams.academic_year_id as string) || undefined;
+  // Parsed, not cast: a non-numeric ?admission_year= must mean "all cohorts",
+  // never reach the id resolver as NaN and empty the table.
+  const admission_year = onboardingAdmissionYearSchema.parse(searchParams.admission_year);
   const gender = (searchParams.gender as string) || undefined;
+  const accommodation_type_id = (searchParams.accommodation_type_id as string) || undefined;
   const missing_field = (searchParams.missing_field as MissingField | undefined) || undefined;
+  // Guarded, not cast: an out-of-range ?lifecycle_status must mean "both",
+  // never reach `.in()` verbatim and silently return an empty table.
+  const rawStatus = searchParams.lifecycle_status;
+  const lifecycle_status = isOnboardingStatus(rawStatus) ? rawStatus : undefined;
+  // Passed through verbatim: the fetcher decides whether the key is a database
+  // column or one of the fee keys it sorts in JS, and falls back safely either
+  // way. Filtering the allow-list here as well would mean two places to update.
   const sortBy = (searchParams.sort_by as string) || 'first_name';
   const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'asc';
 
-  const { data, metadata } = await getOnboardingLearners({
+  const { data, metadata, paymentSummary } = await getOnboardingLearners({
     page,
     limit,
     search,
@@ -55,6 +68,7 @@ export async function OnboardingContent({ searchParams, tier }: OnboardingConten
     search_fields,
     tier,
     missing_field,
+    lifecycle_status,
     institution_id,
     degree_id,
     department_id,
@@ -62,10 +76,19 @@ export async function OnboardingContent({ searchParams, tier }: OnboardingConten
     semester_id,
     section_id,
     academic_year_id,
+    admission_year,
     gender,
+    accommodation_type_id,
     sortBy,
     sortOrder
   });
 
-  return <OnboardingTableServer initialData={data} metadata={metadata} tier={tier} />;
+  return (
+    <OnboardingTableServer
+      initialData={data}
+      metadata={metadata}
+      tier={tier}
+      paymentSummary={paymentSummary}
+    />
+  );
 }

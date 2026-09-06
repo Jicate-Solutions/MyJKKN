@@ -113,7 +113,11 @@ function buildColumns(
             isCas={casInstitutionIds?.has(row.original.institutions_id) ?? false}
             isCet={cetInstitutionIds?.has(row.original.institutions_id) ?? false}
           />
-          <SyllabusDocxDownloadButton syllabus={row.original} institutionName={institutionName} />
+          <SyllabusDocxDownloadButton
+            syllabus={row.original}
+            institutionName={institutionName}
+            isCas={casInstitutionIds?.has(row.original.institutions_id) ?? false}
+          />
           <SyllabusCloneButton syllabus={row.original} />
           <DataTableRowActions row={row} />
         </div>

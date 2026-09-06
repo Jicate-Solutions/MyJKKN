@@ -38,7 +38,10 @@ const categorySchema = z.object({
   is_active: z.boolean().default(true),
   // Added: 2026-05-15. When off, new staff in this category default to
   // login_enabled=false (view-only). Per-row override on staff still wins.
-  allows_login: z.boolean().default(true)
+  allows_login: z.boolean().default(true),
+  // Added: 2026-08-27. Unlike allows_login there is NO per-staff override —
+  // the category alone decides whether its people exist inside HR at all.
+  included_in_hr: z.boolean().default(true)
 });
 
 type FormValues = z.infer<typeof categorySchema>;
@@ -79,7 +82,8 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
       is_teaching: category?.is_teaching ?? false,
       shows_extended_profile: category?.shows_extended_profile ?? false,
       is_active: category?.is_active ?? true,
-      allows_login: category?.allows_login ?? true
+      allows_login: category?.allows_login ?? true,
+      included_in_hr: category?.included_in_hr ?? true
     }
   });
 
@@ -223,6 +227,31 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
                         Use this for labour-grade categories like Driver, Security,
                         Maintenance, Cooking Master, etc. Per-row override on staff
                         still wins.
+                      </div>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='included_in_hr'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                    <div className='space-y-0.5'>
+                      <FormLabel>Include in HR</FormLabel>
+                      <div className='text-sm text-muted-foreground'>
+                        When on, staff in this category take part in the HR module —
+                        attendance, leave, compensatory off and payroll. When off they
+                        never appear in HR lists, are skipped by the biometric import,
+                        and cannot raise leave or comp-off requests. Existing records
+                        are kept, so turning this back on restores them exactly.
                       </div>
                     </div>
                     <FormControl>

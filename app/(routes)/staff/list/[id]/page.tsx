@@ -27,9 +27,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useTabParam } from '@/hooks/use-tab-param';
 import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { useStaffWorkPattern } from '@/hooks/hr/use-work-patterns';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { getErrorMessage } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 import { PrintCardButton } from '@/components/id-cards/print-card-button';
+import { JkknIdChip } from '@/components/identity/jkkn-id-chip';
 
 interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -52,6 +56,11 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const [biometricMachine, setBiometricMachine] = useState<string | null>(null);
+  // Read-only: the pattern is assigned on /hr/admin/work-patterns. RLS lets a
+  // staff member see their own row and HR see their institution's, so an
+  // unauthorised viewer simply gets nothing here.
+  const { data: workPattern } = useStaffWorkPattern(staff?.id);
   const {
     canAccess,
     isSuperAdmin,
@@ -84,7 +93,10 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
         setStaff(data);
       } catch (err) {
         console.error('Error fetching staff:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch staff');
+        // Supabase errors are plain objects, not Error instances, so an
+        // `instanceof Error` test always falls through and replaces the real
+        // cause (RLS denial, PGRST code) with a generic string.
+        setError(getErrorMessage(err));
       } finally {
         setLoading(false);
       }
@@ -92,6 +104,34 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
 
     fetchStaff();
   }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
+
+  // Resolve the biometric machine's owning institution by name.
+  //
+  // This needs its own lookup because biometric_institution_id has no FK
+  // (dropped 2026-08-06), so PostgREST cannot embed it on the staff query. The
+  // effect is inert while the column is null — which is every staff row today —
+  // so it costs nothing until biometric codes are actually imported.
+  useEffect(() => {
+    const machineId = staff?.biometric_institution_id;
+    if (!machineId) {
+      setBiometricMachine(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        // 'all' is the entity-type scope; the default omits non-institution entities.
+        const list = await OrganizationService.getInstitutionNames(true, undefined, 'all');
+        if (cancelled) return;
+        setBiometricMachine(list?.find(i => i.id === machineId)?.name ?? null);
+      } catch (err) {
+        if (!cancelled) console.error('Error resolving biometric machine:', getErrorMessage(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [staff?.biometric_institution_id]);
 
   // Show loading when permissions or data are loading
   if (permissionsLoading || (loading && permissionsLoaded)) {
@@ -186,6 +226,12 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
               <p className='text-sm sm:text-base text-muted-foreground'>
                 Employee Details
               </p>
+              <JkknIdChip
+                kind='team_member'
+                refId={staff.id}
+                personName={`${staff.first_name} ${staff.last_name ?? ''}`.trim()}
+                className='mt-1'
+              />
             </div>
           </div>
           <div className='flex flex-wrap items-center gap-2 shrink-0'>
@@ -247,6 +293,15 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
                 <p className='text-sm text-muted-foreground'>
                   Staff ID: {staff.staff_id || 'Not Assigned'}
                 </p>
+                {workPattern && (
+                  <p className='text-sm text-muted-foreground'>
+                    Work pattern:{' '}
+                    <Badge variant='outline' className='align-middle'>
+                      {workPattern.pattern_name}
+                    </Badge>{' '}
+                    since {format(new Date(workPattern.effective_from), 'dd MMM yyyy')}
+                  </p>
+                )}
                 <Link
                   href={`mailto:${staff.institution_email}`}
                   className='block text-sm text-muted-foreground hover:text-primary break-all'
@@ -337,19 +392,59 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
             <div>
               <p className='font-medium'>Category</p>
               <p className='text-base text-muted-foreground'>
-                {staff.category?.category_name}
+                {staff.category?.category_name || 'Not Specified'}
               </p>
             </div>
             <div>
               <p className='font-medium'>Institution</p>
               <p className='text-base text-muted-foreground'>
-                {staff.institution?.name}
+                {staff.institution?.name || 'Not Specified'}
               </p>
             </div>
             <div>
               <p className='font-medium'>Department</p>
+              {/* 327 of 864 staff have no department_id — without a fallback
+                  this rendered as an unexplained blank. */}
               <p className='text-base text-muted-foreground'>
-                {staff.department?.department_name}
+                {staff.department?.department_name || 'Not Specified'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Employment Type</p>
+              <p className='text-base text-muted-foreground capitalize'>
+                {staff.employment_type?.replace(/_/g, ' ') || 'Not Specified'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Role</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.role_key || 'Not Specified'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Login Access</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.login_enabled ? 'Enabled' : 'Disabled (view-only record)'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Biometric Code</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.biometric_id || 'Not assigned'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Biometric Machine</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.biometric_institution_id
+                  ? biometricMachine ?? 'Resolving…'
+                  : 'Not assigned'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Bus Transport</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.bus_required ? 'Required' : 'Not required'}
               </p>
             </div>
           </CardContent>

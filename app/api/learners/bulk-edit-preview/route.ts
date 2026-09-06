@@ -26,6 +26,10 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   // SECTION 1: Basic Details
   'first_name': ['First Name', 'first_name', 'firstname'],
   'last_name': ['Last Name', 'last_name', 'lastname'],
+  // Header strings must match buildBulkEditColumns() byte-for-byte — mapping is
+  // by header NAME, so a rename silently drops the column from every upload.
+  'first_name_tamil': ['First Name (Tamil)', 'first_name_tamil'],
+  'last_name_tamil': ['Last Name (Tamil)', 'last_name_tamil'],
   'date_of_birth': ['Date of Birth', 'DOB', 'date_of_birth', 'dob'],
   'gender': ['Gender', 'gender'],
   'religion': ['Religion', 'religion'],
@@ -39,6 +43,9 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'caste': ['Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
+  'abc_id': ['ABC ID', 'abc_id', 'ABC'],
+  'emis': ['EMIS Number', 'EMIS', 'emis', 'emis_number'],
+  'umis': ['UMIS Number', 'UMIS', 'umis', 'umis_number'],
   'admission_year_id': ['Admission Year ID', 'admission_year_id'],
   'admission_year': ['Admission Year', 'admission_year'],
 
@@ -385,12 +392,23 @@ export async function POST(request: NextRequest) {
       // SECTION 1: Basic Details
       if (mappedData.first_name) sanitizedData.first_name = sanitizeValue(mappedData.first_name, 'text');
       if (mappedData.last_name) sanitizedData.last_name = sanitizeValue(mappedData.last_name, 'text');
+      // Trimmed, NOT run through sanitizeValue('text'): that upper-cases, and
+      // Tamil is a caseless script — upper-casing it is meaningless at best and
+      // risks perturbing a combining sequence. Must match bulk-edit-exited.
+      if (mappedData.first_name_tamil) sanitizedData.first_name_tamil = String(mappedData.first_name_tamil).trim();
+      if (mappedData.last_name_tamil) sanitizedData.last_name_tamil = String(mappedData.last_name_tamil).trim();
       if (mappedData.date_of_birth) sanitizedData.date_of_birth = sanitizeValue(mappedData.date_of_birth, 'date');
       if (mappedData.gender) sanitizedData.gender = sanitizeValue(mappedData.gender, 'text');
       if (mappedData.religion) sanitizedData.religion = sanitizeValue(mappedData.religion, 'text');
       if (mappedData.community) sanitizedData.community = sanitizeValue(mappedData.community, 'text');
       if (mappedData.caste) sanitizedData.caste = sanitizeValue(mappedData.caste, 'text');
       if (mappedData.aadhar_number) sanitizedData.aadhar_number = sanitizeValue(mappedData.aadhar_number, 'mobile');
+      // Upper-cased + whitespace-stripped, matching the form and the bulk
+      // upload. Sanitizing these as 'mobile' would strip every letter and
+      // silently reduce ED453871909686 to 453871909686.
+      if (mappedData.abc_id) sanitizedData.abc_id = String(mappedData.abc_id).replace(/\s+/g, '').toUpperCase();
+      if (mappedData.emis) sanitizedData.emis = String(mappedData.emis).replace(/\s+/g, '').toUpperCase();
+      if (mappedData.umis) sanitizedData.umis = String(mappedData.umis).replace(/\s+/g, '').toUpperCase();
       if (mappedData.blood_group) {
         // Same shared normalizer as bulk-edit-exited, so preview matches write.
         const normalized = normalizeDropdownValue(String(mappedData.blood_group), BLOOD_GROUP_VALUES);
