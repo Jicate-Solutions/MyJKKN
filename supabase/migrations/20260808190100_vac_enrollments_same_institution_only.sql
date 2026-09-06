@@ -165,6 +165,10 @@ COMMENT ON FUNCTION public.fn_vac_may_enrol_in_course(uuid) IS
 -- new function, SEPARATELY from PUBLIC. Revoking only PUBLIC leaves that direct
 -- grant in place; revoking only anon is a no-op while anon inherits PUBLIC.
 -- Both are required.
+-- ci:allow-secdef-authenticated self-scoped: the function reads auth.uid() itself and takes no
+-- caller identity; it returns only a boolean about the CALLER's own institution match with
+-- p_course_id. It is evaluated inside the vac_enrollments RESTRICTIVE INSERT/UPDATE policies'
+-- WITH CHECK, so every signed-in learner who may insert an enrolment must be able to call it.
 REVOKE EXECUTE ON FUNCTION public.fn_vac_may_enrol_in_course(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_vac_may_enrol_in_course(uuid) TO authenticated;
 
