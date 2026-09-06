@@ -175,6 +175,17 @@ export function RoomSharingChoiceCard({
             </div>
           )}
 
+          {/* Mess is flat per learner and does not change with occupancy, so it
+              is in neither figure above — saying so stops the room charges being
+              read as her whole hostel bill. Carried over from the sole-occupant
+              card this one replaced (PR #2994). */}
+          {cost.ready && (
+            <p className='text-xs text-muted-foreground'>
+              These are room charges only. Your mess (food) fee is separate and stays the
+              same however many people share the room.
+            </p>
+          )}
+
           {/* Deadline. Absent while no settle window is open, which is the
               normal state until the mechanism is armed — so no countdown is
               shown rather than an invented one. */}

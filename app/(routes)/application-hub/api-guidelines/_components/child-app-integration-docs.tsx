@@ -2547,7 +2547,7 @@ export default function Dashboard() {
         <h2>Your Content</h2>
         
         {/* Only show create button if user has permission */}
-        <PermissionGuard resource="content" action="write">
+        <PermissionGuard resource="content" action="write" fallback={null}>
           <button
             onClick={() => {
               createContent.mutate({

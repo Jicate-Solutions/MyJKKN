@@ -31,7 +31,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CalendarRange, CheckCircle2, Clock, ListChecks, UserX } from 'lucide-react';
+import { CalendarRange, CalendarX, CheckCircle2, Clock, ListChecks, UserX } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -47,12 +47,12 @@ import { useCurrentEmployee } from '@/hooks/hr/use-regularization';
 import {
   useAttendanceMonthsWithData,
   useAttendanceMonthView,
+  type AttendancePeriodResolution,
 } from '@/hooks/hr/use-attendance-records';
 import {
   currentMonthKey,
   isPeriodClosed,
   monthLabel,
-  type AttendancePeriodState,
   type MonthKey,
 } from '@/types/hr-attendance';
 import { cn } from '@/lib/utils';
@@ -82,6 +82,19 @@ export default function MyAttendancePage() {
   const { data: employee, isLoading: empLoading } = useCurrentEmployee();
 
   const canViewAll = isSuperAdmin || can('hr.attendance.view_all');
+  const canRegularizeSelf = isSuperAdmin || can('hr.attendance.regularize_self');
+  // MIRRORS hr_attendance_periods_select EXACTLY. RLS denial returns zero rows,
+  // not an error, so without this a viewer who cannot read the table at all
+  // would be told the month "has not been closed" — a confident wrong answer
+  // about a month that may well be closed. Checking the same predicate the
+  // policy checks costs no extra request: usePermissions is already loaded.
+  const canReadPeriod =
+    isSuperAdmin || can('hr.attendance.view_self') || can('hr.attendance.period.view');
+  // Whoever can go and do something about it gets the badge as a link.
+  const canManagePeriod =
+    isSuperAdmin ||
+    can('hr.attendance.period.view') ||
+    can('hr.attendance.period.manage');
 
   const tab = searchParams.get('tab') === 'calendar' ? 'calendar' : 'log';
   const month = readMonthParam(searchParams.get('month'));
@@ -108,8 +121,9 @@ export default function MyAttendancePage() {
   const staffId = selectedStaff?.id ?? employee?.id ?? null;
   const viewingOther = Boolean(selectedStaff && selectedStaff.id !== employee?.id);
 
-  const { logDays, weeks, summary, isLoading, isFetching, isEmptyMonth, period, refresh } =
-    useAttendanceMonthView(staffId, month);
+  const {
+    logDays, weeks, summary, isLoading, isFetching, isEmptyMonth, period, periodResolution, refresh,
+  } = useAttendanceMonthView(staffId, month);
   const { data: monthsWithData } = useAttendanceMonthsWithData(staffId);
 
   const gateLoading = permLoading || empLoading;
@@ -182,7 +196,13 @@ export default function MyAttendancePage() {
                 </TabsList>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <PeriodStatusBadge period={period} month={month} />
+                  <PeriodStatusBadge
+                    resolution={periodResolution}
+                    month={month}
+                    lockedAt={period?.locked_at ?? null}
+                    canRead={canReadPeriod}
+                    canManage={canManagePeriod}
+                  />
                   <AttendanceMonthPicker
                     month={month}
                     onMonthChange={(m) => setParam('month', m)}
@@ -235,23 +255,47 @@ export default function MyAttendancePage() {
  * close the month saw an unchanged screen and could not tell a finalised month
  * from one still being imported — "Not processed: 0" reads the same either way,
  * because it counts days with no record, not whether the month is signed off.
+ *
+ * THE MISSING THIRD STATE (2026-09-05). This rendered Closed, Open, or nothing
+ * at all, and "nothing at all" was doing the most work: on 2026-09-05
+ * hr_attendance_periods held ONE row in the whole table (JKKN Main Office,
+ * July 2026), so every other institution-month — including August, which has
+ * 8,370 imported records — produced a silent badge. A month nobody has ever
+ * closed looked exactly like a month whose badge had not loaded, which is why
+ * blocked August payroll reads as a payroll fault rather than a missing input.
+ * `not_created` now says so and points at the screen that fixes it.
+ *
+ * It is stated ONLY when the page is entitled to state it: `canRead` mirrors
+ * hr_attendance_periods_select, because an RLS denial returns zero rows rather
+ * than an error and would otherwise be reported as "never closed".
  */
 function PeriodStatusBadge({
-  period,
+  resolution,
   month,
+  lockedAt,
+  canRead,
+  canManage,
 }: {
-  period: AttendancePeriodState | null;
+  resolution: AttendancePeriodResolution;
   month: MonthKey;
+  lockedAt: string | null;
+  canRead: boolean;
+  canManage: boolean;
 }) {
-  if (!period) return null;
+  // 'unresolved' = nothing imported for this month, so there is no institution
+  // to ask about and the query never ran; 'unknown' = the read has not landed.
+  // Both are silence, exactly as before — the empty-month notice below already
+  // explains the first, and inventing a close state for either would be a
+  // guess dressed as a fact.
+  if (resolution === 'unresolved' || resolution === 'unknown') return null;
 
-  if (isPeriodClosed(period)) {
+  if (resolution === 'closed') {
     return (
       <span
         className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
         title={
-          period.locked_at
-            ? `${monthLabel(month)} was finalised on ${new Date(period.locked_at).toLocaleDateString('en-GB')}. Attendance for this month can no longer change.`
+          lockedAt
+            ? `${monthLabel(month)} was finalised on ${new Date(lockedAt).toLocaleDateString('en-GB')}. Attendance for this month can no longer change.`
             : undefined
         }
       >
@@ -261,8 +305,42 @@ function PeriodStatusBadge({
     );
   }
 
+  if (resolution === 'not_created') {
+    if (!canRead) return null;
+
+    const title =
+      `${monthLabel(month)} has no attendance period yet — HR has never closed this month, ` +
+      'so the day counts are still moving and payroll cannot read them. A period is created ' +
+      'by closing the month in HR › Attendance › Month Close; ask HR if that is not you.';
+
+    const body = (
+      <>
+        <CalendarX className="h-3.5 w-3.5" />
+        No attendance period
+      </>
+    );
+
+    const className =
+      'inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300';
+
+    // Only linked for someone who can actually open that screen; for everyone
+    // else the title names who to ask instead of offering a dead end.
+    return canManage ? (
+      <Link href="/hr/attendance/close" className={cn(className, 'hover:underline')} title={title}>
+        {body}
+      </Link>
+    ) : (
+      <span className={className} title={title}>
+        {body}
+      </span>
+    );
+  }
+
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground"
+      title={`${monthLabel(month)} has been opened but not closed. Attendance for this month can still change.`}
+    >
       <Clock className="h-3.5 w-3.5" />
       Open
     </span>

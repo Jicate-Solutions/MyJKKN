@@ -10399,3 +10399,25 @@ CREATE POLICY cl_girls_bc_reconcile_log_read
     public.is_super_admin()
     OR public.user_has_permission('campus_living.upgrades.manage')
   )
+-- Updated: 2026-08-21 - AIU evidence trail policies
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
+-- Learner reads/inserts/updates ONLY their own rows; admin read for AIU
+-- marking; deliberately NO DELETE policy (and no DELETE grant).
+ALTER TABLE public.aiu_prompt_trails ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY aiu_trails_select ON public.aiu_prompt_trails
+  FOR SELECT TO authenticated
+  USING (
+    learner_id = (SELECT auth.uid())
+    OR is_super_admin()
+    OR is_admin()
+  )
+
+CREATE POLICY aiu_trails_insert_own ON public.aiu_prompt_trails
+  FOR INSERT TO authenticated
+  WITH CHECK (learner_id = (SELECT auth.uid()))
+
+CREATE POLICY aiu_trails_update_own ON public.aiu_prompt_trails
+  FOR UPDATE TO authenticated
+  USING (learner_id = (SELECT auth.uid()))
+  WITH CHECK (learner_id = (SELECT auth.uid()))

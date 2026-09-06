@@ -75,7 +75,7 @@ const ORCHESTRATION_RUN_AI_ROUTINES: AIRoutine[] = ORCHESTRATION_MODULES.map(({ 
     'DB writes to orchestration_actions (status transitions + result summary) and orchestration_prs (mergeable/ci_state refresh) only. No notifications, no GitHub writes.',
   safeToManualTrigger: true,
   notes:
-    'Auth: Authorization: Bearer <CRON_SECRET> only (constant-time), same pattern as every other /api/cron/* route. Needs a GitHub read token (CRON_GITHUB_TOKEN / GITHUB_TOKEN / GH_TOKEN) with pull-requests:read + checks:read on Jicate-Solutions/MyJKKN; absent token or missing orchestration_* tables both degrade to an honest failed result, never a fabricated success.',
+    'Auth: Authorization: Bearer <CRON_SECRET> only (constant-time), same pattern as every other /api/cron/* route. Needs a GitHub read token (CRON_GITHUB_TOKEN / GITHUB_TOKEN / GH_TOKEN, falling back to the ORCH_GITHUB_TOKEN the console already uses) with pull-requests:read + checks:read on Jicate-Solutions/MyJKKN; absent token or missing orchestration_* tables both degrade to an honest failed result, never a fabricated success.',
 }));
 
 export const AI_ROUTINES: AIRoutine[] = [

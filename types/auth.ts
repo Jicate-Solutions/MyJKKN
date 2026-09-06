@@ -97,9 +97,12 @@ export interface ProfileUpdate {
 // Custom role interface
 export type ModuleScope = 'own_records' | 'own_institution' | 'all_institutions';
 
+// NOTE: custom_roles has NO institution_id column and never has. Roles are
+// cluster-wide; only their SCOPE varies, via institution_scope ('all' | 'own')
+// plus the role_has_institution_access() RLS helper. Do not re-add a per-role
+// institution column here — it made every read of role.institution_id undefined.
 export interface CustomRole {
   id: string;
-  institution_id: string | null;
   role_key: string;
   role_name: string;
   description: string | null;
@@ -145,7 +148,7 @@ export interface CustomRoleCreate {
   description?: string | null;
   permissions?: Record<string, boolean>;
   is_system_role?: boolean;
-  institution_id?: string | null;
+  // Scope a new role with institution_scope — custom_roles has no institution_id.
   institution_scope?: 'all' | 'own';
   module_scopes?: Partial<Record<string, ModuleScope>>;
 }

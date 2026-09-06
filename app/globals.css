@@ -143,7 +143,7 @@ body {
 
   .dark {
     /* ═══ Ultrahuman-Inspired Dark Cinema Theme ═══ */
-    /* 4-tier surface elevation: L0 (#050506) → L1 (#0A0A0C) → L2 (#141416) → L3 (#2A2A2E) */
+    /* 4-tier surface elevation: L0 (#050506) → L1 (#070708) → L2 (#131316) → L3 (#29292E) */
 
     /* L0 — Deepest background */
     --background: 240 10% 2%;
@@ -165,7 +165,7 @@ body {
     --secondary: 240 5% 17%;
     --secondary-foreground: 0 0% 90%;
 
-    /* Between L1 and L2 — subtle surface variation */
+    /* Above --card: L2 is 8%, this is 12% — sits between L2 and L3 */
     --muted: 240 5% 12%;
     --muted-foreground: 240 4% 63%;
 

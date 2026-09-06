@@ -71,27 +71,71 @@ name: Migration version collision
 # status check. It also keeps `npm ci` off the two guard jobs, which need only
 # bash, node and `gh`.
 #
-# The `paths:` filter gained two entries for the same class of reason. It
-# previously did not name this workflow file or the test file, so a pull request
-# that deleted the `cross-pr` job — or deleted its tests — did not trigger the
-# workflow and left no evidence in the checks UI. A guard should witness its own
-# removal. migration-rename-applied.yml already lists both; this now matches.
+# ─── WHY THERE IS NO `paths:` FILTER ─────────────────────────────────────────
+#
+# This workflow runs on EVERY pull request to main, including ones that touch no
+# SQL at all. That is deliberate and must not be "tidied up".
+#
+# Branch protection blocks a pull request until every REQUIRED context REPORTS.
+# A workflow that GitHub skips because of a `paths:` filter reports nothing at
+# all — not a pass, not a fail, no check run. So the moment one of the jobs below
+# is added to the required list, a `paths:` filter would leave every pull request
+# touching no migration permanently unmergeable, stuck on "Expected — waiting for
+# status to be reported". That is documented GitHub behaviour rather than a
+# quirk: a workflow skipped by path or branch filtering stays PENDING, whereas a
+# job skipped by a conditional reports SUCCESS.
+#
+# This mattered immediately. Branch protection was enabled on main for the first
+# time on 2026-09-04 and four contexts were made required — TypeCheck (PR-scoped),
+# JKKN terminology, Nav-config hrefs match page.tsx, No Radix SelectItem with
+# empty value. None of them carries a `paths:` filter. This guard could not join
+# them because of the filter that used to live here, which is the whole reason
+# the filter is gone: the guard against the failure that cost four months
+# (20260504_instasolver_substrate.sql sharing a version with
+# 20260504_ai_pulse_rls_hardening.sql, silently never applied) was the one guard
+# that could not be enforced.
+#
+# The cost of running anyway is paid where it is cheapest to skip:
+#
+#   · `audit` and `cross-pr` need a checkout regardless — both diff against the
+#     base branch — and both scripts ALREADY exit 0 the moment a PR adds no
+#     migration. The .mjs guard reports "0 migration file(s) added by this PR"
+#     and the cross-PR sweep returns at step 1, before its first API call.
+#     Nothing was added to make these two report; deleting the filter sufficed.
+#   · `guard-tests` is the only job with real setup cost (npm ci + vitest), so it
+#     decides IN-JOB whether this PR touches the guards' own files and prints an
+#     explicit notice when it does not. The job concludes SUCCESS either way.
+#     typecheck-pr-scoped.yml — a required check — gates its install and its tsc
+#     run behind a changed-files step for exactly this reason; this follows it.
+#
+# The path set `guard-tests` checks is deliberately the SAME set the `paths:`
+# filter used to name, so behaviour on a pull request that matches it is
+# unchanged. The only difference is what happens on one that does not:
+# previously no report at all, now an explicit passing one.
+#
+# That old filter named this workflow file and the test file so a pull request
+# deleting the `cross-pr` job — or its tests — would still trigger the workflow
+# and leave evidence in the checks UI. Running unconditionally is strictly
+# stronger: the guard now witnesses every pull request, including its own removal.
+#
+# __tests__/ci/check-migration-version-workflow-shape.test.ts locks this shape in
+# — no `paths:`, stable job names, and both test files named by exact path in the
+# vitest invocation below. Adding a job to the required list is an ADMIN action
+# and is NOT done from here.
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
-    paths:
-      - 'supabase/migrations/**'
-      - 'scripts/ci/check-migration-version-collision.mjs'
-      - 'scripts/ci/check-migration-version-cross-pr.sh'
-      - '__tests__/ci/check-migration-version-cross-pr.test.ts'
-      - '.github/workflows/migration-version-collision.yml'
+    # No `paths:` here, on purpose. See "WHY THERE IS NO `paths:` FILTER" above:
+    # a path-filtered workflow reports NOTHING, and a required context that never
+    # reports blocks every pull request forever.
 
 permissions:
   contents: read
   # Read-only. Required by the `cross-pr` job to enumerate open pull requests and
-  # their changed files. It grants nothing the `audit` job can act on.
+  # their changed files, and by `guard-tests` to read THIS pull request's file
+  # list. It grants nothing the `audit` job can act on.
   pull-requests: read
 
 jobs:
@@ -142,22 +186,82 @@ jobs:
     timeout-minutes: 8
 
     steps:
+      # Deliberately BEFORE the checkout, so a pull request that touches none of
+      # this machinery pays a few seconds and nothing else. `gh` is preinstalled
+      # on ubuntu-latest and needs only GH_TOKEN — no working tree.
+      #
+      # The pattern is the path set the workflow's `paths:` filter used to carry,
+      # so these tests run exactly as often as they did before this job started
+      # reporting on every pull request.
+      #
+      # It fails SAFE: if the file list cannot be read, the tests RUN. An
+      # unnecessary test run costs a minute; a silently skipped one is the exact
+      # failure this job was created to end — its 20 cases sat unnamed by any
+      # workflow, and therefore unexecuted, until 2026-09-03.
+      - name: Does this pull request touch the migration guards?
+        id: scope
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          files="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate \
+                     --jq '.[].filename' </dev/null 2>/dev/null)"
+          if [ -z "$files" ]; then
+            echo "::warning::Could not read this pull request's file list from the GitHub API. Running the guard tests anyway — this step fails safe."
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if printf '%s\n' "$files" | grep -qE '^(supabase/migrations/|scripts/ci/check-migration-version-|__tests__/ci/check-migration-version-|\.github/workflows/migration-version-collision\.yml$)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "::group::Files considered ($(printf '%s\n' "$files" | grep -c .))"
+          printf '%s\n' "$files" | head -50
+          echo "::endgroup::"
+
+      # The job still concludes SUCCESS here. That is the entire point: a skipped
+      # WORKFLOW reports nothing and blocks a required check forever, whereas a
+      # job that runs and decides there is nothing to do reports a real success.
+      - name: Nothing to exercise
+        if: steps.scope.outputs.relevant != 'true'
+        # Block scalar, not a plain one: the message contains a colon followed by
+        # a space, which a plain YAML scalar reads as a nested mapping key.
+        run: |
+          echo "::notice::This pull request touches no migration and none of the migration guards' own files, so their test suites were not exercised. Reporting success — see 'WHY THERE IS NO paths: FILTER' in .github/workflows/migration-version-collision.yml."
+
       - name: Checkout PR head
+        if: steps.scope.outputs.relevant == 'true'
         uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.relevant == 'true'
         with:
           node-version: '22'
           cache: npm
 
       - name: Install dependencies
+        if: steps.scope.outputs.relevant == 'true'
         run: npm ci --prefer-offline --no-audit --fund=false
 
-      # Drives the REAL script as a subprocess against a fixture standing in for
-      # the GitHub API and the base branch, so every verdict — pass, collision,
-      # rename, and each of the four fail-open skip paths — is exercised with no
-      # credentials and no network. Runs on forks and on PRs that add no
-      # migration, which is the point: the decision logic must be executed even
-      # when there is nothing to decide.
-      - name: Test the cross-PR guard
-        run: npx vitest run __tests__/ci/check-migration-version-cross-pr.test.ts
+      # Both files are named by EXACT PATH because this repository has no blanket
+      # vitest run — a test file nobody names is dead code, which is how the 20
+      # cross-PR cases went unexecuted for months.
+      #
+      # check-migration-version-cross-pr.test.ts drives the REAL script as a
+      # subprocess against a fixture standing in for the GitHub API and the base
+      # branch, so every verdict — pass, collision, rename, and each of the four
+      # fail-open skip paths — is exercised with no credentials and no network.
+      #
+      # check-migration-version-workflow-shape.test.ts asserts THIS file keeps the
+      # shape a required status check needs: no `paths:` filter, stable job names
+      # (branch protection matches on the name string), no two jobs publishing one
+      # name, and both test files still named here.
+      - name: Test the migration version guards
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          npx vitest run \
+            __tests__/ci/check-migration-version-cross-pr.test.ts \
+            __tests__/ci/check-migration-version-workflow-shape.test.ts

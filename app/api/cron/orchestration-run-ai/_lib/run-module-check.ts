@@ -92,6 +92,22 @@ function ciFromCheckRuns(runs: Array<{ status?: string; conclusion?: string }> |
 
 // ── main handler ────────────────────────────────────────────────────────
 
+/**
+ * Resolves the GitHub token this routine reads PR/CI state with.
+ *
+ * Order is deliberate: a least-privilege read-only token first, and the
+ * orchestration console's own ORCH_GITHUB_TOKEN only as a floor. Exported so
+ * the ORDER itself is testable — the failure this closes was silent, and the
+ * kind of thing a later edit reorders without noticing.
+ */
+export function resolveGithubToken(
+  env: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  return (
+    env.CRON_GITHUB_TOKEN || env.GITHUB_TOKEN || env.GH_TOKEN || env.ORCH_GITHUB_TOKEN
+  );
+}
+
 export async function runOrchestrationModuleCheck(
   request: NextRequest,
   moduleKey: string,
@@ -193,12 +209,23 @@ export async function runOrchestrationModuleCheck(
   // and should not be assumed to cover Jicate-Solutions/MyJKKN itself. This
   // routine needs its own read-only PAT (pull-requests:read, checks:read on
   // Jicate-Solutions/MyJKKN) set as CRON_GITHUB_TOKEN (or GITHUB_TOKEN /
-  // GH_TOKEN as a fallback if one is already configured server-side). Absent
-  // token → an honest 'failed', never a fabricated 'done'.
-  const token = process.env.CRON_GITHUB_TOKEN || process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  // GH_TOKEN as a fallback if one is already configured server-side).
+  //
+  // ORCH_GITHUB_TOKEN is accepted LAST, as a floor. The orchestration console
+  // already requires that token for its Merge button
+  // (lib/services/orchestration/github-merge.ts), and its scope
+  // (contents:write + pull_requests:write) strictly covers the reads this
+  // routine needs. Without this fallback the console needs TWO differently
+  // named GitHub tokens depending on which of its own buttons you press:
+  // configuring it correctly for Merge still leaves Run AI dead, and the error
+  // named three variables — none of them the one the other half of the same
+  // feature uses. Prefer a least-privilege read-only CRON_GITHUB_TOKEN when
+  // one exists; fall back rather than fail with the console's own token in
+  // hand. Absent every name → an honest 'failed', never a fabricated 'done'.
+  const token = resolveGithubToken();
   if (!token) {
     return markFailed(
-      'No GitHub token configured (CRON_GITHUB_TOKEN / GITHUB_TOKEN / GH_TOKEN) — cannot read PR/CI state.',
+      'No GitHub token configured (CRON_GITHUB_TOKEN / GITHUB_TOKEN / GH_TOKEN / ORCH_GITHUB_TOKEN) — cannot read PR/CI state.',
     );
   }
 

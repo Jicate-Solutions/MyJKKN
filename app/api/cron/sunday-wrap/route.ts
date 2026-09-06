@@ -11,8 +11,10 @@
 //   2. Enumerate active users by persona.
 //   3. For each user, compute their current composite score via the
 //      auth-bypass helper that matches their role (where available).
-//   4. Insert a notification row targeted at that user (priority='high',
+//   4. Fan out a notification to that user (priority='high',
 //      category='doctrines:sunday-wrap', idempotency_key guards repeats).
+//      Fan-out = a `notifications` row PLUS its `user_notifications` link row;
+//      without the link the card never reaches the bell.
 //   5. Send a web push via the shared push_subscriptions infrastructure.
 //
 // NO WhatsApp — explicit thrash-lock from Doctrines v1 spec.
@@ -27,6 +29,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { filterPushRecipients } from '@/lib/push/opt-out';
 import webpush from 'web-push';
 import { SUNDAY_WRAP_ANCHOR, buildIdempotencyKey } from '@/lib/habits/anchor-schedule';
 
@@ -79,6 +82,9 @@ export async function GET(request: NextRequest) {
     eligible_users: 0,
     wraps_created: 0,
     wraps_skipped_duplicate: 0,
+    // Link rows actually written. wraps_created counts composition; this counts
+    // DELIVERY. They diverge only if the fan-out half of the emit is broken.
+    wraps_delivered: 0,
     pushes_sent: 0,
     errors: [] as string[]
   };
@@ -97,23 +103,14 @@ export async function GET(request: NextRequest) {
     // Continue — stale rank data is better than skipping the wrap entirely.
   }
 
-  // Step 1.5 — Precompute Faculty + Student percentile cache (Task 11 Part B).
-  // Writes doctrines_percentile_cache rows for every eligible user cluster-wide,
-  // so the week's cold fn_cluster_rank_private calls hit the cache instead of
-  // the O(N²) live-compute path.
-  try {
-    const { data: precomputeResult, error: precomputeErr } = await serviceClient.rpc(
-      'fn_precompute_percentile_cache'
-    );
-    if (precomputeErr) throw precomputeErr;
-    results.percentile_precompute =
-      (precomputeResult as Record<string, unknown>) ?? { note: 'no-payload' };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[cron/sunday-wrap] Percentile precompute failed:', msg);
-    results.errors.push(`percentile precompute: ${msg}`);
-    // Non-fatal — live compute fallback still works.
-  }
+  // NOTE 2026-08-17 — the percentile precompute used to run HERE, ahead of the
+  // wrap. Measured against production it takes 79 SECONDS, and the AI-routine
+  // dispatcher aborts any routine at 120s, so two thirds of the budget was spent
+  // before a single wrap was written. It has moved to the END of this handler:
+  // it warms doctrines_percentile_cache for the week's later
+  // fn_cluster_rank_private calls, which this wrap does not use, so it is not an
+  // input to anything below. User-visible work goes first; the cache warm takes
+  // whatever time is left.
 
   // Step 2 — Enumerate Doctrines-persona users.
   const { data: users, error: usersErr } = await serviceClient
@@ -130,74 +127,140 @@ export async function GET(request: NextRequest) {
   const typedUsers = (users as WrapRow[]) ?? [];
   results.eligible_users = typedUsers.length;
 
-  // Step 3..5 — Per-user wrap compose + insert + push.
-  for (const user of typedUsers) {
-    const idempKey = buildIdempotencyKey(SUNDAY_WRAP_ANCHOR, week, user.id);
+  // Step 3 — Skip users who already have this week's wrap, in ONE query rather
+  // than one per user. Keys are deterministic (doctrines:<anchor>:<week>:<uuid>),
+  // so the whole week is a single prefix range.
+  const keyPrefix = `doctrines:${SUNDAY_WRAP_ANCHOR.key}:${week}:`;
+  const { data: existingRows, error: existingErr } = await serviceClient
+    .from('notifications')
+    .select('idempotency_key')
+    .like('idempotency_key', `${keyPrefix}%`);
 
-    // Idempotency — skip if a wrap for this user+week already exists.
-    const { data: existing } = await serviceClient
-      .from('notifications')
-      .select('id')
-      .eq('idempotency_key', idempKey)
-      .maybeSingle();
+  if (existingErr) {
+    console.error('[cron/sunday-wrap] idempotency scan failed:', existingErr);
+    results.errors.push(`idempotency scan: ${existingErr.message}`);
+    return NextResponse.json({ ...results, duration_ms: Date.now() - startTime }, { status: 500 });
+  }
 
-    if (existing) {
-      results.wraps_skipped_duplicate++;
+  const alreadySent = new Set(
+    ((existingRows as { idempotency_key: string }[]) ?? []).map((r) => r.idempotency_key)
+  );
+  const pending = typedUsers.filter(
+    (u) => !alreadySent.has(buildIdempotencyKey(SUNDAY_WRAP_ANCHOR, week, u.id))
+  );
+  results.wraps_skipped_duplicate = typedUsers.length - pending.length;
+
+  // Step 4 — Score every pending user. These RPCs are independent of each other,
+  // and running them strictly one-at-a-time was most of the wall clock: 6,813
+  // sequential calls do not fit in the dispatcher's 120s budget. Same RPCs, same
+  // results, just not serialised. The cap is deliberate — an unbounded Promise.all
+  // over thousands of users would open thousands of sockets at once.
+  const SCORE_CONCURRENCY = 20;
+  const scored: { user: WrapRow; score: number | null; bandLabel: string }[] = [];
+  for (let i = 0; i < pending.length; i += SCORE_CONCURRENCY) {
+    const slice = pending.slice(i, i + SCORE_CONCURRENCY);
+    const settled = await Promise.all(
+      slice.map(async (user) => ({ user, ...(await computeWrapScore(serviceClient, user)) }))
+    );
+    scored.push(...settled);
+  }
+
+  // Step 5 — Emit every wrap in batches instead of one INSERT per user. See
+  // fn_doctrines_emit_cards: notifications' unique index on idempotency_key is
+  // PARTIAL, so a plain .upsert({ onConflict: 'idempotency_key' }) raises 42P10.
+  const cards = scored.map(({ user, score, bandLabel }) => {
+    const scoreLine =
+      score != null ? ` Composite: ${score}/100${bandLabel ? ` (${bandLabel})` : ''}.` : '';
+    return {
+      title: 'Your Sunday Wrap',
+      body: `Week ${week} is in the books.${scoreLine} Open your dashboard for insights and next-week priorities.`,
+      url: '/dashboard',
+      icon: '/icons/icon-192x192.png',
+      created_by: user.id,
+      targeting: { user_ids: [user.id] },
+      priority: 'high',
+      category: `doctrines:${SUNDAY_WRAP_ANCHOR.key}`,
+      kind: 'work_item',
+      idempotency_key: buildIdempotencyKey(SUNDAY_WRAP_ANCHOR, week, user.id),
+      expires_at: expiresAt,
+      metadata: {
+        role: user.role,
+        score,
+        band: bandLabel,
+        week,
+        source: `cron:${SUNDAY_WRAP_ANCHOR.key}`
+      }
+    };
+  });
+
+  // Delivering an in-app wrap takes TWO writes, not one. The bell and inbox read
+  // `user_notifications` with an `!inner` join back to `notifications`, and no DB
+  // trigger fans out — so a parent row with no link row is invisible forever.
+  // Until 2026-08-25 this route wrote only the parent: 42,696 wraps reached
+  // nobody, while the web push below still landed on the phone pointing at a card
+  // that was never in the bell (#3199). That fix routed the per-user loop through
+  // fanoutNotification; the loop is gone, so BOTH writes now happen inside
+  // fn_doctrines_emit_cards in one statement, and `linked` comes back so delivery
+  // is counted rather than assumed.
+  //
+  // Chunked so one run never posts a multi-megabyte body.
+  const EMIT_CHUNK = 2000;
+  for (let i = 0; i < cards.length; i += EMIT_CHUNK) {
+    const batch = cards.slice(i, i + EMIT_CHUNK);
+    const { data, error } = await serviceClient.rpc('fn_doctrines_emit_cards', {
+      p_cards: batch
+    });
+    if (error) {
+      console.error('[cron/sunday-wrap] emit failed:', error);
+      results.errors.push(`emit rows ${i}-${i + batch.length - 1}: ${error.message}`);
       continue;
     }
+    const r = (data ?? {}) as { inserted?: number; skipped_duplicate?: number; linked?: number };
+    results.wraps_created += r.inserted ?? 0;
+    results.wraps_skipped_duplicate += r.skipped_duplicate ?? 0;
+    results.wraps_delivered += r.linked ?? 0;
+  }
 
-    // Compute current composite score where we have an auth-bypass helper.
-    const { score, bandLabel } = await computeWrapScore(serviceClient, user);
-
-    const title = 'Your Sunday Wrap';
-    const scoreLine = score != null ? ` Composite: ${score}/100${bandLabel ? ` (${bandLabel})` : ''}.` : '';
-    const body = `Week ${week} is in the books.${scoreLine} Open your dashboard for insights and next-week priorities.`;
-
-    const { data: inserted, error: insertErr } = await serviceClient
-      .from('notifications')
-      .insert({
-        title,
-        body,
-        url: '/dashboard',
-        icon: '/icons/icon-192x192.png',
-        created_by: user.id,
-        targeting: { user_ids: [user.id] },
-        priority: 'high',
-        category: `doctrines:${SUNDAY_WRAP_ANCHOR.key}`,
-        idempotency_key: idempKey,
-        expires_at: expiresAt,
-        metadata: {
-          role: user.role,
-          score,
-          band: bandLabel,
-          week,
-          source: `cron:${SUNDAY_WRAP_ANCHOR.key}`
-        }
-      })
-      .select('id')
-      .single();
-
-    if (insertErr) {
-      results.errors.push(`${user.id}: ${insertErr.message}`);
-      continue;
+  // Step 6 — Push, best-effort. sendPushToUsers already accepts an ARRAY; it was
+  // being called once per user with a single-element array.
+  if (cards.length > 0) {
+    const PUSH_CHUNK = 500;
+    const recipients = cards.map((c) => c.created_by);
+    for (let i = 0; i < recipients.length; i += PUSH_CHUNK) {
+      try {
+        const sent = await sendPushToUsers(serviceClient, recipients.slice(i, i + PUSH_CHUNK), {
+          title: 'Your Sunday Wrap',
+          body: `Week ${week} is in the books. Open your dashboard for insights and next-week priorities.`,
+          icon: '/icons/icon-192x192.png',
+          url: '/dashboard',
+          data: { type: 'sunday_wrap', week }
+        });
+        results.pushes_sent += sent;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        results.errors.push(`push batch ${i}: ${msg}`);
+      }
     }
+  }
 
-    results.wraps_created++;
-
-    // Web push (best-effort; failures logged, not fatal).
-    try {
-      const sent = await sendPushToUsers(serviceClient, [user.id], {
-        title,
-        body,
-        icon: '/icons/icon-192x192.png',
-        url: '/dashboard',
-        data: { notification_id: inserted!.id, type: 'sunday_wrap', week, role: user.role }
-      });
-      results.pushes_sent += sent;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      results.errors.push(`push ${user.id}: ${msg}`);
-    }
+  // Step 7 — LAST, on purpose. Warms doctrines_percentile_cache for the week's
+  // later fn_cluster_rank_private calls. Measured at 79s against production, and
+  // nothing above depends on it, so it runs only once every wrap is already
+  // written. If the dispatcher's 120s abort lands during this step, the
+  // user-visible work has already completed and the cache simply falls back to
+  // live compute.
+  try {
+    const { data: precomputeResult, error: precomputeErr } = await serviceClient.rpc(
+      'fn_precompute_percentile_cache'
+    );
+    if (precomputeErr) throw precomputeErr;
+    results.percentile_precompute =
+      (precomputeResult as Record<string, unknown>) ?? { note: 'no-payload' };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[cron/sunday-wrap] Percentile precompute failed:', msg);
+    results.errors.push(`percentile precompute: ${msg}`);
+    // Non-fatal — live compute fallback still works.
   }
 
   return NextResponse.json({
@@ -269,12 +332,17 @@ async function sendPushToUsers(
   }
   if (userIds.length === 0) return 0;
 
-  // is_active=false is how an unsubscribe is recorded, so pushing to those rows
-  // would buzz learners who explicitly opted out.
+  // Drop anyone who switched push off before looking up any subscription.
+  // is_active alone cannot carry that answer: unsubscribing destroys the browser
+  // endpoint, so the next page load mints a NEW row that is is_active=true and
+  // passes the filter below perfectly.
+  const pushUserIds = await filterPushRecipients(serviceClient, userIds);
+  if (pushUserIds.length === 0) return 0;
+
   const { data: subscriptions, error } = await serviceClient
     .from('push_subscriptions')
     .select('id, subscription, user_id')
-    .in('user_id', userIds)
+    .in('user_id', pushUserIds)
     .eq('is_active', true);
 
   if (error || !subscriptions?.length) return 0;

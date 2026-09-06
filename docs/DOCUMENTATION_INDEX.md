@@ -73,3 +73,11 @@ See `docs/plans/` for implementation plans and `docs/modules/` for per-module do
 ### ID Cards module (2026-07-24)
 - `docs/modules/id-cards/2026-07-24-MODULE-id-cards.md` — ID Cards module doc: what it is, plain-words architecture (MyJKKN queue → Windows bridge polls every 5 s → Evolis Primacy 2 at the office), job statuses + how failures surface to the registrar, ops pointers (service `JKKNPrintBridge` on the BIOMETRIC box, log `C:\jkkn-bridge\bridge-service.log`), Evolis SDK license-review section with a ready-to-send confirmation ask for the Director, and CARRE candidate-evidence pointers for a future human-run audit (no scores assigned — interview required).
 - `docs/modules/id-cards/2026-07-25-OPS-idcard-runbooks.md` — ID Cards ops runbooks (3): AGENT_PRINT_TOKEN rotation (placeholders only — generate → Vercel Sensitive env → no-op PR deploy → box `.ps1` via Notepad → 3-way verify); bridge `get_state()` v0.4 prep (Python diff sketch, paste-shuttle apply/rollback `.ps1`, no-print verification); and **duplex enable / both sides** (§3, refreshed 2026-08-14 — the cloud half is DONE, two production templates now carry a back and one has been rendered and eyeballed, so only the front-only `evolis_bridge.py` v0.3.1 remains, plus the YMCKO-vs-YMCKOK ribbon decision and one on-plastic flip-direction check; §3.5 records the 80-character address truncation that blocks any cohort batch). All three PREPARED, Director-executed at the Windows box only.
+
+## Design System — read before any UI work
+
+- [design-system/MASTER.md](../design-system/MASTER.md) — **Source of truth for tokens, surfaces, colour, radius and the shipped `components/ui` primitives. Read it BEFORE styling any page, component, or Tailwind class.** ⚠️ **Light is the shipped default theme** (`app/layout.tsx:232` sets `defaultTheme='light'`); dark is secondary, and **both must be checked before shipping**. Several tokens are theme-traps — `--secondary` is saturated yellow `#FACC15` in light, `--input` is a border not a fill, and `<Card>` uses `bg-background` not `bg-card`.
+
+> This row exists because the repo-root `CLAUDE.md` is **gitignored** and therefore absent from `jicate/main` and from every worktree that `/ship-myjkkn` and `parallel-ship` create. This index **is** tracked, so it is the pointer that actually reaches worktree agents.
+
+---

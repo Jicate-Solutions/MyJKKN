@@ -2587,3 +2587,12 @@ CREATE TRIGGER trg_hla_final_step_approves
   BEFORE UPDATE ON public.hr_leave_applications
   FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_final_step_approves();
 
+-- ---------------------------------------------------------------------------
+-- aiu_prompt_trails: capture-column immutability + write-once finalization
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_aiu_prompt_trails_guard ON public.aiu_prompt_trails;
+
+CREATE TRIGGER trg_aiu_prompt_trails_guard
+  BEFORE UPDATE ON public.aiu_prompt_trails
+  FOR EACH ROW EXECUTE FUNCTION public.tg_aiu_prompt_trails_guard();

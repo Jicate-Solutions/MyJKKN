@@ -99,6 +99,13 @@ export function NotificationBell() {
   // wiring it through is a separate change, not a render-time fold.
   const foldedNotifications = collapseDuplicates(notifications);
   const unreadCount = data?.unreadCount ?? 0;
+  // What the BADGE shows. The badge is a ~20px pill pinned to a 36px icon
+  // button; on a 387px-wide phone a raw three-or-more-digit count (observed:
+  // 658) drew outside the button and ran into the account avatar beside it.
+  // Cap the glyph count at three so the pill can never grow past the button.
+  // The exact number is not lost — the panel header below still prints
+  // "{unreadCount} new" in full, one tap away.
+  const unreadBadgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const handleNotificationClick = async (
     notificationId: string,
@@ -140,17 +147,24 @@ export function NotificationBell() {
     <Button variant='ghost' size='icon' className='relative' aria-label='Notifications'>
       <Bell className='h-5 w-5' aria-hidden='true' />
       {unreadCount > 0 && (
-        // Real number, no '9+' cap: a director with 257 unread was shown
-        // '9+', which reads as "about ten" and hides the actual backlog.
         // The badge grows into a pill instead of clipping — the old fixed
         // h-5 w-5 square could not hold three digits. tabular-nums keeps
         // the width from jittering as the count ticks; the ring separates
         // it from the bell glyph underneath.
+        //
+        // Anchored on the repo's shared badge corner, 'absolute -top-1
+        // -right-1' — the same offsets BottomNav/bottom-nav-item.tsx and
+        // eight other badge call sites use. Pulling it in to right-0
+        // parked the pill on top of the bell glyph instead.
+        // Still no '9+' cap — that reads as "about ten" and hid a real
+        // 257-item backlog — but capped at '99+' so the pill is never
+        // wider than three glyphs. The panel prints the exact number.
         <Badge
           variant='destructive'
+          title={`${unreadCount} unread notifications`}
           className='absolute -top-1 -right-1 h-5 min-w-[1.25rem] w-auto flex items-center justify-center rounded-full px-1 py-0 text-[10px] font-bold leading-none tabular-nums ring-2 ring-background'
         >
-          {unreadCount}
+          {unreadBadgeLabel}
         </Badge>
       )}
     </Button>

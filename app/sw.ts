@@ -1,8 +1,18 @@
+/// <reference lib="webworker" />
+// Required: this file runs in a ServiceWorkerGlobalScope, not a window. The app's
+// tsconfig ships the DOM lib only, so without this reference ServiceWorkerGlobalScope,
+// PushEvent, NotificationEvent and WindowClient are all unresolved. Those five
+// errors are pre-existing (identical on a clean checkout of main) and were masked
+// because tsconfig.json excludes this file — but the PR-scoped typecheck gate
+// deliberately drops that exclude, so the first PR to touch app/sw.ts has to fix
+// them. Adding the lib is the correct fix, not a suppression.
+
 import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import {
   Serwist,
   NetworkOnly,
+  NetworkFirst,
   CacheFirst,
   StaleWhileRevalidate,
   ExpirationPlugin,
@@ -106,6 +116,48 @@ const serwist = new Serwist({
         ],
       }),
     },
+    {
+      // FRESHNESS (2026-09-05): the three payloads behind /whats-new, now
+      // served by the authenticated route /api/whats-new (they used to be
+      // public/changelog/*.json, which bypassed auth — see that route). Not in
+      // the precache and no longer even under public/;
+      // precache is cache-first against a revision pinned into the installed
+      // SW, so a user who had not taken the update would silently read last
+      // release's changelog. This rule is what keeps them working offline.
+      //
+      // NetworkFirst, not StaleWhileRevalidate: SWR paints the cached copy on
+      // THIS visit and only refreshes for the next one, which is the same
+      // silent-staleness bug one layer down. NetworkFirst always tries the
+      // network first and touches the cache only when the network genuinely
+      // fails, so an online reader is always current and an offline reader
+      // still gets the last list they saw.
+      //
+      // networkTimeoutSeconds guards the middle case — a connection that is
+      // alive but too slow to finish 701 KB (campus wifi). 10s matches the
+      // value serwist's own defaults use for /api. It must be explicit: an
+      // untimed NetworkFirst waits for the fetch to reject, which on a stalled
+      // connection can be tens of seconds.
+      //
+      // This must sit BEFORE ...defaultCache — that set already has a generic
+      // /\.(?:json|xml|csv)$/i NetworkFirst, but it shares one 32-entry
+      // "static-data-assets" cache with every other JSON on the site, so these
+      // three large files could evict (or be evicted by) unrelated data. Own
+      // cache name, own expiry, and it survives a serwist default changing.
+      matcher: /\/api\/whats-new\?part=(?:meta|recent|archive)/i,
+      handler: new NetworkFirst({
+        cacheName: "changelog-data",
+        networkTimeoutSeconds: 10,
+        plugins: [
+          new ExpirationPlugin({
+            // 3 URLs today; 8 leaves room without letting this grow unbounded.
+            maxEntries: 8,
+            // Only ever consulted when the network failed, so a long window is
+            // a better offline story, not a staleness risk.
+            maxAgeSeconds: 30 * 24 * 60 * 60,
+          }),
+        ],
+      }),
+    },
     ...defaultCache,
   ],
   fallbacks: {
@@ -132,7 +184,15 @@ self.addEventListener("push", (event: PushEvent) => {
   }
 
   const title = payload.title || "MyJKKN";
-  const options: NotificationOptions = {
+  // `vibrate` and `actions` both ship in Chrome/Android and are both absent from
+  // TypeScript's NotificationOptions (the DOM lib models the non-persistent
+  // Notification constructor, which supports neither; a service worker's
+  // showNotification does). Widening here keeps behaviour users rely on rather
+  // than deleting it to satisfy the checker.
+  const options: NotificationOptions & {
+    vibrate?: number[];
+    actions?: { action: string; title: string; icon?: string }[];
+  } = {
     body: payload.body || "New notification from MyJKKN",
     icon: payload.icon || "/icons/icon-192x192.png",
     badge: "/icons/icon-96x96.png",
