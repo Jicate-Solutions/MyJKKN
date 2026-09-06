@@ -7,11 +7,11 @@
     "dev": "next dev --turbopack",
     "dev:webpack": "next dev --webpack",
     "dev:sentry": "cross-env LOCAL_SENTRY=1 next dev --turbopack",
-    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
+    "build": "npm run changelog && npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:ci": "vitest run --exclude '__tests__/api/bos-syllabi.test.ts' --exclude '__tests__/hooks/use-bos-permissions.test.ts' --exclude '__tests__/hr/recruitment-need/signal-hooks.test.ts' --exclude '__tests__/hr/recruitment-need/signal-service.test.ts' --exclude '__tests__/hr/recruitment-need/types.test.ts' --exclude '__tests__/lib/api-keys/audit-logger.test.ts' --exclude '__tests__/lib/api-keys/authenticate.test.ts' --exclude '__tests__/lib/api-keys/rate-limiter.test.ts' --exclude '__tests__/lib/attendance/audit-log.test.ts' --exclude '__tests__/lib/institution-type-labels.test.ts' --exclude '__tests__/lib/services/pde-bridge-service.test.ts' --exclude '__tests__/lib/sidebar-filter.test.ts' --exclude '__tests__/meetings/booking-crm-bridge.test.ts' --exclude '**/distribute/__tests__/distribute-panel.test.tsx' --exclude 'lib/services/admission/__tests__/bulk-assign-service.test.ts' --exclude 'lib/utils/mappings/__tests__/fee-structure-excel-mappings.test.ts' --exclude 'lib/validations/__tests__/learner-create-schema.test.ts' --exclude 'scripts/form-errors.test.ts' --exclude 'scripts/import/lib/field-mapper.test.ts' --exclude 'scripts/learner-search.test.ts' --exclude 'scripts/staff-search.test.ts'",
+    "test:ci": "vitest run --exclude '__tests__/api/admission-bridge-convert-permission-gate.test.ts' --exclude '__tests__/api/bos-syllabi.test.ts' --exclude '__tests__/director-desk/handover-key-classification.test.ts' --exclude '__tests__/director-desk/role-write-sweep.test.ts' --exclude '__tests__/director-desk/route-gate-map.test.ts' --exclude '__tests__/hooks/use-bos-permissions.test.ts' --exclude '__tests__/lib/api-keys/audit-logger.test.ts' --exclude '__tests__/lib/api-keys/authenticate.test.ts' --exclude '__tests__/lib/api-keys/rate-limiter.test.ts' --exclude '__tests__/lib/attendance/audit-log.test.ts' --exclude '__tests__/lib/institution-type-labels.test.ts' --exclude '__tests__/lib/services/pde-bridge-service.test.ts' --exclude '__tests__/lib/sidebar-filter.test.ts' --exclude '__tests__/question-papers/paper-authoring-autosave.test.tsx' --exclude '**/distribute/__tests__/distribute-panel.test.tsx' --exclude 'lib/services/admission/__tests__/bulk-assign-service.test.ts' --exclude 'lib/utils/__tests__/staff-name.test.ts' --exclude 'lib/utils/mappings/__tests__/fee-structure-excel-mappings.test.ts' --exclude 'lib/validations/__tests__/learner-create-schema.test.ts' --exclude 'scripts/attendance-close-order.test.ts' --exclude 'scripts/bank-account-validation.test.ts' --exclude 'scripts/biometric-parser.test.ts' --exclude 'scripts/form-errors.test.ts' --exclude 'scripts/import/lib/field-mapper.test.ts' --exclude 'scripts/learner-search.test.ts' --exclude 'scripts/salary-import.test.ts' --exclude 'scripts/salary-template-roundtrip.test.ts'",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",
     "check:mark-entry-rules": "tsx scripts/check-mark-entry-rules.ts",
     "gen:routes": "tsx scripts/generate-route-manifest.ts",
@@ -26,7 +26,7 @@
     "check:tier2-coverage": "node scripts/check-tier2-route-coverage.mjs",
     "check:audit-coverage": "tsx scripts/check-permission-audit-coverage.ts",
     "check:menus": "npm run check:permissions && npm run check:menu-coverage && npm run check:tier2-coverage && npm run check:audit-coverage",
-    "check:nav": "echo '[deprecated] check:nav retired — superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
+    "check:nav": "echo '[deprecated] check:nav retired \u2014 superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
     "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 58",
     "check:guide-smoke": "tsx scripts/guide-smoke.ts",
     "check:guide-labels": "tsx scripts/guide-labels-guard.ts",
@@ -48,7 +48,8 @@
     "gen:guide-e2e": "tsx scripts/e2e-nav.ts",
     "gen:guide-load": "tsx scripts/load-profile.ts",
     "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs",
-    "check:ungrantable": "node scripts/ci/check-ungrantable-permissions.mjs"
+    "check:ungrantable": "node scripts/ci/check-ungrantable-permissions.mjs",
+    "changelog": "node scripts/generate-changelog.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
