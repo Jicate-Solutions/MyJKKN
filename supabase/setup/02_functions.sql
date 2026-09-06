@@ -58624,6 +58624,57 @@ COMMENT ON FUNCTION public.fn_hr_delete_work_pattern(uuid) IS
 REVOKE ALL ON FUNCTION public.fn_hr_delete_work_pattern(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_hr_delete_work_pattern(uuid) TO authenticated;
 
+-- Updated: 2026-08-08 — fn_learner_band_academic_fee SUPERSEDES the earlier
+-- definition above. Source: supabase/migrations/20260815050001_zero_fee_learner_
+-- resolves_room_category.sql. APPLIED TO PRODUCTION BY HAND on 2026-08-08 via the
+-- Supabase Management API, Director-approved, before the migration file existed.
+--
+-- One character: `HAVING SUM(b.final_amount) > 0` becomes `>= 0`. A fully-waived
+-- learner's academic bills total Rs.0, so the old HAVING dropped every one of her
+-- rows and the function returned NULL; fn_hostel_learner_room_categories then
+-- exited early and she could NEVER qualify for a hostel room, reading as
+-- 'No room-category eligibility rule' in the waiting queue — which sent people
+-- hunting for a missing rulebook line that was never missing. 11 learners stuck.
+--
+-- A learner with NO bills still returns NULL (the years CTE produces no rows at
+-- all), so 'no fee configured' stays distinguishable from 'fee is zero'. Negative
+-- totals stay excluded. Callers are hostel-allocation functions only — verified
+-- live 2026-08-08: fn_auto_allocate_candidates, fn_explain_allocation,
+-- fn_hostel_learner_room_categories, fn_hostel_learner_mess_categories,
+-- fn_preview_hostel_fee_categories, fn_learner_admission_year_academic_fee. No
+-- billing or fee-charging code reads it: bills 11,898 unchanged, outstanding
+-- unchanged, zero late charges, zero ghost beds. Unresolved room categories
+-- 77 -> 66, ready-to-place 337 -> 348 — exactly those 11 learners, nobody else.
+CREATE OR REPLACE FUNCTION public.fn_learner_band_academic_fee(p_learner_id uuid)
+ RETURNS TABLE(academic_year_id uuid, academic_year_name text, fee numeric)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  WITH anchor AS (
+    SELECT public.fn_learner_admission_academic_year(p_learner_id) AS ay_id
+  ),
+  years AS (
+    SELECT b.academic_year_id AS ay_id,
+           ay.academic_year_name::text AS ay_name,
+           ay.start_date,
+           SUM(b.final_amount) AS total
+    FROM billing_student_bills b
+    JOIN academic_years ay ON ay.id = b.academic_year_id
+    WHERE b.student_id = p_learner_id
+      AND b.fee_source = 'academic'
+      AND b.status NOT IN ('cancelled','superseded')
+    GROUP BY b.academic_year_id, ay.academic_year_name, ay.start_date
+    HAVING SUM(b.final_amount) >= 0
+  )
+  SELECT y.ay_id, y.ay_name, y.total
+  FROM years y CROSS JOIN anchor a
+  ORDER BY (y.ay_id IS DISTINCT FROM a.ay_id), y.start_date ASC
+  LIMIT 1;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_learner_band_academic_fee(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_learner_band_academic_fee(uuid) TO authenticated, service_role;
 -- Updated: 2026-08-21 - AIU evidence trail immutability guard
 -- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
 -- Plain trigger fn (NOT SECURITY DEFINER — touches only NEW/OLD). Capture
