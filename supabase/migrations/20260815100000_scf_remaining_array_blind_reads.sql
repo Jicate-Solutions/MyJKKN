@@ -2,6 +2,7 @@
 -- Session feedback: the five remaining functions that cannot see a team-taught
 -- Senior Learner — four fixed, one deliberately left alone
 -- Created: 2026-08-15
+-- ci:allow-secdef-authenticated fn_scf_faculty_pending_roster and fn_scf_pending_for_learner are self-scoped: each resolves the caller from auth.uid() (profile email / learners_profiles.profile_id) and returns only that caller's own sessions or pending items; both functions and their authenticated grants pre-exist on main — this migration changes only the teacher-slot reader (array-shape aware), not who may call them.
 -- ----------------------------------------------------------------------------
 -- 🛑 ORDERING DEPENDENCY — READ FIRST
 --
