@@ -54,6 +54,7 @@ import {
   ConsultantService,
   resolveReferralLearner
 } from '@/lib/services/admission/consultant-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { ConsultantLeadAttribution, LeadAttributionFilters } from '@/types/education-consultants';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
@@ -75,11 +76,28 @@ function ReferralsContent() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [admissionYear, setAdmissionYear] = useState<'all' | number>('all');
   const [page, setPage] = useState(1);
   const limit = 20;
 
   // Build filter object
+  // Intake years that actually carry an attribution, from the same RPC that does
+  // the filtering — so the dropdown can never offer a year the filter cannot serve.
+  const { data: yearInfo } = useQuery<{ years: number[]; unassigned: number }>({
+    queryKey: ['referral-attribution-years'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc('fn_referral_attribution_page', {
+        p_year: null, p_consultant_id: null, p_institution_id: null,
+        p_attribution_type: null, p_is_verified: null, p_page: 1, p_limit: 1,
+      });
+      if (error) throw new Error(error.message);
+      return { years: data?.years ?? [], unassigned: data?.unassigned ?? 0 };
+    },
+  });
+
   const filters: LeadAttributionFilters = useMemo(() => ({
+    admission_year: admissionYear === 'all' ? null : admissionYear,
     consultant_id: consultantIdParam,
     is_verified: verifiedFilter === 'all' ? undefined : verifiedFilter === 'verified',
     attribution_type: attributionTypeFilter !== 'all' ? (attributionTypeFilter as 'primary' | 'secondary' | 'assist') : undefined,
@@ -87,7 +105,7 @@ function ReferralsContent() {
     date_to: dateTo || undefined,
     page,
     limit,
-  }), [consultantIdParam, verifiedFilter, attributionTypeFilter, dateFrom, dateTo, page, limit]);
+  }), [consultantIdParam, verifiedFilter, attributionTypeFilter, dateFrom, dateTo, page, limit, admissionYear]);
 
   const {
     data: attributionsData,
@@ -146,6 +164,7 @@ function ReferralsContent() {
   };
 
   const clearFilters = () => {
+    setAdmissionYear('all');
     setVerifiedFilter('all');
     setAttributionTypeFilter('all');
     setDateFrom('');
@@ -339,6 +358,26 @@ function ReferralsContent() {
                 />
               </div>
 
+              <Select
+                value={String(admissionYear)}
+                onValueChange={(v) => { setAdmissionYear(v === 'all' ? 'all' : Number(v)); setPage(1); }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All admission years" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All admission years</SelectItem>
+                  {(yearInfo?.years ?? []).map((y) => (
+                    <SelectItem key={y} value={String(y)}>
+                      {y}–{String(y + 1).slice(2)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* A year view cannot show attributions with no resolvable intake year
+                  (157 of them have no learner behind either path). Saying so beats a
+                  silent shortfall — they are all visible under "All admission years". */}
               <Select value={verifiedFilter} onValueChange={(v) => { setVerifiedFilter(v as typeof verifiedFilter); setPage(1); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Statuses" />

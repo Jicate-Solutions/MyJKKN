@@ -5,7 +5,7 @@
  * Includes assign member dialog, status update, and position history viewer
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -39,7 +39,8 @@ import { UserPlus, Filter, History, X } from 'lucide-react';
 import {
   useAssignMember,
   useUpdateMemberStatus,
-  usePositionHistory
+  usePositionHistory,
+  useLCMembers
 } from '@/hooks/learners-council/use-lc-structure';
 import type { LCPosition, LCTerm } from '@/types/learners-council';
 
@@ -63,6 +64,53 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
 
   const assignMember = useAssignMember();
 
+  // Which seats in this term are already taken. A position may not be given
+  // more active holders than its max_holders allows, so a filled seat is shown
+  // as filled instead of being offered and refused after the fact. Only
+  // fetched once a term is chosen and the dialog is open.
+  const { data: termMembers, isError: occupancyFailed } = useLCMembers(
+    { term_id: termId, status: 'active' },
+    // staleTime 0: occupancy decides whether a seat is DISABLED, and the
+    // default 2-minute cache would keep a seat greyed out for two minutes
+    // after it was freed in another tab — blocking the assignment with no way
+    // to attempt it. Only fetched while the dialog is open, so re-reading on
+    // open is cheap.
+    { enabled: open && !!termId, staleTime: 0 }
+  );
+
+  // Until the occupancy query answers, nothing can be greyed out — so the
+  // Position select stays disabled rather than briefly offering a filled seat
+  // under a hint that claims filled seats are already greyed out.
+  //
+  // An ERROR must count as ready, not as "still loading". This convenience
+  // lookup failing is not a reason to make the seat unassignable: if it were
+  // derived from `data !== undefined` alone, a failed query would leave the
+  // select disabled forever with no error, no retry and no way to assign
+  // anyone for that term. Treat it as ready-but-unknown — offer every seat,
+  // grey out nothing, say so — and let the service guard and the unique index
+  // do what they were built for.
+  const occupancyReady = !termId || termMembers !== undefined || occupancyFailed;
+
+  // Holder names per position, so a filled seat can say who holds it. This is
+  // a convenience only — the service layer re-checks occupancy before
+  // inserting, and a unique index backstops that, so a stale list here cannot
+  // let a second holder through.
+  const holdersByPosition = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const m of termMembers ?? []) {
+      const positionId = (m as { position_id?: string }).position_id;
+      if (!positionId) continue;
+      const name = ((m as { user?: { full_name?: string | null } | null }).user?.full_name || '').trim();
+      map.set(positionId, [...(map.get(positionId) ?? []), name || 'a sitting member']);
+    }
+    return map;
+  }, [termMembers]);
+
+  // Floored at 1 for the same reason as the service guard: max_holders has no
+  // CHECK constraint, and a stored 0 would otherwise grey out every seat.
+  const seatIsFull = (position: LCPosition) =>
+    (holdersByPosition.get(position.id)?.length ?? 0) >= Math.max(1, position.max_holders ?? 1);
+
   // The 4 executive seats are elected FROM the sitting council — a learner
   // becomes an LC member first, then is elected President/VP/Secretary/
   // Treasurer (ElectionType 'executive_rotation'). So for an executive seat the
@@ -70,6 +118,18 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
   const selectedPosition = positions.find((p) => p.id === positionId);
   const isExecutiveSeat = selectedPosition?.category === 'executive';
   const pickerScope = isExecutiveSeat ? 'lc_members' : 'all';
+
+  // Occupancy is per term, so a seat picked while one term was selected may be
+  // filled in the next one. Clear the position (and the learner, whose pool is
+  // also term-scoped for executive seats) rather than carry a stale choice
+  // that only reveals itself as a refusal at submit.
+  const handleTermChange = (nextTermId: string) => {
+    if (nextTermId !== termId) {
+      setPositionId('');
+      setUserId('');
+    }
+    setTermId(nextTermId);
+  };
 
   // Switching between an executive seat and any other seat changes the pool, so
   // a person picked from the previous pool must not silently carry over.
@@ -84,13 +144,20 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
   const handleSubmit = async () => {
     if (!termId || !positionId || !userId || !institutionId) return;
 
-    await assignMember.mutateAsync({
-      term_id: termId,
-      position_id: positionId,
-      user_id: userId,
-      institution_id: institutionId,
-      appointment_notes: notes || undefined
-    });
+    try {
+      await assignMember.mutateAsync({
+        term_id: termId,
+        position_id: positionId,
+        user_id: userId,
+        institution_id: institutionId,
+        appointment_notes: notes || undefined
+      });
+    } catch {
+      // useAssignMember already shows the reason as a toast. Keep the dialog
+      // open with the entries intact so the fix — retire the sitting holder,
+      // then assign — can be made without filling the form in again.
+      return;
+    }
 
     setTermId('');
     setPositionId('');
@@ -119,7 +186,7 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
         <div className="space-y-4 py-2">
           <div>
             <Label htmlFor="assign-term">Term</Label>
-            <Select value={termId} onValueChange={setTermId}>
+            <Select value={termId} onValueChange={handleTermChange}>
               <SelectTrigger id="assign-term">
                 <SelectValue placeholder="Select term" />
               </SelectTrigger>
@@ -135,18 +202,37 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
 
           <div>
             <Label htmlFor="assign-position">Position</Label>
-            <Select value={positionId} onValueChange={handlePositionChange}>
+            <Select value={positionId} onValueChange={handlePositionChange} disabled={!occupancyReady}>
               <SelectTrigger id="assign-position">
-                <SelectValue placeholder="Select position" />
+                <SelectValue placeholder={occupancyReady ? 'Select position' : 'Checking which seats are free...'} />
               </SelectTrigger>
               <SelectContent>
-                {positions.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.title} ({p.category})
-                  </SelectItem>
-                ))}
+                {positions.map((p) => {
+                  const holders = holdersByPosition.get(p.id) ?? [];
+                  const full = seatIsFull(p);
+                  return (
+                    <SelectItem key={p.id} value={p.id} disabled={full}>
+                      {p.title} ({p.category})
+                      {full && ` — held by ${holders.join(', ')}`}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
+            {termId && occupancyReady && (
+              occupancyFailed ? (
+                <p className="text-xs text-amber-700 mt-1">
+                  Could not check which seats are already filled, so none are greyed out here.
+                  You can still assign — if the seat is taken, it will be refused with the
+                  current holder&apos;s name.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Seats already filled are greyed out. To replace someone, set their status to
+                  Inactive or Graduated in the members list first — the seat frees up immediately.
+                </p>
+              )
+            )}
           </div>
 
           <div>
