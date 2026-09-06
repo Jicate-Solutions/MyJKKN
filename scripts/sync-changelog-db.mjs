@@ -105,7 +105,12 @@ async function main() {
   }
 
   const pg = (await import('pg')).default;
-  const client = new pg.Client({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
+  // Supabase always needs TLS. A scratch Postgres on a laptop has none, and pg
+  // ignores the connection string's own sslmode once an ssl object is passed —
+  // so honour sslmode=disable explicitly, which is what makes this script
+  // runnable against a throwaway database before it is pointed at production.
+  const ssl = /[?&]sslmode=disable\b/.test(DB_URL) ? false : { rejectUnauthorized: false };
+  const client = new pg.Client({ connectionString: DB_URL, ssl });
   await client.connect();
 
   try {
