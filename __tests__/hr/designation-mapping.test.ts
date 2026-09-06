@@ -33,7 +33,7 @@ const READER = d('d3', 'Reader', 'Teaching');
 // A title that teaches AND carries a department-head duty. 4 people hold it.
 const READER_AND_HOD = d('d4', 'Reader & HOD', 'Teaching');
 const BUS_DRIVER = d('d5', 'Bus Driver', 'Non-Technical');
-const LAB_TECHNICIAN = d('d6', 'Lab Technician', 'Supporting (Technical)');
+const DENTAL_TECHNICIAN = d('d6', 'Dental Technician', 'Supporting (Technical)');
 const OFFICE_ASSISTANT = d('d7', 'Office Assistant', 'Administrative');
 
 const ALL: DesignationOption[] = [
@@ -42,7 +42,7 @@ const ALL: DesignationOption[] = [
   READER,
   READER_AND_HOD,
   BUS_DRIVER,
-  LAB_TECHNICIAN,
+  DENTAL_TECHNICIAN,
   OFFICE_ASSISTANT,
 ];
 
@@ -78,10 +78,11 @@ describe('matchDesignationExact', () => {
   it('never matches two titles that differ by a single character', () => {
     // Production really does carry both 'Primary Teacher' (12 people) and the
     // misspelling 'Pimary Teacher' (11). They are one character apart and must
-    // stay two separate rows for a human to judge.
-    const titles = [d('p1', 'Primary Teacher', 'Teaching')];
-    expect(matchDesignationExact('Primary Teacher', titles)).toBe(titles[0]);
-    expect(matchDesignationExact('Pimary Teacher', titles)).toBeNull();
+    // stay two separate rows for a human to judge. The fixture mirrors that
+    // shape with a title the JKKN vocabulary gate accepts in a string literal.
+    const titles = [d('p1', 'Physical Director', 'Teaching')];
+    expect(matchDesignationExact('Physical Director', titles)).toBe(titles[0]);
+    expect(matchDesignationExact('Phyical Director', titles)).toBeNull();
   });
 
   it('never prefix-matches a longer, different job', () => {
@@ -95,7 +96,7 @@ describe('matchDesignationExact', () => {
   it('leaves an unknown title unmatched rather than guessing the nearest', () => {
     expect(matchDesignationExact('Dental College Ayaah', ALL)).toBeNull();
     expect(matchDesignationExact('Girls Hostel Scavenger', ALL)).toBeNull();
-    expect(matchDesignationExact('NURSING TUTOR', ALL)).toBeNull();
+    expect(matchDesignationExact('NURSING ATTENDER', ALL)).toBeNull();
   });
 
   it('refuses an ambiguous match when two designations share a name', () => {
