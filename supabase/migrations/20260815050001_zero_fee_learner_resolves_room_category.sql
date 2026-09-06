@@ -81,5 +81,14 @@ $function$;
 -- are a no-op against production — they restate exactly what
 -- 20260810140000_hostel_eligibility_admission_year_fee_anchor.sql already set,
 -- and keep this file self-contained.
+-- ci:allow-secdef-authenticated pre-existing grant, unchanged here: main already grants this
+-- function to authenticated + service_role with this exact REVOKE/GRANT pair (20260810140000,
+-- lines 150-153). This file replaces only the body (drops HAVING SUM > 0). No app code calls it;
+-- it is reached through the hostel-allocation SECURITY DEFINER functions
+-- (fn_preview_hostel_fee_categories, fn_hostel_learner_mess_categories, auto-allocate) that
+-- already band learners by this fee. It was applied to production by hand on 2026-08-08, so
+-- narrowing the grant in this file would make the repo record diverge from what is live.
+-- Whether any signed-in user should read any learner's fee band is a question for
+-- 20260810140000 on main, not for this body-only replacement.
 REVOKE EXECUTE ON FUNCTION public.fn_learner_band_academic_fee(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_learner_band_academic_fee(uuid) TO authenticated, service_role;
