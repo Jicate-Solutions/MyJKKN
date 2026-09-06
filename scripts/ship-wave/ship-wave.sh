@@ -53,7 +53,11 @@ WT="$LOCAL/.claude/worktrees/ship-main"                  # jicate/main mirror us
 SITE="https://www.jkkn.ai"
 HOOK="${MYJKKN_DEPLOY_HOOK:-https://api.vercel.com/v1/integrations/deploy/prj_yH37MwPX0aAAUXNjZX1YlOHoowRM/Y0RfATZ0rv}"
 VPROJ="prj_yH37MwPX0aAAUXNjZX1YlOHoowRM"; VTEAM="team_NKABdbcCWNZRLX7PkHx27JU5"
-STATE="$_CFG/.ship-wave"; mkdir -p "$STATE/dispatched"
+STATE="$_CFG/.ship-wave"; mkdir -p "$STATE/dispatched" "$STATE/nudged"
+# script-global sibling-dir path. `here` is local to sweep(), so any helper called from another
+# function must use THIS (2026-09-06: the L1 baseline check silently no-op'd on an empty $here —
+# an empty path made the comparison print nothing, which reads exactly like "no regression").
+SW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RECEIPT="$_CFG/v5-myjkkn-ship-last.txt"; RUNLOG="$_CFG/v5-myjkkn-ship-run.log"
 LOCK="$_CFG/.ship-wave.lock"; FREEZE="$STATE/FROZEN"
 QUIET_MIN=30; GOAL_ROUNDS=6; GOAL_PAUSE_MIN=10
@@ -236,10 +240,30 @@ sweep() {  # $1=run dir → writes prs.json + plan.json
   [ -s "$1/plan.json" ] || { say "SWEEP FAIL: no plan produced"; return 1; }
 }
 
+# Director 2026-09-06 (walk-mode interview): at most 4 helper tabs ALIVE at once. --max-dispatch (≤2)
+# bounds ONE ROUND; this bounds the FLEET — four concurrent helpers is what the Mac and the quota carry.
+# "Alive" reuses the spinner-stamp busy detector (its verb is random — never match words), so a tab that
+# has finished but not been cleaned up does not hold a slot.
+HELPER_CAP="${HELPER_CAP:-4}"
+alive_helpers() {
+  local n=0 m prev
+  for m in "$STATE"/dispatched/*; do
+    [ -f "$m" ] || continue
+    prev=$(cat "$m" 2>/dev/null); [ -n "$prev" ] || continue
+    $T has-session -t "$prev" 2>/dev/null || continue
+    if $T capture-pane -p -t "$prev:0.0" 2>/dev/null | grep -qE '… \([0-9]+m? ?[0-9]*s ·|esc to interrupt|Running…|Waiting…|tok/s|thinking'; then n=$((n+1)); fi
+  done
+  printf '%s' "$n"
+}
+
 dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; echoes count into $DISPATCHED
   while IFS=$'\t' read -r ckey cprs; do
     [ -n "$ckey" ] || continue
     [ "$DISPATCHED" -ge "$MAX_DISPATCH" ] && break
+    local nalive; nalive=$(alive_helpers)
+    if [ "$nalive" -ge "$HELPER_CAP" ]; then
+      say "  waiting — helper tabs alive: $nalive/$HELPER_CAP; $ckey queued for a later round"; break
+    fi
     local slug; slug=$(printf '%s' "$ckey" | sed 's/[^A-Za-z0-9]/-/g;s/--*/-/g;s/^-//;s/-$//')
     local mark="$STATE/dispatched/$slug"
     # Director 2026-09-05 13:05: keep sending a tab every round until the cluster is clean — but never
@@ -256,7 +280,42 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
         v=$(gh pr view "${pr#\#}" --repo "$REPO" --json comments -q '[.comments[].body | capture("W12-VERDICT: (?<v>[A-Z]+)")?.v] | last // ""' 2>/dev/null)
         case "$v" in SUPERSEDED|UNRESOLVABLE) human="$human $pr($v)";; esac
       done
-      if [ -n "$human" ] && [ "$(wc -w <<<"$human")" -eq "$(wc -w <<<"$cprs")" ]; then say "  NEEDS A HUMAN  $ckey —$human (close or fix by hand; no more tabs)"; continue; fi
+      # Director 2026-09-06: an UNRESOLVABLE PR gets ONE polite rebase nudge to its author and is NEVER
+      # closed by the loop — only its author knows which side of the overlapping logic is right. The mark
+      # file makes it once-only; a PR can sit UNRESOLVABLE for days without the loop nagging it again.
+      local _n _nm
+      for pr in $cprs; do
+        case " $human " in *"$pr(UNRESOLVABLE)"*) ;; *) continue;; esac
+        _n="${pr#\#}"; _nm="$STATE/nudged/$_n"
+        [ -f "$_nm" ] && continue
+        if [ "$MODE" = "go" ]; then
+          if gh pr comment "$_n" --repo "$REPO" --body "A W12 helper tab tried to rebase this PR onto \`jicate/main\` and could not: the conflict is real overlapping logic, not a mechanical clash, so only you can say which side is right.
+
+Could you rebase onto \`jicate/main\` and resolve it? The ship wave will pick the PR up automatically once \`mergeStateStatus\` is CLEAN — it will not close it, and it will not ask again." >/dev/null 2>&1; then
+            : > "$_nm"; say "  nudged $pr — asked its author to rebase onto main (once only)"
+          else say "  nudge FAILED for $pr (gh comment) — left untouched"; fi
+        else say "  would nudge $pr — one rebase request to its author (never closed)"; fi
+      done
+      # Director 2026-09-06: a helper's "SUPERSEDED" verdict is a CLAIM, not proof. The loop closes such a
+      # PR only when it can PROVE main already contains the change: merging the PR head into main produces
+      # a tree identical to main's own tree, i.e. the merge is a no-op. Anything less stays NEEDS A HUMAN
+      # (that is how #3093 was handled by hand). A wrong auto-close silently discards someone's work.
+      local _s _st _mt
+      for pr in $cprs; do
+        case " $human " in *"$pr(SUPERSEDED)"*) ;; *) continue;; esac
+        _s="${pr#\#}"
+        _st=$(git -C "$WT" rev-parse "jicate/main^{tree}" 2>/dev/null)
+        _mt=$(git -C "$WT" merge-tree --write-tree jicate/main "$(gh pr view "$_s" --repo "$REPO" --json headRefOid -q .headRefOid 2>/dev/null)" 2>/dev/null | head -1)
+        if [ -n "$_st" ] && [ "$_st" = "$_mt" ]; then
+          if [ "$MODE" = "go" ]; then
+            gh pr comment "$_s" --repo "$REPO" --body "Closing as superseded — proven, not assumed: merging this branch into \`jicate/main\` produces a tree identical to main's own (\`git merge-tree --write-tree\` = \`$_st\`), so every line of this change is already on main. Reopen if you disagree." >/dev/null 2>&1
+            gh pr close "$_s" --repo "$REPO" >/dev/null 2>&1 && say "  auto-closed $pr — main provably contains it (tree $_st)"
+          else say "  would auto-close $pr — main provably contains it (tree match)"; fi
+        else
+          say "  $pr claims SUPERSEDED but main does NOT contain it (tree differs) — left for a human"
+        fi
+      done
+      if [ -n "$human" ] && [ "$(wc -w <<<"$human")" -eq "$(wc -w <<<"$cprs")" ]; then say "  NEEDS A HUMAN  $ckey —$human (UNRESOLVABLE nudged once; SUPERSEDED closed only when proven)"; continue; fi
       [ -n "$prev" ] && say "  re-dispatching $ckey — previous tab $prev has finished, PRs still conflicted"
     fi
     local u8 uuid sname nm
@@ -331,7 +390,7 @@ run_once() {
   c_conf=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['conflicted'])")
 
   # ── 2. conflict clusters → one fleet tab each ──────────────────────────────
-  say; say "--- 2. conflicts: dispatch ≤$MAX_DISPATCH fleet tabs (one per cluster; a new tab only when the previous one has finished) ---"
+  say; say "--- 2. conflicts: [helper tabs alive: $(alive_helpers)/$HELPER_CAP] dispatch ≤$MAX_DISPATCH dispatch ≤$MAX_DISPATCH fleet tabs (one per cluster; a new tab only when the previous one has finished) ---"
   DISPATCHED=0
   if [ "$MODE" = "go" ] && [ "$MAX_DISPATCH" -gt 0 ]; then dispatch_clusters "$run/plan.json" "$run"
   else say "  (plan mode / --max-dispatch 0 — nothing dispatched)"; fi
@@ -464,7 +523,32 @@ PY
       done
       [ -n "$deploy" ] || { deploy="UNVERIFIED"; say "  deploy verdict unavailable — the Vercel API answered nothing readable for 13 min (token expired? run: vercel whoami). The build may well be fine; the batch stays in $STATE/deploy-pending — check with 'vercel ls my-jkkn --scope jicate-solutions' before firing again"; }
       say "  deployment $uid → $deploy"
-      case "$deploy" in ERROR*|CANCELED*) freeze "deploy $uid → $deploy; on main but NOT live:$merged_list";; esac
+      # Director 2026-09-06 (walk-mode interview): a build ERROR gets ONE re-fire before the wave freezes —
+      # most single ERRORs are a flaky install/timeout, and freezing the loop for one is expensive. The
+      # second attempt is the verdict: two ERRORs in a row is a real broken build. Never a third re-fire,
+      # and CANCELED is NOT retried (it means Vercel's ignoreCommand found nothing to build — see above).
+      case "$deploy" in
+        ERROR*)
+          if [ -z "${DEPLOY_RETRIED:-}" ]; then
+            DEPLOY_RETRIED=1
+            say "  build ERROR on $uid — re-firing the hook ONCE (attempt 2 of 2)"
+            printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 ship RETRY$merged_list" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"
+            local r2; r2=$(curl -s -X POST "$HOOK"); dpl=$(python3 -c "import json,sys;print(json.load(sys.stdin)['job']['id'])" <<<"$r2" 2>/dev/null)
+            tok=$(vtok)   # the first poll can outlive the token (auth.json dies after ~1h of CLI silence)
+            sleep 25
+            for i in $(seq 1 40); do
+              local d2; d2=$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production")
+              uid=$(python3 -c 'import json,sys;print(json.load(sys.stdin)["deployments"][0]["uid"])' <<<"$d2" 2>/dev/null)
+              deploy=$(python3 -c 'import json,sys;x=json.load(sys.stdin)["deployments"][0];print((x.get("readyState") or x.get("state"))+" "+(x.get("errorCode") or "-"))' <<<"$d2" 2>/dev/null)
+              case "$deploy" in READY*|ERROR*|CANCELED*) break;; esac; sleep 20
+            done
+            say "  retry deployment $uid → $deploy"
+            case "$deploy" in ERROR*) freeze "deploy failed TWICE (attempt 2 = $uid → $deploy); on main but NOT live:$merged_list";; esac
+          else
+            freeze "deploy $uid → $deploy; on main but NOT live:$merged_list"
+          fi;;
+        CANCELED*) freeze "deploy $uid → $deploy; on main but NOT live:$merged_list";;
+      esac
     else deploy="fired (unverified — no Vercel token)"; fi
   else say "  nothing merged / --no-deploy → no hook fired"; fi
 
@@ -501,6 +585,19 @@ PY
           l1bad=$(python3 -c "import json;print(json.load(open('$run/l1.json'))['sum']['s5xx'])" 2>/dev/null || echo 0)
           grep -E '^  (s5xx|bounces|jsErr|timeouts|failed):' "$run/l1.txt" | head -8 | sed 's/^/  L1 /' | while read -r line; do say "$line"; done
           if [ "${l1bad:-0}" -gt 0 ]; then freeze "broken page after deploy: $l1bad page×role load(s) returned 5xx (see $run/l1.txt); on main:$merged_list"; fi
+          # Director 2026-09-06: a role×page that used to load 200 without bouncing and now bounces to
+          # /auth/login is a BROKEN PAGE (freeze, naming page + role + PR). A page that ALREADY bounced in
+          # the baseline is the role gate working correctly and stays quiet — that distinction is the whole
+          # point; without it every correctly-gated page would look like a regression. Baseline is seeded
+          # once from the 4 scale-*.json sweeps (1,143 loads × 4 roles) and refreshed from every clean run.
+          local base="$STATE/l1-baseline.json"
+          local regress; regress=$(python3 "$SW_DIR/l1-baseline.py" "$base" "$run/l1.json" 2>/dev/null)
+          if [ -n "$regress" ]; then
+            local rprs; rprs=$(for rp in $regress; do grep -F "app${rp#*:}" "$run/merged-map.tsv" 2>/dev/null | cut -f1 | sort -u | sed 's/^/#/'; done | tr '\n' ' ')
+            freeze "baseline bounce after deploy — these loaded 200 before and now bounce to /auth/login: $regress · likely PRs: ${rprs:-see merged-map.tsv}; on main:$merged_list"
+          elif [ ! -f "$STATE/FROZEN" ]; then
+            cp "$run/l1.json" "$base" 2>/dev/null && say "  L1 baseline refreshed from this clean sweep"
+          fi
         fi
       else l1="UNAVAILABLE — $sweep not found"; fi
     else l1="no page changed"; fi
