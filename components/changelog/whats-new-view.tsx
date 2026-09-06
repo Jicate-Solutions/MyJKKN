@@ -585,6 +585,10 @@ export function WhatsNewView() {
             </>
           )}
         </p>
+        {/* Directly under the age line: that line is where a reader decides the
+            page is stale, so the one control that can do something about it
+            belongs there. Renders for super admins only. */}
+        <RefreshChangelogButton />
         <p className="text-center text-xs text-muted-foreground">
           Changes you cannot see belong to parts of MyJKKN you do not have access to.
         </p>
