@@ -215,6 +215,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // ideas.view at all. The submenu filter in GetRoleBasedPages carries that
   // union; keep the two in step.
   '/improvement-board/gemba': 'improvement.ideas.view',
+  // Placement observations — the same cohort records these, so the same key and
+  // the same submenu-filter union below. Keep all three in step.
+  '/improvement-board/placements': 'improvement.ideas.view',
   '/ceo-rounds': 'ceo_rounds.log',
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
   '/improvement-board/analytics': 'improvement.ideas.view',
@@ -1994,6 +1997,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Gemba visits — records that somebody went and looked, which is the
             // only thing that makes a department playbook official (improvement.ideas.view).
             { href: '/improvement-board/gemba', label: 'Gemba Visits', active: pathname === '/improvement-board/gemba' },
+            // Placement observations — the same act pointed outside the institution:
+            // what a learner saw inside a partner hospital, school or pharmacy. Named
+            // only where that partner has signed (improvement.ideas.view).
+            { href: '/improvement-board/placements', label: 'Placement Visits', active: pathname === '/improvement-board/placements' },
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
             // MBA case studies — associates write them (improvement.ideas.view),
@@ -4337,7 +4344,14 @@ export function GetRoleBasedPages(
             // Executive Administrative Officers hold no improvement.ideas.view at
             // all. Without this the link is hidden from the very officers the
             // RPC's officer lane exists for.
-            if (submenu.href === '/improvement-board/gemba') {
+            // Placement visits share gemba's population exactly — the same
+            // teaching-enterprise cohorts record them, and the same officers
+            // oversee them — so they share the union rather than a second copy
+            // of the same three-way test that could drift out of step.
+            if (
+              submenu.href === '/improvement-board/gemba' ||
+              submenu.href === '/improvement-board/placements'
+            ) {
               return (
                 userRole.permissions['improvement.ideas.view'] === true ||
                 userRole.permissions['improvement.area_role.assign'] === true ||
