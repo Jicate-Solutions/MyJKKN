@@ -43,6 +43,31 @@ function good(over: Record<string, unknown> = {}) {
 }
 
 describe('parsePayload', () => {
+  // Regression guard, 2026-09-06. The Max-lane seat runner substitutes
+  // payload._ctx into the template's {{payload}} slot. Lane I first sent its
+  // fields at the top level, so the model received an empty slot and replied
+  // "I don't see the actual input payload" (ai_jobs 1096542b). The route now
+  // nests under _ctx; both shapes must parse, because a job queued before the
+  // change still has to file.
+  it('reads the fields from _ctx (the Max-lane payload convention)', () => {
+    const p = parsePayload({ _ctx: { ...physics }, prompt: 'draft them' });
+    expect(p).not.toBeNull();
+    expect(p!.exam_definition_id).toBe(physics.exam_definition_id);
+    expect(p!.count).toBe(physics.count);
+    expect(p!.bloom_level).toBe(physics.bloom_level);
+  });
+
+  it('still reads a flat payload queued before the _ctx change', () => {
+    const p = parsePayload({ ...physics });
+    expect(p).not.toBeNull();
+    expect(p!.exam_definition_id).toBe(physics.exam_definition_id);
+  });
+
+  it('rejects an _ctx that is not an object rather than reading around it', () => {
+    expect(parsePayload({ _ctx: 'nope', prompt: 'x' })).toBeNull();
+    expect(parsePayload({ _ctx: [1, 2, 3] })).toBeNull();
+  });
+
   it('accepts the shape Lane I enqueues and dedupes tag keys', () => {
     const p = parsePayload({ ...physics, tag_keys: ['a', 'a', 'b'] });
     expect(p?.tag_keys).toEqual(['a', 'b']);
