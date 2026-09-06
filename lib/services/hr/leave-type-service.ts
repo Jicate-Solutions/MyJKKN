@@ -17,7 +17,47 @@ import type {
   HRLeaveTypeUpdate,
 } from '@/types/hr-leave-types';
 import type { HRLeaveBalanceAnalytics } from '@/types/hr-leave-analytics';
+import type {
+  HRBalanceAdjustPayload,
+  HRBalanceAdjustResult,
+  HRStaffBalanceDetail,
+} from '@/types/hr-leave-staff-balances';
 import type { LeavePeriodUsage, StoUsage } from '@/types/hr-leave-types';
+
+/**
+ * What hr_leave_type_delete() returns, for both the dry run and the commit.
+ *
+ * `blockers` is present on the refusal AND on a successful dry run — all zeros
+ * in the latter case — so the dialog can render one component either way.
+ */
+export interface HRLeaveTypeDeleteResult {
+  ok: boolean;
+  dry_run?: boolean;
+  leave_type_name?: string;
+  /** 'permission_denied' | 'not_found' | 'still_active' | 'in_use' | a SQLERRM. */
+  error?: string;
+  message?: string;
+  blockers?: {
+    applications: number;
+    encashments: number;
+    consumed_balances: number;
+    overrides: number;
+    adjustments: number;
+    superseding_types: number;
+  };
+  /** Present on a clean dry run. */
+  will_remove?: HRLeaveTypeDeleteCounts;
+  /** Present after the commit. */
+  removed?: HRLeaveTypeDeleteCounts;
+}
+
+export interface HRLeaveTypeDeleteCounts {
+  /** Generated ledger rows nobody consumed — see the migration's note. */
+  placeholder_balances: number;
+  assignments: number;
+  cadre_entitlements: number;
+  policies: number;
+}
 
 export interface GenerateBalancesFallback {
   staff_code: string;
@@ -125,17 +165,51 @@ export class HRLeaveTypeService {
     return data as HRLeaveType;
   }
 
-  /**
-   * Soft-archive. Hard delete is intentionally not exposed: hr_leave_balances
-   * and hr_leave_applications FK to this table, so removing a type in use
-   * would either fail or orphan history.
-   */
+  /** Soft-archive: the type stops being offered, everything else is untouched. */
   static async remove(supabase: SupabaseClient, id: string): Promise<void> {
     const { error } = await supabase
       .from('hr_leave_types')
       .update({ is_active: false })
       .eq('id', id);
     if (error) throw error;
+  }
+
+  /**
+   * Un-archive. The exact inverse of remove(), and safe for the same reason:
+   * archiving never touched a balance, an application or an assignment, so
+   * putting is_active back restores precisely what was there.
+   */
+  static async restore(supabase: SupabaseClient, id: string): Promise<void> {
+    const { error } = await supabase
+      .from('hr_leave_types')
+      .update({ is_active: true })
+      .eq('id', id);
+    if (error) throw error;
+  }
+
+  /**
+   * Hard delete, through the guarded RPC.
+   *
+   * NOT a plain .delete(): nine tables FK to hr_leave_types and they disagree
+   * about what a delete means — four block it, five CASCADE, and the cascading
+   * five include the balance-adjustment audit trail and every per-staff
+   * entitlement override. hr_leave_type_delete() decides in one transaction and
+   * names what stopped it. See 20260824220000.
+   *
+   * Call with dryRun to populate the confirmation dialog; the commit re-runs
+   * every check, so the two can never disagree.
+   */
+  static async hardDelete(
+    supabase: SupabaseClient,
+    id: string,
+    dryRun: boolean
+  ): Promise<HRLeaveTypeDeleteResult> {
+    const { data, error } = await supabase.rpc('hr_leave_type_delete', {
+      p_leave_type_id: id,
+      p_dry_run: dryRun,
+    });
+    if (error) throw error;
+    return data as HRLeaveTypeDeleteResult;
   }
 
   /**
@@ -227,6 +301,52 @@ export class HRLeaveTypeService {
     });
     if (error) throw error;
     return data as HRLeaveBalanceAnalytics;
+  }
+
+  /**
+   * One institution's staff, pivot-ready.
+   *
+   * Goes through the RPC rather than reading v_hr_leave_balance directly: that
+   * view gates non-self rows on hr.leave.approve, but the page that renders
+   * this is guarded on hr.leave.balance.manage, and those are different keys —
+   * Board Member holds manage without approve and would have seen an empty
+   * table. The RPC gates on manage, matching getBalanceAnalytics above.
+   */
+  static async getStaffBalances(
+    supabase: SupabaseClient,
+    hrOrgId: string,
+    hrAcademicYearId: string | null
+  ): Promise<HRStaffBalanceDetail> {
+    const { data, error } = await supabase.rpc('hr_leave_balance_staff_detail', {
+      p_hr_org_id: hrOrgId,
+      p_hr_academic_year_id: hrAcademicYearId,
+    });
+    if (error) throw error;
+    return data as HRStaffBalanceDetail;
+  }
+
+  /**
+   * Correct a single (staff, leave type) cell, with an audit row.
+   *
+   * The RPC applies a DIFFERENT permission key per action — set_used needs
+   * hr.leave.policies.write, the entitlement actions need
+   * hr.leave.balance.manage — mirroring each table's own RLS. Callers should
+   * hide the lever they cannot use rather than let the RPC refuse it.
+   */
+  static async adjustBalance(
+    supabase: SupabaseClient,
+    payload: HRBalanceAdjustPayload
+  ): Promise<HRBalanceAdjustResult> {
+    const { data, error } = await supabase.rpc('hr_leave_balance_adjust', {
+      p_employee_id: payload.employee_id,
+      p_leave_type_id: payload.leave_type_id,
+      p_hr_academic_year_id: payload.hr_academic_year_id,
+      p_action: payload.action,
+      p_value: payload.value,
+      p_reason: payload.reason,
+    });
+    if (error) throw error;
+    return data as HRBalanceAdjustResult;
   }
 
   static async generateBalances(

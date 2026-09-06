@@ -73,13 +73,27 @@ export const DEFAULT_PAYER_DIRECTORY_FILTERS: PayerDirectoryFilterState = {
 };
 
 /**
- * Live data carries the same job title under several spellings — "Bus Cleaner"
+ * Live data carries the same title under several spellings — "Bus Cleaner"
  * and "Bus cleaner", "Main Gate Security" with and without a trailing space.
  * Collapsing on a trimmed, lower-cased key keeps those as ONE option instead of
  * offering the user two identical-looking rows that each match half the people.
  */
 export function normaliseRole(title: string | null | undefined): string {
   return (title ?? '').trim().toLowerCase();
+}
+
+/**
+ * ONE ROW CAN HOLD SEVERAL ROLES. role_title is the staff member's Role
+ * Management assignments comma-joined ("Facilitator, HOD"), and 215 of 614
+ * rows carry more than one. Keying the filter on the whole string would make
+ * "Facilitator" match only people who are ONLY a facilitator — so both the
+ * option list and the match test work per individual role.
+ */
+export function splitRoles(title: string | null | undefined): string[] {
+  return (title ?? '')
+    .split(',')
+    .map((part) => normaliseRole(part))
+    .filter(Boolean);
 }
 
 export function countActiveDirectoryFilters(
@@ -126,7 +140,7 @@ export function matchesDirectoryFilters(
   if (except !== 'payer' && f.payerOrgId && r.payer_org_id !== f.payerOrgId) {
     return false;
   }
-  if (except !== 'role' && f.roleKey && normaliseRole(r.role_title) !== f.roleKey) {
+  if (except !== 'role' && f.roleKey && !splitRoles(r.role_title).includes(f.roleKey)) {
     return false;
   }
   return true;

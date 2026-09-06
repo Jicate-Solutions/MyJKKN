@@ -592,6 +592,18 @@ export interface BatchDefinition {
   batch_name: string;              // e.g., "Batch A", "Group 1"
   assignment_type: 'section' | 'manual';  // How students are assigned to batch
   section_ids?: string[];          // Sections that form this batch (if assignment_type = 'section')
+  /**
+   * Specific learners in this batch (if assignment_type = 'manual').
+   * Added: 2026-08-17 (BUG-005826) — `manual` was selectable long before it was
+   * storable, so it silently behaved like an unconfigured section batch and put
+   * the whole class on the screen. Needed whenever a batch is a subset of ONE
+   * section rather than a set of whole sections: allied, generic elective and
+   * non-major electives are chosen per learner, so no section can express them.
+   * Empty/absent keeps the section-based behaviour unchanged.
+   * Mirrors SubdivisionGroup.student_ids above; read via
+   * narrowRosterToPracticalBatch (lib/utils/academic/practical-batch-roster.ts).
+   */
+  student_ids?: string[];
   estimated_count: number;         // Estimated number of students
 
   // NEW: Batch-specific course and staff configuration

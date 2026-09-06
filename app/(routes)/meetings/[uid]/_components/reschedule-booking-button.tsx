@@ -42,11 +42,31 @@ interface DayGroup {
   starts: string[];
 }
 
-export function RescheduleBookingButton({ uid }: { uid: string }) {
+type Reason = 'missed' | 'repeat' | 'follow_up';
+
+/**
+ * The three things a host can mean when they give an ENDED meeting a new time.
+ * Worded as the host would say them out loud, not as the database stores them.
+ */
+const REASONS: { value: Reason; label: string; hint: string }[] = [
+  { value: 'missed', label: 'It was missed', hint: 'It never happened — move this meeting' },
+  { value: 'repeat', label: 'Meet again', hint: 'It happened — book the next one' },
+  { value: 'follow_up', label: 'Follow up', hint: 'It happened — more to discuss' },
+];
+
+export function RescheduleBookingButton({
+  uid,
+  /** True once the meeting has ended or been cancelled — then a reason is required. */
+  hasEnded = false,
+}: {
+  uid: string;
+  hasEnded?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [days, setDays] = useState<DayGroup[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [reason, setReason] = useState<Reason | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -83,13 +103,21 @@ export function RescheduleBookingButton({ uid }: { uid: string }) {
 
   function confirmMove() {
     if (!selected) return;
+    // A meeting that has ended cannot be moved without saying which of the three
+    // things is happening — 'missed' moves it, the other two create a new one.
+    if (hasEnded && !reason) return;
     startTransition(async () => {
-      const result = await rescheduleMyBooking(uid, selected);
+      const result = await rescheduleMyBooking(uid, selected, reason ?? undefined);
       if (result.success) {
-        toast.success('Meeting moved. Both you and the guest have been emailed.');
+        toast.success(
+          reason === 'repeat' || reason === 'follow_up'
+            ? 'New meeting booked and linked to this one. Both of you have been emailed.'
+            : 'Meeting moved. Both you and the guest have been emailed.',
+        );
         setOpen(false);
         setDays(null);
         setSelected(null);
+        setReason(null);
         router.refresh();
       } else {
         toast.error(result.error ?? 'Could not move the booking.');
@@ -103,7 +131,7 @@ export function RescheduleBookingButton({ uid }: { uid: string }) {
     return (
       <Button variant="outline" size="sm" onClick={onOpen}>
         <CalendarClock className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-        Reschedule
+        {hasEnded ? 'Move or follow up' : 'Reschedule'}
       </Button>
     );
   }
@@ -111,19 +139,48 @@ export function RescheduleBookingButton({ uid }: { uid: string }) {
   return (
     <div className="space-y-3 rounded-md border p-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">Pick a new time</p>
+        <p className="text-sm font-medium">
+          {hasEnded ? 'This meeting has already ended' : 'Pick a new time'}
+        </p>
         <Button
           variant="ghost"
           size="sm"
           onClick={() => {
             setOpen(false);
             setSelected(null);
+            setReason(null);
           }}
           disabled={pending}
         >
-          Keep current time
+          {hasEnded ? 'Leave it' : 'Keep current time'}
         </Button>
       </div>
+
+      {/* Asked only for a meeting that has ended. 'It was missed' moves this
+          meeting; the other two leave it as it is and book a new one linked
+          back to it, so the thread stays readable later. */}
+      {hasEnded ? (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">What happened?</p>
+          <div className="flex flex-wrap gap-1.5">
+            {REASONS.map((r) => (
+              <Button
+                key={r.value}
+                type="button"
+                variant={reason === r.value ? 'default' : 'outline'}
+                size="sm"
+                className="h-auto flex-col items-start gap-0.5 px-2.5 py-1.5 text-left"
+                onClick={() => setReason(r.value)}
+                disabled={pending}
+                aria-pressed={reason === r.value}
+              >
+                <span className="text-xs font-medium">{r.label}</span>
+                <span className="text-[11px] font-normal opacity-75">{r.hint}</span>
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {loading ? (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -167,16 +224,21 @@ export function RescheduleBookingButton({ uid }: { uid: string }) {
 
       {selected ? (
         <>
-          <Button size="sm" onClick={confirmMove} disabled={pending}>
+          <Button size="sm" onClick={confirmMove} disabled={pending || (hasEnded && !reason)}>
             {pending ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
             ) : (
               <CalendarClock className="mr-1.5 h-3.5 w-3.5" aria-hidden />
             )}
-            Move to {istTime(selected)} on {istDayLabel(selected)}
+            {reason === 'repeat' || reason === 'follow_up' ? 'Book' : 'Move to'}{' '}
+            {istTime(selected)} on {istDayLabel(selected)}
           </Button>
           <p className="text-xs text-muted-foreground">
-            The guest will be emailed that you moved the meeting.
+            {hasEnded && !reason
+              ? 'Choose what happened above first.'
+              : reason === 'repeat' || reason === 'follow_up'
+                ? 'This meeting stays as it is. A new one is booked and linked to it.'
+                : 'The guest will be emailed that you moved the meeting.'}
           </p>
         </>
       ) : null}

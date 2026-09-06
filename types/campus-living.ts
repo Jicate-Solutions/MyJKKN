@@ -175,6 +175,13 @@ export interface LearnerHostelite {
   gender: string | null;
   father_name: string | null;
   mother_name: string | null;
+  // Contact numbers, projected by v_learner_hostelites since migration
+  // 20260902140000. Stored on learners_profiles and populated for every current
+  // resident, but a few rows hold '' rather than NULL — normalise at the
+  // display/export boundary, not here.
+  student_mobile: string | null;
+  father_mobile: string | null;
+  mother_mobile: string | null;
   accommodation_type: LearnerAccommodationType;
   hostel_fee: number | null;
   dayscholar_fee: number | null;

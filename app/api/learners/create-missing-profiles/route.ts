@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 
 
 // Create admin client for user management
@@ -16,23 +17,6 @@ const supabaseAdmin = createClient(
     }
   }
 );
-
-// Helper function to generate a random password
-function generateTemporaryPassword(length = 12): string {
-  const charset =
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-  let password = '';
-  for (let i = 0, n = charset.length; i < length; ++i) {
-    password += charset.charAt(Math.floor(Math.random() * n));
-  }
-  if (!/\d/.test(password)) {
-    password += Math.floor(Math.random() * 10);
-  }
-  if (!/[A-Z]/.test(password)) {
-    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  }
-  return password.slice(0, length);
-}
 
 export async function POST(request: Request) {
   await connection();

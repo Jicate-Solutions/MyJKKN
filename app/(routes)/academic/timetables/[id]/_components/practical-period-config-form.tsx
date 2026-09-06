@@ -22,6 +22,7 @@ import type {
   BatchDefinition,
   CourseOption
 } from '@/types/academics';
+import { useBatchLearners } from '@/hooks/use-batch-learners';
 
 interface PracticalPeriodConfigFormProps {
   value?: PracticalConfig;
@@ -30,6 +31,13 @@ interface PracticalPeriodConfigFormProps {
   sections: Array<{ id: string; section_name: string }>;
   courses: Array<{ id: string; course_name: string; course_code: string }>;
   availableStaff?: Array<{ id: string; first_name: string; last_name: string; staff_id: string }>;
+  /**
+   * Added: 2026-08-17 (BUG-005826) — scope for the manual learner picker. A
+   * manual batch is used when the split is per learner inside one section
+   * (allied / generic elective), so the candidates are the whole
+   * programme+semester cohort, not one section's.
+   */
+  programId?: string;
 }
 
 export function PracticalPeriodConfigForm({
@@ -38,7 +46,8 @@ export function PracticalPeriodConfigForm({
   semesterId,
   sections,
   courses,
-  availableStaff
+  availableStaff,
+  programId
 }: PracticalPeriodConfigFormProps) {
   const adapt = useAdaptiveLabels();
   const [batches, setBatches] = useState<BatchDefinition[]>(
@@ -53,6 +62,22 @@ export function PracticalPeriodConfigForm({
   const [rotationType, setRotationType] = useState<'manual' | 'automatic'>(
     value?.rotation_type || 'manual'
   );
+
+  // Manual learner assignment (Added: 2026-08-17, BUG-005826)
+  const [learnerSearch, setLearnerSearch] = useState<Record<string, string>>({});
+
+  // Fetch only once a batch actually asks for manual assignment. Most practical
+  // periods are section-assigned and must not pay for this query.
+  //
+  // The loading lifecycle lives in useBatchLearners rather than here: the first
+  // version was an inline effect that guarded on its own state and cancelled on
+  // cleanup, which deadlocked on "Loading learners..." under StrictMode. See the
+  // hook for the full account.
+  const { learners, state: learnersState } = useBatchLearners({
+    enabled: batches.some((b) => b.assignment_type === 'manual'),
+    programId,
+    semesterId
+  });
 
   // Notify parent of changes
   useEffect(() => {
@@ -169,6 +194,29 @@ export function PracticalPeriodConfigForm({
     });
   };
 
+  // Added: 2026-08-17 (BUG-005826)
+  const toggleLearnerForBatch = (batchId: string, learnerId: string) => {
+    const current = batches.find((b) => b.batch_id === batchId)?.student_ids || [];
+    const next = current.includes(learnerId)
+      ? current.filter((id) => id !== learnerId)
+      : [...current, learnerId];
+
+    updateBatch(batchId, {
+      student_ids: next,
+      // Keep the count honest. It is the number the faculty compares the marking
+      // screen against, and a stale estimate is how a 9-learner lab showing 19
+      // names went unquestioned for a fortnight.
+      estimated_count: next.length
+    });
+  };
+
+  const setLearnersForBatch = (batchId: string, learnerIds: string[]) => {
+    updateBatch(batchId, {
+      student_ids: learnerIds,
+      estimated_count: learnerIds.length
+    });
+  };
+
   const toggleSectionForBatch = (batchId: string, sectionId: string) => {
     updateBatch(batchId, {
       section_ids: batches
@@ -263,7 +311,12 @@ export function PracticalPeriodConfigForm({
                       onValueChange={(val: 'section' | 'manual') =>
                         updateBatch(batch.batch_id, {
                           assignment_type: val,
-                          section_ids: val === 'manual' ? [] : batch.section_ids
+                          section_ids: val === 'manual' ? [] : batch.section_ids,
+                          // Updated: 2026-08-17 - drop the learner list when the
+                          // batch goes back to whole sections, so a stale
+                          // hand-picked list cannot keep narrowing a roster the
+                          // sections are now meant to define.
+                          student_ids: val === 'manual' ? batch.student_ids : []
                         })
                       }
                     >
@@ -274,8 +327,12 @@ export function PracticalPeriodConfigForm({
                         <SelectItem value='section'>
                           Students from specific sections
                         </SelectItem>
+                        {/* Updated: 2026-08-17 (BUG-005826) - the old wording
+                            promised a manual picker on the marking screen that
+                            never existed. The learners are chosen here, now that
+                            there is a field to keep them in. */}
                         <SelectItem value='manual'>
-                          Manual student selection at attendance
+                          Specific learners (choose below)
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -330,13 +387,158 @@ export function PracticalPeriodConfigForm({
                     </div>
                   )}
 
-                  {/* Estimated Count */}
+                  {/* Learner Selection (if assignment_type = 'manual')
+                      Added: 2026-08-17 (BUG-005826). Use this when the batch is a
+                      SUBSET of one section — allied, generic elective and
+                      non-major electives are chosen per learner, so no section
+                      can express them and section scope loads the whole class. */}
+                  {batch.assignment_type === 'manual' && (
+                    <div className='space-y-2'>
+                      <div className='flex items-center justify-between gap-2'>
+                        <Label className='text-xs'>
+                          Learners in this Batch ({batch.student_ids?.length || 0} selected)
+                        </Label>
+                        {(batch.student_ids?.length || 0) > 0 && (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='h-6 text-xs'
+                            onClick={() => setLearnersForBatch(batch.batch_id, [])}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+
+                      {/* 'idle' is the tick before the effect runs. Showing
+                          nothing there makes the panel flicker empty, which
+                          reads as "no learners" rather than "not yet". */}
+                      {(learnersState === 'loading' || learnersState === 'idle') && (
+                        <p className='text-xs text-muted-foreground py-2'>
+                          Loading learners...
+                        </p>
+                      )}
+
+                      {learnersState === 'error' && (
+                        <p className='text-xs text-red-600 py-2'>
+                          Could not load learners. Close and reopen this slot to retry.
+                        </p>
+                      )}
+
+                      {learnersState === 'loaded' && learners.length === 0 && (
+                        <p className='text-xs text-amber-600 py-2'>
+                          ⚠️ No active learners found for this programme and semester.
+                        </p>
+                      )}
+
+                      {learnersState === 'loaded' && learners.length > 0 && (() => {
+                        const selected = batch.student_ids || [];
+                        // A learner in two batches of the same period would be
+                        // marked twice for the same hour. Show it rather than
+                        // block it — a period can legitimately be re-authored.
+                        const takenElsewhere = new Set(
+                          batches
+                            .filter((b) => b.batch_id !== batch.batch_id)
+                            .flatMap((b) => b.student_ids || [])
+                        );
+                        const term = (learnerSearch[batch.batch_id] || '').toLowerCase();
+                        const visible = term
+                          ? learners.filter(
+                              (l) =>
+                                l.name.toLowerCase().includes(term) ||
+                                l.roll_number.toLowerCase().includes(term)
+                            )
+                          : learners;
+
+                        return (
+                          <>
+                            <Input
+                              placeholder='Search by name or roll number...'
+                              className='h-8 text-xs'
+                              value={learnerSearch[batch.batch_id] || ''}
+                              onChange={(e) =>
+                                setLearnerSearch((prev) => ({
+                                  ...prev,
+                                  [batch.batch_id]: e.target.value
+                                }))
+                              }
+                            />
+
+                            <div className='border rounded-md p-3 max-h-56 overflow-y-auto space-y-2'>
+                              {visible.length === 0 ? (
+                                <p className='text-xs text-muted-foreground text-center py-2'>
+                                  No learner matches "{learnerSearch[batch.batch_id]}"
+                                </p>
+                              ) : (
+                                visible.map((learner) => {
+                                  const isSelected = selected.includes(learner.id);
+                                  const clash = !isSelected && takenElsewhere.has(learner.id);
+
+                                  return (
+                                    <div
+                                      key={learner.id}
+                                      className='flex items-center space-x-2'
+                                    >
+                                      <Checkbox
+                                        id={`batch-${batch.batch_id}-learner-${learner.id}`}
+                                        checked={isSelected}
+                                        onCheckedChange={() =>
+                                          toggleLearnerForBatch(batch.batch_id, learner.id)
+                                        }
+                                      />
+                                      <Label
+                                        htmlFor={`batch-${batch.batch_id}-learner-${learner.id}`}
+                                        className='text-xs font-normal cursor-pointer flex items-center gap-2'
+                                      >
+                                        {learner.roll_number && (
+                                          <span className='text-muted-foreground'>
+                                            {learner.roll_number}
+                                          </span>
+                                        )}
+                                        <span>{learner.name}</span>
+                                        {clash && (
+                                          <Badge
+                                            variant='outline'
+                                            className='text-[10px] py-0 text-amber-600 border-amber-300'
+                                          >
+                                            in another batch
+                                          </Badge>
+                                        )}
+                                      </Label>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            {selected.length === 0 && (
+                              <p className='text-xs text-amber-600'>
+                                ⚠️ No learners selected. This batch will show the whole
+                                class at attendance time.
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Estimated Count
+                      Updated: 2026-08-17 - derived, not typed, once the batch
+                      names its learners. Two numbers for the same thing is how
+                      the count stayed plausible while the roster was wrong. */}
                   <div className='space-y-2'>
-                    <Label className='text-xs'>Estimated Student Count</Label>
+                    <Label className='text-xs'>
+                      {batch.assignment_type === 'manual'
+                        ? 'Learner Count (from selection)'
+                        : 'Estimated Learner Count'}
+                    </Label>
                     <Input
                       type='number'
                       min='0'
                       placeholder='e.g., 15'
+                      disabled={batch.assignment_type === 'manual'}
                       value={batch.estimated_count || ''}
                       onChange={(e) =>
                         updateBatch(batch.batch_id, {

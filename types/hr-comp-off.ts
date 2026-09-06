@@ -7,6 +7,8 @@
  * (entitled, used, carried_forward) row per type per academic year.
  */
 
+import type { LeaveDocument } from '@/types/hr';
+
 /** What a human decided. Expiry is NOT stored here — see `effective_status`. */
 export type CompOffCreditStatus = 'pending' | 'approved' | 'rejected' | 'consumed';
 
@@ -77,10 +79,15 @@ export interface PendingCompOffClaim {
   /** 'Unknown' when the staff row is unreadable — the claim still shows. */
   employee_name: string;
   employee_code: string | null;
+  /** From the claimant's staff row; null when that row is unreadable. */
+  institution_id: string | null;
+  institution_name: string | null;
   worked_date: string;
   expires_on: string;
   credit_days: number;
   source: CompOffCreditSource;
   notes: string | null;
+  /** Proof of the worked day — same Drive-backed shape as leave documents. */
+  documents: LeaveDocument[];
   created_at: string;
 }

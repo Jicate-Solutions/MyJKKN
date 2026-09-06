@@ -602,9 +602,40 @@ export class ImsIndentService {
 
   /**
    * Mark an indent as fully issued.
+   *
+   * STATUS ONLY — this moves no stock and writes no audit row. It is the final
+   * step after every line has already been issued through issueItem(), which is
+   * what actually decrements ims_stock_summary.
+   *
+   * The UI only offers "Mark All Issued" once every line is fully issued, but
+   * that gate lives in the page. Re-check it here so the invariant is real: a
+   * caller that reached this another way must not be able to stamp an indent
+   * 'issued' while its stock is still on the shelf. That would look exactly like
+   * the "issued but stock never decreased" bug this module keeps being reported
+   * for, while leaving no audit trail to explain it.
    */
   static async markAsIssued(id: string): Promise<ImsIndentRequest> {
     try {
+      const { data: items, error: itemsError } = await this.supabase
+        .from('ims_indent_request_items')
+        .select('quantity, issued_quantity')
+        .eq('indent_id', id);
+
+      if (itemsError) throw itemsError;
+      if (!items || items.length === 0) {
+        throw new Error('Cannot mark as issued: this indent has no items');
+      }
+
+      const outstanding = (items as any[]).filter(
+        (i) => Number(i.issued_quantity || 0) < Number(i.quantity)
+      );
+      if (outstanding.length > 0) {
+        throw new Error(
+          `Cannot mark as issued: ${outstanding.length} item(s) have not been fully issued yet. ` +
+            'Issue them first so store stock is decremented.'
+        );
+      }
+
       const { data, error } = await this.supabase
         .from('ims_indent_requests')
         .update({

@@ -32,7 +32,7 @@ import {
   resolveProfileIdsForLearners
 } from '@/lib/services/id-cards/print-jobs-client';
 import {
-  NO_TEMPLATES_MESSAGE,
+  emptyTemplateMessage,
   TemplateSelect,
   useIdCardTemplates
 } from './print-card-button';
@@ -86,7 +86,7 @@ export function BulkPrintDialog({
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<BulkPrintResults>(EMPTY_RESULTS);
 
-  const { templates, selectedTemplateId, selectTemplate } =
+  const { templates, selectedTemplateId, selectTemplate, inactiveOnly } =
     useIdCardTemplates(open);
 
   // Fresh confirm view every time the dialog opens.
@@ -99,6 +99,7 @@ export function BulkPrintDialog({
   }, [open]);
 
   const noTemplates = templates !== null && templates.length === 0;
+  const emptyMessage = emptyTemplateMessage(templates, inactiveOnly);
 
   const runBulkPrint = async () => {
     if (!selectedTemplateId || learners.length === 0) return;
@@ -198,8 +199,8 @@ export function BulkPrintDialog({
                     onChange={selectTemplate}
                     className="h-9 w-full"
                   />
-                  {noTemplates && (
-                    <p className="text-sm text-destructive">{NO_TEMPLATES_MESSAGE}</p>
+                  {emptyMessage && (
+                    <p className="text-sm text-destructive">{emptyMessage}</p>
                   )}
                 </div>
 

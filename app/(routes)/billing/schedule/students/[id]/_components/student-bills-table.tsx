@@ -6,7 +6,7 @@ import {
   Eye,
   Edit,
   Trash2,
-  Receipt,
+  ReceiptIndianRupee,
   Percent,
   Calendar,
   IndianRupee,
@@ -67,13 +67,22 @@ interface StudentBillsTableProps {
   statusFilter: string;
   onRefresh: () => void;
   isStudentView?: boolean; // New prop to indicate if viewing as student
+  /**
+   * Collect payment WITHOUT navigating. When a host supplies this, Generate
+   * Receipt calls it instead of doing a full-document
+   * `window.location.href = '/billing/receipts/new?...'` — which is what used
+   * to tear down the quick-bill popup (and the search results behind it) at
+   * the fee counter. Hosts that want the standalone page simply omit it.
+   */
+  onGenerateReceipt?: (billIds: string[], studentId?: string) => void;
 }
 
 export function StudentBillsTable({
   bills,
   statusFilter,
   onRefresh,
-  isStudentView = false
+  isStudentView = false,
+  onGenerateReceipt
 }: StudentBillsTableProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
@@ -287,13 +296,26 @@ export function StudentBillsTable({
     }
   };
 
+  // Single entry point for both the bulk action bar and the per-row menu, so
+  // the popup-vs-navigate decision is made in exactly one place.
+  const openReceiptFor = (billIds: string[], studentId?: string) => {
+    if (billIds.length === 0) return;
+
+    if (onGenerateReceipt) {
+      onGenerateReceipt(billIds, studentId);
+      return;
+    }
+
+    const query = new URLSearchParams({ bill_ids: billIds.join(',') });
+    if (studentId) query.set('student_id', studentId);
+    window.location.href = `/billing/receipts/new?${query.toString()}`;
+  };
+
   const handleGenerateReceipt = () => {
-    if (selectedSelectableBills.length === 0) return;
-
-    const billIds = selectedSelectableBills.map((bill) => bill.id).join(',');
-    const studentId = selectedSelectableBills[0]?.student_id;
-
-    window.location.href = `/billing/receipts/new?bill_ids=${billIds}&student_id=${studentId}`;
+    openReceiptFor(
+      selectedSelectableBills.map((bill) => bill.id),
+      selectedSelectableBills[0]?.student_id
+    );
   };
 
   const handleApplyDiscount = () => {
@@ -355,11 +377,11 @@ export function StudentBillsTable({
                   </DropdownMenuItem>
                 )}
                 {canSelectBill(bill) && canCreateReceipts && (
-                  <DropdownMenuItem asChild>
-                    <Link href={`/billing/receipts/new?bill_ids=${bill.id}`}>
-                      <Receipt className='mr-2 h-4 w-4' />
-                      Generate Receipt
-                    </Link>
+                  <DropdownMenuItem
+                    onSelect={() => openReceiptFor([bill.id], bill.student_id)}
+                  >
+                    <ReceiptIndianRupee className='mr-2 h-4 w-4' />
+                    Generate Receipt
                   </DropdownMenuItem>
                 )}
                 {canSelectBill(bill) && canApplyDiscounts && (
@@ -548,11 +570,11 @@ export function StudentBillsTable({
             )}
             <DropdownMenuSeparator />
             {canSelectBill(bill) && canCreateReceipts && (
-              <DropdownMenuItem asChild>
-                <Link href={`/billing/receipts/new?bill_ids=${bill.id}`}>
-                  <Receipt className='mr-2 h-4 w-4' />
-                  Generate Receipt
-                </Link>
+              <DropdownMenuItem
+                onSelect={() => openReceiptFor([bill.id], bill.student_id)}
+              >
+                <ReceiptIndianRupee className='mr-2 h-4 w-4' />
+                Generate Receipt
               </DropdownMenuItem>
             )}
             {canSelectBill(bill) && canApplyDiscounts && (
@@ -643,7 +665,7 @@ export function StudentBillsTable({
                 onClick={handleGenerateReceipt}
                 className='bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 flex-1 sm:flex-initial'
               >
-                <Receipt className='mr-2 h-4 w-4' />
+                <ReceiptIndianRupee className='mr-2 h-4 w-4' />
                 <span className='hidden sm:inline'>Generate Receipt</span>
                 <span className='sm:hidden'>Receipt</span>
                 <span className='ml-1'>({selectedSelectableBills.length})</span>

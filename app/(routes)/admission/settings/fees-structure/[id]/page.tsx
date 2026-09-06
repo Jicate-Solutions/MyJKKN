@@ -64,6 +64,9 @@ import {
   Trash2,
   UserCircle,
   Home,
+  BedDouble,
+  UtensilsCrossed,
+  CalendarClock,
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -76,8 +79,15 @@ import type {
   AdmissionFeeStructure,
   AdmissionFeeStructureItem,
   AdmissionFeeStructureWithItems,
+  FeeItemAppliesTo,
   FeeStructureMatrixDimensions,
+  FeeStructurePackageType,
 } from '@/types/admission';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
+import {
+  FeeItemScheduleSummary,
+  summariseSchedules,
+} from '../_components/fee-item-schedule-summary';
 
 interface RouteProps {
   params: Promise<{ id: string }>;
@@ -95,10 +105,27 @@ type DetailRow = AdmissionFeeStructure & {
   programme_name: string | null;
   quota_name: string | null;
   accommodation_name: string | null;
+  /**
+   * Declared hostel tier. Only hostel structures carry one — a DB trigger
+   * rejects it on any other accommodation — so these are null by design on
+   * day-scholar rows and the Hostel Categories section stays hidden there.
+   */
+  hostel_category_name: string | null;
+  mess_category_name: string | null;
   community_name: string | null;
   admission_year_name: string | null;
   items: DetailRowItem[];
 };
+
+/** "Every year" / "First year only" / "Year 3 only" — never the raw enum. */
+function appliesToLabel(
+  appliesTo: FeeItemAppliesTo | undefined,
+  year: number | null | undefined,
+): string {
+  if (appliesTo === 'first_year_only') return 'First year only';
+  if (appliesTo === 'specific_year') return year != null ? `Year ${year} only` : 'Specific year';
+  return 'Every year';
+}
 
 function FeeStructureDetailPageContent({ id }: { id: string }) {
   const router = useRouter();
@@ -206,6 +233,30 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
 
   const grandTotal = structure?.items.reduce((s, it) => s + Number(it.amount || 0), 0) ?? 0;
 
+  // Billing schedule roll-up. Counts what the page previously could not show at
+  // all: how many due dates this structure actually produces, and how many of
+  // them move the learner up the lifecycle.
+  const scheduleStats = summariseSchedules(structure?.items ?? []);
+
+  // Lifecycle status labels straight from Stages & Statuses, so a renamed
+  // status reads correctly here instead of showing the raw enum code.
+  const { data: learnerStatuses } = useAdmissionStatuses('learner', { activeOnly: false });
+  const statusLabels = Object.fromEntries(
+    (learnerStatuses ?? []).map((st) => [st.code, st.label]),
+  );
+
+  const defaultOffsetDays = structure?.default_due_offset_days ?? 30;
+
+  // Is this a HOSTEL structure (i.e. should the Hostel Categories section show)?
+  // A set category is proof on its own — trg_fee_structure_hostel_categories_guard
+  // rejects one on any non-hostel structure. The accommodation-name check covers
+  // the only case where both are null yet it IS hostel: a draft awaiting its tier.
+  const isHostelStructure =
+    !!structure &&
+    (!!structure.hostel_category_id ||
+      !!structure.mess_category_id ||
+      (structure.accommodation_name ?? '').toLowerCase().includes('hostel'));
+
   return (
     <PermissionGuard module="admission.settings" action="view">
       <ContentLayout title={structure?.name ?? 'Fee Structure'}>
@@ -262,6 +313,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                   <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-2xl font-bold">{structure.name}</h1>
                     <StatusBadge status={structure.status} />
+                    <PackageTypeBadge packageType={structure.package_type} />
                     <EffectivePeriodBadge
                       from={structure.effective_from}
                       to={structure.effective_to}
@@ -418,6 +470,46 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
               </section>
               )}
 
+              {/* Hostel Categories — HOSTEL structures only.
+               *  Deliberately its own section rather than two more DimCards:
+               *  the tier is an attribute of the package, not a matching
+               *  dimension, so it plays no part in resolving a learner to this
+               *  structure (same reasoning that keeps package_type out of the
+               *  grid above). It is also absent on the 125 day-scholar
+               *  structures, which is why it is not a list-table column. */}
+              {!isEditMode && isHostelStructure && (
+              <section>
+                <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+                  Hostel Categories
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <DimCard
+                    icon={<BedDouble className="h-4 w-4" />}
+                    label="Room Category"
+                    name={structure.hostel_category_name}
+                    id={structure.hostel_category_id ?? ''}
+                  />
+                  <DimCard
+                    icon={<UtensilsCrossed className="h-4 w-4" />}
+                    label="Mess Category"
+                    name={structure.mess_category_name}
+                    id={structure.mess_category_id ?? ''}
+                  />
+                </div>
+                {(!structure.hostel_category_name || !structure.mess_category_name) && (
+                  <p className="text-xs text-amber-600 mt-3">
+                    Both categories are required before this structure can be
+                    activated. Click <em>Edit</em> to set them.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground mt-3">
+                  The room and mess tier this package buys. Categories apply to both
+                  genders — each learner resolves to their own gender&apos;s variant of
+                  the tier.
+                </p>
+              </section>
+              )}
+
               {/* Mode-dependent body */}
               {isEditMode ? (
                 <section>
@@ -458,26 +550,41 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     ) : (
                       <div className="border rounded-md divide-y bg-card">
                         {structure.items.map((it) => (
-                          <div
-                            key={it.id}
-                            className="flex items-center justify-between p-3 gap-3"
-                          >
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium truncate">
-                                  {it.category_name ?? 'Unknown category'}
-                                </div>
-                                {it.category_frequency && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {it.category_frequency}
-                                    {it.is_optional ? ' · optional' : ''}
+                          <div key={it.id} className="p-3 space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-start gap-3 min-w-0 flex-1">
+                                <Receipt className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                                <div className="min-w-0 space-y-1">
+                                  <div className="text-sm font-medium truncate">
+                                    {it.category_name ?? 'Unknown category'}
                                   </div>
-                                )}
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {it.category_frequency && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {it.category_frequency}
+                                        {it.is_optional ? ' · optional' : ''}
+                                      </span>
+                                    )}
+                                    {/* Applicability was configurable since
+                                        20260313 but never rendered here, so a
+                                        first-year-only fee was indistinguishable
+                                        from an every-year one. */}
+                                    <Badge variant="outline" className="font-normal">
+                                      {appliesToLabel(it.applies_to, it.applies_year_of_study)}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-base font-semibold tabular-nums shrink-0">
+                                ₹{Number(it.amount).toLocaleString('en-IN')}
                               </div>
                             </div>
-                            <div className="text-base font-semibold tabular-nums shrink-0">
-                              ₹{Number(it.amount).toLocaleString('en-IN')}
+                            <div className="pl-7">
+                              <FeeItemScheduleSummary
+                                item={it}
+                                defaultOffsetDays={defaultOffsetDays}
+                                statusLabels={statusLabels}
+                              />
                             </div>
                           </div>
                         ))}
@@ -496,7 +603,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
                       Status & History
                     </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                       {/* Status — shown as a colored card with the same badge as the header */}
                       <div className="rounded-md border bg-card p-3 space-y-2">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -524,6 +631,35 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                         </div>
                         <p className="text-xs text-muted-foreground">
                           Total ₹{grandTotal.toLocaleString('en-IN')}
+                        </p>
+                      </div>
+
+                      {/* Billing schedule — how many bills this structure will
+                          actually raise, and how many of them move the learner
+                          up the lifecycle. Neither was visible anywhere before. */}
+                      <div className="rounded-md border bg-card p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <CalendarClock className="h-4 w-4" />
+                          <span>Billing schedule</span>
+                        </div>
+                        <div className="text-2xl font-bold tabular-nums">
+                          {scheduleStats.instalments}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          due date{scheduleStats.instalments === 1 ? '' : 's'} across{' '}
+                          {structure.items.length} item
+                          {structure.items.length === 1 ? '' : 's'}
+                          {scheduleStats.splitItems > 0
+                            ? ` · ${scheduleStats.splitItems} split`
+                            : ''}
+                          {scheduleStats.statusRules > 0
+                            ? ` · ${scheduleStats.statusRules} status rule${scheduleStats.statusRules === 1 ? '' : 's'}`
+                            : ''}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {scheduleStats.customDates === 0
+                            ? `No per-item dates set — everything falls due ${defaultOffsetDays} days after admission.`
+                            : `Structure default: +${defaultOffsetDays} days for items with no date of their own.`}
                         </p>
                       </div>
 
@@ -618,6 +754,24 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
         </AlertDialog>
       </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+/**
+ * Classification badge. Renders nothing when unset — an unclassified
+ * structure is the norm (every structure predating this field), so a
+ * permanent "Unclassified" chip would be noise in the header cluster.
+ */
+function PackageTypeBadge({
+  packageType,
+}: {
+  packageType: FeeStructurePackageType | null;
+}) {
+  if (!packageType) return null;
+  return (
+    <Badge variant={packageType === 'package' ? 'secondary' : 'outline'} className="font-normal">
+      {packageType === 'package' ? 'Package' : 'Non-Package'}
+    </Badge>
   );
 }
 

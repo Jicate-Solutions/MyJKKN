@@ -121,26 +121,9 @@ export function useNIRFEvidenceCounts(institutionId: string | 'cluster') {
   });
 }
 
-export interface JKKNInstitution {
-  id: string;
-  name: string;
-  iqac_code: string | null;
-  institution_type: string | null;
-}
-
-export function useJKKNInstitutionsNIRF() {
-  return useQuery({
-    queryKey: ['institutions', 'jkkn-iqac'],
-    queryFn: async (): Promise<JKKNInstitution[]> => {
-      const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('institutions')
-        .select('id, name, iqac_code, institution_type')
-        .not('iqac_code', 'is', null)
-        .order('iqac_code');
-      if (error) throw error;
-      return (data ?? []) as JKKNInstitution[];
-    },
-    staleTime: 30 * 60 * 1000,
-  });
-}
+// `useJKKNInstitutionsNIRF()` used to live here — a byte-identical copy of
+// `useJKKNInstitutions()` in use-body-dashboard.ts, sharing its cache key. The
+// NIRF page now goes through `useVisibleInstitutions()`, which narrows that one
+// canonical read to the colleges the reader can actually see. Deleted rather
+// than left in place: a second copy of a read whose result is now a printed
+// claim about the reader is a copy that will drift.

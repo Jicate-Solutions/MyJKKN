@@ -9,12 +9,14 @@
 // components/shared, and takes the programme as a prop. School of Influence is
 // its first consumer; the next programme adds a page, not a component.
 //
-// It COPIES THE SHAPE of app/(routes)/events/induction/_components/coordinators-panel
-// — search a person, appoint, remove, and show nothing at all to someone who may
-// not manage coordinators — but NOT its plumbing. Induction's appoint writes a row
-// into user_roles, which hands out a global role. This panel calls the
-// cohort_coordinator RPCs, which record one appointment scoped to a programme, or
-// to a single batch, and grant nothing global.
+// It COPIES THE SHAPE of induction's coordinators section — search a person,
+// appoint, remove, and show nothing at all to someone who may not manage
+// coordinators — but NOT the plumbing of the panel it was modelled on. That one
+// (the retired /events/induction list-page panel) wrote a row into user_roles and
+// handed out a global role; it was removed on 2026-08-18 in favour of induction's
+// per-event section. This panel calls the cohort_coordinator RPCs, which record
+// one appointment scoped to a programme, or to a single batch, and grant nothing
+// global.
 //
 // Two rules run through the whole file (CLAUDE.md rule 27):
 //   • A refusal is a sentence naming who to ask. Never a redirect.

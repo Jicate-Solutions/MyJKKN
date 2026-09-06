@@ -8,8 +8,8 @@
  *     dimension it could compare across institutions, which is why the balance
  *     analytics RPC used to match on the year NAME.
  *   - academic_years runs Jun 1 -> Mar 31 (10 months), leaving April and May
- *     outside every year. hr_academic_years runs Apr 1 -> Mar 31, the Indian
- *     financial year that payroll, gratuity and encashment already use.
+ *     outside every year. hr_academic_years runs Jun 1 -> May 31 -- a full
+ *     12 months, so no day of the calendar falls outside an HR year.
  *
  * One row per year for all of JKKN HR. Active rows can never overlap
  * (hr_academic_years_no_overlap), so a date resolves to exactly one year.
@@ -51,7 +51,7 @@ export interface HRAcademicYearWithUsage extends HRAcademicYear {
 }
 
 /**
- * Derive the Apr 1 -> Mar 31 window from a year name, so the form can prefill
+ * Derive the Jun 1 -> May 31 window from a year name, so the form can prefill
  * dates the moment a name like '2027-2028' is typed. Returns null for anything
  * that is not `YYYY-YYYY` with consecutive years.
  */
@@ -65,5 +65,5 @@ export function deriveHRYearDates(
   const to = Number(match[2]);
   if (to !== from + 1) return null;
 
-  return { start_date: `${from}-04-01`, end_date: `${to}-03-31` };
+  return { start_date: `${from}-06-01`, end_date: `${to}-05-31` };
 }

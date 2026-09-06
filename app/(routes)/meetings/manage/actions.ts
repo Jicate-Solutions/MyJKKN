@@ -30,6 +30,30 @@ export type MeetingLocationMode = 'in_person' | 'phone' | 'online';
 /** Wave-3: event-type variant. */
 export type MeetingKind = 'solo' | 'group' | 'collective' | 'round_robin';
 
+/**
+ * One place a meeting type can happen in (meeting_type_locations, migration
+ * 20260830030000). A type used to hold exactly one location, which is why the
+ * booking page carries records that differ only by where the meeting happens.
+ */
+export interface ManageEventTypeLocation {
+  id: string;
+  locationMode: MeetingLocationMode;
+  locationText: string | null;
+  locationResourceId: string | null;
+  /** Resolved on read for display (room name). */
+  locationResourceName: string | null;
+  sortOrder: number;
+}
+
+/** Payload for adding one place to a meeting type. */
+export interface EventTypeLocationInput {
+  locationMode: MeetingLocationMode;
+  /** in_person only: a "Spaces & Venues" resource id. */
+  locationResourceId?: string | null;
+  /** in_person only: custom place, used when no registry room is picked. */
+  locationText?: string | null;
+}
+
 /** Subset of meeting-type fields the manage UI renders / round-trips. */
 export interface ManageEventType {
   id: string;
@@ -71,6 +95,20 @@ export interface ManageEventType {
   requiresDeposit: boolean;
   /** deposit to collect, in paise (e.g. ₹500 = 50000). null when no deposit. */
   depositAmountPaise: number | null;
+  /**
+   * Which set of the host's working hours this type is bookable in.
+   * null = "my normal working hours" (the host's default schedule).
+   */
+  scheduleId: string | null;
+  /**
+   * Every place this type can happen in, in display order.
+   *
+   * `null` means the places table is not available on this database — migration
+   * 20260830030000 ships as a file and is Director-gated, so until it is applied
+   * there is nothing to manage and the UI hides the section entirely rather than
+   * offering an Add button that cannot work (rule #27: never fail silently).
+   */
+  locations: ManageEventTypeLocation[] | null;
 }
 
 /** Payload accepted by create / update from the client. */
@@ -119,6 +157,45 @@ export interface EventTypeFormInput {
   requiresDeposit?: boolean;
   /** deposit in paise (only meaningful when requiresDeposit). */
   depositAmountPaise?: number | null;
+  /**
+   * Which of the host's schedules this type is bookable in. null/omitted =
+   * "my normal working hours" (the host's default schedule). Ownership is
+   * verified server-side — a host cannot point a type at someone else's hours.
+   */
+  scheduleId?: string | null;
+}
+
+/** One choice in the "Which hours does this use?" picker. */
+export interface ScheduleChoice {
+  id: string;
+  name: string;
+  /** The host's default schedule — the "my normal working hours" option. */
+  isDefault: boolean;
+  /**
+   * false = this schedule has no weekly hours set. A type pinned to it quietly
+   * falls back to the host's normal hours (Director ruling, 2026-08-21), which
+   * the picker says out loud rather than leaving the host to guess.
+   */
+  hasHours: boolean;
+}
+
+/** What the manage page needs to render the hours picker and the auto-move. */
+export interface ScheduleChoices {
+  /** The host's own schedules, default first. */
+  schedules: ScheduleChoice[];
+  /**
+   * The one schedule that is clearly the host's ONLINE one, or null when there
+   * is no such schedule or more than one candidate (ambiguous → do nothing).
+   */
+  onlineScheduleId: string | null;
+}
+
+/** Result of moving online meeting types onto the host's online hours. */
+export interface OnlineHoursMoveResult {
+  /** How many meeting types changed. 0 is a normal, non-error outcome. */
+  moved: number;
+  /** Name of the schedule they moved to; null when nothing moved. */
+  scheduleName: string | null;
 }
 
 // The native tables aren't in generated types yet — untyped client (TS2589 class).
@@ -160,11 +237,13 @@ interface MeetingTypeRow {
   // Wave-3 (B) paid bookings (migration 20260619100000) — absent pre-migration.
   requires_deposit?: boolean | null;
   deposit_amount_paise?: number | null;
+  /** Which host schedule this type is bookable in; null = the host's default. */
+  schedule_id?: string | null;
 }
 
 /** Columns the manage actions select / round-trip (kept in one place). */
 const MT_COLUMNS =
-  'id, title, slug, duration_min, hidden, description, purpose_group, location_mode, location_text, location_resource_id, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min, kind, capacity, host_pool, redirect_url, cancellation_policy, requires_deposit, deposit_amount_paise';
+  'id, title, slug, duration_min, hidden, description, purpose_group, location_mode, location_text, location_resource_id, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min, kind, capacity, host_pool, redirect_url, cancellation_policy, requires_deposit, deposit_amount_paise, schedule_id';
 
 /**
  * Base mapper; hostEmails (cohosts / pool) and locationResourceName (room name)
@@ -174,6 +253,7 @@ function toManageEventType(
   row: MeetingTypeRow,
   hostEmails: string[] = [],
   locationResourceName: string | null = null,
+  locations: ManageEventTypeLocation[] | null = null,
 ): ManageEventType {
   const kind = row.kind ?? 'solo';
   return {
@@ -201,6 +281,170 @@ function toManageEventType(
     cancellationPolicy: row.cancellation_policy ?? null,
     requiresDeposit: Boolean(row.requires_deposit),
     depositAmountPaise: row.deposit_amount_paise ?? null,
+    scheduleId: row.schedule_id ?? null,
+    locations,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PLACES — one meeting type, many locations (migration 20260830030000)
+// ──────────────────────────────────────────────────────────────────────────
+
+const MTL_COLUMNS =
+  'id, meeting_type_id, location_mode, location_resource_id, location_text, sort_order';
+
+interface MeetingTypeLocationRow {
+  id: string;
+  meeting_type_id: string;
+  location_mode: MeetingLocationMode | null;
+  location_resource_id: string | null;
+  location_text: string | null;
+  sort_order: number | null;
+}
+
+/** Resolve a batch of resource ids → room names for display (null-safe). */
+async function resourceNamesForIds(
+  supabase: SupabaseClient,
+  ids: string[],
+): Promise<Map<string, string>> {
+  const clean = [...new Set(ids.filter(Boolean))];
+  if (clean.length === 0) return new Map();
+  const { data, error } = await supabase.from('resources').select('id, name').in('id', clean);
+  if (error) {
+    console.error('[meetings/manage] room name batch lookup failed:', error.message);
+    return new Map();
+  }
+  return new Map((data ?? []).map((r) => [r.id as string, r.name as string]));
+}
+
+function toManageLocation(
+  row: MeetingTypeLocationRow,
+  roomNames: Map<string, string>,
+): ManageEventTypeLocation {
+  return {
+    id: row.id,
+    locationMode: row.location_mode ?? 'in_person',
+    locationText: row.location_text ?? null,
+    locationResourceId: row.location_resource_id ?? null,
+    locationResourceName: row.location_resource_id
+      ? roomNames.get(row.location_resource_id) ?? null
+      : null,
+    sortOrder: row.sort_order ?? 0,
+  };
+}
+
+/**
+ * Places for a batch of meeting types, grouped by type id.
+ *
+ * Returns `null` when the table cannot be read — migration 20260830030000 is
+ * Director-gated, so on a database where it has not been applied the query
+ * errors and the manage UI hides the Places section rather than showing an
+ * empty list that is not the truth.
+ */
+async function placesForTypes(
+  supabase: SupabaseClient,
+  typeIds: string[],
+): Promise<Map<string, ManageEventTypeLocation[]> | null> {
+  if (typeIds.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from('meeting_type_locations')
+    .select(MTL_COLUMNS)
+    .in('meeting_type_id', typeIds)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('[meetings/manage] places load failed:', error.message);
+    return null;
+  }
+  const rows = (data ?? []) as MeetingTypeLocationRow[];
+  const roomNames = await resourceNamesForIds(
+    supabase,
+    rows.map((r) => r.location_resource_id).filter((id): id is string => Boolean(id)),
+  );
+  const byType = new Map<string, ManageEventTypeLocation[]>();
+  for (const id of typeIds) byType.set(id, []);
+  for (const row of rows) {
+    byType.get(row.meeting_type_id)?.push(toManageLocation(row, roomNames));
+  }
+  return byType;
+}
+
+/** Throws unless the signed-in user owns this meeting type (RLS also enforces it). */
+async function assertOwnsType(
+  supabase: SupabaseClient,
+  meetingTypeId: string,
+  userId: string,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('meeting_types')
+    .select('id')
+    .eq('id', meetingTypeId)
+    .eq('host_profile_id', userId)
+    .maybeSingle();
+  if (error) {
+    console.error('[meetings/manage] ownership check failed:', error.message);
+    throw new Error('Could not verify that meeting type. Please try again.');
+  }
+  if (!data) throw new Error('That meeting type no longer exists. Refresh the list and try again.');
+}
+
+/**
+ * True when this schedule is one of the signed-in host's own.
+ *
+ * The meeting_types.schedule_id foreign key points at meeting_host_schedules
+ * without checking whose it is, so without this a host could pin a type to
+ * someone else's working hours and read them back through the booking page.
+ */
+async function ownsSchedule(
+  supabase: SupabaseClient,
+  scheduleId: string,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('meeting_host_schedules')
+    .select('id')
+    .eq('id', scheduleId)
+    .eq('host_profile_id', userId)
+    .maybeSingle();
+  if (error) {
+    console.error('[meetings/manage] schedule ownership check failed:', error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+/**
+ * Normalise a place payload, or return the reason it is not usable.
+ *
+ * Flat optional-field shape, not a discriminated union — same reason as
+ * validateForm above: the repo compiles with strictNullChecks:false, under
+ * which `if (!x.ok)` does not narrow a `{ok:true}|{ok:false}` union.
+ */
+function normalisePlace(input: EventTypeLocationInput): {
+  ok: boolean;
+  value?: Omit<MeetingTypeLocationRow, 'id' | 'meeting_type_id' | 'sort_order'>;
+  error?: string;
+} {
+  const mode = input.locationMode;
+  if (mode !== 'in_person' && mode !== 'phone' && mode !== 'online') {
+    return { ok: false, error: 'Pick where this meeting happens.' };
+  }
+  if (mode !== 'in_person') {
+    // Phone and online carry no place of their own.
+    return { ok: true, value: { location_mode: mode, location_resource_id: null, location_text: null } };
+  }
+  const resourceId = (input.locationResourceId ?? '').trim() || null;
+  const text = (input.locationText ?? '').trim() || null;
+  if (!resourceId && !text) {
+    return { ok: false, error: 'Pick a room, or type a custom place, for an in-person meeting.' };
+  }
+  if (text && text.length > 200) {
+    return { ok: false, error: 'Keep the place short (200 characters or fewer).' };
+  }
+  // A registry room supersedes free text, exactly as the meeting-type form does.
+  return {
+    ok: true,
+    value: { location_mode: mode, location_resource_id: resourceId, location_text: resourceId ? null : text },
   };
 }
 
@@ -330,6 +574,8 @@ function validateForm(
     cancellation_policy: string | null;
     requires_deposit: boolean;
     deposit_amount_paise: number | null;
+    /** null = the host's default schedule ("my normal working hours"). */
+    schedule_id: string | null;
   };
   error?: string;
 } {
@@ -380,6 +626,16 @@ function validateForm(
       error: 'Pick a venue from the list, or type a custom place, for in-person meetings.',
     };
   }
+
+  // Which working hours this type is bookable in. Blank/omitted = the host's
+  // normal (default) hours, stored as NULL. Shape only here — that the schedule
+  // actually belongs to the caller is checked against the database in the
+  // create/update actions, where the signed-in user id is known.
+  const rawScheduleId = (input.scheduleId ?? '').trim();
+  if (rawScheduleId && !uuidRe.test(rawScheduleId)) {
+    return { ok: false, error: 'Invalid working-hours selection.' };
+  }
+  const scheduleId = rawScheduleId || null;
 
   // ── M2 slot rules ──────────────────────────────────────────────────────────
   const bufferBefore = optInt(input.bufferBeforeMin) ?? 0;
@@ -477,6 +733,7 @@ function validateForm(
       cancellation_policy: cancellationPolicy,
       requires_deposit: requiresDeposit,
       deposit_amount_paise: depositAmountPaise,
+      schedule_id: scheduleId,
     },
   };
 }
@@ -536,13 +793,20 @@ export async function listMyEventTypes(): Promise<ActionResult<ManageEventType[]
       return { success: false, error: 'Could not load your meeting types. Please try again.' };
     }
     const rows = (data ?? []) as MeetingTypeRow[];
+    // One batched read for every type's places (null = migration not applied).
+    const placesByType = await placesForTypes(supabase, rows.map((r) => r.id));
     const enriched = await Promise.all(
       rows.map(async (row) => {
         const [hostEmails, locationResourceName] = await Promise.all([
           hostEmailsForType(supabase, row, userId),
           resourceNameForId(supabase, row.location_resource_id),
         ]);
-        return toManageEventType(row, hostEmails, locationResourceName);
+        return toManageEventType(
+          row,
+          hostEmails,
+          locationResourceName,
+          placesByType ? placesByType.get(row.id) ?? [] : null,
+        );
       }),
     );
     return { success: true, data: enriched };
@@ -564,6 +828,11 @@ export async function createMyEventType(
   try {
     const supabase = await untypedClient();
     const userId = await getCurrentUserId(supabase);
+
+    const pinnedSchedule = validated.value!.schedule_id;
+    if (pinnedSchedule && !(await ownsSchedule(supabase, pinnedSchedule, userId))) {
+      return { success: false, error: 'Those working hours are not yours to use.' };
+    }
 
     // Resolve collective/round_robin host emails → ids (unknowns dropped),
     // excluding the owner (who is always implicitly included).
@@ -588,13 +857,19 @@ export async function createMyEventType(
     if (validated.value!.kind === 'collective') {
       await syncCohosts(supabase, (data as MeetingTypeRow).id, resolvedIds);
     }
-    const [hostEmails, locationResourceName] = await Promise.all([
+    const [hostEmails, locationResourceName, placesByType] = await Promise.all([
       hostEmailsForType(supabase, data as MeetingTypeRow, userId),
       resourceNameForId(supabase, (data as MeetingTypeRow).location_resource_id),
+      placesForTypes(supabase, [(data as MeetingTypeRow).id]),
     ]);
     return {
       success: true,
-      data: toManageEventType(data as MeetingTypeRow, hostEmails, locationResourceName),
+      data: toManageEventType(
+        data as MeetingTypeRow,
+        hostEmails,
+        locationResourceName,
+        placesByType ? placesByType.get((data as MeetingTypeRow).id) ?? [] : null,
+      ),
     };
   } catch (err) {
     return {
@@ -618,6 +893,11 @@ export async function updateMyEventType(
   try {
     const supabase = await untypedClient();
     const userId = await getCurrentUserId(supabase);
+
+    const pinnedSchedule = validated.value!.schedule_id;
+    if (pinnedSchedule && !(await ownsSchedule(supabase, pinnedSchedule, userId))) {
+      return { success: false, error: 'Those working hours are not yours to use.' };
+    }
 
     const kind = validated.value!.kind;
     const resolvedIds =
@@ -650,13 +930,19 @@ export async function updateMyEventType(
     }
     // Collective → sync co-hosts to exactly resolvedIds; any other kind → clear them.
     await syncCohosts(supabase, id, kind === 'collective' ? resolvedIds : []);
-    const [hostEmails, locationResourceName] = await Promise.all([
+    const [hostEmails, locationResourceName, placesByType] = await Promise.all([
       hostEmailsForType(supabase, data as MeetingTypeRow, userId),
       resourceNameForId(supabase, (data as MeetingTypeRow).location_resource_id),
+      placesForTypes(supabase, [(data as MeetingTypeRow).id]),
     ]);
     return {
       success: true,
-      data: toManageEventType(data as MeetingTypeRow, hostEmails, locationResourceName),
+      data: toManageEventType(
+        data as MeetingTypeRow,
+        hostEmails,
+        locationResourceName,
+        placesByType ? placesByType.get((data as MeetingTypeRow).id) ?? [] : null,
+      ),
     };
   } catch (err) {
     return {
@@ -697,6 +983,235 @@ export async function deleteMyEventType(id: string): Promise<ActionResult<{ id: 
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Could not delete the meeting type.',
+    };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// WORKING HOURS — which schedule a meeting type is bookable in
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * A schedule name that clearly means "this is where my ONLINE meetings live".
+ * Deliberately narrow: the auto-move below only runs when EXACTLY ONE of the
+ * host's non-default schedules matches, so a guess is never acted on.
+ */
+const ONLINE_SCHEDULE_NAME = /\b(online|virtual|remote|meet|zoom|teams)\b/i;
+
+/**
+ * The host's own schedules, for the "Which hours does this use?" picker.
+ * Default first — that is the "my normal working hours" option.
+ */
+export async function listMyScheduleChoices(): Promise<ActionResult<ScheduleChoices>> {
+  try {
+    const supabase = await untypedClient();
+    const userId = await getCurrentUserId(supabase);
+
+    const { data, error } = await supabase
+      .from('meeting_host_schedules')
+      .select('id, name, is_default')
+      .eq('host_profile_id', userId)
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[meetings/manage] schedule list failed:', error.message);
+      return { success: false, error: 'Could not load your working hours. Please try again.' };
+    }
+    const rows = (data ?? []) as Array<{ id: string; name: string; is_default: boolean | null }>;
+
+    // One batched read: which of these schedules have any weekly hours at all.
+    const withHours = new Set<string>();
+    if (rows.length > 0) {
+      const { data: windows, error: wErr } = await supabase
+        .from('meeting_schedule_windows')
+        .select('schedule_id')
+        .in('schedule_id', rows.map((r) => r.id));
+      if (wErr) {
+        console.error('[meetings/manage] schedule hours lookup failed:', wErr.message);
+      } else {
+        for (const w of windows ?? []) withHours.add(w.schedule_id as string);
+      }
+    }
+
+    // Stable sort: the default rises to the top, everything else keeps its
+    // creation order.
+    const schedules: ScheduleChoice[] = rows
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        isDefault: Boolean(r.is_default),
+        hasHours: withHours.has(r.id),
+      }))
+      .sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
+
+    const onlineCandidates = schedules.filter(
+      (s) => !s.isDefault && ONLINE_SCHEDULE_NAME.test(s.name),
+    );
+
+    return {
+      success: true,
+      data: {
+        schedules,
+        // Exactly one candidate, or nothing — two candidates is ambiguous and
+        // the host must choose for themselves.
+        onlineScheduleId: onlineCandidates.length === 1 ? onlineCandidates[0].id : null,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not load your working hours.',
+    };
+  }
+}
+
+/**
+ * Put the host's ONLINE meeting types on their online working hours.
+ *
+ * Explicit and host-triggered — never a background sweep, never a migration.
+ * Safe to run twice: only types still on "my normal working hours"
+ * (schedule_id IS NULL) move, so a second run matches nothing, and a type the
+ * host deliberately pinned elsewhere is left exactly where they put it.
+ * Scoped to the signed-in host's own types by host_profile_id (and by RLS).
+ */
+export async function moveOnlineMeetingsToOnlineHours(): Promise<
+  ActionResult<OnlineHoursMoveResult>
+> {
+  try {
+    const supabase = await untypedClient();
+    const userId = await getCurrentUserId(supabase);
+
+    const choices = await listMyScheduleChoices();
+    if (!choices.success) return { success: false, error: choices.error };
+
+    const targetId = choices.data.onlineScheduleId;
+    // No online schedule, or more than one candidate → do nothing, and say so.
+    if (!targetId) return { success: true, data: { moved: 0, scheduleName: null } };
+    const targetName = choices.data.schedules.find((s) => s.id === targetId)?.name ?? null;
+
+    const { data, error } = await supabase
+      .from('meeting_types')
+      .update({ schedule_id: targetId })
+      .eq('host_profile_id', userId)
+      .eq('location_mode', 'online')
+      .eq('is_active', true)
+      .is('schedule_id', null)
+      .select('id');
+    if (error) {
+      console.error('[meetings/manage] online-hours move failed:', error.message);
+      return {
+        success: false,
+        error: 'Could not move your online meeting types. Please try again.',
+      };
+    }
+
+    const moved = (data ?? []).length;
+    return { success: true, data: { moved, scheduleName: moved > 0 ? targetName : null } };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not move your online meeting types.',
+    };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PLACE ACTIONS — one meeting type, many places
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Add one place to a meeting type.
+ *
+ * Additive only: the type's legacy location_* columns are NOT touched, so the
+ * booking page keeps rendering exactly what it renders today. New places sort
+ * after the backfilled one (which carries sort_order 0).
+ */
+export async function addMyEventTypeLocation(
+  meetingTypeId: string,
+  input: EventTypeLocationInput,
+): Promise<ActionResult<ManageEventTypeLocation>> {
+  if (!meetingTypeId || typeof meetingTypeId !== 'string') {
+    return { success: false, error: 'Invalid meeting type reference.' };
+  }
+  const place = normalisePlace(input);
+  if (!place.ok) return { success: false, error: place.error };
+
+  try {
+    const supabase = await untypedClient();
+    const userId = await getCurrentUserId(supabase);
+    await assertOwnsType(supabase, meetingTypeId, userId);
+
+    // Append after the places already on this type.
+    const { data: last } = await supabase
+      .from('meeting_type_locations')
+      .select('sort_order')
+      .eq('meeting_type_id', meetingTypeId)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const sortOrder = ((last as { sort_order?: number } | null)?.sort_order ?? -1) + 1;
+
+    const { data, error } = await supabase
+      .from('meeting_type_locations')
+      .insert({ meeting_type_id: meetingTypeId, ...place.value, sort_order: sortOrder })
+      .select(MTL_COLUMNS)
+      .single();
+    if (error) {
+      if (error.code === '23505') {
+        return { success: false, error: 'That place is already on this meeting type.' };
+      }
+      console.error('[meetings/manage] add place failed:', error.message);
+      return { success: false, error: 'Could not add that place. Please try again.' };
+    }
+    const row = data as MeetingTypeLocationRow;
+    const roomNames = await resourceNamesForIds(
+      supabase,
+      row.location_resource_id ? [row.location_resource_id] : [],
+    );
+    return { success: true, data: toManageLocation(row, roomNames) };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not add that place.',
+    };
+  }
+}
+
+/**
+ * Remove one place from a meeting type. Hard delete — a place is a choice on
+ * the booking page, not a record with history; existing bookings keep their own
+ * venue fields on meeting_bookings.
+ */
+export async function removeMyEventTypeLocation(
+  meetingTypeId: string,
+  locationId: string,
+): Promise<ActionResult<{ id: string }>> {
+  if (!meetingTypeId || typeof meetingTypeId !== 'string' || !locationId || typeof locationId !== 'string') {
+    return { success: false, error: 'Invalid place reference.' };
+  }
+  try {
+    const supabase = await untypedClient();
+    const userId = await getCurrentUserId(supabase);
+    await assertOwnsType(supabase, meetingTypeId, userId);
+
+    const { data, error } = await supabase
+      .from('meeting_type_locations')
+      .delete()
+      .eq('id', locationId)
+      .eq('meeting_type_id', meetingTypeId)
+      .select('id')
+      .maybeSingle();
+    if (error) {
+      console.error('[meetings/manage] remove place failed:', error.message);
+      return { success: false, error: 'Could not remove that place. Please try again.' };
+    }
+    if (!data) {
+      return { success: false, error: 'That place is already gone. Refresh and try again.' };
+    }
+    return { success: true, data: { id: locationId } };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not remove that place.',
     };
   }
 }

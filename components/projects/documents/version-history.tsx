@@ -9,6 +9,7 @@
 
 import { X, GitBranch, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useVersionHistory } from '@/hooks/projects/use-documents';
@@ -28,7 +29,12 @@ export function VersionHistory({ attachmentId, onClose }: VersionHistoryProps) {
           <GitBranch className="h-4 w-4" />
           Version history
         </CardTitle>
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`h-6 w-6 ${TAP_TARGET_ICON}`}
+          onClick={onClose}
+        >
           <X className="h-3.5 w-3.5" />
         </Button>
       </CardHeader>

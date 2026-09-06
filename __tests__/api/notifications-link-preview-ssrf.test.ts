@@ -26,12 +26,31 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let currentUser: { id: string } | null = { id: 'user-admin' };
 
+/**
+ * What user_has_permission('notifications.create') answers for this caller.
+ * The route's gate is the same key the compose form guards on, so a sender who
+ * can open compose must never be refused here.
+ */
+let hasNotificationsCreate = true;
+
 vi.mock('@/lib/supabase/server', () => ({
   createClient: () =>
     Promise.resolve({
       auth: {
         getUser: () =>
           Promise.resolve({ data: { user: currentUser }, error: null })
+      },
+      rpc: (fn: string, args: { permission_name?: string }) => {
+        if (fn === 'user_has_permission') {
+          return Promise.resolve({
+            data:
+              args?.permission_name === 'notifications.create'
+                ? hasNotificationsCreate
+                : false,
+            error: null
+          });
+        }
+        return Promise.resolve({ data: null, error: null });
       }
     })
 }));
@@ -67,6 +86,7 @@ function previewRequest(body: unknown) {
 
 beforeEach(() => {
   currentUser = { id: 'user-admin' };
+  hasNotificationsCreate = true;
   fetchMock.mockReset();
   fetchMock.mockResolvedValue({
     ok: true,
@@ -172,6 +192,85 @@ describe('POST /api/notifications/link-preview — auth', () => {
 
     expect(res.status).toBe(401);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Authorisation — being logged in is not enough.
+//
+// A session alone used to be the whole gate, which made this route a YouTube
+// metadata fetcher available to every learner on the platform. The gate is
+// now notifications.create — the same key the compose form at
+// /notifications/admin/new guards on, because that form is this route's only
+// caller. Any other key would 403 a sender looking at a working page.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/notifications/link-preview — authorisation', () => {
+  it('refuses a logged-in caller without notifications.create with 403 and never fetches', async () => {
+    hasNotificationsCreate = false;
+
+    const res = await POST(
+      previewRequest({ url: `https://www.youtube.com/watch?v=${VIDEO_ID}` })
+    );
+
+    expect(res.status).toBe(403);
+    // The point of the gate: no outbound request is made on their behalf.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('says what happened rather than failing silently', async () => {
+    hasNotificationsCreate = false;
+
+    const res = await POST(
+      previewRequest({ url: `https://www.youtube.com/watch?v=${VIDEO_ID}` })
+    );
+    const body = await res.json();
+
+    expect(typeof body.error).toBe('string');
+    expect(body.error).toMatch(/permission/i);
+  });
+
+  it('keeps 401 (no session) and 403 (session, no permission) distinct', async () => {
+    currentUser = null;
+    hasNotificationsCreate = true;
+    expect(
+      (await POST(previewRequest({ url: `https://youtu.be/${VIDEO_ID}` }))).status
+    ).toBe(401);
+
+    currentUser = { id: 'learner-1' };
+    hasNotificationsCreate = false;
+    expect(
+      (await POST(previewRequest({ url: `https://youtu.be/${VIDEO_ID}` }))).status
+    ).toBe(403);
+  });
+
+  it('refuses before parsing, so an unauthorised SSRF attempt still never fetches', async () => {
+    hasNotificationsCreate = false;
+
+    const res = await POST(
+      previewRequest({ url: 'http://169.254.169.254/latest/meta-data/' })
+    );
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still resolves the preview for a caller who HAS notifications.create', async () => {
+    hasNotificationsCreate = true;
+
+    const res = await POST(
+      previewRequest({ url: `https://www.youtube.com/watch?v=${VIDEO_ID}` })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      videoId: VIDEO_ID,
+      title: 'JKKN SCHOOL OF INFLUENCERS',
+      author: 'JKKN INSTITUTIONS',
+      thumbnailUrl: 'https://i.ytimg.com/vi/1LbkGBuCmpA/hqdefault.jpg'
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(OEMBED_URL);
   });
 });
 

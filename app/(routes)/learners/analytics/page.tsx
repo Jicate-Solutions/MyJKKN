@@ -149,6 +149,9 @@ export default function LearnersAnalyticsDashboard() {
       if (filters.academicYearId) {
         searchParams.set('academicYearId', filters.academicYearId);
       }
+      if (filters.admissionYear) {
+        searchParams.set('admissionYear', String(filters.admissionYear));
+      }
       if (filters.degreeId) {
         searchParams.set('degreeId', filters.degreeId);
       }
@@ -208,6 +211,7 @@ export default function LearnersAnalyticsDashboard() {
       semesterId: filters.semesterId,
       sectionId: filters.sectionId,
       academicYearId: filters.academicYearId,
+      admissionYear: filters.admissionYear,
       lifecycleStatus: filters.lifecycleStatuses,
       gender: filters.gender,
       dateFrom: filters.dateRange?.from?.toISOString(),
@@ -373,6 +377,13 @@ export default function LearnersAnalyticsDashboard() {
                   Live Data
                 </Badge>
               </div>
+              {/* The population is spelled out because this number and the one
+                  on /learners/profiles legitimately differ and never agreed:
+                  this counts EVERY lifecycle status (graduated, enquiry,
+                  rejected included), while the Profiles list's "All Statuses"
+                  tab is the union of just reserved/admitted/active/inactive/
+                  exited. On 2026-08-31 that was 7,361 here vs 5,627 there.
+                  Both are correct; only stating the set makes them reconcilable. */}
               <p className="text-sm sm:text-base text-blue-100">
                 Comprehensive analytics for {stats.totalCount.toLocaleString()} learners
                 {!canAccessAllInstitutions && userInstitutionId && (
@@ -380,6 +391,8 @@ export default function LearnersAnalyticsDashboard() {
                 )}
               </p>
               <p className="text-xs text-blue-200 mt-1">
+                All lifecycle statuses, including graduated and enquiry records
+                {' · '}
                 Last updated: {lastUpdated ? formatDistanceToNow(lastUpdated, { addSuffix: true }) : 'Just now'}
               </p>
             </div>

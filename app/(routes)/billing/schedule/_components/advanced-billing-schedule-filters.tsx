@@ -128,9 +128,17 @@ export function AdvancedBillingScheduleFilters({
     loadAdmissionYears();
   }, []);
   const {
-    institutions: accessibleInstitutions,
+    institutions: allAccessibleInstitutions,
     loading: loadingAccessibleInstitutions,
   } = useInstitutionsWithAccess({ isActive: true });
+
+  // College-only, same rule as the basic filter bar and the students page:
+  // the hook forces entityType 'all' for super admins, so the restriction has
+  // to be applied to the RESULT or schools/offices leak into this dropdown.
+  const accessibleInstitutions = useMemo(
+    () => allAccessibleInstitutions.filter((i) => i.entity_type === 'institution'),
+    [allAccessibleInstitutions]
+  );
   const hasMultiInstitutionAccess = accessibleInstitutions.length > 1;
 
   // Smart filter validation that checks hierarchy consistency

@@ -12,11 +12,12 @@
 //   fn_cohort_coordinator_reinstate(p_appointment_id)                 -> boolean
 //
 // This file adds NO new mechanism, NO new table and NO second way to appoint a
-// coordinator. In particular it is NOT the induction pattern: InductionService
-// .assignCoordinator calls fn_induction_assign_coordinator, which INSERTs into
-// user_roles and therefore hands out a GLOBAL role. Appointing a programme
-// coordinator here writes one row in cohort_coordinators and grants nothing
-// global.
+// coordinator. In particular it is NOT the old induction pattern: induction used
+// to appoint through fn_induction_assign_coordinator, which INSERTed into
+// user_roles and therefore handed out a GLOBAL role. That path was retired on
+// 2026-08-18 and induction now appoints per-event only, the same shape as here:
+// appointing a programme coordinator writes one row in cohort_coordinators and
+// grants nothing global.
 //
 // CLIENT-ONLY. The browser Supabase client carries the caller's session, so each
 // DEFINER function authorises the real person. Imported from a Server Component

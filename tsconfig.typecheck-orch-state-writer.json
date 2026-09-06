@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "next-env.d.ts",
+    "app/api/cron/orchestration-sync/**/*.ts",
+    "app/api/admin/orchestration/**/*.ts",
+    "lib/supabase/server.ts",
+    "types/orchestration.ts"
+  ]
+}

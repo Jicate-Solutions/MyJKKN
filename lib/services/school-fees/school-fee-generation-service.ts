@@ -7,7 +7,11 @@
 // the thing it does is write financial records for hundreds of learners.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { GenerationPreviewRow, GenerationResult } from '@/types/school-fees';
+import type {
+  GenerationPreviewRow,
+  GenerationResult,
+  SchoolFeeReportRow,
+} from '@/types/school-fees';
 
 function raise(error: { code?: string; message?: string } | null): void {
   if (!error) return;
@@ -81,6 +85,98 @@ export class SchoolFeeGenerationService {
       skipped_existing: num(result.skipped_existing),
       classes: normalisePreview(result.classes ?? []),
     };
+  }
+
+
+  /**
+   * Every generated school-fee bill for a school + year, learner by learner.
+   *
+   * Reports what was ACTUALLY written, not what the preview projected — it
+   * reads billing_student_bills, so a class skipped by a guard simply has no
+   * rows here. That is the point: this is the artefact you check a generation
+   * run against.
+   *
+   * PAGED. ~550 learners x ~8 fee rows is well past PostgREST's 1000-row
+   * default, and that cap truncates SILENTLY — a report that quietly stops at
+   * 1000 rows is worse than one that fails.
+   */
+  static async getLearnerWiseReport(
+    institutionId: string,
+    academicYearId: string,
+  ): Promise<SchoolFeeReportRow[]> {
+    const supabase = createClientSupabaseClient();
+    const PAGE = 1000;
+    const out: SchoolFeeReportRow[] = [];
+
+    for (let from = 0; ; from += PAGE) {
+      // 'as any': types/supabase.ts predates 20260813100005, so the generated
+      // row type still lacks school_fee_plan_id / term_number.
+      const { data, error } = await (supabase as any)
+        .from('billing_student_bills')
+        .select(
+          `
+          id,
+          student_id,
+          term_number,
+          due_date,
+          final_amount,
+          balance_amount,
+          status,
+          bill_description,
+          item_category:billing_categories(category_name),
+          student:learners_profiles!student_id(
+            first_name,
+            last_name,
+            roll_number,
+            register_number,
+            program:programs!program_id(program_name),
+            section:sections!section_id(section_name)
+          )
+          `,
+        )
+        .eq('institution_id', institutionId)
+        .eq('academic_year_id', academicYearId)
+        .not('school_fee_plan_id', 'is', null)
+        .order('student_id', { ascending: true })
+        .order('term_number', { ascending: true })
+        .range(from, from + PAGE - 1);
+
+      raise(error);
+      const page = (data ?? []) as Record<string, unknown>[];
+
+      for (const row of page) {
+        const one = <T,>(v: unknown): T | undefined =>
+          (Array.isArray(v) ? v[0] : v) as T | undefined;
+        const student = one<Record<string, unknown>>(row.student);
+        const category = one<{ category_name?: string }>(row.item_category);
+        const program = one<{ program_name?: string }>(student?.program);
+        const section = one<{ section_name?: string }>(student?.section);
+
+        const finalAmount = num(row.final_amount);
+        const balance = num(row.balance_amount);
+
+        out.push({
+          student_id: String(row.student_id),
+          learner_name: `${student?.first_name ?? ''} ${student?.last_name ?? ''}`.trim(),
+          roll_number: (student?.roll_number as string) || '',
+          register_number: (student?.register_number as string) || '',
+          class_name: program?.program_name ?? '',
+          section_name: section?.section_name ?? '',
+          fee_head: category?.category_name || (row.bill_description as string) || 'Fee',
+          term_number: row.term_number == null ? null : Number(row.term_number),
+          due_date: (row.due_date as string) ?? null,
+          amount: finalAmount,
+          // balance_amount is NULL on legacy rows, where the full amount is
+          // still owed — same fallback the counter uses.
+          balance: balance > 0 ? balance : finalAmount,
+          status: String(row.status ?? ''),
+        });
+      }
+
+      if (page.length < PAGE) break;
+    }
+
+    return out;
   }
 
   /** Past runs for this school + year, newest first. */

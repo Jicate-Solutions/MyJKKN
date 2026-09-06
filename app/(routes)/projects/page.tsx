@@ -6,8 +6,9 @@
  * Single route `/projects` with URL-synced view tabs:
  *   List | Board | Timeline | Portfolio
  *
- * List + Board are live (Wave 3, F1 + F13). Timeline + Portfolio remain
- * placeholders owned by sibling agents.
+ * All four tabs are live. List (F1) and Board (F13) render inline; Timeline
+ * (F2) renders the same Gantt as `/projects/[id]/timeline` once a project is
+ * picked; Portfolio links to its own dashboard route.
  *
  * Pattern: app/(routes)/hr/intelligence/page.tsx
  *   (ContentLayout + Breadcrumb + Tabs + searchParams-synced active tab).
@@ -37,6 +38,7 @@ import { Button } from '@/components/ui/button';
 import { List, LayoutGrid, GanttChartSquare, FolderKanban } from 'lucide-react';
 import { ProjectList } from './_components/project-list';
 import { BoardTab } from './_components/board-tab';
+import { TimelineTab } from './_components/timeline-tab';
 
 const PROJECT_TABS = [
   { id: 'list', label: 'List', icon: List },
@@ -51,24 +53,6 @@ const DEFAULT_TAB: ProjectTabId = 'list';
 
 function isValidTab(value: string | null): value is ProjectTabId {
   return PROJECT_TABS.some((t) => t.id === value);
-}
-
-/** Generic placeholder for tabs whose UI ships in Wave 3. */
-function ComingSoonCard({ view }: { view: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{view} view</CardTitle>
-        <CardDescription>Coming in the next PR (Wave 3).</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">
-          This view is not built yet. The data layer (services + hooks) is wired
-          and ready for it.
-        </p>
-      </CardContent>
-    </Card>
-  );
 }
 
 export default function ProjectsPage() {
@@ -133,7 +117,7 @@ export default function ProjectsPage() {
             <BoardTab />
           </TabsContent>
           <TabsContent value="timeline" className="mt-6">
-            <ComingSoonCard view="Timeline" />
+            <TimelineTab />
           </TabsContent>
           <TabsContent value="portfolio" className="mt-6">
             <Card>

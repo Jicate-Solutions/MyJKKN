@@ -23,6 +23,7 @@ import {
 } from './_components/onboarding-stats-cards';
 import { OnboardingContent } from './_components/onboarding-content';
 import {
+  onboardingAdmissionYearSchema,
   onboardingSearchParamsSchema,
   onboardingStatusSchema,
   onboardingTierSchema
@@ -91,7 +92,9 @@ export default async function LearnerOnboardingPage({ searchParams }: Onboarding
     program_id: (params.program_id as string) || undefined,
     semester_id: (params.semester_id as string) || undefined,
     section_id: (params.section_id as string) || undefined,
-    academic_year_id: (params.academic_year_id as string) || undefined
+    academic_year_id: (params.academic_year_id as string) || undefined,
+    accommodation_type_id: (params.accommodation_type_id as string) || undefined,
+    admission_year: onboardingAdmissionYearSchema.parse(params.admission_year)
   };
 
   return (
@@ -115,7 +118,9 @@ export default async function LearnerOnboardingPage({ searchParams }: Onboarding
             learners (balance fees past the threshold) activate as soon as those four are
             complete. <span className="font-semibold">Reserved</span> learners can be
             prepared here too, but stay reserved until their fees clear — they wait in{' '}
-            <span className="font-semibold">Awaiting Payment</span>.
+            <span className="font-semibold">Awaiting Payment</span>, where each learner&apos;s
+            progress against the configured fee threshold and the amount still needed to
+            promote them are shown per row.
           </p>
         </div>
 

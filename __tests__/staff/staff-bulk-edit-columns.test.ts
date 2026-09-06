@@ -22,7 +22,7 @@ describe('BULK_EDIT_COLUMNS', () => {
     const locked = BULK_EDIT_COLUMNS.filter(c => c.field === null).map(c => c.header);
     expect(locked).toEqual([
       'Institution Email',
-      'Staff ID (current)',
+      'Staff ID',
       'Name',
       'Institution'
     ]);
@@ -40,9 +40,12 @@ describe('BULK_EDIT_COLUMNS', () => {
     }
   });
 
-  it('exposes Staff ID twice — locked for identity, editable for correction', () => {
-    expect(BULK_EDIT_COLUMNS.find(c => c.header === 'Staff ID (current)')?.field).toBeNull();
-    expect(BULK_EDIT_COLUMNS.find(c => c.header === 'Staff ID (new)')?.field).toBe('staff_id');
+  // Staff IDs became database-generated and permanent on 2026-08-28. The sheet shows
+  // the code so a row is recognisable, but there is no writable counterpart any more —
+  // trg_staff_autonumber rejects the update with P0001.
+  it('exposes Staff ID for identity only, never for writing', () => {
+    expect(BULK_EDIT_COLUMNS.find(c => c.header === 'Staff ID')?.field).toBeNull();
+    expect(EDITABLE_COLUMNS.map(c => c.field as string)).not.toContain('staff_id');
   });
 
   it('carries the DB CHECK vocabularies verbatim', () => {

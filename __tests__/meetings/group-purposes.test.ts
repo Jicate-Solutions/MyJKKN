@@ -16,6 +16,7 @@ import {
   groupPurposes,
   purposeDurationLabel,
   type GroupablePurposeType,
+  type PurposeLocationMode,
 } from '@/lib/services/meetings/group-purposes';
 
 function mt(
@@ -24,8 +25,9 @@ function mt(
   durationMin: number,
   purposeGroup: string | null = null,
   description: string | null = null,
+  locationMode: PurposeLocationMode = 'in_person',
 ): GroupablePurposeType {
-  return { id, title, durationMin, purposeGroup, description };
+  return { id, title, durationMin, purposeGroup, description, locationMode };
 }
 
 describe('groupPurposes', () => {
@@ -107,5 +109,58 @@ describe('groupPurposes', () => {
   it('labels a single-length purpose without a slash', () => {
     const [choice] = groupPurposes([mt('a', 'Discussion', 30)]);
     expect(purposeDurationLabel(choice)).toBe('30 min');
+  });
+
+  // The card used to say only "N ways to meet", so a booker could not see that
+  // online was on offer without clicking in — which is why the module read as
+  // having no online option at all.
+  describe('locationModes (what the purpose CARD advertises)', () => {
+    it('reports every distinct format a purpose is offered in', () => {
+      const [choice] = groupPurposes([
+        mt('a', 'One to One 15 Minutes', 15, 'Quick question', null, 'in_person'),
+        mt('b', 'Online One to One 15Mins', 15, 'Quick question', null, 'online'),
+      ]);
+      expect(choice.locationModes).toEqual(['in_person', 'online']);
+      expect(choice.hasMixedLocations).toBe(true);
+    });
+
+    it('DEDUPES — four in-person lengths plus one online reads as two formats', () => {
+      // The real "Quick question" group: 2/5/10/15 in person + 15 online.
+      const [choice] = groupPurposes([
+        mt('a', '2 Minutes', 2, 'Quick question', null, 'in_person'),
+        mt('b', '5 Minutes', 5, 'Quick question', null, 'in_person'),
+        mt('c', '10 Minutes', 10, 'Quick question', null, 'in_person'),
+        mt('d', '15 Minutes', 15, 'Quick question', null, 'in_person'),
+        mt('e', 'Online 15Mins', 15, 'Quick question', null, 'online'),
+      ]);
+      expect(choice.options).toHaveLength(5);
+      expect(choice.locationModes).toEqual(['in_person', 'online']);
+    });
+
+    it('orders formats consistently regardless of the order types arrive in', () => {
+      const choices = groupPurposes([
+        mt('a', 'Online', 30, 'Discussion', null, 'online'),
+        mt('b', 'In person', 30, 'Discussion', null, 'in_person'),
+      ]);
+      // Online arrived FIRST but in_person still leads — a card must not
+      // reorder itself because the host added a type in a different order.
+      expect(choices[0].locationModes).toEqual(['in_person', 'online']);
+    });
+
+    it('a single-format purpose is not mixed', () => {
+      const [choice] = groupPurposes([
+        mt('a', 'Monthly IQAC Meeting', 90, null, null, 'in_person'),
+      ]);
+      expect(choice.locationModes).toEqual(['in_person']);
+      expect(choice.hasMixedLocations).toBe(false);
+    });
+
+    it('carries phone through as its own format', () => {
+      const [choice] = groupPurposes([
+        mt('a', 'Admission Counseling', 30, 'Counselling', null, 'phone'),
+        mt('b', 'Counselling in person', 30, 'Counselling', null, 'in_person'),
+      ]);
+      expect(choice.locationModes).toEqual(['in_person', 'phone']);
+    });
   });
 });

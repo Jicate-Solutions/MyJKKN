@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   HousekeepingService,
+  type CleaningTaskStatus,
   type CreateScheduleDTO,
   type HostelCleaningSchedule,
   type ScheduleFilters,
@@ -70,6 +71,18 @@ export function useDeleteCleaningSchedule() {
       toast.success('Cleaning schedule deleted');
     },
     onError: (error: Error) => {
+      // hostel_cleaning_tasks.schedule_id has a plain FK (no cascade), so any
+      // schedule that has ever generated a task cannot be deleted — RLS allows
+      // it, Postgres refuses it with 23503. Say what to do instead rather than
+      // surfacing the raw constraint name.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const code = (error as any)?.code;
+      if (code === '23503') {
+        toast.error(
+          'This schedule already has generated cleaning tasks, so it cannot be deleted. Deactivate it instead to stop new tasks.'
+        );
+        return;
+      }
       toast.error(`Failed to delete cleaning schedule: ${error.message}`);
     },
   });
@@ -77,14 +90,44 @@ export function useDeleteCleaningSchedule() {
 
 // --- Tasks ---
 
+/**
+ * `pageSize` defaults to the service's 50 — which silently truncated the
+ * tasks list (98 rows existed, 50 rendered, no indication). Callers showing a
+ * full work list should pass a real page size and surface `count`.
+ */
 export function useCleaningTasks(
   institutionId: string | undefined,
-  filters?: TaskFilters
+  filters?: TaskFilters,
+  page = 1,
+  pageSize = 50
 ) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: housekeepingKeys.tasks({ institutionId, ...filters }),
-    queryFn: () => HousekeepingService.getTasks(isSuperAdmin ? undefined : institutionId, filters),
+    queryKey: housekeepingKeys.tasks({ institutionId, ...filters, page, pageSize }),
+    queryFn: () =>
+      HousekeepingService.getTasks(
+        isSuperAdmin ? undefined : institutionId,
+        filters,
+        page,
+        pageSize
+      ),
     enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+export function useUpdateCleaningTaskStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: CleaningTaskStatus }) =>
+      HousekeepingService.updateTaskStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: housekeepingKeys.all });
+      toast.success('Task status updated');
+    },
+    onError: (error: Error) => {
+      // RLS denial arrives here as a plain Supabase error object, not a throw
+      // from the UI — surface it rather than leaving the row silently stale.
+      toast.error(`Failed to update task status: ${error.message}`);
+    },
   });
 }

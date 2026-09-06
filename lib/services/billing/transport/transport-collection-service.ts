@@ -23,10 +23,22 @@ export interface TransportCollectable {
   bill_count: number;
   /** Term-wise descriptions of this learner's transport bills (excl. cancelled/superseded). */
   bill_descriptions: string[];
+  /** Learner-only academic dimensions; always null on a Senior Learner row. */
   degree_name: string | null;
   department_name: string | null;
   program_name: string | null;
   semester_name: string | null;
+  /**
+   * Which population this row came from (added 2026-08-17).
+   *
+   * fn_list_transport_collectables UNIONs learners (billing_student_bills under
+   * a 'transport' billing category) with Senior Learners (tms_fee_bill,
+   * person_type='staff'). It always did, but returned nothing to tell them
+   * apart, so the page listed both and could only guess by "degree, programme
+   * and semester are all null" — which is also true of a learner whose
+   * programme has not been assigned.
+   */
+  person_type: 'learner' | 'staff';
 }
 
 export interface ListTransportCollectablesParams {

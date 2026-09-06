@@ -6,7 +6,8 @@
  *
  * KEY VALIDATION RULES:
  * - Email + Institution combination must be unique (enforced by database constraint 'staff_institution_email_key')
- * - Staff ID must be globally unique (enforced by database constraint 'staff_staff_id_key')
+ * - Staff ID is NOT taken from the sheet. Since 2026-08-28 trg_staff_autonumber generates it
+ *   on insert (DCH001 teaching / NOTDCH001 non-teaching) and discards any supplied value.
  * - Same email can exist for different institutions, but not within the same institution
  *
  * VALIDATION PROCESS:
@@ -41,6 +42,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { CategoryService } from '@/lib/services/staff/category-service';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { normalizeStaffName } from '@/lib/utils/staff-name';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { RoleService } from '@/lib/services/roles/role-service';
@@ -344,20 +346,10 @@ const validateRow = async (
     }
   }
 
-  // Check for existing staff ID
-  if (row.staff_id) {
-    try {
-      const { data: existing } = await StaffService.getStaff({
-        search: row.staff_id,
-        limit: 1
-      });
-      if (existing.length > 0 && existing[0].staff_id === row.staff_id) {
-        errors.push('Staff ID already exists');
-      }
-    } catch (error) {
-      console.error('Error checking staff ID existence:', error);
-    }
-  }
+  // No Staff ID check: since 2026-08-28 the database generates it on insert and
+  // ignores anything supplied, so a sheet value can neither collide nor be used.
+  // This block used to cost one extra query per row to validate a field that is
+  // now discarded.
 
   // Check for existing email across all institutions
   if (row.institution_email) {
@@ -547,7 +539,17 @@ export default function BulkUploadStaff() {
 
       // Validate each row
       const validatedData = await Promise.all(
-        jsonData.map(async (row: any, index) => {
+        jsonData.map(async (rawRow: any, index) => {
+          // Canonicalise names BEFORE validation and preview so the operator
+          // sees exactly what will be stored. The DB normalises regardless
+          // (trg_normalize_staff_names), so without this the preview would
+          // show "Anil Kumar " and the saved record "ANIL KUMAR" — a silent
+          // mismatch the user only discovers after importing.
+          const row: any = {
+            ...rawRow,
+            first_name: normalizeStaffName(rawRow.first_name),
+            last_name: normalizeStaffName(rawRow.last_name),
+          };
           const validation = await validateRow(
             row,
             categoryNames,
@@ -591,31 +593,9 @@ export default function BulkUploadStaff() {
         })
       );
 
-      // Check for duplicate staff IDs within the uploaded data
-      const staffIdCounts = new Map<string, number[]>();
-      validatedData.forEach((row, index) => {
-        if (row.staff_id && row.staff_id.trim()) {
-          const staffId = row.staff_id.trim().toLowerCase();
-          if (!staffIdCounts.has(staffId)) {
-            staffIdCounts.set(staffId, []);
-          }
-          staffIdCounts.get(staffId)!.push(row.rowNumber);
-        }
-      });
-
-      // Mark duplicate staff IDs as invalid
-      validatedData.forEach((row) => {
-        if (row.staff_id && row.staff_id.trim()) {
-          const staffId = row.staff_id.trim().toLowerCase();
-          const occurrences = staffIdCounts.get(staffId) || [];
-          if (occurrences.length > 1) {
-            row.isValid = false;
-            row.errors.push(
-              `Duplicate staff ID found in rows: ${occurrences.join(', ')}`
-            );
-          }
-        }
-      });
+      // Two rows can no longer claim the same Staff ID: the database issues each
+      // one from a per-institution counter, so duplicates within the file are
+      // impossible by construction.
 
       // Check for duplicate emails within the uploaded data (per institution)
       const emailInstitutionCounts = new Map<string, number[]>();
@@ -747,7 +727,7 @@ export default function BulkUploadStaff() {
             // Don't fall back to personal email — it won't be @jkkn.ac.in.
             institution_email: row.institution_email || undefined,
             phone: row.phone,
-            staff_id: row.staff_id,
+            // staff_id deliberately absent — trg_staff_autonumber issues it.
             profile_picture: row.profile_picture || '',
             address: row.address,
             state: row.state,
@@ -788,7 +768,10 @@ export default function BulkUploadStaff() {
                 if (msg.includes('staff_institution_email_key')) {
                   errorMessage = `Email '${row.email}' already exists for this institution`;
                 } else if (msg.includes('staff_staff_id_key')) {
-                  errorMessage = `Staff ID '${row.staff_id}' already exists`;
+                  // Unreachable in normal operation — the generator checks the
+                  // code is free before returning it. Kept so the constraint
+                  // never surfaces as "Unknown error" if that ever changes.
+                  errorMessage = 'Generated Staff ID collided; please retry this row';
                 } else if (
                   msg.includes('duplicate key value violates unique constraint')
                 ) {

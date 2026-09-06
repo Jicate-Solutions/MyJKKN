@@ -12,6 +12,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AcademicYearBar } from './_components/academic-year-bar';
 import { LeaveBalanceAnalytics } from './_components/leave-balance-analytics';
 import { GenerateBalancesForm } from './_components/generate-balances-form';
+import { StaffBalancesTab } from './_components/staff-balances-tab';
 
 /**
  * Guarded on hr.leave.balance.MANAGE — deliberately not `.view`, which is a
@@ -47,6 +48,7 @@ export default function LeaveBalancesPage() {
           <TabsList>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
             <TabsTrigger value="generate">Generate</TabsTrigger>
+            <TabsTrigger value="staff">Staff Balances</TabsTrigger>
           </TabsList>
 
           <TabsContent value="analytics" className="mt-4">
@@ -55,6 +57,13 @@ export default function LeaveBalancesPage() {
 
           <TabsContent value="generate" className="mt-4">
             <GenerateBalancesForm year={year} />
+          </TabsContent>
+
+          {/* Reads the same page-level year as the other two, so drilling into
+              a person never shows a different year than the coverage you just
+              acted on. */}
+          <TabsContent value="staff" className="mt-4">
+            <StaffBalancesTab year={year} />
           </TabsContent>
         </Tabs>
       </ContentLayout>

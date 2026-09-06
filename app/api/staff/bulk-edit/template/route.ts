@@ -103,7 +103,7 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     help.addRow(['', '']);
     help.addRow(['Blank cell', 'Leaves the field unchanged. Bulk edit never clears a field and never creates staff.']);
     help.addRow(['Institution Email', 'The match key. Do not edit it, and do not delete the column.']);
-    help.addRow(['Locked columns', 'Institution Email, Staff ID (current), Name, Institution are ignored on upload.']);
+    help.addRow(['Locked columns', 'Institution Email, Staff ID, Name, Institution are ignored on upload.']);
     help.addRow(['', '']);
     for (const col of BULK_EDIT_COLUMNS) {
       if (col.note) help.addRow([col.header, col.note]);
@@ -135,7 +135,7 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
         // RAW institution_email — never displayEmail(). 124 staff hold a synthetic
         // @nolog.jkkn.local address and that IS their key.
         'Institution Email': s.institution_email,
-        'Staff ID (current)': s.staff_id ?? '',
+        'Staff ID': s.staff_id ?? '',
         Name: `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim(),
         Institution: s.institution?.name ?? '',
         Phone: s.phone ?? '',
@@ -148,7 +148,6 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
         State: s.state ?? '',
         District: s.district ?? '',
         Pincode: s.pincode ?? '',
-        'Staff ID (new)': s.staff_id ?? '',
         Designation: s.designation ?? '',
         'Date of Joining': s.date_of_joining ?? '',
         Department: s.department?.department_name ?? '',

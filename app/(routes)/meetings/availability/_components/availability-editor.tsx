@@ -278,7 +278,8 @@ export function AvailabilityEditor({ schedule }: AvailabilityEditorProps) {
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
-            Weekly hours
+            {/* Name the set being edited — a host may keep more than one. */}
+            {schedule.name ? `Weekly hours — ${schedule.name}` : 'Weekly hours'}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 p-2 sm:p-4">

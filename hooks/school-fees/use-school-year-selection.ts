@@ -6,6 +6,7 @@
 //
 // 1. entityType MUST be 'school'. useInstitutionsWithAccess defaults to
 //    'institution', which lists colleges and hides both schools entirely.
+//    BUT that option alone is not enough — see the filter below.
 // 2. State holds only what the user EXPLICITLY picked; the defaults are
 //    DERIVED. Doing this with effects would mean setState inside useEffect —
 //    cascading renders, and what react-hooks/set-state-in-effect rejects.
@@ -23,9 +24,24 @@ export interface SchoolYearOption {
 }
 
 export function useSchoolYearSelection() {
-  const { institutions, loading: loadingInstitutions } = useInstitutionsWithAccess({
-    entityType: 'school',
-  });
+  const { institutions: allInstitutions, loading: loadingInstitutions } =
+    useInstitutionsWithAccess({ entityType: 'school' });
+
+  // The `entityType: 'school'` option above is IGNORED for super admins:
+  // useInstitutionsWithAccess does `isSuperAdmin ? 'all' : entityType`
+  // (hooks/organization/use-institutions-with-access.ts), which is meant to stop
+  // the *default* of 'institution' hiding schools from them — but it also
+  // discards an explicit request, so the dropdown filled up with colleges,
+  // Jicate Solutions and the Main Office.
+  //
+  // Filtered here rather than in the shared hook: 26 other call sites pass
+  // entityType explicitly and would all change behaviour for super admins.
+  // Every school-fee table is keyed to a school, so a college chosen here would
+  // silently create data nothing can reach.
+  const institutions = useMemo(
+    () => allInstitutions.filter((i) => i.entity_type === 'school'),
+    [allInstitutions],
+  );
 
   const [institutionChoice, setInstitutionChoice] = useState('');
   const [yearChoice, setYearChoice] = useState('');

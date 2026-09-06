@@ -948,7 +948,15 @@ CREATE VIEW public.v_learner_hostelites AS
     -- Current room/mess categories (admin Category Upgrade tab —
     -- migration 20260617110000_v_learner_hostelites_add_categories.sql)
     lp.hostel_category_id, hc.name AS hostel_category_name, hc.type AS hostel_category_type,
-    lp.mess_category_id, mc.name AS mess_category_name
+    lp.mess_category_id, mc.name AS mess_category_name,
+    -- Contact numbers for the Residents roster export (migration
+    -- 20260902140000_v_learner_hostelites_add_contact_numbers.sql). Appended
+    -- LAST because CREATE OR REPLACE VIEW only permits adding columns at the
+    -- end. v_learner_hostelites_scoped is `SELECT v.*` but Postgres freezes
+    -- that star at creation time, so that view had to be re-created in the same
+    -- migration or it would have stayed at 42 columns while this one had 45 —
+    -- and the Residents list reads the SCOPED view.
+    lp.student_mobile, lp.father_mobile, lp.mother_mobile
    FROM learners_profiles lp
      LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
      LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
@@ -980,6 +988,15 @@ GRANT ALL ON public.v_learner_hostelites TO anon, authenticated, service_role;
 --   super admin → all; warden (has user_block_access grants) → their granted
 --   blocks only (cross-institution, excludes unassigned); else → accessible
 --   institutions. security_barrier prevents predicate-pushdown leaks.
+--
+-- TRAP: `SELECT v.*` below is NOT dynamic. Postgres expands the star into an
+-- explicit column list when the view is created and never re-expands it. Any
+-- migration that adds a column to v_learner_hostelites MUST re-run this
+-- CREATE OR REPLACE in the same migration, or this view silently stays at the
+-- old column count — and since the client list path reads THIS view, the new
+-- column arrives as permanently blank with no error anywhere. Hit on
+-- 2026-09-02 while adding the contact numbers (base went to 45, this was still
+-- frozen at 42).
 CREATE OR REPLACE VIEW public.v_learner_hostelites_scoped
 WITH (security_barrier = true) AS
 SELECT v.*
@@ -1334,3 +1351,538 @@ WHERE (SELECT public.is_super_admin())
 
 REVOKE ALL ON public.v_hr_leave_balance FROM anon;
 GRANT SELECT ON public.v_hr_leave_balance TO authenticated;
+
+
+-- ================================================================================
+-- vw_learner_payment_progress (mirrored 2026-08-18)
+-- ================================================================================
+-- Per-learner fee position. Feeds the reserved -> admitted promotion gate
+-- (evaluate_learner_status_after_payment) and the Awaiting Payment tier of
+-- /learners/onboarding (fn_onboarding_payment_progress).
+--
+-- paid_pct is the DUE-AS-ON-DATE basis per the 2026-08-11 Director ruling: paid
+-- over billed across non-application bills whose due_date has arrived. The three
+-- bases are exposed explicitly, each with a matching amount pair, so
+-- admission_statuses.threshold_basis can select one without any caller
+-- re-deriving the predicate:
+--     billed_to_date           -> pct_billed_to_date   + countable_billed / countable_paid
+--     due_to_date              -> pct_due_to_date      + due_billed       / due_paid
+--     due_to_date_current_year -> pct_due_current_year + due_cy_billed    / due_cy_paid
+--
+-- Cancelled AND superseded bills are excluded (143 cancelled bills carrying
+-- Rs 22.31 lakh used to drag real learners' percentages down).
+-- security_invoker = true, so RLS on learners_profiles + billing_student_bills
+-- applies to the caller. That is also why fn_onboarding_payment_progress is
+-- SECURITY DEFINER: reading these totals must not require billing.bills.view.
+CREATE OR REPLACE VIEW public.vw_learner_payment_progress
+WITH (security_invoker = true) AS
+SELECT
+  lp.id AS learner_id,
+  lp.institution_id,
+  lp.lifecycle_status,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee'), 0) AS countable_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee'), 0) AS countable_paid,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 2)
+  END AS paid_pct,
+  BOOL_OR(bc.kind = 'application_fee' AND b.status = 'paid') AS application_fee_paid,
+  COUNT(b.id) AS total_bills,
+  COUNT(b.id) FILTER (WHERE b.status = 'paid') AS paid_bills,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount) FILTER (WHERE bc.kind <> 'application_fee'), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount) FILTER (WHERE bc.kind <> 'application_fee')
+      / SUM(b.final_amount)                    FILTER (WHERE bc.kind <> 'application_fee'), 2)
+  END AS pct_billed_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 2)
+  END AS pct_due_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                          AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                  AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                  AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 2)
+  END AS pct_due_current_year,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) AS due_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) AS due_paid,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                   AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) AS due_cy_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                   AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) AS due_cy_paid
+FROM public.learners_profiles lp
+LEFT JOIN public.billing_student_bills b
+  ON b.student_id = lp.id AND b.status NOT IN ('superseded', 'cancelled')
+LEFT JOIN public.billing_categories bc
+  ON bc.id = b.item_category_id
+LEFT JOIN public.academic_years ayr
+  ON ayr.id = b.academic_year_id
+GROUP BY lp.id, lp.institution_id, lp.lifecycle_status;
+
+
+-- ===========================================================================
+-- Source: 20260822090000_billing_bill_instalments.sql
+-- ===========================================================================
+-- =============================================================================
+-- §6 Set-wide rollup, for the threshold view and list screens
+-- =============================================================================
+-- The per-bill function above is a loop; a view over 19k bills cannot call it
+-- per row. This does the same waterfall as pure set arithmetic:
+--
+--   running_before = sum of tranche amounts strictly BEFORE this one
+--   allocated      = clamp(paid_on_bill - running_before, 0, amount)
+--
+-- which is exactly what the loop computes, without the loop.
+
+CREATE OR REPLACE VIEW public.vw_bill_instalment_state
+WITH (security_invoker = true) AS
+WITH ranked AS (
+  SELECT
+    i.id            AS instalment_id,
+    i.bill_id,
+    i.sequence_no,
+    i.amount,
+    i.due_date,
+    i.promotes_to_status_code,
+    b.student_id,
+    b.institution_id,
+    b.item_category_id,
+    b.academic_year_id,
+    b.status        AS bill_status,
+    GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)) AS paid_on_bill,
+    COALESCE(SUM(i.amount) OVER (
+      PARTITION BY i.bill_id
+      ORDER BY i.due_date, i.sequence_no
+      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    ), 0) AS running_before
+  FROM public.billing_bill_instalments i
+  JOIN public.billing_student_bills b ON b.id = i.bill_id
+)
+SELECT
+  instalment_id,
+  bill_id,
+  student_id,
+  institution_id,
+  item_category_id,
+  academic_year_id,
+  bill_status,
+  sequence_no,
+  amount,
+  due_date,
+  promotes_to_status_code,
+  LEAST(GREATEST(paid_on_bill - running_before, 0), amount) AS allocated_amount,
+  amount - LEAST(GREATEST(paid_on_bill - running_before, 0), amount) AS outstanding,
+  (LEAST(GREATEST(paid_on_bill - running_before, 0), amount) >= amount) AS is_settled,
+  (due_date <= CURRENT_DATE) AS is_due
+FROM ranked;
+
+COMMENT ON VIEW public.vw_bill_instalment_state IS
+  'Set-based form of the billing_bill_instalment_state waterfall, for the threshold view and list screens. security_invoker = true so the underlying bill RLS applies.';
+
+REVOKE ALL ON TABLE public.vw_bill_instalment_state FROM anon, PUBLIC;
+
+GRANT SELECT ON TABLE public.vw_bill_instalment_state TO authenticated, service_role;
+
+-- ===========================================================================
+-- Source: 20260822110000_instalment_aware_threshold_and_late_charge.sql
+-- ===========================================================================
+-- =============================================================================
+-- §1 The threshold view, tranche-aware
+-- =============================================================================
+-- CREATE OR REPLACE VIEW cannot reorder, rename or drop a column, so all 14
+-- keep their name, type and position. Only how `due_amount` is derived changes.
+--
+--   bill WITH tranches : due = sum of tranche amounts whose date has arrived
+--   bill WITHOUT       : due = final_amount when due_date has arrived, else 0
+--                        — byte for byte the previous expression
+--
+-- The numerator is LEAST(paid, due) rather than paid: that is the waterfall
+-- restated. Money settles the oldest tranche first, so a learner who pays ahead
+-- of schedule cannot have the surplus counted against a tranche that is not yet
+-- due — which would inflate their percentage and promote them early.
+--
+-- A bill with no billing_category (bc.kind IS NULL) is excluded from the
+-- countable totals by `bc.kind <> 'application_fee'` evaluating to NULL. That
+-- is pre-existing behaviour, preserved deliberately rather than "fixed" here.
+
+CREATE OR REPLACE VIEW public.vw_learner_payment_progress
+WITH (security_invoker = true) AS
+WITH bill AS (
+  SELECT
+    b.id,
+    b.student_id,
+    bc.kind        AS category_kind,
+    b.status       AS bill_status,
+    b.final_amount,
+    GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)) AS paid,
+    (ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE) AS in_current_ay,
+    CASE
+      WHEN EXISTS (SELECT 1 FROM public.billing_bill_instalments i WHERE i.bill_id = b.id)
+        THEN COALESCE((SELECT SUM(i.amount)
+                         FROM public.billing_bill_instalments i
+                        WHERE i.bill_id = b.id
+                          AND i.due_date <= CURRENT_DATE), 0)
+      WHEN b.due_date <= CURRENT_DATE THEN b.final_amount
+      ELSE 0
+    END AS due_amount
+  FROM public.billing_student_bills b
+  LEFT JOIN public.billing_categories bc ON bc.id = b.item_category_id
+  LEFT JOIN public.academic_years ayr    ON ayr.id = b.academic_year_id
+  WHERE b.status NOT IN ('superseded', 'cancelled')
+)
+SELECT
+  lp.id             AS learner_id,
+  lp.institution_id,
+  lp.lifecycle_status,
+  COALESCE(SUM(b.final_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 0)
+    AS countable_billed,
+  COALESCE(SUM(b.paid)         FILTER (WHERE b.category_kind <> 'application_fee'), 0)
+    AS countable_paid,
+  -- paid_pct: DUE-AS-ON-DATE basis (platform default, 2026-08-11 ruling),
+  -- now measured tranche by tranche.
+  CASE
+    WHEN COALESCE(SUM(b.due_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 0) = 0
+      THEN 0
+    ELSE ROUND(
+      100.0 * SUM(LEAST(b.paid, b.due_amount)) FILTER (WHERE b.category_kind <> 'application_fee')
+            / SUM(b.due_amount)                FILTER (WHERE b.category_kind <> 'application_fee')
+    , 2)
+  END AS paid_pct,
+  BOOL_OR(b.category_kind = 'application_fee' AND b.bill_status = 'paid') AS application_fee_paid,
+  COUNT(b.id) AS total_bills,
+  COUNT(b.id) FILTER (WHERE b.bill_status = 'paid') AS paid_bills,
+  -- The three explicit bases.
+  CASE
+    WHEN COALESCE(SUM(b.final_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.paid)         FILTER (WHERE b.category_kind <> 'application_fee')
+      / SUM(b.final_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 2)
+  END AS pct_billed_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.due_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(LEAST(b.paid, b.due_amount)) FILTER (WHERE b.category_kind <> 'application_fee')
+      / SUM(b.due_amount)                FILTER (WHERE b.category_kind <> 'application_fee'), 2)
+  END AS pct_due_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.due_amount)
+           FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(LEAST(b.paid, b.due_amount))
+          FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay)
+      / SUM(b.due_amount)
+          FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay), 2)
+  END AS pct_due_current_year,
+  COALESCE(SUM(b.due_amount)                FILTER (WHERE b.category_kind <> 'application_fee'), 0)
+    AS due_billed,
+  COALESCE(SUM(LEAST(b.paid, b.due_amount)) FILTER (WHERE b.category_kind <> 'application_fee'), 0)
+    AS due_paid,
+  -- Columns 15-16. NOT in 20260821040000 — they were added to the live view
+  -- afterwards and the migration file was never updated, so the file on disk
+  -- described a 14-column view while the database had 16. Omitting them here
+  -- was rejected outright ("cannot drop columns from view"), which is the one
+  -- kind of drift Postgres catches for you.
+  COALESCE(SUM(b.due_amount)
+    FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay), 0)
+    AS due_cy_billed,
+  COALESCE(SUM(LEAST(b.paid, b.due_amount))
+    FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay), 0)
+    AS due_cy_paid
+FROM public.learners_profiles lp
+LEFT JOIN bill b ON b.student_id = lp.id
+GROUP BY lp.id, lp.institution_id, lp.lifecycle_status;
+
+COMMENT ON VIEW public.vw_learner_payment_progress IS
+  'Per-learner payment progress. paid_pct = DUE-AS-ON-DATE basis, now computed tranche by tranche: a bill with billing_bill_instalments contributes only the tranches whose date has arrived; a bill without contributes its whole amount once its due_date has arrived (unchanged). The numerator is LEAST(paid, due) — the payment waterfall restated, so paying ahead of schedule never inflates the percentage. Cancelled and superseded bills excluded. security_invoker = true so RLS applies.';
+
+REVOKE ALL ON TABLE public.vw_learner_payment_progress FROM anon, PUBLIC;
+
+GRANT SELECT ON TABLE public.vw_learner_payment_progress TO authenticated, service_role;
+
+-- ===========================================================================
+-- Source: 20260824240000_hr_leave_balance_view_document_rule.sql
+-- ===========================================================================
+CREATE OR REPLACE VIEW refuses to
+-- rename or reorder existing columns, and the alternative -- DROP CASCADE --
+-- would take v_hr_leave_balance with it for a cosmetic gain.
+--
+-- BOTH BRANCHES of the UNION in _src carry it. The first serves OPEN years by
+-- CROSS JOINing staff to leave types; the second serves FROZEN years from the
+-- ledger. A drawer that got the rule from one branch and not the other would
+-- behave differently either side of a year boundary, which is the kind of bug
+-- nobody reproduces on demand.
+--
+-- Everything else is byte-for-byte the current definition. Verified by
+-- checksumming the view's output before and after: 8000 rows,
+-- md5 8636b8c71e4fafc6038923d3b26f8e76, unchanged.
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_hr_leave_balance_src AS
+ SELECT s.id AS employee_id,
+    t.id AS leave_type_id,
+    y.id AS hr_academic_year_id,
+    t.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    COALESCE(b.used, 0::numeric) AS used,
+    COALESCE(b.carried_forward, 0::numeric) AS carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + COALESCE(b.carried_forward, 0::numeric) - COALESCE(b.used, 0::numeric) AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_academic_years y
+     CROSS JOIN hr_leave_types t
+     JOIN hr_organizations org ON org.id = t.hr_organization_id
+     JOIN staff s ON s.institution_id = org.institution_id AND s.is_active
+     LEFT JOIN hr_staff_details d ON d.staff_id = s.id
+     LEFT JOIN hr_leave_balances b ON b.employee_id = s.id AND b.leave_type_id = t.id AND b.hr_academic_year_id = y.id
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = s.id AND o.leave_type_id = t.id AND o.hr_academic_year_id = y.id
+  WHERE y.frozen_at IS NULL AND t.is_active AND (t.applicable_gender::text = 'all'::text OR lower(COALESCE(s.gender, ''::text)) = t.applicable_gender::text) AND (t.applicable_cadre_ids IS NULL OR (d.cadre_id = ANY (t.applicable_cadre_ids))) AND (NOT (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active)) OR (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active AND (a.scope_kind::text = 'staff'::text AND a.staff_id = s.id OR a.scope_kind::text = 'department'::text AND a.department_id = s.department_id OR a.scope_kind::text = 'organization'::text))))
+UNION ALL
+ SELECT b.employee_id,
+    b.leave_type_id,
+    b.hr_academic_year_id,
+    b.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    b.used,
+    b.carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + b.carried_forward - b.used AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_leave_balances b
+     JOIN hr_academic_years y ON y.id = b.hr_academic_year_id AND y.frozen_at IS NOT NULL
+     JOIN hr_leave_types t ON t.id = b.leave_type_id
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = b.employee_id AND o.leave_type_id = b.leave_type_id AND o.hr_academic_year_id = b.hr_academic_year_id;
+
+CREATE OR REPLACE VIEW public.v_hr_leave_balance AS
+ SELECT v.employee_id,
+    v.leave_type_id,
+    v.hr_academic_year_id,
+    v.hr_organization_id,
+    v.leave_type_name,
+    v.leave_type_code,
+    v.request_category,
+    v.color_code,
+    v.display_order,
+    v.duration_type,
+    v.allow_half_day,
+    v.allow_hourly,
+    v.max_continuous_days,
+    v.min_advance_notice_days,
+    v.requires_documents,
+    v.entitled,
+    v.used,
+    v.carried_forward,
+    v.available,
+    v.entitlement_source,
+    v.created_at,
+    v.updated_at,
+    v.document_required_after_days
+   FROM v_hr_leave_balance_src v
+  WHERE ( SELECT is_super_admin() AS is_super_admin) OR (v.employee_id IN ( SELECT unnest(fn_my_staff_ids()) AS unnest)) OR ( SELECT user_has_permission('hr.leave.approve'::text) AS user_has_permission) AND (v.hr_organization_id IN ( SELECT unnest(fn_my_hr_organization_ids()) AS unnest));
+
+COMMENT ON VIEW public.v_hr_leave_balance IS
+  'Per-staff, per-type, per-year leave position, RLS-scoped to yourself or to an organization you approve for. Entitlement resolves through COALESCE(override, ledger literal, policy) and names the winner in entitlement_source. Carries the type''s whole document rule -- requires_documents plus document_required_after_days -- so the Apply Leave drawer can decide whether THIS request needs a certificate without a second round trip.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827210000 + 20260827220000 (views)
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_hr_staff
+WITH (security_invoker = true) AS
+  SELECT s.*
+    FROM public.staff s
+    JOIN public.employment_categories ec ON ec.id = s.category_id
+   WHERE ec.included_in_hr;
+
+COMMENT ON VIEW public.v_hr_staff IS
+  'Active-or-not staff whose employment category is included in HR. Same columns as staff; swap the table name in HR queries. Inherits staff RLS (security_invoker).';
+
+REVOKE ALL ON public.v_hr_staff FROM anon;
+GRANT SELECT ON public.v_hr_staff TO authenticated;
+
+CREATE OR REPLACE VIEW public.v_hr_leave_balance_src AS
+ SELECT s.id AS employee_id,
+    t.id AS leave_type_id,
+    y.id AS hr_academic_year_id,
+    t.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    COALESCE(b.used, 0::numeric) AS used,
+    COALESCE(b.carried_forward, 0::numeric) AS carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + COALESCE(b.carried_forward, 0::numeric) - COALESCE(b.used, 0::numeric) AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_academic_years y
+     CROSS JOIN hr_leave_types t
+     JOIN hr_organizations org ON org.id = t.hr_organization_id
+     JOIN staff s ON s.institution_id = org.institution_id AND s.is_active
+     JOIN employment_categories sec ON sec.id = s.category_id AND sec.included_in_hr
+     LEFT JOIN hr_staff_details d ON d.staff_id = s.id
+     LEFT JOIN hr_leave_balances b ON b.employee_id = s.id AND b.leave_type_id = t.id AND b.hr_academic_year_id = y.id
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = s.id AND o.leave_type_id = t.id AND o.hr_academic_year_id = y.id
+  WHERE y.frozen_at IS NULL AND t.is_active AND (t.applicable_gender::text = 'all'::text OR lower(COALESCE(s.gender, ''::text)) = t.applicable_gender::text) AND (t.applicable_cadre_ids IS NULL OR (d.cadre_id = ANY (t.applicable_cadre_ids))) AND (NOT (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active)) OR (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active AND (a.scope_kind::text = 'staff'::text AND a.staff_id = s.id OR a.scope_kind::text = 'department'::text AND a.department_id = s.department_id OR a.scope_kind::text = 'organization'::text))))
+UNION ALL
+ SELECT b.employee_id,
+    b.leave_type_id,
+    b.hr_academic_year_id,
+    b.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    b.used,
+    b.carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + b.carried_forward - b.used AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_leave_balances b
+     JOIN hr_academic_years y ON y.id = b.hr_academic_year_id AND y.frozen_at IS NOT NULL
+     JOIN hr_leave_types t ON t.id = b.leave_type_id
+     -- Frozen years too: an excluded category should disappear from HR
+     -- everywhere, not linger in history screens.
+     JOIN staff fs ON fs.id = b.employee_id
+     JOIN employment_categories fec ON fec.id = fs.category_id AND fec.included_in_hr
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = b.employee_id AND o.leave_type_id = b.leave_type_id AND o.hr_academic_year_id = b.hr_academic_year_id;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828130000_staff_id_backfill.sql (views)
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_staff_id_crosswalk
+WITH (security_invoker = true) AS
+SELECT full_name,
+       institution_name,
+       CASE WHEN is_teaching THEN 'Teaching' ELSE 'Non-teaching' END AS staff_type,
+       CASE WHEN is_active   THEN 'Active'   ELSE 'Inactive'     END AS status,
+       old_staff_id,
+       new_staff_id,
+       migrated_at
+FROM public.staff_id_crosswalk;
+
+COMMENT ON VIEW public.v_staff_id_crosswalk IS
+  'Readable old -> new staff ID mapping for HR to export and circulate.';
+
+-- Explicit, even though the view is security_invoker and the table beneath it is
+-- locked: a view does NOT inherit the underlying table's RLS, so if the
+-- security_invoker option is ever dropped this becomes an anon-readable dump of
+-- every staff member's name, institution and old/new ID.
+REVOKE ALL ON TABLE public.v_staff_id_crosswalk FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.v_staff_id_crosswalk TO authenticated;
+
+-- ===========================================================================
+-- v_hr_leave_balance / _src gained `accrued` and `pending` (2026-09-02)
+-- Source: 20260902160000_hr_leave_accrual_and_pending_reservation.sql
+--
+--   available = accrued + carried_forward - used - pending
+--
+-- `entitled` and `used` keep their old meanings -- the ledger is NOT rewritten,
+-- which is what keeps existing reports honest. New columns are appended because
+-- CREATE OR REPLACE VIEW can only add at the end, and BOTH views move together
+-- since the outer one lists its columns explicitly.
+--
+-- Pending arrives from ONE pre-aggregated LEFT JOIN over the unapproved rows,
+-- and accrual from the IMMUTABLE kernel called inline: a querying function per
+-- row would have turned a 12 ms view into thousands of queries.
+--
+-- The FROZEN-year branch does not accrue and takes no new requests, so its
+-- available stays the arithmetic it always was.
+--
+-- Full definitions in the migration.
+-- ===========================================================================

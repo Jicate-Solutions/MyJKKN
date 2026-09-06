@@ -1845,6 +1845,36 @@ CREATE TRIGGER trg_jkkn_identity_aliases_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- =====================================================================
+-- Added: 2026-08-27 - JKKN ID auto-issuance
+-- Mirror of migration 20260827110000_jkkn_id_associate_kind_and_auto_issue.sql
+-- Function bodies -> setup/02_functions.sql (tg_jkkn_auto_issue_*).
+-- Fail-soft by design: an issuance failure warns, never blocks the
+-- admission / hire / role grant that fired it.
+-- =====================================================================
+-- Widened 2026-08-27 (migration 20260827134500): a learner is issued at
+-- RESERVED — seat held, onboarding begins — not only at admitted/active.
+-- Enquiry-stage statuses stay excluded (numbers are never spent at enquiry).
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_learner ON public.learners_profiles;
+CREATE TRIGGER trg_jkkn_auto_issue_learner
+  AFTER INSERT OR UPDATE OF lifecycle_status ON public.learners_profiles
+  FOR EACH ROW
+  WHEN (NEW.lifecycle_status::text IN ('reserved', 'account', 'admitted', 'active', 'graduated', 'alumni'))
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_learner();
+
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_team_member ON public.staff;
+CREATE TRIGGER trg_jkkn_auto_issue_team_member
+  AFTER INSERT OR UPDATE OF is_active ON public.staff
+  FOR EACH ROW
+  WHEN (NEW.is_active IS TRUE)
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_team_member();
+
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_associate ON public.user_roles;
+CREATE TRIGGER trg_jkkn_auto_issue_associate
+  AFTER INSERT ON public.user_roles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_associate();
+
+-- =====================================================================
 -- Added: 2026-08-13 - Course Events core triggers (course_events,
 -- course_packages, course_package_installments)
 -- Mirror of migration 20260813100000_course_events_core.sql
@@ -1937,3 +1967,586 @@ CREATE TRIGGER trg_enforce_room_buyout_lock_update
   FOR EACH ROW
   WHEN (NEW.room_id IS DISTINCT FROM OLD.room_id OR OLD.check_out_date IS NOT NULL)
   EXECUTE FUNCTION public._enforce_room_buyout_lock();
+
+-- Learner gender -> profiles.gender (20260820140000). A: profile gains a learner
+-- link, pull the gender. B: learner's gender is edited, push it to the profile.
+CREATE TRIGGER trg_sync_profile_gender_from_learner
+  AFTER INSERT OR UPDATE OF learner_id ON public.profiles
+  FOR EACH ROW
+  WHEN (NEW.learner_id IS NOT NULL AND NEW.gender IS NULL)
+  EXECUTE FUNCTION public.sync_profile_gender_from_learner();
+
+CREATE TRIGGER trg_sync_learner_gender_to_profile
+  AFTER INSERT OR UPDATE OF gender ON public.learners_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.sync_learner_gender_to_profile();
+
+-- Gender canonicalisation (20260820160000). BEFORE triggers so the CHECK
+-- constraints below them are backstops that should never actually fire.
+CREATE TRIGGER trg_normalize_gender_learners_profiles
+  BEFORE INSERT OR UPDATE OF gender ON public.learners_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.tg_normalize_learner_gender();
+
+CREATE TRIGGER trg_normalize_gender_profiles
+  BEFORE INSERT OR UPDATE OF gender ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.tg_normalize_profile_gender();
+
+-- ---------------------------------------------------------------------------
+-- admission_fee_structures: hostel room/mess tier integrity guard
+-- (migration 20260910110000)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_fee_structure_hostel_categories_guard
+  ON public.admission_fee_structures;
+
+CREATE TRIGGER trg_fee_structure_hostel_categories_guard
+  BEFORE INSERT OR UPDATE ON public.admission_fee_structures
+  FOR EACH ROW
+  EXECUTE FUNCTION public._fee_structure_hostel_categories_guard();
+
+-- ---------------------------------------------------------------------------
+-- staff: canonical UPPERCASE names (migration 20260910120000)
+-- ---------------------------------------------------------------------------
+-- TRIGGER ORDER IS LOAD-BEARING — DO NOT RENAME.
+-- Postgres fires row triggers in ALPHABETICAL NAME ORDER. staff already has a
+-- BEFORE INSERT OR UPDATE trigger trg_sync_staff_to_profiles which sets
+-- profiles.full_name = CONCAT(NEW.first_name,' ',NEW.last_name).
+-- trg_normalize_staff_names sorts BEFORE it ('n' < 's'), so profiles receive
+-- the already-normalised value and the two tables cannot drift. Renaming this
+-- to e.g. trg_upper_staff_names would sort it AFTER ('u' > 's') and silently
+-- leave every profiles.full_name in mixed case.
+DROP TRIGGER IF EXISTS trg_normalize_staff_names ON public.staff;
+
+CREATE TRIGGER trg_normalize_staff_names
+  BEFORE INSERT OR UPDATE OF first_name, last_name ON public.staff
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_normalize_staff_names();
+
+-- Migration: supabase/migrations/20260821120000_induction_live_gate_writes.sql
+-- Refuse attendance/feedback writes unless the parent induction is Live.
+DROP TRIGGER IF EXISTS trg_a_induction_require_live ON public.event_session_attendance;
+CREATE TRIGGER trg_a_induction_require_live
+  BEFORE INSERT OR UPDATE ON public.event_session_attendance
+  FOR EACH ROW EXECUTE FUNCTION public.trg_induction_require_live_by_session();
+DROP TRIGGER IF EXISTS trg_a_induction_require_live ON public.event_session_feedback;
+CREATE TRIGGER trg_a_induction_require_live
+  BEFORE INSERT OR UPDATE ON public.event_session_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.trg_induction_require_live_by_event();
+DROP TRIGGER IF EXISTS trg_a_induction_require_live ON public.event_day_feedback;
+CREATE TRIGGER trg_a_induction_require_live
+  BEFORE INSERT OR UPDATE ON public.event_day_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.trg_induction_require_live_by_event();
+DROP TRIGGER IF EXISTS trg_a_induction_require_live ON public.event_program_feedback;
+CREATE TRIGGER trg_a_induction_require_live
+  BEFORE INSERT OR UPDATE ON public.event_program_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.trg_induction_require_live_by_event();
+
+-- ===========================================================================
+-- trg_hla_leave_overlap — see 20260821170000_leave_overlap_guard.sql
+-- ===========================================================================
+-- HR Leave — one leave request per day.
+--
+-- Short time off got an overlap guard on 2026-08-21; day leave never had one.
+-- Nothing stopped two live requests covering the same dates, and 3 such pairs
+-- existed across 3 staff when this was written. Both draw down the balance on
+-- approval, so the same day is paid for twice.
+--
+-- FIRES ON INSERT AND ON THE DATE/TYPE COLUMNS ONLY — deliberately NOT on
+-- status. The pre-existing overlaps must still be approvable and rejectable; a
+-- trigger that also fired on a status change would look at the sibling row,
+-- find the overlap and refuse the decision, leaving them permanently stuck.
+-- This guard is about CREATING an overlap, not about deciding one that exists.
+--
+-- Leave vs leave only. A permission on a day already covered by full-day leave
+-- is also contradictory, but that is a different comparison (minutes against a
+-- day) and is left alone rather than guessed at here.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_leave_enforce_no_overlap()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_category text;
+  v_clash    record;
+BEGIN
+  IF NEW.status NOT IN ('pending','approved','escalated') THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT request_category INTO v_category
+  FROM public.hr_leave_types WHERE id = NEW.leave_type_id;
+
+  IF v_category IS DISTINCT FROM 'leave' THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(NEW.employee_id::text || ':leave-overlap', 0)
+  );
+
+  SELECT t2.leave_type_name AS type_name, a.start_date, a.end_date, a.status
+    INTO v_clash
+  FROM public.hr_leave_applications a
+  JOIN public.hr_leave_types t2 ON t2.id = a.leave_type_id
+  WHERE a.employee_id = NEW.employee_id
+    AND a.id IS DISTINCT FROM NEW.id
+    AND a.status IN ('pending','approved','escalated')
+    AND t2.request_category = 'leave'
+    AND a.start_date <= NEW.end_date
+    AND NEW.start_date <= a.end_date
+  ORDER BY a.start_date
+  LIMIT 1;
+
+  IF v_clash.type_name IS NOT NULL THEN
+    RAISE EXCEPTION
+      'This overlaps an existing % request from % to % (%). Cancel that one first, or pick different dates.',
+      v_clash.type_name,
+      to_char(v_clash.start_date, 'DD/MM/YYYY'),
+      to_char(v_clash.end_date, 'DD/MM/YYYY'),
+      v_clash.status
+      USING ERRCODE = '23505';
+  END IF;
+
+  RETURN NEW;
+END $function$;
+
+DROP TRIGGER IF EXISTS trg_hla_leave_overlap ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_leave_overlap
+  BEFORE INSERT OR UPDATE OF start_date, end_date, leave_type_id
+  ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_enforce_no_overlap();
+
+COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
+  'Refuses a day-leave request whose dates overlap another live request for the same employee. Not fired on status changes, so pre-existing overlaps stay decidable.';
+
+-- ===========================================================================
+-- attendance period lock enforcement (2026-08-22)
+-- Source: 20260822040000_hr_attendance_period_lock_enforcement.sql
+-- ===========================================================================
+-- MAKE THE LOCK REAL.
+--
+-- hr_payroll_periods has had a `locked` status since 2026-06-28 and it stops
+-- nothing: exactly five functions in this database mention that table and all
+-- five are its own state machine. A lock that no other code reads is a label,
+-- not a control. These two triggers are what make this one different.
+--
+-- NO SUPER-ADMIN BYPASS, deliberately. A super admin can REOPEN the month --
+-- which is recorded, reasoned, and throws the stale summaries away. Letting the
+-- same person also write straight through a closed month would give them a
+-- silent path that leaves the frozen counts disagreeing with the records they
+-- were computed from.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_block_writes_in_locked_period()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_row    record;
+  v_locked record;
+BEGIN
+  v_row := COALESCE(NEW, OLD);
+
+  SELECT ap.period_year, ap.period_month, ap.locked_at
+    INTO v_locked
+    FROM public.hr_attendance_periods ap
+   WHERE ap.institution_id = v_row.institution_id
+     AND ap.status = 'locked'
+     AND make_date(ap.period_year, ap.period_month, 1) <= v_row.work_date
+     AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > v_row.work_date
+   LIMIT 1;
+
+  IF FOUND THEN
+    RAISE EXCEPTION
+      'Attendance for %-% is closed (locked %). Reopen the month before changing attendance for %.',
+      v_locked.period_year, lpad(v_locked.period_month::text, 2, '0'),
+      to_char(v_locked.locked_at, 'DD Mon YYYY'), v_row.work_date
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_har_block_locked_period ON public.hr_attendance_records;
+CREATE TRIGGER trg_har_block_locked_period
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_attendance_records
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_writes_in_locked_period();
+
+
+-- Leave / short time off / compensatory off cannot be raised, decided or
+-- withdrawn once the month they fall in is closed.
+--
+-- ANY OVERLAP BLOCKS, not just the start date: an application spanning a closed
+-- month and an open one would otherwise change day counts inside the closed
+-- half.
+--
+-- The force-close path rejects outstanding requests BEFORE it sets the status
+-- to locked, so those rejections happen while the month is still open and do
+-- not trip this.
+CREATE OR REPLACE FUNCTION public.hr_trig_block_leave_in_locked_period()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_row      record;
+  v_inst     uuid;
+  v_locked   record;
+BEGIN
+  v_row := COALESCE(NEW, OLD);
+
+  SELECT s.institution_id INTO v_inst
+    FROM public.staff s WHERE s.id = v_row.employee_id;
+
+  IF v_inst IS NULL THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
+  SELECT ap.period_year, ap.period_month, ap.locked_at
+    INTO v_locked
+    FROM public.hr_attendance_periods ap
+   WHERE ap.institution_id = v_inst
+     AND ap.status = 'locked'
+     AND make_date(ap.period_year, ap.period_month, 1) <= v_row.end_date
+     AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > v_row.start_date
+   LIMIT 1;
+
+  IF FOUND THEN
+    RAISE EXCEPTION
+      'Attendance for %-% is closed (locked %). Requests covering that month can no longer be raised or decided.',
+      v_locked.period_year, lpad(v_locked.period_month::text, 2, '0'),
+      to_char(v_locked.locked_at, 'DD Mon YYYY')
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_hla_block_locked_period ON public.hr_leave_applications;
+-- Named with a leading 'a' relative to the other guards is NOT required here --
+-- this one RAISES rather than mutating NEW, so alphabetical firing order among
+-- the ten triggers on this table does not change the outcome.
+CREATE TRIGGER trg_hla_block_locked_period
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_leave_in_locked_period();
+
+COMMENT ON FUNCTION public.hr_trig_block_writes_in_locked_period() IS
+  'Refuses any write to hr_attendance_records inside a locked attendance month. This is what makes the lock a control rather than a label.';
+COMMENT ON FUNCTION public.hr_trig_block_leave_in_locked_period() IS
+  'Refuses leave / STO / comp-off writes overlapping a locked attendance month. Any overlap blocks, so a cross-month application cannot alter the closed half.';
+
+
+-- ===========================================================================
+-- Source: 20260821180000_fee_structure_item_schedules.sql
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_afsis_touch ON public.admission_fee_structure_item_schedules;
+
+CREATE TRIGGER trg_afsis_touch
+  BEFORE UPDATE ON public.admission_fee_structure_item_schedules
+  FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_afsis_validate_status
+  ON public.admission_fee_structure_item_schedules;
+
+CREATE TRIGGER trg_afsis_validate_status
+  BEFORE INSERT OR UPDATE OF promotes_to_status_code
+  ON public.admission_fee_structure_item_schedules
+  FOR EACH ROW EXECUTE FUNCTION public.afsis_validate_status_target();
+
+DROP TRIGGER IF EXISTS trg_afsis_validate_shape
+  ON public.admission_fee_structure_item_schedules;
+
+CREATE CONSTRAINT TRIGGER trg_afsis_validate_shape
+  AFTER INSERT OR UPDATE OR DELETE
+  ON public.admission_fee_structure_item_schedules
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.afsis_validate_schedule_shape();
+
+-- ===========================================================================
+-- Source: 20260821190000_fee_schedule_generation_engine.sql
+-- ===========================================================================
+-- Reuse phase 1's validator: it reads only NEW.promotes_to_status_code, so it
+-- is table-agnostic and needs no edit.
+DROP TRIGGER IF EXISTS trg_afsi_validate_status ON public.admission_fee_structure_items;
+
+CREATE TRIGGER trg_afsi_validate_status
+  BEFORE INSERT OR UPDATE OF promotes_to_status_code
+  ON public.admission_fee_structure_items
+  FOR EACH ROW EXECUTE FUNCTION public.afsis_validate_status_target();
+
+-- ===========================================================================
+-- Source: 20260822090000_billing_bill_instalments.sql
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_bbi_validate_status ON public.billing_bill_instalments;
+
+CREATE TRIGGER trg_bbi_validate_status
+  BEFORE INSERT OR UPDATE OF promotes_to_status_code
+  ON public.billing_bill_instalments
+  FOR EACH ROW EXECUTE FUNCTION public.afsis_validate_status_target();
+
+DROP TRIGGER IF EXISTS trg_bbi_validate_sum ON public.billing_bill_instalments;
+
+CREATE CONSTRAINT TRIGGER trg_bbi_validate_sum
+  AFTER INSERT OR UPDATE OR DELETE
+  ON public.billing_bill_instalments
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.bbi_validate_sum_equals_bill();
+
+DROP TRIGGER IF EXISTS trg_bbi_rescale_on_amount_change ON public.billing_student_bills;
+
+CREATE TRIGGER trg_bbi_rescale_on_amount_change
+  AFTER UPDATE OF final_amount ON public.billing_student_bills
+  FOR EACH ROW EXECUTE FUNCTION public.bbi_rescale_on_bill_amount_change();
+
+-- ===========================================================================
+-- Source: 20260822100000_single_bill_generation_and_due_date_sync.sql
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_bbi_sync_due_date ON public.billing_bill_instalments;
+
+CREATE TRIGGER trg_bbi_sync_due_date
+  AFTER INSERT OR UPDATE OF amount, due_date, sequence_no OR DELETE
+  ON public.billing_bill_instalments
+  FOR EACH ROW EXECUTE FUNCTION public.bbi_sync_due_date_from_instalment();
+
+-- Named to sort AFTER trg_evaluate_status_after_bill_paid, so the promotion
+-- engine still sees the bill exactly as the payment left it. Postgres fires row
+-- triggers in alphabetical order by name, and 'trg_z' is deliberate.
+DROP TRIGGER IF EXISTS trg_z_bbi_sync_due_date_after_payment ON public.billing_student_bills;
+
+CREATE TRIGGER trg_z_bbi_sync_due_date_after_payment
+  AFTER UPDATE OF balance_amount ON public.billing_student_bills
+  FOR EACH ROW EXECUTE FUNCTION public.bbi_sync_due_date_after_payment();
+
+
+-- ── Receipt cancellation activity feed (20260825170000) ───────────────────
+DROP TRIGGER IF EXISTS trg_log_receipt_cancel_activity
+  ON public.billing_receipt_cancel_request_actions;
+
+CREATE TRIGGER trg_log_receipt_cancel_activity
+  AFTER INSERT ON public.billing_receipt_cancel_request_actions
+  FOR EACH ROW EXECUTE FUNCTION public._fn_log_receipt_cancel_activity();
+
+
+-- ── Learner status reversal on payment drop (20260825180000) ──────────────
+-- Keyed on the paid amount DROPPING rather than on a workflow, so receipt
+-- cancellation, a direct void, a refund and a manual bill edit are all covered.
+DROP TRIGGER IF EXISTS trg_learner_status_on_bill_payment_drop
+  ON public.billing_student_bills;
+
+-- AFTER, so the reverted balance is already visible to the re-evaluation.
+CREATE TRIGGER trg_learner_status_on_bill_payment_drop
+  AFTER UPDATE OF balance_amount, final_amount, status ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public._fn_learner_status_on_bill_payment_drop();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827190000_hr_regularization_stamp_trigger.sql
+-- (trigger half; the function is mirrored in 02_functions.sql)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS tr_stamp_attendance_on_regularization_approval
+  ON public.hr_attendance_regularizations;
+CREATE TRIGGER tr_stamp_attendance_on_regularization_approval
+  AFTER UPDATE OF status ON public.hr_attendance_regularizations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_stamp_attendance_on_regularization_approval();
+
+COMMENT ON FUNCTION public.fn_stamp_attendance_on_regularization_approval() IS
+  'Writes hr_attendance_records when a regularization is approved. Replaces the client-side best-effort stamp in regularization-service.ts, which silently skipped whenever the approver lacked hr_staff_details, the month was closed, or the browser held a stale bundle.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827200000_hr_comp_off_claims_respect_locked_month.sql
+-- (trigger half; the functions are mirrored in 02_functions.sql)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hcoc_block_locked_period ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_block_locked_period
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827220000_hr_population_respects_included_in_hr.sql (triggers)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hla_block_non_hr_staff ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_block_non_hr_staff
+  BEFORE INSERT ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_non_hr_staff_request('leave or short time off');
+
+DROP TRIGGER IF EXISTS trg_hcoc_block_non_hr_staff ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_block_non_hr_staff
+  BEFORE INSERT ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_non_hr_staff_request('compensatory off');
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql (triggers)
+-- =============================================================================
+
+-- Generates the staff ID on creation and freezes it forever after. Any bulk
+-- rewrite of staff.staff_id must DISABLE this trigger first, or the permanence
+-- guard rejects it with P0001.
+DROP TRIGGER IF EXISTS trg_staff_autonumber ON public.staff;
+CREATE TRIGGER trg_staff_autonumber
+  BEFORE INSERT OR UPDATE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_autonumber();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828150100_staff_role_key_guard_trigger.sql
+-- =============================================================================
+
+-- Only super admins may set or change a staff member's role. This is the
+-- control; the filtered dropdown in the staff form is only a courtesy.
+DROP TRIGGER IF EXISTS trg_staff_guard_role_key ON public.staff;
+CREATE TRIGGER trg_staff_guard_role_key
+  BEFORE INSERT OR UPDATE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_guard_role_key();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828160000_staff_require_institution_email_for_login.sql
+-- =============================================================================
+
+-- INSERT-only on purpose: firing on UPDATE too would lock the staff who already
+-- have this gap out of every edit, including the edit that fills the email in.
+-- Fires before trg_sync_staff_to_profiles (BEFORE row triggers run in
+-- alphabetical name order, and 'trg_staff_...' sorts before 'trg_sync_...').
+DROP TRIGGER IF EXISTS trg_staff_require_institution_email ON public.staff;
+CREATE TRIGGER trg_staff_require_institution_email
+  BEFORE INSERT ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_require_institution_email();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830150000_hr_salary_register.sql
+-- =============================================================================
+
+-- Reuses the generic fn_touch_updated_at rather than adding an 87th
+-- table-specific copy of `NEW.updated_at := now()`.
+DROP TRIGGER IF EXISTS trg_hr_salary_register_runs_touch ON public.hr_salary_register_runs;
+CREATE TRIGGER trg_hr_salary_register_runs_touch
+  BEFORE UPDATE ON public.hr_salary_register_runs
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_hr_salary_register_lines_touch ON public.hr_salary_register_lines;
+CREATE TRIGGER trg_hr_salary_register_lines_touch
+  BEFORE UPDATE ON public.hr_salary_register_lines
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+-- ============================================================================
+-- 2026-08-31 — guard: a decision may only be recorded by the approver making it
+-- Migration: 20260831120000_hr_leave_approval_flow_parallel_ladder.sql
+-- hla_update's USING clause admits the APPLICANT and its WITH CHECK only bites
+-- when status becomes approved/rejected. Until quorum='all' existed every
+-- decision flipped status, so that window was closed by accident.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_hla_guard_chain_decisions ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_guard_chain_decisions
+  BEFORE UPDATE ON public.hr_leave_applications
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_trig_leave_guard_chain_decisions();
+
+-- ============================================================================
+-- Bills may only reach status='cancelled' through fn_cancel_student_bill
+-- (mig 20260901010000). Without this the mandatory reason + documents are
+-- advisory: the UPDATE policy on billing_student_bills lets any
+-- billing.schedule.update holder -- and anyone is_admin() accepts, with no
+-- permission key at all -- set the status directly from a browser console.
+-- Only transitions INTO cancelled are guarded, so editing an already-cancelled
+-- bill is untouched and 'superseded' keeps its own flow.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_billing_bills_guard_cancel ON public.billing_student_bills;
+CREATE TRIGGER trg_billing_bills_guard_cancel
+  BEFORE UPDATE ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_bill_cancellation();
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+-- DEFERRABLE INITIALLY DEFERRED: a multi-band edit is judged once at COMMIT,
+-- not at every intermediate state -- reordering bands would be impossible
+-- otherwise. Constraint triggers must be FOR EACH ROW; the function reads the
+-- whole set regardless.
+-- ===========================================================================
+-- The set-level validator that used to live here was dropped on 2026-09-02
+-- (20260902120000): its rules could not be satisfied by any single row, so
+-- adding one band was impossible. Overlap is still refused by the EXCLUDE
+-- constraint on the table; coverage is now a warning on the TDS Bands screen.
+
+
+DROP TRIGGER IF EXISTS trg_hr_tds_slabs_updated_at ON public.hr_tds_slabs;
+CREATE TRIGGER trg_hr_tds_slabs_updated_at
+  BEFORE UPDATE ON public.hr_tds_slabs
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ===========================================================================
+-- calendar_entries -> attendance (2026-09-02)
+-- No WHEN clause: it would reference OLD, which Postgres refuses on a trigger
+-- that also fires for INSERT. The kind='holiday' check is the first thing the
+-- function does instead.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS tr_recompute_attendance_on_calendar_holiday ON public.calendar_entries;
+CREATE TRIGGER tr_recompute_attendance_on_calendar_holiday
+  AFTER INSERT OR UPDATE OR DELETE ON public.calendar_entries
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_recompute_attendance_on_calendar_holiday();
+
+-- ===========================================================================
+-- hr_leave_applications balance guard (2026-09-02)
+-- Sits alongside trg_hla_leave_period_cap: the cap limits days per PERIOD, this
+-- limits days against the ENTITLEMENT, and pending requests count toward both.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_hla_balance_guard ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_balance_guard
+  BEFORE INSERT OR UPDATE OF start_date, end_date, duration_type, leave_type_id, status
+  ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_enforce_balance();
+
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+-- updated_at, same helper every HR table uses.
+DROP TRIGGER IF EXISTS hr_work_patterns_updated_at ON public.hr_work_patterns;
+CREATE TRIGGER hr_work_patterns_updated_at
+  BEFORE UPDATE ON public.hr_work_patterns
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_swpa_updated_at ON public.hr_staff_work_pattern_assignments;
+CREATE TRIGGER hr_swpa_updated_at
+  BEFORE UPDATE ON public.hr_staff_work_pattern_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_wple_updated_at ON public.hr_work_pattern_leave_entitlements;
+CREATE TRIGGER hr_wple_updated_at
+  BEFORE UPDATE ON public.hr_work_pattern_leave_entitlements
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- The assignment's institution is the pattern's, and it must be the staff
+-- member's too. A wrong institution_id here would grant cross-institution
+-- visibility through role_has_institution_access, which is the only scope
+-- predicate in the table's RLS.
+DROP TRIGGER IF EXISTS t10_wpa_stamp_institution ON public.hr_staff_work_pattern_assignments;
+CREATE TRIGGER t10_wpa_stamp_institution
+  BEFORE INSERT OR UPDATE OF staff_id, work_pattern_id, institution_id
+  ON public.hr_staff_work_pattern_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wpa_stamp_institution();
+
+-- A pattern's leave figures must name leave types of the pattern's own
+-- institution (hr_organizations map 1:1 to institutions), and only day-based
+-- ones.
+DROP TRIGGER IF EXISTS t10_wple_same_institution ON public.hr_work_pattern_leave_entitlements;
+CREATE TRIGGER t10_wple_same_institution
+  BEFORE INSERT OR UPDATE OF work_pattern_id, leave_type_id
+  ON public.hr_work_pattern_leave_entitlements
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wple_same_institution();
+
+-- Retiring a pattern that people still hold would leave them resolving to
+-- nothing (the pattern is exclusive). End their assignments first.
+DROP TRIGGER IF EXISTS t10_wp_guard_deactivate ON public.hr_work_patterns;
+CREATE TRIGGER t10_wp_guard_deactivate
+  BEFORE UPDATE OF is_active ON public.hr_work_patterns
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wp_guard_deactivate();

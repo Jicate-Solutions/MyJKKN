@@ -51,6 +51,7 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { toAnswersArray } from '@/lib/pde/answers-shape';
 import { useAtRiskLearners, useQuests } from '@/hooks/pde/use-pde';
 import type { CapabilityStatus, FinksDimension, PDEAtRiskLearner, RiskLevel } from '@/types/pde';
 
@@ -376,7 +377,7 @@ function useAssessmentPerformance() {
       // Most missed questions: count wrong answers across all submissions
       const questionErrors: Record<string, number> = {};
       for (const sub of submissions || []) {
-        const answers = sub.answers || [];
+        const answers = toAnswersArray<any>(sub.answers);
         for (const ans of answers) {
           if (ans && !ans.is_correct) {
             questionErrors[ans.question_id] =
@@ -413,7 +414,7 @@ function useAssessmentPerformance() {
       // Fink's dimension averages across all submissions
       const dimTotals: Record<string, { earned: number; total: number }> = {};
       for (const sub of submissions || []) {
-        const answers = sub.answers || [];
+        const answers = toAnswersArray<any>(sub.answers);
         for (const ans of answers) {
           if (!ans) continue;
           // We don't have finks_dimension on answers directly;
@@ -435,7 +436,7 @@ function useAssessmentPerformance() {
 
       const finksTotals: Record<string, { earned: number; total: number }> = {};
       for (const sub of submissions || []) {
-        const answers = sub.answers || [];
+        const answers = toAnswersArray<any>(sub.answers);
         for (const ans of answers) {
           if (!ans) continue;
           const qInfo = qMap[ans.question_id];

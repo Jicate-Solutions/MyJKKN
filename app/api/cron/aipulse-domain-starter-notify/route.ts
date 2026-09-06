@@ -36,6 +36,26 @@
 //   sweep that actually inserts the rows. Load-bearing: this route sweeps
 //   repeatedly within its window.
 //
+// PERFORMANCE (2026-08-07)
+//   This route used to do ~4 sequential round-trips PER LEARNER: an
+//   idempotency SELECT, the notifications INSERT, the link INSERT, and a
+//   push_subscriptions SELECT. On the 2026-08-06 cycle that was ~1,300
+//   round-trips for 321 learners and the run took 87 s. Measured that night:
+//   the 19:30 IST sweep delivered nothing, a hand-fired call failed once
+//   before succeeding, and FIVE consecutive hourly sweeps then delivered 0
+//   while 40 more learners had become eligible. Work now batches:
+//     1 paged scan of existing keys · chunked bell INSERTs (200/chunk,
+//     per-row retry only on a failed chunk) · chunked link INSERTs ·
+//     ONE subscription read for the whole run · pushes at fixed concurrency.
+//   Round-trips go from O(4n) to O(n/200) plus the push waves.
+//
+//   Exactly-once per learner per cycle is UNCHANGED and still enforced by the
+//   UNIQUE index idx_notifications_idempotency — the pre-scan is only a fast
+//   path. A racer that slips past it loses the insert and is counted skipped,
+//   never pushed. Note that index is PARTIAL (WHERE idempotency_key IS NOT
+//   NULL), which is why this uses insert-with-fallback rather than an upsert:
+//   Postgres cannot infer a partial index as an ON CONFLICT arbiter.
+//
 // AUTH
 //   CRON_SECRET via Authorization: Bearer ... OR ?secret= — identical to
 //   app/api/cron/aipulse-domain-starter/route.ts.
@@ -47,6 +67,8 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { filterPushRecipients } from '@/lib/push/opt-out';
+import { withCronRun } from '@/lib/cron/run-log';
 import webpush from 'web-push';
 import {
   cycleNotificationExpiresAt,
@@ -102,61 +124,110 @@ async function readPolicy(admin: Admin, key: string): Promise<unknown> {
   }
 }
 
-// Best-effort phone delivery for ONE recipient, called only after that
-// recipient's bell rows are already committed. Never throws: a push problem
-// must not cost a learner their in-app notification.
+// How many rows go in one insert, and how many pushes fly at once. Both are
+// bounded so a 500-learner cycle cannot build one enormous request or open
+// 500 simultaneous sockets.
+const DB_CHUNK = 200;
+const PUSH_CONCURRENCY = 24;
+const PAGE = 1000; // PostgREST's default page; we page explicitly rather than
+                   // trusting a single unbounded select (it truncates silently).
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** Every idempotency key already recorded for this cycle, paged so a large
+ *  cohort is never silently truncated to the first page. */
+async function alreadyNotifiedKeys(admin: Admin, cycleId: string): Promise<Set<string>> {
+  const prefix = `ai_pulse_domain_starter_notify:${cycleId}:`;
+  const keys = new Set<string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from('notifications')
+      .select('idempotency_key')
+      .like('idempotency_key', `${prefix}%`)
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`idempotency scan failed: ${error.message}`);
+    const rows = (data ?? []) as { idempotency_key: string | null }[];
+    for (const r of rows) if (r.idempotency_key) keys.add(r.idempotency_key);
+    if (rows.length < PAGE) break;
+  }
+  return keys;
+}
+
+// Best-effort phone delivery, called only for recipients whose bell rows were
+// just committed. Never throws: a push problem must not cost a learner their
+// in-app notification.
 //
 // Subscription hygiene follows app/api/dashboard/push-send/route.ts rather
 // than sunday-wrap: only is_active rows are pushed (is_active=false is how
 // app/api/dashboard/push-subscribe/route.ts records an UNSUBSCRIBE, so
 // ignoring it would buzz people who opted out), and a dead endpoint is
 // soft-deactivated instead of hard-deleted.
-async function sendStarterPush(
+//
+// Subscriptions are fetched ONCE for the whole run rather than per learner.
+async function fetchActiveSubs(
   admin: Admin,
-  userId: string,
-  payload: { title: string; body: string; url: string; icon: string; data: Record<string, unknown> },
-): Promise<number> {
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return 0;
+  userIds: string[],
+): Promise<Map<string, PushSubRow[]>> {
+  const byUser = new Map<string, PushSubRow[]>();
+  if (!userIds.length) return byUser;
 
-  const { data: subs, error } = await admin
-    .from('push_subscriptions')
-    .select('id, subscription, failure_count')
-    .eq('user_id', userId)
-    .eq('is_active', true);
+  // Drop anyone who switched push off before looking up any subscription.
+  // is_active alone cannot carry that answer: unsubscribing destroys the browser
+  // endpoint, so the next page load mints a NEW row that is is_active=true and
+  // passes the filter below perfectly.
+  const allowed = await filterPushRecipients(admin, userIds);
+  if (!allowed.length) return byUser;
 
-  if (error || !subs?.length) return 0;
-
-  const serialized = JSON.stringify(payload);
-  let sent = 0;
-
-  await Promise.allSettled(
-    (subs as unknown as PushSubRow[]).map(async (row) => {
-      const sub = row.subscription;
-      if (!sub?.endpoint || !sub.keys) return;
-      try {
-        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, serialized);
-        sent++;
-      } catch (err) {
-        const statusCode = (err as { statusCode?: number })?.statusCode;
-        const now = new Date().toISOString();
-        // 404/410 => the browser dropped this subscription for good.
-        await admin
-          .from('push_subscriptions')
-          .update({
-            ...(statusCode === 404 || statusCode === 410 ? { is_active: false } : {}),
-            last_failed_at: now,
-            failure_count: (row.failure_count ?? 0) + 1,
-            updated_at: now,
-          } as never)
-          .eq('id', row.id);
-      }
-    }),
-  );
-
-  return sent;
+  for (const ids of chunk(allowed, DB_CHUNK)) {
+    const { data, error } = await admin
+      .from('push_subscriptions')
+      .select('id, user_id, subscription, failure_count')
+      .in('user_id', ids)
+      .eq('is_active', true);
+    if (error) continue; // push is best-effort; the bell already landed
+    for (const row of (data ?? []) as (PushSubRow & { user_id: string })[]) {
+      const list = byUser.get(row.user_id) ?? [];
+      list.push(row);
+      byUser.set(row.user_id, list);
+    }
+  }
+  return byUser;
 }
 
-export async function GET(request: NextRequest) {
+async function pushOne(admin: Admin, row: PushSubRow, serialized: string): Promise<number> {
+  const sub = row.subscription;
+  if (!sub?.endpoint || !sub.keys) return 0;
+  try {
+    await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, serialized);
+    return 1;
+  } catch (err) {
+    const statusCode = (err as { statusCode?: number })?.statusCode;
+    const now = new Date().toISOString();
+    // 404/410 => the browser dropped this subscription for good.
+    await admin
+      .from('push_subscriptions')
+      .update({
+        ...(statusCode === 404 || statusCode === 410 ? { is_active: false } : {}),
+        last_failed_at: now,
+        failure_count: (row.failure_count ?? 0) + 1,
+        updated_at: now,
+      } as never)
+      .eq('id', row.id);
+    return 0;
+  }
+}
+
+// Run-logged (2026-09-10). THIS is the route the whole cron_run_log lane exists
+// for: it returned HTTP 500 nine times in one window on 2026-08-20 ("canceling
+// statement due to statement timeout"), had failed identically the Thursday
+// before, and cost 588 then 635 learners their starter prompt — with nothing
+// anywhere going red. withCronRun records every authorized fire; three in a row
+// now raises a bell notification via /api/cron/cron-failure-alerts.
+async function handler(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -235,105 +306,164 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const errors: string[] = [];
   let notified = 0;
   let skipped = 0;
   let pushed = 0;
-  const errors: string[] = [];
 
-  for (const [userId, topicLabel] of byProfile) {
-    const idempotency_key = `ai_pulse_domain_starter_notify:${cycleId}:${userId}`;
-
-    // Idempotency check against the notifications table.
-    const { data: existing } = await admin
-      .from('notifications')
-      .select('id')
-      .eq('idempotency_key', idempotency_key)
-      .maybeSingle();
-    if (existing) {
-      skipped++;
-      continue;
-    }
-
+  // ONE definition of the idempotency key. It is the join between a learner
+  // and their inserted row, so the pre-scan, the insert and the id-mapping
+  // below must never be able to drift apart.
+  const keyFor = (userId: string) => `ai_pulse_domain_starter_notify:${cycleId}:${userId}`;
+  const bodyFor = (topicLabel: string | null) => {
     const label = (topicLabel ?? '').trim();
-    const body = label
+    return label
       ? `Your ready-to-use AI starter prompt for ${label} is ready. Open My Pulse to copy it and start building this week.`
       : 'Your ready-to-use AI starter prompt is ready. Open My Pulse to copy it and start building this week.';
+  };
+  const rowFor = (userId: string, topicLabel: string | null) => ({
+    title: 'Your AI starter prompt is ready',
+    body: bodyFor(topicLabel),
+    url: MY_PULSE_URL,
+    icon: '/icons/icon-192x192.png',
+    created_by: userId,
+    targeting: { user_ids: [userId] },
+    priority: 'normal',
+    category: 'ai_pulse',
+    // work_item keeps cron-emitted reminders out of the
+    // /notifications/admin announcement surface (kind='announcement').
+    kind: 'work_item',
+    idempotency_key: keyFor(userId),
+    // Derived from THIS cycle's end, never a literal — the starter prompt
+    // this announces is superseded when the next cycle's prompt lands.
+    expires_at: expiresAt,
+    metadata: {
+      source: 'ai_pulse_domain_starter_notify',
+      cycle_id: cycleId,
+      topic_label: (topicLabel ?? '').trim() || null,
+    },
+  });
 
-    const { data: notification, error: notifErr } = await admin
+  // ── 1. Who has already been told, in ONE paged scan rather than one
+  //       SELECT per learner. This is the idempotency guard's fast path.
+  let seen: Set<string>;
+  try {
+    seen = await alreadyNotifiedKeys(admin, cycleId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[cron/aipulse-domain-starter-notify]', msg);
+    return NextResponse.json({ ok: false, enabled: true, cycle_id: cycleId, error: msg }, { status: 500 });
+  }
+
+  const pending: { userId: string; topicLabel: string | null }[] = [];
+  for (const [userId, topicLabel] of byProfile) {
+    if (seen.has(keyFor(userId))) skipped++;
+    else pending.push({ userId, topicLabel });
+  }
+
+  // ── 2. Insert the bell rows in chunks. A chunk that fails as a batch is
+  //       retried row by row, so ONE bad row (or a concurrent racer losing on
+  //       the UNIQUE index idx_notifications_idempotency) cannot cost the
+  //       other 199 their notification. Exactly-once per learner per cycle is
+  //       still enforced by that index, not by the pre-scan above.
+  const created: { id: string; userId: string; topicLabel: string | null }[] = [];
+  for (const group of chunk(pending, DB_CHUNK)) {
+    // The batch: ONE statement for up to DB_CHUNK learners. Postgres inserts
+    // every row or none of them, which is precisely why the pass below is a
+    // retry and not a second attempt at the same shape.
+    const { data: batch, error: batchErr } = await admin
       .from('notifications')
-      .insert({
-        title: 'Your AI starter prompt is ready',
-        body,
-        url: MY_PULSE_URL,
-        icon: '/icons/icon-192x192.png',
-        created_by: userId,
-        targeting: { user_ids: [userId] },
-        priority: 'normal',
-        category: 'ai_pulse',
-        // work_item keeps cron-emitted reminders out of the
-        // /notifications/admin announcement surface (kind='announcement').
-        kind: 'work_item',
-        idempotency_key,
-        // Derived from THIS cycle's end, never a literal — the starter prompt
-        // this announces is superseded when the next cycle's prompt lands.
-        expires_at: expiresAt,
-        metadata: {
-          source: 'ai_pulse_domain_starter_notify',
-          cycle_id: cycleId,
-          topic_label: label || null,
-        },
-      })
-      .select('id')
-      .single();
+      .insert(group.map((p) => rowFor(p.userId, p.topicLabel)))
+      .select('id, idempotency_key');
 
-    if (notifErr || !notification) {
-      errors.push(`${userId}: ${notifErr?.message ?? 'insert failed'}`);
-      skipped++;
+    if (!batchErr && batch) {
+      // Associate the returned ids back to learners by idempotency_key, NEVER
+      // by array position: the key is derived from the user id, so sending the
+      // right prompt to the wrong learner is impossible even if the rows come
+      // back reordered.
+      const byKey = new Map(group.map((p) => [keyFor(p.userId), p]));
+      for (const r of (batch as { id: string; idempotency_key: string | null }[])) {
+        const key = r.idempotency_key;
+        const p = key ? byKey.get(key) : undefined;
+        if (!key || !p) continue;
+        byKey.delete(key);
+        created.push({ id: r.id, userId: p.userId, topicLabel: p.topicLabel });
+      }
+      // Anything the insert did not hand back is surfaced, never dropped in
+      // silence — a learner with no id here would get no link row and so no bell.
+      for (const p of byKey.values()) {
+        errors.push(`${p.userId}: insert returned no row`);
+        skipped++;
+      }
       continue;
     }
 
-    // The bell reads `user_notifications !inner notifications` — the link
-    // row is what surfaces the card.
-    const { error: linkErr } = await admin
+    // The chunk failed as a batch, so retry it row by row: ONE bad row (or a
+    // concurrent racer losing on idx_notifications_idempotency) must not cost
+    // the other DB_CHUNK-1 learners their notification.
+    for (const p of group) {
+      const { data: one, error: oneErr } = await admin
+        .from('notifications')
+        .insert(rowFor(p.userId, p.topicLabel))
+        .select('id')
+        .single();
+      if (oneErr || !one) {
+        // A duplicate here is the racer case and is CORRECT, not a failure.
+        if (!/duplicate|unique/i.test(oneErr?.message ?? '')) {
+          errors.push(`${p.userId}: ${oneErr?.message ?? 'insert failed'}`);
+        }
+        skipped++;
+        continue;
+      }
+      created.push({ id: (one as { id: string }).id, userId: p.userId, topicLabel: p.topicLabel });
+    }
+  }
+
+  // ── 3. Link rows in chunks. The bell reads
+  //       `user_notifications !inner notifications`, so this row is what
+  //       actually surfaces the card.
+  const linked = new Set<string>();
+  for (const group of chunk(created, DB_CHUNK)) {
+    const { error } = await admin
       .from('user_notifications')
-      .insert({ notification_id: notification.id, user_id: userId });
-    if (linkErr) {
-      errors.push(`${userId} link: ${linkErr.message}`);
-      skipped++;
+      .insert(group.map((c) => ({ notification_id: c.id, user_id: c.userId })));
+    if (!error) {
+      for (const c of group) linked.add(c.id);
       continue;
     }
+    for (const c of group) {
+      const { error: oneErr } = await admin
+        .from('user_notifications')
+        .insert({ notification_id: c.id, user_id: c.userId });
+      if (oneErr) errors.push(`${c.userId} link: ${oneErr.message}`);
+      else linked.add(c.id);
+    }
+  }
+  notified = linked.size;
 
-    notified++;
-
-    // Phone push. Deliberately AFTER the bell rows are committed and wrapped
-    // so nothing here can prevent or undo them.
-    //
-    // IDEMPOTENCY — the guarantee is EXACTLY-ONCE PER LEARNER PER CYCLE,
-    // which is what keeps an hourly sweep from buzzing anyone repeatedly.
-    // This line is only reachable on the sweep that actually created the
-    // notification: the idempotency_key lookup above `continue`s for anyone
-    // already notified this cycle, and a concurrent racer that slips past
-    // the lookup still fails the insert against the UNIQUE index
-    // idx_notifications_idempotency and `continue`s at the notifErr guard.
-    // Both exits happen before this point, so the push cannot double-fire.
-    //
-    // Note this is NOT "later sweeps send nothing" — a later sweep DOES push
-    // learners whose starter was generated in the meantime. That is the
-    // point of sweeping hourly. Those are first-time sends, never repeats.
-    try {
-      pushed += await sendStarterPush(admin, userId, {
+  // ── 4. Phone push, AFTER the bell rows are committed and only for the
+  //       recipients this run actually created — so an hourly sweep buzzes
+  //       nobody twice. Subscriptions are fetched once, then sent with
+  //       bounded concurrency instead of one round-trip per learner.
+  const deliverable = created.filter((c) => linked.has(c.id));
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && deliverable.length) {
+    const subsByUser = await fetchActiveSubs(admin, deliverable.map((c) => c.userId));
+    const jobs: (() => Promise<number>)[] = [];
+    for (const c of deliverable) {
+      const subs = subsByUser.get(c.userId);
+      if (!subs?.length) continue;
+      const serialized = JSON.stringify({
         title: 'Your AI starter prompt is ready',
-        body,
+        body: bodyFor(c.topicLabel),
         url: MY_PULSE_URL,
         icon: '/icons/icon-192x192.png',
-        data: {
-          notification_id: notification.id,
-          type: 'ai_pulse_domain_starter',
-          cycle_id: cycleId,
-        },
+        data: { notification_id: c.id, type: 'ai_pulse_domain_starter', cycle_id: cycleId },
       });
-    } catch (err) {
-      errors.push(`${userId} push: ${err instanceof Error ? err.message : String(err)}`);
+      for (const s of subs) jobs.push(() => pushOne(admin, s, serialized));
+    }
+    for (const wave of chunk(jobs, PUSH_CONCURRENCY)) {
+      const results = await Promise.allSettled(wave.map((j) => j()));
+      for (const r of results) if (r.status === 'fulfilled') pushed += r.value;
     }
   }
 
@@ -348,3 +478,5 @@ export async function GET(request: NextRequest) {
     elapsed_ms: Date.now() - started,
   });
 }
+
+export const GET = withCronRun('aipulse-domain-starter-notify', handler);

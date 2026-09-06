@@ -13,6 +13,7 @@
 import { createClient } from '@/lib/supabase/server';
 import type { OnboardingStats, OnboardingStatus } from '@/types/learner-onboarding';
 import { ONBOARDING_STATUSES, resolveOnboardingTier } from '@/types/learner-onboarding';
+import { resolveAdmissionYearIds } from './resolve-admission-year-ids';
 
 interface GetOnboardingStatsParams {
   lifecycle_status?: OnboardingStatus;
@@ -23,6 +24,9 @@ interface GetOnboardingStatsParams {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  accommodation_type_id?: string;
+  /** Admission cohort as the integer year — expanded to ids before querying. */
+  admission_year?: number;
 }
 
 const EMPTY_STATS: OnboardingStats = {
@@ -48,6 +52,8 @@ function applyFilters(query: any, params: GetOnboardingStatsParams) {
   if (params.semester_id) query = query.eq('semester_id', params.semester_id);
   if (params.section_id) query = query.eq('section_id', params.section_id);
   if (params.academic_year_id) query = query.eq('academic_year_id', params.academic_year_id);
+  if (params.accommodation_type_id)
+    query = query.eq('accommodation_type_id', params.accommodation_type_id);
   return query;
 }
 
@@ -78,6 +84,15 @@ export async function getOnboardingStats(
       .limit(10000);
 
     dataQuery = applyFilters(dataQuery, params);
+
+    // Cohort filter — one uuid per institution, so the year expands to an id
+    // set. Cards must narrow with the same filters as the table below them, or
+    // the totals contradict the rows they are supposed to summarise.
+    if (params.admission_year) {
+      const admissionYearIds = await resolveAdmissionYearIds(supabase, params.admission_year);
+      if (admissionYearIds.length === 0) return EMPTY_STATS;
+      dataQuery = dataQuery.in('admission_year_id', admissionYearIds);
+    }
 
     const { data: rows, error } = await dataQuery;
 

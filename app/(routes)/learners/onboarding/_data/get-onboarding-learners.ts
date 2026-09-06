@@ -25,16 +25,20 @@ import type {
   OnboardingProfileRow,
   OnboardingTier,
   OnboardingStatus,
+  OnboardingPaymentSummary,
   MissingField
 } from '@/types/learner-onboarding';
 import {
   computeMissingFields,
   resolveOnboardingTier,
   activationBlockedReason,
+  summarisePaymentProgress,
   ONBOARDING_STATUSES,
   INCOMPLETE_TIERS,
   MISSING_FIELD_LABELS
 } from '@/types/learner-onboarding';
+import { getOnboardingPaymentProgress } from './get-onboarding-payment-progress';
+import { resolveAdmissionYearIds } from './resolve-admission-year-ids';
 
 interface GetOnboardingLearnersParams {
   page?: number;
@@ -54,7 +58,10 @@ interface GetOnboardingLearnersParams {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  /** Admission cohort as the integer year — expanded to ids, see the note below. */
+  admission_year?: number;
   gender?: string;
+  accommodation_type_id?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   /**
@@ -72,6 +79,12 @@ interface GetOnboardingLearnersResult {
     limit: number;
     total_pages: number;
   };
+  /**
+   * Cohort fee position. Present only for the `awaiting_payment` tier, and
+   * rolled up from the WHOLE tier rather than the current page — a banner that
+   * silently reported page 1's totals would be read as the cohort's.
+   */
+  paymentSummary?: OnboardingPaymentSummary;
 }
 
 const VALID_SORT_COLUMNS = new Set([
@@ -85,10 +98,43 @@ const VALID_SORT_COLUMNS = new Set([
   'updated_at'
 ]);
 
+/**
+ * Sort keys that live in the payment RPC, not in learners_profiles.
+ *
+ * These cannot go into the SQL ORDER BY, so they are applied in JS after the
+ * fee data is attached — which is only possible because the fee fetch covers
+ * the whole tier, not just the page. `amount_to_threshold` ascending is the
+ * operationally useful one: it queues the learners closest to admission first.
+ */
+const PAYMENT_SORT_COLUMNS = new Set([
+  'amount_to_threshold',
+  'achieved_pct',
+  'basis_balance'
+]);
+
 const EMPTY_RESULT: GetOnboardingLearnersResult = {
   data: [],
   metadata: { total_items: 0, page: 1, limit: 10, total_pages: 0 }
 };
+
+/**
+ * Pull one payment sort key off a row, or null when fee data is unavailable.
+ * Null (not 0) is deliberate — see the sort comparator's comment.
+ */
+function readPaymentSortValue(row: OnboardingProfileRow, key: string): number | null {
+  const p = row.payment;
+  if (!p) return null;
+  switch (key) {
+    case 'amount_to_threshold':
+      return p.amount_to_threshold;
+    case 'achieved_pct':
+      return p.achieved_pct;
+    case 'basis_balance':
+      return p.basis_balance;
+    default:
+      return null;
+  }
+}
 
 export async function getOnboardingLearners(
   params: GetOnboardingLearnersParams = {}
@@ -113,12 +159,17 @@ export async function getOnboardingLearners(
       semester_id,
       section_id,
       academic_year_id,
+      admission_year,
       gender,
+      accommodation_type_id,
       sortBy: rawSortBy = 'first_name',
       sortOrder = 'asc',
       scanLimit = 5000
     } = params;
 
+    // A payment sort key is legal but not a database column: fall back to a
+    // stable SQL order and re-sort in JS once the fee data lands.
+    const paymentSortBy = PAYMENT_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : undefined;
     const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
 
     // 2026-08-10: The workspace covers BOTH pre-active statuses.
@@ -174,6 +225,20 @@ export async function getOnboardingLearners(
     if (section_id) query = query.eq('section_id', section_id);
     if (academic_year_id) query = query.eq('academic_year_id', academic_year_id);
     if (gender) query = query.eq('gender', gender);
+    if (accommodation_type_id)
+      query = query.eq('accommodation_type_id', accommodation_type_id);
+
+    // Cohort filter. The year is one uuid PER INSTITUTION, so it is expanded to
+    // the full id set and matched with `.in()`. Resolving to nothing means the
+    // cohort is invisible to this role (or does not exist) — return empty
+    // rather than silently dropping the filter and showing every cohort.
+    if (admission_year) {
+      const admissionYearIds = await resolveAdmissionYearIds(supabase, admission_year);
+      if (admissionYearIds.length === 0) {
+        return { data: [], metadata: { total_items: 0, page, limit, total_pages: 0 } };
+      }
+      query = query.in('admission_year_id', admissionYearIds);
+    }
 
     if (missing_field === 'college_email') {
       query = query.or('college_email.is.null,college_email.eq.');
@@ -241,6 +306,46 @@ export async function getOnboardingLearners(
         ? enriched.filter((r) => (INCOMPLETE_TIERS as readonly string[]).includes(r.tier))
         : enriched.filter((r) => r.tier === tier);
 
+    // ── Fee position, for the Awaiting Payment tier only ────────────────────
+    //
+    // Every row in that tier has all four fields and is 'reserved', i.e. money
+    // is the ONLY thing still holding it back — so "Missing Fields" is always
+    // blank there and "Completion" always 4/4. Those two columns are replaced
+    // by the fee columns this block feeds. No other tier renders them, and
+    // fetching there would buy a round trip for a number nothing displays.
+    //
+    // Fetched for the WHOLE tier, before pagination, for two reasons: the
+    // banner must total the cohort rather than page 1, and sorting by "closest
+    // to admission" is impossible on a page-sized slice. The RPC's predicate
+    // pushes down to an index scan per learner, so ~207 ids costs single-digit
+    // milliseconds.
+    let paymentSummary: OnboardingPaymentSummary | undefined;
+
+    if (tier === 'awaiting_payment' && tierFiltered.length > 0) {
+      const progress = await getOnboardingPaymentProgress(tierFiltered.map((r) => r.id));
+
+      for (const row of tierFiltered) {
+        row.payment = progress.get(row.id);
+      }
+
+      paymentSummary = summarisePaymentProgress([...progress.values()]);
+
+      if (paymentSortBy) {
+        // Rows the RPC could not resolve (permission-filtered, or beyond the id
+        // cap) sort last in both directions rather than colliding at 0 — a
+        // learner with unknown fees is not a learner who owes nothing.
+        const dir = sortOrder === 'desc' ? -1 : 1;
+        tierFiltered.sort((a, b) => {
+          const av = readPaymentSortValue(a, paymentSortBy);
+          const bv = readPaymentSortValue(b, paymentSortBy);
+          if (av == null && bv == null) return 0;
+          if (av == null) return 1;
+          if (bv == null) return -1;
+          return (av - bv) * dir;
+        });
+      }
+    }
+
     const total_items = tierFiltered.length;
     const total_pages = Math.ceil(total_items / limit);
     const from = (page - 1) * limit;
@@ -253,7 +358,8 @@ export async function getOnboardingLearners(
         page,
         limit,
         total_pages
-      }
+      },
+      paymentSummary
     };
   } catch (error) {
     console.error('[getOnboardingLearners] Unexpected error:', error);

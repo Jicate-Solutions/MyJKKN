@@ -12,6 +12,7 @@ import { routeMatcher } from './lib/auth/route-matcher';
 import { routeAllowedByHandover } from './lib/auth/handover-route-access';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
+import { isInductionOnlyAllowedPath } from './lib/constants/induction-access';
 import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
 import {
   SCHOOL_PORTAL_SESSION_COOKIE,
@@ -141,6 +142,27 @@ async function handleExternalPortal(request: NextRequest, currentPath: string) {
   return res;
 }
 
+/**
+ * Where an UNAUTHENTICATED visitor should be sent to sign in.
+ *
+ * /auth/login is Google OAuth only. A course participant has no Google account
+ * — they sign in with a JKKN ID and a password — so sending them there is a
+ * dead end: no field they can fill, and no hint that another page exists.
+ *
+ * Keyed on the PATH rather than the person, because by definition there is no
+ * session to read a role from at this point. /my-courses is the participant
+ * portal, so anyone arriving there without a session is one.
+ *
+ * Mirrors the per-portal login redirects above (parent, schools-portal,
+ * external), which each route to their own sign-in page for the same reason.
+ */
+function loginUrlFor(currentPath: string, request: NextRequest): URL {
+  return new URL(
+    currentPath.startsWith('/my-courses') ? '/auth/participant-login' : '/auth/login',
+    request.url,
+  );
+}
+
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
   '/', // Allow root path to avoid ERR_FAILED issues
@@ -151,6 +173,15 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/lti-login', // Feature-flagged email+password login for MathWorks LTI integration testing
   '/auth/audit-login', // Feature-flagged email+password login for the Razorpay payment-gateway audit
   '/auth/dev-login', // Dev-only magic-link exchange (gated by NEXT_PUBLIC_ENABLE_DEV_LOGIN)
+  '/auth/participant-login', // JKKN ID + password sign-in for EXTERNAL COURSE
+  //        PARTICIPANTS. Not dev-only and not feature-flagged, unlike the three
+  //        above: /auth/login is Google OAuth only, and someone who applied to a
+  //        paid course from the public site has no Google account and usually no
+  //        email, so this is their ONLY way in.
+  '/api/auth/participant-login', // The POST that page submits to. Listed as an
+  //        EXACT path rather than an '/api/auth/' prefix, which would
+  //        unauthenticate every future route added under that folder. It must be
+  //        public because the caller has no session yet — that is what it is for.
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
   '/billing/payment/success', // HDFC payment success callback
@@ -164,6 +195,12 @@ const PUBLIC_PATHS_SET = new Set([
   '/terms', // Terms of Use — public, required for Meta App Review
   '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
   '/meet', // Universal Booking directory — public, no login (U4)
+  '/programmes', // Public programme catalogue — the page that answers "what is on
+  //                offer?" for somebody who was never sent a link. Lives under
+  //                app/(public)/programmes/. Being in that route group is NOT what
+  //                makes a page reachable — this allowlist is, and '/verify/' and
+  //                '/r/' below each shipped 307ing to login by omitting it. Caught
+  //                here before merge by fetching the URL with no session.
   '/employers/submit', // CDC employer self-submit vacancy form — public, no login
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
@@ -195,6 +232,26 @@ const PUBLIC_PATH_PREFIXES = [
   '/embed/', // Embeddable booking widget (/embed/[handle]) — same story. An embed
   //        that demands a login is not an embed: it is loaded in an iframe on
   //        somebody else's website, where the visitor has no JKKN session at all.
+  '/course/', // PUBLIC course landing + apply (/course/[slug], /course/[slug]/apply)
+  //        for the paid-courses module. External participants have no JKKN
+  //        account by definition — that is the whole point of the module.
+  //
+  //        THE TRAILING SLASH IS LOAD-BEARING. isPublicPath matches with
+  //        startsWith, so '/course' without it would also match '/courses' and
+  //        '/courses/[id]' — the AUTHENTICATED admin console — and make the
+  //        entire module public. Singular here, plural behind login. Do not
+  //        "tidy" this.
+  //
+  //        The design spec originally specified '/learn/[slug]' for these pages
+  //        and was corrected on 2026-08-17: app/(routes)/learn/ is the
+  //        authenticated Foundation module (16 routes — profile, badges,
+  //        leaderboard, channels, quests, assessments, certificates), so
+  //        allow-listing '/learn/' would have unauthenticated all of them.
+  //        Never add it.
+  '/api/public/courses/', // Service-role read + apply for the pages above. The
+  //        course tables REVOKE from anon, so these routes are the only public
+  //        path to that data and they project columns explicitly — no tenant ids
+  //        reach the browser.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
@@ -221,24 +278,15 @@ const isPublicPath = (path: string): boolean => {
 };
 
 // Pre-onboarding (induction-only) learners — admission-funnel statuses (enquiry,
-// enquiry_submitted, reserved, admitted) — may reach ONLY these authenticated
-// paths; everything else redirects to /learners/my-induction. Mirrors the
-// guest/driver scoping pattern below. NOTE: /auth/* and /auth/complete-profile are
-// already public (short-circuit in isPublicPath above), so they don't need listing
-// here. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
-const INDUCTION_ONLY_EXACT_PATHS = new Set([
-  '/learners/my-profile', // profile completion — the My Induction nudge target
-  '/unauthorized',
-  '/error'
-]);
-const INDUCTION_ONLY_PREFIXES = ['/learners/my-induction'];
-const isInductionOnlyAllowedPath = (path: string): boolean => {
-  if (INDUCTION_ONLY_EXACT_PATHS.has(path)) return true;
-  for (const prefix of INDUCTION_ONLY_PREFIXES) {
-    if (path === prefix || path.startsWith(prefix + '/')) return true;
-  }
-  return false;
-};
+// enquiry_submitted, reserved, admitted) — may reach ONLY the allowlisted
+// authenticated paths; everything else redirects to /learners/my-induction.
+// Mirrors the guest/driver scoping pattern below. NOTE: /auth/* and
+// /auth/complete-profile are already public (short-circuit in isPublicPath
+// above), so they don't need listing.
+//
+// The allowlist itself lives in lib/constants/induction-access.ts alongside the
+// sidebar's copy, so the gate and the nav can't drift apart.
+// Spec: specs/pre-onboarding-induction-access-2026-06-29.md
 
 // Legacy drip-sequence routes relocated to /automations/ (2026-05-12).
 // Keep these 301s for at least one release cycle / 90 days so external
@@ -428,13 +476,13 @@ export async function proxy(request: NextRequest) {
       // errors with "Auth session missing"), so it must preserve the destination
       // too — otherwise every deep link from a fresh browser lands on the bare
       // login page and the user is dumped on /dashboard after signing in.
-      const errRedirectUrl = new URL('/auth/login', request.url);
+      const errRedirectUrl = loginUrlFor(currentPath, request);
       errRedirectUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
       return NextResponse.redirect(errRedirectUrl);
     }
 
     if (!user) {
-      const redirectUrl = new URL('/auth/login', request.url);
+      const redirectUrl = loginUrlFor(currentPath, request);
       // Preserve the query string so deep links survive the login roundtrip
       redirectUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
       return NextResponse.redirect(redirectUrl);
@@ -617,9 +665,64 @@ export async function proxy(request: NextRequest) {
       );
     }
 
+    // ── Calendar-connect lock (Director decision 2026-08-18) ──────────────
+    // 16 review meetings could not be scheduled because the people in them had
+    // never connected Google Calendar; the daily bell nudge had already fired on
+    // all 16 without effect. Anyone holding a booking page must now connect.
+    //
+    // `calendar_lock_active` is a CACHED VERDICT written by fn_calendar_lock_sweep
+    // — the rule itself (scope, 3-day grace, 3-failure escape hatch) lives in SQL.
+    // `profile` is already fetched with select('*'), so reading it here costs
+    // nothing extra and NO policy lookup happens on the request path. Turning the
+    // master switch off clears these flags in the same transaction, so OFF takes
+    // effect on the very next request rather than the next cron tick.
+    //
+    // The allow-list is what stops this becoming a redirect loop: the lock screen
+    // itself, the Google OAuth round-trip that CLEARS the lock, the availability
+    // page the nudge has pointed at for weeks, and every auth path so a locked
+    // person can always still sign out.
+    if (
+      (profile as { calendar_lock_active?: boolean }).calendar_lock_active === true &&
+      !currentPath.startsWith('/auth/connect-calendar') &&
+      !currentPath.startsWith('/api/integrations/google-calendar') &&
+      !currentPath.startsWith('/meetings/availability') &&
+      !currentPath.startsWith('/auth/') &&
+      !currentPath.startsWith('/api/auth') &&
+      !currentPath.startsWith('/unauthorized')
+    ) {
+      const lockUrl = new URL('/auth/connect-calendar', request.url);
+      // Where they were headed, so the screen can send them back on success.
+      lockUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
+      return NextResponse.redirect(lockUrl);
+    }
+
     // Role-based routing
-    // Handle guest users first
-    if (profile.role === 'guest') {
+    // ── external course participants ─────────────────────────────────────
+    // Same shape as the guest and driver confinements below, and for the same
+    // reason: this person holds exactly ONE permission key,
+    // courses.participant.self. Every admin route would render an empty shell
+    // or bounce them to /unauthorized, so send them to the one page that is
+    // theirs. The migration that created this role says as much — "confined to
+    // the /my-courses portal".
+    //
+    // Checked on is_external_participant rather than the role string, because
+    // the role is editable in Role Management and the flag is the hard
+    // discriminator the schema added for exactly this decision.
+    if ((profile as { is_external_participant?: boolean }).is_external_participant === true) {
+      if (
+        !currentPath.startsWith('/my-courses') &&
+        !currentPath.startsWith('/auth') &&
+        !currentPath.startsWith('/api/auth') &&
+        // The portal's own payment endpoints. Without these the confinement
+        // 307s the participant's fetch to /my-courses, and Razorpay checkout
+        // fails with an HTML redirect where it expected JSON — a silent break
+        // that looks like a gateway fault. Narrow on purpose: only /payments,
+        // not the whole /api/courses tree, which is the admin console's.
+        !currentPath.startsWith('/api/courses/payments')
+      ) {
+        return NextResponse.redirect(new URL('/my-courses', request.url));
+      }
+    } else if (profile.role === 'guest') {
       // Guest users can only access the guest page
       if (
         !currentPath.startsWith('/guest') &&
@@ -750,6 +853,6 @@ export const config = {
     '/parent/:path*',
     '/schools-portal/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|auth/participant-login|icons|pwa-test.html).*)'
   ]
 };

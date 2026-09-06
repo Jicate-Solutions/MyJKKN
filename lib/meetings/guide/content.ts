@@ -201,6 +201,40 @@ export const GUIDES: GuideBook = {
           ],
         },
         {
+          id: 'schedule-it-yourself',
+          title: 'Schedule a meeting yourself',
+          steps: [
+            {
+              action:
+                'Use **Schedule a Meeting** when you already know the time and the people — you do not have to wait for anyone to book you.',
+              detail:
+                'Your booking page works the other way round: people pick a free slot from you. This is the opposite direction. Pick the time, add the people, and MyJKKN books it, creates the Google Meet link and emails everyone the invitation.',
+              platforms: {
+                web: 'Left sidebar → **Meetings** → **Schedule a Meeting**.',
+                mobile: 'Tap **More (⋯)** → **Meetings → Schedule a Meeting**.',
+              },
+              link: { label: 'Take me there', href: '/meetings/schedule' },
+            },
+            {
+              action: 'Add **several people** to the same meeting, not just one.',
+              detail:
+                'Search JKKN team members and learners by name, pick anyone who has booked you before, or type any email address — so external examiners, candidates and parents can be invited too.',
+              tip: 'Everyone you add lands on the same Google Calendar invitation, so nobody is left out of the Meet link.',
+            },
+            {
+              action: 'Choose **Online** and the Google Meet link is created for you.',
+              detail:
+                'In person asks you where, Phone means you call them, and Online generates the join link automatically. It needs your Google Calendar connected — the same connection your booking page uses.',
+              link: { label: 'Check my Google connection', href: '/meetings/availability' },
+            },
+            {
+              action: 'If MyJKKN says the time is already taken, **pick another slot**.',
+              detail:
+                'It will never move your meeting quietly to a different time. If something else is already on your calendar at that hour, it tells you and lets you choose again.',
+            },
+          ],
+        },
+        {
           id: 'group-meetings',
           title: 'Find a time for a group (Polls)',
           steps: [

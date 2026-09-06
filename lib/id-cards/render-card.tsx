@@ -54,6 +54,7 @@ import {
   resolveMappedValue,
   initialsFromName,
   truncateForCard,
+  truncateAddressForCard,
   svgCoverImageDataUrl,
   type CardField,
   type BackCardField,
@@ -948,11 +949,23 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
   const fieldRows: ReactElement[] = [];
   if (person.kind === 'learner') {
     if (person.rollNumber) fieldRows.push(portraitFieldRow('roll', 'ROLL NO', person.rollNumber));
-    if (person.courseName) fieldRows.push(portraitFieldRow('course', 'COURSE', person.courseName));
+    // A school's "programme" IS a class (Standard 12), so a school card that
+    // printed "COURSE: Standard 12" read as nonsense. The value is right either
+    // way; only the label changes. Mirrors lib/utils/school-label-adapter.ts,
+    // which does the same Program → Class swap everywhere else in the app but
+    // was never wired into the card renderer.
+    if (person.courseName)
+      fieldRows.push(
+        portraitFieldRow('course', person.isSchool ? 'CLASS' : 'COURSE', person.courseName)
+      );
     if (person.studyPeriod) fieldRows.push(portraitFieldRow('year', 'YEAR', person.studyPeriod));
   } else {
     if (person.staffId) fieldRows.push(portraitFieldRow('staffid', 'STAFF ID', person.staffId));
-    if (person.departmentName) fieldRows.push(portraitFieldRow('dept', 'DEPT', person.departmentName));
+    // Department → Wing for a school, same adapter, same reasoning as COURSE.
+    if (person.departmentName)
+      fieldRows.push(
+        portraitFieldRow('dept', person.isSchool ? 'WING' : 'DEPT', person.departmentName)
+      );
     if (person.designation) fieldRows.push(portraitFieldRow('desig', 'DESIG', person.designation));
   }
 
@@ -1235,12 +1248,55 @@ export type BackRenderInput = {
 const BACK_FOOTER_HEIGHT = 64;
 const DEFAULT_BACK_FOOTER_TEXT = 'TAMIL NADU, INDIA';
 
+// ── Address sizing ───────────────────────────────────────────────────────────
+// Every overlay element is capped at BACK_ELEMENT_MAX_CHARS so it cannot
+// overflow the fixed canvas. That single number is right for the one-line
+// fields (name, roll, course, contact) but wrong for the address, which is the
+// only card field that legitimately WRAPS inside its own box: the live
+// Engineering back draws it in a 556px-wide box at font_size 18, where 80
+// characters is barely two lines of a box with room for five.
+//
+// So the address gets its own budget derived from the box it is actually drawn
+// in, never SMALLER than the generic cap (no existing template can lose text
+// by this change) and never larger than a hard ceiling.
+//
+// CHAR_WIDTH_RATIO is measured, not guessed: in that 556px/18px box satori
+// wrapped the first line of a real address after 43 uppercase characters, i.e.
+// 556 / (18 * 43) => ~0.72 em per character. Addresses on these cards are
+// uppercase, whose glyphs are the widest, so 0.72 is the conservative end.
+//
+// MAX_LINES 5 keeps the block inside the vertical room the live template
+// leaves it (address at y=316, the next label at y=470 — 154px, and five lines
+// at 18px occupy ~108px).
+const BACK_ELEMENT_MAX_CHARS = 80;
+const ADDRESS_MAX_LINES = 5;
+const ADDRESS_CHAR_WIDTH_RATIO = 0.72;
+const ADDRESS_HARD_MAX_CHARS = 260;
+
+/**
+ * Characters the address may use inside an element box of the given width and
+ * font size. Falls back to the generic cap when the template pins no width
+ * (an unbounded box cannot wrap, so more characters would run off the card).
+ */
+function addressCharBudget(width: number | undefined, fontSize: number): number {
+  if (width === undefined || width <= 0 || fontSize <= 0) return BACK_ELEMENT_MAX_CHARS;
+  const perLine = Math.floor(width / (fontSize * ADDRESS_CHAR_WIDTH_RATIO));
+  if (perLine < 1) return BACK_ELEMENT_MAX_CHARS;
+  return clamp(perLine * ADDRESS_MAX_LINES, BACK_ELEMENT_MAX_CHARS, ADDRESS_HARD_MAX_CHARS);
+}
+
 /** Label + value row for the back's info block. */
 function backInfoRow(
   key: string,
   label: string,
   value: string,
-  options?: { valueSize?: number; valueColor?: string; valueWeight?: number }
+  options?: {
+    valueSize?: number;
+    valueColor?: string;
+    valueWeight?: number;
+    /** Address rows elide the middle so district/state/PIN always print. */
+    preserveTail?: boolean;
+  }
 ): ReactElement {
   return (
     <div key={key} style={{ display: 'flex', alignItems: 'baseline', marginTop: 14 }}>
@@ -1264,7 +1320,9 @@ function backInfoRow(
           color: options?.valueColor ?? '#111827'
         }}
       >
-        {truncateForCard(value, 60)}
+        {options?.preserveTail
+          ? truncateAddressForCard(value, 60)
+          : truncateForCard(value, 60)}
       </div>
     </div>
   );
@@ -1348,7 +1406,9 @@ export function buildBackElement(input: BackRenderInput): ReactElement {
     );
   }
   if (showAddress && person.address) {
-    infoRows.push(backInfoRow('address', 'ADDRESS', person.address, { valueSize: 22 }));
+    infoRows.push(
+      backInfoRow('address', 'ADDRESS', person.address, { valueSize: 22, preserveTail: true })
+    );
   }
   if (showContact && person.contactPhone) {
     infoRows.push(backInfoRow('contact', 'CONTACT', person.contactPhone));
@@ -1376,6 +1436,14 @@ export function buildBackElement(input: BackRenderInput): ReactElement {
     }
     const value = backElementValue(element, input).trim();
     if (value === '') return;
+    const fontSize = element.font_size ?? 24;
+    // The address is the one wrapping field: size it to its own box and elide
+    // the middle so district/state/PIN survive. Every other field keeps the
+    // generic head-only cap, byte-identical to before.
+    const text =
+      element.field === 'address'
+        ? truncateAddressForCard(value, addressCharBudget(element.width, fontSize))
+        : truncateForCard(value, BACK_ELEMENT_MAX_CHARS);
     overlays.push(
       <div
         key={key}
@@ -1391,12 +1459,12 @@ export function buildBackElement(input: BackRenderInput): ReactElement {
               : element.align === 'right'
                 ? 'flex-end'
                 : 'flex-start',
-          fontSize: element.font_size ?? 24,
+          fontSize,
           fontWeight: element.font_weight ?? 400,
           color: element.color ?? '#111827'
         }}
       >
-        {truncateForCard(value, 80)}
+        {text}
       </div>
     );
   });

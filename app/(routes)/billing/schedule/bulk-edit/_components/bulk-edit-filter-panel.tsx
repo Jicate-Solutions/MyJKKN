@@ -40,7 +40,8 @@ export function BulkEditFilterPanel({
 
   // Load institutions + categories once.
   useEffect(() => {
-    OrganizationService.getInstitutionNames(true, undefined, 'all')
+    // College-only — bulk edit must never reach school-fee bills.
+    OrganizationService.getInstitutionNames(true, undefined, 'institution')
       .then((rows: any[]) => setInstitutions(rows.map((r) => ({ id: r.id, name: r.name }))))
       .catch(() => {});
     BillingCategoryService.getActiveBillingCategories()

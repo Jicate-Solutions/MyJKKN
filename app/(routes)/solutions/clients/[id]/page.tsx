@@ -35,6 +35,7 @@ import { useProspectsByClientId } from '@/hooks/solutions/use-prospects';
 import { ClientForm } from '@/components/solutions/clients/client-form';
 import { ProspectOriginCard } from '@/components/solutions/clients/prospect-origin-card';
 import { ClientProjectsCard } from '@/components/solutions/clients/client-projects-card';
+import { ProposalsCard } from '@/components/solutions/clients/proposals-card';
 import type { PartnerStatus } from '@/hooks/solutions/use-clients';
 
 interface ClientDetailPageProps {
@@ -359,6 +360,9 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* Proposals — drafted, sent, approved, signed, with amounts */}
+        <ProposalsCard clientId={id} />
 
         {/* Projects & Tasks — PM projects delivering for this client */}
         <ClientProjectsCard

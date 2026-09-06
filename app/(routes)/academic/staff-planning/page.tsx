@@ -13,6 +13,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { StaffPlanFiltersClient } from './_components/staff-plan-filters-client';
 import { StaffPlanningDataTable } from './_components/staff-planning-data-table';
 import { HolidaysEventsSection } from './_components/holidays-events-section';
+import { SharedTeachingLabelSection } from './_components/shared-teaching-label-section';
 import { staffPlanningSearchParamsSchema } from './_components/data-table-schema';
 
 interface StaffPlanningPageProps {
@@ -48,6 +49,8 @@ export default async function StaffPlanningPage({ searchParams }: StaffPlanningP
           </Breadcrumb>
 
           <HolidaysEventsSection institutionId={search.institution_id} />
+
+          <SharedTeachingLabelSection institutionId={search.institution_id} />
 
           <Card>
             <CardContent className='p-6'>

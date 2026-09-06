@@ -52,6 +52,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Being logged in is not enough. This route's ONLY caller is the compose
+    // form at /notifications/admin/new, which is itself wrapped in
+    // <PermissionGuard module='notifications' action='create'>. Without the same
+    // gate here, every learner with a session could POST to us and use the
+    // server as a YouTube metadata fetcher. Same key as the form, so nobody who
+    // can open compose is refused. (super-admin/admin bypass is built into
+    // user_has_permission.)
+    const { data: canCreateNotifications } = await supabase.rpc(
+      'user_has_permission',
+      { permission_name: 'notifications.create' }
+    );
+
+    if (canCreateNotifications !== true) {
+      return NextResponse.json(
+        {
+          error:
+            'You do not have permission to use the notification link preview tool'
+        },
+        { status: 403 }
+      );
+    }
+
     let body: { url?: unknown };
     try {
       body = await request.json();

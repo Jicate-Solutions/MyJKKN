@@ -37,6 +37,13 @@ const VIEW_SELECT = [
   'gender',
   'father_name',
   'mother_name',
+  // Contact numbers for the roster export (migration 20260902140000). Both the
+  // base view and v_learner_hostelites_scoped project these — the scoped view's
+  // `SELECT v.*` had to be re-expanded to pick them up, since Postgres freezes
+  // the star at creation time.
+  'student_mobile',
+  'father_mobile',
+  'mother_mobile',
   'accommodation_type',
   'hostel_fee',
   'dayscholar_fee',

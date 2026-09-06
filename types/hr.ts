@@ -125,6 +125,19 @@ export interface HRPersonView {
   cadre_name: string | null;
   department_id: string | null;
   department_name: string | null;
+  /**
+   * Role Management role name(s), comma-separated — the roles that decide what
+   * this person may do. NOT designation, which is the job title above.
+   */
+  role_names: string | null;
+  /** staff.biometric_id — the enrolment code punched on the machine. */
+  biometric_code: string | null;
+  /**
+   * The institution whose biometric device this person is enrolled on. NOT
+   * necessarily their own institution, which is why it is resolved separately
+   * from institution_name.
+   */
+  biometric_machine_name: string | null;
   institution_name: string | null;
   date_of_joining: string | null;
   is_active: boolean;
@@ -168,6 +181,8 @@ export interface HRPersonDetailView {
   email: string | null;
   phone: string | null;
   staff_code: string | null;
+  /** The hand-entered code held before the 2026-08-28 standardisation, if any. */
+  legacy_staff_code: string | null;
   institution_name: string | null;
   department_name: string | null;
   date_of_joining: string | null;
@@ -177,6 +192,34 @@ export interface HRPersonDetailView {
   designation_name: string | null;
   cadre_name: string | null;
   reports_to_name: string | null;
+
+  // ---- the rest of the staff record (2026-08-28) --------------------------
+  // The detail page showed twelve fields and the staff table holds far more;
+  // everything below was already stored and simply never surfaced.
+  /** Personal address, as distinct from institution_email above. */
+  personal_email: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  marital_status: string | null;
+  blood_group: string | null;
+  address: string | null;
+  district: string | null;
+  state: string | null;
+  pincode: string | null;
+  /** staff.designation — free text, distinct from the HR designation record. */
+  staff_designation: string | null;
+  employment_category: string | null;
+  employment_type: string | null;
+  /** Lifecycle state of the staff record itself ('draft', 'published', …). */
+  record_status: string | null;
+  experience_years: number | null;
+  login_enabled: boolean | null;
+  bus_required: boolean | null;
+  profile_picture: string | null;
+  /** Role Management role name(s), comma-separated. */
+  role_names: string | null;
+  biometric_code: string | null;
+  biometric_machine_name: string | null;
 }
 
 // === Display labels ===
@@ -246,15 +289,42 @@ export type LeaveDurationType = 'full' | 'first_half' | 'second_half' | 'hourly'
  */
 export type LeaveRequestCategory = 'leave' | 'short_time_off' | 'compensatory_off';
 
+/** One approver's decision on a step. Only meaningful on multi-approver steps. */
+export interface LeaveStepDecision {
+  /** profiles.id of the approver. trg_hla_guard_chain_decisions refuses any
+   *  newly-added decision whose `by` is not the caller's own auth.uid(). */
+  by: string;
+  at: string;
+  decision: 'approved' | 'rejected';
+  comment: string | null;
+}
+
 export interface LeaveApprovalStep {
   step_order: number;
   approver_role: string;
   approver_user_id?: string | null;
+  /** Display name frozen with the step — a pinned person's name, or the org
+   *  catch-all's "HR / Approving Authority". Written by the flow editor and
+   *  buildApprovalChain; absent on the oldest chains. */
+  approver_name?: string | null;
   status: 'pending' | 'approved' | 'rejected' | 'skipped';
   decided_at?: string | null;
   decided_by?: string | null;
   comment?: string | null;
   escalate_after_hours: number;
+  // ----- Multi-approver / parallel (2026-08-31) ----------------------------
+  // All optional, so the 709 in-flight single-approver chains and every
+  // recruitment chain read exactly as before.
+  /** Every approver on this step. Absent → the step's own singular fields. */
+  approvers?: Array<{
+    approver_role: string | null;
+    approver_user_id: string | null;
+    approver_name: string | null;
+  }>;
+  /** Absent → 'any', which is what a one-approver step has always meant. */
+  quorum?: 'any' | 'all';
+  /** Decisions recorded so far. Absent → none yet (or a legacy single decision). */
+  decisions?: LeaveStepDecision[];
   // ----- Recruitment-only extensions (2026-07-06 dynamic flows) -------------
   // Optional so legacy chains and leave chains are untouched.
   /** 'review' = notes + mark reviewed; 'final' = grants final approval. Legacy chains: absent → last step acts as final. */
@@ -284,10 +354,30 @@ export interface LeaveApprovalStep {
   edited_at?: string | null;
 }
 
+/**
+ * One supporting document on a leave application, stored in the `documents`
+ * JSONB array.
+ *
+ * Files live in GOOGLE DRIVE, not Supabase Storage. They are medical
+ * certificates and duty orders, so the Drive file carries NO public permission
+ * — `url` is only useful to someone already authorised on the Drive itself, and
+ * the app serves the bytes through /api/hr/leave/documents/[fileId], which
+ * checks the viewer against the application first. `drive_file_id` is the key
+ * that route needs; treat it as the real identifier and `url` as a convenience.
+ *
+ * `storage_path` predates Drive and is kept only so the shape stays readable
+ * next to older code. Nothing writes it — all 535 applications that existed
+ * when uploads shipped carried an empty documents array, so there is no legacy
+ * data behind it.
+ */
 export interface LeaveDocument {
   name: string;
   storage_path: string;
   uploaded_at: string;
+  drive_file_id?: string;
+  url?: string;
+  mime_type?: string;
+  size_bytes?: number;
 }
 
 export interface HRLeaveApplication {
@@ -296,7 +386,7 @@ export interface HRLeaveApplication {
   employee_id: string;
   leave_type_id: string;
   /**
-   * The HR year (Apr 1 -> Mar 31), not academic_years. Nullable in the schema
+   * The HR year (Jun 1 -> May 31), not academic_years. Nullable in the schema
    * but effectively always set: trg_hla_aa_default_hr_ay resolves it from
    * start_date on insert when the client omits it.
    */
@@ -326,6 +416,25 @@ export interface HRLeaveApplication {
   updated_at: string;
 }
 
+/**
+ * Names for the ids frozen into approval_chain. profiles and custom_roles are
+ * RLS-hidden to a member of staff, so decided_by, decisions[].by and
+ * approver_role are opaque in the browser — the detail route resolves them with
+ * the service-role client, AFTER the RLS-gated read of the application has
+ * already proved the caller may see it.
+ */
+export interface LeaveChainNames {
+  /** profiles.id → full_name, else email. */
+  people: Record<string, string>;
+  /** custom_roles.role_key → role_name. */
+  roles: Record<string, string>;
+}
+
+/** What GET /api/hr/leave/applications/[id] returns: the row plus the names. */
+export interface HRLeaveApplicationDetail extends HRLeaveApplication {
+  chain_names?: LeaveChainNames;
+}
+
 export interface HRLeaveApplicationInsert {
   hr_organization_id: string;
   employee_id: string;
@@ -353,6 +462,21 @@ export interface HRLeaveBalance {
   entitled: number;
   used: number;
   carried_forward: number;
+  /**
+   * Days accrued so far. Equal to `entitled` for every type that is not
+   * accrual_type='monthly', which is how it behaved before accrual existed.
+   */
+  accrued: number;
+  /** Days locked up by requests awaiting a decision. */
+  pending: number;
+  /**
+   * accrued + carried_forward - used - pending, computed by the view.
+   *
+   * READ THIS, never recompute it. Three separate places used to derive
+   * `entitled + carried - used` by hand, which could not see an unapproved
+   * request -- so the screen offered days the database then refused.
+   */
+  available: number;
   created_at: string;
   updated_at: string;
 }
@@ -391,6 +515,12 @@ export interface HRLeaveBalanceWithType extends HRLeaveBalance {
   max_continuous_days: number | null;
   min_advance_notice_days: number;
   requires_documents: boolean;
+  /**
+   * Length above which requires_documents actually bites. NULL = no
+   * threshold, so a document is required at any length. Read together
+   * with requires_documents by leaveDocumentRequirement().
+   */
+  document_required_after_days: number | null;
   /**
    * 'policy'   — the leave type's default_entitled_days (the common case)
    * 'override' — an explicit hr_leave_entitlement_overrides row
@@ -550,3 +680,76 @@ export const EMPLOYEE_DOCUMENT_ACCEPT_ATTR =
 // 5 MB in bytes — mirror of the DB CHECK constraint and bucket file_size_limit.
 export const EMPLOYEE_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024;
 
+/**
+ * One row of hr_leave_approval_queue() — leave AND short time off awaiting a
+ * decision, carrying the requester's identity.
+ *
+ * Comes from a SECURITY DEFINER RPC rather than an embed because
+ * staff_select_scope_aware gates the staff table on staff.view, which
+ * hr.leave.approve does not grant: an embed would return a blank name to
+ * exactly the approvers who need it. See
+ * supabase/migrations/20260820160000_hr_leave_approval_queue.sql
+ */
+export interface HRLeaveApprovalQueueRow {
+  id: string;
+  employee_id: string;
+  staff_name: string | null;
+  /** staff.staff_id — may legitimately be null (199 of 868 staff have none). */
+  staff_code: string | null;
+  institution_id: string | null;
+  institution_name: string | null;
+  hr_organization_id: string;
+  hr_organization_name: string | null;
+  leave_type_id: string;
+  leave_type_name: string | null;
+  leave_type_code: string | null;
+  /** Splits the tabs. A missing type falls back to 'leave', never to nothing. */
+  request_category: LeaveRequestCategory;
+  start_date: string;
+  end_date: string;
+  /** Short time off only. 'HH:MM:SS' — the column is time without time zone. */
+  start_time: string | null;
+  end_time: string | null;
+  duration_type: LeaveDurationType;
+  duration_minutes: number | null;
+  total_days: number;
+  reason: string;
+  is_emergency: boolean;
+  status: LeaveApplicationStatus;
+  created_at: string;
+  /** profiles.id of whoever submitted it — not necessarily the employee. */
+  applied_by: string | null;
+  /** Resolved server-side: profiles is unreadable to a staff member under RLS. */
+  applied_by_name: string | null;
+  /** applied_by is somebody other than the staff member the leave is for. */
+  applied_on_behalf: boolean;
+  /** profiles.id of the final decider. null while the request is still open. */
+  final_approver_id: string | null;
+  /** Resolved server-side, same reason as applied_by_name. */
+  final_approver_name: string | null;
+  final_decided_at: string | null;
+  /** Set on rejected rows; shown to the requester. */
+  rejection_reason: string | null;
+  /** The caller's own request. Display fact only — see can_decide. */
+  is_own: boolean;
+  /**
+   * Will hr_trig_leave_enforce_approver allow this caller to decide it?
+   * False for your own request UNLESS you are a super admin: that trigger
+   * returns NEW on is_super_admin() before it reaches the self-approval bar.
+   * A super admin's own row is both is_own AND can_decide.
+   */
+  can_decide: boolean;
+  /** Current step routes to this caller. A filter, not a permission. */
+  waiting_on_me: boolean;
+  /**
+   * First covered day whose biometric file is not uploaded, or null when the
+   * request can be approved. Computed by fn_hr_leave_biometric_gap — the SAME
+   * body trg_hla_block_approval_without_biometric raises on, so this can never
+   * promise a decision the database refuses.
+   *
+   * Null for Short Time Off (exempt: the import consumes approved permissions
+   * and recomputeForShortTimeOff covers the other direction), for future-dated
+   * requests, for institutions that run no biometric, and on decided rows.
+   */
+  biometric_gap_from: string | null;
+}

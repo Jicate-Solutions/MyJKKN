@@ -87,7 +87,9 @@ export function HandoverLauncher() {
         onClick={() => setOpen(true)}
         title="Hand this page over"
         aria-label="Hand this page over"
-        className="fixed right-4 bottom-[12.5rem] lg:bottom-36 z-[96] flex h-12 w-12 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg transition-all duration-200 hover:bg-indigo-700 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
+        // `modal-open:hidden` (tailwind.config.ts) keeps this z-[96] button
+        // from painting over a modal bottom sheet such as the More drawer.
+        className="fixed right-4 bottom-nav-safe-3 lg:bottom-36 z-[96] modal-open:hidden flex h-12 w-12 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg transition-all duration-200 hover:bg-indigo-700 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
       >
         <Share2 className="h-5 w-5" />
       </button>

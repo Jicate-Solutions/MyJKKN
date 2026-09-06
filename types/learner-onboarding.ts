@@ -85,6 +85,84 @@ export const MISSING_FIELD_LABELS: Record<MissingField, string> = {
 };
 
 /**
+ * What `fee_paid_threshold_percent` is measured against.
+ * Mirrors admission_statuses.threshold_basis (chk_threshold_basis).
+ */
+export type ThresholdBasis = 'billed_to_date' | 'due_to_date' | 'due_to_date_current_year';
+
+/**
+ * Short labels for the basis, for the column header tooltip and the tier banner.
+ * The distinction is load-bearing, not cosmetic: 'due_to_date' judges a learner
+ * only on instalments that have actually come due, which is why a family paying
+ * on a normal schedule is not counted as behind.
+ */
+export const THRESHOLD_BASIS_SHORT: Record<ThresholdBasis, string> = {
+  billed_to_date: 'of everything billed',
+  due_to_date: 'of fees due as on date',
+  due_to_date_current_year: "of this year's fees due as on date"
+};
+
+/**
+ * One learner's position against the fee threshold that gates
+ * reserved → admitted. Shape mirrors fn_onboarding_payment_progress 1:1.
+ *
+ * Every field on the "basis" axis (`achieved_pct`, `basis_*`) is measured on
+ * `threshold_basis`; the `total_*` fields are always the whole non-application
+ * bill book, so the table can show "due now" and "for the year" side by side
+ * without the reader having to know which basis is configured.
+ */
+export interface OnboardingPaymentProgress {
+  learner_id: string;
+  /** Status this learner is waiting to reach, e.g. 'admitted'. */
+  target_code: string | null;
+  target_label: string | null;
+  /** The percentage configured in Stages & Statuses. Null = no gate configured. */
+  threshold_pct: number | null;
+  threshold_basis: ThresholdBasis;
+  /** How much of the threshold basis is paid, 0–100. */
+  achieved_pct: number;
+  basis_billed: number;
+  basis_paid: number;
+  basis_balance: number;
+  total_billed: number;
+  total_paid: number;
+  total_balance: number;
+  /**
+   * Rupees still needed to cross the threshold.
+   * NULL — never 0 — when nothing is due yet: "pay ₹0 and they are in" would be
+   * a lie about a learner who is simply waiting on a due date.
+   */
+  amount_to_threshold: number | null;
+  meets_threshold: boolean;
+  /** False when no bill has come due on the configured basis yet. */
+  has_basis_due: boolean;
+  /**
+   * The earliest instalment this learner still owes, and what falls due on
+   * that date. NULL for a learner with no payment schedule — which is every
+   * learner billed before per-fee schedules existed, so the UI must render an
+   * em-dash rather than invent a date.
+   *
+   * `next_due_amount` SUMS every unsettled tranche sharing that date: two
+   * tranches can fall due together, and the caller is owed both.
+   */
+  next_due_date: string | null;
+  next_due_amount: number | null;
+  /** 0 when the learner has no schedule at all. */
+  instalments_total: number;
+  instalments_settled: number;
+}
+
+/**
+ * Percentage points still to cover before promotion. Clamped at 0.
+ * Distinct from "unpaid percentage" (100 − achieved), which is the share of the
+ * fee still owed; this is the share still owed *before the gate opens*.
+ */
+export function pointsToThreshold(p: OnboardingPaymentProgress): number {
+  if (p.threshold_pct == null) return 0;
+  return Math.max(0, Math.round((p.threshold_pct - p.achieved_pct) * 100) / 100);
+}
+
+/**
  * A learner row enriched with missing-field metadata for the onboarding table.
  */
 export interface OnboardingProfileRow extends LearnerProfile {
@@ -103,6 +181,15 @@ export interface OnboardingProfileRow extends LearnerProfile {
   can_activate: boolean;
   /** Human-readable reason `can_activate` is false. Undefined when it is true. */
   activation_blocked_reason?: string;
+  /**
+   * Fee position against the promotion threshold.
+   *
+   * Only populated for the `awaiting_payment` tier, where money is the SOLE
+   * remaining blocker — every other tier is blocked on missing fields, and
+   * fetching it there would spend a round trip on a number nothing renders.
+   * Undefined therefore means "not fetched", not "no bills".
+   */
+  payment?: OnboardingPaymentProgress;
 }
 
 /**
@@ -144,6 +231,59 @@ export interface OnboardingStats {
   /** Per-status totals so the header can show the split at a glance. */
   reserved_total: number;
   admitted_total: number;
+}
+
+/**
+ * Cohort-level fee position for the Awaiting Payment tier banner — computed
+ * from the same rows the table shows, so the banner can never disagree with
+ * the column totals under it.
+ */
+export interface OnboardingPaymentSummary {
+  learners: number;
+  threshold_pct: number | null;
+  threshold_basis: ThresholdBasis;
+  target_label: string | null;
+  billed: number;
+  paid: number;
+  balance: number;
+  /** Rupees that would move the whole cohort past the gate. */
+  amount_to_threshold: number;
+  /** Already at/over the threshold — a non-zero count means the engine is stuck. */
+  meets_threshold: number;
+  /** No bill has come due yet; these are waiting on a date, not on money. */
+  nothing_due: number;
+}
+
+/**
+ * Roll a page/tier's payment rows into one summary.
+ * Shared by the banner and any caller that needs the same arithmetic.
+ */
+export function summarisePaymentProgress(
+  rows: OnboardingPaymentProgress[]
+): OnboardingPaymentSummary {
+  const summary: OnboardingPaymentSummary = {
+    learners: rows.length,
+    threshold_pct: rows[0]?.threshold_pct ?? null,
+    threshold_basis: rows[0]?.threshold_basis ?? 'due_to_date',
+    target_label: rows[0]?.target_label ?? null,
+    billed: 0,
+    paid: 0,
+    balance: 0,
+    amount_to_threshold: 0,
+    meets_threshold: 0,
+    nothing_due: 0
+  };
+
+  for (const r of rows) {
+    summary.billed += r.basis_billed;
+    summary.paid += r.basis_paid;
+    summary.balance += r.basis_balance;
+    summary.amount_to_threshold += r.amount_to_threshold ?? 0;
+    if (r.meets_threshold) summary.meets_threshold++;
+    if (!r.has_basis_due) summary.nothing_due++;
+  }
+
+  return summary;
 }
 
 /**

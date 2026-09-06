@@ -157,8 +157,12 @@ const STOP = new Set(
    DRIVER DESIGNER ALUMNI MAINOFFICE MAIN OFFICE BUS DEPT DEPARTMENT AIDED SELF
    JKKNCET JKKNCAS JKKNCP JKKNCOP JKKNCOE JKKN JICATE CET CAS COP COE ENG ENGG
    APJKKNCET HODJKKNCET SCHOOL BED ED
+   JKKNSINAR SINAR JKKNCON CNR JKKNCNR JKKNDC JKKNDCH DCH MO JKKM
+   VICE PRINCIPAL DEAN MADAM MAM SIR RECEPTION PHOTOGRAPHER OLD STND
+   ALUMINI TFD SF
    CSE CS IT ECE EEE MECH CIVIL MBA MCA MATHS MATHEMATICS PHY PHYSICS CHEMISTRY
    SH ARTS ART COMMERCE COM ENGLISH TAMIL NURSING AHS PHARM PHARMD BDS BSC BCOM
+   PHARMACY PHARMCAY BSCN BSCN ACCOUNTS TRANSPORT STAFF BATCH
    MA CA PA HISTORY IIICSE DCC
    YEAR ND RD TH ST II III IV SRH NO NILL DIRECT`
     .split(/\s+/)
@@ -173,11 +177,23 @@ const STOP = new Set(
 const INSTITUTION_HINTS = [
   { tokens: ['JKKNCET', 'CET', 'ENGG', 'ENG', 'JKKNCOE'], re: /College of Engineering/i },
   { tokens: ['JKKNCAS', 'CAS'], re: /College of Arts and Science/i },
-  { tokens: ['JKKNCP', 'JKKNCOP', 'COP', 'PHARM', 'PHARMD'], re: /College of Pharmacy/i },
+  {
+    tokens: ['JKKNCP', 'JKKNCOP', 'COP', 'PHARM', 'PHARMD', 'PHARMACY', 'PHARMCAY'],
+    re: /College of Pharmacy/i,
+  },
   { tokens: ['JICATE'], re: /Jicate/i },
-  { tokens: ['NURSING'], re: /College of Nursing/i },
+  // JKKNSINAR is how operators write the nursing school on the Nursing sheet —
+  // verified: 'L.THILAGAM, JKKNSINAR' and 'M.KRISHNAVENI/AP/JKKNSINAR' resolve
+  // to CNR008 / CNR011, both College of Nursing rows.
+  {
+    tokens: ['NURSING', 'JKKNSINAR', 'SINAR', 'JKKNCON', 'CNR', 'JKKNCNR', 'BSCN'],
+    re: /College of Nursing/i,
+  },
   { tokens: ['AHS'], re: /Allied Health/i },
-  { tokens: ['BDS', 'DENTAL'], re: /Dental/i },
+  { tokens: ['BDS', 'DENTAL', 'JKKNDC', 'JKKNDCH', 'DCH'], re: /Dental/i },
+  // Support staff (accounts, transport) sit on Main Office, not on the college
+  // whose learner names them. Without this hint they contradict every candidate.
+  { tokens: ['MAINOFFICE', 'MAIN', 'OFFICE', 'MO', 'ACCOUNTS', 'TRANSPORT'], re: /Main Office/i },
   { tokens: ['SCHOOL'], re: /School|Vidhyalya/i },
 ];
 
@@ -217,6 +233,15 @@ const DEPARTMENT_HINTS = [
 const rawTokens = (value) =>
   String(value ?? '')
     .toUpperCase()
+    // Operators sometimes identify staff by their work email rather than their
+    // name. The local part IS the name ('sekar.v@jkkn.ac.in' -> SEKAR V), but
+    // the domain tokenises into AC and IN, which are 2-letter non-STOP words —
+    // so they became identity tokens and contradicted every candidate. Dropping
+    // the domain turns 5 dead rows into exact matches on DR. SEKAR V [COP003],
+    // the same person 14 other rows already name in words.
+    // Matching on the stored staff.email would NOT work here: his record holds
+    // hodpharmaceuticalanalysis@jkkn.ac.in.
+    .replace(/@\S+/g, ' ')
     // Ampersand joins, never splits: 'S&H' is the Science and Humanities
     // department, and letting it split produced phantom initials S and H that
     // then "contradicted" every candidate for 'K.KAVITHA, AP/S&H, JKKNCET'.
@@ -480,6 +505,25 @@ function resolvePerson(person, type, ctx, contact = '') {
         candidates: pool,
         reason: `only one record has this name, but the sheet points at a different institution than "${c.institution}"`,
       };
+    // The initial vetoes too, but ONLY when both sides carry exactly one and
+    // they disagree outright. 'senthil.v@jkkn.ac.in' reduces to the single core
+    // token SENTHIL and so lands here as a pool of one — against DR. SENTHIL M,
+    // while two other SENTHILs exist that the core key never reached. Linking
+    // V to M there is a wrong person, not a spelling variant.
+    // Kept deliberately narrow: multi-initial forms ('M.S.PUNITHAMALAR') and
+    // records with no initial on file are NOT vetoed, because Tamil records mix
+    // father-initial and surname-initial conventions and a mismatch there is
+    // routine rather than disqualifying.
+    const soleInitials = initialsOf(person);
+    if (soleInitials.size === 1 && c.initials.size === 1) {
+      const [want] = [...soleInitials];
+      if (!c.initials.has(want))
+        return {
+          tier: 'T4',
+          candidates: pool,
+          reason: `only one record has this name, but its initial is "${[...c.initials][0]}" and the sheet says "${want}"`,
+        };
+    }
     return {
       tier,
       candidate: c,
@@ -630,22 +674,64 @@ async function buildPlan(ctx, overrides = new Map()) {
     const contact = normPhone(row['Reference Contact']);
     if (!id) continue;
 
-    // Blank type + DIRECT: not a referral at all. referral_type has no 'direct'
-    // value, so only the legacy column can carry this.
-    if (!sheetType) {
-      decisions.push({
-        id,
-        outcome: /^DIRECT/i.test(person) ? 'direct' : 'skip',
-        person,
-        values: /^DIRECT/i.test(person) ? { reference_type: 'DIRECT APPLICATION' } : {},
-        reason: /^DIRECT/i.test(person) ? 'DIRECT — no referrer' : 'blank type, non-DIRECT text',
-      });
+    // "No referrer" is spelled differently by different workbooks: the
+    // Engineering sheet left Reference Type BLANK and wrote DIRECT in the person
+    // cell; the Nursing sheet puts the literal "DIRECT" in Reference Type. Both
+    // mean the same thing and must land in the same bucket — treating the
+    // second as an unknown type silently wrote nothing at all for 45 learners.
+    // referral_type has no 'direct' value (learners_profiles_referral_type_check
+    // allows consultant|student|faculty|learner_ambassador), so only the legacy
+    // column can carry it.
+    // Four spellings seen so far, one per workbook: Engineering left the type
+    // BLANK, Nursing wrote "DIRECT", Arts (Self) wrote "-". Apply the SAME
+    // predicate to the type cell and the person cell so the next variant is
+    // absorbed instead of falling through to `unknown Reference Type` — which
+    // writes nothing at all and looks like a clean run.
+    const isNoReferrer = (s) => !s || /^(DIRECT|NIL|NILL|NA|N\/A|NOT APPLICABLE|-+)$/i.test(s.trim()) || /^DIRECT/i.test(s.trim());
+    const declaredDirect = isNoReferrer(sheetType);
+
+    if (declaredDirect) {
+      if (isNoReferrer(person)) {
+        decisions.push({
+          id,
+          outcome: 'direct',
+          person,
+          values: { reference_type: 'DIRECT APPLICATION' },
+          reason: 'DIRECT — no referrer',
+        });
+      } else {
+        // A real person's name filed under DIRECT contradicts itself. The type
+        // is probably a mis-key; never guess which of the three it should be.
+        decisions.push({
+          id,
+          outcome: 'review',
+          type: null,
+          person,
+          tier: 'T4',
+          candidates: [],
+          values: {},
+          reason: 'typed DIRECT but names a person — confirm the referral type',
+        });
+      }
       continue;
     }
 
     const type = TYPE_FROM_SHEET[sheetType];
     if (!type) {
       decisions.push({ id, outcome: 'skip', person, values: {}, reason: `unknown Reference Type "${sheetType}"` });
+      continue;
+    }
+
+    // Declared a real type but named nobody ("Consultant" / person "DIRECT").
+    // The type is noise; the row is a direct application.
+    if (isNoReferrer(person)) {
+      decisions.push({
+        id,
+        outcome: 'direct',
+        person,
+        values: { reference_type: 'DIRECT APPLICATION' },
+        reason: `typed ${sheetType} but names no referrer — recorded as direct`,
+      });
       continue;
     }
 
@@ -864,6 +950,12 @@ function collectMissingConsultants(decisions) {
   const wanted = new Map();
   for (const d of decisions) {
     if (d.outcome !== 'name_only' || d.type !== 'consultant') continue;
+    // A name a human explicitly marked OUTSIDE is a decision, not a gap. Arts
+    // (Self) named AGENT (7 learners), NET, TRUST, GAM and CO OPEARATIVE
+    // SOCIETY as "consultants"; auto-creating those would put five records that
+    // are not agencies into the Consultants module and the commission ledger.
+    // --create-consultants must never overrule the review workbook.
+    if (/marked OUTSIDE in review/i.test(d.reason ?? '')) continue;
     const key = coreKey(d.person);
     if (!key) continue;
     if (!wanted.has(key)) wanted.set(key, { name: '', phone: '', learners: 0, variants: new Set() });

@@ -15,8 +15,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   ShiftTimingService,
+  type EndOverrideParams,
   type GetWeekParams,
   type SaveWeekParams,
+  type ShiftTimingOverrideSummary,
+  type ShiftWindow,
 } from '@/lib/services/hr/shift-timing-service';
 import {
   recomputeAttendance,
@@ -60,6 +63,26 @@ export function useShiftTimingCoverage(institutionId: string | null, date?: stri
 }
 
 /** Employment categories for the override picker. Global list; rarely changes. */
+/**
+ * The shift window in force for one staff member on one date.
+ *
+ * fn_shift_window, not fn_resolve_shift_timing: the latter refuses anyone
+ * without hr.shift_timings.view, and an ordinary member of staff filling in a
+ * permission form holds none of the four permissions it demands. The open
+ * variant returns a working-hours calendar and nothing about the person.
+ */
+export function useShiftWindow(staffId: string | undefined, date: string | undefined) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [KEY, 'window', staffId, date],
+    queryFn: (): Promise<ShiftWindow | null> =>
+      ShiftTimingService.window(supabase, staffId!, date!),
+    enabled: Boolean(staffId) && Boolean(date),
+    // A shift pattern does not change while a form is open.
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useEmploymentCategories() {
   const supabase = createClientSupabaseClient();
   return useQuery({
@@ -116,6 +139,67 @@ export function useSaveShiftTimingWeek() {
       }
 
       return { written, recompute, recomputeError };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [COVERAGE_KEY] });
+      qc.invalidateQueries({ queryKey: [OVERRIDES_KEY] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-exceptions'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-months'] });
+    },
+  });
+}
+
+/**
+ * Every override in force at an institution — what the Override tab lists.
+ *
+ * Shares OVERRIDES_KEY with the older category-id hook, so the save and end
+ * mutations below already invalidate it.
+ */
+export function useShiftTimingOverrideList(
+  institutionId: string | null,
+  asOf?: string,
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery<ShiftTimingOverrideSummary[]>({
+    queryKey: [OVERRIDES_KEY, 'list', institutionId, asOf ?? null],
+    queryFn: () => ShiftTimingService.listOverrides(supabase, institutionId!, asOf),
+    enabled: Boolean(institutionId),
+  });
+}
+
+/**
+ * Retire one override, then re-judge the days it no longer governs.
+ *
+ * The recompute is the whole point and mirrors useSaveShiftTimingWeek: removing
+ * an override changes which window those staff resolve to from today, and
+ * attendance already imported keeps the old verdict until something re-judges
+ * it. A failed recompute is reported, never treated as a failed removal — the
+ * override IS retired by that point.
+ */
+export function useEndShiftTimingOverride() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: async (params: EndOverrideParams) => {
+      const ended = await ShiftTimingService.endOverride(supabase, params);
+
+      const today = todayISO();
+      let recompute: RecomputeSummary | null = null;
+      let recomputeError: string | null = null;
+      try {
+        recompute = await recomputeAttendance({
+          institutionId: params.institutionId,
+          from: params.on ?? today,
+          to: today,
+        });
+      } catch (err) {
+        recomputeError = err instanceof Error ? err.message : 'Recompute failed';
+        console.error('[useEndShiftTimingOverride] recompute failed:', err);
+      }
+
+      return { ended, recompute, recomputeError };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });

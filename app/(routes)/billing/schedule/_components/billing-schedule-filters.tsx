@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -44,9 +44,21 @@ export function BillingScheduleFilters({
   onClearFilters
 }: BillingScheduleFiltersProps) {
   const {
-    institutions,
+    institutions: accessibleInstitutions,
     loading: loadingInstitutions,
   } = useInstitutionsWithAccess({ isActive: true });
+
+  // Billing schedule is a COLLEGE module, so the institution dropdown lists
+  // entity_type='institution' only (no admin_office / company / school).
+  // Filtered on the RESULT rather than via the hook's `entityType` option
+  // because useInstitutionsWithAccess forces 'all' for super admins and
+  // discards an explicit request — a super admin would otherwise still see
+  // Main Office, Jicate Solutions and the schools in this list.
+  // Mirrors students/_components/student-search-filters.tsx.
+  const institutions = useMemo(
+    () => accessibleInstitutions.filter((i) => i.entity_type === 'institution'),
+    [accessibleInstitutions]
+  );
   const hasMultiInstitutionAccess = institutions.length > 1;
 
   const [categories, setCategories] = useState<

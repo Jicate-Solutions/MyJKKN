@@ -54,6 +54,16 @@ interface Props {
   canEnter: boolean;
   /** Omit and the sheet still prints — it just loses the letterhead lines. */
   pdf?: QuestionWisePdfContext;
+  /**
+   * Rendered UNDER the notice when the round is question-wise but no eligible
+   * paper exists yet.
+   *
+   * A round can legitimately be question-wise before anyone authors its paper —
+   * COE's cia-settings endpoint saves that state deliberately and does not check
+   * for one. A host page that has its own component grid passes it here so
+   * faculty are never blocked. Omit it and the notice just points elsewhere.
+   */
+  renderFallback?: () => React.ReactNode;
 }
 
 const DRAFT_DEBOUNCE_MS = 600;
@@ -69,6 +79,7 @@ export function QuestionWiseTab({
   maxInternalMarks,
   canEnter,
   pdf,
+  renderFallback,
 }: Props) {
   const [paperId, setPaperId] = useState<string | undefined>(undefined);
   const [componentCode, setComponentCode] = useState<string | undefined>(undefined);
@@ -374,7 +385,7 @@ export function QuestionWiseTab({
   if (!paper) {
     const draftOnly = !!data?.draft_only;
     const draftLabels = data?.draft_set_labels ?? [];
-    return (
+    const notice = (
       <Alert className='border-amber-300 bg-amber-50 dark:bg-amber-950/30'>
         <AlertTriangle className='h-4 w-4 text-amber-600' />
         <AlertDescription className='space-y-2'>
@@ -408,8 +419,9 @@ export function QuestionWiseTab({
             </>
           )}
           <p className='text-xs text-muted-foreground'>
-            Either way you are not blocked — use the <strong>Direct Entry</strong> tab to key in
-            component totals now.
+            {renderFallback
+              ? 'Either way you are not blocked — enter component totals below; this switches to the question grid automatically once the paper is ready.'
+              : 'Either way you are not blocked — use the Direct Entry tab to key in component totals now.'}
           </p>
           <Button asChild variant='outline' size='sm'>
             <Link href='/academic/question-papers'>
@@ -418,6 +430,15 @@ export function QuestionWiseTab({
           </Button>
         </AlertDescription>
       </Alert>
+    );
+
+    return renderFallback ? (
+      <div className='space-y-4'>
+        {notice}
+        {renderFallback()}
+      </div>
+    ) : (
+      notice
     );
   }
 

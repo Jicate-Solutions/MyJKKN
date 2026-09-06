@@ -86,6 +86,12 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAllInstitutions } from '@/hooks/accreditation/use-cluster-councils';
+// SpanInstitution is DEFINED in cluster-scope. use-cluster-councils imports it
+// for its own signatures but never re-exports it, so importing it from there is
+// TS2305 — a module cannot re-export a name just by importing it.
+import type { SpanInstitution } from '@/app/(routes)/accreditation/cac/_lib/cluster-scope';
+import { MeasuredMetricsSection } from './_components/measured-metrics-section';
 import {
   Select,
   SelectContent,
@@ -135,6 +141,16 @@ const MANAGE_METRICS = '/accreditation/manage/metrics';
 export default function IqacDashboardPage() {
   const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
   const canView = isSuperAdmin || can(VIEW_PERMISSION);
+
+  // For the CEO's framework, which moved here from the Cluster Academic Council
+  // page on 2026-08-14. It reads every institution side by side, so it needs the
+  // institution list the council page used to hand it.
+  const { data: ceoFrameworkInstitutions, isLoading: ceoFrameworkInstLoading } =
+    useAllInstitutions();
+  const ceoFrameworkInstitutionList = useMemo<SpanInstitution[]>(
+    () => ceoFrameworkInstitutions ?? [],
+    [ceoFrameworkInstitutions],
+  );
 
   const { data: metrics, isLoading: metricsLoading, error: metricsError } =
     useFrameworkMetrics();
@@ -481,6 +497,16 @@ export default function IqacDashboardPage() {
             ))}
           </div>
         )}
+
+        {/* The CEO's July 2026 framework, moved here from the Cluster Academic
+            Council page on 2026-08-14 by Director decision. It sits below the
+            outside bodies because it is JKKN's own instrument rather than a
+            regulator's, and it keeps its own discipline: real numbers, no marks,
+            no total, no ranking of the institutions against one another. */}
+        <MeasuredMetricsSection
+          institutions={ceoFrameworkInstitutionList}
+          institutionsLoading={ceoFrameworkInstLoading}
+        />
 
         <Card className="bg-muted/30">
           <CardContent className="space-y-2 pt-6 text-xs text-muted-foreground">

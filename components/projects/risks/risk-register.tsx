@@ -22,7 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
+import { TAP_TARGET, TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -157,7 +157,7 @@ export function RiskRegister({ projectId }: RiskRegisterProps) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 w-6 p-0"
+                          className={`h-6 w-6 p-0 ${TAP_TARGET_ICON}`}
                           onClick={() => toggleExpand(risk.id)}
                           aria-label={isOpen ? 'Collapse' : 'Expand'}
                         >
@@ -196,7 +196,11 @@ export function RiskRegister({ projectId }: RiskRegisterProps) {
                       <TableCell className="py-2">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className={`h-7 w-7 p-0 ${TAP_TARGET_ICON}`}
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>

@@ -180,7 +180,10 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     semester_name: learner.semester?.semester_name || '',
     section_name: learner.section?.section_name || '',
     academic_year_name: learner.academic_year?.academic_year_name || '',
-    admission_year_name: learner.admission_year_id || '',
+    // Resolved from the joined cohort row, never from admission_year_id — the
+    // FK was being written into this column verbatim, so every export carried a
+    // UUID under the "Admission Year" header.
+    admission_year_name: learner.admission_year_obj?.admission_year_name || '',
     entry_type: learner.entry_type || '',
     regulation_name: learner.regulation
       ? `${learner.regulation.regulation_code} (${learner.regulation.regulation_year})`
@@ -282,6 +285,11 @@ function buildFilterBadges(
   if (filters.section_id) badges.push({ label: 'Section', value: 'Filtered' });
   if (filters.academic_year_id) badges.push({ label: 'Academic Year', value: 'Filtered' });
   if (filters.gender) badges.push({ label: 'Gender', value: filters.gender });
+  // 'Filtered' rather than the name: this builder is pure and synchronous, and
+  // the id→name lookup is an async query. Matches how every other id-valued
+  // filter above reports itself.
+  if (filters.accommodation_type_id)
+    badges.push({ label: 'Accommodation', value: 'Filtered' });
   if (filters.is_profile_complete !== undefined && filters.is_profile_complete !== '')
     badges.push({
       label: 'Profile Complete',
@@ -401,6 +409,18 @@ export function LearnerExportDialog({
       const result = await LearnerProfileService.getLearnerProfiles({
         page: 1,
         limit: 10000,
+        // The advanced search term the table is currently narrowed by. It was
+        // omitted here while every other predicate was forwarded, so exporting
+        // during a search silently returned the whole unsearched result set —
+        // more rows than the table on screen was showing.
+        search: filters.search,
+        // Forwarded with the term, never defaulted — see LearnerProfileFilters.
+        // The URL carries these as strings; the service takes real booleans.
+        search_case_sensitive: filters.search_case_sensitive === 'true',
+        search_exact_match: filters.search_exact_match === 'true',
+        search_fields: filters.search_fields
+          ? filters.search_fields.split(',').map((f) => f.trim()).filter(Boolean)
+          : undefined,
         lifecycle_status: (statusFilter ||
           filters.lifecycle_status ||
           undefined) as LifecycleStatus | LifecycleStatus[] | undefined,
@@ -411,7 +431,9 @@ export function LearnerExportDialog({
         semester_id: filters.semester_id,
         section_id: filters.section_id,
         academic_year_id: filters.academic_year_id,
+        admission_year: filters.admission_year,
         gender: filters.gender,
+        accommodation_type_id: filters.accommodation_type_id,
         is_profile_complete:
           filters.is_profile_complete !== undefined && filters.is_profile_complete !== ''
             ? filters.is_profile_complete === 'true'

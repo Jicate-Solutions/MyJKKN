@@ -78,6 +78,20 @@
       "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
+      "name": "fn_admitted_source_breakdown",
+      "args": "p_institution_ids uuid[], p_admission_year integer, p_source text, p_limit integer, p_offset integer",
+      "status": "approved",
+      "writes_data": false,
+      "reason": "Guarded by a WHERE-clause filter, not a recorded predicate: the caller-supplied p_institution_ids is INTERSECTED with role_has_institution_access(i.id), so a caller only ever sees institutions they may already see. Verified live 2026-08-21 by calling it as anon with every institution id handed in — it does not return rows, it FAILS CLOSED with 'permission denied for function user_has_permission', because anon holds EXECUTE on neither overload of user_has_permission. Approved rather than revoked because the guard is real and the function is reachable from signed-in admission dashboards."
+    },
+    {
+      "name": "fn_admitted_source_counts",
+      "args": "p_institution_ids uuid[], p_admission_year integer",
+      "status": "approved",
+      "writes_data": false,
+      "reason": "Guarded by a WHERE-clause filter, not a recorded predicate: the caller-supplied p_institution_ids is INTERSECTED with role_has_institution_access(i.id), so a caller only ever sees institutions they may already see. Verified live 2026-08-21 by calling it as anon with every institution id handed in — it does not return rows, it FAILS CLOSED with 'permission denied for function user_has_permission', because anon holds EXECUTE on neither overload of user_has_permission. Approved rather than revoked because the guard is real and the function is reachable from signed-in admission dashboards."
+    },
+    {
       "name": "fn_calendar_ics",
       "args": "p_token text, p_start date, p_end date",
       "status": "approved",
@@ -104,6 +118,13 @@
       "status": "approved",
       "writes_data": false,
       "reason": "Public enquiry/routing form, fetched by slug before any login exists."
+    },
+    {
+      "name": "fn_has_all_institution_access_for",
+      "args": "VARIADIC permission_keys text[]",
+      "status": "approved",
+      "writes_data": false,
+      "reason": "Identity-derived predicate: resolves the caller from (SELECT auth.uid()) and takes no caller-supplied identity — p_permission_keys names PERMISSIONS, not a person. As anon auth.uid() is null so the EXISTS can only be false. Verified live 2026-08-21. Returns a boolean, never a row of anyone's data."
     },
     {
       "name": "fn_hr_orgs_for_institutions",

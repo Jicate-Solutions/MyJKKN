@@ -13,6 +13,7 @@
 // UTC slot shows under the right day).
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   CalendarDays,
   CheckCircle2,
@@ -29,8 +30,11 @@ import { getBookingPixelConfig } from '@/lib/services/analytics/booking-pixel-se
 import {
   groupPurposes,
   purposeDurationLabel,
+  LOCATION_MODE_LABEL,
   type PurposeChoice,
+  type PurposeLocationMode,
 } from '@/lib/services/meetings/group-purposes';
+import { routingFormLinkLabel } from '@/lib/services/meetings/public-host-service';
 
 interface MeetingTypeOption {
   id: string;
@@ -65,6 +69,22 @@ interface MeetBookingWidgetProps {
   /** Signed-in MyJKKN viewer (Director identity flow 2026-06-20). When present
    *  the email step is skipped and the booking is bound to their account. */
   viewer: { name: string; email: string } | null;
+  /**
+   * The host's active routing form (/r/<slug>), rendered as one quiet link
+   * above the purpose cards for a visitor who cannot tell which purpose is
+   * theirs. Absent/null on every page that should not offer it, so nothing is
+   * rendered — no empty state, no dead link.
+   *
+   * DELIBERATELY NOT WIRED INTO THE EMBED SIBLING
+   * (app/(public)/embed/[handle]/_components/embed-booking-widget.tsx): an
+   * embed runs inside someone else's page, and this link navigates the visitor
+   * away from it. Leaving it out of the embed is the correct behaviour, not an
+   * oversight — please do not "fix" it there.
+   *
+   * Also absent on the single-type deep link /meet/<handle>/<type>: that
+   * visitor arrived on a link that already made the choice for them.
+   */
+  routingForm?: { slug: string; questionCount: number } | null;
 }
 
 interface SlotsResponse {
@@ -267,6 +287,38 @@ function LocationLine({ mt }: { mt: MeetingTypeOption }) {
     <span className="inline-flex items-center gap-1">
       <MapPin className="h-3.5 w-3.5" aria-hidden />{' '}
       {mt.locationDetails || mt.locationText || 'In person'}
+    </span>
+  );
+}
+
+const MODE_ICON: Record<PurposeLocationMode, typeof Video> = {
+  in_person: MapPin,
+  online: Video,
+  phone: Phone,
+};
+
+/**
+ * The formats a grouped purpose is offered in, shown on the FIRST screen.
+ *
+ * Before this, a grouped card said only "N ways to meet", so a booker could
+ * not tell whether one of those ways was online without clicking in — the
+ * exact thing that made the module look like it had no online option at all.
+ * The count is kept alongside the formats because it still tells the booker
+ * there is a choice of length behind the card.
+ */
+function PurposeFormats({ choice }: { choice: PurposeChoice<MeetingTypeOption> }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      {choice.locationModes.map((mode, i) => {
+        const Icon = MODE_ICON[mode];
+        return (
+          <span key={mode} className="inline-flex items-center gap-1">
+            {i > 0 && <span aria-hidden className="text-[#1C2B24]/30">·</span>}
+            <Icon className="h-3.5 w-3.5" aria-hidden /> {LOCATION_MODE_LABEL[mode]}
+          </span>
+        );
+      })}
+      <span className="text-[#1C2B24]/45">({choice.options.length} to choose from)</span>
     </span>
   );
 }
@@ -670,6 +722,14 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
         {step === 'purpose' && (
           <div className="flex flex-col gap-3">
             <p className="text-sm font-medium">What do you need?</p>
+            {props.routingForm && (
+              <Link
+                href={`/r/${props.routingForm.slug}`}
+                className="-mt-1.5 w-fit text-xs text-[#1C2B24]/65 underline decoration-[#0E4D34]/30 underline-offset-4 transition-colors hover:text-[#0E4D34] hover:decoration-[#0E4D34]"
+              >
+                {routingFormLinkLabel(props.routingForm.questionCount)}
+              </Link>
+            )}
             {purposes.map((p) => (
               <button
                 key={p.key}
@@ -691,7 +751,7 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
                   {p.options.length === 1 ? (
                     <LocationLine mt={p.options[0]} />
                   ) : (
-                    <span>{p.options.length} ways to meet</span>
+                    <PurposeFormats choice={p} />
                   )}
                   <EarliestLine earliest={earliestForPurpose(p)} />
                 </span>

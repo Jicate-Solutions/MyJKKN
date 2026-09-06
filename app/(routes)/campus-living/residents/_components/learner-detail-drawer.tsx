@@ -63,6 +63,28 @@ interface Props {
    *  When provided, the "Allocate to a block" CTA uses it instead of the old
    *  /allocations/new wizard (which ignores the learner + has a broken submit). */
   onAllocate?: () => void;
+  /** Placement readiness for an UNPLACED learner, from
+   *  fn_hostel_unallocated_candidates (supplied by the Allocations table).
+   *
+   *  The categories here are what the allocation RULES resolve, which is not
+   *  the same thing as `v_learner_hostelites.hostel_category_name` — that is
+   *  what the learner's own profile stores. Measured on 2026-09-02 the two
+   *  disagreed for 14 of the 61 unplaced learners: 10 whose profile says
+   *  Deluxe / Deluxe Plus while the rules resolve Classic, and 4 whose profile
+   *  is blank while the rules resolve a category fine. Showing only the profile
+   *  value told an admin a learner was getting a room they will not get, so
+   *  when this prop is present the resolved value leads and a disagreeing
+   *  profile value is called out rather than hidden.
+   *
+   *  `blockers` arrives already humanised (missing_items, else the bill-state
+   *  label) so the drawer and the table's "Why not allocated" column cannot
+   *  drift apart. */
+  placement?: {
+    readiness: 'ready' | 'incomplete';
+    resolvedRoomCategory: string | null;
+    resolvedMessCategory: string | null;
+    blockers: string[];
+  } | null;
 }
 
 function fullName(first: string | null, last: string | null): string {
@@ -89,7 +111,14 @@ function formatRupees(n: number | null | undefined): string {
   return `₹${n.toLocaleString('en-IN')}`;
 }
 
-export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit, onAllocate }: Props) {
+export function LearnerDetailDrawer({
+  learnerId,
+  onClose,
+  onEdit,
+  canEdit,
+  onAllocate,
+  placement,
+}: Props) {
   const open = !!learnerId;
   const router = useRouter();
   const { institutions } = useInstitutionsWithAccess();
@@ -253,10 +282,74 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit, onAll
 
             {/* Section 3: Allocation status */}
             <Section title='Allocation status'>
-              {/* Current room/mess category come off the learner's profile
-                  (v_learner_hostelites) — shown regardless of physical allocation. */}
-              <KV label='Room category' value={dash(data.learner.hostel_category_name)} />
-              <KV label='Mess category' value={dash(data.learner.mess_category_name)} />
+              {/* Room / mess category. Without `placement` these come off the
+                  learner's profile (v_learner_hostelites) exactly as before.
+                  With it — i.e. an unplaced learner opened from the Allocations
+                  table — the rule-resolved category leads instead, because that
+                  is what allocation will actually give them. See the Props doc. */}
+              {placement ? (
+                <>
+                  <CategoryKV
+                    label='Room category'
+                    resolved={placement.resolvedRoomCategory}
+                    stored={data.learner.hostel_category_name}
+                  />
+                  <CategoryKV
+                    label='Mess category'
+                    resolved={placement.resolvedMessCategory}
+                    stored={data.learner.mess_category_name}
+                  />
+                </>
+              ) : (
+                <>
+                  <KV label='Room category' value={dash(data.learner.hostel_category_name)} />
+                  <KV label='Mess category' value={dash(data.learner.mess_category_name)} />
+                </>
+              )}
+
+              {/* Readiness — the same verdict and blocking reasons the
+                  Allocations table shows, so opening a row never contradicts
+                  the row it was opened from. */}
+              {placement && (
+                <div className='sm:col-span-2 rounded-md border p-3'>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <span className='text-[11px] text-muted-foreground'>Readiness</span>
+                    {placement.readiness === 'ready' ? (
+                      <Badge className='gap-1 border-green-200 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'>
+                        Ready to allocate
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant='outline'
+                        className='gap-1 border-amber-300 text-amber-700 dark:text-amber-400'
+                      >
+                        Incomplete
+                      </Badge>
+                    )}
+                  </div>
+                  {placement.readiness === 'ready' ? (
+                    <p className='mt-2 text-xs text-green-700 dark:text-green-400'>
+                      All conditions met — a bed can be assigned now.
+                    </p>
+                  ) : placement.blockers.length > 0 ? (
+                    <div className='mt-2 flex flex-wrap gap-1'>
+                      {placement.blockers.map((b) => (
+                        <Badge
+                          key={b}
+                          variant='outline'
+                          className='border-amber-300 text-[10px] text-amber-700 dark:text-amber-400'
+                        >
+                          {b}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className='mt-2 text-xs text-muted-foreground'>
+                      Blocked, but no specific reason was reported.
+                    </p>
+                  )}
+                </div>
+              )}
               {data.currentAllocation ? (
                 <>
                   <KV
@@ -416,6 +509,42 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {children}
       </dl>
     </section>
+  );
+}
+
+// Room/mess category for an UNPLACED learner: lead with what allocation will
+// actually resolve, and surface the profile's own value when it disagrees
+// rather than silently picking one of the two. A learner whose profile says
+// Deluxe but who resolves to Classic is a downgrade the admin needs to see
+// BEFORE assigning the bed, not after.
+function CategoryKV({
+  label,
+  resolved,
+  stored,
+}: {
+  label: string;
+  resolved: string | null;
+  stored: string | null;
+}) {
+  const mismatch = !!resolved && !!stored && resolved !== stored;
+  return (
+    <div>
+      <dt className='text-[11px] text-muted-foreground'>{label}</dt>
+      <dd className='text-sm'>{resolved ?? stored ?? '—'}</dd>
+      {mismatch && (
+        <p className='mt-0.5 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400'>
+          <AlertCircle className='mt-px h-3 w-3 shrink-0' />
+          <span>
+            Profile says {stored} — allocation resolves {resolved}
+          </span>
+        </p>
+      )}
+      {!resolved && stored && (
+        <p className='mt-0.5 text-[11px] text-muted-foreground'>
+          From the profile; no rule resolved one yet
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -3,6 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   HRLeaveApplication,
+  HRLeaveApplicationDetail,
+  HRLeaveApplicationWithType,
   HRLeaveApplicationInsert,
   HRLeaveBalanceWithType,
   HRLeaveEncashment,
@@ -10,6 +12,9 @@ import type {
   HRCalendarEntry,
   LeaveApplicationStatus,
 } from '@/types/hr';
+import { invalidateAttendanceViews } from '@/hooks/hr/use-attendance-records';
+import { invalidateAllowanceViews } from '@/hooks/hr/use-hr-leave-types';
+import { invalidateCompOffViews } from '@/hooks/hr/use-comp-off';
 
 const BASE = '/api/hr/leave';
 
@@ -28,6 +33,28 @@ export function useMyApplications(employeeId: string | undefined) {
       return (await res.json()) as { data: HRLeaveApplication[]; metadata: { total: number } };
     },
     enabled: !!employeeId,
+  });
+}
+
+/**
+ * My requests on ONE date. Backs the apply form's "already applied for that
+ * time" check, so a clash is shown while picking rather than as a rejection
+ * after Submit. The database's overlap guard stays the enforcement point —
+ * this list is scoped to one day, but it is still a client-side read.
+ */
+export function useMyRequestsOnDate(employeeId: string | undefined, date: string | undefined) {
+  return useQuery({
+    queryKey: ['hr-leave-applications', 'on-date', employeeId, date],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('employee_id', employeeId!);
+      params.set('start_from', date!);
+      params.set('start_to', date!);
+      const res = await fetch(`${BASE}/applications?${params}`);
+      if (!res.ok) throw new Error(`Requests for ${date} failed: ${res.status}`);
+      return ((await res.json()).data ?? []) as HRLeaveApplicationWithType[];
+    },
+    enabled: Boolean(employeeId) && Boolean(date),
   });
 }
 
@@ -53,7 +80,9 @@ export function useApplication(applicationId: string | undefined) {
     queryFn: async () => {
       const res = await fetch(`${BASE}/applications/${applicationId}`);
       if (!res.ok) throw new Error(`Application fetch failed: ${res.status}`);
-      return ((await res.json()).data) as HRLeaveApplication;
+      // The route adds chain_names — the resolved people/role names the
+      // browser cannot look up itself. See LeaveChainNames.
+      return ((await res.json()).data) as HRLeaveApplicationDetail;
     },
     enabled: !!applicationId,
   });
@@ -148,6 +177,17 @@ export function useApplyLeave() {
       qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // ATTENDANCE TOO. The attendance log and calendar now show undecided
+      // requests beside the day's status, so a request that moves and does not
+      // invalidate these leaves that page quoting a stale answer -- and nothing
+      // in this app self-refreshes (staleTime 5 min, focus refetch off).
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      // AND THE ALLOWANCE THE DRAWER JUST QUOTED. A brand-new request is
+      // 'pending', which both allowance RPCs already count -- so without this
+      // the drawer kept showing the remaining figure from before the submit
+      // and invited a second request against hours that were already spent.
+      invalidateAllowanceViews(qc);
     },
   });
 }
@@ -183,6 +223,26 @@ export function useDecideApplication() {
       qc.invalidateQueries({ queryKey: ['hr-leave-application', data.id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // ATTENDANCE TOO. The attendance log and calendar now show undecided
+      // requests beside the day's status, so a request that moves and does not
+      // invalidate these leaves that page quoting a stale answer -- and nothing
+      // in this app self-refreshes (staleTime 5 min, focus refetch off).
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      // The Approvals tab reads hr_leave_approval_queue() under its own key;
+      // without this the decided row stays on screen until a manual refresh.
+      qc.invalidateQueries({ queryKey: ['hr-leave-approval-flows'] });
+      // Approving leave fires tr_recompute_attendance_on_leave_approval, and
+      // short time off moves the day's excused minutes — both land in
+      // hr_attendance_records, which My Attendance reads under its own keys.
+      invalidateAttendanceViews(qc);
+      // A REJECTION HANDS THE ALLOWANCE BACK. 'rejected' leaves the status set
+      // the allowance RPCs count, so the hours are free again the instant this
+      // returns — and an approval turns a held figure into a spent one.
+      invalidateAllowanceViews(qc);
+      // Approving comp-off is the moment hr_trig_comp_off_consume spends the
+      // credit, so the ledger the drawer quotes has just changed underneath it.
+      invalidateCompOffViews(qc);
     },
   });
 }
@@ -202,6 +262,16 @@ export function useCancelApplication() {
       qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // ATTENDANCE TOO. The attendance log and calendar now show undecided
+      // requests beside the day's status, so a request that moves and does not
+      // invalidate these leaves that page quoting a stale answer -- and nothing
+      // in this app self-refreshes (staleTime 5 min, focus refetch off).
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      // Cancelling releases the hold, so the drawer must stop counting it.
+      invalidateAllowanceViews(qc);
+      // Cancelling an APPROVED comp-off hands its credit back to the ledger.
+      invalidateCompOffViews(qc);
     },
   });
 }
@@ -220,6 +290,18 @@ export function useWithdrawApplication() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-leave-application', data.id] });
+      // WITHDRAW RELEASES EVERYTHING CANCEL DOES, and used to refresh none of
+      // it. It moves a request out of ('pending','escalated'), which is the set
+      // v_hr_leave_balance_src subtracts as `pending` and both allowance RPCs
+      // count — so the days and the hours are free the moment this returns.
+      // Refreshing only the two lists left the balance card and the apply
+      // drawer showing them as still consumed until the cache aged out.
+      qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      invalidateAllowanceViews(qc);
+      invalidateCompOffViews(qc);
     },
   });
 }
