@@ -72,6 +72,13 @@ type ModuleName =
   | 'users'
   | 'vac'
   | 'work-pulse'
+  | 'ai-pulse'
+  | 'bos'
+  | 'ims'
+  | 'meetings'
+  | 'procurement'
+  | 'projects'
+  | 'courses'
   | 'other';
 
 interface BugModuleBadgeProps {
@@ -237,6 +244,48 @@ export const moduleConfig: Record<
     icon: BookOpen,
     colorClass: 'bg-purple-100 text-purple-800 hover:bg-purple-200 hover:text-purple-800 border-purple-200 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-700',
     subColorClass: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800'
+  },
+  'ai-pulse': {
+    label: 'AI Pulse',
+    icon: Sparkles,
+    colorClass: 'bg-sky-100 text-sky-800 hover:bg-sky-200 hover:text-sky-800 border-sky-200 dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700',
+    subColorClass: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800'
+  },
+  'bos': {
+    label: 'Board of Studies',
+    icon: ClipboardList,
+    colorClass: 'bg-indigo-100 text-indigo-800 hover:bg-indigo-200 hover:text-indigo-800 border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-700',
+    subColorClass: 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800'
+  },
+  'ims': {
+    label: 'Inventory Management',
+    icon: Package,
+    colorClass: 'bg-stone-100 text-stone-800 hover:bg-stone-200 hover:text-stone-800 border-stone-200 dark:bg-stone-900/40 dark:text-stone-300 dark:border-stone-700',
+    subColorClass: 'bg-stone-50 text-stone-700 border-stone-200 dark:bg-stone-900/20 dark:text-stone-400 dark:border-stone-800'
+  },
+  'meetings': {
+    label: 'Meetings',
+    icon: Calendar,
+    colorClass: 'bg-cyan-100 text-cyan-800 hover:bg-cyan-200 hover:text-cyan-800 border-cyan-200 dark:bg-cyan-900/40 dark:text-cyan-300 dark:border-cyan-700',
+    subColorClass: 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-900/20 dark:text-cyan-400 dark:border-cyan-800'
+  },
+  'procurement': {
+    label: 'Procurement',
+    icon: Package,
+    colorClass: 'bg-orange-100 text-orange-800 hover:bg-orange-200 hover:text-orange-800 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-700',
+    subColorClass: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800'
+  },
+  'projects': {
+    label: 'Projects',
+    icon: Target,
+    colorClass: 'bg-fuchsia-100 text-fuchsia-800 hover:bg-fuchsia-200 hover:text-fuchsia-800 border-fuchsia-200 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 dark:border-fuchsia-700',
+    subColorClass: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 dark:bg-fuchsia-900/20 dark:text-fuchsia-400 dark:border-fuchsia-800'
+  },
+  courses: {
+    label: 'Courses',
+    icon: BookOpen,
+    colorClass: 'bg-teal-100 text-teal-800 hover:bg-teal-200 hover:text-teal-800 border-teal-200 dark:bg-teal-900/40 dark:text-teal-300 dark:border-teal-700',
+    subColorClass: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-900/20 dark:text-teal-400 dark:border-teal-800'
   },
   vac: {
     label: 'Value Added Courses',

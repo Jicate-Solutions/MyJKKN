@@ -1491,6 +1491,14 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/users/' THEN 'users'
         WHEN page_url ~ '/vac/' THEN 'vac'
         WHEN page_url ~ '/work-pulse/' THEN 'work-pulse'
+        -- Added: 2026-09-06 (20260906213000) — the seven modules the classifier never learned, appended last
+        WHEN page_url ~ '/ai-pulse/' THEN 'ai-pulse'
+        WHEN page_url ~ '/bos/' THEN 'bos'
+        WHEN page_url ~ '/ims/' THEN 'ims'
+        WHEN page_url ~ '/meetings/' THEN 'meetings'
+        WHEN page_url ~ '/procurement/' THEN 'procurement'
+        WHEN page_url ~ '/projects/' THEN 'projects'
+        WHEN page_url ~ '/courses/' THEN 'courses'  -- Added: 2026-09-06 (20260906213000); last so /organizations/courses/ stays organizations
         ELSE 'other'
       END
     ) STORED,
@@ -1539,6 +1547,13 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/users/' THEN substring(page_url FROM '/users/([^/?#]+)')
         WHEN page_url ~ '/vac/' THEN substring(page_url FROM '/vac/([^/?#]+)')
         WHEN page_url ~ '/work-pulse/' THEN substring(page_url FROM '/work-pulse/([^/?#]+)')
+        WHEN page_url ~ '/ai-pulse/' THEN substring(page_url FROM '/ai-pulse/([^/?#]+)')
+        WHEN page_url ~ '/bos/' THEN substring(page_url FROM '/bos/([^/?#]+)')
+        WHEN page_url ~ '/ims/' THEN substring(page_url FROM '/ims/([^/?#]+)')
+        WHEN page_url ~ '/meetings/' THEN substring(page_url FROM '/meetings/([^/?#]+)')
+        WHEN page_url ~ '/procurement/' THEN substring(page_url FROM '/procurement/([^/?#]+)')
+        WHEN page_url ~ '/projects/' THEN substring(page_url FROM '/projects/([^/?#]+)')
+        WHEN page_url ~ '/courses/' THEN substring(page_url FROM '/courses/([^/?#]+)')
         ELSE NULL
       END
     ) STORED,
