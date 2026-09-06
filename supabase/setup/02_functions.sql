@@ -59418,3 +59418,897 @@ GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated;
 
 COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
   'Leave/STO approval queue for the caller. documents carries the supporting files; current_step / chain_length / step_is_final say whether a decision here reviews or grants.';
+
+
+-- ===========================================================================
+-- 2026-09-06 — AY 2026-27 fee-item schedule resync (migrations 20260906120000 /
+-- 20260906120100 / 20260906120200). Append-latest-wins, per this file's convention.
+-- ===========================================================================
+-- ============================================================================
+-- Extract STAGE A0 (the fee-item promotion rules) out of
+-- evaluate_learner_status_after_payment into its own function.
+--
+-- WHY (2026-09-06): the AY 2026-27 bill resync needs to apply the item rules
+-- WITHOUT running STAGE B's pooled 30% threshold. Measured: running the full
+-- engine after the resync would promote 325 reserved/account learners to
+-- `admitted` in one shot, because splitting a bill into tranches shrinks
+-- "due to date" (avg pct_due_to_date 8.7% -> 57.1%). The explicit
+-- promotes_to_status_code rules name only 14. The operator chose the 14.
+--
+-- Copying STAGE A0 into the resync RPC would leave two implementations of the
+-- same rule that drift the first time either is touched, so it is extracted
+-- here instead and BOTH callers share it.
+--
+-- Behaviour of evaluate_learner_status_after_payment is unchanged: same
+-- signature (CREATE OR REPLACE, never DROP -- a DROP would take the ACL with
+-- it and a re-CREATE silently re-grants EXECUTE to PUBLIC), same STAGE A and
+-- STAGE B, same history metadata shape. The `rpc` key in that metadata is now
+-- fed by p_source so the live path keeps writing the exact string it always
+-- wrote, and a backfill promotion is identifiable afterwards.
+--
+-- search_path is pinned to 'public' rather than '' to match every sibling
+-- function here and to keep the bare `lifecycle_status` / `admission_statuses`
+-- type and table references resolving. Pinned is the security requirement.
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- STAGE A0, standalone.
+--
+-- Promotes the learner to the HIGHEST-sort_order status that every one of its
+-- naming rows has settled, and only forward (sort_order > current). Naming
+-- rows come from two places:
+--   * billing_bill_instalments.promotes_to_status_code  (split fee items)
+--   * admission_fee_structure_items.promotes_to_status_code, for bills with
+--     no tranches at all (single fee items) -- which is why the bill must
+--     carry fee_structure_item_id for this half to see anything.
+--
+-- No-ops unless the learner is currently 'account' or 'reserved'. Cannot reach
+-- a gates_login status. Cannot demote. Those three properties are what make it
+-- safe to run over a whole cohort.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_learner_status_apply_item_rules(
+  p_learner_id uuid,
+  p_source     text DEFAULT 'evaluate_learner_status_after_payment'
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_current_status lifecycle_status;
+  v_current_sort   integer;
+  v_paid_pct       numeric;
+  v_rule_target    text;
+  v_rule_rows      integer := 0;
+  v_rule_settled   integer := 0;
+  v_updated        integer := 0;
+BEGIN
+  SELECT lp.lifecycle_status INTO v_current_status
+  FROM public.learners_profiles lp WHERE lp.id = p_learner_id;
+
+  IF v_current_status IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+                              'reason', 'not_found');
+  END IF;
+
+  IF v_current_status::text NOT IN ('account', 'reserved') THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+      'reason', 'no_op_for_status', 'final_status', v_current_status::text);
+  END IF;
+
+  SELECT COALESCE(v.pct_due_to_date, 0) INTO v_paid_pct
+  FROM public.vw_learner_payment_progress v WHERE v.learner_id = p_learner_id;
+  v_paid_pct := COALESCE(v_paid_pct, 0);
+
+  SELECT s.sort_order INTO v_current_sort
+  FROM public.admission_statuses s
+  WHERE s.scope = 'learner' AND s.code = v_current_status::text
+  LIMIT 1;
+
+  IF v_current_sort IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+      'reason', 'current_status_not_in_ladder', 'final_status', v_current_status::text);
+  END IF;
+
+  WITH tranche AS (
+    SELECT
+      i.promotes_to_status_code AS target,
+      (LEAST(
+         GREATEST(
+           GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))
+           - COALESCE(SUM(i.amount) OVER (
+               PARTITION BY i.bill_id ORDER BY i.due_date, i.sequence_no
+               ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0),
+           0),
+         i.amount) >= i.amount) AS settled
+    FROM public.billing_bill_instalments i
+    JOIN public.billing_student_bills b ON b.id = i.bill_id
+    WHERE b.student_id = p_learner_id
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+  ),
+  unscheduled AS (
+    SELECT
+      fsi.promotes_to_status_code AS target,
+      (COALESCE(b.status::text = 'paid', false)
+       OR COALESCE(b.balance_amount, b.final_amount) <= 0) AS settled
+    FROM public.billing_student_bills b
+    JOIN public.admission_fee_structure_items fsi ON fsi.id = b.fee_structure_item_id
+    WHERE b.student_id = p_learner_id
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+      AND NOT EXISTS (SELECT 1 FROM public.billing_bill_instalments i WHERE i.bill_id = b.id)
+  ),
+  rule_rows AS (
+    SELECT target, settled FROM tranche      WHERE target IS NOT NULL
+    UNION ALL
+    SELECT target, settled FROM unscheduled  WHERE target IS NOT NULL
+  )
+  SELECT s.code,
+         (SELECT count(*) FROM rule_rows r WHERE r.target = s.code),
+         (SELECT count(*) FROM rule_rows r WHERE r.target = s.code AND r.settled)
+    INTO v_rule_target, v_rule_rows, v_rule_settled
+  FROM public.admission_statuses s
+  WHERE s.scope = 'learner'
+    AND s.is_active = true
+    AND s.gates_login = false
+    AND s.sort_order > v_current_sort
+    AND EXISTS (SELECT 1 FROM rule_rows r WHERE r.target = s.code)
+    AND NOT EXISTS (SELECT 1 FROM rule_rows r WHERE r.target = s.code AND NOT r.settled)
+  ORDER BY s.sort_order DESC
+  LIMIT 1;
+
+  IF v_rule_target IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+      'reason', 'no_rule_target', 'final_status', v_current_status::text,
+      'paid_pct', v_paid_pct);
+  END IF;
+
+  UPDATE public.learners_profiles
+     SET lifecycle_status = v_rule_target::lifecycle_status
+   WHERE id = p_learner_id
+     AND lifecycle_status::text IN ('account', 'reserved');
+
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+  IF v_updated = 0 THEN
+    -- The caller reported target/rows/settled even when the write lost a race,
+    -- so keep carrying them; only `promoted` says whether anything moved.
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+      'reason', 'status_moved_concurrently', 'final_status', v_current_status::text,
+      'item_rule_target', v_rule_target, 'item_rule_rows', v_rule_rows,
+      'item_rule_settled', v_rule_settled);
+  END IF;
+
+  INSERT INTO public.learners_profile_status_history
+    (learner_id, from_status, to_status, reason_code, paid_pct_at_change,
+     threshold_at_change, changed_by, metadata)
+  VALUES
+    (p_learner_id, v_current_status, v_rule_target::lifecycle_status,
+     'auto_item_rule', v_paid_pct, NULL, NULL,
+     jsonb_build_object('rpc', p_source,
+                        'rule', 'bill_instalment_schedule',
+                        'naming_rows', v_rule_rows,
+                        'settled_rows', v_rule_settled));
+
+  RETURN jsonb_build_object(
+    'learner_id',    p_learner_id,
+    'promoted',      true,
+    'from_status',   v_current_status::text,
+    'final_status',  v_rule_target,
+    'item_rule_target',  v_rule_target,
+    'item_rule_rows',    v_rule_rows,
+    'item_rule_settled', v_rule_settled,
+    'paid_pct',      v_paid_pct
+  );
+END;
+$function$;
+
+-- A DROP would have taken the ACL; this is a fresh CREATE, so close the default
+-- PUBLIC grant explicitly before handing EXECUTE to real callers.
+REVOKE ALL ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) TO service_role;
+
+COMMENT ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) IS
+  'STAGE A0 of the learner promotion engine: promotes on settled fee-item rules only. '
+  'Shared by evaluate_learner_status_after_payment and fn_billing_resync_item_schedules '
+  'so the two cannot disagree. Forward-only, never reaches a gates_login status.';
+
+
+-- ---------------------------------------------------------------------------
+-- The engine, with STAGE A0 now delegated. STAGE A and STAGE B are byte-for-byte
+-- what they were; only the A0 block is replaced by the call.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.evaluate_learner_status_after_payment(p_learner_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_current_status        lifecycle_status;
+  v_paid_pct              numeric;
+  v_pct_billed            numeric;
+  v_pct_due               numeric;
+  v_pct_due_cy            numeric;
+  v_basis                 text;
+  v_used_pct              numeric;
+  v_app_paid              boolean;
+  v_universals_paid       boolean;
+  v_gate_bills            integer := 0;
+  v_gate_paid             integer := 0;
+  v_threshold             numeric;
+  v_target_code           text;
+  v_updated               integer := 0;
+  v_universal_target      text;
+  v_promoted_to_universal boolean := false;
+  v_promoted_to_threshold boolean := false;
+  v_rule                  jsonb;
+  v_rule_target           text;
+  v_rule_rows             integer := 0;
+  v_rule_settled          integer := 0;
+  v_promoted_by_rule      boolean := false;
+BEGIN
+  SELECT lp.lifecycle_status INTO v_current_status
+  FROM public.learners_profiles lp WHERE lp.id = p_learner_id;
+
+  IF v_current_status IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'updated', false, 'reason', 'not_found');
+  END IF;
+
+  IF v_current_status::text NOT IN ('account', 'reserved') THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'updated', false,
+      'reason', 'no_op_for_status', 'current_status', v_current_status::text);
+  END IF;
+
+  SELECT v.pct_billed_to_date, v.pct_due_to_date, v.pct_due_current_year
+    INTO v_pct_billed, v_pct_due, v_pct_due_cy
+  FROM public.vw_learner_payment_progress v
+  WHERE v.learner_id = p_learner_id;
+  v_pct_billed := COALESCE(v_pct_billed, 0);
+  v_pct_due    := COALESCE(v_pct_due, 0);
+  v_pct_due_cy := COALESCE(v_pct_due_cy, 0);
+  v_paid_pct := v_pct_due;
+
+  -- ═══ STAGE A0 — fee-schedule rules (extracted 2026-09-06) ════════════════
+  v_rule := public.fn_learner_status_apply_item_rules(
+              p_learner_id, 'evaluate_learner_status_after_payment');
+  v_rule_target  := v_rule->>'item_rule_target';
+  v_rule_rows    := COALESCE((v_rule->>'item_rule_rows')::integer, 0);
+  v_rule_settled := COALESCE((v_rule->>'item_rule_settled')::integer, 0);
+
+  IF COALESCE((v_rule->>'promoted')::boolean, false) THEN
+    v_current_status   := (v_rule->>'final_status')::lifecycle_status;
+    v_promoted_by_rule := true;
+  END IF;
+
+  -- ═══ STAGE A — the universal gate (unchanged) ═══════════════════════════
+  SELECT
+    count(*) FILTER (WHERE bc.kind IN ('application_fee','university_fee')),
+    count(*) FILTER (WHERE bc.kind IN ('application_fee','university_fee')
+        AND (b.status::text = 'paid'
+             OR (b.final_amount - COALESCE(b.balance_amount, b.final_amount)) > 0
+             OR (b.final_amount = 0 AND COALESCE(b.balance_amount, 0) = 0))),
+    COALESCE(bool_or(bc.kind = 'application_fee' AND b.status::text = 'paid'), false),
+    COALESCE(bool_and(b.status::text = 'paid') FILTER (WHERE bc.kind = 'university_fee'), false)
+  INTO v_gate_bills, v_gate_paid, v_app_paid, v_universals_paid
+  FROM public.billing_student_bills b
+  JOIN public.billing_categories bc ON bc.id = b.item_category_id
+  WHERE b.student_id = p_learner_id
+    AND b.status::text <> 'superseded';
+
+  IF v_current_status::text = 'account' AND v_gate_bills > 0 AND v_gate_paid = v_gate_bills THEN
+    SELECT s.code INTO v_universal_target
+    FROM public.admission_statuses s
+    WHERE s.scope = 'learner'
+      AND s.is_active = true
+      AND s.auto_promote_when_universal_paid = true
+    LIMIT 1;
+
+    IF v_universal_target IS NOT NULL THEN
+      UPDATE public.learners_profiles
+         SET lifecycle_status = v_universal_target::lifecycle_status
+       WHERE id = p_learner_id
+         AND lifecycle_status::text = 'account';
+
+      GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+      IF v_updated > 0 THEN
+        INSERT INTO public.learners_profile_status_history
+          (learner_id, from_status, to_status, reason_code, paid_pct_at_change,
+           threshold_at_change, changed_by, metadata)
+        VALUES
+          (p_learner_id, 'account'::lifecycle_status, v_universal_target::lifecycle_status,
+           'auto_universal_paid', v_paid_pct, NULL, NULL,
+           jsonb_build_object('rpc', 'evaluate_learner_status_after_payment',
+                              'application_fee_paid', v_app_paid,
+                              'university_fee_paid', v_universals_paid,
+                              'gate_bills', v_gate_bills,
+                              'gate_paid', v_gate_paid,
+                              'gate_rule', 'partial'));
+        v_current_status := v_universal_target::lifecycle_status;
+        v_promoted_to_universal := true;
+      END IF;
+    END IF;
+  END IF;
+
+  -- ═══ STAGE B — the pooled threshold (unchanged) ═════════════════════════
+  IF v_current_status::text IN ('account', 'reserved') THEN
+    SELECT s.code, s.fee_paid_threshold_percent, s.threshold_basis,
+           CASE s.threshold_basis
+             WHEN 'billed_to_date'           THEN v_pct_billed
+             WHEN 'due_to_date_current_year' THEN v_pct_due_cy
+             ELSE                                 v_pct_due
+           END
+      INTO v_target_code, v_threshold, v_basis, v_used_pct
+    FROM public.admission_statuses s
+    WHERE s.scope = 'learner'
+      AND s.is_active = true
+      AND s.fee_paid_threshold_percent IS NOT NULL
+      AND s.gates_login = false
+      AND s.auto_promote_when_universal_paid = false
+      AND (CASE s.threshold_basis
+             WHEN 'billed_to_date'           THEN v_pct_billed
+             WHEN 'due_to_date_current_year' THEN v_pct_due_cy
+             ELSE                                 v_pct_due
+           END) >= s.fee_paid_threshold_percent
+    ORDER BY s.fee_paid_threshold_percent DESC
+    LIMIT 1;
+
+    IF v_target_code IS NOT NULL THEN
+      UPDATE public.learners_profiles
+         SET lifecycle_status = v_target_code::lifecycle_status
+       WHERE id = p_learner_id
+         AND lifecycle_status::text IN ('account', 'reserved');
+
+      GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+      IF v_updated > 0 THEN
+        INSERT INTO public.learners_profile_status_history
+          (learner_id, from_status, to_status, reason_code, paid_pct_at_change,
+           threshold_at_change, changed_by, metadata)
+        VALUES
+          (p_learner_id, v_current_status, v_target_code::lifecycle_status,
+           'auto_threshold', v_used_pct, v_threshold, NULL,
+           jsonb_build_object('rpc', 'evaluate_learner_status_after_payment',
+                              'threshold_basis', v_basis,
+                              'cascaded_from_universal', v_promoted_to_universal,
+                              'cascaded_from_item_rule', v_promoted_by_rule));
+        v_current_status := v_target_code::lifecycle_status;
+        v_promoted_to_threshold := true;
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'learner_id', p_learner_id,
+    'updated', (v_promoted_by_rule OR v_promoted_to_universal OR v_promoted_to_threshold),
+    'promoted_by_item_rule', v_promoted_by_rule,
+    'promoted_to_universal', v_promoted_to_universal,
+    'promoted_to_threshold', v_promoted_to_threshold,
+    'item_rule_target', v_rule_target,
+    'item_rule_rows', v_rule_rows,
+    'item_rule_settled', v_rule_settled,
+    'final_status', v_current_status::text,
+    'paid_pct', v_paid_pct,
+    'pct_billed_to_date', v_pct_billed,
+    'pct_due_to_date', v_pct_due,
+    'pct_due_current_year', v_pct_due_cy,
+    'threshold_basis', v_basis,
+    'application_fee_paid', v_app_paid,
+    'university_fee_paid', v_universals_paid,
+    'gate_bills', v_gate_bills,
+    'gate_paid', v_gate_paid,
+    'threshold', v_threshold
+  );
+END;
+$function$;
+
+
+-- ============================================================================
+-- fn_billing_resync_item_schedules — reconnect already-generated bills to the
+-- fee-structure item they came from.
+--
+-- WHY (2026-09-06): billing_student_bills.fee_structure_item_id landed on
+-- 2026-08-21 and is the ONLY path from a bill back to its fee item. Every bill
+-- generated before that date has it NULL, and three things read through it:
+--
+--   billing_instalment_split_for_learner()  -> tranches from the item's schedule
+--   bbi_sync_bill_due_date()                -> bill.due_date from the next tranche
+--   fn_learner_status_apply_item_rules()    -> promotes_to_status_code
+--
+-- Measured on AY 2026-27 at the time of writing: 8,344 live bills, 47 stamped,
+-- 13 with tranches — against 426 split items and 895 configured schedule lines.
+-- The configuration was connected to nothing. This RPC connects it, and stays
+-- callable so the next structure edit does not need another migration.
+--
+-- The bill -> item mapping is
+--   admission_match_fee_structure_for_learner(learner)  (the 8-dimension match
+--   the generator itself uses) + billing_category_id
+-- which was verified to yield EXACTLY ONE candidate item per bill across all
+-- 4,727 in-scope rows: 0 ambiguous, 0 conflicting with an existing stamp.
+--
+-- WHAT IT DELIBERATELY DOES NOT DO
+--
+--   * It never touches final_amount, balance_amount or status on the bill.
+--     That is load-bearing: those are the columns
+--     trg_evaluate_status_after_bill_paid and trg_learner_status_on_bill_payment_drop
+--     watch, so leaving them alone keeps promotion entirely under this
+--     function's control instead of firing the full engine 4,700 times.
+--   * It re-shares the bill's OWN final_amount rather than re-pricing from the
+--     item. A learner's bill is what they were told they owe; a structure whose
+--     price has since moved is reported as an amount mismatch, not silently
+--     applied.
+--   * It calls fn_learner_status_apply_item_rules (STAGE A0 only), NOT
+--     evaluate_learner_status_after_payment. Running the full engine after a
+--     resync promotes far more people than the rules name — splitting a bill
+--     shrinks "due to date", so STAGE B's pooled threshold suddenly clears.
+--     Measured on this cohort: 325 learners via the threshold vs 14 named by
+--     the explicit rules. STAGE B keeps working normally on the next real
+--     payment; it is just not driven by a backfill.
+--
+-- Promotion is one-directional by construction and this function adds no way
+-- around that: STAGE A0 acts only on 'account'/'reserved', only targets a
+-- higher sort_order, and afsis_validate_status_target refuses any status with
+-- gates_login = true. Nobody can be demoted and nobody gains portal login.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_billing_resync_item_schedules(
+  p_admission_year_ids uuid[],
+  p_institution_ids    uuid[]  DEFAULT NULL,
+  p_dry_run            boolean DEFAULT true,
+  p_apply_status       boolean DEFAULT true,
+  p_replace_existing   boolean DEFAULT false,
+  p_max_due_date       date    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_scanned              integer := 0;
+  v_conflicts            integer := 0;
+  v_stamped              integer := 0;
+  v_tranche_bills        integer := 0;
+  v_tranches             integer := 0;
+  v_split_did_not_fit    integer := 0;
+  v_skipped_existing     integer := 0;
+  v_due_fixed            integer := 0;
+  v_due_out_of_ay        integer := 0;
+  v_amount_mismatch      integer := 0;
+  v_unresolved_learners  integer := 0;
+  v_status_candidates    integer := 0;
+  v_promoted             integer := 0;
+  v_learner              record;
+  v_res                  jsonb;
+  v_promotions           jsonb := '[]'::jsonb;
+BEGIN
+  -- This is a bulk maintenance action, not a per-request read. Gate it on the
+  -- key that already exists for bulk bill work rather than on the much broader
+  -- billing.schedule.update, which six roles hold.
+  IF NOT (
+    public.is_super_admin()
+    OR public.user_has_permission('billing.schedule.bulk_create')
+    -- The service key already bypasses RLS wholesale, so admitting it here
+    -- grants nothing new and lets a server-side job call this.
+    OR auth.role() = 'service_role'
+    -- A direct superuser session (migration console / maintenance) carries no
+    -- JWT at all, so every check above is false for it. session_user, NOT
+    -- current_user: inside SECURITY DEFINER current_user is the function owner
+    -- and would match unconditionally.
+    OR (auth.role() IS NULL AND session_user IN ('postgres', 'supabase_admin'))
+  ) THEN
+    RAISE EXCEPTION
+      'not_authorized: resyncing fee-item schedules requires billing.schedule.bulk_create'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_admission_year_ids IS NULL OR cardinality(p_admission_year_ids) = 0 THEN
+    RAISE EXCEPTION 'p_admission_year_ids is required'
+      USING ERRCODE = '22023',
+            HINT = 'Pass the admission_years.id values to resync. This function never runs unscoped.';
+  END IF;
+
+  -- Thousands of bill UPDATEs, each firing the per-row billing-summary MV
+  -- refresh. Give the batch room; the caller is expected to pass one
+  -- institution at a time anyway.
+  PERFORM set_config('statement_timeout', '600000', true);
+
+  -- ── 1. Resolve the candidate set ────────────────────────────────────────
+  -- fee_source = 'academic' only: transport (TMS) and hostel_category bills are
+  -- generated by other engines and are not described by an admission fee item.
+  DROP TABLE IF EXISTS _resync_scope;
+  DROP TABLE IF EXISTS _resync_tranches;
+
+  CREATE TEMP TABLE _resync_scope ON COMMIT DROP AS
+  SELECT
+    b.id                 AS bill_id,
+    b.student_id,
+    b.institution_id,
+    b.item_category_id,
+    b.final_amount,
+    b.due_date,
+    b.created_at::date   AS gen_date,
+    b.fee_structure_item_id AS cur_item,
+    fsi.id               AS item_id,
+    fsi.schedule_mode,
+    fsi.due_anchor,
+    fsi.due_date         AS item_due,
+    fsi.amount           AS item_amount,
+    (SELECT count(*) FROM public.admission_fee_structure_item_schedules s
+      WHERE s.fee_structure_item_id = fsi.id)        AS line_count,
+    (SELECT count(*) FROM public.billing_bill_instalments i
+      WHERE i.bill_id = b.id)                        AS cur_inst
+  FROM public.billing_student_bills b
+  JOIN public.learners_profiles lp ON lp.id = b.student_id
+  JOIN LATERAL (
+    SELECT public.admission_match_fee_structure_for_learner(lp.id) AS fs_id
+  ) m ON m.fs_id IS NOT NULL
+  -- Exactly one item per (structure, billing_category) — verified across the
+  -- whole 2026-27 cohort. applies_to therefore never has to disambiguate.
+  JOIN public.admission_fee_structure_items fsi
+    ON fsi.fee_structure_id    = m.fs_id
+   AND fsi.billing_category_id = b.item_category_id
+  WHERE lp.admission_year_id = ANY(p_admission_year_ids)
+    AND (p_institution_ids IS NULL OR b.institution_id = ANY(p_institution_ids))
+    AND b.status::text NOT IN ('cancelled', 'superseded')
+    AND b.fee_source = 'academic'
+    AND b.final_amount > 0;
+
+  SELECT count(*) INTO v_scanned FROM _resync_scope;
+
+  -- A bill already pointing at a DIFFERENT item than the matrix now resolves is
+  -- a real disagreement, not something to overwrite silently. Drop it and say so.
+  DELETE FROM _resync_scope WHERE cur_item IS NOT NULL AND cur_item <> item_id;
+  GET DIAGNOSTICS v_conflicts = ROW_COUNT;
+
+  SELECT count(*) INTO v_amount_mismatch
+  FROM _resync_scope WHERE final_amount <> item_amount;
+
+  SELECT count(*) INTO v_skipped_existing
+  FROM _resync_scope WHERE cur_inst > 0 AND NOT p_replace_existing;
+
+  -- Learners in range holding live academic bills that resolve no structure at
+  -- all (missing quota/community, or an institution with no structures — the
+  -- school stream bills from school_fee_plans instead).
+  SELECT count(DISTINCT lp.id) INTO v_unresolved_learners
+  FROM public.learners_profiles lp
+  WHERE lp.admission_year_id = ANY(p_admission_year_ids)
+    AND (p_institution_ids IS NULL OR lp.institution_id = ANY(p_institution_ids))
+    AND public.admission_match_fee_structure_for_learner(lp.id) IS NULL
+    AND EXISTS (
+      SELECT 1 FROM public.billing_student_bills b
+      WHERE b.student_id = lp.id
+        AND b.status::text NOT IN ('cancelled', 'superseded')
+        AND b.fee_source = 'academic');
+
+  -- ── counts that must be known in dry run too ────────────────────────────
+  SELECT count(*) INTO v_due_out_of_ay
+  FROM _resync_scope
+  WHERE schedule_mode = 'single' AND due_anchor = 'fixed_date'
+    AND item_due IS NOT NULL AND item_due IS DISTINCT FROM due_date
+    AND cur_inst = 0
+    AND p_max_due_date IS NOT NULL AND item_due > p_max_due_date;
+
+  SELECT count(*) INTO v_due_fixed
+  FROM _resync_scope
+  WHERE schedule_mode = 'single' AND due_anchor = 'fixed_date'
+    AND item_due IS NOT NULL AND item_due IS DISTINCT FROM due_date
+    AND cur_inst = 0
+    AND (p_max_due_date IS NULL OR item_due <= p_max_due_date);
+
+  -- ── 2. Stamp the link ───────────────────────────────────────────────────
+  IF p_dry_run THEN
+    SELECT count(*) INTO v_stamped FROM _resync_scope WHERE cur_item IS NULL;
+  ELSE
+    UPDATE public.billing_student_bills b
+       SET fee_structure_item_id = s.item_id
+      FROM _resync_scope s
+     WHERE b.id = s.bill_id
+       AND b.fee_structure_item_id IS NULL;
+    GET DIAGNOSTICS v_stamped = ROW_COUNT;
+  END IF;
+
+  -- ── 3. Tranches ─────────────────────────────────────────────────────────
+  -- instalment_count >= 2 is the acceptance test, not schedule_mode alone: a
+  -- schedule whose fixed_amounts do not fit this bill's total makes the
+  -- resolver fall through and return ONE row. Writing that as a single tranche
+  -- would replace the bill's due date with a derived one and gain nothing, so
+  -- those are skipped and reported instead.
+  IF p_replace_existing AND NOT p_dry_run THEN
+    DELETE FROM public.billing_bill_instalments i
+     USING _resync_scope s
+     WHERE i.bill_id = s.bill_id
+       AND s.schedule_mode = 'split' AND s.line_count >= 2;
+  END IF;
+
+  CREATE TEMP TABLE _resync_tranches ON COMMIT DROP AS
+  SELECT s.bill_id, s.item_id,
+         r.instalment_no, r.instalment_count, r.instalment_amount,
+         r.instalment_due_date, r.promotes_to_status_code
+  FROM _resync_scope s
+  CROSS JOIN LATERAL public.billing_instalment_split_for_learner(
+         s.student_id, s.item_category_id, s.final_amount, s.gen_date, s.item_id) r
+  WHERE s.schedule_mode = 'split'
+    AND s.line_count >= 2
+    AND (s.cur_inst = 0 OR p_replace_existing);
+
+  SELECT count(DISTINCT bill_id) INTO v_split_did_not_fit
+  FROM _resync_tranches WHERE instalment_count < 2;
+
+  DELETE FROM _resync_tranches WHERE instalment_count < 2;
+
+  SELECT count(*), count(DISTINCT bill_id) INTO v_tranches, v_tranche_bills
+  FROM _resync_tranches;
+
+  IF NOT p_dry_run THEN
+    -- sequence_no == the schedule line's sequence_no: the resolver walks the
+    -- lines ORDER BY sequence_no and numbers from 1, and sequence_no is unique
+    -- and contiguous from 1 by the write path's own renumbering. That is what
+    -- makes carrying the line's id and label back a safe join.
+    INSERT INTO public.billing_bill_instalments
+      (bill_id, sequence_no, amount, due_date, promotes_to_status_code,
+       fee_structure_item_schedule_id, label)
+    SELECT t.bill_id, t.instalment_no::smallint, t.instalment_amount,
+           t.instalment_due_date, t.promotes_to_status_code,
+           sl.id, sl.label
+    FROM _resync_tranches t
+    LEFT JOIN public.admission_fee_structure_item_schedules sl
+      ON sl.fee_structure_item_id = t.item_id
+     AND sl.sequence_no           = t.instalment_no;
+    -- bill.due_date now follows the next unsettled tranche automatically via
+    -- trg_bbi_sync_due_date; the deferred trg_bbi_validate_sum checks the
+    -- tranche total against final_amount at commit.
+  END IF;
+
+  -- ── 4. Single fixed-date items ──────────────────────────────────────────
+  -- Only bills with no tranches: a scheduled bill's due date is owned by
+  -- bbi_sync_bill_due_date and must not be overwritten here.
+  IF NOT p_dry_run THEN
+    UPDATE public.billing_student_bills b
+       SET due_date = s.item_due
+      FROM _resync_scope s
+     WHERE b.id = s.bill_id
+       AND s.schedule_mode = 'single'
+       AND s.due_anchor    = 'fixed_date'
+       AND s.item_due IS NOT NULL
+       AND s.item_due IS DISTINCT FROM s.due_date
+       AND s.cur_inst = 0
+       AND (p_max_due_date IS NULL OR s.item_due <= p_max_due_date);
+  END IF;
+
+  -- ── 5. Status, on the item rules only ───────────────────────────────────
+  SELECT count(DISTINCT s.student_id) INTO v_status_candidates
+  FROM _resync_scope s
+  JOIN public.learners_profiles lp ON lp.id = s.student_id
+  WHERE lp.lifecycle_status::text IN ('account', 'reserved');
+
+  IF p_apply_status AND NOT p_dry_run THEN
+    FOR v_learner IN
+      SELECT DISTINCT s.student_id AS id
+      FROM _resync_scope s
+      JOIN public.learners_profiles lp ON lp.id = s.student_id
+      WHERE lp.lifecycle_status::text IN ('account', 'reserved')
+    LOOP
+      v_res := public.fn_learner_status_apply_item_rules(
+                 v_learner.id, 'fn_billing_resync_item_schedules');
+      IF COALESCE((v_res->>'promoted')::boolean, false) THEN
+        v_promoted   := v_promoted + 1;
+        v_promotions := v_promotions || jsonb_build_object(
+          'learner_id', v_learner.id,
+          'from',       v_res->>'from_status',
+          'to',         v_res->>'final_status');
+      END IF;
+    END LOOP;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'dry_run',                    p_dry_run,
+    'admission_year_ids',         to_jsonb(p_admission_year_ids),
+    'institution_ids',            to_jsonb(p_institution_ids),
+    'bills_scanned',              v_scanned,
+    'stamped',                    v_stamped,
+    'tranches_created',           v_tranches,
+    'bills_scheduled',            v_tranche_bills,
+    'due_dates_fixed',            v_due_fixed,
+    'skipped_due_dates_out_of_ay', v_due_out_of_ay,
+    'skipped_existing_tranches',  v_skipped_existing,
+    'skipped_split_did_not_fit',  v_split_did_not_fit,
+    'item_conflicts',             v_conflicts,
+    'amount_mismatches',          v_amount_mismatch,
+    'unresolved_learners',        v_unresolved_learners,
+    'status_candidates',          v_status_candidates,
+    'promoted',                   v_promoted,
+    'promotions',                 v_promotions
+  );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_billing_resync_item_schedules(uuid[], uuid[], boolean, boolean, boolean, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_billing_resync_item_schedules(uuid[], uuid[], boolean, boolean, boolean, date) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_billing_resync_item_schedules(uuid[], uuid[], boolean, boolean, boolean, date) TO service_role;
+
+COMMENT ON FUNCTION public.fn_billing_resync_item_schedules(uuid[], uuid[], boolean, boolean, boolean, date) IS
+  'Reconnects already-generated bills to their admission fee-structure item: stamps fee_structure_item_id, '
+  'creates instalment tranches from the item schedule, applies single fixed due dates, and promotes learners '
+  'on the explicit item rules only (never the pooled threshold). Dry-run by default. '
+  'Requires billing.schedule.bulk_create.';
+
+
+-- ============================================================================
+-- fn_learner_status_apply_item_rules is an INTERNAL helper, not an API.
+--
+-- Extracting STAGE A0 in 20260906120000 gave it a PostgREST endpoint of its
+-- own: SECURITY DEFINER + EXECUTE to `authenticated` means any logged-in user
+-- could POST /rpc/fn_learner_status_apply_item_rules for an arbitrary learner
+-- id. It cannot set a status the fee rules do not already justify — it
+-- recomputes everything from the bills — but forcing a promotion evaluation on
+-- someone else's learner record is not something a caller should be able to do,
+-- and the ungated-maintenance-RPC shape is exactly the one this codebase has
+-- been bitten by before.
+--
+-- Both real callers (evaluate_learner_status_after_payment and
+-- fn_billing_resync_item_schedules) are themselves SECURITY DEFINER owned by
+-- postgres, so they execute this as the OWNER. Revoking the `authenticated`
+-- grant closes the endpoint without affecting either of them.
+--
+-- Verified after applying: the engine still promotes through STAGE A0 when
+-- called as an authenticated user.
+-- ============================================================================
+
+REVOKE EXECUTE ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) FROM authenticated;
+
+
+-- ============================================================================
+-- admission_preview_account_bills: let bill-creating staff read it too.
+--
+-- WHY (2026-09-06). The New Bill form is gaining a "Load from fee structure"
+-- action that fills the whole form from the learner's structure — every fee
+-- item with its amount, its instalment split, its shares and its due dates.
+-- This RPC already computes exactly that and is the same resolver the
+-- onboarding preview uses, so reusing it keeps ONE answer to "what does this
+-- learner's structure say" instead of a second implementation on the billing
+-- side that could disagree.
+--
+-- Its gate was admission_documents.manage only, which an accounts operator
+-- does not hold — they would get 42501 and the button would appear to do
+-- nothing.
+--
+-- WHY THIS GRANTS NOTHING NEW. The gate now also accepts the keys that already
+-- let a caller price a bill: billing.schedule.create / billing.bills.create are
+-- precisely the keys on billing_get_instalment_split, which returns the SAME
+-- numbers one category at a time. Someone who can create bills for a learner
+-- can already read every value this returns; the only difference is how many
+-- round trips it takes them. The function stays STABLE and read-only.
+--
+-- Nothing else about the function changes: same signature, same body, same
+-- CREATE OR REPLACE (never DROP — that would take the ACL with it and a
+-- re-CREATE silently re-grants EXECUTE to PUBLIC).
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.admission_preview_account_bills(p_learner_id uuid)
+RETURNS TABLE(
+  sort_order integer, category_id uuid, category_name text, item_amount numeric,
+  is_billable boolean, owner_module text, instalment_no integer,
+  instalment_count integer, instalment_amount numeric, share_percent numeric,
+  due_date date, promotes_to_status_code text, matched_source text
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_items   jsonb;
+  v_item    jsonb;
+  v_idx     integer := 0;
+  v_cat     uuid;
+  v_amt     numeric;
+  v_item_id uuid;
+  v_kind    text;
+  v_split   record;
+  v_rows    integer;
+  v_anchor  date := CURRENT_DATE;
+  v_default integer;
+BEGIN
+  -- Widened 2026-09-06: the billing keys read the same numbers
+  -- billing_get_instalment_split already exposes to them per category.
+  IF NOT (
+    public.user_has_permission('admission_documents.manage')
+    OR public.user_has_permission('billing.schedule.create')
+    OR public.user_has_permission('billing.bills.create')
+    OR public.is_super_admin()
+    OR public.is_admin()
+  ) THEN
+    RAISE EXCEPTION 'permission_denied: admission_documents.manage or billing.schedule.create required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_items := public.admission_compute_fee_items_for_learner(p_learner_id);
+
+  FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(v_items, '[]'::jsonb))
+  LOOP
+    v_idx     := v_idx + 1;
+    v_cat     := NULLIF(v_item->>'category_id','')::uuid;
+    v_amt     := COALESCE((v_item->>'amount')::numeric, 0);
+    v_item_id := NULLIF(v_item->>'fee_structure_item_id','')::uuid;
+
+    IF v_amt <= 0 THEN
+      CONTINUE;   -- the generation loop skips these too
+    END IF;
+
+    SELECT bc.kind::text INTO v_kind FROM public.billing_categories bc WHERE bc.id = v_cat;
+
+    IF v_kind IN ('hostel','mess','transport') THEN
+      sort_order              := v_idx;
+      category_id             := v_cat;
+      category_name           := v_item->>'category_name';
+      item_amount             := v_amt;
+      is_billable             := false;
+      owner_module            := CASE WHEN v_kind = 'transport' THEN 'tms' ELSE 'campus_living' END;
+      instalment_no           := NULL;
+      instalment_count        := NULL;
+      instalment_amount       := NULL;
+      share_percent           := NULL;
+      due_date                := NULL;
+      promotes_to_status_code := NULL;
+      matched_source          := NULL;
+      RETURN NEXT;
+      CONTINUE;
+    END IF;
+
+    v_rows := 0;
+    FOR v_split IN
+      SELECT s.* FROM public.billing_instalment_split_for_learner(
+        p_learner_id, v_cat, v_amt, v_anchor, v_item_id) s
+      ORDER BY s.instalment_no
+    LOOP
+      sort_order              := v_idx;
+      category_id             := v_cat;
+      category_name           := v_item->>'category_name';
+      item_amount             := v_amt;
+      is_billable             := true;
+      owner_module            := 'admission';
+      instalment_no           := v_split.instalment_no;
+      instalment_count        := v_split.instalment_count;
+      instalment_amount       := v_split.instalment_amount;
+      -- EFFECTIVE share, derived from the amount the engine actually produced,
+      -- not the configured percentage: the last instalment absorbs rounding, so
+      -- its true share differs slightly from what was typed.
+      share_percent           := CASE WHEN v_amt > 0
+                                      THEN round(v_split.instalment_amount * 100.0 / v_amt, 2)
+                                      ELSE NULL END;
+      due_date                := v_split.instalment_due_date;
+      promotes_to_status_code := v_split.promotes_to_status_code;
+      matched_source          := v_split.matched_source;
+      RETURN NEXT;
+      v_rows := v_rows + 1;
+    END LOOP;
+
+    -- Engine resolved nothing (a legacy snapshot with no structure item behind
+    -- it): one bill on the structure default, or the platform 30.
+    IF v_rows = 0 THEN
+      SELECT fs.default_due_offset_days INTO v_default
+        FROM public.admission_fee_structures fs
+       WHERE fs.id = public.admission_match_fee_structure_for_learner(p_learner_id);
+
+      sort_order              := v_idx;
+      category_id             := v_cat;
+      category_name           := v_item->>'category_name';
+      item_amount             := v_amt;
+      is_billable             := true;
+      owner_module            := 'admission';
+      instalment_no           := 1;
+      instalment_count        := 1;
+      instalment_amount       := v_amt;
+      share_percent           := 100;
+      due_date                := v_anchor + COALESCE(v_default, 30);
+      promotes_to_status_code := NULL;
+      matched_source          := 'default';
+      RETURN NEXT;
+    END IF;
+  END LOOP;
+
+  RETURN;
+END;
+$function$;

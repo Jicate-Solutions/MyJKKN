@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -55,7 +55,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import { cn } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
@@ -68,6 +68,21 @@ import {
   useUpdateStudentBill
 } from '@/hooks/billing/use-student-bills';
 import { useAcademicYears } from '@/hooks/use-academic-years';
+import {
+  validatePlanLines,
+  fetchInstalmentSplit
+} from '@/lib/services/billing/instalments/instalment-plan-service';
+import {
+  writeBillInstalments,
+  replaceBillInstalments,
+  type BillInstalmentLine
+} from '@/lib/services/billing/instalments/bill-instalment-writer';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  fetchFeeStructurePreview,
+  type FeeStructurePreview
+} from '@/lib/services/billing/instalments/fee-structure-preview';
+import { BillInstalmentEditor } from './bill-instalment-editor';
 import type { Institution } from '@/types/organizations';
 import type { BillingCategory } from '@/types/billing';
 import type {
@@ -76,11 +91,25 @@ import type {
   StudentForBilling
 } from '@/types/billing-schedule';
 
+// One authored tranche. Percent-only and date-only by design: a manual bill
+// takes no due_anchor/offset (it has a concrete date now) and no
+// promotes_to_status_code (raising a bill must not move a learner up the
+// lifecycle ladder — that stays with the reviewed fee structure).
+const billInstalmentSchema = z.object({
+  share_percent: z
+    .number({ invalid_type_error: 'Share must be a number' })
+    .gt(0, 'Share must be greater than 0')
+    .max(100, 'Share cannot exceed 100'),
+  due_date: z.string().min(1, 'Each instalment needs a due date')
+});
+
 // Schema for individual billing item
 const billingItemSchema = z.object({
   item_category_id: z.string().min(1, 'Item category is required'),
   unit_amount: z.number().min(0, 'Unit amount must be positive'),
-  tax_amount: z.number().min(0, 'Tax amount must be positive').default(0)
+  tax_amount: z.number().min(0, 'Tax amount must be positive').default(0),
+  /** Empty = a plain single-date bill, which is every bill's behaviour today. */
+  instalments: z.array(billInstalmentSchema).default([])
 });
 
 // Main form schema with multiple billing items
@@ -96,6 +125,32 @@ const studentBillSchema = z.object({
   is_recurring: z.boolean().default(false),
   recurrence_pattern: z.enum(['monthly', 'quarterly', 'yearly']).optional(),
   number_of_recurrences: z.number().min(1).max(100).optional()
+}).superRefine((data, ctx) => {
+  // Run the SAME check the fee-structure editor saves against, so a split that
+  // the engine would refuse is a form error here instead of a Postgres
+  // exception (BL002 from the deferred sum trigger) after the bill row has
+  // already been inserted.
+  data.billing_items.forEach((item, index) => {
+    const lines = item.instalments ?? [];
+    if (lines.length === 0) return;
+
+    const errors = validatePlanLines(
+      lines.map((line, i) => ({
+        sequence_no: i + 1,
+        share_percent: line.share_percent,
+        fixed_amount: null,
+        due_date: line.due_date,
+        due_offset_days: null
+      }))
+    );
+    for (const message of errors) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['billing_items', index, 'instalments'],
+        message
+      });
+    }
+  });
 });
 
 type StudentBillFormData = z.infer<typeof studentBillSchema>;
@@ -210,7 +265,10 @@ export function StudentBillForm({
           {
             item_category_id: bill.item_category_id || '',
             unit_amount: bill.unit_amount || 0,
-            tax_amount: bill.tax_amount || 0
+            tax_amount: bill.tax_amount || 0,
+            // Loaded from billing_bill_instalments by the effect below;
+            // the bill row itself carries no schedule.
+            instalments: []
           }
         ],
         overall_remarks: bill.remarks || '',
@@ -228,7 +286,8 @@ export function StudentBillForm({
           {
             item_category_id: '',
             unit_amount: 0,
-            tax_amount: 0
+            tax_amount: 0,
+            instalments: []
           }
         ],
         overall_remarks: '',
@@ -246,7 +305,8 @@ export function StudentBillForm({
           {
             item_category_id: '',
             unit_amount: 0,
-            tax_amount: 0
+            tax_amount: 0,
+            instalments: []
           }
         ],
         overall_remarks: '',
@@ -295,6 +355,231 @@ export function StudentBillForm({
   );
   const academicYears = academicYearsData?.data || [];
 
+  // ─── Payment schedules on a manually-raised bill ───────────────────────────
+  //
+  // Shares are taken of the ITEM's own amount + tax, not the grand total:
+  // every billing item becomes its own bill row, and trg_bbi_validate_sum
+  // checks the tranches against that row's final_amount.
+  const itemFinalAmount = (index: number) => {
+    const item = watchedValues.billing_items?.[index];
+    return (item?.unit_amount || 0) + (item?.tax_amount || 0);
+  };
+
+  // Where an item's lines came from, per item index. Purely informational.
+  const [scheduleSource, setScheduleSource] = useState<Record<number, string>>({});
+  // Real splits offered by the learner's fee structure, per item index.
+  //
+  // INVARIANT: a key exists ONLY when there are >= 2 lines. Storing [] for
+  // "no split" is what made the per-item button appear for every item — `!![]`
+  // is true — and then do nothing when clicked. Keeping the empty case OUT of
+  // the map means a truthiness test is correct too.
+  const [structureSplitAvailable, setStructureSplitAvailable] = useState<
+    Record<number, BillInstalmentLine[]>
+  >({});
+
+  // Editing the split of a bill that has already taken money would silently
+  // change which tranches read as settled — allocation is derived from the
+  // bill's paid position, oldest tranche first — and that in turn feeds the
+  // promotion engine. A bill only stays schedulable while it is untouched.
+  const scheduleLocked = !!bill && (bill.status !== 'unpaid' ||
+    Number(bill.balance_amount ?? bill.final_amount) !== Number(bill.final_amount));
+
+  /**
+   * Turns stored rupee tranches back into the share percentages this editor
+   * works in.
+   *
+   * The LAST share is the remainder, not its own rounded quotient. Rounding
+   * each line independently is what a 30/35/35 or a thirds split does NOT
+   * survive: 33.33 x 3 = 99.99, and validatePlanLines demands exactly 100, so
+   * a freshly prefilled form would refuse to save the very schedule the fee
+   * structure authored.
+   */
+  const sharesFromAmounts = (amounts: number[], total: number): number[] => {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const out: number[] = [];
+    let used = 0;
+    amounts.forEach((amount, i) => {
+      if (i < amounts.length - 1) {
+        const pct = round2((Number(amount) / total) * 100);
+        out.push(pct);
+        used += pct;
+      } else {
+        out.push(round2(100 - used));
+      }
+    });
+    return out;
+  };
+
+  /**
+   * Asks the engine what THIS learner's fee structure says about THIS category,
+   * and returns the lines as share percentages of the given amount.
+   *
+   * Reuses fetchInstalmentSplit — the same guarded RPC the generation path
+   * uses — rather than reading the structure tables directly, so the manual
+   * form and the generator cannot resolve different schedules. It returns null
+   * on any error or missing permission, which here simply means "no prefill".
+   */
+  const loadStructureSplit = async (
+    studentId: string,
+    categoryId: string,
+    amount: number
+  ): Promise<BillInstalmentLine[] | null> => {
+    if (!studentId || !categoryId || !(amount > 0)) return null;
+    const split = await fetchInstalmentSplit(
+      createClientSupabaseClient(),
+      studentId,
+      categoryId,
+      amount
+    );
+    // One row is an unsplit fee carrying only a due date — not a schedule.
+    if (!split || split.length < 2) return null;
+
+    // Back out the percentages the engine's rupees represent, so the operator
+    // edits in the same unit the fee structure was authored in.
+    const shares = sharesFromAmounts(
+      split.map((row) => Number(row.instalment_amount)),
+      amount
+    );
+    return split.map((row, i) => ({
+      share_percent: shares[i],
+      due_date: row.instalment_due_date
+    }));
+  };
+
+  const applyFeeStructureSplit = (index: number) => {
+    // Unreachable while the button is gated on length >= 2; kept as the
+    // last line of defence so a future caller cannot reintroduce a no-op click.
+    const lines = structureSplitAvailable[index];
+    if (!lines || lines.length < 2) {
+      toast.error('This fee item has no instalment schedule in the fee structure.');
+      return;
+    }
+    form.setValue(`billing_items.${index}.instalments`, lines, {
+      shouldDirty: true,
+      shouldValidate: true
+    });
+    setScheduleSource((prev) => ({
+      ...prev,
+      [index]: "From this learner's fee structure"
+    }));
+  };
+
+  // Signatures already probed, so a re-render does not re-hit the RPC and a
+  // prefill cannot fight the operator's own edits.
+  const probedRef = useRef<Record<number, string>>({});
+
+  // A stable signature of the (category, amount) pairs on screen. Extracted
+  // rather than inlined in the dependency array so the linter can check it.
+  const scheduleProbeKey = JSON.stringify(
+    (watchedValues.billing_items || []).map((i) => [
+      i.item_category_id,
+      i.unit_amount,
+      i.tax_amount
+    ])
+  );
+
+  // Prefill from the fee structure when learner + category + amount settle.
+  // Only ever fills an item whose schedule is still EMPTY: once the operator
+  // has touched the lines they own them, and a later re-probe must not
+  // overwrite what they typed.
+  useEffect(() => {
+    if (scheduleLocked) return;
+    const studentId = watchedValues.student_id;
+    const items = watchedValues.billing_items || [];
+    if (!studentId) return;
+
+    let cancelled = false;
+
+    items.forEach((item, index) => {
+      const amount = (item.unit_amount || 0) + (item.tax_amount || 0);
+      const signature = `${studentId}|${item.item_category_id}|${amount}`;
+      if (!item.item_category_id || !(amount > 0)) return;
+      if (probedRef.current[index] === signature) return;
+      probedRef.current[index] = signature;
+
+      // Same rule as the panel: a prefill that cannot be read leaves the item
+      // exactly as the operator typed it rather than crashing the form.
+      void loadStructureSplit(studentId, item.item_category_id, amount).catch(
+        () => null
+      ).then(
+        (lines) => {
+          if (cancelled) return;
+          setStructureSplitAvailable((prev) => {
+            const next = { ...prev };
+            if (lines && lines.length >= 2) next[index] = lines;
+            else delete next[index];
+            return next;
+          });
+          if (!lines) return;
+
+          const current = form.getValues(`billing_items.${index}.instalments`) ?? [];
+          if (current.length > 0) return;
+
+          form.setValue(`billing_items.${index}.instalments`, lines, {
+            shouldDirty: false,
+            shouldValidate: false
+          });
+          setScheduleSource((prev) => ({
+            ...prev,
+            [index]: "Prefilled from this learner's fee structure"
+          }));
+        }
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedValues.student_id, scheduleProbeKey, scheduleLocked]);
+
+  // Edit path: the bill row carries no schedule, so load its tranches and turn
+  // them back into the share percentages this editor works in.
+  useEffect(() => {
+    if (!bill?.id) return;
+    let cancelled = false;
+
+    void (async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('billing_bill_instalments')
+        .select('sequence_no, amount, due_date')
+        .eq('bill_id', bill.id)
+        .order('sequence_no', { ascending: true });
+
+      // Supabase errors are plain objects. A schedule that cannot be read must
+      // NOT silently render as "no schedule" and then be saved as a removal,
+      // so bail out and leave the editor showing nothing to submit.
+      if (error || cancelled || !data?.length) return;
+
+      const total = Number(bill.final_amount) || 0;
+      if (!(total > 0)) return;
+
+      const rows = data as Array<{ amount: number; due_date: string }>;
+      const shares = sharesFromAmounts(
+        rows.map((row) => Number(row.amount)),
+        total
+      );
+      form.setValue(
+        'billing_items.0.instalments',
+        rows.map((row, i) => ({
+          share_percent: shares[i],
+          due_date: row.due_date
+        })),
+        { shouldDirty: false, shouldValidate: false }
+      );
+      setScheduleSource((prev) => ({ ...prev, 0: 'Saved on this bill' }));
+      // This bill already has a schedule; the prefill effect must not later
+      // decide the item is empty and overwrite it.
+      probedRef.current[0] = 'loaded-from-bill';
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bill?.id]);
+
   // Calculate totals from all billing items
   const calculateTotals = () => {
     const items = watchedValues.billing_items || [];
@@ -335,7 +620,10 @@ export function StudentBillForm({
           {
             item_category_id: bill.item_category_id || '',
             unit_amount: bill.unit_amount || 0,
-            tax_amount: bill.tax_amount || 0
+            tax_amount: bill.tax_amount || 0,
+            // Loaded from billing_bill_instalments by the effect below;
+            // the bill row itself carries no schedule.
+            instalments: []
           }
         ],
         overall_remarks: bill.remarks || '',
@@ -375,7 +663,8 @@ export function StudentBillForm({
           {
             item_category_id: '',
             unit_amount: 0,
-            tax_amount: 0
+            tax_amount: 0,
+            instalments: []
           }
         ],
         overall_remarks: '',
@@ -471,6 +760,20 @@ export function StudentBillForm({
           billData: buildBillDto(data.billing_items[0], data)
         });
 
+        // Replace, not append: sequence_no is unique per bill and must stay
+        // contiguous from 1. Skipped entirely once money has landed, since
+        // the editor is read-only then and resubmitting the derived
+        // percentages could re-round a schedule nobody asked to change.
+        if (!scheduleLocked) {
+          const item = data.billing_items[0];
+          await replaceBillInstalments(
+            createClientSupabaseClient(),
+            bill.id,
+            item.unit_amount + (item.tax_amount || 0),
+            (item.instalments ?? []) as BillInstalmentLine[]
+          );
+        }
+
         if (onSuccess) {
           onSuccess();
         } else {
@@ -488,6 +791,19 @@ export function StudentBillForm({
           buildBillDto(item, data)
         );
         if (created?.id) createdBillIds.push(created.id);
+
+        // The tranches need the bill's id, so they can only be written
+        // after the insert resolves. An item with no lines writes nothing
+        // and stays exactly the plain single-date bill it is today.
+        const lines = (item.instalments ?? []) as BillInstalmentLine[];
+        if (created?.id && lines.length > 0) {
+          await writeBillInstalments(
+            createClientSupabaseClient(),
+            created.id,
+            item.unit_amount + (item.tax_amount || 0),
+            lines
+          );
+        }
         createdCount += 1;
       }
 
@@ -518,11 +834,202 @@ export function StudentBillForm({
     }
   };
 
+  // ─── Load the whole fee structure into the form ───────────────────────────
+  const [structurePreview, setStructurePreview] =
+    useState<FeeStructurePreview | null>(null);
+  const [loadingStructure, setLoadingStructure] = useState(false);
+
+  const selectedStudentId = watchedValues.student_id;
+
+  // Probe as soon as a learner is chosen, so the panel can say what WILL
+  // happen (or why nothing can) before the operator commits to pressing it.
+  useEffect(() => {
+    if (bill || !selectedStudentId) {
+      setStructurePreview(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingStructure(true);
+
+    // The fee-structure panel is an ASSIST, never a prerequisite for raising
+    // a bill. Anything that goes wrong reading it — a permission the operator
+    // lacks, a network failure, a module that failed to load — must degrade to
+    // "add the items by hand", not take the whole form down through the route
+    // error boundary. An uncaught throw in an effect body does exactly that.
+    void (async () => {
+      try {
+        const preview = await fetchFeeStructurePreview(
+          createClientSupabaseClient() as never,
+          selectedStudentId
+        );
+        if (cancelled) return;
+        setStructurePreview(preview);
+      } catch (err) {
+        if (cancelled) return;
+        setStructurePreview({
+          items: [],
+          isEmpty: true,
+          error: getErrorMessage(err)
+        });
+      } finally {
+        if (!cancelled) setLoadingStructure(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStudentId, bill]);
+
+  /**
+   * Replaces the billing items with the learner's fee structure.
+   *
+   * REPLACES rather than appends: the form starts with one blank item, and
+   * appending would leave that blank row to fail validation on save. Anything
+   * the operator had already typed is theirs to re-add — which is why the
+   * button says "Replace" once there is real content.
+   *
+   * Non-billable items (hostel/mess/transport) are deliberately dropped: those
+   * bills belong to Campus Living and TMS, and raising them here would
+   * double-bill the learner. The panel lists them so their absence is visible.
+   */
+  const applyFeeStructure = () => {
+    const billable = (structurePreview?.items ?? []).filter((i) => i.is_billable);
+    if (billable.length === 0) return;
+
+    form.setValue(
+      'billing_items',
+      billable.map((item) => ({
+        item_category_id: item.category_id,
+        unit_amount: item.amount,
+        tax_amount: 0,
+        instalments: item.instalments
+      })),
+      { shouldDirty: true, shouldValidate: false }
+    );
+
+    // The earliest date the structure names becomes the bill-level due date;
+    // scheduled items then have it overwritten per bill by the tranche sync
+    // trigger anyway.
+    const firstDue = billable
+      .map((i) => i.instalments[0]?.due_date ?? i.due_date)
+      .filter(Boolean)
+      .sort()[0];
+    if (firstDue) form.setValue('due_date', new Date(`${firstDue}T00:00:00`));
+
+    // Everything below came from the structure, and the per-item prefill must
+    // not later decide an item looks empty and re-probe over it.
+    const sources: Record<number, string> = {};
+    billable.forEach((item, i) => {
+      probedRef.current[i] = 'loaded-from-structure';
+      if (item.instalments.length > 0) sources[i] = 'From the fee structure';
+    });
+    setScheduleSource(sources);
+    setStructureSplitAvailable(
+      Object.fromEntries(
+        billable
+          .map((item, i) => [i, item.instalments] as const)
+          .filter(([, lines]) => lines.length >= 2)
+      )
+    );
+  };
+
+  /**
+   * The panel above the items list. Always explains itself — a button that
+   * silently does nothing is the failure mode this replaces.
+   *
+   * A render FUNCTION, not a nested component: a component declared inside
+   * render is a new type on every render, so React unmounts and remounts its
+   * whole subtree each time the form state changes.
+   */
+  const renderFeeStructureLoader = () => {
+    if (!selectedStudentId) return null;
+
+    if (loadingStructure) {
+      return (
+        <div className='rounded-md border border-dashed p-3 text-xs text-muted-foreground'>
+          Checking this learner&apos;s fee structure…
+        </div>
+      );
+    }
+    if (!structurePreview) return null;
+
+    if (structurePreview.error) {
+      return (
+        <div className='rounded-md border border-dashed border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-100'>
+          Could not read the fee structure: {structurePreview.error}
+        </div>
+      );
+    }
+
+    const billable = structurePreview.items.filter((i) => i.is_billable);
+    const foreign = structurePreview.items.filter((i) => !i.is_billable);
+
+    if (billable.length === 0) {
+      return (
+        <div className='rounded-md border border-dashed p-3 text-xs text-muted-foreground'>
+          No fee structure matches this learner, so there is nothing to load.
+          A structure is matched on admission year, quota and community together —
+          the usual reason is that the learner&apos;s admission year has none configured.
+          Check Admission → Settings → Fees Structure, or add the items by hand below.
+        </div>
+      );
+    }
+
+    const total = billable.reduce((sum, i) => sum + i.amount, 0);
+    const hasContent = fields.length > 1 || !!watchedValues.billing_items?.[0]?.item_category_id;
+
+    return (
+      <div className='rounded-md border bg-muted/30'>
+        <div className='flex flex-wrap items-center gap-2 border-b px-3 py-2'>
+          <Calculator className='h-4 w-4 text-muted-foreground' aria-hidden='true' />
+          <span className='text-sm font-medium'>Fee structure</span>
+          <Badge variant='secondary' className='font-normal'>
+            {billable.length} item{billable.length > 1 ? 's' : ''} · ₹
+            {total.toLocaleString('en-IN')}
+          </Badge>
+          <Button
+            type='button'
+            size='sm'
+            className='ml-auto'
+            onClick={applyFeeStructure}
+          >
+            {hasContent ? 'Replace items with fee structure' : 'Use fee structure'}
+          </Button>
+        </div>
+
+        <ul className='divide-y text-xs'>
+          {billable.map((item) => (
+            <li key={item.category_id} className='flex flex-wrap items-center gap-2 px-3 py-1.5'>
+              <span className='font-medium'>{item.category_name}</span>
+              <span className='tabular-nums'>₹{item.amount.toLocaleString('en-IN')}</span>
+              <span className='ml-auto text-muted-foreground'>
+                {item.instalments.length > 1
+                  ? `${item.instalments.length} instalments`
+                  : item.due_date
+                    ? `due ${item.due_date}`
+                    : 'single payment'}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        {foreign.length > 0 && (
+          <p className='border-t px-3 py-1.5 text-[11px] text-muted-foreground'>
+            Not added: {foreign.map((i) => i.category_name).join(', ')} — hostel,
+            mess and transport are billed by their own modules.
+          </p>
+        )}
+      </div>
+    );
+  };
+
   const addBillingItem = () => {
     append({
       item_category_id: '',
       unit_amount: 0,
-      tax_amount: 0
+      tax_amount: 0,
+      instalments: []
     });
   };
 
@@ -911,6 +1418,11 @@ export function StudentBillForm({
             </CardHeader>
             <CardContent>
               <div className='space-y-6'>
+                {/* Sits BEFORE the items: the usual act is "bill this learner
+                    what their structure says", and picking each category by
+                    hand first (then discovering the amount) is the slow path. */}
+                {!bill && renderFeeStructureLoader()}
+
                 {fields.map((field, index) => (
                   <Card key={field.id} className='border-l-4 border-l-blue-500'>
                     <CardHeader className='pb-3'>
@@ -1005,6 +1517,38 @@ export function StudentBillForm({
                           </span>
                         </div>
                       </div>
+
+                      {/* Payment schedule. Shares are taken of the item's own
+                          amount + tax — the final_amount its bill row will carry —
+                          not of the grand total, because each item becomes its own
+                          bill and the sum invariant is enforced per bill. */}
+                      <FormField
+                        control={form.control}
+                        name={`billing_items.${index}.instalments`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <BillInstalmentEditor
+                                amount={itemFinalAmount(index)}
+                                value={(field.value ?? []) as BillInstalmentLine[]}
+                                onChange={field.onChange}
+                                readOnly={scheduleLocked}
+                                sourceNote={scheduleSource[index] ?? null}
+                                canApplyFeeStructure={
+                                  // .length >= 2, NOT truthiness: an empty array is
+                                  // truthy, so `!![]` showed this button for every item
+                                  // that had NO split and the click then returned early —
+                                  // a button that visibly did nothing.
+                                  (structureSplitAvailable[index]?.length ?? 0) >= 2 &&
+                                  !scheduleLocked
+                                }
+                                onApplyFeeStructure={() => applyFeeStructureSplit(index)}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </CardContent>
                   </Card>
                 ))}

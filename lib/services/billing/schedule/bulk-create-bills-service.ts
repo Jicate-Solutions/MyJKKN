@@ -3,15 +3,18 @@ import { getErrorMessage } from '@/lib/utils';
 import { selectInBatches } from '@/lib/utils/supabase-batched-in';
 import {
   resolveStudentBillColumns,
+  parseInstalmentColumns,
   PREVIEW_ROW_CAP,
   type BulkCreatePreviewResult,
   type BulkCreatePreviewRow,
   type CategoryConditionCheck,
   type ImportError,
   type ImportSuccessRow,
+  type ParsedInstalmentLine,
   type RowIssue,
   type RowIssueKind
 } from '@/lib/utils/mappings/student-bill-excel-mappings';
+import { writeBillInstalments } from '../instalments/bill-instalment-writer';
 import {
   isOncePerLearnerViolation,
   oncePerLearnerMessage
@@ -95,6 +98,8 @@ interface PendingInsert {
   row: number;
   payload: Record<string, unknown>;
   success: ImportSuccessRow;
+  /** Written to billing_bill_instalments once the bill row has an id. */
+  instalments: ParsedInstalmentLine[];
 }
 
 /**
@@ -242,6 +247,8 @@ export class BulkCreateBillsService {
       const institutionName = cellToString(cell('institution_name'));
       const description = cellToString(cell('bill_description'));
       const remarks = cellToString(cell('remarks'));
+      const sharesRaw = cellToString(cell('instalment_shares'));
+      const datesRaw = cellToString(cell('instalment_due_dates'));
       const firstName = cellToString(cell('first_name'));
       const lastName = cellToString(cell('last_name'));
 
@@ -643,11 +650,21 @@ export class BulkCreateBillsService {
         claimedInThisSheet.add(pairKey);
       }
 
+      // Optional payment schedule. Validated HERE, at preview time, so a bad
+      // split is a row error the reviewer sees before committing rather than
+      // a deferred BL002 after the bill row already exists.
+      const schedule = parseInstalmentColumns(sharesRaw, datesRaw, cellToISODate);
+      if (schedule.errors.length > 0) {
+        fail('format', 'Instalment Shares', schedule.errors.join(' '));
+        continue;
+      }
+
       // Row is good. quantity is 1 and there is no tax in this flow, so total,
       // final and balance all equal the entered amount.
       const amount = cleaned.billing_amount;
       inserts.push({
         row: preview.row,
+        instalments: schedule.lines,
         payload: {
           student_id: learner.id,
           institution_id: learner.institution_id,
@@ -721,6 +738,31 @@ export class BulkCreateBillsService {
       return getErrorMessage(error);
     };
 
+    /**
+     * Writes one bill's tranches, and reports a failure as a ROW error rather
+     * than throwing. The bill itself is already committed at this point — a
+     * schedule that could not be written must not make a successfully created
+     * bill look like it failed, but it must not pass silently either.
+     */
+    const attachSchedule = async (item: PendingInsert, billId?: string) => {
+      if (!billId || item.instalments.length === 0) return;
+      try {
+        await writeBillInstalments(
+          client as never,
+          billId,
+          Number(item.payload.final_amount),
+          item.instalments
+        );
+      } catch (err) {
+        errors.push({
+          row: item.row,
+          roll_number: item.success.roll_number,
+          student_name: item.success.student_name,
+          message: `Bill created, but its payment schedule was not saved: ${getErrorMessage(err)}`
+        });
+      }
+    };
+
     const insertOneByOne = async (batch: PendingInsert[]) => {
       for (const item of batch) {
         const { data, error } = await client
@@ -738,6 +780,7 @@ export class BulkCreateBillsService {
           });
           continue;
         }
+        await attachSchedule(item, data?.id);
         successes.push({ ...item.success, bill_id: data?.id });
       }
     };
@@ -760,9 +803,11 @@ export class BulkCreateBillsService {
 
         // PostgREST returns inserted rows in input order, so index j of `data`
         // is the bill created from batch[j].
-        batch.forEach((item, j) => {
-          successes.push({ ...item.success, bill_id: (data as any[])?.[j]?.id });
-        });
+        for (let j = 0; j < batch.length; j++) {
+          const billId = (data as any[])?.[j]?.id;
+          await attachSchedule(batch[j], billId);
+          successes.push({ ...batch[j].success, bill_id: billId });
+        }
       } catch (err) {
         console.warn(
           `[bulk-create-bills] Chunk of ${batch.length} threw (${getErrorMessage(err)}) — retrying row by row.`
