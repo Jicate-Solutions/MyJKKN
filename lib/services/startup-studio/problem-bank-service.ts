@@ -64,7 +64,12 @@ export class ProblemBankService extends BaseService {
       query = query.eq('event_id', filters.event_id);
     }
     if (filters?.min_severity != null) {
-      query = query.gte('severity', filters.min_severity);
+      // The column is severity_rating. 'severity' has never existed on
+      // ss_problem_bank, so this filter sent an unknown column to Postgres
+      // and returned HTTP 500 every time it was used — the same drift that
+      // made four theme values 500 in #2977, and unreachable for the same
+      // reason: an empty table cannot fail a filter.
+      query = query.gte('severity_rating', filters.min_severity);
     }
     if (filters?.search) {
       const escaped = sanitizeSearch(filters.search);

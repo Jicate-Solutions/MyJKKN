@@ -79,6 +79,11 @@ interface NarrativeDetail {
   status: NarrativeStatus;
   owner_user_id: string | null;
   revision_note: string | null;
+  // Return-edge measurement columns (20260928010000). Optional: the select('*')
+  // simply omits them until the migration is applied, and the UI hides the line.
+  edit_distance?: number | null;
+  edit_ratio?: number | null;
+  edit_measured_at?: string | null;
 }
 
 // ----------------------------------------------------------------------------
@@ -378,6 +383,12 @@ export default function NAACNarrativeDetailPage({
               {(narrative.evidence_row_count ?? 0) === 1 ? '' : 's'} cited
             </span>
             {narrative.model ? <span> · drafted by {narrative.model}</span> : null}
+            {narrative.edit_ratio != null ? (
+              <span>
+                {' '}· {Math.round(Number(narrative.edit_ratio) * 100)}% edited
+                from the AI draft at okay
+              </span>
+            ) : null}
           </CardContent>
         </Card>
 

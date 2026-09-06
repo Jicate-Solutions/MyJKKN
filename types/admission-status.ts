@@ -3,6 +3,20 @@ import { z } from 'zod';
 
 export type AdmissionStatusScope = 'lead' | 'learner';
 
+/** What fee_paid_threshold_percent is measured against (2026-08-11 ruling:
+ *  due-as-on-date is the platform default — a learner cannot be behind on
+ *  money whose due date has not arrived). */
+export type ThresholdBasis =
+  | 'billed_to_date'
+  | 'due_to_date'
+  | 'due_to_date_current_year';
+
+export const THRESHOLD_BASIS_LABELS: Record<ThresholdBasis, string> = {
+  billed_to_date: 'All bills to date (legacy)',
+  due_to_date: 'Bills due as on date',
+  due_to_date_current_year: "This academic year's bills due as on date",
+};
+
 export interface AdmissionStatus {
   id: string;
   scope: AdmissionStatusScope;
@@ -16,6 +30,7 @@ export interface AdmissionStatus {
   is_terminal: boolean;
   is_seat_filled: boolean;
   fee_paid_threshold_percent: number | null;
+  threshold_basis: ThresholdBasis;
   gates_login: boolean;
   created_at: string;
   updated_at: string;
@@ -37,6 +52,8 @@ export const admissionStatusFormSchema = z.object({
   is_terminal: z.boolean().default(false),
   is_seat_filled: z.boolean().default(false),
   fee_paid_threshold_percent: z.coerce.number().min(0).max(100).nullable().optional(),
+  threshold_basis: z.enum(['billed_to_date', 'due_to_date', 'due_to_date_current_year'])
+    .default('due_to_date'),
   gates_login: z.boolean().default(false),
 }).refine(
   (v) => v.scope === 'learner' || v.fee_paid_threshold_percent == null,

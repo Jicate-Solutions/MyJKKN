@@ -25,8 +25,17 @@ import {
 } from '@/lib/services/induction/induction-speakers-service';
 import { SessionPulseControl } from './session-pulse-control';
 import { SessionLoopTipCard } from './session-loop-tip';
+// The coordinator console's roster dialog, reused verbatim so a resource person
+// marks attendance through the SAME UI (search, P/A/E/OD, mark-all) the
+// coordinator uses — it calls fn_induction_mark_attendance, whose speaker branch
+// authorizes exactly the sessions listed on this card.
+import { AttendanceDialog } from '@/app/(routes)/events/induction/[id]/_components/attendance-dialog';
 import {
-  Mic, CalendarDays, MapPin, Star, MessageSquare, ChevronDown, ChevronUp,
+  InductionVolunteerService,
+  type MyVolunteerSession,
+} from '@/lib/services/induction/induction-volunteer-service';
+import {
+  Mic, CalendarDays, MapPin, Star, MessageSquare, ChevronDown, ChevronUp, ClipboardCheck, ClipboardList,
 } from 'lucide-react';
 
 type CommentState = 'loading' | SessionCommentRow[] | { error: string };
@@ -36,6 +45,18 @@ export function SessionsLedCard({ showEmptyState = false }: { showEmptyState?: b
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [comments, setComments] = useState<Record<string, CommentState>>({});
   const [tips, setTips] = useState<Record<string, SessionLoopTip>>({});
+  // REGISTRATION DESKS I may staff. Sourced from the mentor RPC, which self-scopes
+  // to events where I'm an ACTIVE Senior Peer Mentor — so for anyone else (staff
+  // resource person, fresher, non-mentor) this is simply empty and the card is
+  // unchanged. A desk needs no speaker credit, which is exactly why it can't ride
+  // in on getMySessionsFeedback().
+  const [desks, setDesks] = useState<MyVolunteerSession[]>([]);
+
+  useEffect(() => {
+    InductionVolunteerService.myVolunteerSessions()
+      .then((all) => setDesks(all.filter((s) => s.kind === 'registration')))
+      .catch(() => setDesks([]));
+  }, []);
 
   useEffect(() => {
     InductionSpeakersService.getMySessionsFeedback()
@@ -76,8 +97,8 @@ export function SessionsLedCard({ showEmptyState = false }: { showEmptyState?: b
   // still loading
   if (rows === null) return null;
 
-  // nothing led
-  if (rows.length === 0) {
+  // nothing led AND no desk to staff
+  if (rows.length === 0 && desks.length === 0) {
     if (!showEmptyState) return null; // fresher page: stay invisible
     return (
       <Card>
@@ -99,15 +120,71 @@ export function SessionsLedCard({ showEmptyState = false }: { showEmptyState?: b
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Mic className="h-4 w-4 text-emerald-600" />
-          <CardTitle className="text-base">Sessions you led</CardTitle>
+          {/* A mentor with only a desk never "led" anything — title follows the
+              content so the card doesn't mislabel what's under it. */}
+          {desks.length > 0 && rows.length === 0 ? (
+            <>
+              <ClipboardList className="h-4 w-4 text-emerald-600" />
+              <CardTitle className="text-base">Your registration desk</CardTitle>
+            </>
+          ) : (
+            <>
+              <Mic className="h-4 w-4 text-emerald-600" />
+              <CardTitle className="text-base">Sessions you led</CardTitle>
+            </>
+          )}
         </div>
         <CardDescription>
-          Induction sessions you presented as a resource person, with each session&apos;s
-          anonymous feedback. Ratings stay hidden until at least 3 freshers respond.
+          {desks.length > 0 && rows.length === 0 ? (
+            <>The registration desk you staff as a Senior Peer Mentor. Open it to check in
+            freshers as they arrive.</>
+          ) : (
+            <>Induction sessions you presented as a resource person, with each session&apos;s
+            anonymous feedback. Ratings stay hidden until at least 3 freshers respond.</>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
+        {/* Registration desks — shown only to an active Senior Peer Mentor of the
+            induction. Listed first: on day 1 the desk is the job. No feedback /
+            comments / pulse block, because a desk isn't a talk to be rated. */}
+        {desks.map((d) => (
+          <div key={d.session_id} className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.03] p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium text-sm flex items-center gap-2">
+                  {d.session_title || 'Registration'}
+                  <Badge variant="outline" className="gap-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-400">
+                    <ClipboardList className="h-3 w-3" /> Registration desk
+                  </Badge>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {d.event_name && <span>{d.event_name}</span>}
+                  {d.day_number ? <span>Day {d.day_number}</span> : null}
+                  {d.start_at && (
+                    <span className="flex items-center gap-1">
+                      <CalendarDays className="h-3 w-3" />
+                      {new Date(d.start_at).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <AttendanceDialog
+                sessionId={d.session_id}
+                sessionTitle={d.session_title || 'Registration'}
+                api={{
+                  loadRoster: InductionVolunteerService.registrationRoster,
+                  save: InductionVolunteerService.markAttendance,
+                }}
+                trigger={
+                  <Button size="sm" className="shrink-0">
+                    <ClipboardList className="h-3.5 w-3.5 mr-1.5" /> Register freshers
+                  </Button>
+                }
+              />
+            </div>
+          </div>
+        ))}
         {rows.map((s) => {
           const isOpen = !!open[s.session_id];
           const cstate = comments[s.session_id];
@@ -196,8 +273,17 @@ export function SessionsLedCard({ showEmptyState = false }: { showEmptyState?: b
                 </div>
               )}
 
-              {/* resource-person live pulse control (open / live totals / close) */}
-              <div className="mt-2">
+              {/* resource-person session tools: attendance roster + live pulse */}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <AttendanceDialog
+                  sessionId={s.session_id}
+                  sessionTitle={s.title || 'Session'}
+                  trigger={
+                    <Button variant="outline" size="sm" className="h-8">
+                      <ClipboardCheck className="h-3.5 w-3.5 mr-1.5" /> Take attendance
+                    </Button>
+                  }
+                />
                 <SessionPulseControl sessionId={s.session_id} />
               </div>
 

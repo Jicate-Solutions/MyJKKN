@@ -23,6 +23,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   PremiumEligibilityResult,
   RoommateInviteState,
+  PremiumInviteCandidate,
 } from '@/types/campus-living/premium';
 
 // ---------------------------------------------------------------------------
@@ -503,4 +504,33 @@ export async function countAllocationsByTier(
   }
 
   return counts;
+}
+
+/**
+ * Everyone the caller may invite into her room, with enough detail to recognise
+ * a person: department, semester, programme, and where they live now.
+ *
+ * The list exists because a learner cannot know who else is in her room
+ * category — search-by-name only helps if you already know the name. Ordering
+ * puts her own room category first.
+ *
+ * Own-allocation scoped inside the RPC, which refuses an allocation that is not
+ * the caller's.
+ */
+export async function listInviteCandidates(
+  allocationId: string,
+): Promise<PremiumInviteCandidate[]> {
+  const supabase = createClientSupabaseClient() as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  };
+  const { data, error } = await supabase.rpc('fn_premium_invite_candidates', {
+    p_allocation_id: allocationId,
+  });
+
+  if (error) {
+    console.error('[premium-allocation] listInviteCandidates RPC error:', error);
+    throw new Error(error.message || 'Could not load learners you can invite');
+  }
+
+  return (data ?? []) as PremiumInviteCandidate[];
 }

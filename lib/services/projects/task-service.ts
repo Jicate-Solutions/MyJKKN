@@ -16,10 +16,12 @@ import type {
   ProjectTaskAssignee,
   ProjectTaskAssigneeWithStaff,
   ProjectTaskComment,
+  ProjectTaskCommentWithAuthor,
   ProjectTaskSubtask,
   TaskFilters,
   TaskStatusKey,
 } from '@/types/projects';
+import { getCurrentActorId } from './_actor';
 
 export class TaskService {
   // ─── Tasks ──────────────────────────────────────────────────────────────────
@@ -227,31 +229,45 @@ export class TaskService {
 
   // ─── Comments ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Comments oldest-first, each with its author's profile joined.
+   *
+   * author_id FKs profiles(id); the embed is named so PostgREST resolves the
+   * right relationship (created_by also FKs profiles, so an unnamed embed is
+   * ambiguous).
+   */
   static async listComments(
     supabase: SupabaseClient,
     taskId: string
-  ): Promise<ProjectTaskComment[]> {
+  ): Promise<ProjectTaskCommentWithAuthor[]> {
     const { data, error } = await supabase
       .from('project_task_comments')
-      .select('*')
+      .select('*, author:profiles!project_task_comments_author_id_fkey(id, full_name, email, avatar_url)')
       .eq('task_id', taskId)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
-    return (data ?? []) as ProjectTaskComment[];
+    return (data ?? []) as ProjectTaskCommentWithAuthor[];
   }
 
+  /**
+   * author_id has no DB default and no trigger, so it must be set here or every
+   * comment is written with a null author.
+   */
   static async addComment(
     supabase: SupabaseClient,
     taskId: string,
     body: string,
     parentCommentId?: string | null
   ): Promise<ProjectTaskComment> {
+    const actorId = await getCurrentActorId(supabase);
     const { data, error } = await supabase
       .from('project_task_comments')
       .insert({
         task_id: taskId,
         body,
+        author_id: actorId,
+        created_by: actorId,
         ...(parentCommentId ? { parent_comment_id: parentCommentId } : {}),
       })
       .select('*')

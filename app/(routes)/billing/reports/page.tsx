@@ -13,7 +13,7 @@ import {
   FileText,
   TrendingUp,
   AlertCircle,
-  Receipt,
+  ReceiptIndianRupee,
   CreditCard,
   RefreshCw
 } from 'lucide-react';
@@ -179,7 +179,7 @@ function BillingReportsPageInner() {
               Invoices
             </TabsTrigger>
             <TabsTrigger value='discounts' className='flex items-center gap-2'>
-              <Receipt className='h-4 w-4' />
+              <ReceiptIndianRupee className='h-4 w-4' />
               Discounts
             </TabsTrigger>
             <TabsTrigger value='refunds' className='flex items-center gap-2'>

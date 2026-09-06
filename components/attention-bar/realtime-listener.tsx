@@ -98,7 +98,7 @@ export function RealtimeListener({ showLiveDot = false }: RealtimeListenerProps)
         <div
           data-attention-bar-live-dot
           aria-hidden="true"
-          className="pointer-events-none fixed bottom-2 right-2 z-[77] h-1.5 w-1.5 rounded-full lg:hidden"
+          className="pointer-events-none fixed bottom-nav-safe right-2 z-[77] h-1.5 w-1.5 rounded-full lg:hidden"
           style={{
             backgroundColor: isConnected ? '#22c55e' : '#ef4444',
             boxShadow: isConnected

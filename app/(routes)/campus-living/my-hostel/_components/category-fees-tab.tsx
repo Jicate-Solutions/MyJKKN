@@ -48,15 +48,18 @@ export function CategoryFeesTab() {
   // AUTO categories (Classic/Deluxe) are office-allocated. An allocated resident
   // never books a first room, so booking is gated on having none.
   //
-  // 2026-08-07: upgrades now additionally require an ACTIVE ALLOCATION. Previously an
-  // auto-category resident saw upgrade options before holding any room, so they could
-  // be billed for an upgrade out of a room they did not yet have. It also makes the
-  // Deluxe → Deluxe Plus self-pick tier coherent: that upgrade exists to swap the room
-  // you were auto-allocated, which is meaningless before one is assigned. Residents
-  // still waiting on allocation get an explanatory note rather than a bare summary.
+  // 2026-08-20: upgrades open as soon as BOTH categories are assigned, with or without a
+  // room. An upgrade acts on the category the office allocates you INTO, so doing it before
+  // allocation is the point, not a bug -- you land straight in the upgraded category instead
+  // of being moved twice. Without an allocation the room-level path stays closed
+  // (categoryOnly below): _cl_upgrade_room_category routes a room pick with no allocation to
+  // _cl_execute_first_booking, which seats the learner WITHOUT billing the upgrade or moving
+  // the category -- a free Premium bed. _cl_upgrade_category_only bills correctly and leaves
+  // the room to the office. Learners with no categories yet still get an explanatory note.
   const currentCategory = summary?.hostelCategory ?? null;
   const showBook = currentCategory?.allocation_mode === 'manual' && !hasAllocation;
   const upgradesEnabled = !!summary?.hostelCategory?.upgrades_enabled;
+  const categoriesAssigned = !!summary?.hostelCategory?.id && !!summary?.messCategory?.id;
 
   if (showBook) {
     return (
@@ -139,11 +142,13 @@ export function CategoryFeesTab() {
         </CardContent>
       </Card>
 
-      {/* Self-service upgrades — only once a room is actually assigned. */}
-      {upgradesEnabled && hasAllocation && (
+      {/* Self-service upgrades — available from the moment both categories are set.
+          categoryOnly hides room picking until a room exists (see the note above). */}
+      {upgradesEnabled && categoriesAssigned && (
         <RoomCategoryUpgradeCard
           currentCategoryName={summary?.hostelCategory?.name ?? null}
           mode='upgrade'
+          categoryOnly={!hasAllocation}
         />
       )}
       {/* One-time same-category room change (Premium / Premium + AC). Self-gating:
@@ -151,7 +156,7 @@ export function CategoryFeesTab() {
           room to move out of, so it follows the same allocation gate as upgrades. */}
       {hasAllocation && <RoomChangeCard />}
 
-      {upgradesEnabled && !hasAllocation && (
+      {upgradesEnabled && !categoriesAssigned && (
         <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2 text-base'>
@@ -161,8 +166,8 @@ export function CategoryFeesTab() {
           <CardContent>
             <p className='flex items-start gap-2 text-sm text-muted-foreground'>
               <Info className='mt-0.5 h-4 w-4 shrink-0' />
-              Your room is being allocated. Upgrade options will appear here once your room
-              is assigned.
+              Your room and mess categories are still being assigned. Upgrade options appear
+              here once both are set — you can upgrade before your room is allocated.
             </p>
           </CardContent>
         </Card>

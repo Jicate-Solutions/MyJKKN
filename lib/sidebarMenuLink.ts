@@ -24,6 +24,7 @@ import {
   MessageCircle,
   CalendarDays,
   Building2,
+  Bus,
   GraduationCap,
   BookOpen,
   ClipboardCheck,
@@ -106,6 +107,7 @@ import {
   UserCog,
   SearchCheck,
   BadgeCheck,
+  Presentation,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // The single answer to "which MENU_PERMISSIONS values are not permission keys".
@@ -114,6 +116,10 @@ import { CustomRole } from '@/types/auth';
 // `super_admin` sentinel. permission-filter imports only a type from
 // ./navigation/types, so there is no import cycle back into this file.
 import { isSentinelPermission } from '@/lib/navigation/permission-filter';
+import {
+  INDUCTION_ONLY_NAV_HREFS,
+  INDUCTION_ONLY_NAV_REWRITES,
+} from '@/lib/constants/induction-access';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
 
 /**
@@ -171,6 +177,30 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // here — the page also requires you to actually run a group, which is
   // fp_cohorts.resource_person_id, not a permission.
   '/foundation/practice/facilitate': 'foundation.practice.take',
+  // OneMark — the TN State Board Class-12 one-mark MCQ product, built as an
+  // extension of this programme (specs/onemark-decisions-2026-09-02.md).
+  // Three surfaces on three EXISTING keys — no new permission keys, by ruling:
+  //   a Senior Learner builds a board-shape paper      → assessments.manage
+  //   the subject Senior Learner ticks drafted items   → items.manage
+  //   a learner sits practice / timed / live / vault   → practice.take
+  // None of these inherits the operator key on '/foundation': the sidebar
+  // looks up the EXACT normalized href (MENU_PERMISSIONS[normalizeRoute(href)]),
+  // and the proxy's longest-prefix trie (lib/auth/route-matcher.ts) now stops
+  // at these three nodes instead of falling through to '/foundation' — which
+  // NARROWS server-side access to /foundation/onemark/* from dashboard.view
+  // to each screen's own key.
+  // The OneMark hub (Lane I's app/(routes)/foundation/onemark/page.tsx) renders
+  // permission-filtered cards for practice / paper / review and its own
+  // access panel when none apply. Keyed on the widest key every OneMark
+  // audience holds (learners and school_faculty both): without this entry
+  // the trie resolved the hub to '/foundation' -> foundation.dashboard.view
+  // and a role holding only practice.take bounced to /unauthorized. Not a
+  // sidebar row: a hub child under 'Foundation Programme' keyed on
+  // practice.take would reveal the operator accordion to every learner.
+  '/foundation/onemark': 'foundation.practice.take',
+  '/foundation/onemark/paper': 'foundation.assessments.manage',
+  '/foundation/onemark/review': 'foundation.items.manage',
+  '/foundation/onemark/practice': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
@@ -260,6 +290,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // ======================================================================
   '/director-desk': 'director.handover.view_all',
   '/my-desk': 'view_profile',
+  // What's New (the product changelog) is open to everyone signed in — the
+  // Director's decision, 2026-09-05. `view_profile` is the documented universal
+  // sentinel (isPageAccessible returns true for it unconditionally); an entry
+  // here is REQUIRED because the sidebar's filter is default-deny, so a route
+  // with no mapping is silently super-admin-only. The page scopes its own
+  // CONTENT by role.
+  '/whats-new': 'view_profile',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -278,6 +315,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
   '/users/permissions-audit': 'users.permissions_audit.view',
+  '/users/jkkn-id': 'users.jkkn_id.view',
   // Added 2026-06-19: dynamic user-detail routes were unguarded (no page guard,
   // no MENU_PERMISSIONS entry) so they rendered to any authenticated user. Now
   // declared canonically + enforced by RoutePermissionGuard (/users/layout.tsx).
@@ -379,6 +417,33 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // it this page would fall through to '/hr' → 'hr.view' — a key almost every
   // role holds — and the paying organisation is HR-only by design.
   '/hr/payroll/organisation': 'hr.payroll.institution.view',
+  // WHAT EACH PERSON EARNS. A separate key from the line above on purpose:
+  // maintaining the payer directory and seeing everyone's pay are different
+  // decisions, and longest-prefix resolution would otherwise hand this page to
+  // '/hr/payroll' → 'hr.payroll.institution.view' and grant the second to
+  // everyone holding the first.
+  '/hr/payroll/salaries': 'hr.payroll.salary.view',
+  // The TDS bands sit on the SALARY key, not a new one: setting the rate and
+  // seeing what people earn are the same decision by the same person. This entry
+  // is mandatory rather than tidy — longest-prefix resolution would otherwise
+  // hand the page to '/hr/payroll' -> 'hr.payroll.institution.view', which
+  // hr_manager holds, quietly opening tax configuration to a wider audience than
+  // the salaries it is derived from.
+  '/hr/payroll/tds-slabs': 'hr.payroll.salary.view',
+  // WHERE THE MONEY LANDS. A third key again, not a reuse of the salary one:
+  // the amount and the destination are separate decisions, and the destination
+  // is the field a change to redirects real money.
+  '/hr/payroll/bank-accounts': 'hr.payroll.bank.view',
+  // The frozen monthly salary register. A fourth key, because this is the one
+  // screen that shows amount AND destination AND day counts for everybody at
+  // once — the union of the three above, which is a wider grant than any of
+  // them individually.
+  '/hr/payroll/register': 'hr.payroll.register.view',
+  // Closing an attendance month. Its own key, NOT the self-service
+  // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
+  // entry here longest-prefix resolution would hand all of them the ability to
+  // freeze an institution-month.
+  '/hr/attendance/close': 'hr.attendance.period.view',
   // The hub at /hr/payroll only redirects to the page above, but it needs its
   // own entry: without one the longest-prefix match falls through to '/hr' →
   // 'hr.view', so anyone in HR could open it and be denied one redirect later.
@@ -472,6 +537,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // /hr/admin landing (see PermissionGuard in app/(routes)/hr/admin/page.tsx).
   '/hr/admin': 'hr.dashboard.view',
   '/hr/admin/automation-rules': 'hr.dashboard.view',
+  // Sorting a job title rewrites hr_staff_details for everyone who carries it,
+  // so this mirrors the page's own PermissionGuard (hr.employees.edit) rather
+  // than the cluster's read-only hr.dashboard.view.
+  '/hr/admin/designation-mapping': 'hr.employees.edit',
   '/hr/admin/disciplinary': 'hr.dashboard.view',
   '/hr/admin/fdp': 'hr.dashboard.view',
   '/hr/admin/forms': 'hr.dashboard.view',
@@ -492,10 +561,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // HR Head that hold every other HR key. hr.shift_timings.manage is declared in
   // the catalog and granted by 20260806090200_hr_shift_timings_permissions.sql.
   '/hr/admin/shift-timings': 'hr.shift_timings.manage',
+  // Work patterns are a per-staff week on top of shift timings and share
+  // their key: defining a 3-day week and deciding who is on it are the same
+  // amount of trust as defining the institution's week.
+  '/hr/admin/work-patterns': 'hr.shift_timings.manage',
   '/hr/admin/terminations': 'hr.dashboard.view',
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
+  '/hr/admin/academic-years': 'hr.academic_years.manage',
   '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
@@ -510,13 +584,28 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // though the row now points at /academic instead of /academic/years.
   '/academic': 'academic.years.view',
   '/events/induction': 'induction.view',
-  '/events/induction/new': 'induction.manage',
+  // Split off induction.manage 2026-08-21 — creating an induction is Induction
+  // Lead + super admin only; manage now covers running one, not starting one.
+  '/events/induction/new': 'induction.create',
   '/events/induction/catalog': 'induction.view',
   // Events landing + Projects module entry (menu-visibility gap fix
   // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in
   // Role Management to reveal the Projects sidebar entry.
   '/events': 'events.view',
+  '/courses': 'courses.view',
+  '/courses/new': 'courses.create',
   '/projects': 'projects.view',
+  // Campus Walk — the Director photographs a physical campus condition while
+  // walking and it routes as a project_task under CAMPUS-OPS. Same module, so
+  // same key. D2 restricts *posting* to the Director for v1, but that is
+  // enforced in the API layer (app/api/campus-walk/observations/route.ts):
+  // project_* RLS is auth.uid() IS NOT NULL for read AND write, so the database
+  // will not enforce it and a menu key must not be mistaken for a security gate.
+  '/campus-walk': 'projects.view',
+  // The Director's approval queue. D4 makes his sign-off the closing step, so
+  // without a way to reach this the fixer's proof photo sits in `review`
+  // forever and the loop never closes.
+  '/campus-walk/review': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -559,6 +648,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
   '/academic/attendance/pending': 'academic.attendance.view',
+  // Retrospective view of sessions that went unmarked. Gated on the DASHBOARD
+  // key, not the plain view key, and deliberately: it reads across a whole
+  // department or institution for months at a time, which is the dashboard's
+  // audience (10 roles hold it), not the per-session Senior Learner audience. The RPC
+  // behind it enforces the identical key server-side, so the page gate and the
+  // data gate cannot drift apart.
+  '/academic/attendance/history': 'academic.attendance.dashboard.view',
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
@@ -599,6 +695,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Exam IA Audit has its OWN narrower key (registrar/leadership audit sheet)
   '/academic/internal-marks/exam-audit': 'academic.internal_marks.exam_audit.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
+
+  // CIA Mark Entry (question-wise / direct). Its OWN key, separate from
+  // internal-marks: entry is for teaching staff and HODs, while the
+  // internal-marks reports are read by a wider leadership audience. The
+  // matching '.enter' grant is what unlocks the inputs — see
+  // lib/utils/mark-entry/mark-entry-access.ts, which additionally makes the
+  // 'all' role tier (principal/registrar/CoE) view-only server-side.
+  '/academic/mark-entry': 'academic.mark-entry.view',
 
   // Regulations Management
   '/academic/regulations': 'academic.regulations.view',
@@ -653,6 +757,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // has no segment the terminology delta gate matches, so no value split is
   // needed here.
   '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
+  // Cross-cycle session trend. Deliberately NOT 'aiPulse:cycles.manage', even
+  // though it sits beside the Champion Console: the SELECT policy on
+  // ai_pulse_live_attendance (20260611) admits `aiPulse:attendance.mark` and
+  // `aiPulse:anomaly.review` but not `cycles.manage`, so gating on cycles.manage
+  // would open a page whose every rate then read "not captured" for want of
+  // rows. The ai_pulse_champion role holds both keys, so the Champion and
+  // Co-Champion are admitted either way — this key also guarantees the data.
+  '/ai-pulse/admin/trends': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
@@ -697,8 +809,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/id-cards': 'id_cards.jobs.view',
   '/admin/id-cards/template': 'id_cards.templates.view',
   '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Morning page (2026-08-14) — the daily exception/coverage read. Same key as
+  // the print queue: anyone who can see the ID Cards menu can read it.
+  '/admin/id-cards/morning': 'id_cards.jobs.view',
   // Batch print enqueues jobs, so it needs the manage key (not just view).
   '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Address Check (2026-08-14) is read-only — it lists the addresses that will
+  // print wrong and links out to the learner's edit screen, so it shares the
+  // view key rather than requiring manage.
+  '/admin/id-cards/address-check': 'id_cards.jobs.view',
+  // Photo Check (2026-08-26) is read-only — it lists the learners Guard 3 will
+  // refuse to print a card for and links out to the learner's edit screen, so
+  // it shares the view key rather than requiring manage.
+  '/admin/id-cards/photo-check': 'id_cards.jobs.view',
   // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
   // so the nav entry mirrors it — no id_cards.* policy-view key exists.
   '/admin/id-cards/policy': 'super_admin',
@@ -803,6 +926,23 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/activities': 'billing.activities.view',
   '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
+  // School fees (2026-08-13; moved under /billing 2026-08-13). Gated on
+  // school_fees.read, granted to accounts / accountant_assistant /
+  // administrator / super_admin only.
+  // NOT hidden by filterMenuByEntityType: that helper keys on the *user's own*
+  // institution entity_type, and the accounts staff who run school billing sit
+  // at an admin office, not at the school — hiding it there would lock out the
+  // very people who need it. The institution dropdown inside the page is what
+  // restricts the data to entity_type='school'.
+  '/billing/school-fees': 'school_fees.read',
+  '/billing/school-fees/term-calendar': 'school_fees.read',
+  '/billing/school-fees/new': 'school_fees.manage',
+  '/billing/school-fees/[id]': 'school_fees.read',
+  '/billing/school-fees/concessions': 'school_fees.read',
+  '/billing/school-fees/generate': 'school_fees.generate',
+  // The payment counter. Gated on .collect, not .read — everything on that
+  // screen leads to writing a receipt, so a read-only user has no reason there.
+  '/billing/school-fees/collect': 'school_fees.collect',
   '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
@@ -888,9 +1028,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
+  '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
+  // Added 2026-08-17 — which agencies cannot be paid at all, ordered by the
+  // referrals stuck behind them. Same read permission as the rest of the
+  // commission machinery, matching its RPC.
+  '/admission/consultants/payout-readiness': 'admission.consultants.commissions.view',
+  '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
+  // Added 2026-08-10 — read-only review worklist for agency credits that need a
+  // human look. Gated on the enquiry-desk read permission, matching its RPC.
+  '/admission/consultants/review-worklist': 'admission.leads.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
   // Schools Network (2026-06-30) — track external K-12 schools the org engages
@@ -1030,6 +1179,28 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // already-registered key the page's SECURITY DEFINER RPCs check, so the screen
   // and the database cannot disagree about who belongs here.
   '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
+  // Same reasoning for the batch roster — it is the only screen somebody can be
+  // taken off a batch from, so it must not be reachable by typing the URL.
+  '/startup-studio/school-of-influence/admin/members': 'cohort.manage',
+  // 2026-08-13 (BUG-005799 / BUG-005800): the other three admin screens were
+  // never declared, so each one inherited '/startup-studio' ->
+  // startup_studio.analytics.view from the ancestor match — a key about
+  // innovation-cycle analytics deciding who may read applications. Declaring
+  // them on cohort.manage puts the chip, the route guard and the RPCs on ONE
+  // word, and is what lets the appointment seam in
+  // hooks/school-of-influence/use-soi-coordinator-nav-access.ts reveal exactly
+  // these four screens and nothing else on the platform.
+  '/startup-studio/school-of-influence/admin/applications': 'cohort.manage',
+  '/startup-studio/school-of-influence/admin/coordinators': 'cohort.manage',
+  '/startup-studio/school-of-influence/admin/lifecycle': 'cohort.manage',
+
+  // School of Influence — folding a batch too small to run (Director decision
+  // 2026-08-02). Declared for the same reason as the line above: an undeclared
+  // route inherits the broad '/startup-studio' key, and this screen names the
+  // people a fold would move. 'cohort.manage' is the same already-registered key
+  // fn_soi_merge_plan and fn_soi_record_batch_merge check, so the screen and the
+  // database cannot disagree about who belongs here.
+  '/startup-studio/school-of-influence/admin/merge': 'cohort.manage',
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
@@ -1041,6 +1212,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Solution Hub
   '/solutions': 'solutions.dashboard.view',
   '/solutions/list': 'solutions.dashboard.view',
+  // Deliberately REUSES the dashboard key (2026-08-14): a freshly minted
+  // solutions.digest.view would be true on almost no role — the trap hit
+  // three times the week of 08-13. Anyone who can see the dashboard can
+  // see its weekly digest.
+  '/solutions/digest': 'solutions.dashboard.view',
   '/solutions/pipeline': 'solutions.pipeline.view',
   '/solutions/pipeline/list': 'solutions.pipeline.view',
   '/solutions/pipeline/analytics': 'solutions.pipeline.analytics.view',
@@ -1101,6 +1277,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/blocks': 'campus_living.blocks.view',
   '/campus-living/allocations': 'campus_living.allocations.view',
   '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  // Read-only audit. Its own key (held by no role) so the nav chip and the
+  // route guard agree it is super-admin-only — a link the sidebar hides but
+  // the guard opens is still a reachable page.
+  '/campus-living/allocations/audit': 'campus_living.allocations.audit',
   '/campus-living/residents': 'campus_living.residents.view',
   '/campus-living/my-hostel': 'campus_living.my_hostel.view',
   '/campus-living/my-hostel/vacate-request': 'campus_living.vacate_requests.submit',
@@ -1111,6 +1291,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/attendance': 'campus_living.attendance.view',
   '/campus-living/leave': 'campus_living.leave.view',
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  // Gated on the WRITE key, not .view: the scan screen exists only to record
+  // exits and returns, so a read-only holder has nothing to do there.
+  '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
   '/campus-living/mess': 'campus_living.mess.view',
   '/campus-living/mess/menu': 'campus_living.mess.menu.view',
   '/campus-living/mess/meals': 'campus_living.mess.meals.view',
@@ -1446,6 +1629,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/availability': 'meetings.view',
   '/meetings/manage': 'meetings.view',
   '/meetings/inbox': 'meetings.view',
+  // "My Meetings" — the meetings the signed-in user is IN, hosting OR
+  // attending. Same gate as the inbox: the page only ever reads the caller's
+  // own participation, so a separate key would add role-config burden without
+  // adding protection.
+  '/meetings/my-bookings': 'meetings.view',
+  // Host-initiated scheduling. Same gate as the rest of the module: the page
+  // can only ever book the SIGNED-IN user's own calendar, so a separate key
+  // would add a role-config burden without adding any protection.
+  '/meetings/schedule': 'meetings.view',
   '/meetings/routing-forms': 'meetings.routing.view',
   '/meetings/workflows': 'meetings.workflows.view',
   '/meetings/polls': 'meetings.polls.view',
@@ -1457,6 +1649,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/webhooks': 'meetings.webhooks.view',
   '/meetings/embed': 'meetings.embed.manage',
   '/meetings/triggers': 'meetings.view',
+  // Recurring series (Monthly Slate, pieces 1 and 2). Its own key rather than
+  // meetings.view: unlike the rest of the module, these two screens configure
+  // meetings for OTHER people's calendars across every college, so they are not
+  // something every meetings user should see by default.
+  '/meetings/series': 'meetings.series.view',
+  '/meetings/series/rules': 'meetings.series.view',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
@@ -1754,6 +1952,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // What's New — the product changelog. Deliberately has NO
+          // MENU_PERMISSIONS entry: the Director's decision (2026-09-05) is that
+          // everyone signed in can open it. The page scopes its own CONTENT by
+          // role, so a student sees student-relevant changes rather than a
+          // locked door.
+          href: '/whats-new',
+          label: "What's New",
+          active: pathname === '/whats-new',
+          icon: Megaphone,
+          submenus: []
+        },
+        {
           // Store Kits self view (PR-K2) — entitled vs collected vs owed.
           // Hidden until ims.kits.my.view is granted to student/staff roles.
           href: '/my-kit',
@@ -1870,6 +2080,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/users/role-management', label: 'Role Management', active: pathname === '/users/role-management' },
             { href: '/users/activity', label: 'Activity Audit Logs', active: pathname === '/users/activity' },
             { href: '/users/permissions-audit', label: 'Permissions Audit', active: pathname === '/users/permissions-audit' },
+            { href: '/users/jkkn-id', label: 'JKKN ID', active: pathname === '/users/jkkn-id' },
           ]
         }
       ]
@@ -1957,7 +2168,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Foundation Programme',
           active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
           icon: Target,
-          submenus: []
+          // Hand-authored children REPLACE the route manifest's depth-2
+          // auto-discovery for this row (components/Navbar/menu.tsx), so the
+          // Console is listed explicitly to keep it. The two OneMark operator
+          // screens sit at depth 3 and would never be auto-discovered. They are
+          // children here, not top-level rows, because the Academic group is
+          // one row below the sidebar validator's hard cap (15). Each child is
+          // gated by its own MENU_PERMISSIONS key.
+          //
+          // 'Overview' is the hub itself, listed as its own first child (same
+          // idiom as '/procurement'). Two things depend on it: (1) a row with
+          // explicit children is filtered by its CHILDREN only —
+          // GetRoleBasedPages never reads MENU_PERMISSIONS['/foundation'] once
+          // submenus is non-empty — so without this child a holder of ONLY
+          // foundation.dashboard.view lost the row that main rendered for them;
+          // (2) an explicit-children row renders as an accordion whose parent
+          // click is a pure toggle (menu.tsx), so this child is the only
+          // sidebar door to /foundation for ANY role.
+          submenus: [
+            { href: '/foundation', label: 'Overview', active: pathname === '/foundation' },
+            { href: '/foundation/console', label: 'Console', active: pathname.startsWith('/foundation/console') },
+            { href: '/foundation/onemark/paper', label: 'OneMark: Build a Paper', active: pathname.startsWith('/foundation/onemark/paper') },
+            { href: '/foundation/onemark/review', label: 'OneMark: Review Drafts', active: pathname.startsWith('/foundation/onemark/review') },
+          ]
         },
         {
           // The learner's own door into the same programme. Separate entry
@@ -1981,6 +2214,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Run a Practice Session',
           active: pathname.startsWith('/foundation/practice/facilitate'),
           icon: Users,
+          submenus: []
+        },
+        {
+          // OneMark — the Class-12 one-mark MCQ sitting: practice, timed, a
+          // Senior Learner's live paper, and vault review. Same audience and
+          // same key as Foundation Practice. A separate flat row, not a child
+          // of '/foundation', for the same reason Foundation Practice is: the
+          // learner never holds the operator keys that render that parent.
+          // This makes the Academic group 14 top-level rows — ONE below the
+          // sidebar validator's hard cap; the next entry must nest.
+          href: '/foundation/onemark/practice',
+          label: 'OneMark Practice',
+          active: pathname.startsWith('/foundation/onemark/practice'),
+          icon: ClipboardCheck,
           submenus: []
         },
         {
@@ -2241,6 +2488,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/consultants/referral-rates'
             },
             {
+              href: '/admission/consultants/unlinked-referrals',
+              label: 'Unlinked Referrals',
+              active: pathname === '/admission/consultants/unlinked-referrals'
+            },
+            {
               href: '/admission/consultants/import',
               label: 'Import Referrals',
               active: pathname === '/admission/consultants/import'
@@ -2251,9 +2503,28 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/consultants/payouts'
             },
             {
+              // Added 2026-08-17 — sits next to Payouts because it answers the
+              // question Payouts cannot: who is not payable at all, and why.
+              href: '/admission/consultants/payout-readiness',
+              label: 'Payout Readiness',
+              active: pathname === '/admission/consultants/payout-readiness'
+            },
+            {
+              href: '/admission/consultants/reconciliation',
+              label: 'Reconciliation',
+              active: pathname === '/admission/consultants/reconciliation'
+            },
+            {
               href: '/admission/consultants/referrals',
               label: 'Referrals',
               active: pathname === '/admission/consultants/referrals'
+            },
+            {
+              // Added 2026-08-10 — read-only queue of agency credits to review
+              // before any referral rate is switched on.
+              href: '/admission/consultants/review-worklist',
+              label: 'Review Worklist',
+              active: pathname === '/admission/consultants/review-worklist'
             },
             {
               href: '/admission/consultants/rewards',
@@ -2522,6 +2793,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
             { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
+            // HR-ops, not self-service: gated on hr.attendance.period.view so it
+            // is invisible to the 22 roles that hold only view_self.
+            { href: '/hr/attendance/close', label: 'Attendance · Month Close', active: pathname.startsWith('/hr/attendance/close') },
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
@@ -2556,6 +2830,23 @@ export function GetPages(pathname: string): MenuGroup[] {
             // hr_manager only — so this row is invisible to the rest of the HR
             // group rather than visible-and-denied.
             { href: '/hr/payroll/organisation', label: 'Payroll Organisation', active: pathname.startsWith('/hr/payroll/organisation') },
+            // Gates on hr.payroll.salary.view — held by hr_head ALONE, plus the
+            // Super Administrator via is_super_admin(). Narrowed from three
+            // roles on 2026-08-21; what someone earns is a tighter decision than
+            // which organisation pays them.
+            { href: '/hr/payroll/salaries', label: 'Employee Salaries', active: pathname.startsWith('/hr/payroll/salaries') },
+            // Directly under Employee Salaries and on the same key: the bands are
+            // configuration FOR that screen, and the TDS column there is derived
+            // from them rather than stored per person.
+            { href: '/hr/payroll/tds-slabs', label: 'TDS Bands', active: pathname.startsWith('/hr/payroll/tds-slabs') },
+            // Gates on hr.payroll.bank.view — hr_head alone, plus the Super
+            // Administrator via is_super_admin().
+            { href: '/hr/payroll/bank-accounts', label: 'Bank Accounts', active: pathname.startsWith('/hr/payroll/bank-accounts') },
+            // Gates on hr.payroll.register.view — hr_head alone, plus the Super
+            // Administrator. Last in the group because it is the step AFTER the
+            // three above are populated: the register reads the payer directory,
+            // the salary and the bank account, and reports whichever is missing.
+            { href: '/hr/payroll/register', label: 'Salary Register', active: pathname.startsWith('/hr/payroll/register') },
           ]
         },
         {
@@ -2619,6 +2910,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/hr/admin', label: 'Dashboard', active: pathname === '/hr/admin' },
             { href: '/hr/admin/automation-rules', label: 'Automation Rules', active: pathname.startsWith('/hr/admin/automation-rules') },
+            { href: '/hr/admin/designation-mapping', label: 'Designation Mapping', active: pathname.startsWith('/hr/admin/designation-mapping') },
             { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
             { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
             { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
@@ -2634,10 +2926,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
             { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
             { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
+            { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
             { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
             { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
@@ -2796,30 +3090,86 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Billing & Accounts',
       menus: [
+        // Split into three domains 2026-08-25. One "Billing" menu had grown to
+        // 23 submenus mixing college, transport and school work in one list.
+        // The domains are real, not cosmetic: the schedule services filter on
+        // institution_entity_type='institution', and school fees run on their
+        // own school_fees.* permission namespace and school_fee_* tables.
+        //
+        // The three `active` predicates MUST stay mutually exclusive — all
+        // three rows live under /billing, so the college one has to exclude the
+        // other two prefixes or every row highlights at once.
         {
           href: '/billing',
-          label: 'Billing',
-          active: pathname === '/billing' || pathname.startsWith('/billing/'),
-          icon: Wallet,
+          label: 'Colleges',
+          active:
+            pathname === '/billing' ||
+            (pathname.startsWith('/billing/') &&
+              !pathname.startsWith('/billing/transport') &&
+              !pathname.startsWith('/billing/school-fees')),
+          icon: GraduationCap,
           submenus: [
-            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
             { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
-            { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
             { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
+            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
+            // ── Group-wide, not college-only ──────────────────────────────
+            // These six serve schools too and deliberately have no second row
+            // under Schools: one href in two menus highlights both at once.
+            // Categories IS the school fee-head master (school-fee-head-service
+            // reads billing_categories, collapsed to global in 20260428000001),
+            // and the school counter writes billing_receipt_items, so Receipts
+            // lists school payments as well.
+            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
             { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
-            { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
-            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
+          ]
+        },
+        {
+          // /billing/transport is the app's ONLY transport route, so this is a
+          // direct link rather than a menu whose arrow opens a single child.
+          // Note the filter consequence: a menu with an empty submenus[] is
+          // gated on its OWN MENU_PERMISSIONS entry (billing.transport.view)
+          // instead of "any child is allowed". That mapping already exists.
+          href: '/billing/transport',
+          label: 'Transport Fees',
+          active: pathname.startsWith('/billing/transport'),
+          icon: Bus,
+          submenus: []
+        },
+        {
+          href: '/billing/school-fees',
+          label: 'Schools',
+          active: pathname.startsWith('/billing/school-fees'),
+          icon: School,
+          submenus: [
+            // School fees (moved here from Admission > Settings 2026-08-13).
+            // 'School Fee Plans' owns /billing/school-fees and its plan
+            // sub-routes (/new, /[id]) but NOT the siblings below, which have
+            // their own rows — otherwise two highlight at once.
+            { href: '/billing/school-fees', label: 'School Fee Plans',
+              active: pathname === '/billing/school-fees' ||
+                (pathname.startsWith('/billing/school-fees/') &&
+                  !pathname.startsWith('/billing/school-fees/term-calendar') &&
+                  !pathname.startsWith('/billing/school-fees/concessions') &&
+                  !pathname.startsWith('/billing/school-fees/generate') &&
+                  !pathname.startsWith('/billing/school-fees/collect')) },
+            { href: '/billing/school-fees/term-calendar', label: 'School Term Calendar', active: pathname.startsWith('/billing/school-fees/term-calendar') },
+            { href: '/billing/school-fees/concessions', label: 'School Fee Concessions', active: pathname.startsWith('/billing/school-fees/concessions') },
+            { href: '/billing/school-fees/generate', label: 'Generate School Fees', active: pathname.startsWith('/billing/school-fees/generate') },
+            // Sits after Generate because that is the order of the work: raise
+            // the year's bills, then take money against them.
+            { href: '/billing/school-fees/collect', label: 'School Bill Payment', active: pathname.startsWith('/billing/school-fees/collect') },
           ]
         }
       ]
@@ -2966,8 +3316,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/admin/id-cards'),
           icon: IdCard,
           submenus: [
+            { href: '/admin/id-cards/morning', label: 'Morning Page', active: pathname.startsWith('/admin/id-cards/morning') },
             { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
             { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/photo-check', label: 'Photo Check', active: pathname.startsWith('/admin/id-cards/photo-check') },
+            { href: '/admin/id-cards/address-check', label: 'Address Check', active: pathname.startsWith('/admin/id-cards/address-check') },
             { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
             { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
           ]
@@ -2993,6 +3346,32 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/projects'),
           icon: FolderKanban,
           submenus: []
+        },
+        {
+          // Sits beside Projects because a walk observation IS a project_task
+          // under the standing CAMPUS-OPS project — not a separate module.
+          // This literal href is also the reachability seed: without it
+          // check-nav-reachability.ts reports /campus-walk as unreachable and
+          // the Director has no way to open his own capture screen.
+          href: '/campus-walk',
+          label: 'Campus Walk',
+          active: pathname.startsWith('/campus-walk'),
+          icon: ClipboardCheck,
+          submenus: [
+            {
+              href: '/campus-walk',
+              label: 'Capture',
+              active: pathname === '/campus-walk'
+            },
+            {
+              // Literal href, so check-nav-reachability.ts can reach it. The
+              // fixer screen deliberately is NOT here — it is ?task=-invoked
+              // from its bell notification and has no standalone surface.
+              href: '/campus-walk/review',
+              label: 'Awaiting approval',
+              active: pathname.startsWith('/campus-walk/review')
+            }
+          ]
         }
       ]
     },
@@ -3040,6 +3419,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
+            { href: '/ai-pulse/admin/trends', label: 'Champion · Session Trend', active: pathname.startsWith('/ai-pulse/admin/trends') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
@@ -3062,8 +3442,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: CalendarClock,
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
+            { href: '/meetings/my-bookings', label: 'My Meetings', active: pathname.startsWith('/meetings/my-bookings') },
+            { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },
+            { href: '/meetings/series', label: 'Recurring Series', active: pathname === '/meetings/series' },
+            // Listed explicitly, like /meetings/contacts/scan/saved: /meetings has
+            // no nav-config, so a tier-N+1 chip is never rendered for it and the
+            // reachability gate reports the rules screen as unreachable otherwise.
+            { href: '/meetings/series/rules', label: 'Scheduling Rules', active: pathname.startsWith('/meetings/series/rules') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
             { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
@@ -3211,6 +3598,25 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'Courses',
+      menus: [
+        {
+          href: '/courses',
+          label: 'Courses',
+          // Same parent-href-as-leaf trap as '/events' above: the parent row is
+          // a pure accordion toggle at runtime, so its own href is never
+          // clickable. The 'All Courses' submenu leaf below is what actually
+          // makes /courses reachable by check:reachability's chip-click walk.
+          active: pathname === '/courses' || pathname.startsWith('/courses/'),
+          icon: Presentation,
+          submenus: [
+            { href: '/courses', label: 'All Courses', active: pathname === '/courses' },
+            { href: '/courses/new', label: 'Create a Course', active: pathname === '/courses/new' },
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'Startup Studio',
       menus: [
         // Single sidebar entry — all Startup Studio navigation lives in the
@@ -3231,6 +3637,30 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Startup Studio',
           active: pathname === '/startup-studio' || pathname.startsWith('/startup-studio/'),
           icon: Rocket,
+          submenus: []
+        },
+        {
+          // 2026-08-13 (BUG-005799 / BUG-005800) — the one exception to the flat
+          // single-row rule above, and it is not decoration.
+          //
+          // A School of Influence coordinator is authorised for the review queue
+          // and for nothing else in Startup Studio: /startup-studio itself is
+          // gated on startup_studio.analytics.view, which they do not hold. So
+          // the module row is a locked door for them, and routing them through
+          // it would land them on a page they cannot open — and even if they
+          // could, the in-page chip strip suppresses a lone surviving chip, so
+          // the module root is a dead end by construction.
+          //
+          // This row is therefore a DIRECT link to the work: gated on
+          // cohort.manage, the same key the queue and its RPCs use, so the
+          // people who already run the programme finally get a link instead of
+          // a URL they have to remember. menu.tsx grants that key to an active
+          // appointment for nav purposes only (see
+          // hooks/school-of-influence/use-soi-coordinator-nav-access.ts).
+          href: '/startup-studio/school-of-influence/admin/applications',
+          label: 'School of Influencer',
+          active: pathname.startsWith('/startup-studio/school-of-influence'),
+          icon: GraduationCap,
           submenus: []
         }
       ]
@@ -3591,24 +4021,35 @@ export function isStudentPortalRoute(href: string): boolean {
   );
 }
 
-// Pre-onboarding (induction-only) learners may navigate to ONLY these two pages
-// (mirrors the proxy.ts whitelist). Second-stage filter applied AFTER
-// GetRoleBasedPages in the nav consumers (menu.tsx, bottom-navbar.tsx) so the
-// sidebar shows only what they can actually reach. The proxy is the real gate.
+// Pre-onboarding (induction-only) learners may navigate to ONLY the allowlisted
+// pages. Second-stage filter applied AFTER GetRoleBasedPages in the nav
+// consumers (menu.tsx, bottom-navbar.tsx) so the sidebar shows only what they
+// can actually reach. The proxy is the real gate; the href list is shared with
+// it (lib/constants/induction-access.ts) so the two can't drift.
 // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
-const INDUCTION_ONLY_NAV_HREFS = new Set<string>([
-  '/learners/my-induction',
-  '/learners/my-profile',
-]);
 
-/** Keep only the My Induction + My Profile menu entries; drop everything else. */
+/** Keep only the induction-only menu entries; drop everything else. */
 export function filterToInductionOnlyMenu(groups: MenuGroup[]): MenuGroup[] {
   return groups
     .map((group) => ({
       ...group,
       menus: group.menus
         .filter((menu) => INDUCTION_ONLY_NAV_HREFS.has(menu.href))
-        .map((menu) => ({ ...menu, submenus: [] })),
+        .map((menu) => {
+          // Accordion parents are retargeted at the one leaf these learners can
+          // actually use (see INDUCTION_ONLY_NAV_REWRITES); submenus always go,
+          // so the entry renders as a plain link.
+          const rewrite = INDUCTION_ONLY_NAV_REWRITES[menu.href];
+          return rewrite
+            ? {
+                ...menu,
+                href: rewrite.href,
+                label: rewrite.label,
+                noSubmenus: true,
+                submenus: [],
+              }
+            : { ...menu, submenus: [] };
+        }),
     }))
     .filter((group) => group.menus.length > 0);
 }

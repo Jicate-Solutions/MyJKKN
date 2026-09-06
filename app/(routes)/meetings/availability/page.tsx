@@ -32,8 +32,9 @@ import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
-import { getMySchedule, getBookingPageState } from './actions';
+import { getMySchedule, getBookingPageState, listMySchedules } from './actions';
 import { AvailabilityEditor } from './_components/availability-editor';
+import { SchedulesCard } from './_components/schedules-card';
 import { HolidaysEditor } from './_components/holidays-editor';
 import { BookingPageCard } from './_components/booking-page-card';
 import { IntegrationPrefsCard } from './_components/integration-prefs-card';
@@ -89,10 +90,12 @@ function Shell({ children }: { children: React.ReactNode }) {
 export default async function MeetingsAvailabilityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ google?: string }>;
+  searchParams: Promise<{ google?: string; schedule?: string }>;
 }) {
   // ?google= is set by the OAuth callback redirect (U2) — banner only.
-  const { google: googleFlag } = await searchParams;
+  // ?schedule= picks WHICH set of working hours the editor edits; a host may
+  // keep more than one. An id they do not own falls back to their own default.
+  const { google: googleFlag, schedule: selectedScheduleId } = await searchParams;
 
   // Explicit auth gate — render a clear message, never silently redirect.
   const supabase = await createClient();
@@ -121,7 +124,7 @@ export default async function MeetingsAvailabilityPage({
 
   // getMySchedule() runs ensureProvisioned() internally and creates a default
   // schedule for brand-new accounts, so a successful result always has data.
-  const result = await getMySchedule();
+  const result = await getMySchedule(selectedScheduleId);
 
   // `result.data` is optional on the flat ActionResult shape; treat a missing
   // payload the same as an explicit failure so we never render a blank editor.
@@ -158,6 +161,11 @@ export default async function MeetingsAvailabilityPage({
   // not rendering the card on failure — it must never block the editor.
   const delegatesState = await getMyDelegates();
 
+  // Every set of working hours this host keeps. A load failure degrades to
+  // simply not rendering the card — it must never block the editor, and a host
+  // with one set is exactly where they were before.
+  const schedulesState = await listMySchedules();
+
   // Bookable meeting-type count — drives the "your link won't accept bookings
   // until you add a meeting type" warning on the booking-page card. A booking
   // link with zero meeting types renders the public "not accepting bookings"
@@ -171,8 +179,22 @@ export default async function MeetingsAvailabilityPage({
 
   return (
     <Shell>
-      <AvailabilityEditor schedule={result.data} />
-      <HolidaysEditor scheduleId={result.data.scheduleId} />
+      {schedulesState.success && schedulesState.data?.length ? (
+        <SchedulesCard
+          initial={schedulesState.data}
+          selectedId={result.data.scheduleId}
+        />
+      ) : null}
+      {/*
+        Both editors hold the loaded schedule in useState, so switching sets
+        must REMOUNT them — without the key React would keep showing the
+        previous set's hours under the new set's name.
+      */}
+      <AvailabilityEditor key={result.data.scheduleId} schedule={result.data} />
+      <HolidaysEditor
+        key={`holidays-${result.data.scheduleId}`}
+        scheduleId={result.data.scheduleId}
+      />
       {pageState.success && pageState.data && (
         <BookingPageCard
           initial={pageState.data}

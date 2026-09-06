@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { getErrorMessage } from '@/lib/utils';
 import { selectInBatches } from '@/lib/utils/supabase-batched-in';
 import {
+  AMOUNT_LOCKED_STATUSES,
   EDITABLE_FIELD_LABELS,
   type BillFieldChange,
   type BulkEditError,
@@ -33,6 +34,27 @@ function cellToISODate(value: unknown): string | null {
   const parsed = new Date(s);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
+
+/**
+ * Money cell → number. Tolerates what people actually paste into Excel:
+ * thousands separators, a rupee sign, stray spaces. Returns null for anything
+ * that isn't a finite number so the caller can raise a row error instead of
+ * silently writing NaN into a NOT NULL numeric column.
+ */
+function cellToNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const s = String(value).trim().replace(/[₹,\s]/g, '');
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Compare money in paise — 1234.56 vs 1234.5600000001 is not a change. */
+const toPaise = (n: number) => Math.round(n * 100);
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const money = (n: number) =>
+  `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -106,6 +128,7 @@ export class BulkEditBillsService {
     const headerRow = (aoa[0] || []).map((c) => cellToString(c).toLowerCase());
     const colOf = (name: string) => headerRow.indexOf(name.toLowerCase());
     const cBillId = colOf('Bill ID');
+    const cAmount = colOf('Final Amount');
     const cAy = colOf('Academic Year');
     const cCat = colOf('Billing Category');
     const cDesc = colOf('Bill Description');
@@ -119,6 +142,7 @@ export class BulkEditBillsService {
     interface RawRow {
       row: number;
       bill_id: string;
+      amount_raw: unknown;
       ay_name: string;
       cat_name: string;
       desc: string;
@@ -155,6 +179,7 @@ export class BulkEditBillsService {
       raws.push({
         row: rowNumber,
         bill_id: billId,
+        amount_raw: cAmount >= 0 ? cells[cAmount] : null,
         ay_name: cAy >= 0 ? cellToString(cells[cAy]) : '',
         cat_name: cCat >= 0 ? cellToString(cells[cCat]) : '',
         desc: cDesc >= 0 ? cellToString(cells[cDesc]) : '',
@@ -186,6 +211,7 @@ export class BulkEditBillsService {
             `
         id, institution_id, academic_year_id, item_category_id,
         bill_description, due_date, remarks, status,
+        final_amount, total_amount, unit_amount, tax_amount, quantity,
         student:learners_profiles(first_name, last_name, roll_number),
         academic_year:academic_years(academic_year_name),
         item_category:billing_categories(category_name)
@@ -197,6 +223,42 @@ export class BulkEditBillsService {
 
     const billById = new Map<string, any>();
     (bills || []).forEach((b: any) => billById.set(b.id, b));
+
+    // Paid-to-date per bill, for the bills whose Final Amount cell differs from
+    // what's stored. Scoped to just those bills so an amount-free edit (the
+    // common case) costs no extra round-trip. This mirrors what the DB's
+    // `update_bill_balance_on_amount_change` trigger will itself sum, so the
+    // floor we enforce here is the same number that decides the new status.
+    const amountCandidateIds: string[] = [];
+    if (cAmount >= 0) {
+      for (const r of raws) {
+        const bill = billById.get(r.bill_id);
+        if (!bill) continue;
+        const n = cellToNumber(r.amount_raw);
+        if (n === null) continue; // blank or junk — handled per-row below
+        if (toPaise(n) !== toPaise(Number(bill.final_amount ?? 0))) {
+          amountCandidateIds.push(r.bill_id);
+        }
+      }
+    }
+    const paidByBillId = new Map<string, number>();
+    if (amountCandidateIds.length > 0) {
+      const { data: receiptItems, error: paidErr } = await selectInBatches<any>(
+        amountCandidateIds,
+        (chunk) =>
+          client
+            .from('billing_receipt_items')
+            .select('bill_id, amount_paid')
+            .in('bill_id', chunk)
+      );
+      if (paidErr) throw paidErr;
+      (receiptItems || []).forEach((it: any) => {
+        paidByBillId.set(
+          it.bill_id,
+          (paidByBillId.get(it.bill_id) ?? 0) + Number(it.amount_paid ?? 0)
+        );
+      });
+    }
 
     // Resolve Academic Year names per institution (names repeat per institution).
     const institutionIds = Array.from(
@@ -249,6 +311,46 @@ export class BulkEditBillsService {
         oldDisp: string | null,
         newDisp: string | null
       ) => changes.push({ field, label: EDITABLE_FIELD_LABELS[field], old: oldDisp, new: newDisp });
+
+      // -- Final Amount (blank = keep current; NOT NULL, so never cleared) --
+      //
+      // The only field here with financial consequence. Writing final_amount
+      // fires update_bill_balance_on_amount_change (BEFORE UPDATE), which
+      // re-sums receipts and rewrites balance_amount + status. Guards below
+      // exist because that trigger is unconditional:
+      //   • void statuses would come back as 'unpaid' — a resurrected bill;
+      //   • an amount below what's receipted clamps balance to 0 and marks the
+      //     bill 'paid', leaving the excess collected but unaccounted for.
+      // total_amount/unit_amount move with it so the row stays internally
+      // consistent (final = total + tax, total = quantity × unit).
+      if (cAmount >= 0 && cellToString(r.amount_raw) !== '') {
+        const desiredAmount = cellToNumber(r.amount_raw);
+        const currentAmount = Number(bill.final_amount ?? 0);
+        const tax = Number(bill.tax_amount ?? 0);
+        const qty = Number(bill.quantity ?? 1) || 1;
+        const paid = paidByBillId.get(r.bill_id) ?? 0;
+
+        if (desiredAmount === null) {
+          rowErrors.push({ row: r.row, field: 'Final Amount', message: `"${cellToString(r.amount_raw)}" is not a valid amount.` });
+        } else if (desiredAmount < 0) {
+          rowErrors.push({ row: r.row, field: 'Final Amount', message: 'Amount cannot be negative.' });
+        } else if (toPaise(desiredAmount) !== toPaise(currentAmount)) {
+          if ((AMOUNT_LOCKED_STATUSES as readonly string[]).includes(bill.status)) {
+            rowErrors.push({ row: r.row, field: 'Final Amount', message: `Amount cannot be changed on a ${bill.status} bill. Leave the cell at ${money(currentAmount)}.` });
+          } else if (toPaise(desiredAmount) < toPaise(tax)) {
+            rowErrors.push({ row: r.row, field: 'Final Amount', message: `Amount ${money(desiredAmount)} is below the ${money(tax)} tax already on this bill.` });
+          } else if (toPaise(desiredAmount) < toPaise(paid)) {
+            rowErrors.push({ row: r.row, field: 'Final Amount', message: `Amount ${money(desiredAmount)} is below the ${money(paid)} already receipted against this bill. Refund or cancel the receipt first.` });
+          } else {
+            const newFinal = round2(desiredAmount);
+            const newTotal = round2(newFinal - tax);
+            update.final_amount = newFinal;
+            update.total_amount = newTotal;
+            update.unit_amount = qty === 1 ? newTotal : round2(newTotal / qty);
+            pushChange('final_amount', money(currentAmount), money(newFinal));
+          }
+        }
+      }
 
       // -- Academic Year (blank = clear to NULL) --
       let desiredAyId: string | null = null;

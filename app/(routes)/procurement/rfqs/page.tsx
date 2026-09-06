@@ -46,6 +46,7 @@ import {
 import { Plus, Eye, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function RfqsPage() {
   const router = useRouter();
@@ -81,7 +82,7 @@ export default function RfqsPage() {
       setSelectedPR('');
       router.push(`/procurement/rfqs/${rfq.id}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create RFQ');
+      toast.error(errorMessage(e, 'Failed to create RFQ'));
     }
   };
 

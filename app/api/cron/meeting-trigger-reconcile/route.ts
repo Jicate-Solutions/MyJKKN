@@ -33,8 +33,10 @@ import {
   reconcileExplanations,
   bookPendingMeetings,
   sendWeeklyCalendarConnectSummary,
+  sweepCalendarConnectLock,
   type BookingResult,
-  type WeeklyConnectSummaryResult
+  type WeeklyConnectSummaryResult,
+  type CalendarLockSweepResult
 } from '@/lib/services/meetings/meeting-trigger-service';
 import {
   reconcileHandoverExplanations,
@@ -105,12 +107,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       weekly = { failed: weeklyErr?.message ?? 'Internal error' };
     }
 
+    // Calendar-connect lock sweep (Director decision 2026-08-18). Same isolation
+    // as every other pass: this one can hold people out of MyJKKN entirely, so a
+    // failure must not take the reconcile down with it — and must surface in the
+    // response rather than disappear. No-op returning zeroes while the master
+    // switch is off, which is how it ships.
+    let calendarLock: CalendarLockSweepResult | { failed: string };
+    try {
+      calendarLock = await sweepCalendarConnectLock();
+    } catch (lockErr: any) {
+      logger.error('meetings/triggers', 'sweepCalendarConnectLock failed', lockErr);
+      calendarLock = { failed: lockErr?.message ?? 'Internal error' };
+    }
+
     return NextResponse.json({
       success: true,
       ...result,
       handovers,
       booking,
       weekly,
+      calendarLock,
       duration_ms: Date.now() - startTime
     });
   } catch (error: any) {

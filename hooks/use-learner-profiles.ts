@@ -165,6 +165,35 @@ export function useUpdateLearnerProfile() {
 }
 
 /**
+ * Activate an onboarded learner (admitted → active) and provision their login.
+ * 2026-08-10 — powers the "Ready to Activate" tier on /learners/onboarding.
+ *
+ * Deliberately does NOT reject when the login fails: `activated: true` with
+ * `loginCreated: false` means the status change already committed in Postgres,
+ * so throwing would push the caller to retry work that is already done. The
+ * caller inspects both flags and reports the partial outcome.
+ */
+export function useActivateLearner() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    Awaited<ReturnType<typeof LearnerProfileService.activateIfReady>>,
+    Error,
+    string
+  >({
+    mutationFn: (id) => LearnerProfileService.activateIfReady(id),
+    onSuccess: (result, id) => {
+      // Only invalidate when something actually changed — a refused activation
+      // (wrong status, missing field) leaves the cache correct as it is.
+      if (!result.activated) return;
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.analytics() });
+    },
+  });
+}
+
+/**
  * Transfer enquiry to another institution (regenerates application_id).
  * 2026-04-17
  */

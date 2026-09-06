@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "types/**/*.ts",
+    "app/(routes)/academic/timetables/[id]/page.tsx",
+    "app/(routes)/academic/timetables/[id]/_components/timetable-header.tsx",
+    "app/(routes)/academic/timetables/[id]/_hooks/**/*.ts"
+  ]
+}

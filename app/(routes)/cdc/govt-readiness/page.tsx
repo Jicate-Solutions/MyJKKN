@@ -228,7 +228,7 @@ export default function GovtReadinessPage() {
                 The shared-syllabus overlap below is computed live from the topic map — it is not a fixed number.
               </p>
             </div>
-            <PermissionGuard module="cdc.training" action="view">
+            <PermissionGuard module="cdc.training" action="view" fallback={null}>
               <Button asChild variant="outline">
                 <Link href="/cdc/training?exam=govt">
                   <BookOpen className="w-4 h-4 mr-2" />

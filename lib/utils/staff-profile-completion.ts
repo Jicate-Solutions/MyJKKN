@@ -8,10 +8,13 @@
 //
 // Field set MIRRORS the canonical staff completion definition used by the
 // Staff dashboard's aggregate `profileCompletionRate` /
-// `profileCompletionBreakdown` (lib/services/staff/staff-service.ts:1206 and
-// :1705) — required (7) + optional (8). Keeping them in lock-step means a
-// staff member's individual bar agrees with the dashboard's institution-wide
-// rate. If the dashboard field list changes, update this list too.
+// `profileCompletionBreakdown` (lib/services/staff/staff-service.ts —
+// getOverviewStats and getProfileAnalytics) — required (7) + optional (10).
+// Keeping them in lock-step means a staff member's individual bar agrees
+// with the dashboard's institution-wide rate. A fifth site,
+// DASHBOARD_STAFF_COLUMNS in the same file, must SELECT every field these
+// arrays measure, or the field reads `undefined` and counts as 100% missing
+// with no error. If the dashboard field list changes, update this list too.
 // ============================================
 
 import { Staff } from '@/types/staff';
@@ -49,6 +52,8 @@ const STAFF_FIELD_METADATA: StaffFieldMetadata[] = [
   { field: 'staff_id', label: 'Staff ID', section: 'Employment Details' },
   { field: 'date_of_joining', label: 'Date of Joining', section: 'Employment Details' },
   { field: 'institution_email', label: 'Institution Email', section: 'Employment Details' },
+  { field: 'biometric_id', label: 'Biometric Code', section: 'Employment Details' },
+  { field: 'biometric_institution_id', label: 'Biometric Machine', section: 'Employment Details' },
 ];
 
 /**

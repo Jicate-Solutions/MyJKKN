@@ -100,7 +100,7 @@ export default function BulkEditBillsPage() {
             <div>
               <h1 className='text-2xl font-bold py-1'>Bulk Edit Bills</h1>
               <p className='text-sm text-muted-foreground'>
-                Download existing bills, edit safe fields (Academic Year, Category, Description, Due Date, Remarks), and apply with a preview.
+                Download existing bills, edit them (Final Amount, Academic Year, Category, Description, Due Date, Remarks), and apply with a preview.
               </p>
             </div>
             <Button asChild variant='outline' size='sm'>

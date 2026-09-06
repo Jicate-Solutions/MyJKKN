@@ -94,6 +94,9 @@ export function useUpdateGeneralEvent() {
     onSuccess: (event) => {
       queryClient.invalidateQueries({ queryKey: KEYS.lists() });
       queryClient.invalidateQueries({ queryKey: KEYS.detail(event.id) });
+      // The induction list renders `events` rows too — its own query key would
+      // otherwise keep showing the pre-edit name and dates until a reload.
+      queryClient.invalidateQueries({ queryKey: ['inductions'] });
       toast.success('Event updated');
     },
     onError: (error: Error) => {
@@ -179,6 +182,7 @@ export function useDeleteEvent() {
       queryClient.removeQueries({ queryKey: KEYS.deleteBlockers(id) });
       queryClient.invalidateQueries({ queryKey: ['tournaments'] });
       queryClient.invalidateQueries({ queryKey: ['marathon-events'] });
+      queryClient.invalidateQueries({ queryKey: ['inductions'] });
       toast.success('Event deleted');
     },
     onError: (error: Error) => {

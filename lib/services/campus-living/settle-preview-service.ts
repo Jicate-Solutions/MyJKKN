@@ -11,8 +11,10 @@
 // It owns NO fee arithmetic. Every rupee comes from the two canonical sources
 // the biller itself is measured against:
 //   • fn_settle_room_annual_cost  — the one place a room's annual cost is read
-//   • canonicalShare / computeFeeBreakdown — the engine whose agreement the
-//     biller's own parity gate requires before it is allowed to bill anyone
+//   • settlementCharge / computeFeeBreakdown — the engine whose agreement the
+//     biller's own parity gate requires before it is allowed to bill anyone.
+//     It reports the EMPTY BEDS only: the settled room share minus the one bed
+//     the resident already pays for via the fee structure + upgrade differential.
 //
 // TWO SOURCES, ALWAYS LABELLED
 // ---------------------------------------------------------------------------
@@ -39,7 +41,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { POLICY_KEYS } from '@/lib/policies/keys';
 import {
-  canonicalShare,
+  settlementCharge,
   creditLateJoins,
   closeSettleWindow,
   listDueSettleWindows,
@@ -108,7 +110,11 @@ export interface SettlePreviewRoom {
   room_number: string;
   capacity: number;
   occupants: number;
-  /** Per-resident share at today's occupancy. 0 when the room cannot be priced. */
+  /**
+   * What each resident would be BILLED for the empty beds — the settled share
+   * at today's occupancy minus the one bed she already pays for. 0 when the room
+   * is full or cannot be priced.
+   */
   share_per_resident: number;
   /** Set when the room has no category or no active fee row — nothing can be billed. */
   unpriced_reason: string | null;
@@ -417,30 +423,61 @@ async function fetchActiveResidents(
  * carries this hostel year's room bill is skipped, so the practice run must
  * skip her too or it overstates the total.
  */
+/**
+ * The 'Hostel Empty Bed Settlement' revenue head — the only category this
+ * mechanism ever bills to. Null when the row is missing, which the biller also
+ * refuses on, so the preview reports the same refusal rather than pricing a
+ * bill that could not be raised.
+ */
+async function fetchSettlementCategoryId(client: Client): Promise<string | null> {
+  const { data, error } = await client.rpc('fn_settle_billing_category');
+  if (error) {
+    logger.warn(LOG, 'Could not resolve the empty-bed settlement billing category', {
+      message: error.message,
+    });
+    return null;
+  }
+  return (data as string | null) ?? null;
+}
+
+/**
+ * Learners who already hold a settlement bill for this hostel year.
+ *
+ * Keyed on the SETTLEMENT head alone. The previous version collected
+ * `student|item_category_id` across fee_source academic + hostel_category and
+ * was then looked up with a hostel_categories.id — two different id domains, so
+ * it never matched anything. Widening it back would be worse than useless now:
+ * every learner in a premium room holds an upgrade-differential bill, and
+ * matching on that would skip all of them.
+ */
 async function fetchAlreadyBilled(
   client: Client,
   hostelYearId: string,
-  learnerIds: string[]
+  learnerIds: string[],
+  settlementCategoryId: string | null
 ): Promise<Set<string>> {
   const billed = new Set<string>();
+  if (!settlementCategoryId) return billed;
+
   const CHUNK = 150;
   for (let i = 0; i < learnerIds.length; i += CHUNK) {
     const { data, error } = await client
       .from('billing_student_bills')
-      .select('student_id, item_category_id')
+      .select('student_id')
       .eq('hostel_year_id', hostelYearId)
-      .in('fee_source', ['academic', 'hostel_category'])
+      .eq('item_category_id', settlementCategoryId)
+      .eq('fee_source', 'hostel_category')
       .not('status', 'in', '("cancelled","superseded")')
       .in('student_id', learnerIds.slice(i, i + CHUNK));
     if (error) {
       // Cannot see the existing bills — say nothing rather than guess wrong.
-      logger.warn(LOG, 'Could not read existing hostel bills for the dedup check', {
+      logger.warn(LOG, 'Could not read existing settlement bills for the dedup check', {
         message: error.message,
       });
       return billed;
     }
-    for (const b of (data ?? []) as { student_id: string; item_category_id: string | null }[]) {
-      billed.add(`${b.student_id}|${b.item_category_id ?? ''}`);
+    for (const b of (data ?? []) as { student_id: string }[]) {
+      billed.add(b.student_id);
     }
   }
   return billed;
@@ -472,10 +509,12 @@ async function fromRoomProjection(
   });
   const costByRoom = new Map(costs.map((c) => [c.roomId, c]));
 
+  const settlementCategoryId = await fetchSettlementCategoryId(client);
   const alreadyBilled = await fetchAlreadyBilled(
     client,
     hostelYearId,
-    Array.from(new Set(residents.map((r) => r.learner_id).filter((id): id is string => !!id)))
+    Array.from(new Set(residents.map((r) => r.learner_id).filter((id): id is string => !!id))),
+    settlementCategoryId
   );
 
   const rooms: SettlePreviewRoom[] = roomIds.map((roomId) => {
@@ -489,10 +528,11 @@ async function fromRoomProjection(
     const capacity = priced ? Number(cost.capacity ?? first.capacity) : first.capacity;
     const sole = occupants === 1 && capacity > 1;
 
-    // canonicalShare === computeFeeBreakdown at this occupancy. This is the
-    // figure fn_settle_bill_close must reproduce before it is allowed to bill.
+    // The EMPTY BEDS only — settled share minus the one bed she already pays
+    // for. Same derivation the parity gate uses to authorize the biller, so the
+    // practice run and the bill can never disagree.
     const share = priced
-      ? canonicalShare(
+      ? settlementCharge(
           {
             capacity,
             per_bed_annual_rate: Number(cost.per_bed_annual_rate ?? 0),
@@ -511,8 +551,7 @@ async function fromRoomProjection(
       let skip: SettleSkipReason | null = null;
       if (!r.learner_id) skip = 'not_a_learner';
       else if (!priced) skip = 'no_rate';
-      else if (alreadyBilled.has(`${r.learner_id}|${cost.category_id ?? ''}`))
-        skip = 'already_billed';
+      else if (alreadyBilled.has(r.learner_id)) skip = 'already_billed';
 
       return {
         allocation_id: r.allocation_id,

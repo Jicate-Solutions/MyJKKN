@@ -37,16 +37,16 @@
 -- holder, the gate stays closed, and today's behaviour is unchanged.
 --
 -- ⚠️ ORDERING — a human must read this before applying.
---   supabase/migrations/20260808210000_accreditation_committee_rls_naac_permission_family.sql
+--   supabase/migrations/20260808210001_accreditation_committee_rls_naac_permission_family.sql
 --   is ALSO file-only and ALSO rewrites committees_select / members_select. It
---   sorts EARLIER (…0808210000 < …0809102300), so a from-scratch replay ends
+--   sorts EARLIER (…0808210001 < …0809102300), so a from-scratch replay ends
 --   with this file's expressions and is correct. Applying them out of order —
 --   this one first, that one second — would SILENTLY DROP the roster arm,
 --   because ALTER POLICY replaces the whole expression rather than adding to
 --   it. Apply in filename order, or re-read the policies afterwards.
 --   To make that hazard survivable either way, the four SELECT policies below
 --   are written in FULL and already carry the grantable
---   `accreditation.naac.committees.*` family that 20260808210000 realigns to.
+--   `accreditation.naac.committees.*` family that 20260808210001 realigns to.
 --   This file is therefore correct whether or not that one has been applied —
 --   it converges to the same permission family and adds the roster arm on top.
 --   It grants nobody a permission; it changes which rows a permission-holder

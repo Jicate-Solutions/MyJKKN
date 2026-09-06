@@ -47,6 +47,7 @@ import type {
   Cohort,
   CohortMembership,
   MembershipStatus,
+  MembershipType,
   TransitionOptions,
 } from '@/lib/types/cohort-core';
 import {
@@ -121,6 +122,83 @@ export interface SoiFullBatchOutcome {
   assessment: SoiIntakeAssessment;
   /** Populated only for 'offer_another_batch'. May be empty (every batch full). */
   alternatives: Cohort[];
+}
+
+/**
+ * A1 — what fn_soi_remove_member wrote onto the membership when it closed a
+ * place. Read back so the roster can show WHY somebody left, in the words the
+ * coordinator actually typed. Every field is nullable because this is parsed out
+ * of a jsonb blob, not read from typed columns.
+ */
+export interface SoiRemovalRecord {
+  /** The coordinator's own words. */
+  reason: string | null;
+  /** profiles.id of whoever decided. Resolved to a name by the roster. */
+  removedBy: string | null;
+  removedAt: string | null;
+  /** The status the place held before it was closed. */
+  fromStatus: string | null;
+}
+
+/** One line of a batch's roster, with the display identity a coordinator reads. */
+export interface SoiBatchMember {
+  membershipId: string;
+  cohortId: string;
+  /** profiles.id — the one identity every School of Influence place is keyed on. */
+  profileId: string;
+  /** Null when the directory returned no row for this person. Never guessed. */
+  fullName: string | null;
+  email: string | null;
+  memberType: MembershipType;
+  status: MembershipStatus;
+  role: string | null;
+  joinedAt: string | null;
+  /** Does this place still take up one of the batch's seats? */
+  occupiesSeat: boolean;
+  /** Present once the place has been closed by a removal. */
+  removal: SoiRemovalRecord | null;
+  /** Whoever closed the place, by name. Null when unknown or still open. */
+  removedByName: string | null;
+}
+
+/**
+ * A batch's roster AND the verdict on whether the caller may act on it.
+ *
+ * The verdict travels WITH the rows on purpose. A table read under RLS answers a
+ * refusal and an empty batch with the same thing — zero rows — so a screen that
+ * only received rows could not tell "nobody is in this batch yet" from "you are
+ * not allowed to see who is". Asking for the verdict explicitly is what lets the
+ * caller render a named refusal instead of a blank list (CLAUDE.md rule 27).
+ */
+export interface SoiBatchRoster {
+  /** May the caller manage the people in this batch (i.e. remove somebody)? */
+  canManage: boolean;
+  members: SoiBatchMember[];
+  /**
+   * False when the display-name lookup itself failed. The roster is still
+   * correct — every place is listed — but the names are missing, and the screen
+   * must say so rather than render a page of blanks that reads like lost data.
+   */
+  identitiesResolved: boolean;
+}
+
+/**
+ * PURE — read A1's removal record off a membership's config blob, tolerating any
+ * shape. An unreadable blob yields null rather than a half-filled record, so the
+ * screen never shows a removal it cannot explain.
+ */
+function readRemovalRecord(config: unknown): SoiRemovalRecord | null {
+  const removal = (config as { removal?: unknown } | null)?.removal;
+  if (!removal || typeof removal !== 'object') return null;
+  const raw = removal as Record<string, unknown>;
+  const text = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim().length > 0 ? value : null;
+  return {
+    reason: text(raw.reason),
+    removedBy: text(raw.removed_by),
+    removedAt: text(raw.removed_at),
+    fromStatus: text(raw.from_status),
+  };
 }
 
 export class SoiBatchService {
@@ -211,7 +289,7 @@ export class SoiBatchService {
     const sourceEventId = (input.sourceEventId ?? '').trim();
     if (!sourceEventId) {
       const err = new Error(
-        'A School of Influence batch must name the event it belongs to ' +
+        'A School of Influencer batch must name the event it belongs to ' +
           '(sourceEventId). The event is the programme’s front door, and the ' +
           'batch is keyed to it.'
       );
@@ -433,10 +511,10 @@ export class SoiBatchService {
     const staffOnly = await this.getTransferStaffOnly(toCohortId);
 
     if (staffOnly) {
-      const allowed = await this.callerCanTransfer();
+      const allowed = await this.callerCanTransfer(toCohortId);
       if (!allowed) {
         const err = new Error(
-          'Only a coordinator can move someone between School of Influence ' +
+          'Only a coordinator can move someone between School of Influencer ' +
             'batches. Ask a programme coordinator (or an administrator) to make ' +
             `this change — it needs the "${SOI_TRANSFER_PERMISSION}" permission.`
         );
@@ -453,27 +531,269 @@ export class SoiBatchService {
   }
 
   /**
-   * Does the signed-in caller hold the transfer permission? Uses the self-scoped
+   * May the signed-in caller move somebody between batches? Uses the self-scoped
    * one-argument user_has_permission(permission_name) — NOT the two-argument
    * overload that takes a caller-supplied user_id, which is the IDOR shape.
    *
-   * Fails CLOSED: if the check itself errors we treat the caller as not permitted,
-   * so an infrastructure problem can never widen access.
+   * A2 — soi.transfer_staff_only = true means "not the learners themselves", and
+   * an appointed programme coordinator IS staff for that purpose. So an ACTIVE
+   * appointment satisfies the policy as an ALTERNATIVE to the permission key.
+   * The key check is untouched and is tried first: everybody who passes today
+   * still passes, and nobody who fails both gets through. The database is still
+   * the floor either way (cohort_memberships' UPDATE policy), so this only
+   * decides whether the refusal is a readable sentence or an RLS silence.
+   *
+   * Fails CLOSED: if the checks themselves error we treat the caller as not
+   * permitted, so an infrastructure problem can never widen access.
    */
-  private static async callerCanTransfer(): Promise<boolean> {
+  private static async callerCanTransfer(toCohortId: string): Promise<boolean> {
     try {
       const { data, error } = await (this.supabase as any).rpc('user_has_permission', {
         permission_name: SOI_TRANSFER_PERMISSION,
       });
       if (error) throw error;
+      if (data === true) return true;
+    } catch (error) {
+      console.error(
+        'SoiBatchService: transfer permission check failed — falling through to the appointment check',
+        error
+      );
+    }
+
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_is_cohort_programme_coordinator',
+        { p_cohort_id: toCohortId }
+      );
+      if (error) throw error;
       return data === true;
     } catch (error) {
       console.error(
-        'SoiBatchService: transfer permission check failed — refusing the transfer',
+        'SoiBatchService: coordinator appointment check failed — refusing the transfer',
         error
       );
       return false;
     }
+  }
+
+  /**
+   * A1 — take somebody out of a batch, softly, with a reason on the record.
+   *
+   * SOFT: the database sets the membership to 'removed' and KEEPS the row. The
+   * place becomes history, not a hole — cohort-core/lifecycle.ts calls 'removed'
+   * the archived-equivalent terminal and the row is never deleted.
+   *
+   * The reason is checked HERE as well as in the RPC, deliberately. The database
+   * is the floor that cannot be skipped; this check is what stops a caller
+   * round-tripping to the server only to be told what the form already knew, and
+   * it is what makes "a reason is required" true of every future screen that
+   * calls this method rather than only of the ones that remember to ask.
+   */
+  static async removeMember(
+    membershipId: string,
+    reason: string
+  ): Promise<{ message: string; batchName: string | null }> {
+    const trimmed = (reason ?? '').trim();
+    if (trimmed.length === 0) {
+      const err = new Error(
+        'Write why this person is being removed from the batch. The reason is kept ' +
+          'on their record so anyone reviewing it later can see who decided and why.'
+      );
+      (err as Error & { status?: number }).status = 400;
+      throw err;
+    }
+
+    const { data, error } = await (this.supabase as any).rpc('fn_soi_remove_member', {
+      p_membership_id: membershipId,
+      p_reason: trimmed,
+    });
+    if (error) {
+      const message = (error as { message?: string })?.message?.trim();
+      const explained = new Error(
+        message && message.length > 0
+          ? message
+          : 'This person could not be removed from the batch.'
+      );
+      (explained as Error & { status?: number }).status =
+        (error as { code?: string })?.code === '42501' ? 403 : 400;
+      (explained as Error & { cause?: unknown }).cause = error;
+      throw explained;
+    }
+
+    const result = (data ?? {}) as { message?: string; batch_name?: string };
+    return {
+      message: result.message ?? 'They have been removed from the batch.',
+      batchName: result.batch_name ?? null,
+    };
+  }
+
+  /**
+   * Everybody who has ever held a place in one batch, with the identity a
+   * coordinator needs to recognise them — and the verdict on whether this caller
+   * may act on the list at all.
+   *
+   * CLOSED PLACES ARE INCLUDED. 'removed' and 'graduated' rows are kept by the
+   * spine as history (removeMember is soft), and hiding them here would make a
+   * screen that promises "the row stays" show a list where it plainly did not.
+   * `occupiesSeat` separates who is in the batch NOW from who was.
+   *
+   * THE VERDICT IS ASKED FOR, NOT INFERRED. A refusal on cohort_memberships is
+   * an RLS silence — zero rows, exactly like an empty batch — so the caller is
+   * checked FIRST against the very predicates fn_soi_remove_member enforces, and
+   * nothing is read when that fails. A screen can therefore say who to ask
+   * instead of showing an empty roster (CLAUDE.md rule 27).
+   *
+   * IDENTITY IS A SECOND READ, NOT A JOIN. member_ref is polymorphic on the
+   * spine, so it carries no foreign key PostgREST could embed. Names are fetched
+   * for exactly the ids this roster already returned — never a wider directory
+   * query — so RLS stays the thing that decides who is visible.
+   */
+  static async listMembers(cohortId: string): Promise<SoiBatchRoster> {
+    if (!(await this.callerCanManageMembers(cohortId))) {
+      return { canManage: false, members: [], identitiesResolved: true };
+    }
+
+    const { data, error } = await (this.supabase as any)
+      .from('cohort_memberships')
+      .select('id, cohort_id, member_type, member_ref, status, role, joined_at, config')
+      .eq('cohort_id', cohortId)
+      .order('joined_at', { ascending: true, nullsFirst: false });
+
+    if (error) {
+      const message = (error as { message?: string })?.message?.trim();
+      const explained = new Error(
+        message && message.length > 0
+          ? message
+          : 'The people in this batch could not be loaded.'
+      );
+      (explained as Error & { status?: number }).status =
+        (error as { code?: string })?.code === '42501' ? 403 : 400;
+      (explained as Error & { cause?: unknown }).cause = error;
+      throw explained;
+    }
+
+    const rows = (data ?? []) as CohortMembership[];
+    const removals = rows.map((row) => readRemovalRecord(row.config));
+
+    // Whoever closed a place is looked up alongside the people themselves, so
+    // the audit line reads as a name. The dialog promises the coordinator's name
+    // is kept with the reason; showing a raw uuid instead would not honour that.
+    const identities = await this.readDisplayIdentities([
+      ...rows.map((row) => row.member_ref),
+      ...removals.map((removal) => removal?.removedBy ?? ''),
+    ]);
+
+    return {
+      canManage: true,
+      identitiesResolved: identities !== null,
+      members: rows.map((row, index) => {
+        const identity = identities?.get(row.member_ref) ?? null;
+        const removal = removals[index];
+        return {
+          membershipId: row.id,
+          cohortId: row.cohort_id,
+          profileId: row.member_ref,
+          fullName: identity?.fullName ?? null,
+          email: identity?.email ?? null,
+          memberType: row.member_type,
+          status: row.status,
+          role: row.role ?? null,
+          joinedAt: row.joined_at ?? null,
+          occupiesSeat: SOI_OCCUPYING_STATUSES.includes(row.status),
+          removal,
+          removedByName: removal?.removedBy
+            ? (identities?.get(removal.removedBy)?.fullName ?? null)
+            : null,
+        };
+      }),
+    };
+  }
+
+  /**
+   * May the signed-in caller manage the people in this batch?
+   *
+   * These are the SAME two predicates fn_soi_remove_member itself checks, in the
+   * same order, so the screen and the database cannot disagree about who belongs
+   * here: fn_soi_can_manage_batch (super admin / admin, or cohort.manage scoped
+   * to the batch's institution, or an appointment to THIS batch) OR an
+   * appointment as a coordinator of this PROGRAMME (A6 — a batch is a label, so
+   * an appointment to one batch carries across its siblings). Reusing
+   * callerCanTransfer would have been wrong: it checks the permission key alone
+   * and would refuse an administrator whom the database plainly admits.
+   *
+   * Neither call takes a caller-supplied user id — identity comes from auth.uid()
+   * inside each function, which is what keeps this out of the IDOR shape.
+   *
+   * Fails CLOSED: if the checks themselves error the caller is treated as not
+   * permitted, so an infrastructure problem can never widen access.
+   */
+  private static async callerCanManageMembers(cohortId: string): Promise<boolean> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc('fn_soi_can_manage_batch', {
+        p_cohort_id: cohortId,
+      });
+      if (error) throw error;
+      if (data === true) return true;
+    } catch (error) {
+      console.error(
+        'SoiBatchService: batch management check did not answer — falling through to the appointment check',
+        error
+      );
+    }
+
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_is_cohort_programme_coordinator',
+        { p_cohort_id: cohortId }
+      );
+      if (error) throw error;
+      return data === true;
+    } catch (error) {
+      console.error(
+        'SoiBatchService: coordinator appointment check did not answer — refusing to list the batch',
+        error
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Names and addresses for a set of profile ids, keyed by profiles.id.
+   *
+   * Returns NULL — not an empty map — when the lookup itself fails, so the
+   * caller can tell "this person has no directory row" (a missing entry) from
+   * "no name could be read at all" (a failed call) and say the right thing. A
+   * silent empty map would render a roster of blanks that looks like lost data.
+   */
+  private static async readDisplayIdentities(
+    profileIds: string[]
+  ): Promise<Map<string, { fullName: string | null; email: string | null }> | null> {
+    const ids = Array.from(new Set(profileIds.filter(Boolean)));
+    if (ids.length === 0) return new Map();
+
+    const { data, error } = await (this.supabase as any)
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', ids);
+
+    if (error) {
+      console.error(
+        'SoiBatchService: the batch roster loaded but its names could not be read',
+        error
+      );
+      return null;
+    }
+
+    const rows = (data ?? []) as { id: string; full_name: string | null; email: string | null }[];
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        {
+          fullName: row.full_name?.trim() ? row.full_name : null,
+          email: row.email?.trim() ? row.email : null,
+        },
+      ])
+    );
   }
 
   /**

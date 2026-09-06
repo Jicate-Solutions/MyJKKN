@@ -16,13 +16,26 @@
 // silently rewrite that history. Both service methods already existed —
 // no new service capability was added.
 //
-// ORDER MATTERS: the incoming holder is seated FIRST, then the outgoing holder
-// is closed. If the second step fails the seat shows two active holders, which
-// is visible in this same list and can be corrected; the reverse order would
-// fail to a silently vacant seat that this list (status = active) cannot show.
+// ORDER: the outgoing holder is closed FIRST, then the incoming holder is
+// seated.
+//
+// This was the other way round until 20260910010000 added
+// lc_members_one_active_holder_per_seat, a partial unique index allowing only
+// one active holder per (term_id, position_id). The old order deliberately
+// tolerated a transient two-active-holders state — the reasoning was that a
+// failed second step leaves a visible double this list can show, whereas the
+// reverse leaves a silently vacant seat that a status = active list cannot.
+//
+// That trade is no longer available: seating the incoming holder while the
+// outgoing one is still active is now refused outright, so the old order
+// cannot complete at all. The vacancy risk the original order avoided is
+// handled instead of accepted — if seating the replacement fails, the failure
+// is surfaced explicitly, naming the now-vacant seat and the learner who was
+// stepped down, so it cannot pass as a silent success.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
@@ -74,14 +87,35 @@ export function ReassignLeaderDialog({
   const handleSubmit = async () => {
     if (!userId || !positionId || !termId || !institutionId) return;
 
-    await assignMember.mutateAsync({
-      term_id: termId,
-      position_id: positionId,
-      user_id: userId,
-      institution_id: institutionId,
-      appointment_notes: `Reassigned from ${currentName}`,
-    });
-    await updateStatus.mutateAsync({ id: memberId, status: 'removed' });
+    try {
+      await updateStatus.mutateAsync({ id: memberId, status: 'removed' });
+    } catch {
+      // useUpdateMemberStatus toasts the reason. The seat is untouched, so
+      // there is nothing to unwind — keep the dialog open to retry.
+      return;
+    }
+
+    try {
+      await assignMember.mutateAsync({
+        term_id: termId,
+        position_id: positionId,
+        user_id: userId,
+        institution_id: institutionId,
+        appointment_notes: `Reassigned from ${currentName}`,
+      });
+    } catch {
+      // The outgoing holder has already been stepped down, so the seat is now
+      // VACANT and this list (status = active) will not show it. Say so
+      // explicitly — a generic failure toast here would read as "nothing
+      // happened" while the role silently has no holder.
+      toast.error(
+        `${currentName} was stepped down, but the replacement could not be seated — ${roleLabel} is now vacant. Assign a holder from the members list.`,
+        { duration: 8000 }
+      );
+      setOpen(false);
+      router.refresh();
+      return;
+    }
 
     setUserId('');
     setOpen(false);

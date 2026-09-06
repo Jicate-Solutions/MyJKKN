@@ -11,7 +11,7 @@ import {
   RefreshCw,
   CheckSquare,
   Square,
-  Receipt,
+  ReceiptIndianRupee,
   Mail,
   Printer,
   Download,
@@ -327,7 +327,7 @@ export function ReceiptList({
                   className='text-center py-8'
                 >
                   <div className='flex flex-col items-center space-y-3'>
-                    <Receipt className='h-8 w-8 text-muted-foreground' />
+                    <ReceiptIndianRupee className='h-8 w-8 text-muted-foreground' />
                     <p className='text-muted-foreground'>No receipts found</p>
                   </div>
                 </TableCell>

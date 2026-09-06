@@ -3,6 +3,7 @@
 
 import { BaseService, type BaseListResponse } from '../base-service';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import { RETIRED_DELIVERY_SURFACE_MESSAGE } from './types';
 import type {
   SolutionPhase,
   PhaseStatus,
@@ -79,11 +80,10 @@ export interface CreateBugReportInput {
 export interface CreateDeploymentInput {
   phase_id: string;
   environment: 'staging' | 'production';
-  version?: string;
   vercel_url?: string;
   supabase_project_id?: string;
   custom_domain?: string;
-  deployed_date: string;
+  deployed_at: string;
   deployed_by: string;
 }
 
@@ -229,7 +229,7 @@ export class PhasesService extends BaseService {
     const { data: deployments } = await this.supabase.from('sh_phase_deployments')
       .select('*')
       .eq('phase_id', id)
-      .order('deployed_date', { ascending: false });
+      .order('deployed_at', { ascending: false });
 
     return {
       ...data,
@@ -523,26 +523,14 @@ export class PhasesService extends BaseService {
   // ============================================
 
   /**
-   * Create a deployment record
+   * Create a deployment record.
+   *
+   * RETIRED (2026-08-14 boundary ruling) — see DeploymentsService.createDeployment.
+   * The previous implementation wrote `version` and `deployed_date`, neither of
+   * which exists on sh_phase_deployments, so it could never succeed.
    */
-  static async createDeployment(input: CreateDeploymentInput): Promise<PhaseDeployment> {
-    const { data, error } = await this.supabase.from('sh_phase_deployments')
-      .insert({
-        phase_id: input.phase_id,
-        environment: input.environment,
-        version: input.version,
-        vercel_url: input.vercel_url,
-        supabase_project_id: input.supabase_project_id,
-        custom_domain: input.custom_domain,
-        deployed_date: input.deployed_date,
-        deployed_by: input.deployed_by,
-        status: 'active',
-      })
-      .select()
-      .single();
-
-    if (error) throw new Error(`Failed to create deployment: ${error.message}`);
-    return data as PhaseDeployment;
+  static async createDeployment(_input: CreateDeploymentInput): Promise<never> {
+    throw new Error(RETIRED_DELIVERY_SURFACE_MESSAGE);
   }
 
   /**
@@ -552,7 +540,7 @@ export class PhasesService extends BaseService {
     const { data, error } = await this.supabase.from('sh_phase_deployments')
       .select('*')
       .eq('phase_id', phaseId)
-      .order('deployed_date', { ascending: false });
+      .order('deployed_at', { ascending: false });
 
     if (error) throw new Error(`Failed to fetch deployments: ${error.message}`);
     return data as PhaseDeployment[];

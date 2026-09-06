@@ -93,7 +93,7 @@ export default function SchoolOfInfluenceApplyPage() {
     hasOwnApplication
   );
 
-  const title = context?.eventName ?? 'School of Influence';
+  const title = context?.eventName ?? 'School of Influencer';
 
   if (isLoading) {
     return (
@@ -173,6 +173,7 @@ export default function SchoolOfInfluenceApplyPage() {
               </div>
             ) : outcome ? (
               <SoiApplicationOutcome
+                eventId={eventId}
                 outcome={outcome}
                 fallbackBatchName={context.existingMembership?.batchName ?? null}
               />

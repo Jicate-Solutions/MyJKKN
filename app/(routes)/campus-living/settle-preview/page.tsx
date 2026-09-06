@@ -315,7 +315,9 @@ function SettlePreviewInner() {
                         <Badge variant='destructive'>Carries the whole room</Badge>
                       ) : null}
                       <span className='text-sm tabular-nums font-medium'>
-                        {room.unpriced_reason ? '—' : `${inr(room.share_per_resident)} each`}
+                        {room.unpriced_reason
+                          ? '—'
+                          : `${inr(room.share_per_resident)} each for the empty beds`}
                       </span>
                     </div>
                   </div>

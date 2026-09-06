@@ -32,6 +32,7 @@ export function toExportRow(c: AllocationCandidate): CandidateExportRow {
   const na = c.stage === 'prerequisite';
   return {
     Student: c.full_name,
+    'Roll No': c.roll_number ?? '',
     Email: c.email ?? '',
     Institution: c.institution_name ?? '',
     Program: c.program_name ?? '',
@@ -50,6 +51,9 @@ export function toExportRow(c: AllocationCandidate): CandidateExportRow {
     'Physical Access': yn(c.physical_rule_ok, na),
     'Bed Available': yn(c.bed_available, na),
     'Goes To Block': c.target_block_name ?? '',
+    // 'Overflow' = every room reserved for their cohort was full, so an
+    // unreserved room of the SAME category was used.
+    Placement: c.placement_tier === 'overflow' ? 'Overflow' : c.placement_tier === 'rule' ? 'Rule' : '',
     'Room Category': c.resolved_room_category_name ?? '',
     'Mess Category': c.resolved_mess_category_name ?? '',
     Stage: c.stage,
@@ -60,11 +64,12 @@ export function toExportRow(c: AllocationCandidate): CandidateExportRow {
 
 /**
  * The subset a landscape A4 page can hold and still stay legible. The full
- * 23-column schema only fits a spreadsheet — the PDF keeps the identity,
+ * 24-column schema only fits a spreadsheet — the PDF keeps the identity,
  * fee-basis and outcome columns and drops the per-condition Yes/No checks.
  */
 export const CANDIDATE_PDF_COLUMNS: string[] = [
   'Student',
+  'Roll No',
   'Institution',
   'Program',
   'Semester',
@@ -72,6 +77,7 @@ export const CANDIDATE_PDF_COLUMNS: string[] = [
   'Band Fee',
   'Bill Status',
   'Goes To Block',
+  'Placement',
   'Room Category',
   'Mess Category',
   'Verdict',

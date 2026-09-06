@@ -4,39 +4,34 @@ import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2 } from 'lucide-react';
+import { Info, Loader2 } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
 import { useSourceAnalytics } from '@/hooks/admission/use-group-dashboard';
 import type { SourceAnalyticsRow } from '@/types/admission-workflow-config';
+import { SOURCE_COLORS, formatSourceName } from './source-display';
+import { AdmittedSourcePanel } from './admitted-source-panel';
 
 interface SourceAnalyticsTabProps {
   /** Institution scope passed from the page; undefined => RLS-resolved super-admin all-access. */
   institutionIds?: string[];
   /** Selected admission year (cohort). When null the query is disabled until resolved. */
   programStartYear: number | null;
+  /**
+   * Total admitted learners for the same cohort, from the profile-anchored KPI
+   * (`data.totals.total_admitted`). Passed down rather than re-queried so the
+   * coverage line below cannot disagree with the KPI strip.
+   *
+   * This tab's own "Admitted" number is LEAD-anchored, so it is necessarily
+   * ≤ this value — every admitted learner with no lead row is invisible to it.
+   * Without this prop the two numbers just silently differ on screen.
+   */
+  totalAdmittedAllPaths?: number | null;
 }
-
-const SOURCE_COLORS: Record<string, string> = {
-  referral: '#8b5cf6',
-  agent: '#f59e0b',
-  walk_in: '#22c55e',
-  website: '#3b82f6',
-  social_media: '#ec4899',
-  newspaper: '#14b8a6',
-  education_fair: '#f97316',
-  google_ads: '#ef4444',
-  facebook_ads: '#6366f1',
-  youtube_ads: '#e11d48',
-  admission_form: '#84cc16',
-  publisher: '#0ea5e9',
-  learner_creator_content: '#d946ef',
-  other: '#9ca3af',
-  unknown: '#d1d5db',
-};
 
 const REFERRAL_LABELS: Record<string, string> = {
   consultant: 'Consultant',
@@ -44,9 +39,14 @@ const REFERRAL_LABELS: Record<string, string> = {
   faculty: 'Faculty Referral',
 };
 
+/**
+ * Label for a LEAD's source. `null` here means "a lead that carries no source
+ * value" — which is different from the drill-down's "no lead at all". See the
+ * note at the top of ./source-display.
+ */
 function sourceLabel(source: string | null): string {
   if (!source) return 'Direct';
-  return source.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return formatSourceName(source);
 }
 
 // 2026-05-20: All aggregations renamed from 'enrolled' → 'admitted' to track
@@ -100,7 +100,11 @@ function buildMatrix(rows: SourceAnalyticsRow[]) {
   };
 }
 
-export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceAnalyticsTabProps) {
+export function SourceAnalyticsTab({
+  institutionIds,
+  programStartYear,
+  totalAdmittedAllPaths,
+}: SourceAnalyticsTabProps) {
   const { data: rows = [], isLoading, isError } = useSourceAnalytics(institutionIds, programStartYear);
 
   if (isLoading) {
@@ -121,13 +125,25 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
     );
   }
 
+  // No LEAD rows does not mean no ADMITTED learners. For AY 2025 and earlier
+  // there are zero leads but thousands of admits (1,647 in 2025), all of them
+  // direct. Returning early here would hide the admitted panel for exactly the
+  // cohorts where "where did they come from?" has the starkest answer — so the
+  // panel renders alongside the empty-state, not instead of it.
   if (rows.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          No lead source data for the selected admission year.
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            No lead source data for the selected admission year — no enquiry in this
+            cohort came through the leads pipeline.
+          </CardContent>
+        </Card>
+        <AdmittedSourcePanel
+          institutionIds={institutionIds}
+          admissionYear={programStartYear}
+        />
+      </div>
     );
   }
 
@@ -141,8 +157,47 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
   const totalAdmitted = rows.reduce((s, r) => s + Number(r.enrolled_count), 0);
   const overallConversion = totalLeads > 0 ? Math.round((totalAdmitted / totalLeads) * 100 * 10) / 10 : 0;
 
+  // ── Attribution coverage ──────────────────────────────────────────────────
+  // The numbers on this tab are LEAD-anchored: they describe what the leads
+  // pipeline produced. The "Admitted" KPI is PROFILE-anchored and counts every
+  // admitted learner, including direct admissions that never had a lead. The
+  // two therefore differ by design — for AY 2026, 551 vs 1,515.
+  //
+  // That difference used to be invisible, which made the tab look wrong rather
+  // than narrow. Showing it turns a "which number is right?" question into a
+  // real finding: how much of admissions the leads pipeline actually touches.
+  const showCoverage =
+    typeof totalAdmittedAllPaths === 'number' && totalAdmittedAllPaths > totalAdmitted;
+  const unattributed = showCoverage ? totalAdmittedAllPaths! - totalAdmitted : 0;
+  const coveragePct = showCoverage && totalAdmittedAllPaths! > 0
+    ? Math.round((totalAdmitted / totalAdmittedAllPaths!) * 100)
+    : 100;
+
   return (
     <div className="space-y-4">
+      {showCoverage && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs dark:border-amber-900/60 dark:bg-amber-950/20">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p className="text-muted-foreground">
+            Source data covers{' '}
+            <span className="font-medium text-foreground">
+              {totalAdmitted.toLocaleString()} of {totalAdmittedAllPaths!.toLocaleString()}
+            </span>{' '}
+            admitted learners ({coveragePct}%).{' '}
+            <span className="font-medium text-foreground">
+              {unattributed.toLocaleString()}
+            </span>{' '}
+            were direct admissions with no lead record, so they have no source.{' '}
+            <Link
+              href="#admitted-by-source"
+              className="font-medium text-primary hover:underline"
+            >
+              See all admitted by source ↓
+            </Link>
+          </p>
+        </div>
+      )}
+
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
@@ -257,6 +312,15 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
           </CardContent>
         </Card>
       )}
+
+      {/* Everything above is LEAD-anchored ("what did the leads pipeline
+          produce?"). This panel is PROFILE-anchored ("who got admitted, and
+          where from?") and so equals the Admitted KPI, direct admissions
+          included. Target of the KPI card's drill-down. */}
+      <AdmittedSourcePanel
+        institutionIds={institutionIds}
+        admissionYear={programStartYear}
+      />
     </div>
   );
 }

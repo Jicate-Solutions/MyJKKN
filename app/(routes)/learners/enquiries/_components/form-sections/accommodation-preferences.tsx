@@ -141,9 +141,10 @@ export function AccommodationPreferencesSection({
 
         {accommodationType === 'HOSTEL' && (
           <p className='text-sm text-muted-foreground rounded-md border bg-muted/30 p-3'>
-            Room and mess categories are assigned automatically when the
-            learner is allocated a hostel room — they are no longer picked
-            here.
+            Room and mess categories are declared on the matching{' '}
+            <span className='font-medium'>admission fee structure</span> — open
+            the <span className='font-medium'>Finance</span> tab to see which
+            tier this learner&apos;s package covers. They are not picked here.
           </p>
         )}
 

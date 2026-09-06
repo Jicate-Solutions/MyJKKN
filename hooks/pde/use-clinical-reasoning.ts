@@ -23,6 +23,65 @@ import type {
 } from '@/types/pde-clinical-reasoning';
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Client-side request bounds
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// The POSTs below had no client timeout and no AbortSignal, so a hung request
+// stayed pending indefinitely: no error was ever raised. That matters because
+// the recovery UI in the question components (Retry, and "continue without…")
+// renders only on the error state — so a hang produced no error, no Retry, no
+// way forward, and the learner sat on a spinner with the attempt unwritten.
+// /api/pde/coach declares maxDuration = 300, so the server itself will hold a
+// stalled upstream open for five minutes.
+//
+// Bounding the wait turns a hang into an ordinary error the existing recovery
+// UI already handles. Sizes are deliberate — long enough not to abort a
+// legitimately slow model, short enough that nobody is stranded:
+//
+//   MARK     20s — /mark-image-tag runs no AI at all (auth + three reads +
+//                  pure geometry, sub-second in normal operation). This bounds
+//                  a network or database stall, nothing else.
+//   COACH    45s — one gemini-2.5-pro turn, observed at ~15s per question.
+//                  3x the observed median leaves headroom for a slow reply.
+//   FINALIZE 90s — the OSCE rubric reasons over EVERY question in the attempt
+//                  and then performs four writes, so it is strictly more work
+//                  than a single coach turn. It also runs once, at the end.
+
+export const CLINICAL_MARK_TIMEOUT_MS = 20_000;
+export const CLINICAL_COACH_TIMEOUT_MS = 45_000;
+export const CLINICAL_FINALIZE_TIMEOUT_MS = 90_000;
+
+/**
+ * fetch with a hard client-side deadline.
+ *
+ * A timeout surfaces as an ordinary Error carrying a learner-readable message
+ * — the raw DOMException reads "signal timed out", which is not something to
+ * put in front of a learner — tagged `retryable` so callers can treat it like
+ * any other transient failure. Every other error passes through untouched.
+ *
+ * Additive: no existing hook signature changes.
+ */
+export async function fetchWithClinicalTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    const name = (e as { name?: string } | null)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      const err = new Error(
+        `This is taking longer than expected (over ${Math.round(timeoutMs / 1000)}s). Please try again.`,
+      ) as Error & { retryable?: boolean };
+      err.retryable = true;
+      throw err;
+    }
+    throw e;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Query keys
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -74,11 +133,15 @@ export interface CoachInvokeResult {
 export function useCoachFeedback() {
   return useMutation<CoachInvokeResult, Error, CoachRequestBody>({
     mutationFn: async (body) => {
-      const res = await fetch('/api/pde/coach', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const res = await fetchWithClinicalTimeout(
+        '/api/pde/coach',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        CLINICAL_COACH_TIMEOUT_MS,
+      );
 
       const contentType = res.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
@@ -144,11 +207,15 @@ export interface FinalizeAttemptResult {
 export function useFinalizeAttempt() {
   return useMutation<FinalizeAttemptResult, Error, { submissionId: string }>({
     mutationFn: async ({ submissionId }) => {
-      const res = await fetch('/api/pde/clinical-reasoning/score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submissionId }),
-      });
+      const res = await fetchWithClinicalTimeout(
+        '/api/pde/clinical-reasoning/score',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ submissionId }),
+        },
+        CLINICAL_FINALIZE_TIMEOUT_MS,
+      );
       const contentType = res.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
         throw new Error(`Score endpoint returned non-JSON (${res.status}). Try again.`);

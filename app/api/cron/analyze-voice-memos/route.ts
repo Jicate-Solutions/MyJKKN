@@ -71,19 +71,23 @@ import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-job
 const BATCH_LIMIT = 20; // rate-limit transcription API calls per run
 const STORAGE_BUCKET = 'call-memos';
 
-// Per-row failure budget. Rows that fail for row-specific reasons (silent
-// audio → empty transcript, oversized/corrupt file → provider 4xx, missing
-// storage object) consume one unit per attempt; once exhausted the sweep
-// skips the row so it can't monopolize the batch. Transient provider-wide
-// failures (429 quota/rate-limit, 5xx) do NOT consume budget — see the
-// circuit breaker in the catch block below.
+// Per-row failure budget. Rows that fail for row-specific reasons (oversized or
+// corrupt file → provider 4xx, missing storage object) consume one unit per
+// attempt; once exhausted the sweep skips the row so it can't monopolize the
+// batch. Transient provider-wide failures (429 quota/rate-limit, 5xx) do NOT
+// consume budget — see the circuit breaker in the catch block below.
+//
+// Silent audio is NOT in that list any more. A recording that transcribes to
+// nothing is resolved on the first pass by the contentless guard below, so it
+// never enters this budget at all.
 //
 // Bug receipt (2026-07-03): 'failed' rows were re-swept forever with no cap.
 // ~20 rows with <5-char transcripts, sorted oldest-first, filled the entire
 // 20-row batch every 5 min — 162K wasted transcription calls in 6 weeks,
 // 2,454 pending memos starved (zero progress even while the API was healthy),
 // and enough call volume to burn through both the Groq free tier and the
-// OpenAI account quota.
+// OpenAI account quota. The cap stopped the bleeding; resolving those rows
+// instead of parking them (2026-08-02) removes the cause.
 const MAX_ANALYZE_ATTEMPTS = 5;
 
 // Slow persistent backstop for chronic rows whose failures always look
@@ -210,6 +214,19 @@ interface AnalysisResult {
   categories: string[];
 }
 
+// The one verdict for "transcription worked, but the audio holds no
+// conversation". TWO paths can reach that conclusion: the sentiment model (told
+// below to return exactly this) and the contentless guard in the run loop, which
+// short-circuits before the model is ever called. Both read this constant so the
+// two can never drift into disagreeing about what a no-content memo looks like.
+const NO_CONTENT_VERDICT: AnalysisResult = {
+  sentiment: 'neutral',
+  sentiment_score: 0.5,
+  summary:
+    'No usable content — the call was not answered or the memo captured no conversation.',
+  categories: ['other'],
+};
+
 const SENTIMENT_SYSTEM_PROMPT = `You analyze 30-second voice memos that admission counselors record after calling
 prospective students. Extract structured sentiment data.
 
@@ -234,7 +251,7 @@ no conversation (e.g. "No response.", "The candidate not attend the call.", a
 placeholder line, or a few words with no exchange in them). When that happens do
 NOT ask for the transcript and do NOT explain that you cannot analyze it — that
 is not a usable answer to this request. Return exactly:
-{"sentiment":"neutral","sentiment_score":0.5,"summary":"No usable content — the call was not answered or the memo captured no conversation.","categories":["other"]}
+${JSON.stringify(NO_CONTENT_VERDICT)}
 
 Return the JSON object and nothing else: no prose before or after it, no question
 back to the caller, no apology. Your entire reply must parse as JSON.`;
@@ -347,11 +364,12 @@ async function enqueueSentimentJob(
 // WHY NO EVIDENCE-BASED CHARGING: rounds 1–7 oscillated between "charge
 // look-alikes or poison rows never park" and "charging under partial
 // degradation parks valid memos". Both poles are covered structurally now:
-//   - The ONLY immediate attempts charge in this route is the
-//     empty-transcript guard — it fires after a SUCCESSFUL transcription,
-//     which is unambiguous row-specific evidence (the provider processed
-//     this file and returned nothing). That is the exact 2026-07-03 poison
-//     receipt, still parked at full speed (5 runs).
+//   - NO path in this route charges attempts immediately any more. The one
+//     that used to — the empty-transcript guard — no longer needs to: a
+//     successful transcription that returns no speech now RESOLVES the row as
+//     'completed' with the no-content verdict, so it leaves the sweep after a
+//     single transcription instead of after five. That contains the 2026-07-03
+//     poison receipt strictly better than parking did, and at 1/5 the spend.
 //   - Every other pathology parks via the counter: a lone chronic row in a
 //     drained queue parks in ~4h; in a deep queue it costs ~1 wasted call
 //     per full rotation (~10h) until it parks. No storm of ANY class (5xx,
@@ -615,6 +633,10 @@ export async function GET(request: NextRequest) {
   let completed = 0;
   let rejected = 0;
   let failed = 0;
+  // Resolved as "no conversation in the audio" without a sentiment call. Counted
+  // apart from `completed` so a spike in silent recordings stays visible instead
+  // of hiding inside the success number.
+  let contentless = 0;
   let halted: string | null = null;
   const errors: string[] = [];
 
@@ -845,25 +867,44 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        // Empty transcript guard — Whisper sometimes returns nothing for silence.
-        // Row-specific failure: consume one unit of the retry budget so a
-        // silent/corrupt recording parks after MAX_ANALYZE_ATTEMPTS instead of
-        // being re-transcribed every 5 minutes forever (the 2026-07-03 poison
-        // loop: same ~17 rows transcribed ~280x/day each with zero progress).
+        // Contentless-transcript guard. Transcription SUCCEEDED here — the
+        // provider answered 200 and simply found no speech. A 1-second tap, a
+        // call nobody picked up, or silence that Whisper renders as "you" /
+        // "Bye.". That is a true finding ABOUT the recording, not a failure to
+        // process it, so the row is RESOLVED carrying the same verdict the
+        // sentiment model is instructed to return for the no-content case
+        // (#2737) — a verdict this path can never obtain from the model,
+        // because it short-circuits before sentiment runs.
+        //
+        // WHY THIS DOES NOT REOPEN THE 2026-07-03 POISON LOOP: that incident
+        // happened because these rows stayed 'failed', so the candidate sweep
+        // re-picked and re-transcribed them every 5 minutes forever. 'completed'
+        // drops them from the sweep permanently after exactly ONE transcription
+        // — strictly stronger than the attempts cap it replaces, which still
+        // paid for five transcriptions per row before parking. Nothing failed,
+        // so no attempt is charged.
+        //
+        // Receipt (2026-08-02): 80 rows sat parked at the cap under the old
+        // branch — every one a 0-9s recording, median 1s, transcribing to
+        // "you" x68 / "Bye." x9. Transcription had SUCCEEDED on 83 of 86. They
+        // were unrecoverable by any retry, because retrying was never the
+        // missing piece.
         if (!transcript || transcript.length < 5) {
           await supabase
             .from('admission_call_logs')
             .update({
               memo_transcript: transcript || null,
               memo_transcript_language: normalizedLanguage,
-              memo_analyze_status: 'failed',
-              memo_analyze_attempts: attempts + 1,
+              memo_sentiment: NO_CONTENT_VERDICT.sentiment,
+              memo_sentiment_score: NO_CONTENT_VERDICT.sentiment_score,
+              memo_summary: NO_CONTENT_VERDICT.summary,
+              memo_categories: NO_CONTENT_VERDICT.categories,
+              memo_analyze_status: 'completed',
               memo_analyzed_at: nowIso(),
               updated_at: nowIso(),
             })
             .eq('id', c.id);
-          failed++;
-          errors.push(`${c.id}: empty transcript`);
+          contentless++;
           continue;
         }
 
@@ -1105,6 +1146,7 @@ export async function GET(request: NextRequest) {
       duration_ms: durationMs,
       processed,
       completed,
+      contentless,
       rejected,
       failed,
       remaining,
@@ -1126,6 +1168,8 @@ export async function GET(request: NextRequest) {
     duration_ms: durationMs,
     processed,
     completed,
+    // Transcribed fine, but the recording held no conversation — resolved, not failed.
+    contentless,
     rejected,
     failed,
     remaining,

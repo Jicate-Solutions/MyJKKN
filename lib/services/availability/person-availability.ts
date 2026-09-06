@@ -15,6 +15,12 @@
 //
 // POLICY: conflicts are ADVISORY — the brain reports, the caller decides. A
 // teaching overlap is often legitimately resolvable; v1 warns rather than refuses.
+//
+// excludeSessionId: when EDITING an existing timed assignment, the booking being
+// edited is not a conflict with itself — pass its session id and the brain skips
+// that one row. The key is spread in only when set, so on a database that hasn't
+// taken 20260827010000 yet the 3-arg call still resolves and create-new keeps
+// its full conflict check.
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // The availability-brain RPCs (fn_person_conflicts / fn_people_conflicts) are
@@ -28,6 +34,8 @@ export type PersonConflictSource = 'teaching' | 'meeting' | 'event';
 export interface PersonConflict {
   /** present on batch (fn_people_conflicts) results; absent on single calls */
   profile_id?: string;
+  /** present on guest (fn_guest_speaker_conflicts) results */
+  guest_id?: string;
   source: PersonConflictSource | string;
   ref_id: string | null;
   label: string;
@@ -42,6 +50,7 @@ export class PersonAvailabilityService {
     profileId: string,
     startIso: string,
     endIso: string,
+    excludeSessionId?: string | null,
   ): Promise<PersonConflict[]> {
     if (!profileId || !startIso || !endIso) return [];
     const supabase = getSupabase();
@@ -49,6 +58,7 @@ export class PersonAvailabilityService {
       p_profile_id: profileId,
       p_start: startIso,
       p_end: endIso,
+      ...(excludeSessionId ? { p_exclude_session_id: excludeSessionId } : {}),
     });
     if (error) throw error;
     return (data as PersonConflict[]) ?? [];
@@ -61,11 +71,35 @@ export class PersonAvailabilityService {
     profileIds: string[],
     startIso: string,
     endIso: string,
+    excludeSessionId?: string | null,
   ): Promise<PersonConflict[]> {
     if (!profileIds.length || !startIso || !endIso) return [];
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_people_conflicts', {
       p_profile_ids: profileIds,
+      p_start: startIso,
+      p_end: endIso,
+      ...(excludeSessionId ? { p_exclude_session_id: excludeSessionId } : {}),
+    });
+    if (error) throw error;
+    return (data as PersonConflict[]) ?? [];
+  }
+
+  /** The same question for an outside guest who has no login account, so the
+   *  double-booking check covers them too (Director decision D11). Rows come
+   *  back in the identical shape and are merged into the same conflict map —
+   *  this is the one availability spine reading a second identity, not a second
+   *  mechanism. A guest has exactly one diary (the sessions they speak at):
+   *  no timetable, no meetings, no event roles. */
+  static async getGuestConflicts(
+    guestIds: string[],
+    startIso: string,
+    endIso: string,
+  ): Promise<PersonConflict[]> {
+    if (!guestIds.length || !startIso || !endIso) return [];
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_guest_speaker_conflicts', {
+      p_guest_ids: guestIds,
       p_start: startIso,
       p_end: endIso,
     });

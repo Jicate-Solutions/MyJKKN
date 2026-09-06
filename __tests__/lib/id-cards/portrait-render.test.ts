@@ -81,6 +81,7 @@ const learner: CardPersonData = {
   courseName: 'B.Tech AI',
   departmentName: 'CSE',
   institutionName: 'JKKN College of Engineering',
+  isSchool: false,
   qrValue: 'learner-uuid',
   photoCandidates: [],
   valueBag: {},
@@ -92,7 +93,12 @@ const learner: CardPersonData = {
   contactPhone: '9123456780',
   idCode: '21AI042',
   studyPeriod: '2025-2028',
-  staffId: null
+  staffId: null,
+  // Pre-existing omission, surfaced only now: the PR-scoped typecheck compiles
+  // test files, but tsconfig.json excludes __tests__ so a local `tsc` never
+  // reaches them. This fixture has been missing a required field since
+  // courseEndDate was added, invisibly, because no PR had touched this file.
+  courseEndDate: null
 };
 
 const teamMember: CardPersonData = {
@@ -577,5 +583,66 @@ describe('buildCardElement — portrait custom elements', () => {
     expect(collectText(staffTree).join(' | ')).toContain('JK00417');
     const learnerTree = buildCardElement(baseInput({ layout }));
     expect(collectText(learnerTree).join(' | ')).not.toContain('JK00417');
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// School vocabulary (2026-09-03)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Matric HSS and Nattraja Vidhyalya are institutions.entity_type = 'school'.
+// Their "programme" IS a class — 552 Matric learners sit in Standard 11/12 —
+// so a card printing "COURSE: Standard 12" read as nonsense. Every other screen
+// in the app already swaps Program → Class and Department → Wing through
+// lib/utils/school-label-adapter.ts; the card renderer was the one surface that
+// never called it (grep: 10 call sites, none under lib/id-cards/).
+//
+// Only the LABEL changes. The value is correct either way.
+
+describe('school cards use school vocabulary, not college vocabulary', () => {
+  const schoolLearner: CardPersonData = {
+    ...learner,
+    isSchool: true,
+    courseName: 'Standard 12',
+    departmentName: 'Science',
+    institutionName: 'JKKN Matric Higher Secondary School'
+  };
+
+  const textFor = (person: CardPersonData) =>
+    collectText(buildCardElement(baseInput({ person }))).join(' | ');
+
+  it('prints CLASS, never COURSE, for a school learner', () => {
+    const text = textFor(schoolLearner);
+    expect(text).toContain('CLASS');
+    expect(text).not.toContain('COURSE');
+    // The value is unchanged — this was never a data problem.
+    expect(text).toContain('Standard 12');
+  });
+
+  it('prints WING, never DEPT, for a school TEAM MEMBER', () => {
+    // DEPT lives in the team-member branch only — a learner card never carries
+    // it, which is why the school learner above cannot exercise this label.
+    const schoolTeacher: CardPersonData = {
+      ...teamMember,
+      isSchool: true,
+      departmentName: 'Science',
+      institutionName: 'JKKN Matric Higher Secondary School'
+    };
+    const text = textFor(schoolTeacher);
+    expect(text).toContain('WING');
+    expect(text).not.toContain('DEPT');
+  });
+
+  it('leaves a college card exactly as it was', () => {
+    // Opposite control: 8 of 10 institutions are colleges and must not move.
+    const text = textFor(learner);
+    expect(text).toContain('COURSE');
+    expect(text).not.toContain('CLASS');
+
+    // …and a college team member keeps DEPT.
+    const collegeText = textFor(teamMember);
+    expect(collegeText).toContain('DEPT');
+    expect(collegeText).not.toContain('WING');
   });
 });

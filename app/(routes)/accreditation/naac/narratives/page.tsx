@@ -68,6 +68,9 @@ interface NarrativeRow {
   owner_user_id: string | null;
   evidence_row_count: number | null;
   updated_at: string | null;
+  // Return-edge measurement (20260928010000): how far the reviewer moved the
+  // AI draft at okay. Optional — see the fallback in useNarratives.
+  edit_ratio?: number | null;
 }
 
 // ----------------------------------------------------------------------------
@@ -75,18 +78,30 @@ interface NarrativeRow {
 // institution names and owner names are enriched from lookup tables (metric_code
 // is not a FK, so we join client-side, mirroring the NAAC dashboard).
 // ----------------------------------------------------------------------------
+const NARRATIVE_LIST_COLUMNS =
+  'id, institution_id, metric_code, period_label, status, grounding_verdict, owner_user_id, evidence_row_count, updated_at';
+
 function useNarratives() {
   return useQuery({
     queryKey: ['accreditation', 'naac', 'narratives', 'list'],
     queryFn: async (): Promise<NarrativeRow[]> => {
       const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
+      // edit_ratio ships in migration 20260928010000. If code deploys before
+      // that migration is applied, the explicit column would 400 the whole
+      // work-list — so on an edit_ratio error we retry without it rather than
+      // blacking out a fraud-critical review surface.
+      let { data, error } = await sb
         .from('accreditation_metric_narratives')
-        .select(
-          'id, institution_id, metric_code, period_label, status, grounding_verdict, owner_user_id, evidence_row_count, updated_at',
-        )
+        .select(`${NARRATIVE_LIST_COLUMNS}, edit_ratio`)
         .eq('body_code', BODY_CODE)
         .order('updated_at', { ascending: false });
+      if (error && /edit_ratio/i.test(error.message ?? '')) {
+        ({ data, error } = await sb
+          .from('accreditation_metric_narratives')
+          .select(NARRATIVE_LIST_COLUMNS)
+          .eq('body_code', BODY_CODE)
+          .order('updated_at', { ascending: false }));
+      }
       if (error) throw error;
       return (data ?? []) as NarrativeRow[];
     },
@@ -333,7 +348,7 @@ export default function NAACNarrativesListPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <Table className="min-w-[720px]">
+                <Table className="min-w-[780px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Metric</TableHead>
@@ -341,6 +356,7 @@ export default function NAACNarrativesListPage() {
                       <TableHead>Period</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Grounding</TableHead>
+                      <TableHead>Edited</TableHead>
                       <TableHead>Owner</TableHead>
                       <TableHead className="w-10" />
                     </TableRow>
@@ -374,6 +390,14 @@ export default function NAACNarrativesListPage() {
                         </TableCell>
                         <TableCell>
                           <GroundingBadge verdict={n.grounding_verdict} />
+                        </TableCell>
+                        <TableCell
+                          className="whitespace-nowrap text-sm text-muted-foreground"
+                          title="How much the reviewer changed the AI draft at okay (0% = accepted verbatim)"
+                        >
+                          {n.edit_ratio == null
+                            ? '—'
+                            : `${Math.round(Number(n.edit_ratio) * 100)}%`}
                         </TableCell>
                         <TableCell className="text-sm">
                           {n.owner_user_id ? (

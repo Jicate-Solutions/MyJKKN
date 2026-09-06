@@ -26,13 +26,22 @@ import {
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
+// Every field below except `id` was named wrong. `hr_employee_documents` uses
+// staff_id / document_code / expires_at / verification_status / institution_id —
+// five of the six columns this component asked for have never existed, so the
+// request died with 42703 and the tab rendered "Failed to load compliance data.
+// Ensure employee documents are configured.", blaming the reader's setup for a
+// broken query. Verified against production 2026-09-04.
+//
+// `institution_id` is also the correct semantic, not merely the correct name:
+// the aggregate below is keyed into a map called `byInstitution`.
 interface DocumentRow {
   id: string;
-  employee_id: string;
-  document_type: string;
-  expiry_date: string | null;
-  status: string;
-  hr_organization_id: string;
+  staff_id: string;
+  document_code: string;
+  expires_at: string | null;
+  verification_status: string;
+  institution_id: string;
 }
 
 function useComplianceDocuments() {
@@ -42,8 +51,8 @@ function useComplianceDocuments() {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hr_employee_documents')
-        .select('id, employee_id, document_type, expiry_date, status, hr_organization_id')
-        .order('expiry_date', { ascending: true })
+        .select('id, staff_id, document_code, expires_at, verification_status, institution_id')
+        .order('expires_at', { ascending: true })
         .limit(500);
 
       if (error) throw error;
@@ -81,19 +90,19 @@ export function ComplianceReadinessTab() {
     const byInstitution: Record<string, { expired: number; expiringSoon: number; valid: number; total: number }> = {};
 
     for (const doc of documents) {
-      const orgId = doc.hr_organization_id;
+      const orgId = doc.institution_id;
       if (!byInstitution[orgId]) {
         byInstitution[orgId] = { expired: 0, expiringSoon: 0, valid: 0, total: 0 };
       }
       byInstitution[orgId].total += 1;
 
-      if (!doc.expiry_date) {
+      if (!doc.expires_at) {
         noExpiry += 1;
         byInstitution[orgId].valid += 1;
         continue;
       }
 
-      const expiryDate = new Date(doc.expiry_date);
+      const expiryDate = new Date(doc.expires_at);
       if (expiryDate < today) {
         expired += 1;
         byInstitution[orgId].expired += 1;

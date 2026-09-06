@@ -21,6 +21,7 @@ import {
   type RegularizationRequest,
   type SubmitRegularizationDto,
 } from '@/lib/services/hr/regularization-service';
+import { invalidateAttendanceViews } from '@/hooks/hr/use-attendance-records';
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -115,6 +116,10 @@ export function useApproveRegularization() {
     onSuccess: () => {
       toast.success('Request approved');
       qc.invalidateQueries({ queryKey: regularizationKeys.all });
+      // Approving stamps hr_attendance_records, which is what My Attendance
+      // and the monthly report read. Without this the day keeps showing its
+      // old verdict until the cache expires.
+      invalidateAttendanceViews(qc);
     },
     onError: (err: Error) => {
       toast.error(err.message || 'Failed to approve');
@@ -137,6 +142,9 @@ export function useRejectRegularization() {
     onSuccess: () => {
       toast.success('Request rejected');
       qc.invalidateQueries({ queryKey: regularizationKeys.all });
+      // Cheap, and covers a request rejected after it was already approved —
+      // the day's stamp is not undone, so the view must not go stale either.
+      invalidateAttendanceViews(qc);
     },
     onError: (err: Error) => {
       toast.error(err.message || 'Failed to reject');

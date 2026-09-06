@@ -39,7 +39,31 @@ export async function GET(request: NextRequest) {
   const result = await GoogleCalendarService.completeConnection(service, hostProfileId, code);
   if (!result.success) {
     console.error('[google-calendar/callback] connection failed:', result.error);
+
+    // Calendar-connect lock (2026-08-18): count this failure. At the ceiling
+    // (3 by policy) fn_calendar_lock_record_failure releases the person, so a
+    // broken Google flow can never leave someone permanently unable to use
+    // MyJKKN. Best effort on purpose — if the counter itself fails we still send
+    // them back with a message rather than swallowing the original error.
+    try {
+      await (service as any).rpc('fn_calendar_lock_record_failure', {
+        p_profile: hostProfileId,
+      });
+    } catch (counterErr) {
+      console.error('[google-calendar/callback] failure counter failed:', counterErr);
+    }
     return back('failed');
+  }
+
+  // Connected: drop the lock immediately rather than making them wait for the
+  // hourly sweep. Someone who has just done what was asked must not stay held.
+  try {
+    await (service as any)
+      .from('profiles')
+      .update({ calendar_lock_active: false, calendar_lock_warned_at: null })
+      .eq('id', hostProfileId);
+  } catch (clearErr) {
+    console.error('[google-calendar/callback] lock clear failed:', clearErr);
   }
   return back('connected');
 }

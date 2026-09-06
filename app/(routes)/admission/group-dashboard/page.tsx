@@ -227,7 +227,12 @@ export default function GroupDashboardPage() {
   // view, and browser back from a drill-down lands on the same tab+year.
   // See spec §3.4 + §4.3.
   const yearFromUrl = (() => {
-    const raw = searchParams.get('ay');
+    // `ay` is this page's own param. `admission_year` is what
+    // appendDashboardScope() emits, so a drill-down that lands back on this
+    // dashboard (the Admitted KPI → ?tab=sources) carries its cohort through.
+    // Without the alias the year would silently reset to the default cohort
+    // and the drilled-into list would describe a different year than the card.
+    const raw = searchParams.get('ay') ?? searchParams.get('admission_year');
     if (!raw) return null;
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
@@ -646,9 +651,14 @@ export default function GroupDashboardPage() {
 
             {/* Tab: Source Analytics */}
             <TabsContent value="sources">
+              {/* totalAdmittedAllPaths drives the attribution-coverage line.
+                  The tab's own numbers are lead-anchored; this KPI is
+                  profile-anchored, so passing it down lets the tab state how
+                  much of the admitted cohort it can actually explain. */}
               <SourceAnalyticsTab
                 institutionIds={scopedInstitutionIds}
                 programStartYear={selectedYear}
+                totalAdmittedAllPaths={data?.totals?.total_admitted ?? null}
               />
             </TabsContent>
 

@@ -22,6 +22,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { TAP_TARGET_BREADCRUMB } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useProject } from '@/hooks/projects/use-projects';
 import { useMemberCapacity } from '@/hooks/projects/use-resources';
@@ -45,7 +46,7 @@ export default function ProjectResourcesPage() {
   return (
     <ContentLayout title="Resource &amp; Capacity">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>

@@ -5,7 +5,7 @@ const validInput = {
   first_name: 'AARTHI',
   last_name: 'KUMAR',
   date_of_birth: '2004-08-15',
-  gender: 'FEMALE',
+  gender: 'Female',
   religion: 'HINDU',
   community: 'BC',
   caste: 'VANNIYAR',

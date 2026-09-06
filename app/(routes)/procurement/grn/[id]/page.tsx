@@ -42,6 +42,7 @@ import {
 import { ArrowLeft, CheckCircle2, AlertTriangle, PackagePlus } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function GrnDetailPage() {
   const router = useRouter();
@@ -117,7 +118,7 @@ export default function GrnDetailPage() {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 

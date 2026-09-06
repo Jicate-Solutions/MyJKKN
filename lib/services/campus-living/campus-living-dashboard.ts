@@ -378,6 +378,90 @@ export class CampusLivingDashboard {
     }
   }
 
+  // ── Block × category occupancy ────────────────────────────────────
+  // Counts real hostel_beds rows, NOT hostel_rooms.capacity. Capacity is intent; beds are
+  // inventory, and the allocator can only place a learner on inventory. room_capacity comes
+  // back alongside so the UI can flag blocks where the two disagree rather than silently
+  // reporting a bed that cannot be allocated.
+  static async getBlockCategoryOccupancy(institutionId: string | undefined) {
+    try {
+      const supabase = createClientSupabaseClient();
+
+      // hostel_blocks has no institution_id — narrow via the junction, same as
+      // getDashboardData does.
+      let blockIdFilter: string[] | null = null;
+      if (institutionId) {
+        const { data: blockIds } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        blockIdFilter = (blockIds ?? []).map((r) => r.block_id);
+        if (blockIdFilter.length === 0) return [];
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let q = (supabase as any)
+        .from('v_hostel_block_category_occupancy')
+        .select('*');
+      if (blockIdFilter !== null) q = q.in('block_id', blockIdFilter);
+
+      const { data, error } = await q;
+      if (error) {
+        logger.error('campus-living/dashboard', 'Failed to fetch block category occupancy', error);
+        throw error;
+      }
+
+      return (data ?? []) as Array<{
+        block_id: string;
+        block_name: string;
+        block_code: string | null;
+        hostel_type: string;
+        category_id: string | null;
+        category_name: string;
+        sort_order: number;
+        rooms: number;
+        beds: number;
+        filled: number;
+        vacant: number;
+        room_capacity: number;
+      }>;
+    } catch (error) {
+      logger.error('campus-living/dashboard', 'Unexpected error in getBlockCategoryOccupancy', error);
+      throw error;
+    }
+  }
+
+  // ── Institution-wise residents ────────────────────────────────────
+  // Residents holding a bed right now, split by hostel gender. Uses the same
+  // check_out_date IS NULL test as the block table, so the two always reconcile.
+  static async getInstitutionResidents(institutionId: string | undefined) {
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let q = (supabase as any)
+        .from('v_hostel_institution_residents')
+        .select('*');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+
+      const { data, error } = await q;
+      if (error) {
+        logger.error('campus-living/dashboard', 'Failed to fetch institution residents', error);
+        throw error;
+      }
+
+      return ((data ?? []) as Array<{
+        institution_id: string;
+        institution_name: string;
+        boys: number;
+        girls: number;
+        total: number;
+      }>).sort((a, b) => b.total - a.total);
+    } catch (error) {
+      logger.error('campus-living/dashboard', 'Unexpected error in getInstitutionResidents', error);
+      throw error;
+    }
+  }
+
   // ── Quick stats (lightweight, for sidebar/header) ─────────────────
   static async getQuickStats(institutionId: string | undefined) {
     try {

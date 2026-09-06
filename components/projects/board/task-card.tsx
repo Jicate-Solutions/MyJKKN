@@ -14,6 +14,7 @@ import { AlertTriangle, CalendarDays, Lock, Users } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProjectPriority, ProjectTask } from '@/types/projects';
@@ -92,7 +93,7 @@ export function TaskCard({ task, priority, onClick, className }: TaskCardProps) 
             type="button"
             variant="ghost"
             size="sm"
-            className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+            className={`h-6 gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground ${TAP_TARGET}`}
             title="Assign RACI (Responsible / Accountable / Consulted / Informed)"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {

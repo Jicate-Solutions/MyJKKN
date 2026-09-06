@@ -5,6 +5,7 @@ import {
   createServerSupabaseClient,
   createServiceRoleClient
 } from '@/lib/supabase/server';
+import { filterPushRecipients } from '@/lib/push/opt-out';
 import webpush from 'web-push';
 import { CreateNotificationRequest } from '@/types/notifications';
 
@@ -683,11 +684,21 @@ async function sendWebPushNotifications(
     // would return 0 rows when querying other users' subscriptions.
     const serviceClient = createServiceRoleClient();
 
-    // Get push subscriptions for target users along with profile info
+    // Drop anyone who switched push off before looking up any subscription.
+    // is_active alone cannot carry that answer: unsubscribing destroys the
+    // browser endpoint, so the next page load mints a NEW row that is
+    // is_active=true and passes the filter below perfectly.
+    const pushUserIds = await filterPushRecipients(serviceClient, userIds);
+    if (pushUserIds.length === 0) {
+      return emptyResult;
+    }
+
+    // Get push subscriptions for target users along with profile info.
     const { data: subscriptions, error: subError } = await serviceClient
       .from('push_subscriptions')
       .select('id, subscription, user_id, profiles!inner(email, role)')
-      .in('user_id', userIds);
+      .in('user_id', pushUserIds)
+      .eq('is_active', true);
 
     if (subError) {
       console.error('Error fetching push subscriptions:', subError);

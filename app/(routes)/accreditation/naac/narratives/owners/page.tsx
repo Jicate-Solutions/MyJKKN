@@ -57,6 +57,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { usePermissions } from '@/hooks/use-permissions';
+import {
+  BODY_LEVEL_CODE_LABEL,
+  BODY_LEVEL_NAME_LABEL,
+  groupPairsByInstitution,
+  isBodyLevelPair,
+  pairKey,
+  type MetricPair,
+} from './_lib/owner-desk-rows';
 
 const BODY_CODE = 'NAAC';
 
@@ -76,7 +84,12 @@ interface OwnerRow {
   id: string;
   institution_id: string;
   body_code: string;
-  metric_code: string;
+  /**
+   * NULLABLE in production. NULL is a WHOLE-BODY assignment — every NAAC metric
+   * at that campus inherits its owner. Typing this `string` is what let a bare
+   * `.localeCompare()` reach a null and take the page down on 2026-08-14.
+   */
+  metric_code: string | null;
   owner_user_id: string | null;
 }
 
@@ -85,17 +98,6 @@ interface CandidateProfile {
   full_name: string | null;
   email: string | null;
 }
-
-/** One assignable (institution × metric) pair, with where it came from. */
-interface MetricPair {
-  institution_id: string;
-  metric_code: string;
-  hasNarrative: boolean;
-  hasEvidence: boolean;
-}
-
-const pairKey = (institutionId: string, metricCode: string) =>
-  `${institutionId}::${metricCode}`;
 
 // ----------------------------------------------------------------------------
 // Reads — session client throughout; RLS scopes every result.
@@ -383,28 +385,14 @@ export default function NAACNarrativeOwnersPage() {
     return [{ value: UNASSIGNED_VALUE, label: 'Unassigned' }, ...opts];
   }, [people]);
 
-  // Pairs → per-institution buckets, each metric-code sorted.
-  const grouped = useMemo(() => {
-    const visible = allPairs.filter((p) => {
-      const assigned = ownerByKey.has(pairKey(p.institution_id, p.metric_code));
-      if (filter === 'unassigned') return !assigned;
-      if (filter === 'assigned') return assigned;
-      return true;
-    });
-    const byInstitution = new Map<string, MetricPair[]>();
-    for (const p of visible) {
-      const bucket = byInstitution.get(p.institution_id) ?? [];
-      bucket.push(p);
-      byInstitution.set(p.institution_id, bucket);
-    }
-    return [...byInstitution.entries()]
-      .map(([institutionId, rows]) => ({
-        institutionId,
-        institutionName: institutionNames?.[institutionId] ?? 'Unknown campus',
-        rows: rows.sort((a, b) => a.metric_code.localeCompare(b.metric_code)),
-      }))
-      .sort((a, b) => a.institutionName.localeCompare(b.institutionName));
-  }, [allPairs, ownerByKey, filter, institutionNames]);
+  // Pairs → per-institution buckets, whole-body row first, then metric-code
+  // sorted. Extracted to _lib/owner-desk-rows so the ordering is testable; a
+  // null metric_code here used to throw and blank the whole page.
+  const grouped = useMemo(
+    () =>
+      groupPairsByInstitution(allPairs, ownerByKey, filter, institutionNames),
+    [allPairs, ownerByKey, filter, institutionNames],
+  );
 
   const totals = useMemo(() => {
     const total = allPairs.length;
@@ -420,7 +408,12 @@ export default function NAACNarrativeOwnersPage() {
   // actually returned; a silent no-op must never read as success.
   // --------------------------------------------------------------------------
   async function assignOwner(pair: MetricPair, nextValue: string) {
-    const key = `${pair.institution_id}::${pair.metric_code}`;
+    const key = pairKey(pair.institution_id, pair.metric_code);
+    // What to call this row in a toast. Interpolating a null metric_code would
+    // literally read "null assigned to Priya."
+    const pairLabel = isBodyLevelPair(pair)
+      ? BODY_LEVEL_CODE_LABEL
+      : pair.metric_code;
     const current = ownerByKey.get(key) ?? null;
     const next = nextValue === UNASSIGNED_VALUE ? null : nextValue;
     if (next === current) return;
@@ -452,22 +445,41 @@ export default function NAACNarrativeOwnersPage() {
             'The change was not saved — you may not have access to this campus.',
           );
         }
-        toast.success(`${pair.metric_code} assigned to ${personLabel(next)}.`);
+        toast.success(`${pairLabel} assigned to ${personLabel(next)}.`);
       } else {
-        const { data, error } = await sb
+        // This desk manages INSTITUTION-LEVEL ownership only. programme_id
+        // NOT NULL is a different axis — one degree programme's slice (NBA) —
+        // and the desk neither reads nor keys on it, so a programme-scoped row
+        // collapses into the same visible row as the institution-level one.
+        // Without `.is('programme_id', null)` the delete takes both and still
+        // reports success. owner-digest.ts scopes institution ownership the
+        // same way (institutionScopedRows).
+        //
+        // A whole-body row is then matched with .is(), not .eq(): PostgREST
+        // turns .eq('metric_code', null) into `metric_code=eq.null`, which
+        // never matches a real SQL NULL, so the delete removed nothing and the
+        // guard below blamed the reader's permissions for a row they are
+        // perfectly entitled to clear. Until this page crashed on sort, no row
+        // could be clicked at all — fixing the sort is what makes both of these
+        // paths reachable, which is why they are fixed here and not left.
+        let del = sb
           .from('accreditation_metric_owners')
           .delete()
           .eq('institution_id', pair.institution_id)
           .eq('body_code', BODY_CODE)
-          .eq('metric_code', pair.metric_code)
-          .select('id');
+          .is('programme_id', null);
+        del = isBodyLevelPair(pair)
+          ? del.is('metric_code', null)
+          : del.eq('metric_code', pair.metric_code);
+
+        const { data, error } = await del.select('id');
         if (error) throw error;
         if (!data || data.length === 0) {
           throw new Error(
             'The change was not saved — you may not have access to this campus.',
           );
         }
-        toast.success(`${pair.metric_code} is now unassigned.`);
+        toast.success(`${pairLabel} is now unassigned.`);
       }
 
       await qc.invalidateQueries({
@@ -610,7 +622,7 @@ export default function NAACNarrativeOwnersPage() {
         ) : (
           grouped.map((group) => {
             const groupAssigned = group.rows.filter((r) =>
-              ownerByKey.has(`${r.institution_id}::${r.metric_code}`),
+              ownerByKey.has(pairKey(r.institution_id, r.metric_code)),
             ).length;
             return (
               <Card key={group.institutionId}>
@@ -636,19 +648,30 @@ export default function NAACNarrativeOwnersPage() {
                       </TableHeader>
                       <TableBody>
                         {group.rows.map((pair) => {
-                          const key = `${pair.institution_id}::${pair.metric_code}`;
+                          const key = pairKey(pair.institution_id, pair.metric_code);
                           const ownerId = ownerByKey.get(key) ?? null;
                           const busy = savingKey === key;
+                          const bodyLevel = isBodyLevelPair(pair);
                           return (
                             <TableRow key={key} className="hover:bg-muted/40">
+                              {/*
+                                A whole-body row has NO metric code. Rendering
+                                {null} gives React nothing, so both lines came
+                                out blank and the row read as broken data — say
+                                what it actually covers instead.
+                              */}
                               <TableCell>
                                 <div className="flex flex-col">
                                   <span className="font-mono text-xs text-muted-foreground">
-                                    {pair.metric_code}
+                                    {bodyLevel
+                                      ? BODY_LEVEL_CODE_LABEL
+                                      : pair.metric_code}
                                   </span>
                                   <span className="text-sm font-medium">
-                                    {metricNames?.[pair.metric_code] ??
-                                      pair.metric_code}
+                                    {bodyLevel
+                                      ? BODY_LEVEL_NAME_LABEL
+                                      : (metricNames?.[pair.metric_code!] ??
+                                        pair.metric_code)}
                                   </span>
                                 </div>
                               </TableCell>

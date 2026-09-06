@@ -59,6 +59,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 
 import { SoiBatchService } from '@/lib/services/school-of-influence/batch-service';
+import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 import {
   SOI_ATTENDANCE_STATUSES,
   SoiAttendanceService,
@@ -197,8 +198,8 @@ export function AttendanceWorkspace({ eventId, initialCohortId }: Props) {
           <CardTitle className="text-base">Pick a batch</CardTitle>
           <CardDescription>
             {eventId
-              ? 'This programme has no School of Influence batches yet. Create one from the batch admin, then come back here to run the register.'
-              : 'Open this screen from a batch in the School of Influence admin, or add ?event=<programme event id> to the address to choose a batch here.'}
+              ? 'This programme has no School of Influencer batches yet. Create one from the batch admin, then come back here to run the register.'
+              : 'Open this screen from a batch in the School of Influencer admin, or add ?event=<programme event id> to the address to choose a batch here.'}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -217,7 +218,7 @@ export function AttendanceWorkspace({ eventId, initialCohortId }: Props) {
             <SelectContent>
               {batches.map((batch) => (
                 <SelectItem key={batch.id} value={batch.id}>
-                  {batch.name}
+                  {soiDisplayName(batch.name)}
                 </SelectItem>
               ))}
             </SelectContent>

@@ -57,6 +57,11 @@ const NAV_EXCLUDE = new Set<string>([
   // Reached via the "Session catalog" button on the chip-reachable /events/induction
   // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.
   '/events/induction/catalog',
+  // Campus Walk fixer screen. Reached from the bell notification the walk task
+  // raises, as `/campus-walk/fix?task=<id>` — it renders one specific ticket
+  // (see its `searchParams: { task?: string }`) and shows a "no ticket" state
+  // with no task id, so it has no standalone chip surface to be reached from.
+  '/campus-walk/fix',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',
@@ -68,6 +73,21 @@ const NAV_EXCLUDE = new Set<string>([
   '/billing/payment',
   '/billing/payment/success',
   '/billing/payment/failed',
+
+  // Billing create-forms, button-invoked from their chip-reachable list page
+  // (2026-08-25, when billing gained a nav-config and stopped rendering every
+  // manifest sibling as a flat chip). Each was verified to have a real caller:
+  //  - /billing/schedule/new         : "New Bill" from the Student Search table
+  //  - /billing/schedule/bulk-create : bulk action on the Schedule table
+  //  - /billing/receipts/new         : "New Receipt" on /billing/receipts
+  //  - /billing/school-fees/new      : plan cards on /billing/school-fees, and
+  //    it REQUIRES ?institution=&year=&program= — a bare chip would open broken.
+  // /billing/receipts/templates is deliberately NOT here: nothing links to it,
+  // so it keeps a real chip in the nav-config instead.
+  '/billing/schedule/new',
+  '/billing/schedule/bulk-create',
+  '/billing/receipts/new',
+  '/billing/school-fees/new',
 
   // SSO / admin-only one-shots
   '/admin/saml',
