@@ -165,3 +165,4 @@ mcp.json
 tsconfig.pr-scoped.json
 
 /proposals
+.screenshots/
