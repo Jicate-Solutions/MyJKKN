@@ -560,7 +560,7 @@ export default function GeneralEventDetailPage() {
 
         {isSchoolOfInfluence && (
           <p className="text-xs text-muted-foreground">
-            These forms are what applicants answer on the School of Influence
+            These forms are what applicants answer on the School of Influencer
             application page below.
           </p>
         )}

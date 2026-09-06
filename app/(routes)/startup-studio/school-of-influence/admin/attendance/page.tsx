@@ -29,14 +29,14 @@ import { AttendanceWorkspace } from './_components/attendance-workspace';
 // listed under its folder name alone — which is how a programme's screens end up
 // searchable only as "Attendance" (BUG-005799 / BUG-005800).
 export const navMeta = {
-  label: 'School of Influence Attendance',
+  label: 'School of Influencer Attendance',
   icon: 'CheckSquare',
 } as const;
 
 export const metadata: Metadata = {
-  title: 'School of Influence — Attendance',
+  title: 'School of Influencer — Attendance',
   description:
-    'Tick off who attended each School of Influence session and see who is short of the attendance bar.',
+    'Tick off who attended each School of Influencer session and see who is short of the attendance bar.',
 };
 
 interface PageProps {
@@ -47,12 +47,12 @@ export default async function SoiAttendancePage({ searchParams }: PageProps) {
   const { event, batch } = await searchParams;
 
   return (
-    <ContentLayout title="School of Influence">
+    <ContentLayout title="School of Influencer">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Startup Studio', href: '/startup-studio' },
-          { label: 'School of Influence' },
+          { label: 'School of Influencer' },
           { label: 'Attendance' },
         ]}
       />
