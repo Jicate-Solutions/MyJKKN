@@ -39,14 +39,14 @@ import { PolicyPageShell } from '@/lib/admin/policy-shell';
 import { SoiSettingsEditor } from './_components/soi-settings-editor';
 
 export const navMeta = {
-  label: 'School of Influence Settings',
+  label: 'School of Influencer Settings',
   icon: 'SlidersHorizontal',
 } as const;
 
 const DENIED = (
   <div className="space-y-3 rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
     <p className="font-medium text-foreground">
-      You do not have access to the School of Influence settings.
+      You do not have access to the School of Influencer settings.
     </p>
     <p>
       These settings decide who may apply to the programme, how big a batch can get,
@@ -65,7 +65,7 @@ const DENIED = (
 export default function SchoolOfInfluenceSettingsPage() {
   return (
     <PolicyPageShell
-      title="School of Influence — Settings"
+      title="School of Influencer — Settings"
       permissionKey="startup_studio.school_of_influence.configure"
       permissionDeniedMessage={DENIED}
       explainer={

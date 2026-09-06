@@ -67,6 +67,8 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { filterPushRecipients } from '@/lib/push/opt-out';
+import { withCronRun } from '@/lib/cron/run-log';
 import webpush from 'web-push';
 import {
   cycleNotificationExpiresAt,
@@ -172,7 +174,15 @@ async function fetchActiveSubs(
 ): Promise<Map<string, PushSubRow[]>> {
   const byUser = new Map<string, PushSubRow[]>();
   if (!userIds.length) return byUser;
-  for (const ids of chunk(userIds, DB_CHUNK)) {
+
+  // Drop anyone who switched push off before looking up any subscription.
+  // is_active alone cannot carry that answer: unsubscribing destroys the browser
+  // endpoint, so the next page load mints a NEW row that is is_active=true and
+  // passes the filter below perfectly.
+  const allowed = await filterPushRecipients(admin, userIds);
+  if (!allowed.length) return byUser;
+
+  for (const ids of chunk(allowed, DB_CHUNK)) {
     const { data, error } = await admin
       .from('push_subscriptions')
       .select('id, user_id, subscription, failure_count')
@@ -211,7 +221,13 @@ async function pushOne(admin: Admin, row: PushSubRow, serialized: string): Promi
   }
 }
 
-export async function GET(request: NextRequest) {
+// Run-logged (2026-09-10). THIS is the route the whole cron_run_log lane exists
+// for: it returned HTTP 500 nine times in one window on 2026-08-20 ("canceling
+// statement due to statement timeout"), had failed identically the Thursday
+// before, and cost 588 then 635 learners their starter prompt — with nothing
+// anywhere going red. withCronRun records every authorized fire; three in a row
+// now raises a bell notification via /api/cron/cron-failure-alerts.
+async function handler(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -462,3 +478,5 @@ export async function GET(request: NextRequest) {
     elapsed_ms: Date.now() - started,
   });
 }
+
+export const GET = withCronRun('aipulse-domain-starter-notify', handler);

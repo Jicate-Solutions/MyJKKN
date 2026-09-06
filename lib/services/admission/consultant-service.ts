@@ -830,7 +830,7 @@ export class ConsultantService {
     filters: LeadAttributionFilters
   ): Promise<{ data: ConsultantLeadAttribution[]; total: number }> {
     const supabase = createClientSupabaseClient();
-    const { page = 1, limit = 20, fetch_all = false } = filters;
+    const { page = 1, limit = 20, fetch_all = false, admission_year } = filters;
 
     // PostgREST caps a single response (db-max-rows, 1000 here), so fetch_all
     // walks fixed windows rather than asking for an open-ended range — an
@@ -844,6 +844,46 @@ export class ConsultantService {
       )
         .order('created_at', { ascending: false })
         .range(from, to);
+
+    // ── Admission-year filter ────────────────────────────────────────────────
+    // The year hangs off the learner, and a referral's learner is reachable by
+    // TWO paths (see ATTRIBUTION_SELECT above): the attribution's own
+    // learner_profile_id, or the lead's. Measured on production, 166 of 1,842
+    // attributions have ONLY the lead path — so a PostgREST `!inner` filter on
+    // either single embed would silently drop 9% of the rows, which is the exact
+    // BUG-003877 failure this file already warns about.
+    //
+    // COALESCE across both paths is only expressible in SQL, so the year-aware
+    // paging happens in fn_referral_attribution_page, which returns just the ids
+    // for one page. Those ids are then fetched through the SAME rich select
+    // below, so every embed, sort and downstream helper is unchanged.
+    if (admission_year != null && !fetch_all) {
+      const { data: pageInfo, error: pageError } = await (supabase as any).rpc(
+        'fn_referral_attribution_page',
+        {
+          p_year: admission_year,
+          p_consultant_id: filters.consultant_id ?? null,
+          p_institution_id: filters.institution_id ?? null,
+          p_attribution_type: filters.attribution_type ?? null,
+          p_is_verified: filters.is_verified ?? null,
+          p_page: page,
+          p_limit: limit,
+        },
+      );
+      if (pageError) throw new Error(pageError.message);
+
+      const ids: string[] = pageInfo?.ids ?? [];
+      if (ids.length === 0) return { data: [], total: pageInfo?.total ?? 0 };
+
+      const { data, error } = await (supabase as any)
+        .from('consultant_lead_attributions')
+        .select(ATTRIBUTION_SELECT)
+        .in('id', ids)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+
+      return { data: data || [], total: pageInfo?.total ?? 0 };
+    }
 
     if (!fetch_all) {
       const from = (page - 1) * limit;
