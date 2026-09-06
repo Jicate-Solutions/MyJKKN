@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { OneMarkExamKeys } from '@/types/onemark';
+import { buildDraftPayload } from '@/lib/services/onemark/draft-contract';
 
 // OneMark — ask the AI lane to DRAFT one-mark MCQs (decision 3: AI drafts, one
 // subject Senior Learner checks every one).
