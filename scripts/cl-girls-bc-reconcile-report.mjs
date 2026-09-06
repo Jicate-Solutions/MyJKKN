@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Dry-run / verification report for
- * supabase/migrations/20260906120000_cl_girls_bc_allocation_reconciliation.sql
+ * supabase/migrations/20260906120200_cl_girls_bc_allocation_reconciliation.sql
  *
  * The plan is READ OUT OF THE MIGRATION FILE, never re-derived here, so the
  * report can never describe something the migration does not do. Everything the
@@ -38,7 +38,7 @@ if (!URL_ || !KEY) {
   console.error('Missing NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY. Run with --env-file=.env');
   process.exit(1);
 }
-const MIGRATION = 'supabase/migrations/20260906120000_cl_girls_bc_allocation_reconciliation.sql';
+const MIGRATION = 'supabase/migrations/20260906120200_cl_girls_bc_allocation_reconciliation.sql';
 const HEADERS = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', Accept: 'application/json' };
 
 const pad = (v, n) => String(v ?? '-').padEnd(n).slice(0, n);
@@ -200,7 +200,7 @@ async function rehearse() {
     console.log('  Every statement, trigger and phase-5 assertion executed against real data,');
     console.log('  then the whole transaction was discarded. Nothing was written.');
     console.log('  The migration is safe to apply with:');
-    console.log('    node --env-file=.env scripts/apply-migration-file.mjs 20260906120000_cl_girls_bc_allocation_reconciliation.sql');
+    console.log('    node --env-file=.env scripts/apply-migration-file.mjs 20260906120200_cl_girls_bc_allocation_reconciliation.sql');
   } else {
     console.error('REHEARSAL FAILED — the migration aborted before reaching the end.');
     console.error(`  sqlstate: ${out?.sqlstate ?? '(none)'}`);

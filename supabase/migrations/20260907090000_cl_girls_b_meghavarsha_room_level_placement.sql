@@ -1,4 +1,4 @@
--- Girls Hostel B — place MEGHAVARSHA E, the one row 20260906120000 skipped.
+-- Girls Hostel B — place MEGHAVARSHA E, the one row 20260906120200 skipped.
 --
 -- The occupancy sheet assigns BOTH KALAIVANI R and MEGHAVARSHA E to GHB R21
 -- bed 2. KALAIVANI R already held it, so the reconciliation refused to guess
@@ -11,7 +11,7 @@
 -- GHB R25 lists five different learners all on "Bed 1".
 --
 -- GHB R21 is a 3-bed Deluxe room. Bed 1 is JESSIKA S, bed 2 is KALAIVANI R, and
--- bed 3 fell vacant during 20260906120000 when DEEPA T upgraded out to GHC R9.
+-- bed 3 fell vacant during 20260906120200 when DEEPA T upgraded out to GHC R9.
 -- MEGHAVARSHA E takes bed 3: her sheet room is honoured, KALAIVANI R is
 -- untouched, and no one is displaced.
 --

@@ -1,7 +1,7 @@
 -- Girls Hostel B R25 — correct a mis-identified learner.
 --
 -- WHAT WENT WRONG. Sheet row "G GOWSIKA" (BSC Nursing, 1 Year, GHB R25,
--- Deluxe Room Plus) was matched in 20260906120000 to GOWSIKA S — who is BSC
+-- Deluxe Room Plus) was matched in 20260906120200 to GOWSIKA S — who is BSC
 -- Nursing SEMESTER VIII, i.e. a final-year student, with the initial S. The
 -- sheet's learner is GOWSIKA G: initial G, Semester I, gowsikag26nur@jkkn.ac.in.
 --
@@ -141,7 +141,7 @@ BEGIN
     -- cannot; whoever opens the bill sees why it exists before cancelling.
     UPDATE billing_student_bills
        SET remarks = left(COALESCE(remarks || ' | ', '')
-             || 'RAISED IN ERROR 2026-09-07 and awaiting cancellation: migration 20260906120000 matched sheet row '
+             || 'RAISED IN ERROR 2026-09-07 and awaiting cancellation: migration 20260906120200 matched sheet row '
              || '"G GOWSIKA" to GOWSIKA S (BSC Nursing Semester VIII) when the sheet means GOWSIKA G '
              || '(Semester I), who has since been billed separately. Unpaid, no receipts. '
              || 'Cancel via Billing with reason + supporting document (fn_cancel_student_bill).', 1000),

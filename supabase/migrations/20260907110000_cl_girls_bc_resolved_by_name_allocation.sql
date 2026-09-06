@@ -1,7 +1,7 @@
 -- Girls Hostel B & C — place the eight sheet rows whose Email column was blank
 -- (or wrong) and which name-matching has now resolved.
 --
--- 20260906120000 placed 226 of the 238 sheet rows and deliberately left ten
+-- 20260906120200 placed 226 of the 238 sheet rows and deliberately left ten
 -- unidentified rather than guess. Two changes let eight of those ten resolve:
 --
 --   1. THE LIFECYCLE POOL WAS TOO NARROW. Matching only searched

@@ -1,6 +1,6 @@
 -- Girls Hostel C — admit Nursing to rooms 25 & 28 and Allied Health to room 41.
 --
--- WHY. After 20260906120000 placed the sheet's residents, six of them failed
+-- WHY. After 20260906120200 placed the sheet's residents, six of them failed
 -- fn_learner_eligible_for_room and the Allocation Audit turned them
 -- 'band_and_rule_violation':
 --
