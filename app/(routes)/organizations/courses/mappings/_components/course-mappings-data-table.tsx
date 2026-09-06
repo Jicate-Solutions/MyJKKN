@@ -95,7 +95,10 @@ export function CourseMappingsDataTable({
             : search.status === 'inactive'
             ? false
             : undefined,
-        userId: profile?.id // Add userId for institution and department filtering
+        // Apply user-based filtering - only super admin can bypass institution/department scoping
+        userId: profile?.id,
+        bypassInstitutionFilter: isSuperAdmin,
+        bypassDepartmentFilter: isSuperAdmin
       };
 
       const { data, metadata } = await CourseMappingService.getCourseMappings(
