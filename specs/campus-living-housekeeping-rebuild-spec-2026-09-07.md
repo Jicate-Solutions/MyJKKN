@@ -520,14 +520,40 @@ free and matches the newest campus-living precedent.
 
 ## 10. Code conventions
 
-The old module drifted from repo convention twice. The rebuild follows CLAUDE.md instead:
+**Follow the Campus Living module's actual conventions, not CLAUDE.md's aspirational ones.**
 
-- **Query keys live in `lib/query/query-keys.ts`**, not file-local factories. (The old module
-  had zero entries there.)
-- **CRUD services extend `BaseService`** — types, cleaners, availability and the booking board
-  inherit its institution scoping, pagination validation, query timeouts and Postgres error
-  mapping. The four booking *actions* stay thin static RPC wrappers, since their validation is
-  atomic in the database.
+CLAUDE.md states that services extend `BaseService` and that query keys are centralised in
+`lib/query/query-keys.ts`. Both were measured against the codebase on 2026-09-07 and are
+aspirational:
+
+| CLAUDE.md says | Measured reality |
+|---|---|
+| Services extend `BaseService` | 68 of 1,132 service files (6%); **zero** of the 95 `lib/services/campus-living/` services |
+| Query keys centralised | 55 of 90 `hooks/campus-living/` hooks use file-local factories; 2 import the central `queryKeys` |
+
+Building this module against the documented-but-unused pattern would make its five services the
+only campus-living services shaped that way. Consistency with 95 siblings beats consistency with
+a doc nobody follows. So:
+
+- **Plain static service classes** using `createClientSupabaseClient()`, matching every sibling.
+- **File-local query-key factories** exported from each hook file, matching 55 of 90 siblings.
+
+What is *not* optional, regardless of shape — these are the rules that actually prevent bugs:
+
+- Always destructure `{ data, error }` and check `error`. Supabase errors are plain objects;
+  `try/catch` does not catch RLS denials or constraint violations.
+- Surface errors through `getErrorMessage()` from `@/lib/utils` — `err instanceof Error` is
+  always false for a Supabase error.
+- Institution scope uses `??`, never `|| ''`. `||` coerces `undefined` to `''`, which travels as
+  a real UUID parameter and matches zero rows, silently breaking "All Institutions" mode.
+- Never pass `undefined` into `.eq()` — it is sent as the literal string `"undefined"` and
+  raises `22P02`. Build filters conditionally.
+- Never branch on `isSuperAdmin` to decide which institution's data to fetch. Pass the selected
+  id (or `undefined`) through and let RLS filter — branching silently strips access from users
+  whose secondary role grants broader scope. This exact bug was fixed three times in the old
+  module.
+- Use left joins. `!inner` becomes an INNER JOIN and one null FK drops the whole row with no
+  error.
 
 Kept from the old module because it is genuinely good: the **discriminated-union RPC result**
 (`{success:true,…} | {success:false, error_code}`) with error codes mapped to learner-friendly
