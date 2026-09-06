@@ -40,6 +40,13 @@ const MODULE = 'meetings/triggers';
 const ATTENDANCE_METRIC = 'attendance_rate_daily';
 /** PR3: the data-gap trigger — a working day with zero attendance recorded. */
 const MISSING_DATA_METRIC = 'attendance_missing_data';
+// PR — leave-approval backlog. A pending leave application older than
+// LEAVE_STALE_HOURS is 'overdue'; observed_value is the COUNT of those, so a rule
+// reads `leave_approval_overdue gte 10` exactly like `handover_overdue gte 1`.
+// 48h mirrors hr_leave_applications.approval_chain[].escalate_after_hours, which is
+// stored on every application and (as of 2026-08-31) read by nothing else.
+const LEAVE_OVERDUE_METRIC = 'leave_approval_overdue';
+const LEAVE_STALE_HOURS = 48;
 /** Decision #6: the Principal has 24h to explain before a meeting is scheduled. */
 const EXPLANATION_WINDOW_HOURS = 24;
 /**
@@ -3561,6 +3568,180 @@ export async function sweepCalendarConnectLock(
       `calendar-connect lock: ${result.locked} person(s) now held at /auth/connect-calendar`,
       result
     );
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Leave-approval backlog trigger
+// ---------------------------------------------------------------------------
+
+export interface LeaveOverdueRow {
+  institution_id: string;
+  institution_name: string;
+  overdue: number;
+  oldest_days: number;
+  threshold: number;
+  would_fire: boolean;
+  skipped?: string;
+}
+
+/**
+ * Evaluate active `leave_approval_overdue` rules.
+ *
+ * A leave application is overdue when it is still `pending` LEAVE_STALE_HOURS
+ * after it was filed. The observed value is the COUNT of such applications for
+ * the institution, matching the shape of `handover_overdue` / `task_overdue`
+ * rather than inventing a second convention.
+ *
+ * Scope note: rules carry `institution_id`, applications carry
+ * `hr_organization_id`. hr_organizations.institution_id is the join, and one
+ * institution may own several organisations, so the count sums across them.
+ *
+ * SAFETY: `dryRun` computes and returns everything and writes NOTHING — no
+ * event row, no notification. Nothing fires unless a rule is `active`, and no
+ * active rule for this metric exists until one is deliberately inserted.
+ */
+export async function evaluateLeaveApprovalOverdueTriggers(
+  opts: { dryRun?: boolean; staleHours?: number; now?: Date; client?: SupabaseClient } = {}
+): Promise<TriggerEvalResult & { rows: LeaveOverdueRow[]; dry_run: boolean; stale_hours: number }> {
+  const db = opts.client ?? createServiceRoleClient();
+  const now = opts.now ?? new Date();
+  const staleHours = opts.staleHours ?? LEAVE_STALE_HOURS;
+  const dryRun = opts.dryRun ?? false;
+  const date = now.toISOString().slice(0, 10);
+  const cutoff = new Date(now.getTime() - staleHours * 3600 * 1000).toISOString();
+
+  const result = {
+    date, evaluated: 0, breaches: 0, notified: 0,
+    skipped_quiet: 0, skipped_cooldown: 0, skipped_no_data: 0,
+    skipped_no_recipient: 0, errors: [] as string[],
+    rows: [] as LeaveOverdueRow[], dry_run: dryRun, stale_hours: staleHours
+  };
+
+  const { data: rules, error } = await db
+    .from('meeting_trigger_rules')
+    .select('*')
+    .eq('metric_key', LEAVE_OVERDUE_METRIC)
+    .eq('active', true);
+  if (error) { result.errors.push(`load rules: ${error.message}`); return result; }
+
+  for (const rule of (rules ?? []) as TriggerRule[]) {
+    if (!rule.institution_id) continue;
+    result.evaluated++;
+    try {
+      const instName = await getInstitutionName(db, rule.institution_id);
+
+      // institution -> its hr_organizations
+      const { data: orgs } = await db
+        .from('hr_organizations').select('id').eq('institution_id', rule.institution_id);
+      const orgIds = (orgs ?? []).map((o: any) => o.id);
+      if (orgIds.length === 0) {
+        result.skipped_no_data++;
+        result.rows.push({ institution_id: rule.institution_id, institution_name: instName,
+          overdue: 0, oldest_days: 0, threshold: Number(rule.threshold),
+          would_fire: false, skipped: 'no hr_organization' });
+        continue;
+      }
+
+      const { data: stale, error: qErr } = await db
+        .from('hr_leave_applications')
+        .select('id,created_at')
+        .eq('status', 'pending')
+        .lt('created_at', cutoff)
+        .in('hr_organization_id', orgIds)
+        .order('created_at', { ascending: true });
+      if (qErr) { result.errors.push(`count ${rule.institution_id}: ${qErr.message}`); continue; }
+
+      const overdue = (stale ?? []).length;
+      const oldestDays = overdue
+        ? Math.floor((now.getTime() - new Date((stale as any)[0].created_at).getTime()) / 86400000)
+        : 0;
+      const breached = compare(overdue, rule.comparator, Number(rule.threshold));
+
+      const row: LeaveOverdueRow = {
+        institution_id: rule.institution_id, institution_name: instName,
+        overdue, oldest_days: oldestDays, threshold: Number(rule.threshold),
+        would_fire: breached
+      };
+
+      if (!breached) { result.rows.push(row); continue; }
+
+      if (isInQuietWindow(date, rule.quiet_windows)) {
+        result.skipped_quiet++; row.would_fire = false; row.skipped = 'quiet window';
+        result.rows.push(row); continue;
+      }
+
+      const cooldownDays = rule.cooldown_days ?? 7;
+      const cap = rule.weekly_cap ?? 1;
+      const windowStart = new Date(now.getTime() - (cooldownDays - 1) * 86400000)
+        .toISOString().slice(0, 10);
+      const { data: recent } = await db
+        .from('meeting_trigger_events').select('id')
+        .eq('rule_id', rule.id).gte('breach_date', windowStart).lte('breach_date', date);
+      if ((recent?.length ?? 0) >= cap) {
+        result.skipped_cooldown++; row.would_fire = false; row.skipped = 'cooldown/cap';
+        result.rows.push(row); continue;
+      }
+
+      const { recipientIds, createdBy, fallbackToAdmin } =
+        await resolveRecipients(db, rule.institution_id, rule.alert_owner_staff_id);
+      if (recipientIds.length === 0 || !createdBy) {
+        result.skipped_no_recipient++; row.would_fire = false; row.skipped = 'no recipient';
+        result.rows.push(row); continue;
+      }
+
+      result.rows.push(row);
+      result.breaches++;
+      if (dryRun) continue;   // <-- everything above is read-only
+
+      const explanationDeadline =
+        new Date(Date.now() + EXPLANATION_WINDOW_HOURS * 3600 * 1000).toISOString();
+      const { data: ev, error: evErr } = await db
+        .from('meeting_trigger_events')
+        .insert({
+          rule_id: rule.id, institution_id: rule.institution_id,
+          metric_key: rule.metric_key, observed_value: overdue,
+          threshold: rule.threshold, breach_date: date,
+          status: 'notified', explanation_deadline: explanationDeadline,
+          subject_type: 'leave_backlog',
+          subject_label: `${overdue} leave applications awaiting approval — ${instName}`
+        })
+        .select('id').single();
+      if (evErr) {
+        if ((evErr as any).code === '23505') continue;
+        result.errors.push(`event ${rule.institution_id}: ${evErr.message}`); continue;
+      }
+
+      const notificationId = await createBellNotification(db, {
+        recipientIds, createdBy,
+        title: `Leave approvals waiting — ${instName}`,
+        body:
+          `${overdue} leave application${overdue === 1 ? '' : 's'} at ${instName} ` +
+          `${overdue === 1 ? 'has' : 'have'} been waiting more than ${staleHours} hours ` +
+          `for a decision; the oldest is ${oldestDays} days old. Staff cannot plan until ` +
+          `these are decided. Could you clear them, or tell us what is blocking?` +
+          (fallbackToAdmin ? ' (No principal on record yet — routed to administration.)' : ''),
+        url: '/hr/leave/approve',
+        category: 'hr:leave-backlog',
+        action: {
+          type: 'tracked', deadlineHours: EXPLANATION_WINDOW_HOURS,
+          config: { response_type: 'text', min_text_length: MIN_EXPLANATION_LENGTH }
+        },
+        metadata: {
+          rule_id: rule.id, institution_id: rule.institution_id,
+          observed: overdue, threshold: rule.threshold, oldest_days: oldestDays,
+          stale_hours: staleHours, source: 'cron:leave-approval-overdue'
+        }
+      });
+
+      await db.from('meeting_trigger_events')
+        .update({ notified_profile_ids: recipientIds, notification_id: notificationId })
+        .eq('id', (ev as any).id);
+      result.notified += recipientIds.length;
+    } catch (e: any) {
+      result.errors.push(`rule ${rule.id}: ${e?.message ?? String(e)}`);
+    }
   }
   return result;
 }
