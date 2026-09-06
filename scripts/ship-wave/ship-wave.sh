@@ -363,16 +363,26 @@ run_once() {
   say "=== W12 ship wave · mode=$MODE · approve-normal=${APPROVE_NORMAL:-no} · approve-held=${APPROVE_HELD:-none} · max-dispatch=$MAX_DISPATCH · $(date '+%F %T') ==="
 
   # ── 0. preflight ───────────────────────────────────────────────────────────
-  # `gh auth status` makes a live API call, so one network blip reads as "not authenticated".
-  # On 2026-09-05 exactly that killed a goal run and the wave sat dead 2.5 hours with seven
-  # approved, green PRs waiting. Retry before believing it.
-  local gh_ok="" gh_try
-  for gh_try in 1 2 3; do
+  # Two different failures used to share one message. `gh auth status` is a LIVE API call, so a
+  # GitHub/network blip reads as "not authenticated" — on 2026-09-05 that killed a goal run for 2.5 h,
+  # and on 2026-09-06 08:44 it ended round 5/6 after three tries inside 30 s, while rounds 1-4 of the
+  # same launchd process had passed and `gh auth status` was green again by 09:27. Keep them apart:
+  #   • credential (offline): `gh auth token` reads the keyring, no network — missing = HARD FAIL (return 1).
+  #   • reachability (online): back off for up to ~4 min; still down = SKIP THIS ROUND (return 2) — the goal
+  #     loop pauses and tries the next round instead of ending the whole run.
+  if ! gh auth token >/dev/null 2>&1; then
+    say "PREFLIGHT FAIL: no gh credential in the keyring — run 'gh auth login' at the Mac"; return 1
+  fi
+  local gh_ok="" gh_try gh_wait
+  for gh_try in 1 2 3 4 5 6; do
     if gh auth status >/dev/null 2>&1; then gh_ok=1; break; fi
-    say "  preflight: gh auth check failed (attempt $gh_try/3) — retrying in $((gh_try*5))s"
-    sleep $((gh_try*5))
+    gh_wait=$((gh_try*15))   # 15+30+45+60+75 = 225 s of waiting before the round is skipped
+    if [ "$gh_try" -lt 6 ]; then
+      say "  preflight: GitHub unreachable (attempt $gh_try/6) — credential present, retrying in ${gh_wait}s"
+      sleep "$gh_wait"
+    fi
   done
-  [ -n "$gh_ok" ] || { say "PREFLIGHT FAIL: gh not authenticated after 3 attempts"; return 1; }
+  [ -n "$gh_ok" ] || { say "PREFLIGHT SKIP: GitHub unreachable for ~4 min (credential present) — this round is skipped, the run continues"; return 2; }
   local frozen=""; if [ -f "$FREEZE" ]; then frozen=1; say "  ⛔ FROZEN since: $(head -1 "$FREEZE") — this round merges NOTHING (sweep/report only). Clear with --unfreeze."; fi
   local tok; tok=$(vtok); [ -n "$tok" ] || say "  warn: no Vercel CLI token — deploy verification will be blind"
   if [ -n "$tok" ]; then
@@ -663,7 +673,14 @@ PY
 if [ -n "$GOAL" ]; then
   # goal loop (Director 2026-09-05): rounds until open PRs == 0, or GOAL_ROUNDS, or a freeze
   for round in $(seq 1 $GOAL_ROUNDS); do
-    run_once || { say "=== round $round aborted before it could plan — goal loop ends (nothing was merged) ==="; break; }
+    run_once; rc=$?
+    if [ "$rc" -eq 2 ]; then
+      # reachability blip (preflight return 2): skip this round only — pause, then try the next one
+      say "=== round $round skipped (GitHub unreachable) — pausing ${GOAL_PAUSE_MIN} min, then the next round tries again ==="
+      [ "$round" -lt "$GOAL_ROUNDS" ] && sleep $((GOAL_PAUSE_MIN*60))
+      continue
+    fi
+    [ "$rc" -eq 0 ] || { say "=== round $round aborted before it could plan — goal loop ends (nothing was merged) ==="; break; }
     left=$(cat "$STATE/last-open-count" 2>/dev/null || echo 1)
     movable=$(python3 -c "import json,glob;p=sorted(glob.glob('$STATE/run-*/plan.json'))[-1];c=json.load(open(p))['counts'];print(c['ready']+c['conflicted']+c['quiet_wait'])" 2>/dev/null || echo 1)
     say "=== goal round $round/$GOAL_ROUNDS · open=$left · movable=$movable ==="
