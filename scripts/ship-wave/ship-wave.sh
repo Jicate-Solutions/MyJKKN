@@ -152,13 +152,14 @@ def tier(p):
         # the fleet's own tooling is not a money/grades domain: scripts/ship-wave/failure-ledger.sh is not the
         # fee ledger. The word match below is for app/lib/supabase paths (Director 2026-09-06 06:30, #3297/#3306)
         if f.startswith(("scripts/", ".claude/")): continue
-        for g in GUARDS:
-            if f == g or f.startswith(g + "/"): reasons.append(f"guard: {g} (froze the wave once — HELD until --unguard)")
         elif f.startswith(".github/workflows/"): reasons.append(f"CI gate change: {f}")   # #2724 turned main red for every PR (2026-09-05)
         elif f.startswith("__tests__/") or ".test." in f or ".spec." in f: continue         # a test cannot move money or grades
         # a money/grades word must be a WHOLE path segment (…/score/route.ts, app/(routes)/fees/…), never a fragment of a
         # filename — "summarize-routine-result.ts" held #2932 for the word "result" (2026-09-05 14:30)
         elif any(re.fullmatch(HELD_WORDS, seg, re.I) for seg in re.split(r"[/]", f)): reasons.append(f"path: {f}")
+        # guards learned from a deploy/page freeze (policy-learning.sh) — checked after the tier rules, never inside them
+        for g in GUARDS:
+            if f == g or f.startswith(g + "/"): reasons.append(f"guard: {g} (froze the wave once — HELD until --unguard)")
     m = HELD_RX.search(p["title"] or "")
     if m: reasons.append(f"title: {m.group(2)}")
     if reasons: return "HELD", reasons[:4]
@@ -431,9 +432,12 @@ PY
     cat "$merged_files" >> "$pending"; DEPLOY_DEFERRED=1
     deploy="deferred — goal runs deploy ONCE at the end ($(grep -c . "$pending") file(s) waiting; migrations already applied)"
     say "  $deploy"
-  elif [ -z "$GOAL" ] && [ -s "$pending" ]; then
+  elif [ "$MODE" = "go" ] && [ -z "$GOAL" ] && [ -s "$pending" ]; then
     cat "$pending" >> "$merged_files"; merged=$((merged+1)); merged_list="$merged_list +earlier-batch"
   fi
+  # 2026-09-06 07:55: a read-only `plan` sweep fired a production build through the flush branch above —
+  # the deploy stage must never act outside `go`, whatever the batch file holds.
+  if [ "$MODE" != "go" ]; then deploy="skipped (plan mode)"; DEPLOY_DEFERRED=1; fi
   if [ -n "$DEPLOY_DEFERRED" ]; then :
   elif [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
   elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
