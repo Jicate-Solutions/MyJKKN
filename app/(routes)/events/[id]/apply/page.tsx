@@ -93,7 +93,7 @@ export default function SchoolOfInfluenceApplyPage() {
     hasOwnApplication
   );
 
-  const title = context?.eventName ?? 'School of Influence';
+  const title = context?.eventName ?? 'School of Influencer';
 
   if (isLoading) {
     return (

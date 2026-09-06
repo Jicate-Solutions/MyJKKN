@@ -22,7 +22,7 @@ export const PROGRAMME_LABELS: Record<string, string> = {
   cdc: 'Career Development Centre',
   foundations: 'Foundations',
   mba_associate: 'MBA Associates',
-  school_of_influence: 'School of Influence',
+  school_of_influence: 'School of Influencer',
   sf100: 'Solve for 100',
   trainer: 'Trainers',
 };

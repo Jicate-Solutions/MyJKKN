@@ -65,6 +65,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 
 import { SoiBatchService } from '@/lib/services/school-of-influence/batch-service';
+import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 import {
   isSoiTrackable,
   isSoiUntrackable,
@@ -212,8 +213,8 @@ export function LifecycleWorkspace({ eventId, initialCohortId }: Props) {
           <CardTitle className="text-base">Pick a batch</CardTitle>
           <CardDescription>
             {eventId
-              ? 'This programme has no School of Influence batches yet. Create one from the batch admin, then come back here to see what the inactivity engine would do.'
-              : 'Open this screen from a batch in the School of Influence admin, or add ?event=<programme event id> to the address to choose a batch here.'}
+              ? 'This programme has no School of Influencer batches yet. Create one from the batch admin, then come back here to see what the inactivity engine would do.'
+              : 'Open this screen from a batch in the School of Influencer admin, or add ?event=<programme event id> to the address to choose a batch here.'}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -232,7 +233,7 @@ export function LifecycleWorkspace({ eventId, initialCohortId }: Props) {
             <SelectContent>
               {batches.map((batch) => (
                 <SelectItem key={batch.id} value={batch.id}>
-                  {batch.name}
+                  {soiDisplayName(batch.name)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -342,7 +343,8 @@ export function LifecycleWorkspace({ eventId, initialCohortId }: Props) {
               <CardHeader>
                 <CardTitle className="text-base">Nothing to evaluate yet</CardTitle>
                 <CardDescription>
-                  {preview.batch_name ?? 'This batch'} has nobody in it, so there is
+                  {preview.batch_name ? soiDisplayName(preview.batch_name) : 'This batch'} has
+                  nobody in it, so there is
                   nobody who could have gone quiet. The engine still records that it
                   ran — an empty result and a run that never happened must never look
                   the same again.

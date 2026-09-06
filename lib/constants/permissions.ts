@@ -1378,7 +1378,7 @@ export const PERMISSION_CATEGORIES = [
       // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
       // disagree. Super admins bypass both.
       // -----------------------------------------------------------------
-      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influencer — Configure programme settings' },
 
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
@@ -3409,10 +3409,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.create', label: 'Create Cohorts (ALL programmes)' },
       { key: 'cohort.edit', label: 'Edit Cohorts (ALL programmes)' },
       { key: 'cohort.manage', label: 'Manage Cohorts (ALL programmes — delete, remove members, admin)' },
-      { key: 'cohort.school_of_influence.view', label: 'School of Influence — View batches and members' },
-      { key: 'cohort.school_of_influence.create', label: 'School of Influence — Create batches, accept applicants' },
-      { key: 'cohort.school_of_influence.edit', label: 'School of Influence — Edit batches and member status' },
-      { key: 'cohort.school_of_influence.manage', label: 'School of Influence — Run the programme (attendance, review queue, remove members)' }
+      { key: 'cohort.school_of_influence.view', label: 'School of Influencer — View batches and members' },
+      { key: 'cohort.school_of_influence.create', label: 'School of Influencer — Create batches, accept applicants' },
+      { key: 'cohort.school_of_influence.edit', label: 'School of Influencer — Edit batches and member status' },
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' }
     ]
   },
   {

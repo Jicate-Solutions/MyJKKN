@@ -25,24 +25,24 @@ import { ProgrammeCoordinatorsPanel } from '@/components/shared/programme-coordi
 // listed under its folder name alone — which is how a programme's screens end up
 // searchable only as "Coordinators" (BUG-005799 / BUG-005800).
 export const navMeta = {
-  label: 'School of Influence Coordinators',
+  label: 'School of Influencer Coordinators',
   icon: 'UserCheck',
 } as const;
 
 export const metadata: Metadata = {
-  title: 'School of Influence — Coordinators',
+  title: 'School of Influencer — Coordinators',
   description:
-    'See who runs School of Influence, appoint a coordinator for the whole programme or for one batch, and remove one with a reason that goes on the record.',
+    'See who runs School of Influencer, appoint a coordinator for the whole programme or for one batch, and remove one with a reason that goes on the record.',
 };
 
 export default function SoiCoordinatorsPage() {
   return (
-    <ContentLayout title="School of Influence">
+    <ContentLayout title="School of Influencer">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Startup Studio', href: '/startup-studio' },
-          { label: 'School of Influence' },
+          { label: 'School of Influencer' },
           { label: 'Coordinators' },
         ]}
       />
