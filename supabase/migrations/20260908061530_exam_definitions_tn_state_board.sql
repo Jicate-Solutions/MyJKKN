@@ -1,0 +1,73 @@
+-- 20260908061530_exam_definitions_tn_state_board.sql
+--
+-- Tamil Nadu State Board joins the exam catalogue: SSLC (Class 10) and
+-- HSC (Class 12).
+--
+-- ⚠️ ALREADY APPLIED TO PRODUCTION 2026-08-15 via the Management API, on the
+-- Director's instruction. This file exists so the repo REPRODUCES that state —
+-- a rebuilt environment would otherwise lack both rows. It is idempotent
+-- (ON CONFLICT (config_key) DO NOTHING, matching the seed idiom in
+-- 20260705223000_exam_definitions_shared_spine.sql), so re-running it against
+-- production is a no-op rather than a duplicate or an error.
+--
+-- WHY THIS IS TWO ROWS AND NOT A MODULE
+-- `/foundation` is not a Class 6-8 programme; it is a general, exam-agnostic
+-- computer-based-test engine that happens to have Class 6 content in it. The
+-- whole delivery chain already exists and is exam-scoped —
+--   fp_items (bank, keyed by exam_definition_id)
+--     -> fp_assessments -> fp_assessment_items
+--     -> fp_attempts -> fp_responses (which records time_ms per question)
+-- and `exam_definitions` already carried twelve exams, including three Tamil
+-- Nadu ones (TNPSC Group 2, TNPSC Group 4, TN Police — TNUSRB). Adding an exam
+-- has therefore always been a row, not a build.
+--
+-- Those three existing TN entries are RECRUITMENT exams. The school BOARD —
+-- SSLC and HSC — was absent, which is what this adds.
+--
+-- WHAT THIS DOES NOT DO
+-- It writes no questions. Both rows land with ZERO items, which is the honest
+-- state: the engine was never the constraint, the question bank is (eleven of
+-- the twelve pre-existing exams also carry zero items). A board paper also
+-- needs a blueprint — marks per unit and per question type, duration, negative
+-- marking — and `fp_assessments.config` models none of that yet. And every one
+-- of the 125 items in the bank today is `q_type = 'mcq_single'`; TN board
+-- papers additionally use assertion-reason and match-the-following, which the
+-- runner does not yet handle. All three are follow-ups, deliberately not
+-- smuggled into a seed.
+--
+-- COLUMN CHOICES, against the live catalog read 2026-08-15
+--   level       'school'  — the CHECK admits only 'school' | 'college', and
+--                           every existing school row is a pre-college exam.
+--                           Proven non-vacuous in rehearsal: level='class10'
+--                           was rejected with 23514.
+--   exam_family 'state_board' — a new family. The column is NOT NULL free text
+--                           with no CHECK, so this needs no constraint change.
+--                           Existing families: foundation, medical,
+--                           engineering, university, banking, rrb, ssc, police,
+--                           tnpsc.
+--   sort_order  6 and 7   — between Foundation Science Class 6 (5) and
+--                           NEET (10). School exams occupy 5..40; the college
+--                           recruitment block sits at 100.
+--   cdc_training_type_id  NULL — every school-level row is NULL; the column is
+--                           only populated for the college rows backfilled
+--                           from cdc_training_types.
+--
+-- Tier: additive DATA only. Creates no table, alters no column, adds no
+-- constraint, touches no policy, function or grant. `exam_definitions` RLS is
+-- unchanged (read: any authenticated user; write: super-admin or CDC head).
+--
+-- Rehearsed on production inside BEGIN … ROLLBACK before applying: 12 rows ->
+-- 14, state_board 2, school rows 5 -> 7. A SEPARATE post-rollback call
+-- confirmed production unchanged at 12 rows, 0 state_board, 0 of these keys —
+-- and only then was the insert applied for real.
+--
+-- Reversible: DELETE FROM public.exam_definitions WHERE config_key IN ('tn_sslc','tn_hsc');
+-- (Safe only while both carry zero fp_items; fp_items.exam_definition_id would
+-- otherwise block or orphan.)
+
+INSERT INTO public.exam_definitions
+  (config_key, display_name, exam_family, level, is_active, sort_order)
+VALUES
+  ('tn_sslc', 'TN State Board — SSLC (Class 10)', 'state_board', 'school', true, 6),
+  ('tn_hsc',  'TN State Board — HSC (Class 12)',  'state_board', 'school', true, 7)
+ON CONFLICT (config_key) DO NOTHING;
