@@ -8,29 +8,33 @@
  * the SAME file for a different read of it, so HR had to upload once to map and
  * again to import. One upload, one place.
  *
+ * Every row also reports whether the person exists in the MyJKKN staff table at
+ * all. A biometric machine keeps every enrolment ever made, so a monthly export
+ * carries people who left years ago; those rows are not "link them" work, they
+ * are permanently unimportable, and lumping them into one "Need attention"
+ * number sent HR hunting for staff records that were never going to be there.
+ *
  * The step only appears when the dry run found unmapped codes, and it is gated
  * on staff.edit — the permission that governs writing to the staff table. A
  * user who may import but not edit staff sees what is missing and who to ask,
  * rather than a control that would fail on save.
  */
 
-import { useCallback, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, Save, SkipForward } from 'lucide-react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { AlertTriangle, ChevronsUpDown, Loader2, Save, SkipForward, UserX } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getErrorMessage } from '@/lib/utils';
 import { useSaveBiometricMappings } from '@/hooks/hr/use-biometric-mapping';
-import type { BiometricStaffOption, BiometricSuggestResponse } from '@/types/hr-biometric';
-
-const STAFF_LIST_ID = 'biometric-wizard-staff-options';
-
-function staffLabel(s: BiometricStaffOption): string {
-  return `${s.full_name} · ${s.staff_id ?? 'no code'} · ${s.institution_name ?? 'no institution'}`;
-}
+import { StaffPickerDialog, type StaffPickerTarget } from './staff-picker-dialog';
+import type {
+  BiometricMappingRow,
+  BiometricStaffOption,
+  BiometricSuggestResponse,
+} from '@/types/hr-biometric';
 
 interface Props {
   suggestion: BiometricSuggestResponse;
@@ -51,11 +55,7 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
     return initial;
   });
 
-  const labelToId = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const s of suggestion.staff) if (!m.has(staffLabel(s))) m.set(staffLabel(s), s.id);
-    return m;
-  }, [suggestion.staff]);
+  const [picker, setPicker] = useState<StaffPickerTarget | null>(null);
 
   const staffById = useMemo(() => {
     const m = new Map<string, BiometricStaffOption>();
@@ -78,6 +78,26 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
 
   const assigned = useMemo(() => Object.values(choice).filter(Boolean).length, [choice]);
 
+  const c = suggestion.counts;
+  /** People who ARE in MyJKKN and still have no code stored — the actual queue. */
+  const toLink = c.in_myjkkn - c.already_mapped;
+  /**
+   * staff id -> the code already claiming them, minus the row being edited, so
+   * the picker can warn before the save-time duplicate guard has to.
+   */
+  const assignedElsewhere = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const [code, staffId] of Object.entries(choice)) {
+      if (staffId && code !== picker?.code) m.set(staffId, code);
+    }
+    return m;
+  }, [choice, picker]);
+
+  const notInMyjkkn = useMemo(
+    () => suggestion.rows.filter((r) => r.identity === 'not_in_myjkkn'),
+    [suggestion.rows],
+  );
+
   const handleSave = useCallback(async () => {
     try {
       const saved = await save.mutateAsync({
@@ -94,11 +114,58 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Enrolments in file" value={suggestion.counts.total} />
-        <Stat label="Already linked" value={suggestion.counts.already_mapped} />
-        <Stat label="Suggested" value={suggestion.counts.suggested} />
-        <Stat label="Need attention" value={suggestion.counts.unresolved} warn={suggestion.counts.unresolved > 0} />
+        <Stat label="Enrolments in file" value={c.total} />
+        <Stat label="In MyJKKN team" value={c.in_myjkkn} good={c.in_myjkkn > 0} />
+        <Stat label="Not in MyJKKN" value={c.not_in_myjkkn} warn={c.not_in_myjkkn > 0} />
+        <Stat label="MyJKKN team roster" value={suggestion.roster.total} hint={`${suggestion.roster.active} active`} />
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        <strong>{c.in_myjkkn}</strong> of the <strong>{c.total}</strong> enrolments in this file
+        belong to someone who exists in the MyJKKN team member table — that is the ceiling on what
+        this import can ever write. The other <strong>{c.not_in_myjkkn}</strong> are enrolments the
+        machine still holds for people with no MyJKKN team member record; re-uploading will not
+        change that. Identity is decided by the enrolment code first and, only when no code is
+        stored, by comparing the machine&rsquo;s name to the team roster — so a &ldquo;Not in
+        MyJKKN&rdquo; row can still be linked by hand if you recognise the person.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="Already linked" value={c.already_mapped} />
+        <Stat label="Suggested by name" value={c.suggested} />
+        <Stat label="Shared name — pick manually" value={c.ambiguous} warn={c.ambiguous > 0} />
+        <Stat label="Still to link" value={toLink} warn={toLink > 0} />
+      </div>
+
+      {c.not_in_myjkkn > 0 && (
+        <details className="rounded-md border bg-muted/30 p-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            <UserX className="mr-1 inline h-4 w-4 text-amber-700" />
+            {c.not_in_myjkkn} enrolment(s) have no MyJKKN team member record
+          </summary>
+          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+            {notInMyjkkn.map((r) => (
+              <li key={r.code}>
+                <span className="font-mono">{r.code}</span> · {r.device_name || '(no name on machine)'}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {c.inactive_staff > 0 && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            {c.inactive_staff} enrolment(s) resolve to a team member record marked{' '}
+            <strong>relieved</strong> (inactive). Their punches are <strong>not imported</strong> —
+            since 2026-09-02 the import resolves active team members only, and these codes are
+            reported as skipped rather than turned into attendance. Records imported while they were
+            still active are left untouched. Clear the code on those team member records to stop
+            them appearing here.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {!canEdit && (
         <Alert variant="destructive">
@@ -134,16 +201,13 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
         </Alert>
       )}
 
-      <datalist id={STAFF_LIST_ID}>
-        {suggestion.staff.map((s) => <option key={s.id} value={staffLabel(s)} />)}
-      </datalist>
-
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[820px] text-sm">
+        <table className="w-full min-w-[860px] text-sm">
           <thead className="bg-muted/50">
             <tr className="text-left">
               <th className="px-3 py-2 font-medium">Code</th>
               <th className="px-3 py-2 font-medium">Name on machine</th>
+              <th className="px-3 py-2 font-medium">In MyJKKN</th>
               <th className="px-3 py-2 font-medium">Staff member</th>
               <th className="px-3 py-2 font-medium">Status</th>
             </tr>
@@ -155,18 +219,34 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
                 <tr key={r.code} className="border-t align-top">
                   <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
                   <td className="px-3 py-2">{r.device_name || '—'}</td>
+                  <td className="px-3 py-2"><IdentityCell row={r} pickedManually={Boolean(picked)} /></td>
                   <td className="px-3 py-2">
-                    <Input
-                      list={STAFF_LIST_ID}
-                      className="w-full min-w-[280px]"
+                    <Button
+                      variant="outline"
                       disabled={!canEdit}
-                      defaultValue={picked ? staffLabel(picked) : ''}
-                      placeholder="Search staff by name…"
-                      onChange={(e) =>
-                        setChoice((prev) => ({ ...prev, [r.code]: labelToId.get(e.target.value) ?? null }))
-                      }
-                      aria-label={`Staff for code ${r.code}`}
-                    />
+                      onClick={() => setPicker({ code: r.code, deviceName: r.device_name, value: choice[r.code] ?? null })}
+                      className="h-auto w-full min-w-[260px] justify-between gap-2 py-1.5 text-left font-normal"
+                      aria-label={`Choose team member for code ${r.code}`}
+                    >
+                      <span className="min-w-0 flex-1">
+                        {picked ? (
+                          <>
+                            <span className="block truncate">{picked.full_name}</span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {[picked.staff_id ?? 'no team member code', picked.institution_name ?? 'no institution'].join(' · ')}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">Search team members…</span>
+                        )}
+                      </span>
+                      <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                    {picked?.is_active === false && (
+                      <p className="mt-1 text-xs text-amber-700">
+                        This team member record is relieved — their punches will not be imported.
+                      </p>
+                    )}
                     {picked?.other_machine && (
                       <p className="mt-1 text-xs text-amber-700">
                         Currently enrolled on another machine — saving moves them here.
@@ -189,10 +269,23 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
         </table>
       </div>
 
+      <StaffPickerDialog
+        target={picker}
+        onOpenChange={(open) => { if (!open) setPicker(null); }}
+        staff={suggestion.staff}
+        machineName={suggestion.institution.name}
+        assignedElsewhere={assignedElsewhere}
+        onSelect={(staffId) => {
+          setChoice((prev) => ({ ...prev, [picker!.code]: staffId }));
+          setPicker(null);
+        }}
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
           {assigned} of {suggestion.rows.length} codes will be linked. Codes left blank are cleared,
-          and their punches will not import.
+          and their punches will not import — including every &ldquo;No team member record&rdquo; row you
+          leave alone.
         </p>
         <div className="flex gap-2">
           <Button variant="outline" onClick={onSkip}>
@@ -209,11 +302,50 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
   );
 }
 
-function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+function Stat({
+  label, value, warn, good, hint,
+}: { label: string; value: number; warn?: boolean; good?: boolean; hint?: string }) {
+  const tone = warn ? 'text-amber-700' : good ? 'text-green-700' : '';
   return (
     <div className="rounded-md border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${warn ? 'text-amber-700' : ''}`}>{value}</p>
+      <p className={`mt-1 text-2xl font-semibold ${tone}`}>{value}</p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * Identity, not link state. 'not_in_myjkkn' is what nothing in the roster
+ * answers to this name — a manual pick overrides it, so say so rather than
+ * leaving a red badge on a row the user just resolved.
+ */
+function IdentityCell({ row, pickedManually }: { row: BiometricMappingRow; pickedManually: boolean }) {
+  const relieved = row.staff_is_active === false;
+
+  let badge: ReactNode;
+  if (row.identity === 'linked') {
+    badge = <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-100">Yes · by code</Badge>;
+  } else if (row.identity === 'name_match') {
+    badge = <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-100">Yes · by name</Badge>;
+  } else if (row.identity === 'ambiguous') {
+    badge = (
+      <Badge variant="secondary" className="bg-amber-100 text-amber-900 hover:bg-amber-100">
+        Yes · {row.name_candidates} share this name
+      </Badge>
+    );
+  } else if (pickedManually) {
+    badge = <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-100">Yes · chosen by you</Badge>;
+  } else {
+    badge = <Badge variant="outline" className="border-amber-300 text-amber-800">No team member record</Badge>;
+  }
+
+  return (
+    <div className="space-y-1">
+      {badge}
+      {relieved && (
+        <p className="text-xs text-amber-700">Team member record is relieved — punches not imported</p>
+      )}
     </div>
   );
 }

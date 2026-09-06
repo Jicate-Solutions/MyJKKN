@@ -23,6 +23,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+  TAP_TARGET_TABS_LIST,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ShieldAlert, Bug, Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
@@ -46,7 +51,7 @@ function ProjectRaidPageInner() {
   return (
     <ContentLayout title="Risk & Issue register">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -83,12 +88,12 @@ function ProjectRaidPageInner() {
 
       <div className="mt-6">
         <Tabs value={tab} onValueChange={(v) => setTab(v as RaidTab)}>
-          <TabsList>
-            <TabsTrigger value="risks" className="gap-1.5">
+          <TabsList className={TAP_TARGET_TABS_LIST}>
+            <TabsTrigger value="risks" className={`gap-1.5 ${TAP_TARGET}`}>
               <ShieldAlert className="h-4 w-4" />
               Risks
             </TabsTrigger>
-            <TabsTrigger value="issues" className="gap-1.5">
+            <TabsTrigger value="issues" className={`gap-1.5 ${TAP_TARGET}`}>
               <Bug className="h-4 w-4" />
               Issues
             </TabsTrigger>

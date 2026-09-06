@@ -2,7 +2,10 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query/query-keys';
-import { CalendarService } from '@/lib/services/calendar/calendar-service';
+import {
+  CalendarService,
+  CALENDAR_ENTRIES_LIST_CAP,
+} from '@/lib/services/calendar/calendar-service';
 import type {
   CalendarItemsQuery,
   CreateCalendarEntryInput,
@@ -17,15 +20,26 @@ export function useCalendarItems(query: CalendarItemsQuery, enabled = true) {
   });
 }
 
+/**
+ * The admin table's roster.
+ *
+ * Deliberately UNFILTERED and unpaged by default: /calendar/holidays filters,
+ * searches and sorts the whole set in the browser so the table and the faceted
+ * filter counts read the same array. Passing `search` here instead would refire
+ * a server round-trip per keystroke against a fresh query key, and the old
+ * 50-row service default silently hid 9 of the 59 live rows.
+ */
 export function useCalendarEntries(params: {
   page?: number;
   limit?: number;
   search?: string;
   kind?: string;
 } = {}) {
+  const query = { limit: CALENDAR_ENTRIES_LIST_CAP, ...params };
   return useQuery({
-    queryKey: queryKeys.calendar.entries(params),
-    queryFn: () => CalendarService.listEntries(params),
+    queryKey: queryKeys.calendar.entries(query),
+    queryFn: () => CalendarService.listEntries(query),
+    staleTime: 5 * 60 * 1000,
   });
 }
 

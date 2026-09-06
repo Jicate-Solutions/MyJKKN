@@ -39,6 +39,7 @@ import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { NotificationBriefing } from '@/components/notifications/notification-briefing';
+import { YouTubePreviewCard } from '@/components/notifications/youtube-preview-card';
 
 // ─── Category config ────────────────────────────────────────
 // Stored category values are messy: some are plain ('Alert'), some are
@@ -588,6 +589,7 @@ export function NotificationCenter() {
               const priority = notif.priority || 'normal';
               const category = notif.category || 'General';
               const attachments = notif.metadata?.attachments || [];
+              const linkPreview = notif.metadata?.link_preview || null;
 
               return (
                 <div
@@ -813,6 +815,17 @@ export function NotificationCenter() {
                           </div>
                         )}
 
+                        {/* YouTube link preview */}
+                        {linkPreview?.videoId && (
+                          <div className="mb-3">
+                            <YouTubePreviewCard
+                              preview={linkPreview}
+                              stopPropagation
+                              className="max-w-sm"
+                            />
+                          </div>
+                        )}
+
                         {/* Action buttons */}
                         <div className="flex flex-wrap gap-2">
                           {requiresAck && (
@@ -846,7 +859,7 @@ export function NotificationCenter() {
                   </div>
 
                   {/* Expand indicator */}
-                  {!isExpanded && (isStack || bodyOf(notif).length > 100 || attachments.length > 0 || requiresAck) && (
+                  {!isExpanded && (isStack || bodyOf(notif).length > 100 || attachments.length > 0 || !!linkPreview?.videoId || requiresAck) && (
                     <div className="px-4 pb-2 flex justify-center">
                       <ChevronDown className="h-4 w-4 text-muted-foreground/40" />
                     </div>

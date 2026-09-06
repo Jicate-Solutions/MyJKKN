@@ -249,10 +249,14 @@ export default function BulkCreateBillsPage() {
   const loadInstitutions = async () => {
     try {
       setIsLoadingInstitutions(true);
+      // College-only: the billing schedule bills entity_type='institution'.
+      // Schools are billed through /billing/school-fees, which owns its own
+      // plans, term calendar and generation run — listing them here would let
+      // a clerk raise a college bill against a school learner.
       const institutionNames = await OrganizationService.getInstitutionNames(
         true,
         undefined,
-        'all'
+        'institution'
       );
       setInstitutions(institutionNames as Institution[]);
     } catch (error) {

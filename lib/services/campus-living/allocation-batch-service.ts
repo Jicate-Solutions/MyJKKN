@@ -64,16 +64,24 @@ export class AllocationBatchService {
 
   // strict=true → only learners whose cohort matches a physical-room rule are eligible
   // (open/rule-free rooms are NOT used as a catch-all). Physical rule first, then category.
+  //
+  // allowOverflow=true → when every room RESERVED for the learner's cohort in
+  // their eligible category is full, fall back to rooms of that SAME category
+  // that no rule reserves. Category is never changed and no other cohort's
+  // reserved room is ever used. Pass false to reproduce the pre-2026-08-10
+  // behaviour exactly — useful for proving a run changed nothing else.
   static async previewCandidates(
     hostelType: string,
     strict = true,
     institutionId: string | null = null,
     programId: string | null = null,
     semesterId: string | null = null,
+    allowOverflow = true,
   ): Promise<AllocationCandidate[]> {
     const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', {
       p_hostel_type: hostelType, p_strict: strict,
       p_institution_id: institutionId, p_program_id: programId, p_semester_id: semesterId,
+      p_allow_overflow: allowOverflow,
     });
     if (error) { logger.error(LOG, 'previewCandidates failed', this.rpcErr(error)); throw new Error(error.message || 'Failed to preview candidates'); }
     return (Array.isArray(data) ? data : []) as AllocationCandidate[];
@@ -81,16 +89,20 @@ export class AllocationBatchService {
 
   // Produces ONE batch spanning every block of the type. The hostel year is
   // omitted on purpose — the RPC defaults to hostel_years.is_current.
+  // allowOverflow must match whatever the operator previewed with, or Generate
+  // places a different set than the preview showed.
   static async generate(
     hostelType: string,
     strict = true,
     institutionId: string | null = null,
     programId: string | null = null,
     semesterId: string | null = null,
+    allowOverflow = true,
   ): Promise<string> {
     const { data, error } = await this.rpcCall('fn_auto_allocate_classic', {
       p_hostel_type: hostelType, p_strict: strict,
       p_institution_id: institutionId, p_program_id: programId, p_semester_id: semesterId,
+      p_allow_overflow: allowOverflow,
     });
     if (error) { logger.error(LOG, 'generate failed', this.rpcErr(error)); throw new Error(error.message || 'Failed to generate allocation batch'); }
     return data as string;

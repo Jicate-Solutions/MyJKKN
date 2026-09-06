@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { requireStaff } from '@/lib/utils/parent-admin-auth';
+import { requireProcurement, PROC_QUOTATION_MANAGE } from '@/lib/utils/procurement-auth';
 import { isDriveConfigured } from '@/lib/google/drive-client';
 import { uploadProcurementQuotation } from '@/lib/google/drive-upload';
 
@@ -22,7 +22,7 @@ const isAllowedType = (t: string) =>
  * procurement_quotations.document_url / document_file_id.
  */
 export async function POST(req: NextRequest) {
-  const user = await requireStaff();
+  const user = await requireProcurement(PROC_QUOTATION_MANAGE);
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   if (!isDriveConfigured()) {
     return NextResponse.json(

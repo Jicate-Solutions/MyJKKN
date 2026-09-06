@@ -34,6 +34,7 @@ import {
   type EmployeeDistributionSlice,
   type EmployeeDistributionPayload,
 } from '@/types/hr-dashboard';
+import { HRAcademicYearService } from '@/lib/services/hr/hr-academic-year-service';
 
 // =====================================================================================
 // Helpers
@@ -286,26 +287,39 @@ export class HRDashboardService {
     supabase: SupabaseClient,
     hrOrgId: string | null
   ): Promise<DashboardKPI[]> {
-    // Sum entitled + used across all balances in current FY.
-    // hr_leave_balances.academic_year_id is the FK; we pick rows where
-    // hr_organization_id matches (or any if null = rolled up).
-    let q = supabase
-      .from('hr_leave_balances')
-      .select('entitled, used, carried_forward');
-    if (hrOrgId) q = q.eq('hr_organization_id', hrOrgId);
-    const { data, error } = await q;
-    if (error) throw error;
+    // FY utilization is "where do we stand right now," so it must be scoped
+    // to the academic year containing today. v_hr_leave_balance derives a
+    // row for every OPEN year (frozen_at IS NULL) — including years that
+    // haven't started yet — so an unfiltered sum silently blends next year's
+    // full, unused entitlement into the denominator and roughly halves the
+    // reported utilization. hr_organization_id additionally narrows the set
+    // (null = rolled up across orgs).
+    const currentYear = await HRAcademicYearService.getCurrent(supabase);
 
     let entitled = 0;
     let used = 0;
-    for (const row of (data ?? []) as Array<{
-      entitled: number | null;
-      used: number | null;
-      carried_forward: number | null;
-    }>) {
-      entitled += (row.entitled ?? 0) + (row.carried_forward ?? 0);
-      used += row.used ?? 0;
+
+    if (currentYear) {
+      let q = supabase
+        .from('v_hr_leave_balance')
+        .select('entitled, used, carried_forward')
+        .eq('hr_academic_year_id', currentYear.id);
+      if (hrOrgId) q = q.eq('hr_organization_id', hrOrgId);
+      const { data, error } = await q;
+      if (error) throw error;
+
+      for (const row of (data ?? []) as Array<{
+        entitled: number | null;
+        used: number | null;
+        carried_forward: number | null;
+      }>) {
+        entitled += (row.entitled ?? 0) + (row.carried_forward ?? 0);
+        used += row.used ?? 0;
+      }
     }
+    // else: no configured hr_academic_year covers today — zeros, not a
+    // silent fallback to summing every open year.
+
     const remaining = Math.max(0, entitled - used);
     const utilizationPct = entitled === 0 ? 0 : Math.round((used / entitled) * 100);
 
@@ -657,6 +671,11 @@ export class HRDashboardService {
 
     const today = todayISODate();
     const overdueCutoff = overdueCutoffISO();
+    // Resolved once, outside the per-institution map — same reasoning as
+    // qLeaveUtilization: v_hr_leave_balance derives rows for every open
+    // (not-yet-frozen) year, including ones that haven't started, so the
+    // per-card FY utilization must be pinned to the year containing today.
+    const currentYear = await HRAcademicYearService.getCurrent(supabase);
 
     const cards = await Promise.all(
       (orgs ?? []).map(async (org): Promise<InstitutionCard> => {
@@ -694,10 +713,12 @@ export class HRDashboardService {
                 .gte('end_date', today)
             ),
             (async () => {
+              if (!currentYear) return 0;
               const { data: b, error: bErr } = await supabase
-                .from('hr_leave_balances')
+                .from('v_hr_leave_balance')
                 .select('entitled, used, carried_forward')
-                .eq('hr_organization_id', org.id);
+                .eq('hr_organization_id', org.id)
+                .eq('hr_academic_year_id', currentYear.id);
               if (bErr) throw bErr;
               let entitled = 0;
               let used = 0;
@@ -788,32 +809,44 @@ export class HRDashboardService {
       );
 
       try {
-        // "Staff with unused leave" = staff whose used < entitled in current FY
-        let q = supabase.from('hr_leave_balances').select('employee_id, entitled, used, carried_forward');
-        if (institutionId) {
-          // Not a direct institution_id column on hr_leave_balances; rely on the
-          // shared hr_organization_id if institutionId resolves to an hr_org.
-          // Conservative: skip filter when we don't have a direct org mapping here.
-        }
-        const { data, error } = await q;
-        if (!error && data) {
-          let staffWithUnused = 0;
-          for (const row of data as Array<{
-            entitled: number | null;
-            used: number | null;
-            carried_forward: number | null;
-          }>) {
-            const totalEntitled = (row.entitled ?? 0) + (row.carried_forward ?? 0);
-            const used = row.used ?? 0;
-            if (totalEntitled > used) staffWithUnused++;
+        // "Staff with unused leave" = staff whose used < entitled in the
+        // CURRENT hr_academic_year. v_hr_leave_balance derives a row for
+        // every open (not-yet-frozen) year, including ones that haven't
+        // started, so an unfiltered query would also count next year's
+        // un-started entitlement as "unused" here. If no configured year
+        // covers today, skip the banner rather than falling back to summing
+        // every open year.
+        const currentYear = await HRAcademicYearService.getCurrent(supabase);
+        if (currentYear) {
+          let q = supabase
+            .from('v_hr_leave_balance')
+            .select('employee_id, entitled, used, carried_forward')
+            .eq('hr_academic_year_id', currentYear.id);
+          if (institutionId) {
+            // Not a direct institution_id column on hr_leave_balances; rely on the
+            // shared hr_organization_id if institutionId resolves to an hr_org.
+            // Conservative: skip filter when we don't have a direct org mapping here.
           }
-          banners.push({
-            kind: 'fy_end_prompt',
-            title: `Fiscal year ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
-            message: `${staffWithUnused} staff have unused leave entitlement for FY ${fy.label}. Consider prompting encashment requests.`,
-            severity: 'warning',
-            meta: { fy_end: fy.end, days_left: daysLeft, staff_with_unused: staffWithUnused },
-          });
+          const { data, error } = await q;
+          if (!error && data) {
+            let staffWithUnused = 0;
+            for (const row of data as Array<{
+              entitled: number | null;
+              used: number | null;
+              carried_forward: number | null;
+            }>) {
+              const totalEntitled = (row.entitled ?? 0) + (row.carried_forward ?? 0);
+              const used = row.used ?? 0;
+              if (totalEntitled > used) staffWithUnused++;
+            }
+            banners.push({
+              kind: 'fy_end_prompt',
+              title: `Fiscal year ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
+              message: `${staffWithUnused} staff have unused leave entitlement for FY ${fy.label}. Consider prompting encashment requests.`,
+              severity: 'warning',
+              meta: { fy_end: fy.end, days_left: daysLeft, staff_with_unused: staffWithUnused },
+            });
+          }
         }
       } catch {
         // Swallow — banner is non-critical

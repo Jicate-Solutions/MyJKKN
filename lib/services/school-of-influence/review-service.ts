@@ -112,6 +112,38 @@ export interface SoiApplicationRow {
   answers: SoiApplicationAnswer[];
 }
 
+/**
+ * One person waiting for a place (D5, waiting list).
+ *
+ * `waiting_position` is derived by the database at read time from the
+ * applications that are waitlisted RIGHT NOW, oldest first — it is never stored,
+ * so a withdrawal or an acceptance closes the gap on its own with nothing to
+ * backfill. It is the order the queue is READ in, not a promise about who is
+ * offered the next place: a coordinator may accept out of order, and both this
+ * screen and the applicant's own view say so.
+ */
+export interface SoiWaitingListEntry {
+  application_id: string;
+  applicant_name: string | null;
+  applicant_email: string | null;
+  profile_id: string | null;
+  institution_name: string | null;
+  audiences: string[];
+  /** Null under 'staff_assign' — nobody names a batch, so there is one queue. */
+  requested_batch_id: string | null;
+  requested_batch_name: string | null;
+  waiting_position: number;
+  waiting_group_size: number;
+  joined_waiting_list_at: string;
+  /**
+   * Set when this person ALREADY holds a live place in this programme (D10, one
+   * batch per person). They cannot be promoted into a second batch — the accept
+   * path reports it rather than letting the unique index raise, but a coordinator
+   * should see it before clicking.
+   */
+  already_placed_batch_name: string | null;
+}
+
 /** One batch, with the numbers the accept decision is actually made on. */
 export interface SoiReviewBatch {
   cohort_id: string;
@@ -125,6 +157,22 @@ export interface SoiReviewBatch {
   full_behaviour: string;
   intake_open: boolean;
   accepting_now: boolean;
+}
+
+/**
+ * How many people are already waiting, per batch (A7).
+ *
+ * Three numbers because they answer different questions, and which one matters
+ * depends on the live soi.batch_choice_mode: under 'staff_assign' (the current
+ * value) nobody names a batch when they apply, so `waiting_for_this_batch` is 0
+ * and the unassigned queue is the real one.
+ */
+export interface SoiWaitingCount {
+  cohort_id: string;
+  batch_name: string;
+  waiting_for_this_batch: number;
+  waiting_unassigned: number;
+  waiting_total: number;
 }
 
 /** The runtime context the screen must obey. */
@@ -224,6 +272,41 @@ export class SoiReviewService {
     return (data ?? []) as SoiReviewBatch[];
   }
 
+  /**
+   * A7 — how many people are already on the waiting list, per batch.
+   *
+   * Counted in the database for the same reason the occupancy is: under the
+   * reviewer's own RLS a browser-side count of applications would come back 0,
+   * and a warning that says "nobody is waiting" when somebody is is worse than
+   * no warning at all.
+   */
+  static async listWaitingCounts(eventId: string): Promise<SoiWaitingCount[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_soi_waiting_counts', {
+      p_event_id: eventId,
+    });
+    if (error) throw explain(error, 'The waiting list could not be counted.');
+    return (data ?? []) as SoiWaitingCount[];
+  }
+
+  /**
+   * The waiting list for one programme (D5): everyone whose application is held
+   * because the batch they would land in was full, grouped by the batch they
+   * named and ordered oldest-first inside that group.
+   *
+   * There is no `promote` method here, and that is the design. Promotion is the
+   * EXISTING accept() below — the same authorise → enrol → confirm path, with a
+   * coordinator choosing who. Nothing is enrolled automatically: an application
+   * on this list has never been read by anybody, and this programme admits people
+   * by decision (D3, soi.require_approval), not by queue order.
+   */
+  static async listWaitingList(eventId: string): Promise<SoiWaitingListEntry[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_soi_waiting_list', {
+      p_event_id: eventId,
+    });
+    if (error) throw explain(error, 'The waiting list could not be loaded.');
+    return (data ?? []) as SoiWaitingListEntry[];
+  }
+
   // ── Decisions ─────────────────────────────────────────────────────────────
 
   /**
@@ -244,12 +327,21 @@ export class SoiReviewService {
     batchCohortId?: string | null;
     /** The coordinator, recorded on the membership as who admitted them. */
     joinedBy?: string | null;
-  }): Promise<{ message: string; batchName: string | null }> {
+    /**
+     * A3 — accept past soi.batch_capacity. DEFAULTS TO FALSE, and the database
+     * defaults it to false too, so a full batch refuses unless somebody has
+     * explicitly said "yes, over the limit" on the screen. The override is
+     * recorded in cohort_status_events by the database: who, which batch, how
+     * full it already was. Nothing here can make it silent.
+     */
+    overrideCapacity?: boolean;
+  }): Promise<{ message: string; batchName: string | null; capacityOverridden: boolean }> {
     const { data: prepared, error: prepareError } = await (this.supabase as any).rpc(
       'fn_soi_prepare_acceptance',
       {
         p_application_id: input.applicationId,
         p_batch_cohort_id: input.batchCohortId ?? null,
+        p_override_capacity: input.overrideCapacity === true,
       }
     );
     if (prepareError) throw explain(prepareError, 'This application could not be accepted.');
@@ -263,6 +355,9 @@ export class SoiReviewService {
       membership_id?: string | null;
       existing_batch_cohort_id?: string | null;
       existing_batch_name?: string | null;
+      capacity_override_used?: boolean;
+      occupancy?: number;
+      capacity?: number;
     };
 
     let membershipId = plan.already_member ? (plan.membership_id ?? null) : null;
@@ -301,13 +396,22 @@ export class SoiReviewService {
       plan.existing_batch_cohort_id &&
       plan.existing_batch_cohort_id !== plan.batch_cohort_id;
 
+    const overridden = plan.capacity_override_used === true;
+    const base = movedElsewhere
+      ? `${result.message ?? 'Application accepted.'} They already had a place in ` +
+        `${plan.existing_batch_name ?? 'another batch'}, so that is the batch on record. ` +
+        'Move them between batches if they belong somewhere else.'
+      : (result.message ?? 'Application accepted.');
+
     return {
       batchName: landedIn,
-      message: movedElsewhere
-        ? `${result.message ?? 'Application accepted.'} They already had a place in ` +
-          `${plan.existing_batch_name ?? 'another batch'}, so that is the batch on record. ` +
-          'Move them between batches if they belong somewhere else.'
-        : (result.message ?? 'Application accepted.'),
+      capacityOverridden: overridden,
+      // Say it out loud when the limit was passed. A3 says an override is never
+      // silent, and a toast that reads the same as an ordinary accept is silent.
+      message: overridden
+        ? `${base} This was over the batch limit — ${plan.batch_name ?? 'the batch'} already held ` +
+          `${plan.occupancy ?? '?'} of ${plan.capacity ?? '?'} places, and that has been recorded against your name.`
+        : base,
     };
   }
 

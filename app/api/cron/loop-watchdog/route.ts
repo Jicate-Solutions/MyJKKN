@@ -59,6 +59,27 @@ import { getRoutineById } from '@/lib/ai-routines/registry';
 
 const AUDIT_WINDOW_HOURS = 26; // audit sweep window: this cron's own daily cadence + slack
 
+// 2026-08-09 expiry — see the fanout below. The TTL is DERIVED from this
+// routine's own dispatcher row (staleThresholdMs over its days_of_week), because
+// that schedule is editable on /admin/ai-routines with no deploy: a literal 36h
+// would silently invert the moment someone slowed the cadence down.
+// 1.5x the cadence absorbs a LATE run, not a fully skipped cycle (that would
+// need >= 2x). Moot for this routine in practice: the 7-day floor below
+// dominates 1.5x a daily cadence, so the effective TTL is 7 days either way.
+const TTL_CYCLE_MULTIPLIER = 1.5;
+// FLOOR, and the reason this routine is not just `cycle * 1.5`: loop-watchdog
+// exists so that silence does not look like health, and it is itself
+// dispatcher-run. If the dispatcher dies, no new edition is emitted — so a
+// 36h TTL would empty the bell of watchdog rows exactly during the outage the
+// routine was built to surface. A TTL can never MAKE an outage visible; it can
+// only avoid deleting the last evidence of one too soon. 7 days outlives a
+// plausible outage while still capping the stack at ~7 rows instead of the
+// unbounded growth this change is here to stop. Kept in step with the
+// 'loop_watchdog' bucket in
+// supabase/migrations/20260816040100_backfill_expire_stale_notification_digests.sql.
+const WATCHDOG_MIN_TTL_MS = 7 * 24 * 3600_000;
+const OWN_ROUTINE_ID = 'loop-watchdog';
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -153,6 +174,15 @@ export async function GET(request: NextRequest) {
     }
     const userIds = supers.map((s: { id: string }) => s.id);
     const istDay = new Date(nowMs + 19_800_000).toISOString().slice(0, 10);
+    // Own cadence, read from the same managed rows already fetched above — no
+    // extra query. A missing own-row (never seeded) falls through
+    // staleThresholdMs's own "assume daily" default, and the floor applies
+    // either way.
+    const ownRow = managed.find((r) => r.routine_id === OWN_ROUTINE_ID);
+    const expiresMs = Math.max(
+      Math.round(staleThresholdMs(ownRow?.days_of_week) * TTL_CYCLE_MULTIPLIER),
+      WATCHDOG_MIN_TTL_MS
+    );
     const outcome = await fanoutNotification(admin, {
       title: `🔴 Loop watchdog: ${findings.length} issue${findings.length === 1 ? '' : 's'} (${silent.length} silent, ${errored.length} errored, ${disabled.length} disabled, ${badAudits.length} bad verdicts)`,
       body:
@@ -166,6 +196,18 @@ export async function GET(request: NextRequest) {
       // deduplicated, but a DISTINCT failure later the same day still pages.
       idempotencyKey: `loop-watchdog:${istDay}:${findingsFingerprint(findings)}`,
       source: 'loop-watchdog-cron',
+      // 2026-08-09: a restatement of the current failure set — a still-broken
+      // routine pages again next cycle under a new istDay. Without an expiry
+      // every edition stayed unread forever (14 of the Director's 680 unread).
+      // TTL = max(own cadence x 1.5, 7 days): derived from THIS routine's own
+      // dispatcher row so a cadence edit on /admin/ai-routines cannot silently
+      // invert the margin, and floored at 7 days so a dispatcher outage does not
+      // empty the bell of the very rows that record it (see WATCHDOG_MIN_TTL_MS).
+      // Honoured by liveNotificationOrFilter() in the bell/inbox read path;
+      // admin/manage/stats reads deliberately still show lapsed rows.
+      extraColumns: {
+        expires_at: new Date(nowMs + expiresMs).toISOString(),
+      },
     });
     notified = outcome.notified;
   }

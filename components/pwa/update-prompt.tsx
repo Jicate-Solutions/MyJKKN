@@ -127,7 +127,7 @@ export function UpdatePrompt() {
   }
 
   return (
-    <Card className='fixed bottom-4 left-4 z-50 w-80 shadow-lg border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800'>
+    <Card className='fixed bottom-nav-safe lg:bottom-4 left-4 z-50 w-80 shadow-lg border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800'>
       <CardHeader className='pb-2'>
         <div className='flex items-center justify-between'>
           <div className='flex items-center gap-2'>

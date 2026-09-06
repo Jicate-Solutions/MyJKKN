@@ -36,6 +36,7 @@ export const taskKeys = {
   details: () => [...taskKeys.all, 'detail'] as const,
   detail: (id: string) => [...taskKeys.details(), id] as const,
   assignees: (taskId: string) => [...taskKeys.detail(taskId), 'assignees'] as const,
+  comments: (taskId: string) => [...taskKeys.detail(taskId), 'comments'] as const,
 };
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
@@ -159,6 +160,39 @@ export function useUnassignTask() {
       TaskService.unassign(getSupabase(), taskId, staffId),
     onSuccess: (_data, { taskId }) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.assignees(taskId) });
+    },
+  });
+}
+
+// ─── Comments ─────────────────────────────────────────────────────────────────
+
+/** Threaded comments for one task, oldest first, authors joined. */
+export function useTaskComments(
+  taskId: string | null | undefined,
+  options: { enabled?: boolean } = {}
+) {
+  return useQuery({
+    queryKey: taskKeys.comments(taskId ?? ''),
+    queryFn: () => TaskService.listComments(getSupabase(), taskId as string),
+    enabled: !!taskId && (options.enabled ?? true),
+  });
+}
+
+export function useAddTaskComment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      taskId,
+      body,
+      parentCommentId,
+    }: {
+      taskId: string;
+      body: string;
+      parentCommentId?: string | null;
+    }) => TaskService.addComment(getSupabase(), taskId, body, parentCommentId),
+    onSuccess: (comment) => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.comments(comment.task_id) });
     },
   });
 }

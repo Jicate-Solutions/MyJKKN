@@ -27,6 +27,11 @@ interface HealthTotals {
   mismatches: number;
   roles: number;
   superAdmins: number;
+  // Auth users with no profile who have actually signed in. Distinct from
+  // `orphans` (profiles with no role). Optional so a cached older response
+  // from before this field existed cannot crash the page.
+  signedInWithoutProfile?: number;
+  signedInWithoutProfileRecoverable?: number;
 }
 
 interface OrphanByRole {
@@ -239,12 +244,20 @@ export function SystemHealthTab({ onSwitchTab }: SystemHealthTabProps = {}) {
         {view === 'plain' ? (
           <PlainHealthCards data={data} onAction={handleHealthAction} />
         ) : (
-          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4'>
             <StatCard
               label='Total Users'
               value={totals.users}
               icon={<Users className='h-6 w-6 text-slate-400' />}
               variant='neutral'
+            />
+            <StatCard
+              label='Signed In, No Profile'
+              value={totals.signedInWithoutProfile ?? 0}
+              icon={<AlertTriangle className='h-6 w-6' />}
+              variant={
+                (totals.signedInWithoutProfile ?? 0) > 0 ? 'danger' : 'success'
+              }
             />
             <StatCard
               label='Orphan Users'

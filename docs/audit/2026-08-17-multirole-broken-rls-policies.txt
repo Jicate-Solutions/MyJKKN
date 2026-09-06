@@ -1,0 +1,477 @@
+BROKEN RLS POLICIES — gated on a role string, no user_has_permission fallback, never reads user_roles
+Live pg_policies, project kvizhngldtiuufknvehv
+TOTAL: 146 policies across 90 tables
+====================================================================================================
+
+academic_years  (1)
+    [UPDATE] Users can update academic years with permission
+             tests: faculty  (+super_admin bypass)
+
+alumni_outcomes  (3)
+    [INSERT] alumni_outcomes_insert
+             tests: staff  (+super_admin bypass)
+    [SELECT] alumni_outcomes_select
+             tests: staff  (+super_admin bypass)
+    [UPDATE] alumni_outcomes_update
+             tests: staff  (+super_admin bypass)
+
+appathon_peer_tags  (1)
+    [SELECT] peer_tags_select
+             tests: hod, principal, faculty
+
+appathon_role_cards  (1)
+    [SELECT] role_cards_select
+             tests: hod, principal, faculty
+
+applications  (2)
+    [INSERT] Enable insert for authenticated admins
+             tests: hod, faculty  (+super_admin bypass)
+    [UPDATE] Enable update for authenticated admins
+             tests: hod, faculty  (+super_admin bypass)
+
+attendance_audit_log  (1)
+    [INSERT] audit_log_insert_by_role
+             tests: hod  (+super_admin bypass)
+
+attendance_consolidation_reports  (2)
+    [UPDATE] Admins can delete consolidation reports
+             tests: principal  (+super_admin bypass)
+    [INSERT] HOD and Admins can create consolidation reports
+             tests: hod, principal, admission  (+super_admin bypass)
+
+bos_email_templates  (2)
+    [INSERT] bos_email_templates_insert
+             tests: hod, principal  (+super_admin bypass)
+    [UPDATE] bos_email_templates_update
+             tests: hod, principal  (+super_admin bypass)
+
+case_studies  (1)
+    [SELECT] case_studies_select_admin
+             tests: hod, principal, faculty  (+super_admin bypass)
+
+case_track_enrollments  (2)
+    [SELECT] case_track_enrollments_select
+             tests: faculty  (+super_admin bypass)
+    [UPDATE] case_track_enrollments_update
+             tests: faculty  (+super_admin bypass)
+
+counselor_routing_errors  (1)
+    [SELECT] routing_errors_select
+             tests: admission  (+super_admin bypass)
+
+counselor_tier_policy  (1)
+    [SELECT] counselor_tier_policy_select
+             tests: admission  (+super_admin bypass)
+
+course_competency_mapping  (2)
+    [INSERT] course_competency_mapping_insert
+             tests: staff  (+super_admin bypass)
+    [UPDATE] course_competency_mapping_update
+             tests: staff
+
+daily_engagement_metrics  (1)
+    [SELECT] daily_engagement_select_admin
+             tests: hod, principal, faculty, accounts
+
+event_submissions  (1)
+    [SELECT] event_submissions_select
+             tests: hod, principal, faculty, staff
+
+event_team_attendance  (2)
+    [INSERT] event_team_attendance_insert
+             tests: hod, principal, faculty, staff
+    [UPDATE] event_team_attendance_update
+             tests: hod, principal, faculty, staff
+
+event_team_members  (1)
+    [SELECT] event_team_members_select
+             tests: hod, principal, faculty, staff
+
+grievance_history  (1)
+    [SELECT] grievance_history_select
+             tests: hod, principal, staff  (+super_admin bypass)
+
+health_fitness_tests  (1)
+    [ALL   ] health_fitness_tests_staff
+             tests: hod, faculty  (+super_admin bypass)
+
+health_practice_attendance  (1)
+    [ALL   ] health_practice_attendance_staff
+             tests: faculty  (+super_admin bypass)
+
+health_practice_sessions  (1)
+    [ALL   ] health_practice_sessions_manage
+             tests: faculty  (+super_admin bypass)
+
+health_sports_credits  (1)
+    [ALL   ] health_sports_credits_staff
+             tests: hod, faculty  (+super_admin bypass)
+
+health_sports_profiles  (1)
+    [SELECT] health_sports_profiles_admin
+             tests: hod, faculty  (+super_admin bypass)
+
+hr_faculty_workload  (2)
+    [SELECT] workload_select
+             tests: principal, cao, vice_principal, hr_manager, hr_admin  (+is_admin())
+    [ALL   ] workload_write
+             tests: hr_manager, hr_admin  (+is_admin())
+
+hr_fnf_calculations  (2)
+    [INSERT] hr_fnf_calculations_insert
+             tests: principal, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+    [UPDATE] hr_fnf_calculations_update
+             tests: principal, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+
+hr_offboarding_cases  (3)
+    [INSERT] hr_offboarding_cases_insert
+             tests: principal, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+    [SELECT] hr_offboarding_cases_select
+             tests: principal, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+    [UPDATE] hr_offboarding_cases_update
+             tests: principal, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+
+hr_offboarding_step_completions  (2)
+    [INSERT] hr_offboarding_step_completions_insert
+             tests: principal, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+    [UPDATE] hr_offboarding_step_completions_update
+             tests: principal, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+
+hr_pay_components  (2)
+    [INSERT] hr_pay_components_insert
+             tests: principal, registrar, vice_principal, accounts, hr_manager, hr_admin  (+is_admin())
+    [UPDATE] hr_pay_components_update
+             tests: principal, registrar, vice_principal, accounts, hr_manager, hr_admin  (+is_admin())
+
+hr_payroll_period_approvals  (2)
+    [INSERT] hr_payroll_period_approvals_insert
+             tests: cao, accounts, hr_manager, hr_admin  (+is_admin())
+    [SELECT] hr_payroll_period_approvals_select
+             tests: principal, cao, registrar, vice_principal, accounts, hr_manager, hr_admin  (+is_admin())
+
+hr_payroll_periods  (3)
+    [INSERT] hr_payroll_periods_insert
+             tests: hr_manager, hr_admin  (+is_admin())
+    [SELECT] hr_payroll_periods_select
+             tests: principal, cao, registrar, vice_principal, accounts, hr_manager, hr_admin  (+is_admin())
+    [UPDATE] hr_payroll_periods_update
+             tests: cao, accounts, hr_manager, hr_admin  (+is_admin())
+
+hr_payslip_line_items  (3)
+    [INSERT] hr_payslip_line_items_insert
+             tests: accounts, hr_manager, hr_admin  (+is_admin())
+    [SELECT] hr_payslip_line_items_select
+             tests: principal, registrar, vice_principal, accounts, hr_manager, hr_admin  (+is_admin())
+    [UPDATE] hr_payslip_line_items_update
+             tests: accounts, hr_manager, hr_admin  (+is_admin())
+
+hr_payslips  (3)
+    [INSERT] hr_payslips_insert
+             tests: hr_manager, hr_admin  (+is_admin())
+    [SELECT] hr_payslips_select
+             tests: principal, cao, registrar, vice_principal, accounts, hr_manager, hr_admin  (+is_admin())
+    [UPDATE] hr_payslips_update
+             tests: hr_manager, hr_admin  (+is_admin())
+
+hr_recruitment_escalations  (2)
+    [INSERT] escalations_insert
+             tests: principal, vice_principal  (+is_admin())
+    [SELECT] escalations_select
+             tests: principal, cao, vice_principal, hr_manager, hr_admin  (+is_admin())
+
+hr_recruitment_signal_cache  (1)
+    [SELECT] signal_cache_select
+             tests: principal, cao, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+
+hr_recruitment_signal_snapshots  (1)
+    [SELECT] snapshots_select
+             tests: principal, cao, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+
+hr_recruitment_signal_suppressions  (1)
+    [SELECT] suppressions_select
+             tests: principal, cao, registrar, vice_principal, hr_manager, hr_admin  (+is_admin())
+
+hr_staff_institution_allocation  (2)
+    [SELECT] hr_staff_inst_alloc_select
+             tests: principal, cao, hr_manager, hr_admin  (+is_admin())
+    [ALL   ] hr_staff_inst_alloc_write
+             tests: hr_manager, hr_admin  (+is_admin())
+
+industry_projects  (2)
+    [INSERT] industry_projects_insert
+             tests: staff  (+super_admin bypass)
+    [UPDATE] industry_projects_update
+             tests: staff
+
+institutions  (1)
+    [SELECT] institutions_select_faculty_hod_principal
+             tests: hod, principal, faculty
+
+lc_od_requests  (2)
+    [SELECT] lc_od_requests_select_principal
+             tests: principal
+    [UPDATE] lc_od_requests_update_principal
+             tests: principal
+
+learner_competencies  (3)
+    [INSERT] learner_competencies_insert
+             tests: staff  (+super_admin bypass)
+    [SELECT] learner_competencies_select
+             tests: staff  (+super_admin bypass)
+    [UPDATE] learner_competencies_update
+             tests: staff  (+super_admin bypass)
+
+learner_elective_okrs  (1)
+    [SELECT] learner_elective_okrs_select
+             tests: faculty
+
+learner_industry_engagements  (3)
+    [INSERT] learner_engagements_insert
+             tests: staff  (+super_admin bypass)
+    [SELECT] learner_engagements_select
+             tests: staff  (+super_admin bypass)
+    [UPDATE] learner_engagements_update
+             tests: staff  (+super_admin bypass)
+
+learner_interventions  (3)
+    [INSERT] Staff can create interventions
+             tests: hod, principal, faculty
+    [UPDATE] Staff can update interventions
+             tests: hod, principal, faculty
+    [SELECT] Staff can view interventions
+             tests: hod, principal, faculty
+
+learner_okr_assignments  (1)
+    [SELECT] learner_okr_assignments_select
+             tests: faculty
+
+learner_pulse_responses  (1)
+    [SELECT] Staff can view pulse responses
+             tests: hod, principal, faculty
+
+learner_risk_assessments  (2)
+    [SELECT] Faculty can view department risk assessments
+             tests: hod, faculty
+    [SELECT] Institution admins can view risk assessments
+             tests: principal
+
+learning_path_steps  (3)
+    [INSERT] learning_path_steps_insert
+             tests: staff  (+super_admin bypass)
+    [SELECT] learning_path_steps_select
+             tests: staff  (+super_admin bypass)
+    [UPDATE] learning_path_steps_update
+             tests: staff  (+super_admin bypass)
+
+learning_paths  (3)
+    [INSERT] learning_paths_insert
+             tests: staff  (+super_admin bypass)
+    [SELECT] learning_paths_select
+             tests: staff  (+super_admin bypass)
+    [UPDATE] learning_paths_update
+             tests: staff  (+super_admin bypass)
+
+leave_onduty_applications  (1)
+    [SELECT] admins_view_all_institution
+             tests: hod, principal, faculty  (+super_admin bypass)
+
+leave_onduty_approval_flows  (2)
+    [SELECT] academic_staff_view_flows
+             tests: hod, principal, faculty, staff  (+super_admin bypass)
+    [ALL   ] admins_and_hod_manage_flows
+             tests: hod, principal  (+super_admin bypass)
+
+leave_onduty_attendance_updates  (1)
+    [SELECT] admins_view_updates
+             tests: staff  (+super_admin bypass)
+
+leave_onduty_sub_categories  (3)
+    [DELETE] sub_categories_delete
+             tests: hod, principal  (+super_admin bypass)
+    [INSERT] sub_categories_insert
+             tests: hod, principal  (+super_admin bypass)
+    [UPDATE] sub_categories_update
+             tests: hod, principal  (+super_admin bypass)
+
+lti_grades  (1)
+    [SELECT] Users see own grades
+             tests: hod, principal, faculty  (+super_admin bypass)
+
+lti_launches  (1)
+    [SELECT] Users see own launches
+             tests: hod, principal, faculty  (+super_admin bypass)
+
+maturity_assessments  (1)
+    [ALL   ] Staff can manage assessments
+             tests: hod, staff  (+super_admin bypass)
+
+maturity_evidence  (1)
+    [ALL   ] Staff can manage evidence
+             tests: hod, staff  (+super_admin bypass)
+
+maturity_progress  (1)
+    [ALL   ] Staff can manage progress
+             tests: hod, staff  (+super_admin bypass)
+
+mv_student_billing_summary  (2)
+    [SELECT] Admin users can view all billing summaries
+             tests: accounts  (+super_admin bypass)
+    [SELECT] Faculty users can view institution billing summaries
+             tests: faculty
+
+nps_analytics  (1)
+    [SELECT] Staff can view analytics for their institution
+             tests: hod, faculty, staff  (+super_admin bypass)
+
+nps_responses  (1)
+    [SELECT] Staff can view responses for their institution surveys
+             tests: hod, faculty, staff  (+super_admin bypass)
+
+nps_surveys  (2)
+    [INSERT] Staff can create surveys for their institution
+             tests: hod, faculty, staff  (+super_admin bypass)
+    [UPDATE] Staff can update surveys for their institution
+             tests: hod, faculty, staff  (+super_admin bypass)
+
+outcome_program_correlation  (1)
+    [SELECT] outcome_correlation_select
+             tests: staff  (+super_admin bypass)
+
+parent_communications  (3)
+    [INSERT] parent_communications_insert
+             tests: staff  (+super_admin bypass)
+    [SELECT] parent_communications_select
+             tests: staff  (+super_admin bypass)
+    [UPDATE] parent_communications_update
+             tests: staff  (+super_admin bypass)
+
+parent_learner_links  (1)
+    [ALL   ] Staff can manage learner links
+             tests: staff  (+super_admin bypass)
+
+parent_portal_access  (3)
+    [INSERT] parent_portal_access_insert
+             tests: staff  (+super_admin bypass)
+    [SELECT] parent_portal_access_select
+             tests: staff  (+super_admin bypass)
+    [UPDATE] parent_portal_access_update
+             tests: staff  (+super_admin bypass)
+
+parent_profiles  (2)
+    [ALL   ] Staff can manage parent profiles
+             tests: staff  (+super_admin bypass)
+    [SELECT] Staff can view parent profiles
+             tests: hod, faculty, staff  (+super_admin bypass)
+
+payment_transaction_items  (1)
+    [INSERT] payment_transaction_items_insert_policy
+             tests: staff, accounts  (+super_admin bypass)
+
+payment_transactions  (2)
+    [INSERT] payment_transactions_insert_policy
+             tests: staff, accounts  (+super_admin bypass)
+    [UPDATE] payment_transactions_update_policy
+             tests: accounts  (+super_admin bypass)
+
+pde_agency_index  (1)
+    [SELECT] agency_admin_read
+             tests: hod  (+super_admin bypass)
+
+pde_bridge_audit  (1)
+    [SELECT] pde_bridge_audit_faculty_hod_select
+             tests: hod, faculty
+
+pde_coordinator_onboarding_log  (1)
+    [SELECT] pde_coord_onboard_read
+             tests: hod, faculty  (+super_admin bypass)
+
+pde_demonstrations  (1)
+    [SELECT] pde_demonstrations_faculty_same_inst
+             tests: hod, faculty
+
+pde_reciprocal_credits  (1)
+    [SELECT] pde_reciprocal_credits_read
+             tests: hod, faculty  (+super_admin bypass)
+
+periods  (2)
+    [INSERT] Enhanced periods create access
+             tests: faculty  (+super_admin bypass)
+    [UPDATE] Enhanced periods update access
+             tests: faculty  (+super_admin bypass)
+
+process_instances  (1)
+    [ALL   ] Staff can manage process instances
+             tests: hod, staff  (+super_admin bypass)
+
+profile_change_audit_log  (1)
+    [SELECT] Staff can view department audit logs
+             tests: staff
+
+profile_change_requests  (1)
+    [SELECT] Staff can view department requests
+             tests: staff
+
+progression_levels  (1)
+    [SELECT] progression_levels_select_admin
+             tests: hod, principal, faculty  (+super_admin bypass)
+
+resource_reservations  (1)
+    [SELECT] resource_reservations_select_staff_scoped
+             tests: accounts  (+super_admin bypass)
+
+resource_usage_logs  (2)
+    [INSERT] Staff with permission can create usage logs
+             tests: accounts  (+super_admin bypass)
+    [SELECT] Staff with permission can view all usage logs
+             tests: accounts  (+super_admin bypass)
+
+smtp_configuration  (2)
+    [INSERT] smtp_configuration_insert
+             tests: hod, principal  (+super_admin bypass)
+    [UPDATE] smtp_configuration_update
+             tests: hod, principal  (+super_admin bypass)
+
+staff_plan_courses  (4)
+    [DELETE] Faculty and HOD can delete staff_plan_courses
+             tests: hod, faculty  (+super_admin bypass)
+    [UPDATE] Faculty and HOD can update staff_plan_courses
+             tests: hod, faculty  (+super_admin bypass)
+    [INSERT] Faculty users can insert institution staff plan courses
+             tests: faculty
+    [INSERT] HOD users can insert institution staff plan courses
+             tests: hod
+
+staff_specializations  (2)
+    [SELECT] staff_specializations_select
+             tests: principal, cao, hr_manager, hr_admin  (+is_admin())
+    [ALL   ] staff_specializations_write
+             tests: hr_manager, hr_admin  (+is_admin())
+
+student_attendance  (1)
+    [ALL   ] Comprehensive attendance access by role
+             tests: hod, principal, faculty
+
+student_engagement_scores  (1)
+    [SELECT] student_engagement_select_admin
+             tests: hod, principal, faculty, accounts
+
+timetables  (2)
+    [INSERT] Users can create timetables with permission
+             tests: hod, faculty  (+super_admin bypass)
+    [UPDATE] Users can update timetables with permission
+             tests: hod, faculty  (+super_admin bypass)
+
+track_declarations  (2)
+    [SELECT] track_declarations_select_admin
+             tests: hod, principal, faculty  (+super_admin bypass)
+    [UPDATE] track_declarations_update_admin
+             tests: hod, principal, faculty  (+super_admin bypass)
+
+user_sessions  (1)
+    [SELECT] user_sessions_select_admin
+             tests: hod, principal, faculty
+
+waste_incidents  (1)
+    [ALL   ] Staff can manage waste incidents
+             tests: hod, staff  (+super_admin bypass)
+

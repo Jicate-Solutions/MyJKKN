@@ -13,6 +13,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -163,7 +164,7 @@ export function LessonsList({ projectId, closureReportId, projectTypeId }: Lesso
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7 shrink-0"
+                    className={`h-7 w-7 shrink-0 ${TAP_TARGET_ICON}`}
                     aria-label="Lesson actions"
                   >
                     <MoreHorizontal className="h-4 w-4" />

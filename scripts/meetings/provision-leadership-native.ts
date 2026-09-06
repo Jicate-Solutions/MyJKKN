@@ -60,8 +60,13 @@ const MEETING_TYPE = {
   slug: 'meeting-30',
   duration_min: 30,
   min_notice_min: 120,
-  buffer_before_min: 0,
-  buffer_after_min: 0,
+  // 5-minute gap each side. buffer_BEFORE is the one that actually stops a
+  // visitor booking straight onto the end of an existing commitment (the slot
+  // engine pads the candidate, native-slot-engine.ts:271); buffer_after alone
+  // would change nothing. Seeding 0 here is what made the first four public
+  // pages chain-bookable.
+  buffer_before_min: 5,
+  buffer_after_min: 5,
   max_days_ahead: 30,
   hidden: false,
   is_active: true,

@@ -193,10 +193,12 @@ export default function MarathonCertificatesPage() {
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
 
-  // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
-    return <MarathonAccessDenied title="Certificates" eventId={eventId} />;
-  }
+  // The non-admin block lives BELOW the hooks. It used to sit here, between
+  // useMarathonEvent and useCertificateStats, so the moment access resolved from
+  // loading to denied the component went from calling six hooks to calling
+  // three — a rules-of-hooks violation React reports as "Expected static flag
+  // was missing". The queries below are RLS-gated anyway, so running them for a
+  // user who is about to be refused returns nothing rather than leaking.
   const { data: stats } = useCertificateStats(eventId);
   const { data: certList, isLoading, error, refetch } = useCertificateList(eventId);
 
@@ -320,6 +322,11 @@ export default function MarathonCertificatesPage() {
   };
 
   const pendingCount = stats?.pending ?? 0;
+
+  // Every hook has run — safe to bail out from here down.
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Certificates" eventId={eventId} />;
+  }
 
   if (eventLoading) {
     return (

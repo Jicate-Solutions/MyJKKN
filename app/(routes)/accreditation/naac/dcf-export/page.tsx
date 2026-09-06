@@ -10,6 +10,11 @@
 //
 // On export, an accreditation_submissions row is written so the IQAC has a
 // paper trail of who exported what, when, and for which cycle.
+//
+// Once that workbook has actually been filed with NAAC, "Freeze the filed
+// figures" calls fn_accreditation_freeze_reported_figures — the write-once act
+// that records the per-metric counts as at filing time, so the reported figure
+// and the figure today can both be answered later. Director decision 7.
 // ============================================================================
 
 'use client';
@@ -34,14 +39,34 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
-import { FileDown, ShieldAlert, Download, FileSpreadsheet } from 'lucide-react';
+import { FileDown, ShieldAlert, Download, FileSpreadsheet, Lock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { usePermissions } from '@/hooks/use-permissions';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import {
+  describeDrift,
+  mergeReportedMetrics,
+  readReportedSnapshot,
+  type SubmissionMetadata,
+} from '@/lib/services/accreditation/reported-figures';
 
 type SubmissionType = 'NAAC_AQAR_2024_25' | 'NAAC_SSR_2027';
+
+/** The row just written by an export, held so it can be frozen without a refetch. */
+interface RecordedSubmission {
+  id: string;
+  periodLabel: string;
+  metadata: SubmissionMetadata;
+}
+
+/** One row of fn_accreditation_reported_vs_actual. */
+interface DriftRow {
+  metric_code: string;
+  reported: number | string | null;
+  actual: number | string;
+}
 
 const SUBMISSION_TYPE_LABELS: Record<SubmissionType, string> = {
   NAAC_AQAR_2024_25: 'AQAR 2024-25 (Annual Quality Assurance Report)',
@@ -132,6 +157,10 @@ export default function NAACDCFExportPage() {
   const [submissionType, setSubmissionType] =
     useState<SubmissionType>('NAAC_AQAR_2024_25');
   const [exporting, setExporting] = useState(false);
+  const [submission, setSubmission] = useState<RecordedSubmission | null>(null);
+  const [freezing, setFreezing] = useState(false);
+  const [driftRows, setDriftRows] = useState<DriftRow[] | null>(null);
+  const [driftNote, setDriftNote] = useState<string | null>(null);
 
   const { data: institutions, isLoading: iLoading } = useInstitutions();
   const { data: metrics, isLoading: mLoading } = useNAACMetrics();
@@ -238,7 +267,14 @@ export default function NAACDCFExportPage() {
         submissionType === 'NAAC_AQAR_2024_25' ? '2024-25' : '2027';
       const coveragePct =
         totalMetrics === 0 ? 0 : Math.round((totalEvidence / totalMetrics) * 100);
-      const { error: insertError } = await sb
+      const submissionMetadata: SubmissionMetadata = {
+        filename,
+        metrics_seeded: totalMetrics,
+        evidence_rows: totalEvidence,
+        exported_at: new Date().toISOString(),
+        note: 'Auto-generated stub export; values pending substrate fan-out',
+      };
+      const { data: insertedRow, error: insertError } = await sb
         .from('accreditation_submissions')
         .insert({
           institution_id: institutionId,
@@ -246,22 +282,29 @@ export default function NAACDCFExportPage() {
           submission_type: submissionType,
           period_label: periodLabel,
           export_format: 'xlsx',
-          status: 'drafted',
+          // 'draft', not 'drafted' — the table's CHECK allows
+          // ('draft','submitted','accepted','revision_requested','rejected','withdrawn').
+          // 'drafted' violated it, so every insert from this page was rejected and
+          // the paper trail below never existed.
+          status: 'draft',
           coverage_snapshot: coveragePct,
-          metadata: {
-            filename,
-            metrics_seeded: totalMetrics,
-            evidence_rows: totalEvidence,
-            exported_at: new Date().toISOString(),
-            note: 'Auto-generated stub export; values pending substrate fan-out',
-          },
-        });
+          metadata: submissionMetadata,
+        })
+        .select('id, period_label, metadata')
+        .single();
       if (insertError) {
         console.warn('[accreditation/dcf-export] submission row insert failed:', insertError);
         toast.warning(
           'Export downloaded, but submission record failed — contact engineering',
         );
       } else {
+        setSubmission({
+          id: insertedRow.id as string,
+          periodLabel: insertedRow.period_label as string,
+          metadata: (insertedRow.metadata ?? {}) as SubmissionMetadata,
+        });
+        setDriftRows(null);
+        setDriftNote(null);
         toast.success('Export downloaded + submission recorded');
       }
     } catch (e) {
@@ -271,6 +314,59 @@ export default function NAACDCFExportPage() {
       setExporting(false);
     }
   };
+
+  // Reads back through the counterpart function so both numbers come from the
+  // database rather than from anything this page happens to be holding.
+  const loadDrift = async (periodLabel: string) => {
+    const sb = createClientSupabaseClient() as any;
+    const { data, error } = await sb.rpc('fn_accreditation_reported_vs_actual', {
+      p_institution_id: institutionId,
+      p_body_code: 'NAAC',
+      p_period_label: periodLabel,
+    });
+    if (error) {
+      setDriftRows(null);
+      setDriftNote(
+        'The figures are frozen. The reported-vs-actual reader is not available on this database yet, so the comparison below cannot be drawn.',
+      );
+      return;
+    }
+    setDriftRows((data ?? []) as DriftRow[]);
+    setDriftNote(null);
+  };
+
+  const handleFreeze = async () => {
+    if (!submission) return;
+    setFreezing(true);
+    try {
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb.rpc(
+        'fn_accreditation_freeze_reported_figures',
+        { p_submission_id: submission.id },
+      );
+      if (error) throw new Error(error.message);
+
+      const result = (data ?? {}) as {
+        reported_metrics?: Record<string, number>;
+        reported_at?: string;
+      };
+      const { merged } = mergeReportedMetrics(
+        submission.metadata,
+        result.reported_metrics ?? {},
+        result.reported_at ?? new Date().toISOString(),
+      );
+      setSubmission({ ...submission, metadata: merged });
+      toast.success('Filed figures frozen — this submission now keeps both numbers');
+      await loadDrift(submission.periodLabel);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Freeze failed';
+      toast.error(msg);
+    } finally {
+      setFreezing(false);
+    }
+  };
+
+  const snapshot = submission ? readReportedSnapshot(submission.metadata) : null;
 
   return (
     <ContentLayout title="NAAC DCF / AQAR Export">
@@ -378,12 +474,106 @@ export default function NAACDCFExportPage() {
 
             <p className="text-xs text-muted-foreground">
               A row is written to <code>accreditation_submissions</code> on every
-              download with status <Badge variant="outline">drafted</Badge> and the
+              download with status <Badge variant="outline">draft</Badge> and the
               coverage snapshot captured at export time. The Director's office can
               trace who exported what, when, and against which submission cycle.
             </p>
           </CardContent>
         </Card>
+
+        {submission && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Lock className="h-5 w-5 text-emerald-600" />
+                Freeze the filed figures
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!snapshot ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Once this workbook has actually been filed with NAAC, freeze the
+                    per-metric counts as they stand right now. Evidence keeps arriving
+                    afterwards, and without this the figure that was reported becomes
+                    unrecoverable — only the number as at today survives.
+                  </p>
+                  <Alert>
+                    <AlertTitle>This can only be done once</AlertTitle>
+                    <AlertDescription>
+                      A filed figure is a historical fact. There is no re-freeze: the
+                      database refuses a second attempt, because re-running it would
+                      quietly rewrite the filing to match the present and erase the very
+                      gap this exists to show.
+                    </AlertDescription>
+                  </Alert>
+                  <div className="flex justify-end">
+                    <Button onClick={handleFreeze} disabled={freezing} variant="secondary">
+                      <Lock className="mr-2 h-4 w-4" />
+                      {freezing ? 'Freezing…' : 'Freeze filed figures'}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <StatCell label="Metrics filed" value={String(snapshot.metricCount)} />
+                    <StatCell
+                      label="Evidence rows filed"
+                      value={String(snapshot.evidenceRows)}
+                    />
+                    <StatCell
+                      label="Frozen at"
+                      value={
+                        snapshot.reportedAt
+                          ? new Date(snapshot.reportedAt).toLocaleString('en-IN')
+                          : '—'
+                      }
+                    />
+                  </div>
+
+                  {snapshot.metricCount === 0 && (
+                    <Alert>
+                      <AlertTitle>Nothing matched this cycle</AlertTitle>
+                      <AlertDescription>
+                        No evidence rows carry period <code>{submission.periodLabel}</code>{' '}
+                        for this college, so the filing was frozen as empty. That is
+                        recorded honestly rather than back-filled — check that the
+                        evidence period labels match the submission cycle.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {driftNote && (
+                    <p className="text-sm text-muted-foreground">{driftNote}</p>
+                  )}
+
+                  {driftRows && driftRows.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label>Reported vs actual today</Label>
+                      <ul className="divide-y rounded-lg border">
+                        {driftRows.map((row) => (
+                          <li
+                            key={row.metric_code}
+                            className="flex items-center justify-between gap-4 px-3 py-2 text-sm"
+                          >
+                            <span className="font-medium">{row.metric_code}</span>
+                            <span className="text-muted-foreground">
+                              {describeDrift(
+                                row.reported === null ? null : Number(row.reported),
+                                Number(row.actual),
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </ContentLayout>
   );

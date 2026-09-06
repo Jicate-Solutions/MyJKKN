@@ -231,8 +231,12 @@ export default function TimetableDetailPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Staff planning data
-  const { staffPlanningCourses, staffPlanningStaff, isStaffPlanEmpty } =
-    useStaffPlanningData(timetable);
+  const {
+    staffPlanningCourses,
+    staffPlanningStaff,
+    isStaffPlanEmpty,
+    hasFetched: staffPlanFetched
+  } = useStaffPlanningData(timetable);
 
   // Additional loading states (not from hook)
   const [loadingStaffPlanData] = useState(false);
@@ -392,15 +396,22 @@ export default function TimetableDetailPage() {
     }
 
     // No staff planning found - return empty array (user must create staff plan first)
-    logger.warn('academic/timetables', 'No staff planning courses found - returning empty', {
-      timetableProgram: timetable?.program_id,
-      timetableDepartment: timetable?.department_id,
-      timetableSemester: timetable?.semester_id,
-      timetableAcademicYear: timetable?.academic_year_id
-    });
+    // Fixed: 2026-08-13 - Only warn once the fetch has actually completed and come
+    // back empty. staffPlanningCourses starts [] while useStaffPlanningData's effect
+    // is still in flight, so this memo used to log on EVERY timetable load for every
+    // user, with the correct-looking hierarchy ids attached. HODs reasonably read
+    // that as the cause of an unrelated problem and filed it as a bug.
+    if (staffPlanFetched) {
+      logger.warn('academic/timetables', 'No staff planning courses found - returning empty', {
+        timetableProgram: timetable?.program_id,
+        timetableDepartment: timetable?.department_id,
+        timetableSemester: timetable?.semester_id,
+        timetableAcademicYear: timetable?.academic_year_id
+      });
+    }
 
     return [];
-  }, [staffPlanningCourses, timetable]);
+  }, [staffPlanningCourses, staffPlanFetched, timetable]);
 
   // Fixed: 2026-01-30 - ONLY use staff planning data, no fallback to all staff
   // This ensures timetables only use staff that have been properly planned

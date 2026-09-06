@@ -3,7 +3,7 @@
 // lives here rather than being re-derived in each.
 
 import { EVENT_STATUS_LABELS, generalEventStatusLabel, isGeneralEventActive } from '@/types/events';
-import type { Event, EventStatus } from '@/types/events';
+import type { Event, EventDeleteBlockers, EventStatus } from '@/types/events';
 import { DEDICATED_EVENT_CONSOLES } from '@/hooks/events/use-general-events';
 
 /**
@@ -29,6 +29,14 @@ export interface EventEditViewer {
 }
 
 /**
+ * The event, as much of it as an ownership decision needs. A full `Event`
+ * satisfies this, so the Events Hub call sites are unchanged — but the Induction
+ * list's own row type does too, without having to be cast to an `Event` it
+ * isn't.
+ */
+export type EventOwnership = Pick<Event, 'created_by' | 'institution_id'>;
+
+/**
  * May this viewer edit this event? Everyone else gets read-only.
  *
  * DELIBERATELY MIRRORS `events_auth_update` CLAUSE FOR CLAUSE (see
@@ -47,7 +55,7 @@ export interface EventEditViewer {
  * (see isGeneralEvent) — so mirroring it would add a branch that can't be
  * reached. The DB remains the authority either way.
  */
-export function canEditEvent(event: Event, viewer: EventEditViewer): boolean {
+export function canEditEvent(event: EventOwnership, viewer: EventEditViewer): boolean {
   if (viewer.isSuperAdmin) return true;
   if (event.created_by) return event.created_by === viewer.userId;
   return !!viewer.institutionId && event.institution_id === viewer.institutionId;
@@ -84,3 +92,34 @@ export const eventDateValue = (event: Event) => event.event_date ?? event.start_
 
 /** `venue` is the FK-backed label; `venue_text` the free-text fallback. */
 export const eventVenueValue = (event: Event) => event.venue || event.venue_text || '';
+
+/**
+ * "This event holds 435 enrolled learners." — what fn_event_delete_blockers
+ * found, in a sentence, or null when nothing blocks the delete.
+ *
+ * Lists only the non-zero counts. An induction has 0 registrations and 0
+ * payments by construction (freshers arrive through fn_induction_auto_enroll),
+ * so naming all three unconditionally would report "0 registrations and 0
+ * payment transactions depend on it" on the exact row that is blocked — which
+ * reads as a bug rather than a reason. Shared by the Events Hub row actions and
+ * the Induction list, which show the same dialog over the same RPC.
+ */
+export function deleteBlockerSummary(blockers: EventDeleteBlockers): string | null {
+  const n = (v: number) => v.toLocaleString('en-IN');
+  const plural = (v: number, one: string, many: string) => `${n(v)} ${v === 1 ? one : many}`;
+
+  const parts: string[] = [];
+  if (blockers.registrations > 0)
+    parts.push(plural(blockers.registrations, 'registration', 'registrations'));
+  if (blockers.payments > 0)
+    parts.push(plural(blockers.payments, 'payment transaction', 'payment transactions'));
+  if (blockers.induction_learners > 0)
+    parts.push(plural(blockers.induction_learners, 'enrolled learner', 'enrolled learners'));
+
+  if (parts.length === 0) return null;
+  const list =
+    parts.length === 1
+      ? parts[0]
+      : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return `This event holds ${list}.`;
+}

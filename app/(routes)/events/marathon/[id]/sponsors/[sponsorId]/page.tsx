@@ -643,13 +643,16 @@ export default function SponsorDetailPage() {
   const { data: event } = useMarathonEvent(eventId);
   const { data: sponsor, isLoading, error } = useMarathonSponsor(sponsorId);
 
-  // Block non-admin users
+  // The non-admin block lives BELOW the hooks — returning here made
+  // useMovePipelineStage and useDeleteSponsor conditional the moment access
+  // resolved from loading to denied.
+  const movePipeline = useMovePipelineStage();
+  const deleteSponsor = useDeleteSponsor();
+
+  // Every hook has run — safe to bail out from here down.
   if (!access.isLoading && !access.canManage) {
     return <MarathonAccessDenied title="Sponsor Details" eventId={eventId} />;
   }
-
-  const movePipeline = useMovePipelineStage();
-  const deleteSponsor = useDeleteSponsor();
 
   const handleDelete = () => {
     deleteSponsor.mutate(

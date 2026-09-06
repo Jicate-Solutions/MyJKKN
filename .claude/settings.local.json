@@ -282,7 +282,9 @@
       "Bash(python make_report.py)",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages",
-      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_network_requests"
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_network_requests",
+      "Bash(exit 0)",
+      "Artifact"
     ],
     "deny": [],
     "ask": []

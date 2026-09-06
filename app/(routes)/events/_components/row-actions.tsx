@@ -58,7 +58,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useEventDeleteBlockers } from '@/hooks/events/use-general-events';
 import { GENERAL_EVENT_STATUS_TRANSITIONS, generalEventStatusLabel } from '@/types/events';
 import { getErrorMessage } from '@/lib/utils';
-import { canEditEvent, type EventEditViewer } from './event-display';
+import { canEditEvent, deleteBlockerSummary, type EventEditViewer } from './event-display';
 
 interface EventsRowActionsProps {
   event: Event;
@@ -187,12 +187,7 @@ export function EventsRowActions({
                   <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-destructive">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <div className="space-y-1">
-                      <p className="font-medium">
-                        {blockers.registrations.toLocaleString('en-IN')} registration
-                        {blockers.registrations === 1 ? '' : 's'} and{' '}
-                        {blockers.payments.toLocaleString('en-IN')} payment transaction
-                        {blockers.payments === 1 ? '' : 's'} depend on it.
-                      </p>
+                      <p className="font-medium">{deleteBlockerSummary(blockers)}</p>
                       <p>
                         Deleting the event would destroy those permanently, with nothing
                         to restore from. Remove or refund them first, or move the event to

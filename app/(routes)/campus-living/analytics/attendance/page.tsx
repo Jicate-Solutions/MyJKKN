@@ -22,6 +22,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAttendanceTrend } from '@/hooks/campus-living/use-campus-living-analytics';
 import { PreviewBanner } from '../../_components/preview-banner';
 
@@ -40,6 +41,7 @@ function periodToDateRange(period: string): { from: string; to: string } {
 export default function AttendanceAnalyticsPage() {
   const [period, setPeriod] = useState('30d');
   const { profile } = useAuth();
+  const { isLoading: permsLoading } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
 
   const { from, to } = useMemo(() => periodToDateRange(period), [period]);
@@ -79,7 +81,9 @@ export default function AttendanceAnalyticsPage() {
     };
   }, [trend]);
 
-  if (isLoading) {
+  // permsLoading: the query stays disabled until the viewer's scope resolves, and
+  // a disabled query reports isLoading:false (BUG-005831 — see useCampusLivingScope).
+  if (isLoading || permsLoading) {
     return (
       <ContentLayout title="Attendance Analytics">
         <div className="flex items-center justify-center min-h-[400px]">

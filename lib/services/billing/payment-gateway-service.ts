@@ -149,8 +149,11 @@ export class PaymentGatewayService {
         const balance = bill.balance_amount ?? bill.final_amount ?? bill.total_amount ?? 0;
         let amountForThisBill = Number(balance);
 
-        // If custom amounts provided, use them
-        if (sessionData.bill_amounts && sessionData.bill_amounts[bill.id]) {
+        // If custom amounts provided, use them. Tested for PRESENCE, not truth:
+        // a truthy test skips an explicit 0 and silently falls through to the
+        // full balance — charging more than was asked for, and making the
+        // "must be positive" check below dead code for exactly that value.
+        if (sessionData.bill_amounts?.[bill.id] !== undefined) {
           amountForThisBill = Number(sessionData.bill_amounts[bill.id]);
 
           // VALIDATION: Custom amount must not exceed balance
@@ -169,8 +172,11 @@ export class PaymentGatewayService {
             };
           }
 
-          // VALIDATION: Custom amount must be positive
-          if (amountForThisBill <= 0) {
+          // VALIDATION: Custom amount must be a positive number. The NaN test
+          // is load-bearing: a non-numeric amount fails BOTH comparisons above
+          // and below (every NaN comparison is false), so without it a NaN
+          // flows into totalAmount and reaches the gateway as the order value.
+          if (!Number.isFinite(amountForThisBill) || amountForThisBill <= 0) {
             logger.warn('billing/payment-gateway', 'Custom amount must be positive', {
               bill_id: bill.id,
               custom_amount: amountForThisBill,
@@ -693,12 +699,28 @@ export class PaymentGatewayService {
       // Idempotency: the browser callback, the Razorpay webhook and the
       // late-auth cron can each finalize the same transaction. Exactly one
       // receipt must exist, or the learner is credited twice.
-      const { data: existingReceipt } = await supabase
+      //
+      // .limit(1), NOT .maybeSingle(): maybeSingle() ERRORS when more than one
+      // row matches, and discarding that error read as "no receipt exists" —
+      // which is how pay_TUh0Qpmo3jktV8 got a THIRD receipt on 2026-08-27.
+      // And fail CLOSED on a guard failure: creating a receipt without having
+      // proven none exists is the bug; another finalizer will retry.
+      const { data: existingReceipts, error: existingReceiptError } = await supabase
         .from('billing_receipts')
         .select('id, receipt_number')
         .eq('payment_reference_number', paymentReference)
-        .maybeSingle();
+        .limit(1);
 
+      if (existingReceiptError) {
+        logger.error('billing/payment-gateway', 'Existing-receipt check failed — skipping receipt creation', {
+          transaction_id: transaction.id,
+          payment_reference: paymentReference,
+          error: existingReceiptError,
+        });
+        return false;
+      }
+
+      const existingReceipt = existingReceipts?.[0];
       if (existingReceipt) {
         logger.info('billing/payment-gateway', 'Receipt already exists for payment — skipping', {
           transaction_id: transaction.id,
@@ -754,7 +776,23 @@ export class PaymentGatewayService {
       };
 
       // Pass server-side client for proper authentication in server context
-      const receipt = await BillingReceiptService.createBillingReceipt(receiptData, supabase);
+      let receipt;
+      try {
+        receipt = await BillingReceiptService.createBillingReceipt(receiptData, supabase);
+      } catch (err: any) {
+        // Unique violation on uq_billing_receipts_gateway_payment_ref: a
+        // concurrent finalizer inserted the receipt between our guard check
+        // and this insert. That is the constraint doing its job — the payment
+        // IS receipted, so this path's work is done.
+        if (err?.code === '23505') {
+          logger.info('billing/payment-gateway', 'Receipt already created by a concurrent finalizer — skipping', {
+            transaction_id: transaction.id,
+            payment_reference: paymentReference,
+          });
+          return true;
+        }
+        throw err;
+      }
 
       if (!receipt) {
         logger.error('billing/payment-gateway', 'Failed to create receipt');
@@ -1382,12 +1420,32 @@ export class PaymentGatewayService {
         // Idempotency: the Razorpay webhook or the razorpay-late-auth cron may
         // already have finalized this payment. One payment, one receipt — a
         // second receipt would credit the learner twice.
-        const { data: existingReceipt } = await (supabase as any)
+        //
+        // .limit(1), NOT .maybeSingle(): maybeSingle() ERRORS when more than
+        // one row matches, and discarding that error read as "no receipt
+        // exists" — which is how pay_TUh0Qpmo3jktV8 got a THIRD receipt on
+        // 2026-08-27. Fail CLOSED on a guard failure: skip receipt creation
+        // rather than risk a duplicate; the webhook path finalizes receipts
+        // independently.
+        const { data: existingReceipts, error: existingReceiptError } = await (supabase as any)
           .from('billing_receipts')
           .select('id, receipt_number')
           .eq('payment_reference_number', paymentReference)
-          .maybeSingle();
+          .limit(1);
 
+        if (existingReceiptError) {
+          logger.error('billing/payment-gateway', 'Existing-receipt check failed — skipping receipt creation', {
+            transactionId,
+            payment_reference: paymentReference,
+            error: existingReceiptError,
+          });
+          return {
+            success: true, // Transaction updated; receipt deferred to the webhook path
+            error: 'Payment verified but receipt existence could not be confirmed',
+          };
+        }
+
+        const existingReceipt = existingReceipts?.[0];
         if (existingReceipt) {
           logger.info('billing/payment-gateway', 'Receipt already exists for payment — skipping', {
             transactionId,
@@ -1443,7 +1501,22 @@ export class PaymentGatewayService {
         };
 
         // Pass service role client for server-side execution (API routes don't have user session)
-        const receipt = await BillingReceiptService.createBillingReceipt(receiptData, supabase);
+        let receipt;
+        try {
+          receipt = await BillingReceiptService.createBillingReceipt(receiptData, supabase);
+        } catch (err: any) {
+          // Unique violation on uq_billing_receipts_gateway_payment_ref: a
+          // concurrent finalizer (webhook) inserted the receipt between our
+          // guard check and this insert. The payment IS receipted — done.
+          if (err?.code === '23505') {
+            logger.info('billing/payment-gateway', 'Receipt already created by a concurrent finalizer — skipping', {
+              transactionId,
+              payment_reference: paymentReference,
+            });
+            return { success: true };
+          }
+          throw err;
+        }
 
         if (!receipt) {
           logger.error('billing/payment-gateway', 'Failed to create receipt for verified payment');

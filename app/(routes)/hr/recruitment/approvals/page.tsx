@@ -21,15 +21,25 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  AlertCircle, Briefcase, ChevronRight, Clock3, Inbox, MapPin, Search, Tag, Users,
+  AlertCircle, Briefcase, ChevronDown, ChevronRight, Clock3, Inbox, MapPin,
+  Search, SlidersHorizontal, Tag, Users,
 } from 'lucide-react';
 import { useApprovalsJobOverview, useCandidates } from '@/hooks/hr/use-recruitment';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useAuth } from '@/hooks/use-auth';
 import { MyPendingCandidates } from './_components/my-pending-candidates';
+import {
+  ApprovalsFiltersPanel,
+  ActiveApprovalsFilterChips,
+  EMPTY_APPROVALS_FILTERS,
+  countActiveApprovalsFilters,
+  approvalRowMatchesFilters,
+  type ApprovalsAdvancedFilters,
+} from './_components/approvals-filters-panel';
 import {
   JOB_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -66,6 +76,10 @@ function RecruitmentApprovalsInner() {
     searchParams.get('view') === 'all' ? 'all' : 'mine'
   );
   const [search, setSearch] = useState('');
+  const [advanced, setAdvanced] = useState<ApprovalsAdvancedFilters>(
+    EMPTY_APPROVALS_FILTERS
+  );
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   useEffect(() => {
     setViewMode(searchParams.get('view') === 'all' ? 'all' : 'mine');
@@ -101,12 +115,17 @@ function RecruitmentApprovalsInner() {
           (r.job.job_code ?? '').toLowerCase().includes(q) ||
           (institutionNameById.get(r.job.institution_id ?? '') ?? '').toLowerCase().includes(q))
       : all;
-    return [...searched].sort((a, b) =>
+    const narrowed = searched.filter((r) => approvalRowMatchesFilters(r, advanced));
+    return [...narrowed].sort((a, b) =>
       b.awaiting_me - a.awaiting_me ||
       b.in_approval - a.in_approval ||
       b.applications_pending - a.applications_pending ||
       new Date(b.job.created_at).getTime() - new Date(a.job.created_at).getTime());
-  }, [rows, search, institutionNameById]);
+  }, [rows, search, institutionNameById, advanced]);
+
+  const advancedCount = countActiveApprovalsFilters(advanced);
+  // Stable identity for the panel's option-derivation memos.
+  const allRows = useMemo(() => rows ?? [], [rows]);
 
   // Stat strip totals (whole dataset, not the filtered view — they answer
   // "how much is in the system", the list answers "what should I look at").
@@ -193,7 +212,50 @@ function RecruitmentApprovalsInner() {
               aria-label="Search jobs"
             />
           </div>
+
+          {/* Advanced filters — job-first list only; the 'mine' view is
+              candidate-level and none of these dimensions apply to it. */}
+          {viewMode === 'all' && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 gap-1.5"
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((o) => !o)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <span>Advanced Filters</span>
+              {advancedCount > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="ml-0.5 h-5 min-w-5 justify-center px-1 text-xs"
+                >
+                  {advancedCount}
+                </Badge>
+              )}
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`}
+              />
+            </Button>
+          )}
         </div>
+
+        {viewMode === 'all' && (
+          <>
+            <ApprovalsFiltersPanel
+              open={filtersOpen}
+              rows={allRows}
+              institutionNameById={institutionNameById}
+              value={advanced}
+              onChange={setAdvanced}
+            />
+            <ActiveApprovalsFilterChips
+              value={advanced}
+              institutionNameById={institutionNameById}
+              onChange={setAdvanced}
+            />
+          </>
+        )}
 
         {/* MINE — candidate-level list with inline approve/reject */}
         {viewMode === 'mine' && (
@@ -236,15 +298,31 @@ function RecruitmentApprovalsInner() {
                   <Inbox className="h-8 w-8 text-muted-foreground/60" />
                   <p className="text-sm font-medium">No jobs found</p>
                   <p className="text-xs text-muted-foreground max-w-sm">
-                    {search
-                      ? 'No job matches your search.'
+                    {search || advancedCount > 0
+                      ? 'No job matches your search and filters.'
                       : 'Jobs appear here once created under Recruitment → Jobs.'}
                   </p>
+                  {advancedCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setAdvanced(EMPTY_APPROVALS_FILTERS)}
+                      className="mt-2 text-xs text-primary underline-offset-2 hover:underline"
+                    >
+                      Clear advanced filters
+                    </button>
+                  )}
                 </CardContent>
               </Card>
             )}
 
             {/* Job rows */}
+            {!isLoading && !error && visible.length > 0 && (advancedCount > 0 || search) && (
+              <p className="text-xs text-muted-foreground">
+                Showing{' '}
+                <span className="font-medium text-foreground">{visible.length}</span>{' '}
+                of {totals.jobs} job{totals.jobs !== 1 ? 's' : ''}
+              </p>
+            )}
             {!isLoading && !error && visible.length > 0 && (
               <Card>
                 <CardContent className="p-0 divide-y divide-border">

@@ -140,8 +140,10 @@ export const GUIDES: GuideBook = {
               link: { label: 'Open My Hostel', href: '/campus-living/my-hostel' },
             },
             {
-              action: 'To move out, open a **vacate request** — a warden reviews and approves it.',
-              link: { label: 'Vacate Request', href: '/campus-living/my-hostel/vacate-request' },
+              // The self-service vacate form was withdrawn on 2026-08-10 and is
+              // being rebuilt; the route is now permission-guarded, so linking
+              // learners to it would send them to a permission error.
+              action: 'To move out, contact the hostel office — they raise and process the vacate on your behalf.',
             },
           ],
         },

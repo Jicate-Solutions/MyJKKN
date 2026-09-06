@@ -1,0 +1,46 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "app/(routes)/billing/activities/_components/billing-activity-columns.tsx",
+    "app/(routes)/billing/invoices/[id]/edit/page.tsx",
+    "app/(routes)/billing/onboarding/_components/onboarding-data-table.tsx",
+    "app/(routes)/billing/onboarding/_components/row-actions.tsx",
+    "app/(routes)/billing/payment/success/page.tsx",
+    "app/(routes)/billing/receipts/_components/keyboard-select.tsx",
+    "app/(routes)/billing/receipts/_components/quick-receipt-dialog.tsx",
+    "app/(routes)/billing/receipts/_components/receipt-entry-form.tsx",
+    "app/(routes)/billing/receipts/_components/receipt-list.tsx",
+    "app/(routes)/billing/receipts/new/page.tsx",
+    "app/(routes)/billing/reports/_components/collection-report-tab.tsx",
+    "app/(routes)/billing/reports/_components/dashboard-metrics.tsx",
+    "app/(routes)/billing/reports/_components/discount-report-tab.tsx",
+    "app/(routes)/billing/reports/_components/refund-report-tab.tsx",
+    "app/(routes)/billing/reports/page.tsx",
+    "app/(routes)/billing/schedule/_components/bulk-receipt-dialog.tsx",
+    "app/(routes)/billing/schedule/_components/row-actions.tsx",
+    "app/(routes)/billing/schedule/_components/student-bill-form.tsx",
+    "app/(routes)/billing/schedule/page.tsx",
+    "app/(routes)/billing/schedule/students/[id]/_components/student-bills-table.tsx",
+    "app/(routes)/billing/schedule/students/[id]/_components/student-receipts-table.tsx",
+    "app/(routes)/billing/schedule/students/[id]/_components/student-transaction-history.tsx",
+    "app/(routes)/billing/schedule/students/[id]/page.tsx",
+    "app/(routes)/billing/schedule/students/_components/quick-bill-dialog.tsx",
+    "app/(routes)/billing/schedule/students/_components/student-columns.tsx",
+    "app/(routes)/billing/school-fees/collect/_components/collect-view.tsx",
+    "app/(routes)/billing/student-bills/[billId]/page.tsx",
+    "app/(routes)/billing/transport/_components/transport-columns.tsx",
+    "components/billing/cancel-confirmation-modal.tsx",
+    "components/billing/delete-confirmation-modal.tsx",
+    "lib/services/billing/receipts/billing-receipt-service.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "scripts",
+    "__tests__",
+    "whatsapp-service"
+  ]
+}

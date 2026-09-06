@@ -167,7 +167,14 @@ export function useVacateAllocation() {
     mutationFn: ({ id, payload }: { id: string; payload: { vacate_reason: VacateReason } }) =>
       HostelAllocationService.vacate(id, payload.vacate_reason),
     onSuccess: () => {
+      // Vacating now frees the bed too (fn_cl_vacate_allocation), so the rooms
+      // and beds feeds are stale as well — nothing in this app refetches on
+      // focus, so an un-invalidated occupancy view would keep showing the bed
+      // as taken until a hard reload. Mirrors useResetAllocation's fan-out.
       queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['hostel-beds'] });
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
       toast.success('Allocation vacated');
     },
     onError: (error: Error) => {

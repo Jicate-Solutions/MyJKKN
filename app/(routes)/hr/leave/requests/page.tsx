@@ -18,6 +18,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 
+import { CancelRequestAction, isCancellable } from '../_components/cancel-request-action';
+import { useWithdrawApplication } from '@/hooks/hr/use-leave';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
@@ -43,6 +45,7 @@ export default function LeaveRequestsPage() {
   const ctx = useTimeOffContext();
   const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
+  const withdraw = useWithdrawApplication();
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
     ctx.employeeId || undefined
@@ -92,23 +95,38 @@ export default function LeaveRequestsPage() {
             ) : (
               <div className="space-y-4">
                 {leaveBalances.map((b) => {
-                  const total = b.entitled + b.carried_forward;
-                  const avail = total - b.used;
-                  const pct = total > 0 ? Math.round((b.used / total) * 100) : 0;
+                  // `available` is READ, never recomputed. It already nets off
+                  // days awaiting approval and caps at what has accrued, so the
+                  // tab cannot advertise days the apply form then refuses.
+                  const total = b.accrued + b.carried_forward;
+                  const committed = b.used + b.pending;
+                  const pct = total > 0 ? Math.round((committed / total) * 100) : 0;
+                  // Accrued below entitled means the type accrues month by
+                  // month and the year is not over.
+                  const accruing = b.accrued < b.entitled;
                   return (
                     <div key={b.leave_type_id}>
                       <div className="flex items-baseline justify-between">
                         <span className="text-sm font-medium">{b.leave_type_name}</span>
                         <span className="text-sm tabular-nums">
-                          <strong>{formatDays(avail)}</strong>
+                          <strong>{formatDays(b.available)}</strong>
                           <span className="text-muted-foreground"> / {formatDays(total)}</span>
                         </span>
                       </div>
                       <Progress value={pct} className="mt-1.5 h-1.5" />
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Entitled {formatDays(b.entitled)} · used {formatDays(b.used)} · carried{' '}
-                        {formatDays(b.carried_forward)}
+                        {accruing ? 'Accrued' : 'Entitled'}{' '}
+                        {formatDays(accruing ? b.accrued : b.entitled)} · used{' '}
+                        {formatDays(b.used)}
+                        {b.pending > 0 && <> · awaiting approval {formatDays(b.pending)}</>}
+                        {b.carried_forward > 0 && <> · carried {formatDays(b.carried_forward)}</>}
                       </p>
+                      {accruing && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {formatDays(b.entitled)} day(s) a year, accruing monthly — the rest
+                          become available as the year goes on.
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -139,6 +157,7 @@ export default function LeaveRequestsPage() {
               { key: 'days', label: 'Total Days', align: 'right' },
               { key: 'duration', label: 'Duration' },
               { key: 'status', label: 'Status' },
+              { key: 'actions', label: '', align: 'right' },
             ]}
             isLoading={isLoading || ctx.isLoading}
             isEmpty={rows.length === 0}
@@ -156,6 +175,16 @@ export default function LeaveRequestsPage() {
                   {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
                 </TableCell>
                 <TableCell><StatusBadge status={a.status} /></TableCell>
+                <TableCell className="text-right">
+                  {isCancellable(a.status) && (
+                    <CancelRequestAction
+                      what="this leave request"
+                      detail={`${a.hr_leave_types?.leave_type_name ?? 'Leave'} · ${fmtDate(a.start_date)} – ${fmtDate(a.end_date)}`}
+                      disabled={withdraw.isPending}
+                      onConfirm={() => withdraw.mutateAsync(a.id)}
+                    />
+                  )}
+                </TableCell>
               </RequestRow>
             ))}
           </RequestTable>

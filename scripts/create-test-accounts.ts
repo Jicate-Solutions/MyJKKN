@@ -5,7 +5,7 @@
  *
  * Creates email/password auth users for each custom role with:
  * - Email: test.{role}@jkkn.ac.in
- * - Password: Test@1234
+ * - Password: from PERSONA_PASSWORD
  * - Profile with correct role and institution
  * - user_roles assignment
  */
@@ -25,7 +25,7 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
-const DEFAULT_PASSWORD = 'Test@1234';
+const DEFAULT_PASSWORD = process.env.PERSONA_PASSWORD ?? '';
 
 // Test institution to assign (first non-null institution)
 async function getDefaultInstitution(): Promise<string | null> {

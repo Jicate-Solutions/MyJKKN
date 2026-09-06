@@ -6,7 +6,11 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import ExcelJS from 'exceljs';
-import { STUDENT_BILL_TEMPLATE_HEADERS } from '@/lib/utils/mappings/student-bill-excel-mappings';
+import {
+  STUDENT_BILL_TEMPLATE_HEADERS,
+  MIN_ACADEMIC_YEAR_START,
+  filterBillableAcademicYears
+} from '@/lib/utils/mappings/student-bill-excel-mappings';
 
 /**
  * GET /api/billing/schedule/bills/template
@@ -18,8 +22,7 @@ import { STUDENT_BILL_TEMPLATE_HEADERS } from '@/lib/utils/mappings/student-bill
  *
  * Dropdowns:
  * - Column D (Institution)      — active institutions that have >=1 academic year
- * - Column E (Academic Year)    — CASCADES from column D via INDIRECT + MATCH
- *                                 against the AY_<n> defined names
+ * - Column E (Academic Year)    — EVERY academic year in the system, flat
  * - Column F (Billing Category) — all active billing_categories
  *
  * NOTE: these cell letters track the column order in `sheet.columns` below.
@@ -28,8 +31,7 @@ import { STUDENT_BILL_TEMPLATE_HEADERS } from '@/lib/utils/mappings/student-bill
  *
  * Sheets:
  * - "Bills"        — main data sheet (frozen header, sample yellow row)
- * - "Lists"        — hidden; category list, institution list, and one column
- *                    of academic years per institution (the cascade source)
+ * - "Lists"        — hidden; category list, institution list, academic years
  * - "Instructions" — column-by-column guide
  */
 export async function GET(_request: NextRequest) {
@@ -83,12 +85,14 @@ export async function GET(_request: NextRequest) {
       .map((c) => c.category_name)
       .filter((name): name is string => Boolean(name));
 
-    // Institutions + their active academic years, for the cascading pair.
+    // Institutions + every academic year in the system.
     //
-    // Academic years are stored PER INSTITUTION and the sets differ sharply
-    // (Pharmacy has 10 cohorts spanning 2021-2031; Education has 1). A single
-    // flat year list would happily let someone pick a year that doesn't exist
-    // for their learner's institution, and the row would only fail at import.
+    // NO is_active filter on academic_years — deliberately. The importer
+    // (bulk-create-bills-service) resolves a year by institution_id + name
+    // against the whole table, so an inactive year imports perfectly well.
+    // Filtering here made the template STRICTER than the thing it feeds:
+    // Dental's four "…Additional n" cohorts are is_active = false and were
+    // simply missing from the dropdown even though the upload accepted them.
     const { data: institutionRows } = await supabase
       .from('institutions')
       .select('id, name')
@@ -98,14 +102,29 @@ export async function GET(_request: NextRequest) {
     const { data: acadYearRows } = await supabase
       .from('academic_years')
       .select('academic_year_name, institution_id')
-      .eq('is_active', true)
       .order('academic_year_name', { ascending: false });
 
+    // The Academic Year dropdown is one flat list of every distinct year name
+    // from MIN_ACADEMIC_YEAR_START (2020-2021) onwards. Years are stored per
+    // institution and the sets differ sharply (Pharmacy has 10 cohorts spanning
+    // 2021-2031, Education has 1), so this list can offer a year that is
+    // invalid for a given learner — the importer catches that and rejects the
+    // row by name. A flat list is what the accounts team asked for: every year
+    // in the Academic Years module from 2020-2021 on is pickable.
+    const allYearNames = filterBillableAcademicYears(
+      (acadYearRows ?? []).map((r: any) => r.academic_year_name)
+    );
+
+    // Same floor applied per institution, so the sample row and the column D
+    // list can never reference a year the dropdown itself refuses to show.
+    const billableYears = new Set(allYearNames);
     const yearsByInstitution = new Map<string, string[]>();
     (acadYearRows ?? []).forEach((r: any) => {
       if (!r.institution_id || !r.academic_year_name) return;
+      const name = String(r.academic_year_name).trim();
+      if (!billableYears.has(name)) return;
       const list = yearsByInstitution.get(r.institution_id) ?? [];
-      if (!list.includes(r.academic_year_name)) list.push(r.academic_year_name);
+      if (!list.includes(name)) list.push(name);
       yearsByInstitution.set(r.institution_id, list);
     });
 
@@ -164,7 +183,7 @@ export async function GET(_request: NextRequest) {
       first_name: 'SAMPLE',
       last_name: 'LEARNER',
       institution: sampleInstitution?.name ?? '',
-      academic_year: sampleInstitution?.years[0] ?? '',
+      academic_year: sampleInstitution?.years[0] ?? allYearNames[0] ?? '',
       billing_category: categoryNames[0] ?? 'Tuition Fee',
       bill_description: 'Semester 1 fee',
       due_date: '2026-06-01',
@@ -207,26 +226,23 @@ export async function GET(_request: NextRequest) {
     //
     // Layout:
     //   A  Billing categories (flat — categories are global)
-    //   B  Institution names  (the cascade's key column)
-    //   D… one column per institution, holding THAT institution's years
+    //   B  Institution names
+    //   C  Academic years     (flat — every distinct name, newest first)
     //
-    // Each per-institution column is registered as a defined name AY_<n>,
-    // where <n> is the institution's 1-based row position in column B. The
-    // Academic Year validation then resolves
-    //   INDIRECT("AY_" & MATCH(<institution cell>, B-range, 0))
-    //
-    // Position-keying (rather than the usual trick of deriving a name from the
-    // dropdown text via SUBSTITUTE) is deliberate: institution names contain
-    // parentheses — "…Arts and Science (Aided)" / "(Self)" — which are illegal
-    // in Excel defined names, and counselling_code is NOT unique (both Arts &
-    // Science colleges are "CAS"). A row index has neither problem.
-    //
-    // Requires institution names to be unique, which they are (14/14 distinct).
+    // This sheet used to hold one year column per institution plus an AY_<n>
+    // defined name each, so column E could cascade off column D via
+    // INDIRECT + MATCH. That cascade is gone: it hid years from anyone who had
+    // not filled the (optional) Institution column first, and it silently
+    // dropped every year whose institution row was filtered out. The importer
+    // still validates year-vs-institution server-side, so nothing that was
+    // rejected before is accepted now — the check just moved off the sheet.
     const listsSheet = workbook.addWorksheet('Lists');
     listsSheet.getCell('A1').value = 'BillingCategory';
     listsSheet.getCell('B1').value = 'Institution';
+    listsSheet.getCell('C1').value = 'AcademicYear';
     listsSheet.getColumn(1).width = 32;
     listsSheet.getColumn(2).width = 44;
+    listsSheet.getColumn(3).width = 24;
 
     categoryNames.forEach((name, i) => {
       listsSheet.getCell(`A${i + 2}`).value = name;
@@ -234,19 +250,8 @@ export async function GET(_request: NextRequest) {
     institutionsWithYears.forEach((inst, i) => {
       listsSheet.getCell(`B${i + 2}`).value = inst.name;
     });
-
-    institutionsWithYears.forEach((inst, i) => {
-      const columnIndex = 4 + i; // 4 = column D
-      const letter = listsSheet.getColumn(columnIndex).letter;
-      listsSheet.getColumn(columnIndex).width = 18;
-      listsSheet.getCell(`${letter}1`).value = inst.name;
-      inst.years.forEach((year, rowOffset) => {
-        listsSheet.getCell(`${letter}${rowOffset + 2}`).value = year;
-      });
-      workbook.definedNames.add(
-        `Lists!$${letter}$2:$${letter}$${inst.years.length + 1}`,
-        `AY_${i + 1}`
-      );
+    allYearNames.forEach((year, i) => {
+      listsSheet.getCell(`C${i + 2}`).value = year;
     });
 
     listsSheet.getRow(1).font = { bold: true, name: 'Arial', size: 10 };
@@ -274,19 +279,21 @@ export async function GET(_request: NextRequest) {
             'Pick an institution from the dropdown. Only institutions that have at least one academic year are listed.'
         };
 
-        // Column E — Academic Year, cascaded from the Institution in column D.
-        // Until D is filled, MATCH returns #N/A and Excel simply shows no
-        // list — errorStyle 'warning' keeps that from blocking data entry.
-        // The importer re-resolves every value server-side regardless.
+      }
+
+      // Column E — Academic Year. Flat list of every year in the system,
+      // independent of column D. The importer still checks the year exists
+      // for the learner's own institution and names the mismatch if not.
+      if (allYearNames.length > 0) {
         sheet.getCell(`E${row}`).dataValidation = {
           type: 'list',
           allowBlank: false,
-          formulae: [`INDIRECT("AY_"&MATCH($D${row},${institutionRange},0))`],
+          formulae: [`Lists!$C$2:$C$${allYearNames.length + 1}`],
           showErrorMessage: true,
           errorStyle: 'warning',
           errorTitle: 'Invalid Academic Year',
           error:
-            'Pick the Institution in column D first — this list then shows only the academic years that exist for it.'
+            'Pick an academic year from the dropdown. It must be a year that exists for this learner\'s institution, or the row is rejected on upload.'
         };
       }
 
@@ -351,22 +358,23 @@ export async function GET(_request: NextRequest) {
       '   - Due Date          : Format yyyy-mm-dd (e.g. 2026-06-01).',
       '   - Billing Amount    : Numeric, in rupees. No commas, no ₹ symbol.',
       '',
-      '3. INSTITUTION + ACADEMIC YEAR ARE A CASCADING PAIR:',
-      '   - Pick the Institution in column D FIRST.',
-      '   - Column E then offers only the academic years that exist for that',
-      '     institution. Academic years are stored per institution and the sets',
-      '     differ a lot (one college has 10 cohorts, another has 1), so a year',
-      '     valid for one college is often invalid for another.',
-      '   - If column E shows no dropdown, column D is empty or was typed by hand.',
-      '   - Institutions with no academic year set up are NOT listed — no valid',
-      '     bill row can be built for them until a year is created.',
-      '   - Institution is optional. It drives the dropdown, and if you do fill',
-      '     it in, the import checks it matches the learner\'s real institution',
-      '     and rejects the row if it does not. The Roll Number remains what',
-      '     actually identifies the learner.',
-      '   - The cascade needs Microsoft Excel or LibreOffice. Google Sheets does',
-      '     not support this kind of dropdown — the file still opens and imports',
-      '     fine there, you just type the values instead of picking them.',
+      '3. ACADEMIC YEAR (column E):',
+      `   - The dropdown lists every academic year from ${MIN_ACADEMIC_YEAR_START}-${
+        MIN_ACADEMIC_YEAR_START + 1
+      } onwards — the same list you`,
+      '     see under Academic > Academic Years, including the "Additional"',
+      '     cohorts. You do not have to pick an Institution first. Older cohorts',
+      '     are hidden because bills are no longer raised against them.',
+      '   - Academic years are stored PER INSTITUTION and the sets differ a lot',
+      '     (one college has 10 cohorts, another has 1). The dropdown does not',
+      '     narrow itself, so a year that is valid for one college can be picked',
+      '     for a learner at another — the upload rejects that row and names the',
+      '     year and the learner\'s institution in the error report.',
+      '   - Institution (column D) is optional. If you do fill it in, the import',
+      '     checks it matches the learner\'s real institution and rejects the row',
+      '     if it does not. The Roll Number remains what identifies the learner.',
+      '   - Institutions with no academic year set up are NOT listed in column D —',
+      '     no valid bill row can be built for them until a year is created.',
       '',
       '4. OPTIONAL COLUMNS:',
       '   - First Name        : The learner\'s first name. Not used to find the learner —',

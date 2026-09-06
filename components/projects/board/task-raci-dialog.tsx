@@ -91,13 +91,27 @@ export function TaskRaciDialog({ task, open, onOpenChange }: TaskRaciDialogProps
 }
 
 function RaciDialogBody({ task }: { task: ProjectTask }) {
-  const { data: project } = useProject(task.project_id);
+  const { data: project, isLoading: projectLoading } = useProject(task.project_id);
   const institutionId = project?.institution_id ?? '';
 
-  const { data: staff = [], isLoading: staffLoading } = useStaffForSelection({
-    institution_id: institutionId,
-    isActive: true,
-  });
+  /**
+   * A project with no institution is CLUSTER-WIDE, not broken.
+   *
+   * `institutionId` used to be the only signal here, and an empty string meant
+   * two completely different things: "the project has not arrived yet"
+   * (transient) and "the project arrived and belongs to no single institution"
+   * (permanent). Both disabled the picker and captioned it "Loading project…",
+   * so on a cluster-wide project the control span forever on a promise that had
+   * already resolved. Every task in the module sat behind that.
+   *
+   * `projectLoading` now carries the transient case on its own, and the empty
+   * institution is treated as what it is: pick from everyone the viewer may see.
+   * RLS still scopes the list, so this cannot widen anyone's access.
+   */
+  const { data: staff = [], isLoading: staffLoading } = useStaffForSelection(
+    { institution_id: institutionId, isActive: true },
+    { allowAllInstitutions: true }
+  );
   const { data: assignees = [], isLoading: assigneesLoading } = useTaskAssignees(task.id);
   const assign = useAssignTask();
   const unassign = useUnassignTask();
@@ -202,16 +216,20 @@ function RaciDialogBody({ task }: { task: ProjectTask }) {
             onValueChange={setStaffId}
             options={staffOptions}
             placeholder={
-              !institutionId
+              projectLoading
                 ? 'Loading project…'
                 : staffLoading
                   ? 'Loading team members…'
                   : 'Select team member…'
             }
             searchPlaceholder="Search team members…"
-            emptyMessage="No team members found."
+            emptyMessage={
+              institutionId
+                ? 'No team members found in this institution.'
+                : 'No team members found that you can assign.'
+            }
             loading={staffLoading}
-            disabled={!institutionId}
+            disabled={projectLoading}
             modal
             className="flex-1"
           />

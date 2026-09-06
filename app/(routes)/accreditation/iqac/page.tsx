@@ -14,6 +14,28 @@
 // it today or cannot yet.
 //
 // ----------------------------------------------------------------------------
+// TWO LISTS, ASKING DIFFERENT QUESTIONS (decision 1, added 2026-08-02)
+// ----------------------------------------------------------------------------
+// The body-grouped list answers "what does NAAC want". It is the right shape
+// for preparing one body's return and the wrong shape for the question the
+// IQAC actually owns: what do we collect, and who does it serve?
+//
+// Under a body-first grouping, one set of course-attainment records appears
+// twice — once as NAAC's metric and once as NBA's — and reads as two unrelated
+// chores. So a second section groups by SOURCE instead, showing each collected
+// thing ONCE with each body's own count beneath it.
+//
+// The grouping unit is the source table, not the metric code: NAAC calls its
+// research metric `3.4.3` and NIRF calls its own `RPC_PU`, so grouping by code
+// would treat the same records as unrelated. Verified live 2026-08-02 — 212
+// mappings across 11 source tables, of which exactly ONE
+// (`obe_course_attainment_rollup`, 46 records) is claimed by two bodies today.
+// One row, not many, because coverage is the gap and not the architecture.
+//
+// The reporting window (decision 5) governs THIS page only. Each body's own tab
+// keeps reading its own period, because a body's window is set by the body.
+//
+// ----------------------------------------------------------------------------
 // THREE THINGS THIS PAGE DELIBERATELY DOES NOT DO
 // ----------------------------------------------------------------------------
 //  1. No overall grade, score or percentage-of-maximum. The CAC dashboard made
@@ -33,7 +55,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -64,11 +86,31 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAllInstitutions } from '@/hooks/accreditation/use-cluster-councils';
+// SpanInstitution is DEFINED in cluster-scope. use-cluster-councils imports it
+// for its own signatures but never re-exports it, so importing it from there is
+// TS2305 — a module cannot re-export a name just by importing it.
+import type { SpanInstitution } from '@/app/(routes)/accreditation/cac/_lib/cluster-scope';
+import { MeasuredMetricsSection } from './_components/measured-metrics-section';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   useFrameworkMetrics,
-  useFrameworkEvidenceCounts,
+  useEvidenceMappings,
+  countEvidenceByMetric,
+  aggregateBySource,
+  periodLabelsIn,
   useIqacMetricMap,
 } from '@/hooks/accreditation/use-iqac-framework';
+import {
+  summariseCollectOnce,
+  reportingWindows,
+} from '@/app/(routes)/accreditation/iqac/_lib/collect-once';
 import {
   groupFramework,
   summariseCoverage,
@@ -90,22 +132,56 @@ import { allMetrics } from '../cac/_lib/cac-metric-catalog';
  */
 const VIEW_PERMISSION = 'accreditation.metrics.view';
 
+// The selector's non-year option. A sentinel rather than an empty string so it
+// can never collide with a real academic-year label.
+const WHOLE_CYCLE = '__whole_cycle__';
+
 const MANAGE_METRICS = '/accreditation/manage/metrics';
 
 export default function IqacDashboardPage() {
   const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
   const canView = isSuperAdmin || can(VIEW_PERMISSION);
 
+  // For the CEO's framework, which moved here from the Cluster Academic Council
+  // page on 2026-08-14. It reads every institution side by side, so it needs the
+  // institution list the council page used to hand it.
+  const { data: ceoFrameworkInstitutions, isLoading: ceoFrameworkInstLoading } =
+    useAllInstitutions();
+  const ceoFrameworkInstitutionList = useMemo<SpanInstitution[]>(
+    () => ceoFrameworkInstitutions ?? [],
+    [ceoFrameworkInstitutions],
+  );
+
   const { data: metrics, isLoading: metricsLoading, error: metricsError } =
     useFrameworkMetrics();
-  const { data: evidenceCounts, isLoading: evidenceLoading } =
-    useFrameworkEvidenceCounts();
+  const { data: mappings, isLoading: evidenceLoading } = useEvidenceMappings();
   const { data: mapReadout, isLoading: mapLoading } = useIqacMetricMap();
+
+  // Director decision 5: default to the current academic year, switchable.
+  // `null` is the "whole NAAC cycle" option — every year at once. Each body's
+  // own page keeps using ITS window regardless of what is chosen here.
+  const [chosenWindow, setChosenWindow] = useState<string | null>(null);
+  const evidenceRows = useMemo(() => mappings ?? [], [mappings]);
+  const { windows, defaultWindow } = useMemo(
+    () => reportingWindows(periodLabelsIn(evidenceRows), new Date()),
+    [evidenceRows],
+  );
+  const activeWindow =
+    chosenWindow === WHOLE_CYCLE ? undefined : (chosenWindow ?? defaultWindow);
+
+  const evidenceCounts = useMemo(
+    () => countEvidenceByMetric(evidenceRows, activeWindow),
+    [evidenceRows, activeWindow],
+  );
+  const collectOnce = useMemo(
+    () => summariseCollectOnce(aggregateBySource(evidenceRows, activeWindow)),
+    [evidenceRows, activeWindow],
+  );
 
   const rows = useMemo(() => metrics ?? [], [metrics]);
   const grouping = useMemo(() => groupFramework(rows), [rows]);
   const coverage = useMemo(
-    () => summariseCoverage(rows, evidenceCounts ?? {}),
+    () => summariseCoverage(rows, evidenceCounts),
     [rows, evidenceCounts],
   );
 
@@ -179,6 +255,34 @@ export default function IqacDashboardPage() {
           </CardHeader>
 
           <CardContent>
+            {/*
+              Director decision 5. The window governs THIS page only — each
+              body's own tab keeps reading its own reporting period, because a
+              body's window is set by the body and is not ours to change.
+            */}
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">Reporting window</span>
+              <Select
+                value={chosenWindow ?? defaultWindow}
+                onValueChange={(v) => setChosenWindow(v)}
+              >
+                <SelectTrigger className="h-8 w-[220px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {windows.map((w) => (
+                    <SelectItem key={w} value={w}>
+                      {w}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={WHOLE_CYCLE}>Whole NAAC cycle</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">
+                Each body&apos;s own page keeps its own window.
+              </span>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-4">
               <StatTile
                 label="Metrics in the framework"
@@ -221,6 +325,8 @@ export default function IqacDashboardPage() {
             </div>
           </CardContent>
         </Card>
+
+        <CollectOnceSection summary={collectOnce} isLoading={isLoading} />
 
         {metricsError ? (
           <Card>
@@ -391,6 +497,16 @@ export default function IqacDashboardPage() {
             ))}
           </div>
         )}
+
+        {/* The CEO's July 2026 framework, moved here from the Cluster Academic
+            Council page on 2026-08-14 by Director decision. It sits below the
+            outside bodies because it is JKKN's own instrument rather than a
+            regulator's, and it keeps its own discipline: real numbers, no marks,
+            no total, no ranking of the institutions against one another. */}
+        <MeasuredMetricsSection
+          institutions={ceoFrameworkInstitutionList}
+          institutionsLoading={ceoFrameworkInstLoading}
+        />
 
         <Card className="bg-muted/30">
           <CardContent className="space-y-2 pt-6 text-xs text-muted-foreground">
@@ -626,6 +742,113 @@ function MappingPanel({
             Open the CAC dashboard
           </Button>
         </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "Collected once, reported many" — Director decision 1.
+//
+// The list above this one groups by awarding body, which answers "what does
+// NAAC want". This one groups by SOURCE, which answers the question the IQAC
+// actually owns: what do we collect, and who does it serve? Under a body-first
+// grouping one set of course-attainment records reads as two unrelated chores.
+//
+// It prints a count of records held and each body's own count beneath, and no
+// grade, total or ranking — the same stance as the CAC dashboard, for the same
+// reason: a single number here reads as a rating nobody awarded.
+// ---------------------------------------------------------------------------
+function CollectOnceSection({
+  summary,
+  isLoading,
+}: {
+  summary: ReturnType<typeof summariseCollectOnce>;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return <Skeleton className="h-40 w-full" />;
+  }
+
+  if (summary.sourcesHeld === 0) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex items-start gap-2 py-6 text-sm text-muted-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Nothing has been filed for this reporting window yet. That is a gap,
+            not a score of zero — switch the window above, or file evidence
+            against a metric to see it here.
+          </span>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Network className="h-5 w-5 text-sky-600" />
+          Collected once, reported many
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <StatTile label="Sources held" value={String(summary.sourcesHeld)} />
+          <StatTile
+            label="Already serving more than one body"
+            value={String(summary.sourcesServingMultipleBodies)}
+          />
+          <StatTile
+            label="Entries not collected twice"
+            value={String(summary.entriesSavedByCollectingOnce)}
+            sub="what a per-body regime would have re-entered"
+          />
+        </div>
+
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>What is collected</TableHead>
+              <TableHead className="w-24 text-right">Held</TableHead>
+              <TableHead>Who counts it</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {summary.sources.map((source) => (
+              <TableRow key={source.sourceTable}>
+                <TableCell className="font-medium">
+                  {source.label}
+                  {source.servesMultipleBodies ? (
+                    <Badge variant="secondary" className="ml-2 align-middle">
+                      serves {source.claims.length} bodies
+                    </Badge>
+                  ) : null}
+                  <div className="mt-1 text-xs font-normal text-muted-foreground">
+                    {source.sentence}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{source.heldOnce}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {source.claims.map((claim) => (
+                      <Badge key={claim.bodyCode} variant="outline">
+                        {claim.bodyCode} · {claim.count}
+                      </Badge>
+                    ))}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+
+        <p className="text-xs text-muted-foreground">
+          Each row is one thing the platform holds, counted once however many
+          bodies draw on it. A record claimed by two bodies is one record — the
+          per-body figures beside it are what each body counts, not a sum.
+        </p>
       </CardContent>
     </Card>
   );

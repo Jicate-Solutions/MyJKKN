@@ -9,6 +9,42 @@ export type ExportableData = Record<string, string | number | boolean | null | u
 export type DataTransformFunction<T extends ExportableData> = (row: T) => ExportableData;
 
 /**
+ * Map data rows onto their labelled worksheet columns.
+ *
+ * `headers` are DATA KEYS (`attendance_date`); `columnMapping` supplies each
+ * key's display label ('Date'). Passing the LABELS as `headers` matches
+ * nothing on the row, so every row comes back `{}` — a spreadsheet with the
+ * right row count and no columns, which opens blank.
+ *
+ * `resolvedKeys` reports which headers actually existed on the data, so
+ * callers can fail loudly instead of writing that blank file.
+ */
+export function buildExcelRows<T extends ExportableData>(
+  data: T[],
+  headers: string[],
+  columnMapping: Record<string, string>,
+  transformFunction?: DataTransformFunction<T>
+): { rows: ExportableData[]; resolvedKeys: string[] } {
+  const resolved = new Set<string>();
+
+  const rows = data.map((item) => {
+    const transformedItem = transformFunction ? transformFunction(item) : item;
+
+    const row: ExportableData = {};
+    for (const key of headers) {
+      if (key in transformedItem) {
+        resolved.add(key);
+        row[columnMapping[key] || key] = transformedItem[key];
+      }
+    }
+    return row;
+  });
+
+  // Preserve the caller's header order rather than Set insertion order.
+  return { rows, resolvedKeys: headers.filter((h) => resolved.has(h)) };
+}
+
+/**
  * Convert array of objects to CSV string
  */
 function convertToCSV<T extends ExportableData>(
@@ -111,6 +147,18 @@ export function exportToCSV<T extends ExportableData>(
       return filteredItem;
     });
 
+    // Same failure as the Excel path: no requested header exists on the data,
+    // so every row would be blank under a correct-looking header line. Surface
+    // it rather than handing the user an empty file.
+    if (headers.length > 0 && processedData.every(row => Object.keys(row).length === 0)) {
+      console.error(
+        `Export produced no columns: none of [${headers.join(', ')}] ` +
+          `exist on the data (available: ${Object.keys(data[0] || {}).join(', ')}). ` +
+          'exportConfig.headers must be DATA KEYS; columnMapping supplies the labels.'
+      );
+      return false;
+    }
+
     const csvContent = convertToCSV(processedData, headers, columnMapping);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     downloadFile(blob, `${filename}.csv`);
@@ -145,21 +193,28 @@ export function exportToExcel<T extends ExportableData>(
         return acc;
       }, {} as Record<string, string>);
 
-    // Apply transformation function first if provided, then map data to worksheet format
-    const worksheetData = data.map(item => {
-      // Apply transformation function if provided
-      const transformedItem = transformFunction ? transformFunction(item) : item;
-      
-      const row: ExportableData = {};
-      // If headers are provided, only include those columns
-      const columnsToExport = headers || Object.keys(mapping);
-      for (const key of columnsToExport) {
-        if (key in transformedItem) {
-          row[mapping[key]] = transformedItem[key];
-        }
-      }
-      return row;
-    });
+    // If headers are provided, only include those columns
+    const columnsToExport = headers || Object.keys(mapping);
+    const { rows: worksheetData, resolvedKeys } = buildExcelRows(
+      data,
+      columnsToExport,
+      mapping,
+      transformFunction
+    );
+
+    // Not one requested column exists on the data — writing this would produce
+    // a file with rows and no columns, i.e. a download that opens blank under a
+    // green "Export successful" toast. Fail loudly instead (rule #27). The
+    // usual cause is display LABELS passed as `exportConfig.headers` where the
+    // pipeline expects data keys.
+    if (resolvedKeys.length === 0) {
+      console.error(
+        `Export produced no columns: none of [${columnsToExport.join(', ')}] ` +
+          `exist on the data (available: ${Object.keys(data[0] || {}).join(', ')}). ` +
+          'exportConfig.headers must be DATA KEYS; columnMapping supplies the labels.'
+      );
+      return false;
+    }
 
     // Create a worksheet
     const worksheet = XLSX.utils.json_to_sheet(worksheetData);

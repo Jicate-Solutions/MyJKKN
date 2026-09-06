@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTabParam } from '@/hooks/use-tab-param';
 import { LifecycleStatusBadge, getStatusLabel } from '@/components/learners/lifecycle-status-badge';
+import type { LifecycleStatus } from '@/types/learner-profile';
 import { DataTable } from '@/components/ui/data-table';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
@@ -59,7 +60,10 @@ import {
   ClipboardList
 } from 'lucide-react';
 import Link from 'next/link';
-import { ConsultantService } from '@/lib/services/admission/consultant-service';
+import {
+  ConsultantService,
+  resolveReferralLearner
+} from '@/lib/services/admission/consultant-service';
 import { useQuery } from '@tanstack/react-query';
 import type { EducationConsultant, ConsultantLeadAttribution, ConsultantCommissionTransaction } from '@/types/education-consultants';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -117,23 +121,52 @@ function getCommissionStatusColor(status: string): string {
   return colors[status] || 'bg-gray-100 text-gray-800';
 }
 
+// Pseudo-status for a referral that reaches no learners_profiles row on
+// EITHER attribution path — the only case that is genuinely "not enquired".
+const NOT_ENQUIRED = 'not_enquired';
+
+// The effective status of a referral row, used identically by the columns, the
+// filters and the stat cards so the three can never disagree.
+function referralStatusOf(row: any): string {
+  return resolveReferralLearner(row).lifecycle_status ?? NOT_ENQUIRED;
+}
+
+// Bucket for referrals whose learner has no admission year set.
+const UNKNOWN_YEAR = 'Unknown';
+
+// The year a referral belongs to = the LEARNER'S ADMISSION YEAR, deliberately
+// not the attribution's created_at. The referral sync bulk-created every
+// existing attribution row, so created_at puts all 745 of a consultant's
+// referrals in a single year and answers nothing. admission_year spreads them
+// properly (2022-2023 … 2026-2027).
+function referralYearOf(row: any): string {
+  return resolveReferralLearner(row).admission_year_name ?? UNKNOWN_YEAR;
+}
+
 // Advanced data-table columns for the Recent Referrals tab.
 // Plain string headers are auto-wrapped by DataTable into sortable headers;
 // accessorFn feeds sorting/search with the resolved nested values.
+//
+// Every learner-derived cell goes through resolveReferralLearner(): about half
+// of all attributions are written with admission_id NULL and the learner hanging
+// off the attribution's own learner_profile_id, so reading `lead` alone left
+// those rows blank and mislabelled them "Not Enquired".
 const referralColumns: ColumnDef<any>[] = [
   {
     id: 'student_name',
-    accessorFn: (row) => row.lead?.full_name ?? '',
+    accessorFn: (row) => resolveReferralLearner(row).name ?? '',
     header: 'Student Name',
     cell: ({ row }) => (
-      <span className="font-medium">{row.original.lead?.full_name || 'N/A'}</span>
+      <span className="font-medium">
+        {resolveReferralLearner(row.original).name || 'N/A'}
+      </span>
     )
   },
   {
     id: 'program',
-    accessorFn: (row) => row.lead?.program?.program_name ?? '',
+    accessorFn: (row) => resolveReferralLearner(row).program_name ?? '',
     header: 'Program',
-    cell: ({ row }) => row.original.lead?.program?.program_name || '-'
+    cell: ({ row }) => resolveReferralLearner(row.original).program_name || '-'
   },
   {
     id: 'institution',
@@ -142,24 +175,39 @@ const referralColumns: ColumnDef<any>[] = [
     cell: ({ row }) => row.original.institution?.name || '-'
   },
   {
-    id: 'status',
-    accessorFn: (row) => row.lead?.learner_profile?.lifecycle_status ?? '',
-    header: 'Status',
-    cell: ({ row }) =>
-      row.original.lead?.learner_profile?.lifecycle_status ? (
-        <LifecycleStatusBadge
-          status={row.original.lead.learner_profile.lifecycle_status}
-        />
+    id: 'admission_year',
+    accessorFn: (row) => resolveReferralLearner(row).admission_year_name ?? '',
+    header: 'Year',
+    cell: ({ row }) => {
+      const year = resolveReferralLearner(row.original).admission_year_name;
+      return year ? (
+        <span className="whitespace-nowrap">{year}</span>
       ) : (
-        // Referred lead that hasn't entered the admission workflow yet
-        // (no learners_profiles row linked via learner_profile_id)
+        <span className="text-muted-foreground">-</span>
+      );
+    }
+  },
+  {
+    id: 'status',
+    accessorFn: (row) => resolveReferralLearner(row).lifecycle_status ?? '',
+    header: 'Status',
+    cell: ({ row }) => {
+      const status = resolveReferralLearner(row.original).lifecycle_status;
+      return status ? (
+        // lifecycle_status is a free-form column, so it is typed as string here;
+        // the badge already warns and falls back on an unrecognised value.
+        <LifecycleStatusBadge status={status as LifecycleStatus} />
+      ) : (
+        // Referred learner that hasn't entered the admission workflow yet
+        // (no learners_profiles row on either attribution path)
         <Badge
           variant="outline"
           className="bg-gray-100 text-gray-600 border-gray-300"
         >
           Not Enquired
         </Badge>
-      )
+      );
+    }
   },
   {
     accessorKey: 'created_at',
@@ -222,14 +270,20 @@ function ConsultantDetailContent() {
     enabled: !!consultantId && isValidId
   });
 
-  // Fetch recent referrals (lead attributions)
-  const { data: referralsData } = useQuery({
+  // Fetch this consultant's referrals (lead attributions).
+  //
+  // The whole set, not a page of it. The tab's search, Status/Institution
+  // filters and stat cards all key off the learner's lifecycle_status, which is
+  // a COALESCE across two embed paths and so cannot be pushed into PostgREST as
+  // a filter — the complete set has to be in hand to bucket it. This previously
+  // asked for `limit: 20`, which made a 745-referral consultant show "17 of 20"
+  // in the stat cards and offer filter options drawn from only the newest 20
+  // rows. getLeadAttributions pages internally in 1000-row windows.
+  const { data: referralsData, isLoading: referralsLoading } = useQuery({
     queryKey: ['consultant-referrals', consultantId],
     queryFn: () => ConsultantService.getLeadAttributions({
       consultant_id: consultantId,
-      // 20 rows feed the advanced table's client-side search/sort/pagination;
-      // the "View All" link covers the full history
-      limit: 20
+      fetch_all: true
     }),
     enabled: !!consultantId && isValidId
   });
@@ -249,6 +303,7 @@ function ConsultantDetailContent() {
   // profile yet (matches the "Not Enquired" badge in the Status column).
   const [referralStatusFilter, setReferralStatusFilter] = useState('all');
   const [referralInstitutionFilter, setReferralInstitutionFilter] = useState('all');
+  const [referralYearFilter, setReferralYearFilter] = useState('all');
 
   const referrals = useMemo(
     () => (referralsData?.data || []) as any[],
@@ -258,7 +313,7 @@ function ConsultantDetailContent() {
   const referralStatusOptions = useMemo(() => {
     const set = new Set<string>();
     for (const r of referrals) {
-      set.add(r.lead?.learner_profile?.lifecycle_status || 'not_enquired');
+      set.add(referralStatusOf(r));
     }
     return Array.from(set).sort();
   }, [referrals]);
@@ -271,9 +326,25 @@ function ConsultantDetailContent() {
     return Array.from(set).sort();
   }, [referrals]);
 
+  // Year options carry their own counts, so "which year, how many referrals"
+  // is answerable straight from the open dropdown without applying anything.
+  // Newest year first; the "no admission year" bucket always sorts last.
+  const referralYearOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of referrals) {
+      const y = referralYearOf(r);
+      map.set(y, (map.get(y) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === UNKNOWN_YEAR) return 1;
+      if (b[0] === UNKNOWN_YEAR) return -1;
+      return b[0].localeCompare(a[0]);
+    });
+  }, [referrals]);
+
   const filteredReferrals = useMemo(() => {
     return referrals.filter((r) => {
-      const status = r.lead?.learner_profile?.lifecycle_status || 'not_enquired';
+      const status = referralStatusOf(r);
       if (referralStatusFilter !== 'all' && status !== referralStatusFilter) {
         return false;
       }
@@ -283,24 +354,46 @@ function ConsultantDetailContent() {
       ) {
         return false;
       }
+      if (
+        referralYearFilter !== 'all' &&
+        referralYearOf(r) !== referralYearFilter
+      ) {
+        return false;
+      }
       return true;
     });
-  }, [referrals, referralStatusFilter, referralInstitutionFilter]);
+  }, [
+    referrals,
+    referralStatusFilter,
+    referralInstitutionFilter,
+    referralYearFilter
+  ]);
 
-  // Stat-card breakdowns. Counts respect the Institution filter (cards show
-  // the status distribution within the selected institution) but NOT the
-  // status filter itself — otherwise clicking a card would zero out the rest.
+  // Stat-card breakdowns. Counts respect the Institution and Year filters (the
+  // cards show the status distribution within that slice) but NOT the status
+  // filter itself — otherwise clicking a card would zero out the rest.
   const statCardBase = useMemo(() => {
-    if (referralInstitutionFilter === 'all') return referrals;
-    return referrals.filter(
-      (r) => r.institution?.name === referralInstitutionFilter
-    );
-  }, [referrals, referralInstitutionFilter]);
+    return referrals.filter((r) => {
+      if (
+        referralInstitutionFilter !== 'all' &&
+        r.institution?.name !== referralInstitutionFilter
+      ) {
+        return false;
+      }
+      if (
+        referralYearFilter !== 'all' &&
+        referralYearOf(r) !== referralYearFilter
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [referrals, referralInstitutionFilter, referralYearFilter]);
 
   const referralStatusCounts = useMemo(() => {
     const map = new Map<string, number>();
     for (const r of statCardBase) {
-      const s = r.lead?.learner_profile?.lifecycle_status || 'not_enquired';
+      const s = referralStatusOf(r);
       map.set(s, (map.get(s) || 0) + 1);
     }
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
@@ -784,10 +877,10 @@ function ConsultantDetailContent() {
                     <CardContent>
                       <div className="text-2xl font-bold">{count}</div>
                       <p className="text-xs text-muted-foreground">
-                        of {statCardBase.length}{' '}
-                        {referralInstitutionFilter === 'all'
-                          ? 'referrals'
-                          : `at ${referralInstitutionFilter}`}
+                        of {statCardBase.length} referrals
+                        {referralYearFilter !== 'all' && ` in ${referralYearFilter}`}
+                        {referralInstitutionFilter !== 'all' &&
+                          ` at ${referralInstitutionFilter}`}
                       </p>
                     </CardContent>
                   </Card>
@@ -806,7 +899,15 @@ function ConsultantDetailContent() {
               </Link>
             </CardHeader>
             <CardContent>
-              {referrals.length === 0 ? (
+              {referralsLoading ? (
+                // Fetching the full set takes a beat on a large consultant;
+                // without this the tab would flash "No referrals yet" first.
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : referrals.length === 0 ? (
                 <div className="text-center py-8">
                   <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground">No referrals yet</p>
@@ -820,6 +921,27 @@ function ConsultantDetailContent() {
                   showRefresh={false}
                   tableTools={
                     <>
+                      {/* Admission year, with the per-year count on the option
+                          itself — opening the dropdown answers "which year, how
+                          many" without needing to select anything. */}
+                      <Select
+                        value={referralYearFilter}
+                        onValueChange={setReferralYearFilter}
+                      >
+                        <SelectTrigger className="w-[190px]">
+                          <SelectValue placeholder="Year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">
+                            All Years ({referrals.length})
+                          </SelectItem>
+                          {referralYearOptions.map(([year, count]) => (
+                            <SelectItem key={year} value={year}>
+                              {year} ({count})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Select
                         value={referralStatusFilter}
                         onValueChange={setReferralStatusFilter}
@@ -859,11 +981,13 @@ function ConsultantDetailContent() {
                   globalFilterFn={(row, _columnId, filterValue) => {
                     const q = String(filterValue).toLowerCase();
                     const r = row.original as any;
+                    const learner = resolveReferralLearner(r);
                     return [
-                      r.lead?.full_name,
-                      r.lead?.program?.program_name,
-                      r.institution?.name,
-                      r.lead?.learner_profile?.lifecycle_status
+                      learner.name,
+                      learner.program_name,
+                      learner.lifecycle_status,
+                      learner.admission_year_name,
+                      r.institution?.name
                     ].some((v) => v?.toLowerCase().includes(q));
                   }}
                 />

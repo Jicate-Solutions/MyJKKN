@@ -22,6 +22,42 @@ export interface DirectoryUser {
   full_name: string | null;
   role: string | null;
   email: string | null;
+  /** Which identity the id belongs to. Absent means 'profile' — the only kind
+   *  that existed before guest speakers, so every existing caller stays valid. */
+  kind?: 'profile' | 'guest';
+}
+
+/** An outside speaker with no JKKN login account. Saved once and reused across
+ *  colleges (Director decision D11), which is why the counts below span the
+ *  whole cluster rather than one institution — they are what lets a coordinator
+ *  tell two similarly-named guests apart. */
+export interface GuestSpeakerRow {
+  guest_id: string;
+  guest_name: string;
+  guest_designation: string | null;
+  guest_organization: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
+  sessions_count: number;
+  last_session_at: string | null;
+  last_event_name: string | null;
+  colleges_label: string | null;
+}
+
+export interface GuestSpeakerInput {
+  full_name: string;
+  designation?: string | null;
+  organization?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
+/** One-line "who is this" for a guest chip / result row. */
+export function guestSubtitle(g: {
+  guest_designation?: string | null;
+  guest_organization?: string | null;
+}): string | null {
+  return [g.guest_designation, g.guest_organization].filter(Boolean).join(', ') || null;
 }
 
 /** One filtered, account-resolved resource-person candidate. `id` is the
@@ -185,17 +221,80 @@ export class InductionSpeakersService {
     }));
   }
 
-  /** The user(s) currently linked as a session's resource persons (for edit-load). */
+  /** Saved outside speakers with no login account, for REUSE rather than retyping
+   *  (D11). Each row carries where that guest has already spoken, cluster-wide. */
+  static async searchGuestSpeakers(query?: string): Promise<GuestSpeakerRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_guest_speakers_directory', {
+      p_query: query?.trim() || null,
+      p_limit: 25,
+    });
+    if (error) throw error;
+    return (data as GuestSpeakerRow[]) ?? [];
+  }
+
+  /** Save a NEW outside speaker. Cluster-wide by design, so no institution is
+   *  written; the RLS insert policy requires induction.manage. */
+  static async createGuestSpeaker(input: GuestSpeakerInput): Promise<GuestSpeakerRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('event_guest_speakers')
+      .insert({
+        full_name: input.full_name.trim(),
+        designation: input.designation?.trim() || null,
+        organization: input.organization?.trim() || null,
+        email: input.email?.trim() || null,
+        phone: input.phone?.trim() || null,
+      })
+      .select('id, full_name, designation, organization, email, phone')
+      .single();
+    if (error) throw error;
+    const r = data as any;
+    return {
+      guest_id: r.id,
+      guest_name: r.full_name,
+      guest_designation: r.designation,
+      guest_organization: r.organization,
+      guest_email: r.email,
+      guest_phone: r.phone,
+      sessions_count: 0,
+      last_session_at: null,
+      last_event_name: null,
+      colleges_label: null,
+    };
+  }
+
+  /** A guest row rendered in the same shape as an account-holder, so every
+   *  existing consumer of DirectoryUser keeps working unchanged. */
+  private static guestAsUser(g: any): DirectoryUser {
+    return {
+      id: g.id,
+      full_name: g.full_name,
+      email: g.email ?? null,
+      role: [g.designation, g.organization].filter(Boolean).join(', ') || 'Guest',
+      kind: 'guest',
+    };
+  }
+
+  /** The people currently linked as a session's resource persons (for edit-load).
+   *  Returns account-holders AND guests — an id from either identity is accepted
+   *  back by setSessionSpeakers, which routes it server-side. */
   static async getSessionSpeakers(sessionId: string): Promise<DirectoryUser[]> {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('event_session_speakers')
-      .select('profile_id, profiles(id, full_name, role, email)')
+      .select(
+        'profile_id, guest_speaker_id, profiles(id, full_name, role, email), ' +
+          'event_guest_speakers(id, full_name, designation, organization, email)',
+      )
       .eq('session_id', sessionId);
     if (error) throw error;
-    return ((data as any[]) ?? [])
-      .map((r) => r.profiles)
-      .filter(Boolean) as DirectoryUser[];
+    const out: DirectoryUser[] = [];
+    for (const r of (data as any[]) ?? []) {
+      if (r.profiles) out.push({ ...(r.profiles as DirectoryUser), kind: 'profile' });
+      else if (r.event_guest_speakers) out.push(this.guestAsUser(r.event_guest_speakers));
+    }
+    return out;
   }
 
   /** Linked resource persons for MANY sessions at once (session-list display).
@@ -206,23 +305,28 @@ export class InductionSpeakersService {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('event_session_speakers')
-      .select('session_id, profiles(id, full_name, role, email)')
+      .select(
+        'session_id, profiles(id, full_name, role, email), ' +
+          'event_guest_speakers(id, full_name, designation, organization, email)',
+      )
       .in('session_id', sessionIds);
     if (error) throw error;
     const map: Record<string, DirectoryUser[]> = {};
     for (const r of (data as any[]) ?? []) {
-      if (!r.profiles) continue;
-      (map[r.session_id] ??= []).push(r.profiles as DirectoryUser);
+      if (r.profiles) (map[r.session_id] ??= []).push({ ...(r.profiles as DirectoryUser), kind: 'profile' });
+      else if (r.event_guest_speakers) (map[r.session_id] ??= []).push(this.guestAsUser(r.event_guest_speakers));
     }
     return map;
   }
 
-  /** Replace the session's linked resource persons with this exact set. */
-  static async setSessionSpeakers(sessionId: string, profileIds: string[]): Promise<number> {
+  /** Replace the session's linked resource persons with this exact set. The ids
+   *  may mix account-holders and saved guests; the RPC routes each one to the
+   *  identity space it belongs to, so callers need not separate them. */
+  static async setSessionSpeakers(sessionId: string, speakerIds: string[]): Promise<number> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_induction_set_session_speakers', {
       p_session_id: sessionId,
-      p_profile_ids: profileIds,
+      p_profile_ids: speakerIds,
       p_source_label: null,
     });
     if (error) throw error;

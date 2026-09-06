@@ -21,7 +21,7 @@
 // slot shows under the correct local day.
 
 import { useMemo, useState } from 'react';
-import { groupPurposes } from '@/lib/services/meetings/group-purposes';
+import { groupPurposes, purposeDurationLabel } from '@/lib/services/meetings/group-purposes';
 import {
   CalendarDays,
   CheckCircle2,
@@ -328,7 +328,7 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
                   <span className="flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold">{p.label}</span>
                     <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[#1C2B24]/60">
-                      <Clock className="h-3.5 w-3.5" aria-hidden /> {p.durationMin} min
+                      <Clock className="h-3.5 w-3.5" aria-hidden /> {purposeDurationLabel(p)}
                     </span>
                   </span>
                   {p.description && (
@@ -346,7 +346,7 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold">{p.label}</span>
                     <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[#1C2B24]/60">
-                      <Clock className="h-3.5 w-3.5" aria-hidden /> {p.durationMin} min
+                      <Clock className="h-3.5 w-3.5" aria-hidden /> {purposeDurationLabel(p)}
                     </span>
                   </div>
                   {p.description && (
@@ -361,6 +361,13 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
                         onClick={() => pickType(mt)}
                         className="rounded-md border border-[#1C2B24]/20 px-2.5 py-1.5 text-xs transition-colors hover:border-[var(--meet-accent)] disabled:opacity-60"
                       >
+                        {/* When the purpose spans several lengths the card
+                            header shows all of them, so each option must say
+                            which one IT is — otherwise the booker is choosing
+                            a length blind. */}
+                        {p.hasMixedDurations && (
+                          <span className="mr-1.5 font-medium">{mt.durationMin} min ·</span>
+                        )}
                         <LocationLine mt={mt} />
                       </button>
                     ))}

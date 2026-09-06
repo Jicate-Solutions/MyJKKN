@@ -1,0 +1,33 @@
+-- =============================================================================
+-- 20260824280000_hr_drop_leave_purge_backup.sql
+--
+-- Drops hr_leave_applications_backup_20260824, the snapshot taken by
+-- 20260824260000 before the 46 document-required leave applications were
+-- purged. Signed off the same day; the restore window is closed.
+--
+-- AFTER THIS RUNS THE 46 ROWS ARE UNRECOVERABLE. Recorded here because this
+-- file becomes the only remaining account of what was in them:
+--
+--   Organisation                        Type  Status      Apps  Days   Range
+--   JKKN Arts and Science (Self)        HPL   pending        4   2.0   2026-07-31 .. 08-22
+--   JKKN Arts and Science (Self)        OD    pending       20  25.0   2026-07-09 .. 08-22
+--   JKKN Arts and Science (Self)        OD    withdrawn      1   1.0   2026-08-21
+--   JKKN Engineering and Technology     OD    pending        2   1.5   2026-08-11 .. 08-20
+--   JKKN Nursing and Research           HPL   pending        1   0.5   2026-08-11
+--   JKKN Nursing and Research           OD    pending        4   3.5   2026-08-07 .. 08-19
+--   JKKN Pharmacy                       OD    pending        1   1.0   2026-08-21
+--   JKKN Dental College and Hospital    HPL   pending        2   1.5   2026-08-10 .. 08-19
+--   JKKN Dental College and Hospital    OD    pending       11  14.0   2026-07-24 .. 08-24
+--                                                          ---  ----
+--                                                           46  50.0
+--
+-- None was ever approved, none carried a document, and none had moved a leave
+-- balance or an attendance day — which is what made the purge safe and makes
+-- dropping the snapshot low-consequence: there is no downstream state that
+-- would need these rows to explain itself.
+--
+-- The unrelated hr_leave_applications_backup_20260728 (Short Time Off reset) is
+-- deliberately left in place — it is not this migration's to remove.
+-- =============================================================================
+
+DROP TABLE IF EXISTS public.hr_leave_applications_backup_20260824;

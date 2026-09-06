@@ -49,6 +49,7 @@ import {
 import { ArrowLeft, FileDown, Send, X, UserPlus, ClipboardList, ClipboardCheck, Check, Ban } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function RfqDetailPage() {
   const router = useRouter();
@@ -109,7 +110,7 @@ export default function RfqDetailPage() {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 

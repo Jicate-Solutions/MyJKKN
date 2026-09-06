@@ -31,6 +31,15 @@ import { useRoles } from '@/hooks/organization/use-roles';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { RichTextDisplay } from '@/components/ui/rich-text-editor';
+import {
+  YouTubePreviewCard,
+  type YouTubeLinkPreview
+} from '@/components/notifications/youtube-preview-card';
+import {
+  describeTargetAudience,
+  getTargetRoleKeys,
+  type NotificationTargeting
+} from '@/lib/notifications/target-audience';
 
 interface NotificationDetails {
   id: string;
@@ -38,17 +47,15 @@ interface NotificationDetails {
   body: string;
   url?: string;
   icon?: string;
+  metadata?: {
+    link_preview?: YouTubeLinkPreview | null;
+    [key: string]: unknown;
+  } | null;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   category: string;
   sent_at: string;
   expires_at?: string;
-  targeting: {
-    institution_id?: string;
-    department_id?: string;
-    program_id?: string;
-    semester_id?: string;
-    section_id?: string;
-    target_roles?: string[];
+  targeting: NotificationTargeting & {
     institution_name?: string;
     department_name?: string;
     program_name?: string;
@@ -157,27 +164,14 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
     }
   };
 
-  const getTargetDescription = () => {
-    const parts: string[] = [];
-    if (notification.targeting.institution_id) parts.push('Institution');
-    if (notification.targeting.department_id) parts.push('Department');
-    if (notification.targeting.program_id) parts.push('Program');
-    if (notification.targeting.semester_id) parts.push('Semester');
-    if (notification.targeting.section_id) parts.push('Section');
-    if (
-      notification.targeting.target_roles &&
-      notification.targeting.target_roles.length > 0
-    ) {
-      parts.push('Roles');
-    }
+  const getTargetDescription = () => describeTargetAudience(notification.targeting);
 
-    return parts.length > 0 ? parts.join(' → ') : 'All Users';
-  };
+  const targetRoleKeys = getTargetRoleKeys(notification.targeting);
 
   const getRoleNames = () => {
-    if (!notification.targeting.target_roles || !rolesData) return [];
+    if (!rolesData) return targetRoleKeys;
 
-    return notification.targeting.target_roles.map((roleKey) => {
+    return targetRoleKeys.map((roleKey) => {
       const role = rolesData.find((r) => r.role_key === roleKey);
       return role ? role.role_name : roleKey;
     });
@@ -217,6 +211,14 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
               <div className='text-sm sm:text-base text-slate-600 mt-2 sm:mt-3 leading-relaxed'>
                 <RichTextDisplay content={notification.body} />
               </div>
+
+              {notification.metadata?.link_preview?.videoId && (
+                <div className='mt-3 sm:mt-5 max-w-sm'>
+                  <YouTubePreviewCard
+                    preview={notification.metadata.link_preview}
+                  />
+                </div>
+              )}
 
               {notification.url && (
                 <div className='mt-3 sm:mt-5'>
@@ -355,25 +357,18 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
                   </Badge>
                 </div>
               )}
-              {notification.targeting.target_roles &&
-                notification.targeting.target_roles.length > 0 && (
-                  <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
-                    <span className='capitalize text-slate-500'>
-                      Target Roles
-                    </span>
-                    <div className='flex flex-wrap gap-2'>
-                      {getRoleNames().map((roleName, index) => (
-                        <Badge
-                          key={index}
-                          variant='secondary'
-                          className='text-xs'
-                        >
-                          {roleName}
-                        </Badge>
-                      ))}
-                    </div>
+              {targetRoleKeys.length > 0 && (
+                <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
+                  <span className='capitalize text-slate-500'>Target Roles</span>
+                  <div className='flex flex-wrap gap-2'>
+                    {getRoleNames().map((roleName, index) => (
+                      <Badge key={index} variant='secondary' className='text-xs'>
+                        {roleName}
+                      </Badge>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
             </CardContent>
           </Card>
 

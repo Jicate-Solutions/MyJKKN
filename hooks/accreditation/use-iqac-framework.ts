@@ -51,32 +51,151 @@ export function useFrameworkMetrics() {
   });
 }
 
-/**
- * How many evidence records are filed against each framework metric, keyed by
- * body and code together — `metric_code` alone repeats across bodies, so a
- * single-key map would credit one body's evidence to another's metric.
- */
-export function useFrameworkEvidenceCounts() {
-  return useQuery({
-    queryKey: ['accreditation', 'iqac', 'evidence-counts'],
-    queryFn: async (): Promise<Record<string, number>> => {
-      const supabase = createClientSupabaseClient() as any;
-      const { data, error } = await supabase
-        .from('quality_evidence_mappings')
-        .select('body_code, metric_code');
-      if (error) throw error;
+/** One evidence mapping, as the page needs to see it. */
+export interface EvidenceMappingRow {
+  body_code: string;
+  metric_code: string;
+  source_table: string;
+  source_id: string;
+  period_label: string | null;
+}
 
-      const counts: Record<string, number> = {};
-      for (const row of (data ?? []) as { body_code: string; metric_code: string }[]) {
-        if (!row.body_code || !row.metric_code) continue;
-        const key = evidenceKey(row.body_code, row.metric_code);
-        counts[key] = (counts[key] ?? 0) + 1;
-      }
-      return counts;
+/**
+ * Every evidence mapping the reader may see, in one read.
+ *
+ * This replaces the earlier counts-only read. The page now needs three different
+ * cuts of the same 212 rows — per-metric counts, per-source-and-body grouping
+ * for "collect once", and the list of academic years to offer in the selector —
+ * and three queries for one small table would be three round trips to compute
+ * what one already contains. The cuts are pure functions over this array, which
+ * also makes them testable without a database.
+ *
+ * `source_id` is selected so a source claimed by two bodies can be counted ONCE:
+ * counting mapping rows would report 92 course-attainment records where 46 exist.
+ */
+export const EVIDENCE_PAGE_SIZE = 1000;
+/** 100 pages = 100k rows. A stop, not a limit — so a server that ignores
+ *  `.range()` cannot spin the loop forever. */
+export const EVIDENCE_MAX_PAGES = 100;
+
+/** Fetches one page of mappings for `[from, to]` inclusive. */
+export type EvidencePageFetcher = (
+  from: number,
+  to: number,
+) => Promise<EvidenceMappingRow[]>;
+
+/**
+ * Reads every mapping, paging until the set is exhausted.
+ *
+ * PostgREST enforces `max-rows` (10,000 on this project) and reports the real
+ * total ONLY in the `content-range` header, which the JS client does not
+ * surface — so an unpaged `.select()` over a bigger table returns a short array
+ * with `error === null`. A successful-looking read and a wrong number, the same
+ * silent shape as an RLS denial.
+ *
+ * This crossed the line the day NIRF evidence was seeded: the table went from
+ * 258 rows to 11,608, and this hook reads ALL bodies at once, so it was the
+ * first caller to breach the cap. Measured 2026-08-02.
+ *
+ * Pure and exported so the pagination can be tested against a fake server that
+ * enforces the cap — counting a fixture array in memory would pass against the
+ * broken version too.
+ */
+export async function fetchEvidencePaged(
+  fetchPage: EvidencePageFetcher,
+): Promise<EvidenceMappingRow[]> {
+  const rows: EvidenceMappingRow[] = [];
+  for (let page = 0; page < EVIDENCE_MAX_PAGES; page += 1) {
+    const batch = await fetchPage(
+      page * EVIDENCE_PAGE_SIZE,
+      page * EVIDENCE_PAGE_SIZE + EVIDENCE_PAGE_SIZE - 1,
+    );
+    rows.push(...batch);
+    // Short page = set exhausted. Checked AFTER pushing, so the final partial
+    // page is never dropped.
+    if (batch.length < EVIDENCE_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+export function useEvidenceMappings() {
+  return useQuery({
+    queryKey: ['accreditation', 'iqac', 'evidence-mappings'],
+    queryFn: async (): Promise<EvidenceMappingRow[]> => {
+      const supabase = createClientSupabaseClient() as any;
+      return fetchEvidencePaged(async (from, to) => {
+        // Ordered by id so the ranges partition the set. Without a stable sort
+        // PostgREST may return overlapping or skipped rows across ranges, and
+        // the counts drift — a subtler wrong number than the truncation.
+        const { data, error } = await supabase
+          .from('quality_evidence_mappings')
+          .select('body_code, metric_code, source_table, source_id, period_label')
+          .order('id', { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        return (data ?? []) as EvidenceMappingRow[];
+      });
     },
     staleTime: FIVE_MINUTES,
     refetchOnWindowFocus: false,
   });
+}
+
+/**
+ * How many evidence records are filed against each framework metric, keyed by
+ * body and code together — `metric_code` alone repeats across bodies, so a
+ * single-key map would credit one body's evidence to another's metric.
+ *
+ * Counts DISTINCT source records rather than mapping rows. One record mapped to
+ * a metric twice is one record; the earlier row count reported it as two.
+ */
+export function countEvidenceByMetric(
+  rows: readonly EvidenceMappingRow[],
+  periodLabel?: string,
+): Record<string, number> {
+  const seen = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (!row?.body_code || !row?.metric_code) continue;
+    if (periodLabel && row.period_label !== periodLabel) continue;
+    const key = evidenceKey(row.body_code, row.metric_code);
+    const bucket = seen.get(key) ?? new Set<string>();
+    bucket.add(`${row.source_table}::${row.source_id}`);
+    seen.set(key, bucket);
+  }
+  const counts: Record<string, number> = {};
+  for (const [key, bucket] of seen) counts[key] = bucket.size;
+  return counts;
+}
+
+/**
+ * `(source_table, body_code)` pairs with distinct record counts, for the
+ * "collect once" grouping. Aggregated here rather than in SQL because the whole
+ * table is 212 rows and a dedicated RPC would be a second thing to keep in step
+ * with this one.
+ */
+export function aggregateBySource(
+  rows: readonly EvidenceMappingRow[],
+  periodLabel?: string,
+): { source_table: string; body_code: string; rows: number; distinct_sources: number }[] {
+  const acc = new Map<string, { rows: number; ids: Set<string> }>();
+  for (const row of rows) {
+    if (!row?.source_table || !row?.body_code) continue;
+    if (periodLabel && row.period_label !== periodLabel) continue;
+    const key = `${row.source_table}::${row.body_code}`;
+    const entry = acc.get(key) ?? { rows: 0, ids: new Set<string>() };
+    entry.rows += 1;
+    entry.ids.add(row.source_id);
+    acc.set(key, entry);
+  }
+  return Array.from(acc, ([key, entry]) => {
+    const [source_table, body_code] = key.split('::');
+    return { source_table, body_code, rows: entry.rows, distinct_sources: entry.ids.size };
+  });
+}
+
+/** Every academic-year label present in the data, for the window selector. */
+export function periodLabelsIn(rows: readonly EvidenceMappingRow[]): string[] {
+  return Array.from(new Set(rows.map((r) => r.period_label).filter((l): l is string => Boolean(l))));
 }
 
 /**
