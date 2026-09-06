@@ -78,6 +78,27 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Lane I's route already validated this shape at enqueue; re-checking here
  *  keeps the runner honest when a job arrives from anywhere else. */
+/** Build the ai_jobs payload for a drafting run.
+ *
+ *  The Max seat runner VALIDATES the job type's input_schema keys at the TOP
+ *  LEVEL and SUBSTITUTES exactly one slot, {{prompt}}, from `payload.prompt`.
+ *  It fills no other slot — measured 2026-09-06 across every working job type
+ *  on the lane, and the hard way twice on this one: a flat payload left the
+ *  template's {{payload}} slot empty and the model replied "I don't see the
+ *  actual input payload" (ai_jobs 1096542b); an _ctx-only payload was refused
+ *  before the model saw it, "missing required input(s)" (ai_jobs bbbf0cbc).
+ *
+ *  So the run's data is composed INTO the prompt text, and the same fields ride
+ *  along under `_ctx` for the collect pass (parsePayload reads them there).
+ *  Migration 20260918150000 makes the template and input_schema match this.
+ */
+export function buildDraftPayload(ctx: DraftJobPayload): {
+  _ctx: DraftJobPayload;
+  prompt: string;
+} {
+  return { _ctx: ctx, prompt: JSON.stringify(ctx, null, 2) };
+}
+
 export function parsePayload(raw: unknown): DraftJobPayload | null {
   if (!raw || typeof raw !== 'object') return null;
   const outer = raw as Record<string, unknown>;
