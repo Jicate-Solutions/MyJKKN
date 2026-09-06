@@ -20981,6 +20981,215 @@ REVOKE EXECUTE ON FUNCTION public.fn_induction_mark_day_attendance(UUID, INTEGER
 GRANT  EXECUTE ON FUNCTION public.fn_induction_mark_day_attendance(UUID, INTEGER, JSONB) TO authenticated;
 
 -- ============================================================================
+-- Fresher Induction — completion is measured on sittings that have HAPPENED,
+-- and the year-long mentoring track is measured on its own.
+-- Migration: supabase/migrations/20261018000000_induction_completion_basis_and_mentoring_track.sql
+--
+-- Mirrored here per CLAUDE.md (functions live in 02_functions.sql). Neither of
+-- these two was in this file before: they were created by
+-- induction_multipath_completion_option2.sql and last amended by
+-- 20260827020000, and only the PERFORM call above ever referenced them. The
+-- executable SQL below is byte-identical to the migration's — a mirror that
+-- drifts is a second source of truth that disagrees, which is worse than none.
+--
+-- The two statement-level triggers that fire fn_induction_completion_on_feedback
+-- (trg_induction_completion_on_feedback_ins / _upd) are NOT in 04_triggers.sql.
+-- That gap predates this change and is left alone rather than closed under
+-- cover of it.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_induction_recompute_completion(p_event_id uuid)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_inst UUID; v_thr INTEGER; v_fbpct INTEGER; v_mnpct INTEGER; v_n INTEGER;
+BEGIN
+  SELECT institution_id, completion_attendance_pct, completion_feedback_pct,
+         completion_mentoring_pct                                   -- ADDED: the mentoring bar
+    INTO v_inst, v_thr, v_fbpct, v_mnpct
+  FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_recompute_completion: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.manage') AND role_has_institution_access(v_inst))
+          OR public.fn_induction_is_event_coordinator(p_event_id)
+          OR public.fn_induction_is_event_speaker(p_event_id)) THEN
+    RAISE EXCEPTION 'fn_induction_recompute_completion: not authorized';
+  END IF;
+
+  -- One CTE feeds attendance AND feedback from the fresher's applicable (batch)
+  -- sessions. Two LEFT JOINs fan out rows, so every numerator uses
+  -- count(DISTINCT session) to stay correct.
+  --
+  -- CHANGED: the join now admits only sittings that have already begun, and the
+  -- aggregates are split by kind so the induction basis and the mentoring basis
+  -- are counted from the same scan without contaminating each other. The date
+  -- test lives in the ON clause, NOT in a WHERE — moving it would turn the LEFT
+  -- JOIN into an inner join and drop every fresher who has no qualifying
+  -- sitting out of the result entirely, leaving their induction_completion row
+  -- frozen at its old value instead of being reset to a truthful zero. The kind
+  -- test is a FILTER rather than an ON condition for the opposite reason: the
+  -- mentor rows must stay in the scan to be counted on their own.
+  WITH att AS (
+    SELECT e.learner_id, e.institution_id,
+           -- INDUCTION basis: everything that is not a mentor check-in, which
+           -- keeps 'registration' and untyped (NULL kind) sittings counting.
+           count(DISTINCT s.id) FILTER (WHERE s.kind IS DISTINCT FROM 'mentor_checkin')
+             AS total,
+           count(DISTINCT s.id) FILTER (WHERE s.kind IS DISTINCT FROM 'mentor_checkin'
+                                          AND a.status IN ('present','od'))
+             AS attended,
+           count(DISTINCT s.id) FILTER (WHERE s.kind IS DISTINCT FROM 'mentor_checkin'
+                                          AND f.id IS NOT NULL)
+             AS rated,
+           -- MENTORING basis: the year-long track, on its own.
+           count(DISTINCT s.id) FILTER (WHERE s.kind = 'mentor_checkin')
+             AS m_total,
+           count(DISTINCT s.id) FILTER (WHERE s.kind = 'mentor_checkin'
+                                          AND a.status IN ('present','od'))
+             AS m_attended
+    FROM public.induction_enrollment e
+    LEFT JOIN public.event_sessions s
+      ON s.event_id = e.event_id
+     AND (s.batch_id IS NULL OR s.batch_id = e.batch_id)
+     AND s.start_at IS NOT NULL AND s.start_at <= now()   -- ADDED: it must have happened
+    LEFT JOIN public.event_session_attendance a
+      ON a.session_id = s.id AND a.learner_id = e.learner_id
+    LEFT JOIN public.event_session_feedback f
+      ON f.session_id = s.id AND f.learner_id = e.learner_id
+    WHERE e.event_id = p_event_id
+    GROUP BY e.learner_id, e.institution_id
+  )
+  INSERT INTO public.induction_completion
+    (event_id, learner_id, institution_id, sessions_total, sessions_attended,
+     attendance_pct, participation_complete, outcome_complete, completed_at,
+     mentoring_sessions_total, mentoring_sessions_attended, mentoring_attendance_pct,
+     mentoring_complete, mentoring_completed_at, updated_at)
+  SELECT p_event_id, att.learner_id, att.institution_id, att.total, att.attended,
+         CASE WHEN att.total = 0 THEN 0 ELSE round(100.0 * att.attended / att.total, 2) END,
+         (att.total > 0 AND (100.0 * att.attended / att.total) >= v_thr),
+         (   (att.total > 0 AND (100.0 * att.attended / att.total) >= v_thr)
+          OR (att.total > 0 AND (100.0 * att.rated    / att.total) >= v_fbpct) ),
+         CASE WHEN (   (att.total > 0 AND (100.0 * att.attended / att.total) >= v_thr)
+                    OR (att.total > 0 AND (100.0 * att.rated    / att.total) >= v_fbpct) )
+              THEN now() ELSE NULL END,
+         -- ADDED: the mentoring basis. m_total = 0 (nothing due yet) is false,
+         -- never vacuously complete — same shape as the limbs above it.
+         att.m_total, att.m_attended,
+         CASE WHEN att.m_total = 0 THEN 0
+              ELSE round(100.0 * att.m_attended / att.m_total, 2) END,
+         (att.m_total > 0 AND (100.0 * att.m_attended / att.m_total) >= v_mnpct),
+         CASE WHEN (att.m_total > 0 AND (100.0 * att.m_attended / att.m_total) >= v_mnpct)
+              THEN now() ELSE NULL END,
+         now()
+  FROM att
+  ON CONFLICT (event_id, learner_id) DO UPDATE SET
+    sessions_total = EXCLUDED.sessions_total,
+    sessions_attended = EXCLUDED.sessions_attended,
+    attendance_pct = EXCLUDED.attendance_pct,
+    participation_complete = EXCLUDED.participation_complete,
+    -- attendance OR feedback (EXCLUDED.outcome_complete) OR the fresher's live referral count
+    outcome_complete = (EXCLUDED.outcome_complete OR induction_completion.referrals_submitted >= 1),
+    completed_at = CASE
+      WHEN (EXCLUDED.outcome_complete OR induction_completion.referrals_submitted >= 1)
+        THEN COALESCE(induction_completion.completed_at, now())
+      ELSE NULL END,
+    -- ADDED: mentoring columns. mentoring_completed_at keeps the FIRST time the
+    -- track was cleared, mirroring completed_at, so a later recompute does not
+    -- re-date an achievement that already happened.
+    mentoring_sessions_total = EXCLUDED.mentoring_sessions_total,
+    mentoring_sessions_attended = EXCLUDED.mentoring_sessions_attended,
+    mentoring_attendance_pct = EXCLUDED.mentoring_attendance_pct,
+    mentoring_complete = EXCLUDED.mentoring_complete,
+    mentoring_completed_at = CASE
+      WHEN EXCLUDED.mentoring_complete
+        THEN COALESCE(induction_completion.mentoring_completed_at, now())
+      ELSE NULL END,
+    updated_at = now();
+
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n;
+END $function$;
+
+-- This function has carried no explicit grant statement since it was created
+-- (20260627190000), which under Supabase's ALTER DEFAULT PRIVILEGES leaves it
+-- holding the default EXECUTE grant to anon. It has a real authorization gate
+-- in its body, so anon gains nothing by calling it — but the gate is the wrong
+-- place to be relying on, and CLAUDE.md's rule is unconditional. Asserted here.
+REVOKE EXECUTE ON FUNCTION public.fn_induction_recompute_completion(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_recompute_completion(uuid) TO authenticated;
+
+-- ── 4. The living gate carries the SAME denominator, and it is a second copy ─
+-- fn_induction_completion_on_feedback() recomputes outcome_complete on every
+-- induction feedback write. It does not call the function above; it duplicates
+-- its CTE. Left uncorrected it would keep measuring against unhappened sittings
+-- and simply never promote the freshers this migration is for — silently,
+-- because the trigger is monotonic and so cannot produce a visible regression
+-- to investigate. Same two changes, one difference: this path computes only the
+-- induction basis (a feedback write cannot change an attendance-based mentoring
+-- verdict), so the mentor-check-in exclusion is an ON condition here rather
+-- than a FILTER. The mentoring columns are absent from its INSERT list and keep
+-- their defaults on a first insert and their values on conflict.
+CREATE OR REPLACE FUNCTION public.fn_induction_completion_on_feedback()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  WITH aff AS (
+    SELECT DISTINCT nt.event_id, nt.learner_id
+    FROM new_feedback nt
+    WHERE nt.learner_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM public.induction_programs ip WHERE ip.event_id = nt.event_id)
+  ),
+  calc AS (
+    SELECT aff.event_id, aff.learner_id, ie.institution_id,
+           ip.completion_attendance_pct AS thr, ip.completion_feedback_pct AS fbpct,
+           count(DISTINCT s.id) AS total,
+           count(DISTINCT s.id) FILTER (WHERE a.status IN ('present','od')) AS attended,
+           count(DISTINCT s.id) FILTER (WHERE f.id IS NOT NULL) AS rated
+    FROM aff
+    JOIN public.induction_programs ip ON ip.event_id = aff.event_id
+    JOIN public.induction_enrollment ie ON ie.event_id = aff.event_id AND ie.learner_id = aff.learner_id
+    LEFT JOIN public.event_sessions s
+      ON s.event_id = aff.event_id
+     AND (s.batch_id IS NULL OR s.batch_id = ie.batch_id)
+     AND s.start_at IS NOT NULL AND s.start_at <= now()   -- ADDED: it must have happened
+     AND s.kind IS DISTINCT FROM 'mentor_checkin'         -- ADDED: mentoring is its own basis
+    LEFT JOIN public.event_session_attendance a ON a.session_id = s.id AND a.learner_id = aff.learner_id
+    LEFT JOIN public.event_session_feedback f ON f.session_id = s.id AND f.learner_id = aff.learner_id
+    GROUP BY aff.event_id, aff.learner_id, ie.institution_id, ip.completion_attendance_pct, ip.completion_feedback_pct
+  )
+  INSERT INTO public.induction_completion
+    (event_id, learner_id, institution_id, outcome_complete, completed_at, updated_at)
+  SELECT calc.event_id, calc.learner_id, calc.institution_id,
+         ( (calc.total>0 AND 100.0*calc.attended/calc.total >= calc.thr)
+           OR (calc.total>0 AND 100.0*calc.rated/calc.total >= calc.fbpct) ),
+         CASE WHEN ( (calc.total>0 AND 100.0*calc.attended/calc.total >= calc.thr)
+                     OR (calc.total>0 AND 100.0*calc.rated/calc.total >= calc.fbpct) )
+              THEN now() ELSE NULL END,
+         now()
+  FROM calc
+  ON CONFLICT (event_id, learner_id) DO UPDATE SET
+    outcome_complete = induction_completion.outcome_complete OR EXCLUDED.outcome_complete,
+    completed_at = CASE
+      WHEN (induction_completion.outcome_complete OR EXCLUDED.outcome_complete)
+        THEN COALESCE(induction_completion.completed_at, now())
+      ELSE induction_completion.completed_at END,
+    updated_at = now();
+  RETURN NULL;
+END $function$;
+
+-- Trigger function: Postgres refuses direct calls and the trigger system fires
+-- it regardless of the EXECUTE ACL, so this is belt-and-braces, re-asserting
+-- what induction_feedback_trigger_lock_anon.sql established. No grant to
+-- authenticated — nothing should be able to call it as an RPC.
+REVOKE EXECUTE ON FUNCTION public.fn_induction_completion_on_feedback() FROM anon, PUBLIC;
+
+
+-- ============================================================================
 -- Fresher Induction — Day-level & whole-program feedback (dynamic scopes)
 -- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
 -- 6 DEFINER RPCs for the 2 new feedback scopes (mirroring event_session_feedback,
