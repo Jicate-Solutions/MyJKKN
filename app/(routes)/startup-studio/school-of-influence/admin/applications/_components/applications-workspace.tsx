@@ -71,6 +71,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { usePermissions } from '@/hooks/use-permissions';
 
 import { ApplicationsTable } from './applications-table';
+import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 import {
   SoiReviewService,
   type SoiApplicationRow,
@@ -328,7 +329,7 @@ export function ApplicationsWorkspace({ eventId }: Props) {
         <CardHeader>
           <CardTitle className="text-base">No programme to review</CardTitle>
           <CardDescription>
-            This screen reviews applications for one School of Influence
+            This screen reviews applications for one School of Influencer
             programme, and none was found for you. Open it from the School of
             Influence menu, or ask a coordinator to appoint you.
           </CardDescription>
@@ -353,7 +354,7 @@ export function ApplicationsWorkspace({ eventId }: Props) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">
-            {context?.event_name ?? 'School of Influence'} — applications
+            {soiDisplayName(context?.event_name)} — applications
           </h2>
           <p className="text-sm text-muted-foreground">
             {reviewerPicksBatch
@@ -406,7 +407,7 @@ export function ApplicationsWorkspace({ eventId }: Props) {
                 key={b.cohort_id}
                 className="flex items-center gap-2 rounded-md border px-2.5 py-1.5"
               >
-                <span className="text-sm font-medium">{b.batch_name}</span>
+                <span className="text-sm font-medium">{soiDisplayName(b.batch_name)}</span>
                 <Badge
                   variant={b.accepting_now ? 'secondary' : 'outline'}
                   className="text-[10px] font-normal"
@@ -467,7 +468,7 @@ export function ApplicationsWorkspace({ eventId }: Props) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-600" />
-              {overLimit?.batch.batch_name} is full
+              {soiDisplayName(overLimit?.batch.batch_name)} is full
             </DialogTitle>
             <DialogDescription>
               This exceeds the batch limit of {overLimit?.batch.capacity}. It already
@@ -505,7 +506,7 @@ export function ApplicationsWorkspace({ eventId }: Props) {
             {openBatches.length > 0 && (
               <p className="text-muted-foreground">
                 These batches still have room:{' '}
-                {openBatches.map((b) => b.batch_name).join(', ')}.
+                {openBatches.map((b) => soiDisplayName(b.batch_name)).join(', ')}.
               </p>
             )}
 

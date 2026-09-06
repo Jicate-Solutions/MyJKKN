@@ -31,7 +31,7 @@
 // words rather than guessing at a programme.
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { SOI_COHORT_KIND } from '@/lib/services/school-of-influence/constants';
+import { SOI_COHORT_KIND, soiDisplayName } from '@/lib/services/school-of-influence/constants';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 /** A School of Influence programme this caller may work the queue for. */
@@ -81,7 +81,7 @@ export async function listReviewableSoiProgrammes(): Promise<
   } catch (error) {
     logger.error(
       'school-of-influence',
-      'Could not list School of Influence programmes',
+      'Could not list School of Influencer programmes',
       error
     );
     return [];
@@ -110,7 +110,7 @@ export async function listReviewableSoiProgrammes(): Promise<
         if (row?.can_review !== true) return null;
         return {
           eventId,
-          name: row.event_name?.trim() || 'School of Influence',
+          name: soiDisplayName(row.event_name),
         } satisfies SoiReviewableProgramme;
       } catch {
         return null;

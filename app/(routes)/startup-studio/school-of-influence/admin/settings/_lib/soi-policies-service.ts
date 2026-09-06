@@ -342,7 +342,7 @@ export class SoiPoliciesService {
     if (scope.kind !== 'batch') {
       // Unreachable: the programme default always exists once S1 is applied.
       throw new Error(
-        'No programme-wide row to write. Apply the School of Influence config ' +
+        'No programme-wide row to write. Apply the School of Influencer config ' +
           'migrations (S1) before editing these settings.'
       );
     }

@@ -54,6 +54,7 @@ import {
   type SoiReviewBatch,
   type SoiReviewScope,
 } from '@/lib/services/school-of-influence/review-service';
+import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 
 /** Namespace for a flattened answer column. See the file header. */
 const ANSWER_PREFIX = 'answer.';
@@ -132,7 +133,7 @@ function flatten(row: SoiApplicationRow): SoiApplicationTableRow {
     // Nearly always one; joined rather than truncated so a person who is both a
     // learner and a team member does not silently read as only one of them.
     audience_label: (row.audiences ?? []).map(audienceLabel).join(', '),
-    requested_batch: row.requested_batch_name ?? '',
+    requested_batch: row.requested_batch_name ? soiDisplayName(row.requested_batch_name) : '',
     status_label: SoiReviewService.labelFor(row.application_status),
     submitted_at: row.submitted_at,
     decision_label:
@@ -542,7 +543,7 @@ export function ApplicationsTable({
                          it only made the decision unreachable. */
                       batches.map((b) => (
                         <SelectItem key={b.cohort_id} value={b.cohort_id}>
-                          {b.batch_name} —{' '}
+                          {soiDisplayName(b.batch_name)} —{' '}
                           {b.is_full
                             ? `FULL, ${b.occupancy} of ${b.capacity}`
                             : `${b.capacity - b.occupancy} of ${b.capacity} left`}
