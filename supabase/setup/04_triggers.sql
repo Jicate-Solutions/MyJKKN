@@ -2613,3 +2613,14 @@ CREATE TRIGGER t_hk_availability_touch BEFORE UPDATE ON public.hostel_cleaning_a
 
 CREATE TRIGGER t_hk_bookings_touch BEFORE UPDATE ON public.hostel_cleaning_bookings
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+-- ==========================================================================
+-- Campus Living - Housekeeping (rebuilt 2026-09-07)
+-- Migration: 20260907090200_housekeeping_rpcs.sql
+-- ==========================================================================
+
+DROP TRIGGER IF EXISTS t_hostel_attendance_housekeeping_gate ON public.hostel_attendance;
+CREATE TRIGGER t_hostel_attendance_housekeeping_gate
+  BEFORE INSERT OR UPDATE ON public.hostel_attendance
+  FOR EACH ROW EXECUTE FUNCTION public.fn_cl_housekeeping_attendance_gate();

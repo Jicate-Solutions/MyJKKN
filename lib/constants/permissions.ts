@@ -2149,6 +2149,16 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.maintenance.close', label: 'Close Maintenance Ticket' },
       { key: 'campus_living.maintenance.approve_payment', label: 'Approve Vendor Payment' },
 
+      // Housekeeping
+      { key: 'campus_living.housekeeping.view', label: 'View Housekeeping' },
+      { key: 'campus_living.housekeeping.types_manage', label: 'Manage Cleaning Types' },
+      { key: 'campus_living.housekeeping.cleaners_manage', label: 'Manage Cleaner Directory' },
+      { key: 'campus_living.housekeeping.availability_manage', label: 'Manage Booking Availability' },
+      { key: 'campus_living.housekeeping.assign', label: 'Assign Cleaner to Booking' },
+      { key: 'campus_living.housekeeping.execute', label: 'Record Cleaning (photos, start/finish)' },
+      { key: 'campus_living.housekeeping.cancel', label: "Cancel Another's Booking" },
+      { key: 'campus_living.housekeeping.waive', label: 'Waive Feedback Hold' },
+
       // Laundry
       { key: 'campus_living.laundry.view', label: 'View Laundry Config' },
       { key: 'campus_living.laundry.config', label: 'Configure Laundry Service' },

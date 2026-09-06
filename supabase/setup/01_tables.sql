@@ -5527,7 +5527,10 @@ ALTER TABLE public.hostel_categories
 -- hostel_allocations.tier_id (production never populated it — every row is 'standard',
 -- which silently refused every resident of the housekeeping slot-booking feature).
 -- Plain text, no FK: adding a tier must never block a category write, and an
--- unmatched key resolves to no entitlement. Read by fn_housekeeping_entitlement_tier.
+-- unmatched key resolves to no entitlement. (Was read by
+-- fn_housekeeping_entitlement_tier, dropped 2026-09-07 when housekeeping was
+-- rebuilt; that module now gates on hostel_rooms.category_id directly. tier_key
+-- itself is still live and read elsewhere.)
 ALTER TABLE public.hostel_categories
   ADD COLUMN IF NOT EXISTS tier_key text NOT NULL DEFAULT 'standard';
 
