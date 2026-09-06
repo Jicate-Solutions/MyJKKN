@@ -84,7 +84,21 @@ function makeDb(): any {
       if (pending?.kind === 'insert') {
         const written: Row[] = [];
         for (const raw of pending.rows) {
-          const row = { id: raw.id ?? uuid(), created_at: new Date().toISOString(), ...raw };
+          // created_at emulates the column's DEFAULT now(). It MUST come from the
+          // simulated clock, not the wall clock. Every other timestamp in this
+          // file is frozen in August 2026, and reconcileHandoverExplanations
+          // anchors its audit search at `.gte('created_at', ev.created_at)` — so
+          // a wall-clock stamp makes the event look NEWER than the answer that
+          // came after it, and the answer becomes invisible.
+          //
+          // This was a real defect with a fuse on it. Written 2026-08-05 against
+          // NOW=2026-08-10, the wall clock was BEHIND the simulated one, the
+          // comparison held, and four tests passed. On 2026-08-10 the wall clock
+          // overtook NOW and the same four went red — no code changed, the
+          // calendar did. Nothing globs __tests__/director-desk/, so they stayed
+          // red and unseen. A fake that reads the real clock is a test that
+          // expires.
+          const row = { id: raw.id ?? uuid(), created_at: NOW.toISOString(), ...raw };
           for (const col of UNIQUE[table] ?? []) {
             if (row[col] != null && rows().some((r) => r[col] === row[col])) {
               return { data: [], error: { code: '23505', message: `duplicate ${col}` } };

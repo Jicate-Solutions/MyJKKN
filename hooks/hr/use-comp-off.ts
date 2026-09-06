@@ -1,10 +1,25 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { CompOffService } from '@/lib/services/hr/comp-off-service';
+import type { LeaveDocument } from '@/types/hr';
 
 const KEY = 'hr-comp-off-balance';
+
+/**
+ * Refresh the credit ledger after something SPENT or RELEASED a credit.
+ *
+ * The mutations in this file cover how a credit is EARNED. Spending happens in
+ * the leave-application lifecycle instead: hr_trig_comp_off_consume flips a
+ * credit to 'consumed' when an application reaches 'approved', and back to
+ * 'approved' when that application later turns cancelled/rejected/withdrawn.
+ * Those mutations live in use-leave.ts and refreshed nothing here, so the
+ * comp-off card kept quoting the balance from before the decision.
+ */
+export function invalidateCompOffViews(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: [KEY] });
+}
 
 export function useCompOffBalance(employeeId?: string) {
   const supabase = createClientSupabaseClient();
@@ -24,9 +39,13 @@ export function useClaimWorkedDay() {
       employee_id: string;
       worked_date: string;
       notes?: string | null;
+      documents: LeaveDocument[];
     }) => CompOffService.claimWorkedDay(supabase, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
+      // A claimant who is also an approver should see their new claim appear
+      // in the approvals queue without a reload.
+      qc.invalidateQueries({ queryKey: [CLAIMS_KEY] });
     },
   });
 }
@@ -55,6 +74,19 @@ export function useDecideCompOffClaim() {
 }
 
 const CLAIMS_KEY = 'hr-comp-off-pending-claims';
+
+/** The claimant takes back their own pending claim. */
+export function useWithdrawCompOffClaim() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (creditId: string) => CompOffService.withdrawClaim(supabase, creditId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [CLAIMS_KEY] });
+    },
+  });
+}
 
 /**
  * Claims awaiting decision. Scoped by RLS to the approver's organizations,

@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
@@ -118,7 +119,7 @@ export function SavedViewsControl({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5">
+        <Button variant="outline" size="sm" className={`gap-1.5 ${TAP_TARGET}`}>
           <Bookmark className="h-4 w-4" />
           Views
           {views.length > 0 && (

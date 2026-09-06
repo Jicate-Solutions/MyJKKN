@@ -9,6 +9,7 @@ import { AdmissionSettingsService } from '@/lib/services/admission/admission-set
 import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
 import { getErrorMessage } from '@/lib/utils';
 import { describeOncePerLearnerError } from '@/lib/utils/billing-duplicate-error';
+import { attachInstalmentSchedules } from '@/lib/services/billing/instalments/instalment-plan-service';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -407,7 +408,13 @@ export class OnboardingService {
         !!categoryId && FOREIGN_MODULE_KINDS.has(kindById[categoryId]);
       let skippedForeign = 0;
 
-      // Due date = 30 days from now
+      // FALLBACK due date only. As of 2026-08-21 the real due date comes from
+      // the fee structure — admission_fee_structure_items.due_offset_days /
+      // due_date, falling back to admission_fee_structures.default_due_offset_days
+      // (itself defaulted to 30) — and is applied by
+      // attachInstalmentSchedules below. This +30 stands only for a fee
+      // item the engine cannot resolve to a structure item at all, which is
+      // exactly the pre-2026-08-21 behaviour for those rows.
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
       const dueDateStr = dueDate.toISOString().split('T')[0];
@@ -419,6 +426,8 @@ export class OnboardingService {
             category_id: string;
             category_name: string;
             amount: number;
+            /** Added 2026-08-21; absent on snapshots resolved before then. */
+            fee_structure_item_id?: string | null;
           }>)
         : [];
 
@@ -446,6 +455,10 @@ export class OnboardingService {
             status: 'unpaid',
             remarks: `Onboarding bill — auto-generated from learner fee_items`,
             created_by: currentUserId,
+            // Lets the expander find this item's schedule without re-running the
+            // 8-dimension match, and lets the promotion engine walk a settled
+            // bill back to the schedule line that names a lifecycle status.
+            fee_structure_item_id: item.fee_structure_item_id ?? null,
           });
         }
       } else {
@@ -496,9 +509,32 @@ export class OnboardingService {
         );
       }
 
-      const { error: insertError } = await supabase
+      // Instalment expansion — DORMANT until an active instalment plan matches
+      // this learner's (institution, programme, category, academic year). With
+      // zero plans configured (or before migration 20260825013000 is applied),
+      // this returns billsToInsert untouched and the insert below is byte for
+      // byte today's behaviour. A matching plan turns ONE yearly row into N
+      // instalment rows whose amounts sum exactly to the yearly amount, each
+      // with its own due date. Split arithmetic lives in the SQL engine
+      // (billing_instalment_split_for_learner) shared with the account
+      // transition RPC, so the two generation paths cannot disagree.
+      // ONE row per fee, each optionally carrying the tranches that belong
+      // inside it. This used to expand a scheduled fee into N sibling BILLS,
+      // which is why three fee items produced five bills.
+      const scheduled = await attachInstalmentSchedules(
+        supabase,
+        learnerId,
+        billsToInsert
+      );
+
+      // `__instalments` is not a billing_student_bills column — strip it before
+      // the insert or PostgREST rejects the whole batch.
+      const rowsToInsert = scheduled.map(({ __instalments, ...row }) => row);
+
+      const { data: insertedBills, error: insertError } = await supabase
         .from('billing_student_bills')
-        .insert(billsToInsert);
+        .insert(rowsToInsert)
+        .select('id, item_category_id, fee_structure_item_id');
 
       // Onboarding inserts the learner's whole fee set as one batch, so a
       // single once-per-learner collision rejects all of it. Name the category
@@ -512,7 +548,49 @@ export class OnboardingService {
       }
 
       if (insertError) throw insertError;
-      return billsToInsert.length;
+
+      // Write each schedule under the bill it belongs to. Matched on
+      // item_category_id rather than array position: PostgREST does not
+      // guarantee the returned order matches the sent order, and a schedule
+      // attached to the wrong fee would bill the right total on the wrong
+      // dates — silently, and only visible at the end of term. One bill per
+      // category per learner is already guaranteed here, so the key is unique.
+      const billIdByCategory = new Map<string, string>();
+      for (const b of (insertedBills ?? []) as Array<{
+        id: string;
+        item_category_id: string | null;
+      }>) {
+        if (b.item_category_id) billIdByCategory.set(b.item_category_id, b.id);
+      }
+
+      const instalmentRows = scheduled.flatMap((row) => {
+        if (!row.__instalments?.length || !row.item_category_id) return [];
+        const billId = billIdByCategory.get(row.item_category_id);
+        if (!billId) return [];
+        return row.__instalments.map((t) => ({
+          bill_id: billId,
+          sequence_no: t.sequence_no,
+          amount: t.amount,
+          due_date: t.due_date,
+          promotes_to_status_code: t.promotes_to_status_code,
+        }));
+      });
+
+      if (instalmentRows.length > 0) {
+        const { error: instalmentError } = await supabase
+          .from('billing_bill_instalments')
+          .insert(instalmentRows);
+        // NOT swallowed. A bill whose schedule failed to write is a bill that
+        // silently reverts to a single due date — the exact defect this whole
+        // feature exists to remove — so the caller must hear about it.
+        if (instalmentError) {
+          throw new Error(
+            `Bills were created but their instalment schedule could not be saved: ${getErrorMessage(instalmentError)}`
+          );
+        }
+      }
+
+      return rowsToInsert.length;
     } catch (error) {
       console.error('[billing/onboarding] createBillsFromProfile failed:', error);
       throw error;
@@ -639,6 +717,61 @@ export class OnboardingService {
       return { promoted: false, reason: result.reason ?? 'unknown' };
     }
     return { promoted: true };
+  }
+
+  // ── 5b. reevaluateStatus (operator re-run of the automatic promotion) ────
+
+  /**
+   * Re-runs the automatic lifecycle evaluation for one learner and reports what
+   * it decided. This is the manual counterpart to the payment triggers: the
+   * accounts team reaches for it when a learner's status looks behind their
+   * payments.
+   *
+   * PROMOTION ONLY, and never a bypass. The RPC applies exactly the thresholds
+   * configured in `admission_statuses` — it cannot move a learner who has not
+   * actually paid, it returns `no_op_for_status` outside account/reserved, and
+   * it re-asserts the from-status inside every UPDATE. So the worst a stray
+   * click can do is nothing.
+   *
+   * Unlike `markAsApproved`, this reports rather than throws: "nothing changed"
+   * is the expected answer most of the time, not an error. The returned
+   * `paid_pct`/`threshold` are what the caller should show — "paid 12%, needs
+   * 30%" is the answer the operator actually wants.
+   */
+  static async reevaluateStatus(learnerId: string): Promise<{
+    updated: boolean;
+    finalStatus?: string;
+    paidPct?: number;
+    threshold?: number;
+    reason?: string;
+  }> {
+    // Cast to `any` — generated Supabase types lag this RPC, same as the
+    // sibling methods in this file.
+    const supabase = this.supabase as any;
+
+    const { data, error } = await supabase.rpc(
+      'evaluate_learner_status_after_payment',
+      { p_learner_id: learnerId }
+    );
+    // Supabase errors are plain objects, not Error instances — getErrorMessage
+    // surfaces the real code/message instead of "[object Object]".
+    if (error) throw new Error(getErrorMessage(error));
+
+    const result = (data ?? {}) as {
+      updated?: boolean;
+      final_status?: string;
+      paid_pct?: number;
+      threshold?: number;
+      reason?: string;
+    };
+
+    return {
+      updated: result.updated === true,
+      finalStatus: result.final_status,
+      paidPct: Number(result.paid_pct ?? 0),
+      threshold: result.threshold == null ? undefined : Number(result.threshold),
+      reason: result.reason
+    };
   }
 
   // ── 6. revertToApproved ──────────────────────────────────────────────────

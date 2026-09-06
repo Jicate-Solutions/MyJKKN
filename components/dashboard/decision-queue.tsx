@@ -10,7 +10,8 @@ import Link from 'next/link';
 import {
   listQueueItems,
   QueueFilter,
-  QueueCounts
+  QueueCounts,
+  QueueItem
 } from '@/lib/services/dashboard/decision-queue-service';
 import { QueueItemCard } from '@/components/dashboard/decision-queue-item';
 import { TabTitleBadge } from '@/components/dashboard/tab-title-badge';
@@ -66,12 +67,69 @@ function EmptyState({ filter }: { filter: QueueFilter }) {
       <div className='text-sm font-medium text-neutral-900 dark:text-neutral-100'>
         Inbox zero — no {label} items awaiting your action
       </div>
+      {/* 2026-08-09 (mobile audit finding 05, moved here from PR #2941 so one
+          PR owns this file): the auto-escalation sentence was removed because
+          it promised something that was not happening — fn_dashboard_queue_escalate
+          required notifications.requires_acknowledgment = TRUE while
+          fn_create_dashboard_work_item writes FALSE, so no work item had ever
+          escalated even at 107 days overdue.
+
+          That filter was FIXED in production later the same day (migration
+          20260817000100, applied 2026-08-09 12:58 UTC). Escalation now runs —
+          but only for items created after dashboard_config.escalation_start_at,
+          because un-gating it against the existing backlog would have sent
+          9,087 items to one person. So the sentence is still not restored: it
+          would be true for new items and false for everything already in the
+          queue. Restore it once the pre-cutoff backlog is cleared, at which
+          point "auto-escalates after 2h" is true of every item on screen. */}
       <div className='mt-2 text-xs text-neutral-500 max-w-sm mx-auto leading-relaxed'>
         New items (approvals, escalations, cold-lead rescues, anomalies) will
-        appear here. Unacked items auto-escalate to the Chief of Staff after 2h.
+        appear here.
       </div>
     </div>
   );
+}
+
+// ============================================================================
+// Collapse repeated daily digests
+// ----------------------------------------------------------------------------
+// The digest work item is raised once a day per category (its DB key ends in
+// the date), so every day it goes unacknowledged adds another near-identical
+// card. On a phone one card fills most of the screen, and two copies of
+// "Daily digest — 7426 stale lead(s)" push real items out of sight. Keep the
+// newest run of each digest category and say how many runs it stands for.
+// Non-digest items are never merged.
+// ============================================================================
+// `ids` lists every user_notification row the card stands for, so acting on
+// the card can clear all of them. Without it, dismissing the visible digest
+// only acknowledged the newest row and the next-oldest instantly replaced it.
+type QueueEntry = { item: QueueItem; repeats: number; ids: string[] };
+
+function collapseDigests(items: QueueItem[]): QueueEntry[] {
+  const entries: QueueEntry[] = [];
+  const indexByDigestKey = new Map<string, number>();
+
+  for (const item of items) {
+    const cfg = item.action_config as { digest?: unknown } | null | undefined;
+    if (cfg?.digest !== true) {
+      entries.push({ item, repeats: 1, ids: [item.user_notification_id] });
+      continue;
+    }
+    const key = item.category;
+    const at = indexByDigestKey.get(key);
+    if (at === undefined) {
+      indexByDigestKey.set(key, entries.length);
+      entries.push({ item, repeats: 1, ids: [item.user_notification_id] });
+      continue;
+    }
+    const kept = entries[at];
+    kept.repeats += 1;
+    kept.ids.push(item.user_notification_id);
+    // Newest run wins — its counts are the ones still worth acting on.
+    if (item.age_seconds < kept.item.age_seconds) kept.item = item;
+  }
+
+  return entries;
 }
 
 // ============================================================================
@@ -82,6 +140,23 @@ export async function DecisionQueue({
   basePath = '/dashboard'
 }: DecisionQueueProps) {
   const { items, counts } = await listQueueItems(filter);
+  const entries = collapseDigests(items);
+
+  // 2026-08-09 (verifier finding on this PR): the chips and the browser-tab
+  // badge report RPC aggregates, the list below reports rendered cards, and
+  // the two numbers are not the same thing. Two separate reasons they differ:
+  //   * listQueueItems caps the fetch at 50 rows, so a queue of 101 has always
+  //     rendered at most 50 cards — this predates the PR.
+  //   * this PR merges repeat daily digest rows into one card each.
+  // Recomputing the chips from the rendered rows would be worse, not better:
+  // the chips would then read 50 and the other 51 open items would vanish with
+  // nothing on screen admitting they exist. So the aggregates stay honest and
+  // the header states what they count against what is drawn.
+  // NOTE: counts.total is the all-types total regardless of the active filter,
+  // so a filtered view has to compare against that filter's own count.
+  const filterTotal = filter === 'all' ? counts.total : counts[filter];
+  const mergedAway = items.length - entries.length;
+  const beyondPage = Math.max(0, filterTotal - items.length);
 
   const chipHref = (f: QueueFilter) =>
     f === 'all' ? `${basePath}#decision-queue` : `${basePath}?queue=${f}#decision-queue`;
@@ -96,20 +171,43 @@ export async function DecisionQueue({
       <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-5 border-b border-neutral-200 dark:border-neutral-800'>
         <div>
           <h2 className='text-base sm:text-lg font-semibold'>Decision Queue</h2>
+          {/* 2026-08-09 (mobile audit finding 05, moved here from PR #2941 so
+              one PR owns this file): dropped the 2-hour auto-escalation claim —
+              see EmptyState above for why it is not true today. Replaced with
+              the sort order, which the RPC really does apply
+              (severity_order ASC, created_at ASC). */}
           <p className='text-xs text-neutral-500 mt-0.5'>
-            Items awaiting your action · auto-escalates to Chief of Staff after 2h
+            Items awaiting your action · highest priority first, then oldest
           </p>
+          {(mergedAway > 0 || beyondPage > 0) && (
+            <p className='text-xs text-neutral-500 mt-0.5'>
+              Showing {entries.length} of {filterTotal}
+              {mergedAway > 0 && (
+                <>
+                  {' '}
+                  · {mergedAway} repeat daily{' '}
+                  {mergedAway === 1 ? 'digest' : 'digests'} merged
+                </>
+              )}
+              {beyondPage > 0 && <> · {beyondPage} not on this page</>}
+            </p>
+          )}
         </div>
         <FilterChipRow counts={counts} active={filter} chipHref={chipHref} />
       </div>
 
       <div className='p-3 sm:p-4'>
-        {items.length === 0 ? (
+        {entries.length === 0 ? (
           <EmptyState filter={filter} />
         ) : (
           <div className='space-y-2.5'>
-            {items.map((item) => (
-              <QueueItemCard key={item.user_notification_id} item={item} />
+            {entries.map(({ item, repeats, ids }) => (
+              <QueueItemCard
+                key={item.user_notification_id}
+                item={item}
+                repeats={repeats}
+                groupIds={ids}
+              />
             ))}
           </div>
         )}

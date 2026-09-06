@@ -56,6 +56,29 @@ function humanizeFeeStructureCreateError(err: unknown): string {
     ].join('\n');
   }
 
+  // Schedule guards (2026-08-21). The client mirrors both in scheduleErrors()
+  // and afsis_validate_status_target(), so reaching here means the payload came
+  // from somewhere else — an import, a stale tab, a hand-built request. Surface
+  // the database's own message, which already names the offending item.
+  if (/is not an active learner-scope admission status/i.test(raw)) {
+    return `${raw}\n\nPick a status from the dropdown rather than typing one — the list is built from Stages & Statuses.`;
+  }
+  if (/grants portal login and cannot be reached automatically/i.test(raw)) {
+    return [
+      raw,
+      '',
+      'Fee schedules can promote a learner as far as Reserved or Admitted.',
+      'Granting a portal login stays a manual decision.',
+    ].join('\n');
+  }
+  if (
+    /needs at least 2 instalments/i.test(raw) ||
+    /must run 1\.\./i.test(raw) ||
+    /percentages for item/i.test(raw)
+  ) {
+    return `${raw}\n\nOpen the fee item's Schedule panel to correct the instalments.`;
+  }
+
   return raw;
 }
 import { useForm } from 'react-hook-form';
@@ -99,6 +122,7 @@ import {
 } from '@/components/ui/command';
 
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
+import { LookupService, type HostelTierOption } from '@/lib/services/admission/lookup-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
@@ -107,10 +131,21 @@ import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activ
 import { FeesStructureDimensionSelector } from './fees-structure-dimension-selector';
 import type {
   AdmissionFeeStructureWithItems,
+  AdmissionFeeStructureItemSchedule,
   FeeStructureMatrixDimensions,
   FeeItemAppliesTo,
+  FeeItemDueAnchor,
+  FeeItemScheduleMode,
 } from '@/types/admission';
 import type { BillingCategory, BillingCategoryKind } from '@/types/billing';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
+import {
+  FeeItemScheduleEditor,
+  emptySchedule,
+  scheduleErrors,
+  type FeeItemScheduleValue,
+  type PromotableStatus,
+} from './fee-item-schedule-editor';
 
 // Billing-category kinds the admission fee structure does NOT manage. Transport
 // fees are owned by the transport module, so they are not selectable as an
@@ -333,6 +368,22 @@ function hasSevenDims(d: DimsWithLeafCommunity): boolean {
 // ===========================================================================
 // NewStructureForm — create flow
 // ===========================================================================
+/**
+ * One instalment of a split fee item. Shape validation (>= 2 lines, no
+ * sequence gaps, percentages totalling 100) lives in scheduleErrors() and is
+ * re-enforced by a DEFERRED constraint trigger in the database — a per-field
+ * Zod rule here would reject line 1 of a 30/30/40 split for summing to 30.
+ */
+const scheduleLineSchema = z.object({
+  sequence_no: z.number().int().min(1),
+  share_percent: z.number().nullable(),
+  fixed_amount: z.number().nullable(),
+  due_offset_days: z.number().int().min(0).nullable(),
+  due_date: z.string().nullable(),
+  promotes_to_status_code: z.string().nullable(),
+  label: z.string().nullable(),
+});
+
 const itemSchema = z
   .object({
     billing_category_id: z.string().min(1),
@@ -342,6 +393,16 @@ const itemSchema = z
     is_optional: z.boolean(),
     applies_to: z.enum(['first_year_only', 'every_year', 'specific_year']),
     applies_year_of_study: z.number().int().min(1).max(10).nullable(),
+    // Per-item due date + split + status rules (2026-08-21). Defaulted so an
+    // item created before this field existed still parses.
+    schedule_mode: z.enum(['single', 'split']).default('single'),
+    due_anchor: z
+      .enum(['generation_date', 'academic_year_start', 'fixed_date'])
+      .default('generation_date'),
+    due_offset_days: z.number().int().min(0).nullable().default(null),
+    due_date: z.string().nullable().default(null),
+    promotes_to_status_code: z.string().nullable().default(null),
+    schedules: z.array(scheduleLineSchema).default([]),
   })
   .refine(
     (v) => v.applies_to !== 'specific_year' || v.applies_year_of_study != null,
@@ -358,14 +419,27 @@ const newSchema = z
       .min(2, 'Name must be at least 2 characters')
       .max(150, 'Name must be at most 150 characters'),
     status: z.enum(['draft', 'active']),
+    // '__any__' is the Select sentinel for "unclassified" — Radix Select
+    // cannot hold an empty-string value, so it is mapped to NULL on submit.
+    // Mirrors how gender/accommodation are handled in the dimension selector.
+    package_type: z.enum(['package', 'non_package', '__any__']),
     notes: z.string().max(500).optional(),
     // ISO date strings yyyy-MM-dd from <input type="date" /> — empty
     // string means "no bound" (persisted as NULL).
+    // Fallback due date for fee items that name none of their own.
+    // 30 reproduces the previously hardcoded `now() + 30 days`.
+    default_due_offset_days: z.coerce.number().int().min(0).max(3650).default(30),
     effective_from: z.string().optional(),
     effective_to: z.string().optional(),
     community_category_ids: z
       .array(z.string().min(1))
       .min(1, 'Select at least one community'),
+    // Hostel tier. Only collected when the chosen accommodation is hostel;
+    // the cross-field requirement lives in the component (it needs `dims`,
+    // which the schema can't see). trg_fee_structure_hostel_categories_guard
+    // is the server-side backstop.
+    hostel_category_id: z.string().nullable().optional(),
+    mess_category_id: z.string().nullable().optional(),
     items: z.array(itemSchema).min(1, 'Add at least one fee item'),
   })
   .refine(
@@ -436,7 +510,9 @@ export function NewStructureForm({
       // Clone flow defaults to 'draft' so operators can review the prefilled
       // copy before activating; that's also the safe default for plain /new.
       status: initialValues?.status ?? 'draft',
+      package_type: initialValues?.package_type ?? '__any__',
       notes: initialValues?.notes ?? '',
+      default_due_offset_days: initialValues?.default_due_offset_days ?? 30,
       effective_from: initialValues?.effective_from ?? '',
       effective_to: initialValues?.effective_to ?? '',
       // Pre-fill with the tree-leaf community when one is provided, so the
@@ -447,12 +523,29 @@ export function NewStructureForm({
       community_category_ids:
         initialValues?.community_category_ids ??
         (leafCommunityId ? [leafCommunityId] : []),
+      hostel_category_id: initialValues?.hostel_category_id ?? null,
+      mess_category_id: initialValues?.mess_category_id ?? null,
       items: initialValues?.items ?? [],
     },
   });
 
   const items = form.watch('items');
   const communityIds = form.watch('community_category_ids');
+  const hostelCategoryId = form.watch('hostel_category_id');
+  const messCategoryId = form.watch('mess_category_id');
+  const { isHostel, ready: tierReady, roomOptions, messOptions } = useHostelTier(
+    dims.accommodation_type_id,
+  );
+
+  // Categories are rejected server-side on a non-hostel structure, so clear
+  // them the moment the selected accommodation stops being hostel. Gated on
+  // `tierReady` — before the lookup resolves, isHostel is false for "unknown"
+  // as well as "no", which would wipe a clone's prefilled tier.
+  useEffect(() => {
+    if (!tierReady || isHostel) return;
+    if (form.getValues('hostel_category_id')) form.setValue('hostel_category_id', null);
+    if (form.getValues('mess_category_id')) form.setValue('mess_category_id', null);
+  }, [tierReady, isHostel, form]);
 
   const remainingCategories = useMemo(
     () =>
@@ -461,6 +554,8 @@ export function NewStructureForm({
       ),
     [categories, items],
   );
+
+  const promotableStatuses = usePromotableStatuses();
 
   const addItem = (categoryId: string, amount?: number) => {
     const cat = categories.find((c) => c.id === categoryId);
@@ -473,6 +568,7 @@ export function NewStructureForm({
         is_optional: false,
         applies_to: 'every_year',
         applies_year_of_study: null,
+        ...emptySchedule(),
       },
     ]);
   };
@@ -487,6 +583,12 @@ export function NewStructureForm({
     const next = [...items];
     next[index] = { ...next[index], amount: value };
     form.setValue('items', next);
+  };
+
+  const updateItemSchedule = (index: number, schedule: FeeItemScheduleValue) => {
+    const next = [...items];
+    next[index] = { ...next[index], ...schedule };
+    form.setValue('items', next, { shouldValidate: true });
   };
 
   const updateItemApplicability = (
@@ -508,6 +610,31 @@ export function NewStructureForm({
 
   const onSubmit = async (values: NewFormValues) => {
     if (submittingRef.current) return;
+
+    // Mirror afsis_validate_schedule_shape() so a malformed split names the fee
+    // item that owns it, instead of surfacing as a raw FS002 from the DEFERRED
+    // constraint trigger at commit.
+    const badSchedule = values.items
+      .map((it) => ({ it, errs: scheduleErrors(it) }))
+      .find((r) => r.errs.length > 0);
+    if (badSchedule) {
+      const name = categoryName(categories, badSchedule.it.billing_category_id);
+      toast.error(`${name}: ${badSchedule.errs[0]}`);
+      return;
+    }
+
+    // Mirror trg_fee_structure_hostel_categories_guard client-side so the
+    // operator gets an inline message instead of a raw Postgres error. Draft
+    // hostel structures may leave the tier unset — only activation requires it.
+    if (isHostel && values.status === 'active') {
+      if (!values.hostel_category_id || !values.mess_category_id) {
+        toast.error(
+          'Pick a room category and a mess category before activating a hostel fee structure.',
+        );
+        return;
+      }
+    }
+
     submittingRef.current = true;
     setSubmitting(true);
     let succeeded = false;
@@ -517,7 +644,14 @@ export function NewStructureForm({
         community_category_ids: values.community_category_ids,
         name: values.name,
         status: values.status,
+        package_type: values.package_type === '__any__' ? null : values.package_type,
+        // Null out ONLY on a resolved negative. `!isHostel` alone is also true
+        // while the accommodation lookup is still in flight, which would drop
+        // a clone's prefilled tier.
+        hostel_category_id: tierReady && !isHostel ? null : values.hostel_category_id || null,
+        mess_category_id: tierReady && !isHostel ? null : values.mess_category_id || null,
         notes: values.notes || null,
+        default_due_offset_days: values.default_due_offset_days,
         effective_from: values.effective_from || null,
         effective_to: values.effective_to || null,
         items: values.items.map((it, i) => ({
@@ -528,6 +662,12 @@ export function NewStructureForm({
           applies_to: it.applies_to,
           applies_year_of_study:
             it.applies_to === 'specific_year' ? it.applies_year_of_study : null,
+          schedule_mode: it.schedule_mode,
+          due_anchor: it.due_anchor,
+          due_offset_days: it.due_offset_days,
+          due_date: it.due_date,
+          promotes_to_status_code: it.promotes_to_status_code,
+          schedules: it.schedules,
         })),
       });
       toast.success(
@@ -583,6 +723,44 @@ export function NewStructureForm({
           )}
         />
 
+        <FormField
+          control={form.control}
+          name="package_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Package Type</FormLabel>
+              <Select value={field.value} onValueChange={field.onChange}>
+                <FormControl>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select package type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="package">Package — consolidated single amount</SelectItem>
+                  <SelectItem value="non_package">Non-Package — itemised fee heads</SelectItem>
+                  <SelectItem value="__any__">Any / Not specified</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Classification for reporting and filtering only — it does not affect
+                which structure a learner resolves to.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {isHostel && (
+          <HostelTierFields
+            roomOptions={roomOptions}
+            messOptions={messOptions}
+            roomValue={hostelCategoryId}
+            messValue={messCategoryId}
+            onRoomChange={(id) => form.setValue('hostel_category_id', id, { shouldValidate: true })}
+            onMessChange={(id) => form.setValue('mess_category_id', id, { shouldValidate: true })}
+          />
+        )}
+
         <CommunityMultiSelectField
           control={form.control}
           name="community_category_ids"
@@ -606,6 +784,36 @@ export function NewStructureForm({
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField
+            control={form.control}
+            name="default_due_offset_days"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Default due date</FormLabel>
+                <FormControl>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={3650}
+                      step={1}
+                      className="w-28"
+                      {...field}
+                      value={field.value ?? 30}
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      days after admission
+                    </span>
+                  </div>
+                </FormControl>
+                <FormDescription>
+                  Applies to every fee item that does not set its own date in
+                  its Schedule panel. 30 is the platform default.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
           <FormField
             control={form.control}
             name="effective_from"
@@ -644,6 +852,9 @@ export function NewStructureForm({
           onRemove={removeItem}
           onAmountChange={updateItemAmount}
           onApplicabilityChange={updateItemApplicability}
+          onScheduleChange={updateItemSchedule}
+          promotableStatuses={promotableStatuses}
+          defaultDueOffsetDays={DEFAULT_DUE_OFFSET_DAYS}
         />
 
         {form.formState.errors.items?.message && (
@@ -707,7 +918,12 @@ const editSchema = z
       .min(2, 'Name must be at least 2 characters')
       .max(150, 'Name must be at most 150 characters'),
     status: z.enum(['draft', 'active', 'archived']),
+    // See newSchema — '__any__' is the sentinel for NULL / unclassified.
+    package_type: z.enum(['package', 'non_package', '__any__']),
     notes: z.string().max(500).optional(),
+    // Fallback due date for fee items that name none of their own.
+    // 30 reproduces the previously hardcoded `now() + 30 days`.
+    default_due_offset_days: z.coerce.number().int().min(0).max(3650).default(30),
     effective_from: z.string().optional(),
     effective_to: z.string().optional(),
   })
@@ -723,7 +939,36 @@ const editSchema = z
   );
 type EditFormValues = z.infer<typeof editSchema>;
 
-interface DraftItem {
+/**
+ * The platform fallback when a structure names no default of its own. Matches
+ * admission_fee_structures.default_due_offset_days DEFAULT 30, which in turn
+ * reproduces the `now() + 30 days` that both generation paths hardcoded before
+ * 2026-08-21. Changing this alone changes nothing at generation time — the
+ * database default is what bills are actually built from; this is the hint the
+ * operator sees in the placeholder.
+ */
+const DEFAULT_DUE_OFFSET_DAYS = 30;
+
+/** Reads the schedule slice off a persisted item, defaulting a pre-2026-08-21 row. */
+function hydrateSchedule(it: {
+  schedule_mode?: FeeItemScheduleMode;
+  due_anchor?: FeeItemDueAnchor;
+  due_offset_days?: number | null;
+  due_date?: string | null;
+  promotes_to_status_code?: string | null;
+  schedules?: AdmissionFeeStructureItemSchedule[] | null;
+}): FeeItemScheduleValue {
+  return {
+    schedule_mode: it.schedule_mode ?? 'single',
+    due_anchor: it.due_anchor ?? 'generation_date',
+    due_offset_days: it.due_offset_days ?? null,
+    due_date: it.due_date ?? null,
+    promotes_to_status_code: it.promotes_to_status_code ?? null,
+    schedules: [...(it.schedules ?? [])].sort((a, b) => a.sequence_no - b.sequence_no),
+  };
+}
+
+interface DraftItem extends FeeItemScheduleValue {
   id?: string; // if present, came from DB
   billing_category_id: string;
   amount: number;
@@ -755,6 +1000,7 @@ function ExistingStructureEditor({
         sort_order: it.sort_order,
         applies_to: it.applies_to ?? 'every_year',
         applies_year_of_study: it.applies_year_of_study ?? null,
+        ...hydrateSchedule(it),
       }))
       .sort((a, b) => a.sort_order - b.sort_order),
   );
@@ -781,6 +1027,28 @@ function ExistingStructureEditor({
     structure.community_category_ids ?? [],
   );
 
+  // Editable hostel tier. Lives beside editableDims rather than in the form
+  // because its visibility depends on editableDims.accommodation_type_id.
+  const [editableHostelCategoryId, setEditableHostelCategoryId] = useState<string | null>(
+    structure.hostel_category_id ?? null,
+  );
+  const [editableMessCategoryId, setEditableMessCategoryId] = useState<string | null>(
+    structure.mess_category_id ?? null,
+  );
+  const { isHostel, ready: tierReady, roomOptions, messOptions } = useHostelTier(
+    editableDims.accommodation_type_id,
+  );
+
+  // Retargeting the structure away from hostel must drop the tier, or the
+  // server-side guard rejects the save. Gated on `tierReady`: until the
+  // accommodation lookup lands, isHostel is false for "unknown" too, and
+  // clearing here would wipe the loaded structure's own tier on mount.
+  useEffect(() => {
+    if (!tierReady || isHostel) return;
+    setEditableHostelCategoryId(null);
+    setEditableMessCategoryId(null);
+  }, [tierReady, isHostel]);
+
   // Reset local state if the structure prop changes (different leaf clicked).
   useEffect(() => {
     setItems(
@@ -793,6 +1061,7 @@ function ExistingStructureEditor({
           sort_order: it.sort_order,
           applies_to: it.applies_to ?? 'every_year',
           applies_year_of_study: it.applies_year_of_study ?? null,
+          ...hydrateSchedule(it),
         }))
         .sort((a, b) => a.sort_order - b.sort_order),
     );
@@ -807,14 +1076,18 @@ function ExistingStructureEditor({
       accommodation_type_id: structure.accommodation_type_id ?? undefined,
     });
     setEditableCommunityIds(structure.community_category_ids ?? []);
-  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.accommodation_type_id, structure.community_category_ids]);
+    setEditableHostelCategoryId(structure.hostel_category_id ?? null);
+    setEditableMessCategoryId(structure.mess_category_id ?? null);
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.accommodation_type_id, structure.package_type, structure.community_category_ids, structure.hostel_category_id, structure.mess_category_id]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
     defaultValues: {
       name: structure.name,
       status: structure.status,
+      package_type: structure.package_type ?? '__any__',
       notes: structure.notes ?? '',
+      default_due_offset_days: structure.default_due_offset_days ?? 30,
       effective_from: structure.effective_from ?? '',
       effective_to: structure.effective_to ?? '',
     },
@@ -824,7 +1097,9 @@ function ExistingStructureEditor({
     form.reset({
       name: structure.name,
       status: structure.status,
+      package_type: structure.package_type ?? '__any__',
       notes: structure.notes ?? '',
+      default_due_offset_days: structure.default_due_offset_days ?? 30,
       effective_from: structure.effective_from ?? '',
       effective_to: structure.effective_to ?? '',
     });
@@ -832,6 +1107,11 @@ function ExistingStructureEditor({
     structure.id,
     structure.name,
     structure.status,
+    // Both are read by the reset above. package_type was already missing here
+    // before default_due_offset_days joined it — listing both silences the
+    // warning honestly rather than letting the new field widen an old one.
+    structure.package_type,
+    structure.default_due_offset_days,
     structure.notes,
     structure.effective_from,
     structure.effective_to,
@@ -866,6 +1146,8 @@ function ExistingStructureEditor({
 
   const total = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
 
+  const promotableStatuses = usePromotableStatuses();
+
   const addItem = (categoryId: string, amount?: number) => {
     const cat = categories.find((c) => c.id === categoryId);
     if (!cat) return;
@@ -878,8 +1160,17 @@ function ExistingStructureEditor({
         sort_order: prev.length,
         applies_to: 'every_year',
         applies_year_of_study: null,
+        ...emptySchedule(),
       },
     ]);
+  };
+
+  const updateItemSchedule = (index: number, schedule: FeeItemScheduleValue) => {
+    setItems((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...schedule };
+      return next;
+    });
   };
 
   const updateItemApplicability = (
@@ -945,16 +1236,55 @@ function ExistingStructureEditor({
       return;
     }
 
+    // Mirror trg_fee_structure_hostel_categories_guard so the operator gets an
+    // inline message rather than a raw Postgres error. Draft/archived hostel
+    // structures may leave the tier unset — only 'active' requires it.
+    if (isHostel && values.status === 'active') {
+      if (!editableHostelCategoryId || !editableMessCategoryId) {
+        toast.error(
+          'Pick a room category and a mess category before activating a hostel fee structure.',
+        );
+        return;
+      }
+    }
+
+    // Mirror afsis_validate_schedule_shape() so a malformed split is reported
+    // against the item that owns it, rather than as a raw FS002 from the
+    // DEFERRED constraint trigger at commit — by which point the operator has
+    // no idea which of a dozen fee items is at fault.
+    const badSchedule = items
+      .map((it) => ({ it, errs: scheduleErrors(it) }))
+      .find((r) => r.errs.length > 0);
+    if (badSchedule) {
+      const name = categoryName(categories, badSchedule.it.billing_category_id);
+      toast.error(`${name}: ${badSchedule.errs[0]}`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       // 1. Update parent fields when changed.
       const nameChanged = values.name !== structure.name;
       const statusChanged = values.status !== structure.status;
+      const nextPackageType =
+        values.package_type === '__any__' ? null : values.package_type;
+      const packageTypeChanged = nextPackageType !== (structure.package_type ?? null);
       const notesChanged = (values.notes ?? '') !== (structure.notes ?? '');
       const effectiveFromChanged =
         (values.effective_from ?? '') !== (structure.effective_from ?? '');
       const effectiveToChanged =
         (values.effective_to ?? '') !== (structure.effective_to ?? '');
+      const dueOffsetChanged =
+        Number(values.default_due_offset_days) !== Number(structure.default_due_offset_days ?? 30);
+      // Cleared only on a RESOLVED negative, so a retarget away from hostel
+      // satisfies the DB guard without an unresolved lookup silently wiping the
+      // tier of a structure that is still hostel.
+      const clearTier = tierReady && !isHostel;
+      const nextHostelCategoryId = clearTier ? null : editableHostelCategoryId;
+      const nextMessCategoryId = clearTier ? null : editableMessCategoryId;
+      const tierChanged =
+        nextHostelCategoryId !== (structure.hostel_category_id ?? null) ||
+        nextMessCategoryId !== (structure.mess_category_id ?? null);
       if (editableCommunityIds.length === 0) {
         toast.error('At least one community must remain on this fee structure.');
         setSubmitting(false);
@@ -962,14 +1292,16 @@ function ExistingStructureEditor({
       }
 
       if (
-        nameChanged || statusChanged || notesChanged ||
-        effectiveFromChanged || effectiveToChanged ||
-        dimsChanged || communitiesChanged
+        nameChanged || statusChanged || packageTypeChanged || notesChanged ||
+        effectiveFromChanged || effectiveToChanged || dueOffsetChanged ||
+        dimsChanged || communitiesChanged || tierChanged
       ) {
         await FeeStructureService.update(structure.id, {
           name: values.name,
           status: values.status,
+          package_type: nextPackageType,
           notes: values.notes || null,
+          default_due_offset_days: values.default_due_offset_days,
           effective_from: values.effective_from || null,
           effective_to: values.effective_to || null,
           // Only send dims when they actually changed; otherwise the update
@@ -983,6 +1315,14 @@ function ExistingStructureEditor({
             admission_year_id: editableDims.admission_year_id!,
             gender: editableDims.gender ?? null,
             accommodation_type_id: editableDims.accommodation_type_id ?? null,
+          } : {}),
+          // Tier must ride along whenever accommodation moves, not only when
+          // the tier itself changed: retargeting TO hostel with the columns
+          // still NULL would be rejected by the guard, and retargeting AWAY
+          // from hostel must clear them in the same statement.
+          ...(tierChanged || dimsChanged ? {
+            hostel_category_id: nextHostelCategoryId,
+            mess_category_id: nextMessCategoryId,
           } : {}),
           // Only send community list when it actually changed — a no-op diff
           // skips the read-back-and-replace round-trip on the junction.
@@ -1005,6 +1345,12 @@ function ExistingStructureEditor({
           applies_to: it.applies_to,
           applies_year_of_study:
             it.applies_to === 'specific_year' ? it.applies_year_of_study : null,
+          schedule_mode: it.schedule_mode,
+          due_anchor: it.due_anchor,
+          due_offset_days: it.due_offset_days,
+          due_date: it.due_date,
+          promotes_to_status_code: it.promotes_to_status_code,
+          schedules: it.schedules,
         })),
       );
 
@@ -1172,6 +1518,44 @@ function ExistingStructureEditor({
 
         <FormField
           control={form.control}
+          name="package_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Package Type</FormLabel>
+              <Select value={field.value} onValueChange={field.onChange}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select package type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="package">Package — consolidated single amount</SelectItem>
+                  <SelectItem value="non_package">Non-Package — itemised fee heads</SelectItem>
+                  <SelectItem value="__any__">Any / Not specified</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Classification for reporting and filtering only — it does not affect
+                which structure a learner resolves to.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {isHostel && (
+          <HostelTierFields
+            roomOptions={roomOptions}
+            messOptions={messOptions}
+            roomValue={editableHostelCategoryId}
+            messValue={editableMessCategoryId}
+            onRoomChange={setEditableHostelCategoryId}
+            onMessChange={setEditableMessCategoryId}
+          />
+        )}
+
+        <FormField
+          control={form.control}
           name="notes"
           render={({ field }) => (
             <FormItem>
@@ -1185,6 +1569,36 @@ function ExistingStructureEditor({
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField
+            control={form.control}
+            name="default_due_offset_days"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Default due date</FormLabel>
+                <FormControl>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={3650}
+                      step={1}
+                      className="w-28"
+                      {...field}
+                      value={field.value ?? 30}
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      days after admission
+                    </span>
+                  </div>
+                </FormControl>
+                <FormDescription>
+                  Applies to every fee item that does not set its own date in
+                  its Schedule panel. 30 is the platform default.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
           <FormField
             control={form.control}
             name="effective_from"
@@ -1254,6 +1668,9 @@ function ExistingStructureEditor({
           onRemove={removeItem}
           onAmountChange={updateItemAmount}
           onApplicabilityChange={updateItemApplicability}
+          onScheduleChange={updateItemSchedule}
+          promotableStatuses={promotableStatuses}
+          defaultDueOffsetDays={DEFAULT_DUE_OFFSET_DAYS}
         />
 
         <div className="flex items-center justify-between border-t pt-3">
@@ -1273,6 +1690,27 @@ function ExistingStructureEditor({
 // ===========================================================================
 // Shared items editor (used by both new + existing forms)
 // ===========================================================================
+/**
+ * Learner statuses a fee-item rule may promote INTO.
+ *
+ * gates_login = true (today: 'active') is filtered out to match decision D3 —
+ * granting a portal login stays a human decision. The database refuses such a
+ * target too, in afsis_validate_status_target(); this filter only keeps the
+ * operator from picking something that would be rejected on save.
+ */
+function usePromotableStatuses(): PromotableStatus[] {
+  const { data } = useAdmissionStatuses('learner', { activeOnly: true });
+  return useMemo(
+    () =>
+      (data ?? [])
+        .filter((s) => !s.gates_login)
+        .slice()
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((s) => ({ code: s.code, label: s.label })),
+    [data],
+  );
+}
+
 function ItemsEditor({
   items,
   categories,
@@ -1281,12 +1719,21 @@ function ItemsEditor({
   onRemove,
   onAmountChange,
   onApplicabilityChange,
+  onScheduleChange,
+  promotableStatuses,
+  defaultDueOffsetDays,
 }: {
   items: ReadonlyArray<{
     billing_category_id?: string;
     amount?: number;
     applies_to?: FeeItemAppliesTo;
     applies_year_of_study?: number | null;
+    schedule_mode?: FeeItemScheduleMode;
+    due_anchor?: FeeItemDueAnchor;
+    due_offset_days?: number | null;
+    due_date?: string | null;
+    promotes_to_status_code?: string | null;
+    schedules?: AdmissionFeeStructureItemSchedule[];
   }>;
   categories: BillingCategory[];
   remainingCategories: BillingCategory[];
@@ -1298,6 +1745,10 @@ function ItemsEditor({
     applies_to: FeeItemAppliesTo,
     applies_year_of_study: number | null,
   ) => void;
+  onScheduleChange: (index: number, schedule: FeeItemScheduleValue) => void;
+  /** Learner statuses an item rule may target — gates_login = true excluded. */
+  promotableStatuses: PromotableStatus[];
+  defaultDueOffsetDays: number;
 }) {
   // Bottom add-row state — picked-but-not-yet-added category + amount.
   // When the category is picked, the amount input pre-fills with the
@@ -1427,6 +1878,21 @@ function ItemsEditor({
                     </div>
                   )}
                 </div>
+
+                <FeeItemScheduleEditor
+                  value={{
+                    schedule_mode: item.schedule_mode ?? 'single',
+                    due_anchor: item.due_anchor ?? 'generation_date',
+                    due_offset_days: item.due_offset_days ?? null,
+                    due_date: item.due_date ?? null,
+                    promotes_to_status_code: item.promotes_to_status_code ?? null,
+                    schedules: item.schedules ?? [],
+                  }}
+                  amount={Number(item.amount) || 0}
+                  defaultOffsetDays={defaultDueOffsetDays}
+                  statuses={promotableStatuses}
+                  onChange={(next) => onScheduleChange(index, next)}
+                />
               </div>
             );
           })}
@@ -1534,6 +2000,138 @@ function CategoryTraitBadges({ category }: { category?: BillingCategory }) {
         </Badge>
       )}
     </>
+  );
+}
+
+// ===========================================================================
+// Hostel tier (room + mess category) — shared by both forms
+// ---------------------------------------------------------------------------
+// The fee structure is the package definition, so the hostel ROOM and MESS
+// tier are declared here rather than reverse-engineered from the total amount
+// via hostel_program_eligibility fee bands (migration 20260910110000).
+//
+// Visible ONLY when the selected accommodation resolves to code 'hostel'.
+// trg_fee_structure_hostel_categories_guard enforces the same rule server-side:
+// categories are rejected on a non-hostel structure and required to activate a
+// hostel one.
+// ===========================================================================
+
+/**
+ * Resolves whether `accommodationTypeId` is the hostel accommodation, plus the
+ * selectable room/mess tiers. Options are de-duplicated by name across the
+ * boys/girls partitions — see LookupService.listHostelRoomCategoryOptions.
+ */
+function useHostelTier(accommodationTypeId: string | null | undefined) {
+  const [hostelTypeId, setHostelTypeId] = useState<string | null>(null);
+  const [roomOptions, setRoomOptions] = useState<HostelTierOption[]>([]);
+  const [messOptions, setMessOptions] = useState<HostelTierOption[]>([]);
+  // Distinguishes "not hostel" from "haven't resolved yet". Without this the
+  // callers' clear-on-not-hostel effects fire on the first render — before the
+  // lookup lands — and wipe the tier of an existing hostel structure.
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      LookupService.listAllActiveAccommodationTypes(),
+      LookupService.listHostelRoomCategoryOptions(),
+      LookupService.listMessCategoryOptions(),
+    ])
+      .then(([accommodations, rooms, messes]) => {
+        if (cancelled) return;
+        setHostelTypeId(
+          accommodations.find((a) => a.code?.toLowerCase() === 'hostel')?.id ?? null,
+        );
+        setRoomOptions(rooms);
+        setMessOptions(messes);
+        setReady(true);
+      })
+      .catch((err) => {
+        // Soft-fail: the pickers stay hidden rather than blocking the form, and
+        // `ready` stays false so nothing clears an already-set tier. The DB
+        // guard still refuses to activate a hostel structure without
+        // categories, so this degrades to a clear error instead of bad data.
+        console.error('[fees-structure-form] hostel tier lookups:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isHostel = !!hostelTypeId && accommodationTypeId === hostelTypeId;
+  return { isHostel, ready, roomOptions, messOptions };
+}
+
+function HostelTierFields({
+  roomOptions,
+  messOptions,
+  roomValue,
+  messValue,
+  onRoomChange,
+  onMessChange,
+  roomError,
+  messError,
+}: {
+  roomOptions: HostelTierOption[];
+  messOptions: HostelTierOption[];
+  roomValue: string | null | undefined;
+  messValue: string | null | undefined;
+  onRoomChange: (id: string) => void;
+  onMessChange: (id: string) => void;
+  roomError?: string;
+  messError?: string;
+}) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-4 space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold">Hostel Categories</h3>
+        <p className="text-xs text-muted-foreground">
+          The room and mess tier this package buys. Both are required before a
+          hostel structure can be activated. Categories apply to both genders —
+          each learner resolves to their own gender&apos;s variant of the tier.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <FormLabel>
+            Room Category <span className="text-red-500">*</span>
+          </FormLabel>
+          <Select value={roomValue ?? ''} onValueChange={onRoomChange}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select room category" />
+            </SelectTrigger>
+            <SelectContent>
+              {roomOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {roomError && <p className="text-xs text-destructive">{roomError}</p>}
+        </div>
+
+        <div className="space-y-1.5">
+          <FormLabel>
+            Mess Category <span className="text-red-500">*</span>
+          </FormLabel>
+          <Select value={messValue ?? ''} onValueChange={onMessChange}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select mess category" />
+            </SelectTrigger>
+            <SelectContent>
+              {messOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {messError && <p className="text-xs text-destructive">{messError}</p>}
+        </div>
+      </div>
+    </div>
   );
 }
 

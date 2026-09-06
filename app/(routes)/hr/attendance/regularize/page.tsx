@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -24,6 +25,14 @@ import { MyRequestsTable } from './_components/my-requests-table';
 export default function RegularizePage() {
   const { can, isSuperAdmin, isLoading: permLoading } = usePermissions();
   const { data: employee, isLoading: empLoading } = useCurrentEmployee();
+  const searchParams = useSearchParams();
+
+  // Arriving from a My Attendance log row, e.g. ?date=2026-07-14. Validated
+  // rather than trusted: the value goes straight into a date input and then
+  // into an insert, and a malformed one would surface as a 22P02 at submit
+  // instead of as an obviously-wrong prefill.
+  const dateParam = searchParams.get('date');
+  const initialDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : undefined;
 
   const canApprove =
     isSuperAdmin ||
@@ -94,7 +103,7 @@ export default function RegularizePage() {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                 New request
               </h2>
-              <RegularizeForm employeeId={employee.id} />
+              <RegularizeForm employeeId={employee.id} initialDate={initialDate} />
             </section>
 
             <section className="space-y-2">

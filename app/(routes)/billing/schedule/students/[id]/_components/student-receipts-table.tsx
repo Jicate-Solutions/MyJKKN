@@ -9,9 +9,10 @@ import {
   RefreshCw,
   Calendar,
   CreditCard,
-  Receipt,
+  ReceiptIndianRupee,
   FileText,
-  Printer
+  Printer,
+  Ban
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,23 +33,51 @@ import {
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
+import { RequestReceiptCancellationDialog } from '@/components/billing/request-receipt-cancellation-dialog';
+import { usePendingCancellations } from '@/hooks/billing/use-receipt-cancellations';
 import type { BillingReceipt } from '@/types/billing-schedule';
 
 interface StudentReceiptsTableProps {
   receipts: BillingReceipt[];
   onRefresh: () => void;
+  /**
+   * True when a learner is viewing their OWN record. Learners reach this page,
+   * so cancellation is gated on the role here and not on the permission alone
+   * — the same belt-and-braces the receipt detail page uses.
+   */
+  isStudentView?: boolean;
 }
 
 export function StudentReceiptsTable({
   receipts,
-  onRefresh
+  onRefresh,
+  isStudentView = false
 }: StudentReceiptsTableProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<
     string | null
   >(null);
+  const [receiptToCancel, setReceiptToCancel] = useState<BillingReceipt | null>(
+    null
+  );
 
   const canViewReceipts = isSuperAdmin || canAccess('billing.receipts', 'view');
+  // Accounts staff settle bills from this page, so this is where a mis-keyed
+  // receipt is noticed. Before 2026-08-25 the only way to act on one was to go
+  // find it again in /billing/receipts.
+  //
+  // The grant itself is held by the Chief Accountant role alone (plus super
+  // admins, who bypass via is_super_admin()); `!isStudentView` is the second
+  // lock, so a learner never sees this even if the key is mis-granted later.
+  const canRequestCancel =
+    !isStudentView &&
+    (isSuperAdmin || canAccess('billing.receipts', 'cancel.request'));
+
+  // A second request is rejected by the RPC ("already awaiting approval"), so
+  // a pending one shows a badge instead of the action.
+  const { data: pendingCancellations = {} } = usePendingCancellations(
+    canRequestCancel ? receipts.map((r) => r.id) : []
+  );
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -157,7 +186,7 @@ export function StudentReceiptsTable({
   if (receipts.length === 0) {
     return (
       <div className='text-center py-12'>
-        <Receipt className='mx-auto h-12 w-12 text-muted-foreground' />
+        <ReceiptIndianRupee className='mx-auto h-12 w-12 text-muted-foreground' />
         <h3 className='mt-4 text-lg font-semibold'>No receipts found</h3>
         <p className='mt-2 text-muted-foreground'>
           This student has no payment receipts yet.
@@ -338,6 +367,31 @@ export function StudentReceiptsTable({
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
+
+                    {canRequestCancel &&
+                      (pendingCancellations[receipt.id] ? (
+                        <Badge variant='secondary' className='whitespace-nowrap'>
+                          Cancellation pending
+                        </Badge>
+                      ) : (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant='ghost'
+                                size='sm'
+                                onClick={() => setReceiptToCancel(receipt)}
+                                className='text-destructive hover:text-destructive'
+                              >
+                                <Ban className='h-4 w-4' />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Request Cancellation</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ))}
                   </div>
                 </TableCell>
               </TableRow>
@@ -345,6 +399,16 @@ export function StudentReceiptsTable({
           </TableBody>
         </Table>
       </div>
+
+      <RequestReceiptCancellationDialog
+        open={!!receiptToCancel}
+        onOpenChange={(open) => {
+          if (!open) setReceiptToCancel(null);
+        }}
+        receiptId={receiptToCancel?.id ?? null}
+        receiptNumber={receiptToCancel?.receipt_number ?? null}
+        onRequested={onRefresh}
+      />
 
       {/* Summary */}
       <div className='flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground'>

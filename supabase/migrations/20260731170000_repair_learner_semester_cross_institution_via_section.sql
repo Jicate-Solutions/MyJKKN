@@ -8,15 +8,21 @@
 -- This migration clears the largest part of that residue with a key that does
 -- not involve names at all.
 --
--- WHY A NAME KEY COULD NEVER WORK HERE: JKKN College of Nursing and Research is
--- the ONLY institution in the group that numbers semesters in ARABIC
--- ('Semester 1'..'Semester 8', 8 rows). Every other college that numbers them
--- uses ROMAN — Arts&Sci Self 115, Engineering 58, Arts&Sci Aided 56,
--- Education 44, Pharmacy 42 — Nursing has zero roman rows. Dental and Allied
--- use year-style ('4 Year'). So a Nursing learner stranded on Pharmacy's
--- 'Semester VIII' has no Nursing row of that name to match: wave one recorded
--- semester_candidates = 0 and skipped it. Dental 'Semester IV' vs its own
--- '4 Year' failed the same way.
+-- WHY A NAME KEY COULD NEVER WORK HERE: the group spells the same ordinal three
+-- different ways. Dental and Allied are year-style ('4 Year'); Arts&Sci
+-- Self/Aided, Engineering, Education and Pharmacy are roman ('Semester IV').
+-- So a Dental BDS learner stranded on Pharmacy's 'Semester IV' has no Dental
+-- row of that name to match: wave one (20260730100923) recorded
+-- semester_candidates = 0 and skipped it. Nursing failed identically at the
+-- time, because it then used ARABIC names ('Semester 1'..'Semester 8').
+--
+-- CORRECTED 2026-08-08 — DO NOT re-derive the old claim from this file:
+-- Nursing's BSC semesters have since been renamed to ROMAN ('Semester I'..
+-- 'Semester VIII', codes BSC-NS-SEM-1..8). There are now ZERO arabic-named
+-- semester rows group-wide. A name key would therefore work for the Nursing
+-- rows today — but still NOT for the 57 Dental BDS rows, whose own programme
+-- names that ordinal '4 Year'. The section-derived key below is unaffected by
+-- any of this: it never reads a name.
 --
 -- HOW IT SURFACED: /billing/coverage — Institution=Nursing, Programme=BSC
 -- (Nursing), Show=Not generated -> 80 learners, every row DISPLAYING
@@ -32,27 +38,35 @@
 -- technique wave two used to recover degree_id from departments.degree_id.
 -- `sections` is semester-scoped, and these learners' section_id already points
 -- at their OWN institution's section, so the section names the right semester.
--- 228 of the 318 broken rows resolve this way:
---   Nursing BSC  'Semester VIII' -> 'Semester 8'   58
---   Nursing BSC  'Semester II'   -> 'Semester 2'   57
---   Nursing BSC  'Semester IV'   -> 'Semester 4'   56
---   Dental BDS   'Semester IV'   -> '4 Year'       57
+-- 228 of the 260 broken rows resolve this way. (It was 228 of 318 when this was
+-- drafted; a separate repair on 2026-08-05 — snapshot
+-- _bak_nursing_sem6_section_repair_20260805 — cleared the 57-row Nursing
+-- '6 Year' cohort plus one stray. The resolvable set itself is unchanged.)
+--   Nursing BSC  'Semester VIII' -> 'Semester VIII'  58
+--   Nursing BSC  'Semester II'   -> 'Semester II'    57
+--   Nursing BSC  'Semester IV'   -> 'Semester IV'    56
+--   Dental BDS   'Semester IV'   -> '4 Year'         57
 --
 -- CORROBORATION: for all 228, the semester NUMBER implied by the foreign row's
 -- name equals the number of the section-derived semester. Two independent
--- signals agree on every row. This check is load-bearing: the wave-three review
--- found 236 rows whose section is the right programme but a DIFFERENT semester,
--- which is most likely legitimate drift (learner promoted, section not moved
--- with them). Trusting the section alone would silently rewrite those. Step 2
--- refuses to run if any row disagrees.
+-- signals agree on every row — 228 agreements, 0 disagreements, re-verified
+-- 2026-08-08. This check is load-bearing: 229 rows group-wide have a section
+-- naming a DIFFERENT semester than the learner holds. 228 of those are these
+-- same corrupted rows (the section is right, the semester is wrong), but 1 is
+-- genuine promotion drift — learner moved on, section did not. Trusting the
+-- section alone would silently rewrite that one. Step 2 refuses to run if any
+-- row disagrees.
 --
--- 90 LEFT UNFIXED ON PURPOSE: no section, a foreign section, or a section whose
--- semester belongs to a different programme. The largest block is Nursing BSC's
--- 57 NB23 learners on Pharmacy PHARMD '6 Year' — their SECTION is Pharmacy's
--- too (the same 57 the wave-three section repair left behind), so there is no
--- ground truth. The batch pattern (NB22->8, NB24->4, NB25->2) implies
--- 'Semester 6', but that is inference, not evidence. Do not bulk-write it
--- without confirmation.
+-- 32 LEFT UNFIXED BY THIS MIGRATION: no section, a foreign section, or a
+-- section whose semester belongs to a different programme. As of 2026-08-08:
+--   21  Arts&Sci (Self) M.COM learners whose program_id ALSO points at
+--       Arts&Sci (Aided). This key cannot see past that — it searches within
+--       (learner institution, learner program_id) and the programme itself is
+--       foreign, so the scope is empty. Handled in 20260808110000, which must
+--       repair program_id FIRST.
+--    9  no usable section; recoverable only from the name's ordinal
+--       (20260808120000).
+--    2  no valid target at all (20260808130000).
 
 -- ---------------------------------------------------------------------------
 -- 1. Snapshot: old + new for every cross-institution row, resolvable or not.

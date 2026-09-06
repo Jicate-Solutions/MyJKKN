@@ -15,7 +15,6 @@ import {
   User,
   Calendar,
   MapPin,
-  Phone,
   QrCode,
   Clock,
   CheckCircle2,
@@ -29,6 +28,8 @@ import {
 
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'; color: string }> = {
+  requested: { label: 'Pending Approval', variant: 'outline', color: 'text-yellow-600' },
+  rejected: { label: 'Rejected', variant: 'destructive', color: 'text-red-600' },
   issued: { label: 'Issued', variant: 'outline', color: 'text-gray-600' },
   active: { label: 'Active - Out', variant: 'default', color: 'text-blue-600' },
   returned: { label: 'Returned', variant: 'success', color: 'text-green-600' },
@@ -51,6 +52,74 @@ const timelineIcons: Record<string, React.ReactNode> = {
   notified: <Bell className="h-4 w-4 text-amber-600" />,
   overdue: <AlertTriangle className="h-4 w-4 text-red-600" />,
 };
+
+function formatMoment(value: string | null | undefined) {
+  if (!value) return '--';
+  const parsed = new Date(String(value).replace(' ', 'T'));
+  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('en-IN');
+}
+
+/**
+ * Build the activity list from the row's own timestamps.
+ *
+ * This page used to render `pass.timeline`, which no query on this table has
+ * ever produced — GatePassService.getGatePass selects `*` plus the leave
+ * request, and `timeline` is not a column. On the first real row the page
+ * would have thrown on `.map` of undefined; it survived only because
+ * hostel_gate_passes held zero rows.
+ *
+ * Only events that carry a real timestamp are listed. Approval and rejection
+ * have no timestamp column of their own (approved_by / rejected_by record WHO,
+ * not WHEN), so they are deliberately absent rather than dated from updated_at,
+ * which the row's trigger moves on every write.
+ */
+function buildTimeline(pass: {
+  created_at?: string | null;
+  out_time?: string | null;
+  actual_return?: string | null;
+  expected_return?: string | null;
+  reason?: string | null;
+  gate_security_out?: string | null;
+  gate_security_in?: string | null;
+}) {
+  const events: { icon: string; event: string; time: string; by: string }[] = [];
+
+  if (pass.created_at) {
+    events.push({
+      icon: 'issued',
+      // Only the request path writes a reason, so its presence is what
+      // distinguishes "a learner asked for this" from "a warden issued it".
+      event: pass.reason ? 'Request raised' : 'Pass created',
+      time: formatMoment(pass.created_at),
+      by: pass.reason ? 'Learner' : 'Hostel office',
+    });
+  }
+  if (pass.out_time) {
+    events.push({
+      icon: 'exit',
+      event: 'Left campus',
+      time: formatMoment(pass.out_time),
+      by: pass.gate_security_out ? 'Gate security' : 'Not recorded',
+    });
+  }
+  if (pass.actual_return) {
+    events.push({
+      icon: 'entry',
+      event: 'Returned to campus',
+      time: formatMoment(pass.actual_return),
+      by: pass.gate_security_in ? 'Gate security' : 'Not recorded',
+    });
+  } else if (pass.expected_return && new Date(String(pass.expected_return).replace(' ', 'T')) < new Date()) {
+    events.push({
+      icon: 'overdue',
+      event: 'Overdue — expected back',
+      time: formatMoment(pass.expected_return),
+      by: 'System',
+    });
+  }
+
+  return events;
+}
 
 export default function GatePassDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -79,9 +148,15 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
 
   const sCfg = statusConfig[pass.status] ?? { label: pass.status, variant: 'outline' as const, color: '' };
 
+  // A pass that has only been requested has no number yet — pass_number is
+  // nullable from 20260907020000 onwards, so every read of it needs a fallback.
+  const passLabel = pass.pass_number ?? 'Gate Pass Request';
+  const learnerName = pass.learner?.full_name ?? 'Unknown learner';
+  const timeline = buildTimeline(pass);
+
   // Calculate time remaining / overdue
   const now = new Date();
-  const expectedReturn = new Date(pass.expected_return.replace(' ', 'T'));
+  const expectedReturn = new Date(String(pass.expected_return ?? '').replace(' ', 'T'));
   const isOverdue = !pass.actual_return && now > expectedReturn;
   const timeDiff = Math.abs(expectedReturn.getTime() - now.getTime());
   const hoursRemaining = Math.floor(timeDiff / (1000 * 60 * 60));
@@ -94,7 +169,7 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'Gate Passes', href: '/campus-living/gate-passes' },
-          { label: pass.pass_number },
+          { label: passLabel },
         ]}
       />
 
@@ -109,12 +184,13 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
             </Button>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold">{pass.pass_number}</h1>
+                <h1 className="text-2xl font-bold">{passLabel}</h1>
                 <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
-                <Badge variant="outline">{passTypeLabels[pass.pass_type]}</Badge>
+                <Badge variant="outline">{passTypeLabels[pass.pass_type] ?? pass.pass_type}</Badge>
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                {pass.student.name} &middot; {pass.student.roll_number}
+                {learnerName}
+                {pass.learner?.email ? ` · ${pass.learner.email}` : ''}
               </p>
             </div>
           </div>
@@ -187,7 +263,7 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <div className="text-sm">
                     <p className="text-muted-foreground">Approved By</p>
-                    <p className="font-medium">{pass.approved_by}</p>
+                    <p className="font-medium">{pass.approved_by ?? 'Awaiting approval'}</p>
                   </div>
                   <div className="text-sm">
                     <p className="text-muted-foreground">Security (Exit)</p>
@@ -214,13 +290,13 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {pass.timeline.map((event, idx) => (
+                  {timeline.map((event, idx) => (
                     <div key={idx} className="flex items-start gap-4">
                       <div className="flex flex-col items-center">
                         <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
                           {timelineIcons[event.icon] ?? <Clock className="h-4 w-4" />}
                         </div>
-                        {idx < pass.timeline.length - 1 && (
+                        {idx < timeline.length - 1 && (
                           <div className="w-0.5 h-6 bg-muted" />
                         )}
                       </div>
@@ -267,7 +343,7 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
                   <div className="text-center">
                     <QrCode className="h-16 w-16 text-muted-foreground mx-auto mb-2" />
                     <p className="text-xs text-muted-foreground">QR Code</p>
-                    <p className="text-xs font-mono mt-1">{pass.pass_number}</p>
+                    <p className="text-xs font-mono mt-1">{pass.pass_number ?? 'Not issued yet'}</p>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-3 text-center">
@@ -276,37 +352,39 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
               </CardContent>
             </Card>
 
-            {/* Student Info */}
+            {/* Learner Info — from the profiles embed on getGatePass.
+                Roll number, department, block and room used to be rendered off
+                a nested object that no query on this table produces. They are
+                left out rather than invented: this row's only link to a person
+                is learner_id → profiles. */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <User className="h-5 w-5" />
-                  Student
+                  Learner
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <div>
                   <p className="text-muted-foreground">Name</p>
-                  <p className="font-medium">{pass.student.name}</p>
+                  <p className="font-medium">{learnerName}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Roll Number</p>
-                  <p className="font-medium">{pass.student.roll_number}</p>
+                  <p className="text-muted-foreground">Email</p>
+                  <p className="font-medium break-all">{pass.learner?.email ?? 'Not recorded'}</p>
                 </div>
-                <div>
-                  <p className="text-muted-foreground">Department</p>
-                  <p className="font-medium">{pass.student.department}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Hostel</p>
-                  <p className="font-medium">{pass.student.block}, Room {pass.student.room}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Phone</p>
-                  <p className="font-medium flex items-center gap-1">
-                    <Phone className="h-3 w-3" /> {pass.student.phone}
-                  </p>
-                </div>
+                {pass.reason && (
+                  <div>
+                    <p className="text-muted-foreground">Reason given</p>
+                    <p className="font-medium">{pass.reason}</p>
+                  </div>
+                )}
+                {pass.rejection_reason && (
+                  <div>
+                    <p className="text-muted-foreground">Rejected because</p>
+                    <p className="font-medium text-red-600">{pass.rejection_reason}</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

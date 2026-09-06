@@ -42,8 +42,14 @@ export function CoursesExportButton({
       'Exam Duration (Hrs)': c.exam_duration ?? '',
       'Theory Hours': c.theory_hours ?? '',
       'Practical Hours': c.practical_hours ?? '',
-      'Internal Max Mark': c.internal_max_mark ?? '',
-      'External Max Mark': c.external_max_mark ?? '',
+      // Emit the CONVERTED marks under these headers, because the import dialog
+      // reads them back into the converted pair — exporting the question-paper
+      // ceiling here would make an export → re-import round trip file the ESE's
+      // 100-mark ceiling as its 50-mark weightage. Falls back to the ceiling for
+      // legacy rows whose converted columns were never populated (COE's mapper
+      // reports those as 0, so 0 means "unset" rather than a real value).
+      'Internal Max Mark': (c.internal_converted_mark || c.internal_max_mark) ?? '',
+      'External Max Mark': (c.external_converted_mark || c.external_max_mark) ?? '',
       'Total Max Mark': c.total_max_mark ?? '',
       'Active': (c.is_active ?? c.status) ? 'Yes' : 'No',
     }));

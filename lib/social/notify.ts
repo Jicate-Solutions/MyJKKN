@@ -34,6 +34,14 @@ export interface DeliverInAppOptions {
   category: string;
   /** stable per-event key for dedup (unique across the notifications table) */
   idempotencyKey: string;
+  /**
+   * ISO timestamp after which the bell drops the card (notifications.expires_at).
+   * Recurring editions (weekly digests/alarms) should set this to just past the
+   * next edition, per the 2026-08-10 notification-expiry ruling — an unexpired
+   * weekly card outlives its usefulness and floods the unread count. Omitted =
+   * NULL = never expires (one-off items).
+   */
+  expiresAt?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -80,6 +88,7 @@ export async function deliverInApp(
         // announcements page while the dashboard bell/inbox still surfaces them.
         kind: 'work_item',
         idempotency_key: opts.idempotencyKey,
+        expires_at: opts.expiresAt ?? null,
         metadata: opts.metadata ?? {},
       })
       .select('id')

@@ -52,7 +52,6 @@ describe('claimUniqueValues', () => {
     categoriesByName: new Map(),
     institutionsByName: new Map(),
     emailOwner: new Map<string, string>(),
-    staffIdOwner: new Map<string, string>(),
     biometricOwner: new Map<string, string>()
   }) as any;
 
@@ -69,12 +68,6 @@ describe('claimUniqueValues', () => {
     const c = ctx();
     claimUniqueValues(c, staff('s1'), { email: 'New@JKKN.ac.in' });
     expect(c.emailOwner.get('new@jkkn.ac.in')).toBe('s1');
-  });
-
-  it('claims a new staff id case-insensitively', () => {
-    const c = ctx();
-    claimUniqueValues(c, staff('s1'), { staff_id: 'COP900' });
-    expect(c.staffIdOwner.get('cop900')).toBe('s1');
   });
 
   it('claims a biometric code normalised, against the new machine', () => {
@@ -99,7 +92,6 @@ describe('claimUniqueValues', () => {
     const c = ctx();
     claimUniqueValues(c, staff('s1'), { phone: '9000000001' });
     expect(c.emailOwner.size).toBe(0);
-    expect(c.staffIdOwner.size).toBe(0);
     expect(c.biometricOwner.size).toBe(0);
   });
 });

@@ -100,8 +100,10 @@ REVOKE/GRANT). Also add the filename to `supabase/SQL_FILE_INDEX.md`.
 
 ## 4. Manual test steps
 
-Prereq: log in (e.g. `test.superadmin@jkkn.ac.in` / `Test@1234` at
-`/auth/test-login`) and ensure the migration has been applied.
+Prereq: log in (e.g. `test.superadmin@jkkn.ac.in` / the password from
+`NEXT_PUBLIC_TEST_PASSWORD` in `.env.local` — set by whoever owns the
+credential, and rotated periodically — at `/auth/test-login`) and ensure the
+migration has been applied.
 
 1. Navigate to `/meetings/analytics`.
 2. **Super-admin / admin:** page loads, header says "across all hosts", metric

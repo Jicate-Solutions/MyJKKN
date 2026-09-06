@@ -273,8 +273,13 @@ export function CoursesImportDialog({
             credit: num(row['Credits']),
             theory_hours: num(row['Theory Hours']),
             practical_hours: num(row['Practical Hours']),
-            internal_max_mark: num(row['Internal Max Mark']),
-            external_max_mark: num(row['External Max Mark']),
+            // The template's "Max Mark" columns carry the CIA/ESE WEIGHTAGE, so
+            // they feed the converted pair — the pair the form edits, the one
+            // Zod now requires, and the one total_max_mark derives from.
+            // toCoeCreatePayload seeds the question-paper ceilings to the same
+            // values on create, so a bulk import stays internally consistent.
+            internal_converted_mark: num(row['Internal Max Mark']),
+            external_converted_mark: num(row['External Max Mark']),
             total_max_mark:
               Number(num(row['Internal Max Mark']) ?? 0) +
               Number(num(row['External Max Mark']) ?? 0),

@@ -99,6 +99,15 @@ export interface CreateReservationDto {
   session_id?: string;
   /** Resource-bundle this booking belongs to (resource_reservations.bundle_id). */
   bundle_id?: string;
+  /**
+   * The COURSE session this booking is for (resource_reservations.course_session_id).
+   * Added 2026-08-17 for Course Events Phase 2c. Note this is a different table
+   * from `session_id` above, which points at event sessions — and
+   * resource_reservations_single_owner_check is
+   * `num_nonnulls(event_id, session_id, course_session_id) <= 1`, so a course
+   * hold must set THIS and neither of the other two.
+   */
+  course_session_id?: string;
   /** Human label for the slot (resource_reservations.session_label). */
   session_label?: string;
   /**

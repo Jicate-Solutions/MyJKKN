@@ -149,6 +149,12 @@ export function SessionPollPresenter({ pollId, sessionTitle, questionOrder, init
   const total = questionOrder.length;
   const byId = useMemo(() => new Map((totals?.questions ?? []).map((q) => [q.id, q])), [totals]);
   const current = currentQid ? byId.get(currentQid) : undefined;
+  // The learner RPCs drop a poll whose auto_close_at has passed, so a status of
+  // 'open' alone doesn't mean the hall can answer. Never project "LIVE" over a poll
+  // nobody can reach. No extra timer needed: the totals refetch below re-renders us
+  // every REFRESH_MS, which is what flips this. Recovery lives in the coordinator
+  // dialog ("Reopen live"), so this only has to stop lying.
+  const paused = !!totals?.auto_close_at && new Date(totals.auto_close_at).getTime() <= Date.now();
 
   const refresh = useCallback(async () => {
     try { setTotals(await InductionPollService.getTotals(pollId)); } catch { /* keep last */ }
@@ -203,11 +209,20 @@ export function SessionPollPresenter({ pollId, sessionTitle, questionOrder, init
         {/* header */}
         <div className="flex items-center gap-3 border-b border-white/10 px-5 py-3 pr-14">
           <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75 motion-reduce:animate-none" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+            {!paused && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75 motion-reduce:animate-none" />
+            )}
+            <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${paused ? 'bg-amber-400' : 'bg-red-500'}`} />
           </span>
-          <span className="text-sm font-semibold uppercase tracking-widest text-red-300">Live</span>
+          <span className={`text-sm font-semibold uppercase tracking-widest ${paused ? 'text-amber-300' : 'text-red-300'}`}>
+            {paused ? 'Paused' : 'Live'}
+          </span>
           <span className="truncate text-sm text-slate-300">{sessionTitle}</span>
+          {paused && (
+            <span className="hidden truncate text-xs text-amber-200/80 sm:inline">
+              Auto-closed — freshers can&apos;t answer until you reopen it
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-4">
             {totals && (
               <span className="flex items-center gap-1.5 text-sm text-slate-300">

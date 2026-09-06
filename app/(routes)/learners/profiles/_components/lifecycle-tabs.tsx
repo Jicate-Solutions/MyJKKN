@@ -38,9 +38,16 @@ export function LifecycleTabs({ value }: { value: string }) {
 
   return (
     <Tabs value={value} onValueChange={handleChange} className='w-full'>
-      <TabsList>
+      {/* Six tabs overflow a phone viewport, so the strip scrolls horizontally
+          on small screens rather than squashing the labels. */}
+      <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:w-auto sm:gap-0'>
         {LIFECYCLE_TABS.map((tab) => (
-          <TabsTrigger key={tab.value} value={tab.value} disabled={isPending}>
+          <TabsTrigger
+            key={tab.value}
+            value={tab.value}
+            disabled={isPending}
+            className='shrink-0'
+          >
             {tab.label}
           </TabsTrigger>
         ))}

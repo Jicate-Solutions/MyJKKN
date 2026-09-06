@@ -49,18 +49,27 @@ const KINDS = Object.keys(COLLABORATION_KIND_LABELS) as CollaborationKind[];
 const STATUSES = Object.keys(COLLABORATION_STATUS_LABELS) as CollaborationStatus[];
 
 function CollaborationFormDialog({
-  open, onOpenChange, mode, entity, institutionId,
+  open, onOpenChange, mode, entity, institutionId, jkknColleges,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   mode: 'create' | 'edit';
   entity?: CollaborationRow;
   institutionId: string;
+  /** The JKKN colleges offerable as the other signatory. Never includes the
+   *  filing college — a college cannot sign an agreement with itself. */
+  jkknColleges: IqacInstitution[];
 }) {
   const qc = useQueryClient();
   const [kind, setKind] = useState<CollaborationKind>(entity?.kind ?? 'mou');
   const [title, setTitle] = useState(entity?.title ?? '');
   const [partnerName, setPartnerName] = useState(entity?.partner_name ?? '');
+  // 'none' is an external partner — an outside university, funder or company,
+  // which has no row in `institutions` and is named in free text exactly as
+  // before. Picking a college is purely additive to that path.
+  const [partnerInstId, setPartnerInstId] = useState<string>(
+    entity?.partner_institution_id ?? 'none'
+  );
   const [scope, setScope] = useState<'none' | CollaborationScope>(entity?.scope ?? 'none');
   const [signedOn, setSignedOn] = useState(entity?.signed_on ?? '');
   const [validTill, setValidTill] = useState(entity?.valid_till ?? '');
@@ -71,6 +80,21 @@ function CollaborationFormDialog({
   const [documentUrl, setDocumentUrl] = useState(entity?.document_url ?? '');
   const [notes, setNotes] = useState(entity?.notes ?? '');
   const [submitting, setSubmitting] = useState(false);
+
+  const partnerOptions = useMemo(
+    () => jkknColleges.filter((c) => c.id !== institutionId),
+    [jkknColleges, institutionId]
+  );
+
+  // The name follows the college, so `partner_name` never disagrees with
+  // `partner_institution_id`. The free-text box is locked while a college is
+  // chosen for the same reason — two fields naming two different partners is a
+  // record that lies about who signed.
+  const handlePartnerCollegeChange = (value: string) => {
+    setPartnerInstId(value);
+    const picked = partnerOptions.find((c) => c.id === value);
+    if (picked) setPartnerName(picked.name);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,6 +113,7 @@ function CollaborationFormDialog({
       institution_id: institutionId,
       title: title.trim(),
       partner_name: partnerName.trim(),
+      partner_institution_id: partnerInstId === 'none' ? null : partnerInstId,
       scope: scope === 'none' ? null : scope,
       signed_on: signedOn,
       valid_till: validTill || null,
@@ -161,10 +186,34 @@ function CollaborationFormDialog({
             <Input value={title} onChange={e => setTitle(e.target.value)} maxLength={300}
               placeholder="e.g. MoU with XYZ Industries for internships & research" />
           </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <Label>A JKKN college</Label>
+              <Select value={partnerInstId} onValueChange={handlePartnerCollegeChange}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not a JKKN college</SelectItem>
+                  {partnerOptions.map(c => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} ({c.iqac_code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                {partnerInstId === 'none'
+                  ? 'Optional. Leave this for an outside university, funder or company.'
+                  : 'Both colleges will see this record and can maintain it.'}
+              </p>
+            </div>
             <div>
               <Label>Partner / funder *</Label>
-              <Input value={partnerName} onChange={e => setPartnerName(e.target.value)} maxLength={200} />
+              <Input
+                value={partnerName}
+                onChange={e => setPartnerName(e.target.value)}
+                maxLength={200}
+                disabled={partnerInstId !== 'none'}
+              />
             </div>
             <div>
               <Label>Scope</Label>
@@ -256,10 +305,14 @@ export default function CollaborationsRegisterPage() {
 
   const canManage = isSuperAdmin || canAccess('accreditation.collaborations', 'manage');
 
+  // Needed by TWO pickers now: the super admin's "which institution am I
+  // filing for", and the form's optional "the other signatory is a JKKN
+  // college". The second is available to anyone who can file a record, so the
+  // read can no longer be limited to super admins.
   const { data: pickableInstitutions = [] } = useQuery({
     queryKey: ['institution-collaborations', 'iqac-institutions'],
     queryFn: fetchIqacInstitutions,
-    enabled: isSuperAdmin,
+    enabled: canManage,
   });
 
   const [pickedInstId, setPickedInstId] = useState<string>('');
@@ -294,10 +347,32 @@ export default function CollaborationsRegisterPage() {
           {row.original.scope === 'international' && (
             <Badge className="text-[10px]">international</Badge>
           )}
+          {/* One agreement, one record, both signatories — so a row filed by
+              the OTHER college appears here too, and has to say so. Without
+              this it reads as a record of this college's own that names this
+              college as its partner. */}
+          {row.original.institution_id !== effectiveInstitutionId && (
+            <Badge variant="secondary" className="text-[10px]">
+              filed by the partner college
+            </Badge>
+          )}
         </div>
       ),
     },
-    { accessorKey: 'partner_name', header: 'Partner / funder' },
+    {
+      accessorKey: 'partner_name',
+      header: 'Partner / funder',
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <span>{row.original.partner_name}</span>
+          {row.original.partner_institution_id && (
+            <Badge variant="outline" className="text-[10px]">
+              JKKN college
+            </Badge>
+          )}
+        </div>
+      ),
+    },
     { accessorKey: 'signed_on', header: 'Signed on' },
     { accessorKey: 'valid_till', header: 'Valid till' },
     {
@@ -332,7 +407,10 @@ export default function CollaborationsRegisterPage() {
               entity={row.original}
               entityLabel="record"
               entityDisplayName={(e) => e.title}
-              canDelete={() => canManage}
+              // Editing a shared record is open to both signatories; deleting
+              // the other college's record is not (ic_delete was deliberately
+              // not widened). Hidden rather than offered-and-refused.
+              canDelete={(e) => canManage && e.institution_id === effectiveInstitutionId}
               onDelete={async (id) => {
                 await CollaborationService.delete(id);
                 qc.invalidateQueries({ queryKey: ['institution-collaborations', effectiveInstitutionId] });
@@ -344,6 +422,7 @@ export default function CollaborationsRegisterPage() {
                   mode="edit"
                   entity={entity}
                   institutionId={effectiveInstitutionId}
+                  jkknColleges={pickableInstitutions}
                 />
               )}
             />
@@ -368,10 +447,12 @@ export default function CollaborationsRegisterPage() {
               <div>
                 <CardTitle className="text-lg">MoU & Grants Register</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Institution-scoped register of MoUs, external grants and industry
-                  collaborations. Saved records automatically become accreditation
-                  evidence — MoUs and industry collaborations feed NAAC 7.9, grants
-                  feed NAAC 9.1. Drafts stay out of evidence until activated.
+                  Register of MoUs, external grants and industry collaborations
+                  this institution is a party to — the ones it filed, and the
+                  ones another JKKN college filed naming it as the partner.
+                  Saved records automatically become accreditation evidence —
+                  MoUs and industry collaborations feed NAAC 7.9, grants feed
+                  NAAC 9.1. Drafts stay out of evidence until activated.
                 </p>
               </div>
               <div className="flex items-end gap-2">
@@ -426,6 +507,7 @@ export default function CollaborationsRegisterPage() {
           onOpenChange={setShowCreate}
           mode="create"
           institutionId={effectiveInstitutionId}
+          jkknColleges={pickableInstitutions}
         />
       </ContentLayout>
     </PermissionGuard>

@@ -34,6 +34,33 @@ export const STUDENT_BILL_TEMPLATE_HEADERS = [
 export type StudentBillTemplateHeader = (typeof STUDENT_BILL_TEMPLATE_HEADERS)[number];
 
 /**
+ * Earliest academic year offered in the billing template dropdowns.
+ *
+ * Bills are not raised against cohorts that finished long ago, and every extra
+ * entry makes the picker harder to scan. The floor is presentational only —
+ * the importer still resolves any year the table holds, so a sheet typed by
+ * hand with an older year is unaffected.
+ */
+export const MIN_ACADEMIC_YEAR_START = 2020;
+
+/**
+ * Drops academic year names starting before {@link MIN_ACADEMIC_YEAR_START},
+ * newest first. Shared by the bulk-create and bulk-edit template routes so the
+ * two pickers can never drift apart.
+ *
+ * A name that does not start with four digits is KEPT: the floor is there to
+ * hide known-old cohorts, not to swallow a name it merely failed to parse.
+ */
+export function filterBillableAcademicYears(names: string[]): string[] {
+  return Array.from(new Set(names.map((n) => String(n ?? '').trim()).filter(Boolean)))
+    .filter((name) => {
+      const startYear = Number(name.match(/^(\d{4})/)?.[1]);
+      return Number.isNaN(startYear) || startYear >= MIN_ACADEMIC_YEAR_START;
+    })
+    .sort((a, b) => b.localeCompare(a));
+}
+
+/**
  * Canonical field -> accepted header spellings, matched case/space-insensitively.
  *
  * The importer resolves columns through THIS map rather than by position.

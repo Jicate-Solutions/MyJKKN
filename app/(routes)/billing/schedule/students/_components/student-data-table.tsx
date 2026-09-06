@@ -2,11 +2,12 @@
 
 import * as React from 'react';
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './student-columns';
+import { getStudentColumns } from './student-columns';
+import { QuickBillDialog } from './quick-bill-dialog';
 import type { StudentBillingSearchParams } from './student-data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, Users, FileText } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { StudentSearchService } from '@/lib/services/billing/schedule/student-search-service';
 import { StudentForBilling } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -19,6 +20,7 @@ interface StudentDataTableProps {
 
 export function StudentDataTable({ search }: StudentDataTableProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     canAccess,
     isSuperAdmin,
@@ -39,6 +41,33 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
     (canAccess('billing.schedule', 'create') &&
       canAccess('billing.schedule', 'bulk_create'));
 
+  // Student popup state. Holds the ROW OBJECT, not an id — the row already
+  // carries everything the bill form and the popup header need, so opening it
+  // costs zero network calls. `tab` decides which face opens: read the
+  // existing bills, or raise a new one.
+  const [popup, setPopup] = React.useState<{
+    student: StudentForBilling;
+    tab: 'new' | 'bills';
+  } | null>(null);
+
+  // Defaults to 'bills' — the first tab, and the "what do they already owe"
+  // question the old detail-page redirect answered. Callers with explicit
+  // billing intent (the Bill button, a barcode scan) pass 'new'.
+  const openStudentPopup = React.useCallback(
+    (student: StudentForBilling, tab: 'new' | 'bills' = 'bills') =>
+      setPopup({ student, tab }),
+    []
+  );
+
+  // Which scanned term already auto-opened its popup (see fetchData below).
+  const autoOpenedTermRef = React.useRef<string | null>(null);
+
+  // DataTable's fetchDataFn path bypasses React Query, so invalidateQueries
+  // cannot refresh this list. Bumping refetchKey is the table's own hook for
+  // "re-run the fetch" — used after a bill is created so the Outstanding
+  // column reflects it immediately.
+  const [refetchKey, setRefetchKey] = React.useState(0);
+
   // Check if we have meaningful search criteria (now optional - allows viewing all students)
   const hasSearchCriteria = React.useMemo(() => {
     return !!(
@@ -50,9 +79,11 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       search.semester_id ||
       search.section_id ||
       search.accommodation_type ||
+      search.q ||
       search.first_name ||
       search.last_name ||
       search.roll_number ||
+      search.register_number ||
       search.mobile_number
     );
   }, [search]);
@@ -72,15 +103,25 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
         const filters = {
           page: params.page,
           limit: params.limit,
-          first_name: params.search || search.first_name || undefined,
+          // The DataTable's own search box and the page's unified box feed the
+          // same multi-column `query`. It used to be routed into `first_name`
+          // only, so typing a roll number into the table search found nothing.
+          query: params.search || search.q || undefined,
+          first_name: search.first_name || undefined,
           last_name: search.last_name || undefined,
           roll_number: search.roll_number || undefined,
+          register_number: search.register_number || undefined,
           mobile_number: search.mobile_number || undefined,
           institution_id:
             search.institution_id ||
             (!isSuperAdmin && userProfile?.institution_id
               ? userProfile.institution_id
               : undefined),
+          // Hard-scope this list to COLLEGE learners. The institution dropdown
+          // already offers only entity_type='institution', but with "All
+          // institutions" selected there is no institution_id to narrow on,
+          // so school / office learners would otherwise appear here.
+          institution_entity_type: 'institution' as const,
           academic_year_id: search.academic_year_id || undefined,
           degree_id: search.degree_id || undefined,
           department_id: search.department_id || undefined,
@@ -93,6 +134,31 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
 
         const { data, metadata } =
           await StudentSearchService.searchStudentsForBilling(filters);
+
+        // Zero-click path: a barcode scan identifies exactly one learner, so
+        // open their bill popup as soon as the result lands. Guarded four
+        // ways — only for a scan (search.scan==='1', never a typed search),
+        // only on page 1, only when the result is unambiguous, and only once
+        // per scanned term, so closing the popup does not reopen it.
+        if (
+          search.scan === '1' &&
+          params.page === 1 &&
+          data?.length === 1 &&
+          autoOpenedTermRef.current !== search.q
+        ) {
+          autoOpenedTermRef.current = search.q ?? null;
+          const onlyMatch = data[0];
+          // Lands on Existing Bills like every other automatic open: the scan
+          // says WHO, not what to do with them, and reading the dues before
+          // raising another bill is what stops duplicate bills for the same
+          // fee. Only the explicit Bill button jumps straight to the form.
+          // Deferred: this runs inside the table's fetch, and setting state
+          // synchronously there would update a component mid-render.
+          setTimeout(
+            () => setPopup({ student: onlyMatch, tab: 'bills' }),
+            0
+          );
+        }
 
         return {
           success: true,
@@ -110,9 +176,12 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       }
     },
     [
+      search.q,
+      search.scan,
       search.first_name,
       search.last_name,
       search.roll_number,
+      search.register_number,
       search.mobile_number,
       search.institution_id,
       search.academic_year_id,
@@ -124,7 +193,11 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       search.accommodation_type,
       search.is_profile_complete,
       isSuperAdmin,
-      userProfile?.institution_id
+      // `userProfile`, not `userProfile?.institution_id`: React Compiler
+      // infers the whole object as the dependency and refuses to preserve the
+      // memo when the written dep is narrower, which silently opts this
+      // callback out of compilation.
+      userProfile
     ]
   );
 
@@ -162,6 +235,31 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
     },
     [router]
   );
+
+  // The search this table is currently showing, filters and page included.
+  // Threaded into each name link as `?returnTo=` so the detail page can send
+  // the operator back to these exact results — same contract as
+  // /billing/onboarding and /billing/transport.
+  const returnToUrl = React.useMemo(() => {
+    const qs = searchParams.toString();
+    return `/billing/schedule/students${qs ? `?${qs}` : ''}`;
+  }, [searchParams]);
+
+  // Memoized so the table does not rebuild every column on each render (which
+  // would reset column resizing and re-mount every cell).
+  const tableColumns = React.useMemo(
+    () =>
+      getStudentColumns({
+        onQuickBill: openStudentPopup,
+        canCreateBills,
+        returnToUrl
+      }),
+    [canCreateBills, openStudentPopup, returnToUrl]
+  );
+
+  const getColumns = React.useCallback(() => tableColumns as any, [
+    tableColumns
+  ]);
 
   const renderCustomToolbar = React.useCallback(
     (props: {
@@ -240,46 +338,75 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
   // Note: We removed the early return here to allow viewing all students without filters
 
   return (
+    <>
     <DataTable
       fetchDataFn={fetchData}
-      getColumns={() => columns as any}
+      getColumns={getColumns}
+      refetchKey={refetchKey}
       exportConfig={{
         entityName: 'students-for-billing',
+        // `headers` are DATA KEYS; columnMapping supplies the heading. This
+        // config previously declared the LABELS as headers (and dotted paths
+        // like 'institution.name' as mapping keys, which the export does not
+        // resolve either), so nothing matched and the download opened blank.
+        // transformFunction flattens the relations into the keys below.
         columnMapping: {
           roll_number: 'Roll Number',
+          register_number: 'Register Number',
           first_name: 'First Name',
           last_name: 'Last Name',
           father_name: 'Father Name',
-          'institution.name': 'Institution',
-          'department.department_name': 'Department',
-          'program.program_name': 'Program',
-          'semester.semester_name': 'Semester',
+          institution_name: 'Institution',
+          department_name: 'Department',
+          program_name: 'Program',
+          semester_name: 'Semester',
           outstanding_amount: 'Outstanding Amount',
           mobile_number: 'Mobile Number',
           college_email: 'College Email'
         },
         columnWidths: [
           { wch: 15 }, // Roll Number
+          { wch: 18 }, // Register Number
           { wch: 15 }, // First Name
           { wch: 15 }, // Last Name
           { wch: 20 }, // Father Name
-          { wch: 30 }, // Institution & Department
-          { wch: 25 }, // Program & Semester
+          { wch: 30 }, // Institution
+          { wch: 25 }, // Department
+          { wch: 25 }, // Program
+          { wch: 15 }, // Semester
           { wch: 18 }, // Outstanding Amount
           { wch: 15 }, // Mobile Number
           { wch: 25 } // College Email
         ],
         headers: [
-          'Roll Number',
-          'First Name',
-          'Last Name',
-          'Father Name',
-          'Institution & Department',
-          'Program & Semester',
-          'Outstanding Amount',
-          'Mobile Number',
-          'College Email'
-        ]
+          'roll_number',
+          'register_number',
+          'first_name',
+          'last_name',
+          'father_name',
+          'institution_name',
+          'department_name',
+          'program_name',
+          'semester_name',
+          'outstanding_amount',
+          'mobile_number',
+          'college_email'
+        ],
+        transformFunction: ((row: StudentForBilling) => ({
+          roll_number: row.roll_number ?? '',
+          register_number: row.register_number ?? '',
+          first_name: row.first_name ?? '',
+          last_name: row.last_name ?? '',
+          father_name: row.father_name ?? '',
+          institution_name: row.institution?.name ?? '',
+          department_name: row.department?.department_name ?? '',
+          program_name: row.program?.program_name ?? '',
+          semester_name: row.semester?.semester_name ?? '',
+          outstanding_amount: row.outstanding_amount ?? 0,
+          mobile_number: row.mobile_number ?? '',
+          college_email: row.college_email ?? ''
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        })) as any
       }}
       idField='id'
       config={{
@@ -295,5 +422,25 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       }}
       renderToolbarContent={renderCustomToolbar}
     />
+
+    {/* Everything a clerk does to one student happens here, over the results.
+        Closing it leaves them exactly where they were — same search, same
+        page, same scroll position. */}
+    {/* The key remounts the popup whenever a different student — or a
+        different tab of the same student — is requested. That is what lets
+        QuickBillDialog initialize its tab and lazy-fetch flags from props at
+        mount instead of syncing them in an effect (which React flags as a
+        cascading render, and which flashed the previous learner's bills). */}
+    <QuickBillDialog
+      key={popup ? `${popup.student.id}:${popup.tab}` : 'closed'}
+      student={popup?.student ?? null}
+      initialTab={popup?.tab ?? 'bills'}
+      open={!!popup}
+      onOpenChange={(open) => {
+        if (!open) setPopup(null);
+      }}
+      onCreated={() => setRefetchKey((k) => k + 1)}
+    />
+    </>
   );
 }

@@ -18,6 +18,7 @@ import { AttendanceDashboardService } from '@/lib/services/academic/attendance-d
 import { AttendanceEscalationService } from '@/lib/services/academic/attendance-escalation-service';
 import { usePendingAttendanceDateRange } from '@/hooks/academic/use-pending-attendance-date-range';
 import { useTimetablesForPending } from '@/hooks/academic/use-timetables-for-pending';
+import { PENDING_ATTENDANCE_EXPORT_CONFIG } from './pending-attendance-export-config';
 import { PendingStatsCards } from './pending-stats-cards';
 import { PendingDateRangeWarningBanner } from './pending-date-range-warning-banner';
 import { PendingDateRangeFilters } from './pending-date-range-filters';
@@ -404,48 +405,10 @@ export function PendingAttendanceClient({
           enableColumnVisibility: true,
           columnResizingTableId: 'pending-attendance-page-table',
         }}
-        exportConfig={{
-          entityName: 'pending-attendance-periods',
-          columnMapping: {
-            attendance_date: 'Date',
-            period_name: 'Period',
-            course_name: 'Course',
-            institution_name: 'Institution',
-            degree_name: 'Degree',
-            department_name: 'Department',
-            program_name: 'Program',
-            semester_name: 'Semester',
-            section_name: 'Section',
-            academic_year_name: 'Academic Year',
-            primary_staff_name: 'Primary Staff',
-          },
-          columnWidths: [
-            { wch: 15 },
-            { wch: 15 },
-            { wch: 20 },
-            { wch: 15 },
-            { wch: 15 },
-            { wch: 20 },
-            { wch: 20 },
-            { wch: 15 },
-            { wch: 12 },
-            { wch: 15 },
-            { wch: 20 },
-          ],
-          headers: [
-            'Date',
-            'Period',
-            'Course',
-            'Institution',
-            'Degree',
-            'Department',
-            'Program',
-            'Semester',
-            'Section',
-            'Academic Year',
-            'Primary Staff',
-          ],
-        }}
+        // headers/columnMapping/columnWidths all derive from one COLUMNS list —
+        // see pending-attendance-export-config.ts. `headers` MUST be the data
+        // keys; declaring the labels there exported blank rows.
+        exportConfig={PENDING_ATTENDANCE_EXPORT_CONFIG}
         renderToolbarContent={renderBulkToolbar}
       />
     </div>

@@ -1,0 +1,161 @@
+name: Ungrantable permission keys
+
+# Fails when something in this codebase demands a permission key that nobody can
+# ever hold.
+#
+# THE FAILURE CLASS
+#   An RLS policy, a page gate or an API route calls for `module.thing.view`, and
+#   that key is absent from lib/constants/permissions.ts PERMISSION_CATEGORIES.
+#   PERMISSION_CATEGORIES is what Role Management renders its toggles from, so a
+#   key registered nowhere never becomes a toggle, so no role can be given it, so
+#   the guarded object is permanently super-admin-only.
+#
+#   And it fails SILENTLY. An RLS denial is not an error — PostgREST returns zero
+#   rows with error null. The page renders its empty state. Nothing logs. The bug
+#   surfaces weeks later as "this list is always empty for me".
+#
+# CONFIRMED AGAINST PRODUCTION 2026-08-02, which is why this is a gate and not a
+# suggestion:
+#   accreditation.evidence.view/.create/.manage   demanded by the live policies
+#     qem_select/qem_insert/qem_update on quality_evidence_mappings, registered
+#     nowhere.
+#   accreditation.submissions.view/.create/.manage  same shape, on
+#     accreditation_submissions.
+#
+# TWO BUGS, NOT ONE — the script reports them separately on purpose:
+#   UNGRANTABLE  key absent from permissions.ts. Needs a source edit and a deploy.
+#                BLOCKS this workflow.
+#   UNGRANTED    key registered, zero roles have it on. Ten seconds in Role
+#                Management. Needs a live DB read, so it runs on the schedule
+#                below and NEVER blocks a PR.
+#   A list that mixes them sends people to the wrong place.
+#
+# NOT COVERED BY scripts/check-permissions-catalog.mjs, which already exists: that
+# gate reads MENU_PERMISSIONS only, and downgrades a missing sub-key to a WARNING
+# whenever the top-level module is catalogued. Both confirmed cases are exactly
+# that shape (`accreditation` is catalogued), and neither lives in MENU_PERMISSIONS
+# — they live in SQL, which that gate never reads.
+#
+# THE BASELINE IS A DEBT LEDGER, NOT A PARDON. 191 keys were already ungrantable
+# when this shipped; failing on all of them would have failed every build on day
+# one and the gate would have been deleted by lunchtime. They are recorded in
+# scripts/ci/ungrantable-permissions-baseline.json, printed as a warning every
+# run, and only NEW arrivals fail. Shrink that file; do not grow it.
+#
+# ALSO RUNS ON PUSH TO MAIN. A PR-scoped gate has no diff to inspect when there is
+# no PR, and commits do reach main here without one — 900eb7148c belongs to zero
+# pull requests and carried a data leak past a PR-scoped gate on 2026-07-29.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Daily at 04:23 UTC. Off the hour and off the half hour on purpose — :00 is
+    # when every scheduled job on the platform fires at once and runners queue.
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ungrantable-permissions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: No key is demanded that nobody can hold
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No npm install: the static half is dependency-free (node: builtins only)
+      # and scans the whole tree in about a second. Keeping it install-free means
+      # a broken lockfile cannot silently take this gate offline.
+      - name: Run guard
+        run: node scripts/ci/check-ungrantable-permissions.mjs
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::A permission key is demanded by code but registered nowhere."
+          echo "No toggle for it exists in Role Management, so NO role can hold it, so"
+          echo "whatever it guards is super-admin-only — and the denial is silent."
+          echo ""
+          echo "Fix: add the key to lib/constants/permissions.ts PERMISSION_CATEGORIES"
+          echo "under its module, then grant it to the roles that need it."
+          echo "Registering the key is a deploy; granting it afterwards is a checkbox."
+          echo ""
+          echo "If the key is deliberately super-admin-only, say so in the PR and add it"
+          echo "to scripts/ci/ungrantable-permissions-baseline.json — but read that file's"
+          echo "header first: it is a debt ledger, and every entry is a feature no"
+          echo "ordinary operator can reach."
+
+  self-test:
+    name: The gate's own tests
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # A gate that is not itself tested is a gate that quietly stops gating, and
+      # this one has a specific way of doing it: scan too defensively — skipping
+      # dollar-quoted bodies or string literals — and it finds NOTHING, which is
+      # indistinguishable from finding nothing wrong. Every parser trap has a
+      # fixture here.
+      - name: Test the gate
+        run: npx vitest run __tests__/ci/check-ungrantable-permissions.test.ts
+
+  ungranted-report:
+    name: Registered but held by nobody (report only)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # --report-only: a key nobody has switched on yet is a Role-Management task,
+      # not a broken build, and turning it into a red run on a timer would train
+      # people to ignore this workflow.
+      - name: Report ungranted keys
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL secret is not set — the ungranted report cannot run."
+            echo "Failing rather than passing: 'the check did not run' and 'no key is"
+            echo "ungranted' are the same silence, and treating the first as the second is"
+            echo "how a lockout survives a green build."
+            exit 1
+          fi
+          node scripts/ci/check-ungrantable-permissions.mjs --live --report-only

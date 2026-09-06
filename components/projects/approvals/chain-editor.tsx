@@ -12,6 +12,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Plus, Trash2, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
@@ -100,7 +101,7 @@ export function ChainEditor({ value, onChange, disabled = false }: ChainEditorPr
               type="button"
               size="icon"
               variant="ghost"
-              className="h-7 w-7"
+              className={`h-7 w-7 ${TAP_TARGET_ICON}`}
               onClick={() => moveStep(index, 'up')}
               disabled={disabled || index === 0}
             >
@@ -110,7 +111,7 @@ export function ChainEditor({ value, onChange, disabled = false }: ChainEditorPr
               type="button"
               size="icon"
               variant="ghost"
-              className="h-7 w-7"
+              className={`h-7 w-7 ${TAP_TARGET_ICON}`}
               onClick={() => moveStep(index, 'down')}
               disabled={disabled || index === value.length - 1}
             >
@@ -120,7 +121,7 @@ export function ChainEditor({ value, onChange, disabled = false }: ChainEditorPr
               type="button"
               size="icon"
               variant="ghost"
-              className="h-7 w-7 text-destructive hover:text-destructive"
+              className={`h-7 w-7 text-destructive hover:text-destructive ${TAP_TARGET_ICON}`}
               onClick={() => removeStep(index)}
               disabled={disabled}
             >

@@ -76,6 +76,7 @@ import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTemplates, useCreateFromTemplate } from '@/hooks/use-templates';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { CycleAnchorPhaseWarningBanner } from '../_components/cycle-anchor-phase-warning';
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -436,14 +437,10 @@ export default function NewTimetablePage() {
       return;
     }
 
-    // Skip validation if dates are not provided (allow creation without dates)
-    if (!values.start_date || !values.end_date) {
-      setExistingTimetableCheck({ checking: false, exists: false });
-      form.clearErrors('start_date');
-      form.clearErrors('end_date');
-      return;
-    }
-
+    // Deliberately NOT skipped when the dates are blank. The rule is one active
+    // timetable per section per academic year, so the answer is already knowable
+    // the moment a section is picked — and the old dateless skip here is how the
+    // one duplicate in production got in.
     setExistingTimetableCheck({ checking: true, exists: false });
 
     try {
@@ -463,8 +460,14 @@ export default function NewTimetablePage() {
         department_id: values.department_id,
         semester_id: values.semester_id,
         section_id: values.section_id,
-        start_date: formatDateForAPI(values.start_date),
-        end_date: formatDateForAPI(values.end_date)
+        // Passed for the message only — they no longer decide the verdict, and
+        // either may legitimately be absent at this point in the form.
+        start_date: values.start_date
+          ? formatDateForAPI(values.start_date)
+          : undefined,
+        end_date: values.end_date
+          ? formatDateForAPI(values.end_date)
+          : undefined
       });
 
       setExistingTimetableCheck({
@@ -473,24 +476,25 @@ export default function NewTimetablePage() {
         message: result.message
       });
 
-      // Set form error if date overlap exists
+      // The error belongs on the SECTION, not on the dates. It is the section
+      // that is taken; changing the date range no longer clears the conflict, so
+      // pointing the operator at the date fields would send them somewhere the
+      // problem cannot be fixed.
       if (result.exists) {
         toast.error(
-          result.message || 'Date period conflicts with existing timetable'
+          result.message ||
+            'This section already has an active timetable for this academic year'
         );
-        form.setError('start_date', {
+        form.setError('section_id', {
           type: 'manual',
-          message: 'Date period overlaps with existing timetable'
-        });
-        form.setError('end_date', {
-          type: 'manual',
-          message: 'Date period overlaps with existing timetable'
+          message:
+            'This section already has an active timetable for this academic year'
         });
       } else {
-        // Clear date errors if no conflict
-        form.clearErrors('start_date');
-        form.clearErrors('end_date');
+        form.clearErrors('section_id');
       }
+      form.clearErrors('start_date');
+      form.clearErrors('end_date');
     } catch (error) {
       logger.error('academic/timetables', 'Error checking existing timetable', error);
       setExistingTimetableCheck({ checking: false, exists: false });
@@ -1381,7 +1385,18 @@ export default function NewTimetablePage() {
                         <FormDescription>
                           The start date of the timetable period. Required for
                           date overlap validation.
+                          {form.watch('timetable_format') === 'cycle' &&
+                            ' For a cycle timetable this is also where the rotation is anchored.'}
                         </FormDescription>
+                        {/* Added: 2026-08-17 (BUG-005837) */}
+                        <CycleAnchorPhaseWarningBanner
+                          timetableFormat={form.watch('timetable_format')}
+                          institutionId={watchInstitutionId}
+                          startDate={
+                            field.value ? format(field.value, 'yyyy-MM-dd') : null
+                          }
+                          numCycles={form.watch('num_cycles')}
+                        />
                         <FormMessage />
                       </FormItem>
                     )}

@@ -189,4 +189,68 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       'Auth: CRON_SECRET Bearer only (dispatcher and the AI Routines manual trigger both send the header; secrets never sit in URLs). Escalation target of the loop_edges mentor-checkins→decisions and referral-desk→decisions edges (both seeded 2026-07-13). The super-admin lookup failing FAILS the run (mirrors the watchdog r4 fix) rather than fanning out to nobody.',
   },
+  {
+    id: 'metaloop-charter-drafts',
+    name: 'MetaLoop — Charter Drafter (machine drafts, humans sign)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Sundays 10:41 IST (dispatcher-managed, after the 07:53 loops-regress)',
+    triggerPath: '/api/cron/metaloop-charter-drafts',
+    callsClaude: true,
+    featureKey: null,
+    featureKeyNote:
+      "Enqueues the 'loops.charter_draft' ai_jobs type on the ₹0 Max lane (provider/model live on the ai_job_types row); no ai_model_config feature row is resolved by the route itself.",
+    whatItDoes:
+      'The chartering factory. Each week it picks up to 3 active loops whose charter is incomplete (any of the 5 legs NULL) but that have real evidence (a scheduled routine or audit history), bundles that evidence (registry row + last 5 loop_audits + last 5 dispatcher runs), and asks the Max-lane model to DRAFT the charter — the 5 legs plus a mandatory kill rule and a suggested verdict owner. Finished drafts are filed as proposals on /admin/loops/charters, where a super admin approves (writing the legs onto loop_registry via fn_loop_apply_charter_proposal) or rejects. Drafts that self-report insufficient evidence are filed as display-only \'insufficient\' records on the same page — the machine\'s reason names what a human must fix before the loop can be chartered. Collection also runs daily via the metaloop-charter-collect sibling, so finished drafts surface same-day instead of waiting for next Sunday.',
+    configKnobs:
+      'ENQUEUE_CAP=3 per run, EVIDENCE_AUDITS=5, EVIDENCE_RUNS=5 (route constants). Schedule editable on /admin/ai-routines. The prompt is the loops.charter_draft champion in ai_prompt_versions — editing it on /admin/ai-models mints a challenger.',
+    sideEffects:
+      "DB writes only, all human-gated: INSERTs status='proposed' rows into loop_charter_proposals and enqueues up to 3 ai_jobs on the Max lane. NEVER writes loop_registry — only a super admin approving on /admin/loops/charters does (fn_loop_apply_charter_proposal). No notifications, no emails.",
+    safeToManualTrigger: true,
+    maxLane: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-drafts' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Idempotent: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE + one-undecided-proposal-per-loop partial index + fn_ai_enqueue_system's in-flight dedupe. Safe no-op while the loops.charter_draft job type is unapplied/disabled.",
+  },
+  {
+    id: 'metaloop-charter-collect',
+    name: 'MetaLoop — Daily Draft Collect (surfaces finished charters same-day)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 12:41 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/metaloop-charter-collect',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Pure collect pass — it only READS finished loops.charter_draft results from ai_jobs and files them; it never enqueues and resolves no model.',
+    whatItDoes:
+      "The latency half of the chartering factory. The Sunday metaloop-charter-drafts routine enqueues drafts AND collects, but a draft the Max-lane drain finishes minutes after Sunday's collect used to sit invisible until the NEXT Sunday (receipt: the 2026-08-16 drafts surfaced 2026-08-23). This routine runs the same collect pass daily: valid drafts file as 'proposed' rows on /admin/loops/charters; honest {insufficient:true} abstentions file as display-only 'insufficient' records carrying the machine's reason. Collect-only — drafting cadence stays Sunday's decision, so no extra Max-lane spend.",
+    configKnobs:
+      'COLLECT_BATCH=25 (shared module constant). Schedule editable on /admin/ai-routines. No model, no prompt — parsing and filing rules live in lib/services/loops/metaloop-charter-collect.ts.',
+    sideEffects:
+      "DB writes only: INSERTs loop_charter_proposals rows (status='proposed' or 'insufficient') from finished ai_jobs results, stamping their delivered_at via fn_ai_collect_claim. NEVER writes loop_registry, never enqueues, no notifications, no model calls.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-collect', migration 20260927040000), NOT vercel.json. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Exactly-once across both clocks: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE — whichever of the daily/Sunday collects fires first wins, the other is a clean no-op. Safe no-op while the job type is dark or migrations are unapplied.",
+  },
+  {
+    id: 'attendance-intervention-measure',
+    name: 'Attendance → Intervention — Daily Effect Measure (the loop\'s return edge)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 10:07 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/attendance-intervention-measure',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based SQL — one RPC to fn_attendance_measure_intervention_effect; no model is resolved and nothing is enqueued.',
+    whatItDoes:
+      "Closes the attendance loop by measuring whether nudges and interventions actually moved attendance. Each day it (1) ENROLLS every unseen intervention as a pending measurement — staff-logged learner_interventions AND automated risk nudges from learner_risk_notification_log — deduped by UNIQUE(source, source_id) with a 120-day lookback, and (2) MEASURES pending rows whose after-window has elapsed: the learner's mark-level attendance % in the 14 days AFTER vs the learner's OWN 14 days BEFORE, writing net_effect (percentage points) into attendance_intervention_effects — the row the Tower and audits read.",
+    configKnobs:
+      'None in the route. Windows (14-day before/after, 120-day lookback) are the defaults of fn_attendance_measure_intervention_effect (migration 20260929010000). Schedule editable on /admin/ai-routines.',
+    sideEffects:
+      "DB writes only, via the SECDEF fn: INSERTs pending rows into attendance_intervention_effects and UPDATEs measured ones with net_effect. Never writes learner_interventions, learner_risk_notification_log or loop_registry. No notifications, no emails, no model calls.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'attendance-intervention-measure', migration 20261018010000), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: enrolment is deduped by UNIQUE(source, source_id) and measurement only touches still-pending rows, so a re-run is a clean no-op. Returns {enrolled, measured, insufficient}; an empty RPC result is surfaced as HTTP 500 so the dispatcher records the failure. The weekly known-delta regress (fn_loops_regress_attendance via /api/cron/loops-regress) proves the SAME measurer this route runs. Safe no-op (500, not a crash) while 20260929010000 is unapplied.",
+  },
 ];

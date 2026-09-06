@@ -1,0 +1,85 @@
+name: PostgREST .in() chunking guard
+
+# One check: the `.in()` chunking helper keeps every request under the size the
+# API gateway rejects, and keeps failing loudly instead of half-succeeding.
+#
+# WHY THIS EXISTS — PostgREST encodes `.in()` values into the query string, so
+#   the request URL grows with the id count. Measured against production on
+#   2026-08-11 (GET /rest/v1/courses?id=in.(…)):
+#     640 uuids → 25,064 URL chars → HTTP 200
+#     680 uuids → 26,624 URL chars → HTTP 400 Bad Request
+#     750 uuids → 29,354 URL chars → HTTP 400 Bad Request
+#   750 is the real distinct course-id count the all-institutions Pending
+#   Attendance view resolves today, so that read is over the cliff right now.
+#
+#   The rejection is SILENT at the call site: a rejected read returns
+#   { data: null }, and callers written as `(result as any).data || []` degrade
+#   to an EMPTY lookup rather than throwing. Every row then renders its fallback
+#   label ("Unknown Course", "Unknown Staff", …) while the records exist and are
+#   perfectly readable. Nothing in the UI distinguishes that from real data.
+#
+# WHY A WORKFLOW AND NOT JUST THE TEST — this repo runs vitest ONLY on
+#   explicitly named files (ai-estate-guard, check-anon-exposure-live,
+#   check-migration-rename-applied, notification-ttl-guards). No job globs
+#   __tests__/**, so a test added without a workflow naming it never executes on
+#   a pull request. Shipping the test alone would claim cover it does not give.
+#
+# SCOPE. Runs one test file and nothing else. No database, no secret, no
+# network — it exercises the chunking in memory, so it also passes on forks.
+# Kept SEPARATE from the existing guard workflows on purpose: it reports as its
+# own status check and cannot change the pass/fail meaning of an existing one.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity
+# that branch protection matches on. Renaming either string silently orphans a
+# rule pointing at the old name.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '__tests__/lib/utils/postgrest-in-chunks.test.ts'
+      - 'lib/utils/postgrest-in-chunks.ts'
+      - '.github/workflows/postgrest-in-chunks-guard.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgrest-in-chunks-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Chunked .in() reads stay under the gateway limit
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Run the chunking guard
+        run: npx vitest run __tests__/lib/utils/postgrest-in-chunks.test.ts
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::A chunked .in() read can now exceed the size the API gateway rejects, or a failed chunk stopped throwing."
+          echo ""
+          echo "Raising POSTGREST_IN_CHUNK_SIZE past the measured cliff reintroduces"
+          echo "the silent-empty-lookup failure: the request returns HTTP 400, the"
+          echo "caller sees { data: null }, and every row renders its fallback label"
+          echo "while the records exist and are readable."
+          echo ""
+          echo "Fix: keep the chunk size well under ~26 KB of request line"
+          echo "(100 uuids is about 3.7 KB), and keep selectInChunks throwing on a"
+          echo "failed chunk. A half-built lookup is indistinguishable from real"
+          echo "data once it reaches the table."

@@ -617,7 +617,11 @@ export function HousekeepingPolicyForm() {
               </CardTitle>
               <CardDescription>
                 0 means that tier cannot book slots (those residents keep the
-                regular block cleaning rounds).
+                regular block cleaning rounds). Which ROOM CATEGORY sits in
+                which tier is set per category under Settings &rarr; Categories
+                (&ldquo;Entitlement Tier&rdquo;) &mdash; today Premium Room and
+                Premium Room + AC are Premium, Premium Plus Room is Premium
+                Plus, and Classic / Deluxe are Standard.
               </CardDescription>
             </CardHeader>
             <CardContent>

@@ -23,6 +23,7 @@
 
 import { useState, useEffect, useMemo, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -35,13 +36,27 @@ import { RotateCcw, ChevronDown, ChevronUp, Search, X, SlidersHorizontal } from 
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { LookupService } from '@/lib/services/admission/lookup-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import { useAcademicCascade } from '@/hooks/organization/use-academic-tree';
 import type { ProfilesSearchParams } from './data-table-schema';
+import {
+  LIFECYCLE_TABS,
+  resolveLifecycleTab,
+  type LifecycleTabValue,
+} from './lifecycle-status';
 
 /**
  * Every query-string key owned by this panel. Apply and Clear must agree on
  * this list exactly — when they drifted apart, a "cleared" filter could survive
  * in the URL and reappear on the next page load.
+ *
+ * `status` is deliberately NOT here even though this panel now edits it. These
+ * keys are all "absent = unfiltered", so Apply can delete-then-rewrite them
+ * blindly; `status` has no absent state (it falls back to the Active tab) and
+ * its cleared value is the real tab value 'all'. It is handled explicitly in
+ * handleApply/handleClear instead.
  */
 const FILTER_PARAM_KEYS = [
   'institution_id',
@@ -51,8 +66,13 @@ const FILTER_PARAM_KEYS = [
   'semester_id',
   'section_id',
   'academic_year_id',
+  // Integer calendar year, unlike every other key here. admission_years is
+  // institution-scoped (eleven "2026" rows), so filtering by a row id would
+  // silently narrow to one college — see lib/utils/admission-year-filter.ts.
+  'admission_year',
   'gender',
   'is_profile_complete',
+  'accommodation_type_id',
 ] as const;
 
 type FilterKey = (typeof FILTER_PARAM_KEYS)[number];
@@ -60,12 +80,14 @@ type Draft = Partial<Record<FilterKey, string>>;
 
 const ALL = 'all';
 
-// learners_profiles.gender is stored upper-case. The old panel offered
-// 'Male'/'Female'/'Other', which matched zero rows on every search. 'Other' is
-// gone because no learner has it.
+// learners_profiles.gender is Title Case (Male/Female/Other) since 20260820160000 —
+// enforced by learners_profiles_gender_check and normalised on write by
+// trg_normalize_gender_learners_profiles. The query still matches with .ilike(), so a
+// bookmarked ?gender=MALE from the old uppercase panel keeps working.
 const GENDER_OPTIONS = [
-  { value: 'MALE', label: 'Male' },
-  { value: 'FEMALE', label: 'Female' },
+  { value: 'Male', label: 'Male' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Other', label: 'Other' },
 ];
 
 const PROFILE_STATUS_OPTIONS = [
@@ -86,8 +108,14 @@ function draftFromParams(searchParams: ProfilesSearchParams): Draft {
     semester_id: searchParams.semester_id || undefined,
     section_id: searchParams.section_id || undefined,
     academic_year_id: searchParams.academic_year_id || undefined,
+    // Draft values are all strings (they become query-string values); the
+    // schema coerces this one to a number, so it is stringified back here.
+    admission_year: searchParams.admission_year
+      ? String(searchParams.admission_year)
+      : undefined,
     gender: searchParams.gender || undefined,
     is_profile_complete: searchParams.is_profile_complete || undefined,
+    accommodation_type_id: searchParams.accommodation_type_id || undefined,
   };
 }
 
@@ -112,6 +140,23 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
 
   const [draft, setDraft] = useState<Draft>(() => draftFromParams(searchParams));
 
+  /**
+   * Lifecycle status is the SAME `status` param the tab strip owns, so the two
+   * controls can never disagree — picking "Reserved" here moves the tab, and
+   * clicking the Reserved tab moves this select.
+   *
+   * Modelling it as an independent predicate was the alternative and it is a
+   * trap: "Active" tab AND "Reserved" filter ANDs to zero rows, and this page's
+   * failure mode is always a silent empty table rather than an error.
+   */
+  const [statusDraft, setStatusDraft] = useState<LifecycleTabValue>(() =>
+    resolveLifecycleTab(searchParams.status)
+  );
+
+  useEffect(() => {
+    setStatusDraft(resolveLifecycleTab(searchParams.status));
+  }, [searchParams.status]);
+
   // Sync draft when the URL changes. Depend on the individual values, NOT the
   // searchParams object: the parent rebuilds that object on every render, so an
   // object dependency re-ran this on renders where nothing had actually changed
@@ -127,8 +172,10 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
     searchParams.semester_id,
     searchParams.section_id,
     searchParams.academic_year_id,
+    searchParams.admission_year,
     searchParams.gender,
     searchParams.is_profile_complete,
+    searchParams.accommodation_type_id,
   ]);
 
   // Auto-select the institution ONLY when the user can reach exactly one.
@@ -159,6 +206,69 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
   const institutionOptions = useMemo(
     () => institutions.map((i) => ({ value: i.id, label: i.name })),
     [institutions]
+  );
+
+  /**
+   * accommodation_types is a small GLOBAL lookup (4 active rows, no institution
+   * scoping), so it is cached for the session and does not belong in the
+   * academic cascade — it has no parent and no children, and picking one must
+   * not clear anything. Same query and staleTime as the Billing Coverage filter
+   * bar, so the two share one cache entry.
+   */
+  const { data: accommodationTypes, isLoading: loadingAccommodation } = useQuery({
+    queryKey: ['accommodation-types', 'active'],
+    queryFn: () => LookupService.listAccommodationTypes(true),
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const accommodationOptions = useMemo(
+    () => (accommodationTypes ?? []).map((a) => ({ value: a.id, label: a.name })),
+    [accommodationTypes]
+  );
+
+  /**
+   * Admission years, as DISTINCT CALENDAR YEARS.
+   *
+   * Deliberately NOT part of `useAcademicCascade`. That hook is
+   * `enabled: Boolean(institutionId)` and scopes every query with
+   * `.eq('institution_id', …)`, so it returns nothing in "All Institutions"
+   * mode — which is precisely where a cohort filter has to keep working, and is
+   * the default for anyone who can reach more than one institution.
+   * (/api/learners/analytics/incomplete-profiles/options reaches the same
+   * conclusion for the same reason.)
+   *
+   * The rows are institution-scoped (eleven "2026" rows, 79 total) but the
+   * FILTER is not: we dedupe to the year, and the server fans it back out to
+   * every visible row id. RLS on admission_years still decides which rows the
+   * user sees, so the year list is already tenant-correct.
+   */
+  const { data: admissionYears, isLoading: loadingAdmissionYears } = useQuery({
+    queryKey: ['admission-years', 'distinct-years'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('admission_years')
+        .select('year')
+        .order('year', { ascending: false });
+
+      // Supabase errors are plain objects — surface the code rather than
+      // letting a failure look like "this institution has no admission years".
+      if (error) {
+        throw new Error(
+          `Failed to load admission years: ${getErrorMessage(error)}`
+        );
+      }
+      return Array.from(
+        new Set((data ?? []).map((r: { year: number }) => r.year))
+      ).sort((a, b) => b - a);
+    },
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const admissionYearOptions = useMemo(
+    () =>
+      (admissionYears ?? []).map((y) => ({ value: String(y), label: String(y) })),
+    [admissionYears]
   );
 
   /**
@@ -201,6 +311,9 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
     for (const [key, value] of Object.entries(draft)) {
       if (value) params.set(key, value);
     }
+    // Always written, never deleted: 'all' is a real tab, so an absent `status`
+    // would silently resolve back to Active instead of the user's pick.
+    params.set('status', statusDraft);
     params.set('page', '1');
 
     startTransition(() => {
@@ -245,9 +358,13 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
   const handleClear = () => {
     setIsClearing(true);
     setDraft({});
+    setStatusDraft('all');
 
     const params = new URLSearchParams(currentSearchParams.toString());
     for (const key of FILTER_PARAM_KEYS) params.delete(key);
+    // Every other control clears to "All X", so status clears to "All Statuses"
+    // — not to Active, which would be applying a filter rather than clearing one.
+    params.set('status', 'all');
     params.set('page', '1');
 
     const query = params.toString();
@@ -277,14 +394,27 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
       'Academic Year',
       labelFor(cascade.academicYears, searchParams.academic_year_id)
     );
+    push(
+      'admission_year',
+      'Admission Year',
+      searchParams.admission_year ? String(searchParams.admission_year) : undefined
+    );
     push('gender', 'Gender', labelFor(GENDER_OPTIONS, searchParams.gender));
     push(
       'is_profile_complete',
       'Profile',
       labelFor(PROFILE_STATUS_OPTIONS, searchParams.is_profile_complete)
     );
+    push(
+      'accommodation_type_id',
+      'Accommodation',
+      labelFor(accommodationOptions, searchParams.accommodation_type_id)
+    );
     return chips;
-  }, [searchParams, institutionOptions, cascade]);
+    // accommodationOptions is a real dependency: the chip's label is resolved
+    // from it, so a chip rendered before the lookup resolves would silently be
+    // dropped by `push` (which needs a value) and never come back.
+  }, [searchParams, institutionOptions, cascade, accommodationOptions]);
 
   const treeLoading = cascade.isLoading;
 
@@ -391,6 +521,36 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
               disabled={!draft.institution_id}
             />
 
+            {/* Admission year (the cohort the learner JOINED in), as distinct
+                from Academic Year above (the term they are enrolled in now).
+                A flat filter like Gender: `pick` clears nothing under it and it
+                stays usable with no institution selected. */}
+            <SearchableSelect
+              value={draft.admission_year ?? ''}
+              onValueChange={(v) => pick('admission_year', v)}
+              options={[
+                { value: ALL, label: 'All Admission Years' },
+                ...admissionYearOptions,
+              ]}
+              placeholder='Select Admission Year'
+              searchPlaceholder='Search admission years…'
+              loading={loadingAdmissionYears}
+            />
+
+            {/* Lifecycle status. Options come straight from LIFECYCLE_TABS so
+                the labels here and on the tab strip can never diverge, and so
+                this list stays limited to the five statuses the page shows. */}
+            <SearchableSelect
+              value={statusDraft}
+              onValueChange={(v) => setStatusDraft(v as LifecycleTabValue)}
+              options={LIFECYCLE_TABS.map((t) => ({
+                value: t.value,
+                label: t.label,
+              }))}
+              placeholder='Lifecycle Status'
+              searchPlaceholder='Search statuses…'
+            />
+
             <SearchableSelect
               value={draft.gender ?? ''}
               onValueChange={(v) => pick('gender', v)}
@@ -405,6 +565,21 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
               options={[{ value: ALL, label: 'All Profiles' }, ...PROFILE_STATUS_OPTIONS]}
               placeholder='Profile Status'
               searchPlaceholder='Search…'
+            />
+
+            {/* Where the learner lives. A flat filter like Gender — it sits
+                outside the academic cascade, so `pick` clears nothing under it
+                and it stays usable with no institution selected. */}
+            <SearchableSelect
+              value={draft.accommodation_type_id ?? ''}
+              onValueChange={(v) => pick('accommodation_type_id', v)}
+              options={[
+                { value: ALL, label: 'All Accommodation' },
+                ...accommodationOptions,
+              ]}
+              placeholder='Select Accommodation'
+              searchPlaceholder='Search accommodation…'
+              loading={loadingAccommodation}
             />
           </div>
 

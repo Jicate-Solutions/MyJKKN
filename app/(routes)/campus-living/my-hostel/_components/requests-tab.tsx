@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   FileText,
-  LogOut,
   ArrowRight,
   CheckCircle2,
   DoorOpen,
@@ -113,7 +112,6 @@ interface RequestsTabProps {
   reqLoading: boolean;
   activeRequest: HostelVacateRequest | undefined;
   pastRequests: HostelVacateRequest[];
-  canRequestVacate: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +122,6 @@ export function RequestsTab({
   reqLoading,
   activeRequest,
   pastRequests,
-  canRequestVacate,
 }: RequestsTabProps) {
   // Own leave requests
   const { data: myLeaveRequests, isLoading: leaveLoading } = useQuery({
@@ -184,27 +181,13 @@ export function RequestsTab({
             </Card>
           )}
 
-          {/* Request Vacate CTA */}
-          {canRequestVacate && (
-            <Card>
-              <CardContent className='p-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between'>
-                <div className='space-y-1'>
-                  <p className='font-medium'>Request Vacate</p>
-                  <p className='text-sm text-muted-foreground max-w-xl'>
-                    Start a vacate request. You&apos;ll go through parent consent (learners),
-                    warden approval, chief warden approval, and dues clearance before the room
-                    is released.
-                  </p>
-                </div>
-                <Button asChild>
-                  <Link href='/campus-living/my-hostel/vacate-request'>
-                    <LogOut className='mr-2 h-4 w-4' />
-                    Request Vacate
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
+          {/* Request Vacate CTA — withdrawn 2026-08-10. The learner-side vacate
+              workflow is being rebuilt; until then `student` and `parent` no
+              longer hold campus_living.vacate_requests.submit, and the form at
+              /campus-living/my-hostel/vacate-request is closed by its own
+              RoutePermissionGuard layout. Residents vacate via the hostel
+              office. The two read-only blocks around this one are kept so any
+              request raised on their behalf stays visible. */}
 
           {/* Vacate request history */}
           {pastRequests.length > 0 && (

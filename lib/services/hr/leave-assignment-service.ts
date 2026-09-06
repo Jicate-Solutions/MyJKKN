@@ -182,9 +182,21 @@ export class LeaveAssignmentService {
   ): Promise<StaffPickerOption[]> {
     let q = supabase
       .from('staff')
-      .select('id, staff_id, first_name, last_name, departments:department_id ( department_name )')
+      // employment_categories is embedded !inner PURELY to filter: only staff
+      // whose category is flagged included_in_hr belong in an HR picker. The
+      // inner join dropping rows is the intent here, not the hazard it usually
+      // is — and staff has exactly one FK to that table
+      // (staff_category_id_fkey), so the embed is unambiguous.
+      //
+      // Not `.from('v_hr_staff')`, which would be the tidier swap: this query
+      // embeds departments through a foreign key, and PostgREST resolves
+      // embeds from a view far less predictably than from the base table.
+      .select(
+        'id, staff_id, first_name, last_name, departments:department_id ( department_name ), employment_categories!inner ( included_in_hr )'
+      )
       .eq('institution_id', institutionId)
       .eq('is_active', true)
+      .eq('employment_categories.included_in_hr', true)
       // Deterministic order before the cap: without it the 25 rows returned
       // are an arbitrary subset, so a person matching the term can be
       // permanently unreachable in the picker.

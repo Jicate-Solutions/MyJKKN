@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 import { HeaderFieldsEditor } from './header-fields-editor';
 import { ItemColumnsEditor } from './item-columns-editor';
 import { FooterColumnsEditor, DEFAULT_FOOTER_COLUMNS } from './footer-columns-editor';
@@ -66,7 +67,7 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
       toast.success(initial ? 'Format updated' : 'Format created');
       router.push('/procurement/purchase-orders/formats');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save format');
+      toast.error(errorMessage(error, 'Failed to save format'));
     } finally {
       setSaving(false);
     }

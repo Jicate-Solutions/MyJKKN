@@ -108,6 +108,11 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['internship_', 'Internship'],
   ['chatbot_', 'Chatbot'],
   ['chat_', 'Chatbot'],
+  // Course Events (2026-08-13): course_events, course_packages,
+  // course_sessions, course_installments, etc. `course_mappings` (Organization
+  // curriculum catalog) keeps its exact TABLE_OVERRIDES entry above, which is
+  // checked before this prefix scan, so it is unaffected.
+  ['course_', 'Courses'],
   ['expo_', 'Expo'],
   // Instagram monitoring substrate (Phase 1B, 2026-05-30):
   // ig_accounts / ig_account_metrics / ig_posts / ig_post_metrics →

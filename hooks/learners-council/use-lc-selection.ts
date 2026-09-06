@@ -427,7 +427,23 @@ export function useDeclareResults() {
   return useMutation({
     mutationFn: (electionId: string) => LCSelectionService.declareResults(electionId),
     onSuccess: (result) => {
-      toast.success(`Results declared! ${result.winners.length} winner(s) selected.`);
+      const failures = result.seatingFailures ?? [];
+      const seated = result.winners.length - failures.length;
+
+      if (failures.length > 0) {
+        // A declared winner who was not seated is the failure that used to be
+        // swallowed into a console warning. Say it out loud, name the seat and
+        // the reason, and keep it on screen long enough to act on.
+        toast.error(
+          `Results declared, but ${failures.length} of ${result.winners.length} winner(s) could NOT be given their position:\n` +
+            failures.map((f) => `• ${f.nominee_name} — ${f.role_sought}: ${f.reason}`).join('\n') +
+            `\nThey have NOT been notified. Assign them from the members screen once the seat is free.`,
+          { duration: 15000 }
+        );
+      }
+      if (seated > 0) {
+        toast.success(`Results declared! ${seated} winner(s) selected.`);
+      }
       queryClient.invalidateQueries({ queryKey: lcSelectionKeys.elections() });
       queryClient.invalidateQueries({
         queryKey: lcSelectionKeys.electionDetail(result.election.id)

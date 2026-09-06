@@ -82,7 +82,19 @@ function makeClient(rows: Record<string, unknown> = {}) {
         },
         update(values: Record<string, unknown>) {
           updates.push({ table, values });
-          return { eq: () => Promise.resolve({ error: null }) };
+          // payment.captured claims the row with
+          //   .update(...).eq('id', ...).not('status','in',(terminal...)).select('id')
+          // so that exactly one concurrent invocation flips it and runs the
+          // side-effect; the loser matches zero rows. The chain is thenable so
+          // the older `await update(...).eq(...)` call sites keep resolving as
+          // they did, while the claim path resolves to one row = this call won.
+          const chain: Record<string, unknown> = {
+            not: () => chain,
+            select: () => Promise.resolve({ data: [{ id: 'claimed' }], error: null }),
+            then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+              Promise.resolve({ error: null }).then(resolve, reject),
+          };
+          return { eq: () => chain };
         },
       };
     },

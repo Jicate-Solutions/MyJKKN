@@ -345,18 +345,21 @@ export function LeadsDatabaseDataTable() {
             address: 'Address',
             pincode: 'Pincode',
           },
+          // DATA KEYS (MarketingLeadDatabase fields), not the labels above —
+          // the export resolves these against each row; columnMapping supplies
+          // the heading. Labels here matched nothing and downloaded a blank file.
           headers: [
-            "Student's Name",
-            'Father Name',
-            'Gender',
-            'Mobile Number',
-            'District',
-            'Sub District',
-            'Community',
-            'Group Detail',
-            'School Name',
-            'Address',
-            'Pincode',
+            'student_name',
+            'father_name',
+            'gender',
+            'mobile_number',
+            'district',
+            'sub_district',
+            'community',
+            'group_detail',
+            'school_name',
+            'address',
+            'pincode',
           ],
           columnWidths: [
             { wch: 30 }, { wch: 25 }, { wch: 12 }, { wch: 18 },

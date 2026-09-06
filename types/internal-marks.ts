@@ -67,7 +67,26 @@ export interface CiaRound {
   entry_close_on?: string | null;
   attendance_period_from?: string | null;
   attendance_period_to?: string | null;
+  /** COE assessment period for this round (when the teaching/test happened). */
+  session_from?: string | null;
+  session_to?: string | null;
+  /**
+   * How faculty key in marks for this round (COE /api/v1/cia-settings).
+   *   'direct'        — one total per component ("Test 1 = 18"). DEFAULT.
+   *   'question_wise' — a mark per question, summing to the component total.
+   *
+   * ABSENT OR NULL MEANS 'direct'. Never assume the key is present: it was added
+   * 2026-08 and every legacy round predates it.
+   */
+  mark_entry_type?: import('./mark-entry').MarkEntryType | null;
   components: CiaComponent[];
+}
+
+/** Round entry mode with the legacy default applied. */
+export function resolveMarkEntryType(
+  round: Pick<CiaRound, 'mark_entry_type'> | undefined | null
+): import('./mark-entry').MarkEntryType {
+  return round?.mark_entry_type === 'question_wise' ? 'question_wise' : 'direct';
 }
 
 /**

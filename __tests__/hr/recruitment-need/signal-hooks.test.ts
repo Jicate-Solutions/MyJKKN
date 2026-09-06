@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Signal Hooks — Query Key Structure Tests
  *
- * React Query hooks are 'use client' — they can't be imported in bun:test
+ * React Query hooks are 'use client' — they can't be imported in vitest
  * directly (no React render context). Instead we test the exported query key
  * factory `signalKeys` which IS importable and is the part most likely to
  * regress (wrong cache key → stale data bugs).
@@ -14,8 +14,8 @@ import { describe, it, expect } from 'bun:test';
  */
 
 // signalKeys is exported from the hooks file but the file has 'use client'
-// directive. bun:test can still import it since the directive is only
-// meaningful at the bundler level, not Node/Bun runtime.
+// directive. vitest can still import it since the directive is only
+// meaningful at the bundler level, not the Node runtime.
 import { signalKeys } from '../../../hooks/hr/recruitment-need/use-recruitment-signal';
 
 describe('signalKeys — query key factory', () => {

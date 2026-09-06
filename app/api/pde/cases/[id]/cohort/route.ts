@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import type { OSCEDomain } from '@/types/pde';
+import { toAnswersArray } from '@/lib/pde/answers-shape';
 
 const DOMAINS: OSCEDomain[] = [
   'data_gathering',
@@ -180,7 +181,7 @@ export async function GET(
       );
 
       rows.forEach((r: any) => {
-        const answers = Array.isArray(r.answers) ? r.answers : [];
+        const answers = toAnswersArray(r.answers);
         answers.forEach((a: any) => {
           if (typeof a?.domain_score !== 'number') return;
           const domain = domainByQuestion.get(a.question_id);
