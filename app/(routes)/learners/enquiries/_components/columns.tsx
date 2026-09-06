@@ -9,7 +9,6 @@ import { format } from 'date-fns';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { DataTableRowActions } from './row-actions';
-import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import type { FeeBackfillAnnotations } from '../_data/get-enquiries';
 
 export type EnquiryRow = LearnerProfile & FeeBackfillAnnotations;
@@ -90,20 +89,6 @@ export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
     size: 120,
   },
   {
-    accessorKey: 'student_email',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Email" />
-    ),
-    cell: ({ row }) => {
-      return (
-        <div className="text-sm text-muted-foreground">
-          {row.original.student_email || 'N/A'}
-        </div>
-      );
-    },
-    size: 200,
-  },
-  {
     accessorKey: 'program.program_name',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Program" />
@@ -132,18 +117,30 @@ export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
     size: 180,
   },
   {
-    // Admission cohort column. Renders rich label via formatAdmissionYear
-    // helper. Sort uses program_start_year from the FK join so the column stays
-    // meaningful after Phase D drops the legacy admission_year integer column.
+    // Admission cohort column. Renders ONLY the cohort name (no year-range
+    // period) per 2026-05-19 product call — the table is dense and the period
+    // adds clutter. Other surfaces (lead detail, learner detail, my-profile)
+    // still use formatAdmissionYear() for the full "Name (year)" label.
+    // Sort uses year from the FK join so the column stays meaningful after
+    // Phase D drops the legacy admission_year integer column.
     id: 'admission_year',
     accessorFn: (row) =>
-      (row as any).admission_year_obj?.program_start_year ?? row.admission_year ?? null,
+      (row as any).admission_year_obj?.year ?? row.admission_year ?? null,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Admission Year" />
     ),
-    cell: ({ row }) => (
-      <div className="text-sm">{formatAdmissionYear(row.original as any)}</div>
-    ),
+    cell: ({ row }) => {
+      const name =
+        (row.original as any).admission_year_obj?.admission_year_name ??
+        (row.original.admission_year != null
+          ? String(row.original.admission_year)
+          : null);
+      return (
+        <div className="text-sm">
+          {name ?? <span className="text-muted-foreground italic">Not specified</span>}
+        </div>
+      );
+    },
     size: 180,
     filterFn: (row, _id, value: string[]) => {
       if (!Array.isArray(value) || value.length === 0) return true;

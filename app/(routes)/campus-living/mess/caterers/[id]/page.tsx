@@ -1,6 +1,7 @@
 'use client';
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -34,8 +35,11 @@ interface CatererDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function CatererDetailPage({ params }: CatererDetailPageProps) {
+const CATERER_DETAIL_TABS = ['details', 'blocks', 'performance'] as const;
+
+function CatererDetailPageInner({ params }: CatererDetailPageProps) {
   const { id } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('details', CATERER_DETAIL_TABS);
   const { data: catererData, isLoading } = useMessCaterer(id);
 
   if (isLoading) {
@@ -160,7 +164,7 @@ export default function CatererDetailPage({ params }: CatererDetailPageProps) {
           </Card>
         </div>
 
-        <Tabs defaultValue="details">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="blocks">Assigned Blocks</TabsTrigger>
@@ -291,5 +295,14 @@ export default function CatererDetailPage({ params }: CatererDetailPageProps) {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function CatererDetailPage({ params }: CatererDetailPageProps) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <CatererDetailPageInner params={params} />
+    </Suspense>
   );
 }

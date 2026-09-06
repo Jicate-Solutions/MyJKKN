@@ -13,6 +13,14 @@ import { useHostelAllocation } from '@/hooks/campus-living/use-hostel-allocation
 import { VacateDialog } from '../_components/vacate-dialog';
 import { TransferDialog } from '../_components/transfer-dialog';
 import { EditDetailsDrawer } from '../_components/edit-details-drawer';
+import { useAllocationAuditRow, useReaudit } from '@/hooks/campus-living/use-allocation-audit';
+import { AllocationAuditPanel } from '../audit/_components/audit-detail-panel';
+import {
+  VerdictBadge,
+  BandBadge,
+  RuleBadge,
+  BillStateBadge,
+} from '../audit/_components/audit-badges';
 import {
   ArrowLeft,
   User,
@@ -27,7 +35,9 @@ import {
   Heart,
   AlertTriangle,
   CreditCard,
-  PencilLine
+  PencilLine,
+  ShieldQuestion,
+  RefreshCw
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
@@ -46,6 +56,16 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
   const { profile } = useAuth();
   const { permissions, isSuperAdmin } = usePermissions();
   const { data: allocation, isLoading } = useHostelAllocation(id);
+  // Conformance audit for THIS allocation. `allowed` is false for anyone
+  // without campus_living.allocations.audit (i.e. everyone but a super admin
+  // today), and the hook holds the fetch in that case — so a warden opening a
+  // routine allocation never triggers the RPC's 42501.
+  const { row: auditRow, isLoading: auditLoading, allowed: canAudit } =
+    useAllocationAuditRow(id);
+  // Same invalidation the audit page uses — the verdict here is derived live
+  // from the fee bands / room rules / bills, so editing any of those and
+  // pressing this re-decides it.
+  const { reaudit, isReauditing } = useReaudit();
   const [vacateOpen, setVacateOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -74,6 +94,12 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
   const roomType = getJoined(alloc, 'hostel_rooms', 'room_type');
   const bedNumber = getJoined(alloc, 'hostel_beds', 'bed_number');
   const bedType = getJoined(alloc, 'hostel_beds', 'bed_type');
+  const learnerName = getJoined(alloc, 'learner', 'full_name');
+  const learnerEmail = getJoined(alloc, 'learner', 'email');
+  const allocatedByName = getJoined(alloc, 'allocated_by_profile', 'full_name');
+  // Academic record: hostel_allocations → profiles → learners_profiles (all
+  // left joins — any level can be null, e.g. a profile without a learner row).
+  const academic = alloc?.learner?.academic ?? null;
   const sCfg = statusConfig[allocation.status] ?? { label: allocation.status, variant: 'outline' as const };
 
   return (
@@ -102,7 +128,7 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                 <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
               </div>
               <p className="text-sm text-muted-foreground">
-                Learner: {allocation.learner_id}
+                Learner: {learnerName || '—'}
               </p>
             </div>
           </div>
@@ -129,6 +155,55 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Info */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Student Information */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Student Information
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Name</p>
+                    <p className="font-medium">{learnerName || '—'}</p>
+                    {learnerEmail && (
+                      <p className="text-xs text-muted-foreground">{learnerEmail}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Institution</p>
+                    <p className="font-medium">{academic?.institution?.name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Degree</p>
+                    <p className="font-medium">{academic?.degree?.degree_name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Department</p>
+                    <p className="font-medium">{academic?.department?.department_name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Program</p>
+                    <p className="font-medium">{academic?.program?.program_name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Semester</p>
+                    <p className="font-medium">{academic?.semester?.semester_name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Room Category</p>
+                    <p className="font-medium">{academic?.room_category?.name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Mess Category</p>
+                    <p className="font-medium">{academic?.mess_category?.name ?? '—'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Room Assignment */}
             <Card>
               <CardHeader>
@@ -179,12 +254,92 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-muted-foreground">Allocated By</p>
-                      <p className="font-medium">{allocation.allocated_by ?? 'N/A'}</p>
+                      <p className="font-medium">{allocatedByName || 'N/A'}</p>
                     </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
+
+            {/* Allocation Audit — the same verdict the audit table shows for
+                this learner, plus the evidence behind it. Rendered only for
+                holders of campus_living.allocations.audit, so the page is
+                unchanged for every other role. */}
+            {canAudit && (auditLoading || auditRow) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex flex-wrap items-center gap-2">
+                    <ShieldQuestion className="h-5 w-5" />
+                    Allocation Audit
+                    {auditRow && <VerdictBadge verdict={auditRow.verdict} />}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto h-8 gap-1 text-xs"
+                      onClick={() => reaudit()}
+                      disabled={isReauditing}
+                      title="Re-check against the current fee bands, room rules and bills"
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${isReauditing ? 'animate-spin' : ''}`}
+                      />
+                      {isReauditing ? 'Re-auditing…' : 'Re-audit'}
+                    </Button>
+                  </CardTitle>
+                  <CardDescription>
+                    Was this learner placed correctly? Checked against the fee band resolved
+                    from their admission-year academic bill, and the physical-room rules
+                    covering this room. Read-only.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {auditLoading && !auditRow ? (
+                    <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Auditing this allocation…
+                    </div>
+                  ) : auditRow ? (
+                    <div className="space-y-5">
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                            Fee band
+                          </span>
+                          <BandBadge verdict={auditRow.band_verdict} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                            Room rule
+                          </span>
+                          <RuleBadge verdict={auditRow.room_rule_verdict} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                            Upgrade bill
+                          </span>
+                          <BillStateBadge state={auditRow.upgrade_bill_state} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                            Admitted → Band year
+                          </span>
+                          <span className="text-sm">
+                            {auditRow.admission_year ?? '—'} →{' '}
+                            {auditRow.band_academic_year_name ?? '—'}
+                          </span>
+                        </div>
+                      </div>
+                      <AllocationAuditPanel row={auditRow} />
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href="/campus-living/allocations/audit">
+                          <ShieldQuestion className="mr-2 h-4 w-4" />
+                          Open the full Allocation Audit
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Allocation Details */}
             <Card>
@@ -196,10 +351,6 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Learner ID</p>
-                    <p className="font-medium">{allocation.learner_id}</p>
-                  </div>
                   <div>
                     <p className="text-muted-foreground">Food Preference</p>
                     <p className="font-medium capitalize">{(allocation.food_preference ?? '').replace('_', ' ') || 'N/A'}</p>
@@ -307,6 +458,13 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
         currentBlockId={alloc.block_id}
         currentRoomId={alloc.room_id}
         currentBedId={alloc.bed_id}
+        current={{
+          learnerName,
+          blockName,
+          roomNumber,
+          bedNumber,
+          roomCategory: academic?.room_category?.name ?? null,
+        }}
         open={transferOpen}
         onOpenChange={setTransferOpen}
       />

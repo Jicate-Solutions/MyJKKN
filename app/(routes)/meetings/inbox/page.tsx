@@ -31,11 +31,26 @@ interface InboxPageProps {
   searchParams: Promise<{ status?: string }>;
 }
 
+// Upcoming/Past are TIME questions, not status questions. Nothing ever
+// transitions a booking to 'completed', so a meeting held in June is still
+// 'confirmed' — filtering these two tabs on status alone listed every past
+// booking under "Upcoming" and left "Past" permanently empty (production:
+// 31 confirmed, of which 24 were already in the past; zero rows have ever
+// held 'completed' or 'no_show'). Both tabs now carry a start_time predicate.
+// 'pending'/'rescheduled' are dropped from the match list because
+// meeting_bookings_status_check permits only confirmed/cancelled/completed/
+// no_show — they could never match anything.
+// 'awaiting' (2026-08-21) is what replaced the 7-day auto-close. Its predicate
+// is deliberately IDENTICAL to the sweep the cron used to run — confirmed and
+// already started — so the meetings a machine used to quietly stamp
+// 'completed' are now the meetings a host is asked about. It sits first
+// because it is the only tab that asks the host to DO something.
 const STATUS_FILTERS = [
-  { key: 'upcoming', label: 'Upcoming', match: ['confirmed', 'pending', 'rescheduled'] },
-  { key: 'past', label: 'Past', match: ['completed', 'no_show'] },
-  { key: 'cancelled', label: 'Cancelled', match: ['cancelled'] },
-  { key: 'all', label: 'All', match: null },
+  { key: 'awaiting', label: 'Awaiting you', match: ['confirmed'], when: 'past' },
+  { key: 'upcoming', label: 'Upcoming', match: ['confirmed'], when: 'future' },
+  { key: 'past', label: 'Past', match: ['confirmed', 'completed', 'no_show'], when: 'past' },
+  { key: 'cancelled', label: 'Cancelled', match: ['cancelled'], when: null },
+  { key: 'all', label: 'All', match: null, when: null },
 ] as const;
 
 const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -62,18 +77,21 @@ function formatBookingTime(iso: string, tz?: string | null): string {
 export default async function MeetingsInboxPage({ searchParams }: InboxPageProps) {
   const { status: statusParam } = await searchParams;
   const filterKey = (STATUS_FILTERS.find((f) => f.key === statusParam)?.key ?? 'upcoming') as
+    | 'awaiting'
     | 'upcoming'
     | 'past'
     | 'cancelled'
     | 'all';
   const filter = STATUS_FILTERS.find((f) => f.key === filterKey)!;
 
-  const supabase = await createClient();
+  // Phase N2: bookings now live in the NATIVE meeting_bookings table (the
+  // in-house engine, migration 20260611190000) — not the Cal.com webhook
+  // mirror. RLS (mb_host_select) scopes rows to host_profile_id = auth.uid().
+  // The table isn't in generated types yet → untyped client (TS2589 class).
+  const supabase = (await createClient()) as unknown as import('@supabase/supabase-js').SupabaseClient;
 
-  // Use select('*') so Supabase returns the fully typed Row.
-  // Long select strings degrade to GenericStringError on the typed client.
   let query = supabase
-    .from('jicate_booking_mirror')
+    .from('meeting_bookings')
     .select('*')
     .order('start_time', { ascending: filterKey === 'upcoming' });
 
@@ -81,7 +99,25 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
     query = query.in('status', filter.match as unknown as string[]);
   }
 
+  if (filter.when) {
+    const nowIso = new Date().toISOString();
+    query =
+      filter.when === 'future'
+        ? query.gte('start_time', nowIso)
+        : query.lt('start_time', nowIso);
+  }
+
   const { data: rows, error } = await query.limit(50);
+
+  // Counted on every tab, not just its own: a host who never opens "Awaiting
+  // you" would otherwise never learn the pile exists — which is the exact
+  // failure mode of the cron this replaced. RLS scopes it to the caller's own
+  // meetings, so this is the host's number and nobody else's.
+  const { count: awaitingCount } = await supabase
+    .from('meeting_bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'confirmed')
+    .lt('start_time', new Date().toISOString());
 
   return (
     <ContentLayout title="My Meetings">
@@ -95,8 +131,16 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
       <div className="space-y-4 mt-4">
         <PageHeader
           title="My Meetings"
-          description="Bookings hosted by you on jicate-booking. Source of truth lives on Cal.com — actions open the booking page there."
+          description="Bookings hosted by you — managed entirely inside MyJKKN."
         />
+
+      {filterKey === 'awaiting' ? (
+        <p className="text-xs text-muted-foreground">
+          These meetings have ended and nobody has said what happened. Open one to mark it
+          held or not held, or to move it to a new time. Until 21 August they were recorded
+          as completed automatically after seven days, whether or not anyone met.
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map((f) => (
@@ -107,6 +151,14 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
           >
             <Button variant={filterKey === f.key ? 'default' : 'outline'} size="sm">
               {f.label}
+              {f.key === 'awaiting' && (awaitingCount ?? 0) > 0 ? (
+                <Badge
+                  variant={filterKey === f.key ? 'secondary' : 'default'}
+                  className="ml-1.5 px-1.5 py-0 text-[11px] tabular-nums"
+                >
+                  {awaitingCount}
+                </Badge>
+              ) : null}
             </Button>
           </Link>
         ))}
@@ -122,11 +174,15 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
         <Card>
           <CardContent className="py-12 text-center">
             <Calendar className="mx-auto h-10 w-10 text-muted-foreground/40" aria-hidden />
-            <h3 className="mt-3 text-sm font-medium">No {filter.label.toLowerCase()} meetings</h3>
+            <h3 className="mt-3 text-sm font-medium">
+              {filterKey === 'awaiting' ? 'Nothing awaiting you' : `No ${filter.label.toLowerCase()} meetings`}
+            </h3>
             <p className="mt-1 text-xs text-muted-foreground">
               {filterKey === 'upcoming'
                 ? "You don't have any upcoming bookings yet. They'll appear here once someone books a slot."
-                : `No bookings match the "${filter.label}" filter.`}
+                : filterKey === 'awaiting'
+                  ? 'Nothing is waiting on you. Meetings that have ended without you saying what happened show up here.'
+                  : `No bookings match the "${filter.label}" filter.`}
             </p>
           </CardContent>
         </Card>
@@ -135,7 +191,7 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
           {rows.map((row) => (
             <Link
               key={row.id}
-              href={`/meetings/${row.cal_booking_uid}`}
+              href={`/meetings/${row.uid}`}
               className="block focus:outline-none"
             >
               <Card className="transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring">
@@ -145,14 +201,24 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
                       <Badge variant={STATUS_BADGE_VARIANT[row.status] ?? 'outline'}>
                         {row.status}
                       </Badge>
+                      {/* A finished booking still sitting at 'confirmed' is one
+                          nobody has said happened. Flagging it here is what
+                          sends the host into the detail page to answer — the
+                          buttons themselves live there, next to the RPC. */}
+                      {row.status === 'confirmed' &&
+                      new Date(row.start_time).getTime() < Date.now() ? (
+                        <Badge variant="outline" className="border-amber-400 text-amber-700">
+                          Not marked
+                        </Badge>
+                      ) : null}
                       <span className="truncate text-sm font-medium">
                         {row.attendee_name || row.attendee_email}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="h-3 w-3" aria-hidden />
-                        {formatBookingTime(row.start_time, row.timezone)}
+                        {formatBookingTime(row.start_time)}
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <User className="h-3 w-3" aria-hidden />

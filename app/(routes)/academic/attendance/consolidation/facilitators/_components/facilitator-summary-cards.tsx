@@ -3,6 +3,7 @@
 import { Users, BookOpen, TrendingUp, Building2, Calendar, Clock } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import type { FacilitatorReportSummary } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface Props {
   summary: FacilitatorReportSummary;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function FacilitatorSummaryCards({ summary, departmentCount }: Props) {
+  const label = useAdaptiveLabels();
   const rate = Number(summary.overallMarkingRate ?? 0);
 
   const rateColor =
@@ -32,7 +34,7 @@ export function FacilitatorSummaryCards({ summary, departmentCount }: Props) {
       valueClass: '',
     },
     {
-      label: 'Departments',
+      label: label('Departments'),
       value: departmentCount,
       icon: Building2,
       iconColor: 'text-orange-600',

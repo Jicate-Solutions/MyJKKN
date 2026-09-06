@@ -29,9 +29,6 @@ export default function RoutesError({ error, reset }: ErrorProps) {
   const pathname = usePathname();
 
   useEffect(() => {
-    // Surface the raw error in devtools. enhanced-logger isn't used here
-    // because error.tsx must remain self-contained (no async imports, no
-    // side effects that could themselves throw).
     // eslint-disable-next-line no-console
     console.error('[routes/error-boundary]', {
       pathname,
@@ -39,6 +36,27 @@ export default function RoutesError({ error, reset }: ErrorProps) {
       digest: error.digest,
       stack: error.stack
     });
+
+    // Stale-deployment chunk errors: the browser requests a JS chunk from a
+    // previous Vercel deployment that no longer exists on the CDN. A full page
+    // reload fetches the new HTML which references the current chunk hashes.
+    // Guard with sessionStorage to prevent infinite reload loops.
+    const isChunkError =
+      error.message?.includes('Failed to load chunk') ||
+      error.message?.includes('Loading chunk') ||
+      error.name === 'ChunkLoadError';
+
+    if (isChunkError) {
+      const key = `chunk-reload:${pathname}`;
+      const lastReload = sessionStorage.getItem(key);
+      const now = Date.now();
+      // Allow one auto-reload per path per 30 seconds
+      if (!lastReload || now - Number(lastReload) > 30_000) {
+        sessionStorage.setItem(key, String(now));
+        window.location.reload();
+        return;
+      }
+    }
   }, [error, pathname]);
 
   const handleReportBug = () => {

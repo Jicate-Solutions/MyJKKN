@@ -601,7 +601,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
   return (
     <div className="space-y-4">
       {/* Step indicator */}
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-sm overflow-x-auto">
         <Button variant="ghost" size="sm" onClick={() => { if (step === 1) setView('list'); else setStep(step - 1); }}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -758,7 +758,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                   setSelectedPhoneNumberId((primary || eligible[0])?.phone_number_id || '');
                 }}
               >
-                <p className="font-medium text-xs">{t.name}</p>
+                <p className="font-medium text-xs break-words">{t.name}</p>
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   <Badge variant="outline" className={`text-[10px] ${isMarketing ? 'border-amber-400 text-amber-700 bg-amber-50' : 'border-blue-400 text-blue-700 bg-blue-50'}`}>
                     {t.category}

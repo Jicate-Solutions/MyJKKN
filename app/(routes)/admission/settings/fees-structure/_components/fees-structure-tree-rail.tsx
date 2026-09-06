@@ -208,7 +208,7 @@ function InstitutionNode({
       AdmissionYearService.getAdmissionYearsByInstitution(institution.id),
       LookupService.listQuotas(true),
       LookupService.listCommunityCategories(true),
-      LookupService.listAccommodationTypes(institution.id, true),
+      LookupService.listAccommodationTypes(true),
     ])
       .then(([deg, yr, q, c, a]) => {
         if (cancelled) return;

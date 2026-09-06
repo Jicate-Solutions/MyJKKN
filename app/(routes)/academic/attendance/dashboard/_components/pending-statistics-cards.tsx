@@ -17,6 +17,7 @@ import {
 import { AttendanceDashboardService } from '@/lib/services/academic/attendance-dashboard-service';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
 import { format } from 'date-fns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface PendingStatisticsCardsProps {
   filters: {
@@ -49,6 +50,7 @@ export function PendingStatisticsCards({
   canViewAllInstitutions,
   refreshTrigger = 0
 }: PendingStatisticsCardsProps) {
+  const label = useAdaptiveLabels();
   const [stats, setStats] = useState<PendingStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,9 +61,17 @@ export function PendingStatisticsCards({
         setLoading(true);
         setError(null);
 
+        // For a view_all_institutions viewer with no explicit institution filter, leave
+        // institution undefined so counts span every college (RLS scopes the rows).
+        // Falling back to the viewer's own institution collapsed all-colleges scope on
+        // the Pending tab — same root cause as BUG-004284 on the Statistics tab.
+        const effectiveUserInstitutionId = canViewAllInstitutions
+          ? filters.institutionId || undefined
+          : filters.institutionId || userInstitutionId;
+
         // Build filters for the API call
         const apiFilters: DashboardFilters = {
-          userInstitutionId: filters.institutionId || userInstitutionId,
+          userInstitutionId: effectiveUserInstitutionId,
           page: 1,
           limit: 1000, // Get all for counting
           sortBy: 'attendance_date',
@@ -79,6 +89,7 @@ export function PendingStatisticsCards({
 
         const result = await AttendanceDashboardService.getTodayPendingAttendance(apiFilters);
         const periods = result.data || [];
+        const meta = result.metadata;
 
         // Calculate statistics
         const uniqueSections = new Set(periods.map(p => p.section_id)).size;
@@ -89,10 +100,19 @@ export function PendingStatisticsCards({
             .filter(Boolean)
         ).size;
 
+        // Read the counts from metadata, NEVER from `periods.length`.
+        //
+        // `periods` is the pending list only, so deriving Total from it made
+        // Total and Pending the same number by construction — both read 470 —
+        // and `completedPeriods: 0` pinned the completion rate at 0% no matter
+        // how much staff had marked. It is also capped by the page `limit`,
+        // so any college with more than 1,000 pending periods under-reported.
+        //
+        // Invariant from the service: scheduledCount = markedCount + total.
         setStats({
-          totalPeriods: periods.length,
-          pendingPeriods: periods.length, // All fetched periods are pending
-          completedPeriods: 0, // For now, we only fetch pending
+          totalPeriods: meta?.scheduledCount ?? periods.length,
+          pendingPeriods: meta?.total ?? periods.length,
+          completedPeriods: meta?.markedCount ?? 0,
           sections: uniqueSections,
           subjects: uniqueSubjects,
           staff: uniqueStaff
@@ -164,6 +184,18 @@ export function PendingStatisticsCards({
       iconBg: 'bg-blue-500'
     },
     {
+      // Ships between Total and Pending so the arithmetic is readable straight
+      // across: Total = Marked + Pending. completionRate was computed here for
+      // months and never rendered, because completedPeriods was hard-coded 0.
+      title: 'Marked',
+      value: stats.completedPeriods,
+      description: `${completionRate}% of scheduled periods recorded`,
+      icon: CheckCircle,
+      gradient: 'from-emerald-500 to-emerald-600',
+      bgGradient: 'from-emerald-50 to-emerald-100',
+      iconBg: 'bg-emerald-500'
+    },
+    {
       title: 'Pending Periods',
       value: stats.pendingPeriods,
       description: 'Awaiting attendance',
@@ -173,9 +205,12 @@ export function PendingStatisticsCards({
       iconBg: 'bg-orange-500'
     },
     {
-      title: 'Active Sections',
+      // These three come from the PENDING list, not the scheduled set, so they
+      // say "still pending" rather than "scheduled" — the old wording implied
+      // they described the whole day.
+      title: `Active ${label('Sections')}`,
       value: stats.sections,
-      description: 'With scheduled periods',
+      description: 'With periods still pending',
       icon: Users,
       gradient: 'from-purple-500 to-purple-600',
       bgGradient: 'from-purple-50 to-purple-100',
@@ -184,7 +219,7 @@ export function PendingStatisticsCards({
     {
       title: 'Subjects',
       value: stats.subjects,
-      description: 'Unique courses',
+      description: 'Unique courses still pending',
       icon: BookOpen,
       gradient: 'from-green-500 to-green-600',
       bgGradient: 'from-green-50 to-green-100',
@@ -204,7 +239,7 @@ export function PendingStatisticsCards({
       </div>
 
       {/* Statistics Cards */}
-      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-5'>
         {cards.map((card, index) => (
           <Card 
             key={index} 
@@ -235,12 +270,12 @@ export function PendingStatisticsCards({
       {/* Quick Summary */}
       <Card className='border-0 shadow-md bg-gradient-to-r from-gray-50 to-gray-100'>
         <CardContent className='pt-4'>
-          <div className='flex items-center justify-between text-sm'>
-            <span className='text-gray-600'>
-              {stats.staff} staff members have periods scheduled for {selectedDate.toLowerCase()}
+          <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm'>
+            <span className='text-gray-600 min-w-0'>
+              {stats.staff} staff members still have periods to mark for {selectedDate.toLowerCase()}
             </span>
             {stats.pendingPeriods > 0 && (
-              <Badge variant='secondary' className='bg-orange-100 text-orange-800'>
+              <Badge variant='secondary' className='shrink-0 bg-orange-100 text-orange-800'>
                 {stats.pendingPeriods} periods need attention
               </Badge>
             )}

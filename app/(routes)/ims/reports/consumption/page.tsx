@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ImsDepartmentConsumption, ImsItemConsumption } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -69,7 +71,19 @@ function getDateRange(preset: string): { from: string; to: string } {
 }
 
 export default function ConsumptionReportPage() {
-  const [activeTab, setActiveTab] = useState('department');
+  return (
+    <ImsPageGuard module="ims.reports" action="view">
+      <Suspense fallback={null}>
+        <ConsumptionReportPageInner />
+      </Suspense>
+    </ImsPageGuard>
+  );
+}
+
+const CONSUMPTION_TABS = ['department', 'item'] as const;
+
+function ConsumptionReportPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('department', CONSUMPTION_TABS);
   const [activePreset, setActivePreset] = useState('month');
   const [dateFrom, setDateFrom] = useState(() => getDateRange('month').from);
   const [dateTo, setDateTo] = useState(() => getDateRange('month').to);
@@ -159,7 +173,7 @@ export default function ConsumptionReportPage() {
                   {preset.label}
                 </Button>
               ))}
-              <div className='flex items-center gap-2 ml-auto'>
+              <div className='flex w-full items-center gap-2 sm:ml-auto sm:w-auto'>
                 <Input
                   type='date'
                   value={dateFrom}
@@ -167,7 +181,7 @@ export default function ConsumptionReportPage() {
                     setDateFrom(e.target.value);
                     handleCustomDate();
                   }}
-                  className='w-40'
+                  className='w-full sm:w-40'
                 />
                 <span className='text-muted-foreground'>to</span>
                 <Input
@@ -177,7 +191,7 @@ export default function ConsumptionReportPage() {
                     setDateTo(e.target.value);
                     handleCustomDate();
                   }}
-                  className='w-40'
+                  className='w-full sm:w-40'
                 />
               </div>
             </div>

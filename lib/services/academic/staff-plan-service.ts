@@ -840,7 +840,8 @@ export class StaffPlanService {
             id,
             first_name,
             last_name,
-            staff_id
+            staff_id,
+            institution_id
           )
         `
         )
@@ -984,7 +985,10 @@ export class StaffPlanService {
             id,
             first_name,
             last_name,
-            staff_id
+            staff_id,
+            is_active,
+            institution_email,
+            institution_id
           )
         `
         )
@@ -1428,6 +1432,7 @@ export class StaffPlanService {
       staff_id: string;
       designation?: string;
       institution_email?: string; // Added: 2025-12-01 - For duplicate staff identification
+      institution_id?: string; // Added: 2026-07-06 - Visiting-staff badge (cross-institution teaching)
       staff_type: string;
       staff_plan_id: string;
     }>
@@ -1445,7 +1450,8 @@ export class StaffPlanService {
             last_name,
             staff_id,
             designation,
-            institution_email
+            institution_email,
+            institution_id
           ),
           staff_plan:staff_plans (
             id,
@@ -1477,6 +1483,7 @@ export class StaffPlanService {
         staff_id: string;
         designation?: string;
         institution_email?: string;
+        institution_id?: string;
         staff_type: string;
         staff_plan_id: string;
       }> = [];
@@ -1530,6 +1537,7 @@ export class StaffPlanService {
             staff_id: assignment.staff.staff_id,
             designation: assignment.staff.designation,
             institution_email: assignment.staff.institution_email, // Added: 2025-12-01
+            institution_id: assignment.staff.institution_id, // Added: 2026-07-06
             staff_type: assignment.staff_type,
             staff_plan_id: assignment.staff_plan_id
           });

@@ -14,8 +14,13 @@ import { format } from 'date-fns';
 export default function SyllabusHistoryPage() {
   const router = useRouter();
   const params = useParams();
-  const courseCode = params.id as string;
+  // The dynamic segment is the syllabus UUID (matches /bos/syllabus/[id]/edit
+  // and the row-action navigation in syllabus/_components/row-actions.tsx).
+  // The history API keys by course_code, so we resolve the syllabus first
+  // to learn its course_code, then ask for that code's history.
+  const syllabusId = params.id as string;
 
+  const [courseCode, setCourseCode] = useState<string | null>(null);
   const [history, setHistory] = useState<BosSyllabusHistory | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +28,9 @@ export default function SyllabusHistoryPage() {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const data = await BosSyllabusService.getSyllabusHistory(courseCode);
+        const syllabus = await BosSyllabusService.getSyllabus(syllabusId);
+        setCourseCode(syllabus.course_code);
+        const data = await BosSyllabusService.getSyllabusHistory(syllabus.course_code);
         setHistory(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load history');
@@ -32,10 +39,10 @@ export default function SyllabusHistoryPage() {
       }
     };
 
-    if (courseCode) {
+    if (syllabusId) {
       fetchHistory();
     }
-  }, [courseCode]);
+  }, [syllabusId]);
 
   if (isLoading) {
     return (

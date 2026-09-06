@@ -230,7 +230,9 @@ export function SourcesDataTable({ variant = 'manage' }: SourcesDataTableProps =
             { wch: 14 },
             { wch: 10 },
           ],
-          headers: ['Label', 'Key', 'Routes To', 'Counselors', 'Total Leads', 'Assigned', 'Unassigned', 'Active'],
+          // DATA KEYS (SourceMaster fields), not the labels above — the export
+          // resolves these against each row; columnMapping supplies the heading.
+          headers: ['label', 'key', 'enum_value', 'counselor_count', 'lead_count', 'assigned_count', 'unassigned_count', 'is_active'],
         }}
         idField="id"
         config={{

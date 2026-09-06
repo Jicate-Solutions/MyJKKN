@@ -9,8 +9,15 @@ name: Empirical-First Gate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+  # Merge queue (2026-07-11): rules re-evaluate on the queue's merged tree.
+  # The queue event carries no PR object — the PR number is parsed from the
+  # queue branch name (gh-readonly-queue/main/pr-N-…) and the title fetched
+  # via gh, so title-triggered rules keep working. Inert until the merge
+  # queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   pull-requests: write
@@ -39,6 +46,27 @@ jobs:
           fi
           echo "no_rules=false" >> $GITHUB_OUTPUT
 
+      # Merge-queue runs have no pull_request context. The queue branch name
+      # encodes the PR number (gh-readonly-queue/main/pr-N-<sha>); parse it and
+      # fetch the title so title-triggered rules evaluate identically. A real
+      # fetch (not a pass-through) — a vacuously-passing gate is worse than a
+      # missing one.
+      - name: Resolve PR context (merge queue)
+        if: github.event_name == 'merge_group' && steps.check_rules.outputs.no_rules != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MG_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          set -euo pipefail
+          PR_NUM=$(sed -E 's#.*/pr-([0-9]+)-.*#\1#' <<< "$MG_HEAD_REF")
+          [[ "$PR_NUM" =~ ^[0-9]+$ ]] || { echo "::error::Cannot parse PR number from '$MG_HEAD_REF'"; exit 1; }
+          echo "MG_PR_NUMBER=$PR_NUM" >> "$GITHUB_ENV"
+          {
+            echo "MG_PR_TITLE<<MG_CTX_EOF"
+            gh pr view "$PR_NUM" --repo "$GITHUB_REPOSITORY" --json title --jq .title
+            echo "MG_CTX_EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Setup Python
         if: steps.check_rules.outputs.no_rules != 'true'
         uses: actions/setup-python@v5
@@ -53,10 +81,12 @@ jobs:
         if: steps.check_rules.outputs.no_rules != 'true'
         id: evaluate
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # pull_request → event fields; merge_group → resolved via gh above
+          # (MG_* from GITHUB_ENV) and the group's parent/head SHAs.
+          PR_TITLE: ${{ github.event.pull_request.title || env.MG_PR_TITLE }}
+          PR_NUMBER: ${{ github.event.pull_request.number || env.MG_PR_NUMBER }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
           python3 <<'PY'
           import os, re, subprocess, sys, json
@@ -152,7 +182,11 @@ jobs:
           PY
 
       - name: Comment on PR
-        if: always() && steps.evaluate.outputs.violation_count != '0' && steps.evaluate.outputs.violation_count != ''
+        # pull_request only: in a merge-queue run context.issue.number is
+        # undefined (github-script would throw). Violations still fail the
+        # check itself above — the queue removes the PR; the comment already
+        # exists from the PR-level run.
+        if: always() && github.event_name == 'pull_request' && steps.evaluate.outputs.violation_count != '0' && steps.evaluate.outputs.violation_count != ''
         uses: actions/github-script@v7
         with:
           script: |

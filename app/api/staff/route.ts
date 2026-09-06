@@ -99,7 +99,30 @@ export async function GET(request: NextRequest) {
       ? ('all_institutions' as const)
       : await getStaffScope(supabase, session.user.id);
 
-    if (scope === 'none') {
+    // Cross-institution teaching assignment mode (2026-07-06): the staff-planning
+    // "Other institutions" picker. A caller holding academic.staff.planning.edit
+    // may list ACTIVE staff of ANY institution — but only through this explicit
+    // param and with a reduced column set, so the general staff-records read
+    // path keeps its module-scope contract.
+    const forTeachingAssignment =
+      request.nextUrl.searchParams.get('for_teaching_assignment') === 'true';
+    let teachingAssignmentAllowed = false;
+    if (forTeachingAssignment) {
+      if (isSuperAdmin) {
+        teachingAssignmentAllowed = true;
+      } else {
+        const { data: canEditPlans, error: planPermError } = await supabase.rpc(
+          'user_has_permission',
+          { permission_name: 'academic.staff.planning.edit' }
+        );
+        teachingAssignmentAllowed = !planPermError && canEditPlans === true;
+      }
+      if (!teachingAssignmentAllowed) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    if (scope === 'none' && !teachingAssignmentAllowed) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -192,7 +215,11 @@ export async function GET(request: NextRequest) {
       // User must have at least their primary institution — UNLESS they're
       // own_records scope, where the filter keys on profile_id and the
       // institution list is irrelevant.
-      if (accessibleInstitutionIds.length === 0 && scope !== 'own_records') {
+      if (
+        accessibleInstitutionIds.length === 0 &&
+        scope !== 'own_records' &&
+        !teachingAssignmentAllowed
+      ) {
         console.warn('[/api/staff] User has no institution access');
         return NextResponse.json(
           { error: 'No institution access' },
@@ -222,22 +249,47 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '100');
     const page = parseInt(searchParams.get('page') || '1');
 
-    // Build query using admin client (bypasses RLS)
-    let query = supabaseAdmin.from('staff').select(
-      `
+    // Teaching-assignment mode requires an explicit target institution — this
+    // path must never turn into an unscoped all-staff directory listing.
+    if (teachingAssignmentAllowed && !institutionId) {
+      return NextResponse.json(
+        { error: 'institution_id is required for teaching assignment lookup' },
+        { status: 400 }
+      );
+    }
+
+    // Build query using admin client (bypasses RLS).
+    // Teaching-assignment mode returns a reduced column set (picker fields
+    // only) — it is an assignment picker, not a staff-records read.
+    let query = teachingAssignmentAllowed
+      ? supabaseAdmin.from('staff').select(
+          `
+        id, first_name, last_name, designation, institution_email, institution_id, department_id, is_active,
+        institution:institutions!staff_institution_id_fkey(id, name, counselling_code),
+        department:departments(id, department_name)
+      `,
+          { count: 'exact' }
+        )
+      : supabaseAdmin.from('staff').select(
+          `
         *,
         category:employment_categories(id, category_name, is_teaching, shows_extended_profile),
-        institution:institutions(id, name, counselling_code),
+        institution:institutions!staff_institution_id_fkey(id, name, counselling_code),
         department:departments(id, department_name),
         role:custom_roles!role_key(id, role_key, role_name, description, is_system_role)
       `,
-      { count: 'exact' }
-    );
+          { count: 'exact' }
+        );
 
     // Scope branch — replaces the legacy `role === 'faculty'` self-only
     // shortcut. Source of truth is custom_roles.module_scopes->>'staff'
     // resolved by get_user_module_scope() (Batch A).
-    if (scope === 'own_records') {
+    if (teachingAssignmentAllowed) {
+      // Cross-institution teaching assignment: skip the module-scope row filter —
+      // the target institution filter below + forced is_active narrow the rows,
+      // and the permission gate above authorized the lookup.
+      query = query.eq('is_active', true);
+    } else if (scope === 'own_records') {
       // Faculty / own-records roles: only their own staff row, keyed on
       // staff.profile_id (uuid, 100% populated, links to auth.uid()).
       query = query.eq('profile_id', session.user.id);

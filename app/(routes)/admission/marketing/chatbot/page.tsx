@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { Suspense, useState, useRef, useEffect } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -193,6 +194,8 @@ function TestChatInterface({ chatbotId }: { chatbotId: string }) {
 // MAIN PAGE CONTENT
 // ═══════════════════════════════════════════════════════════════════════════
 
+const CHATBOT_TABS = ['settings', 'test', 'sessions'] as const;
+
 function ChatbotPageContent() {
   const { profile } = useAuth();
   const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
@@ -217,6 +220,7 @@ function ChatbotPageContent() {
   const [welcomeMessage, setWelcomeMessage] = useState('');
   const [chatbotName, setChatbotName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useTabParam('settings', CHATBOT_TABS);
 
   // Sync form state when config loads
   useEffect(() => {
@@ -276,7 +280,7 @@ function ChatbotPageContent() {
     <ContentLayout title="AI Chatbot">
       <div className="space-y-6">
         {/* Breadcrumb */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -288,7 +292,7 @@ function ChatbotPageContent() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-2">
               <Label htmlFor="chatbot-toggle" className="text-sm">
                 {config?.is_active ? 'Active' : 'Inactive'}
@@ -350,8 +354,8 @@ function ChatbotPageContent() {
         </div>
 
         {/* Main Tabs */}
-        <Tabs defaultValue="settings" className="space-y-4">
-          <TabsList>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="settings">
               <Settings className="h-4 w-4 mr-2" /> Settings
             </TabsTrigger>
@@ -522,21 +526,21 @@ function ChatbotPageContent() {
                         key={session.id}
                         className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className={`h-2 w-2 rounded-full ${
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className={`h-2 w-2 rounded-full shrink-0 ${
                             session.status === 'active' ? 'bg-green-500' :
                             session.status === 'handed_off' ? 'bg-orange-500' : 'bg-gray-400'
                           }`} />
-                          <div>
-                            <p className="text-sm font-medium">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">
                               {session.context?.collected_name || session.visitor_id || 'Anonymous'}
                             </p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground truncate">
                               {session.channel} &middot; {session.message_count || 0} messages
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <Badge variant="outline" className="text-xs">
                             {session.status}
                           </Badge>
@@ -558,10 +562,13 @@ function ChatbotPageContent() {
 }
 
 export default function ChatbotPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <PermissionGuard module="admission" action="view">
       <AdmissionErrorBoundary>
-        <ChatbotPageContent />
+        <Suspense fallback={null}>
+          <ChatbotPageContent />
+        </Suspense>
       </AdmissionErrorBoundary>
     </PermissionGuard>
   );

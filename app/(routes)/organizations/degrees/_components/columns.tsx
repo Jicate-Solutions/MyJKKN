@@ -8,7 +8,10 @@ import { Degree } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Degree>[] = [
+export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Degree>[] => {
+  const adapt = adaptLabel || ((label) => label);
+
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -34,7 +37,7 @@ export const columns: ColumnDef<Degree>[] = [
   {
     accessorKey: 'degree_id',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree ID' />
+      <DataTableColumnHeader column={column} title={adapt('Degree ID')} />
     ),
     cell: ({ row }) => {
       const degree = row.original;
@@ -44,7 +47,7 @@ export const columns: ColumnDef<Degree>[] = [
   {
     accessorKey: 'degree_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree Name' />
+      <DataTableColumnHeader column={column} title={adapt('Degree Name')} />
     ),
     cell: ({ row }) => {
       const degree = row.original;
@@ -74,7 +77,7 @@ export const columns: ColumnDef<Degree>[] = [
   },
 
   {
-    accessorKey: 'institution',
+    accessorKey: 'institution_id',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Institution' />
     ),
@@ -122,4 +125,5 @@ export const columns: ColumnDef<Degree>[] = [
       />
     )
   }
-];
+  ];
+};

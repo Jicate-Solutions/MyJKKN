@@ -4,7 +4,7 @@
 // Usage: /health/leaderboard
 // Tabs: Mood Streaks | Hydration | Steps (coming soon)
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import {
@@ -37,6 +37,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useHealthLeaderboard } from '@/hooks/health/use-health';
 import type { LeaderboardEntry, LeaderboardType, LeaderboardPeriod } from '@/types/health';
 import { cn } from '@/lib/utils';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 // ============================================================================
 // Helpers
@@ -377,11 +378,16 @@ const PERIOD_OPTIONS: { value: LeaderboardPeriod; label: string }[] = [
 // The leaderboard filter passes institutionId to the hook; "all" passes undefined
 const INSTITUTION_PLACEHOLDER = 'All Institutions';
 
-export default function HealthLeaderboardPage() {
+const HEALTH_LEADERBOARD_TABS = ['mood_streak', 'water_consistency', 'steps'] as const;
+
+function HealthLeaderboardInner() {
   const { profile } = useAuth();
   const currentLearnerId = profile?.learner_id ?? profile?.id;
 
-  const [activeTab, setActiveTab] = useState<LeaderboardType>('mood_streak');
+  const [activeTab, setActiveTab] = useTabParam<LeaderboardType>(
+    'mood_streak',
+    HEALTH_LEADERBOARD_TABS
+  );
   const [institutionFilter, setInstitutionFilter] = useState<string>('all');
   const [period, setPeriod] = useState<LeaderboardPeriod>('week');
 
@@ -480,7 +486,7 @@ export default function HealthLeaderboardPage() {
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as LeaderboardType)}
         >
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-3 sm:gap-0 sm:overflow-visible">
             {(Object.entries(tabMeta) as [LeaderboardType, typeof tabMeta[LeaderboardType]][]).map(
               ([key, meta]) => {
                 const Icon = meta.icon;
@@ -551,5 +557,14 @@ export default function HealthLeaderboardPage() {
         </p>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function HealthLeaderboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <HealthLeaderboardInner />
+    </Suspense>
   );
 }

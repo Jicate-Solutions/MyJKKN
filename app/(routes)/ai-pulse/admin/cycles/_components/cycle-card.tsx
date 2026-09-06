@@ -5,12 +5,20 @@
 //          Shows status badge, demo date, featured tool, host, registrations count.
 //          Click → navigates to /ai-pulse/admin/cycles/[id].
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Calendar, ExternalLink, Sparkles, User, Users } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AIPulseCycleRow } from '@/lib/services/ai-pulse/cycles-service';
+import {
+  deriveCycleTimes,
+  deriveEffectiveStatus,
+} from '@/lib/services/ai-pulse/live-session-service';
+
+// "post_event" reads better than the raw enum once capitalised.
+const STATUS_LABELS: Record<string, string> = { post_event: 'Post-event' };
 
 interface CycleCardProps {
   cycle: AIPulseCycleRow;
@@ -45,7 +53,20 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 export function CycleCard({ cycle }: CycleCardProps) {
-  const variant = STATUS_VARIANTS[cycle.status] || 'outline';
+  // Cycles never leave 'draft' in storage; the real status is clock-derived.
+  // Compute it client-side (after mount) to avoid a hydration mismatch from
+  // Date.now() — first paint shows the stored status, then the derived one.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const { starts_at, ends_at } = deriveCycleTimes({
+    demo_date: cycle.demo_date,
+    config: { ai_pulse: cycle.ai_pulse },
+  });
+  const effectiveStatus = mounted
+    ? deriveEffectiveStatus(cycle.status, starts_at, ends_at)
+    : cycle.status;
+  const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus;
+  const variant = STATUS_VARIANTS[effectiveStatus] || 'outline';
   const toolLabel = cycle.featured_tool
     ? cycle.featured_tool.name +
       (cycle.featured_tool.vendor ? ` · ${cycle.featured_tool.vendor}` : '')
@@ -68,7 +89,7 @@ export function CycleCard({ cycle }: CycleCardProps) {
                   {cycle.name || 'Untitled cycle'}
                 </h3>
                 <Badge variant={variant} className="capitalize">
-                  {cycle.status}
+                  {statusLabel}
                 </Badge>
                 {cycle.ai_pulse.external_judge_cycle && (
                   <Badge variant="outline" className="border-amber-400 text-amber-700">

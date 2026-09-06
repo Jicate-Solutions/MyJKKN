@@ -6,7 +6,8 @@
  *
  * KEY VALIDATION RULES:
  * - Email + Institution combination must be unique (enforced by database constraint 'staff_institution_email_key')
- * - Staff ID must be globally unique (enforced by database constraint 'staff_staff_id_key')
+ * - Staff ID is NOT taken from the sheet. Since 2026-08-28 trg_staff_autonumber generates it
+ *   on insert (DCH001 teaching / NOTDCH001 non-teaching) and discards any supplied value.
  * - Same email can exist for different institutions, but not within the same institution
  *
  * VALIDATION PROCESS:
@@ -41,9 +42,15 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { CategoryService } from '@/lib/services/staff/category-service';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { normalizeStaffName } from '@/lib/utils/staff-name';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { RoleService } from '@/lib/services/roles/role-service';
+import {
+  validateEmail,
+  validatePhone,
+  parseFlexibleDate as validateDate
+} from '@/lib/utils/staff-field-validators';
 
 interface ValidationResult {
   isValid: boolean;
@@ -56,238 +63,6 @@ interface ValidationResult {
   converted_date_of_joining?: string;
   login_enabled: boolean;
 }
-
-const validateEmail = (email: string) => {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-};
-
-const validatePhone = (phone: string) => {
-  return /^\+?[\d\s-()]{10,}$/.test(phone);
-};
-
-const validateDate = (date: string | number) => {
-  if (!date)
-    return { isValid: false, convertedDate: '', error: 'Date is required' };
-
-  // Handle Excel serial dates (numbers)
-  if (
-    typeof date === 'number' ||
-    (!isNaN(Number(date)) && Number(date) > 1000)
-  ) {
-    try {
-      // Excel serial date: days since January 1, 1900
-      const excelEpoch = new Date(1900, 0, 1);
-      const serialNumber = Number(date);
-
-      // Excel incorrectly treats 1900 as a leap year, so subtract 1 for dates after Feb 28, 1900
-      const adjustedSerial =
-        serialNumber > 59 ? serialNumber - 1 : serialNumber;
-      const convertedDate = new Date(
-        excelEpoch.getTime() + (adjustedSerial - 1) * 24 * 60 * 60 * 1000
-      );
-
-      if (!isNaN(convertedDate.getTime())) {
-        const year = convertedDate.getFullYear();
-        const month = (convertedDate.getMonth() + 1)
-          .toString()
-          .padStart(2, '0');
-        const day = convertedDate.getDate().toString().padStart(2, '0');
-
-        // Check reasonable date range
-        const currentYear = new Date().getFullYear();
-        if (year < 1900 || year > currentYear + 1) {
-          return {
-            isValid: false,
-            convertedDate: '',
-            error: `Year must be between 1900 and ${
-              currentYear + 1
-            }. Got: ${year}`
-          };
-        }
-
-        return {
-          isValid: true,
-          convertedDate: `${year}-${month}-${day}`,
-          error: ''
-        };
-      }
-    } catch (error) {
-      // Fall through to text parsing
-    }
-  }
-
-  // Remove any extra whitespace
-  const cleanDate = date.toString().trim();
-
-  // Common date formats to try
-  const dateFormats = [
-    // ISO format (preferred)
-    { regex: /^\d{4}-\d{2}-\d{2}$/, format: 'YYYY-MM-DD' },
-    // DD/MM/YYYY or DD-MM-YYYY
-    {
-      regex: /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/,
-      format: 'DD/MM/YYYY or DD-MM-YYYY'
-    },
-    // MM/DD/YYYY or MM-DD-YYYY
-    {
-      regex: /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/,
-      format: 'MM/DD/YYYY or MM-DD-YYYY'
-    },
-    // DD.MM.YYYY
-    { regex: /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/, format: 'DD.MM.YYYY' },
-    // YYYY/MM/DD
-    {
-      regex: /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/,
-      format: 'YYYY/MM/DD or YYYY-MM-DD'
-    }
-  ];
-
-  let convertedDate = '';
-  let validDate = null;
-
-  // Try ISO format first (YYYY-MM-DD)
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
-    validDate = new Date(cleanDate);
-    if (!isNaN(validDate.getTime())) {
-      convertedDate = cleanDate;
-    }
-  }
-
-  // If ISO format didn't work, try other formats
-  if (!convertedDate) {
-    // Try DD/MM/YYYY, DD-MM-YYYY format
-    const ddmmyyyy = cleanDate.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (ddmmyyyy) {
-      const day = ddmmyyyy[1].padStart(2, '0');
-      const month = ddmmyyyy[2].padStart(2, '0');
-      const year = ddmmyyyy[3];
-
-      // Create date and validate
-      const testDate = new Date(`${year}-${month}-${day}`);
-      if (
-        !isNaN(testDate.getTime()) &&
-        testDate.getFullYear() == parseInt(year) &&
-        testDate.getMonth() + 1 == parseInt(month) &&
-        testDate.getDate() == parseInt(day)
-      ) {
-        convertedDate = `${year}-${month}-${day}`;
-        validDate = testDate;
-      }
-    }
-
-    // Try MM/DD/YYYY, MM-DD-YYYY format if DD/MM/YYYY didn't work
-    if (!convertedDate) {
-      const mmddyyyy = cleanDate.match(
-        /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/
-      );
-      if (mmddyyyy) {
-        const month = mmddyyyy[1].padStart(2, '0');
-        const day = mmddyyyy[2].padStart(2, '0');
-        const year = mmddyyyy[3];
-
-        // Create date and validate
-        const testDate = new Date(`${year}-${month}-${day}`);
-        if (
-          !isNaN(testDate.getTime()) &&
-          testDate.getFullYear() == parseInt(year) &&
-          testDate.getMonth() + 1 == parseInt(month) &&
-          testDate.getDate() == parseInt(day)
-        ) {
-          convertedDate = `${year}-${month}-${day}`;
-          validDate = testDate;
-        }
-      }
-    }
-
-    // Try DD.MM.YYYY format
-    if (!convertedDate) {
-      const ddmmyyyy_dot = cleanDate.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      if (ddmmyyyy_dot) {
-        const day = ddmmyyyy_dot[1].padStart(2, '0');
-        const month = ddmmyyyy_dot[2].padStart(2, '0');
-        const year = ddmmyyyy_dot[3];
-
-        // Create date and validate
-        const testDate = new Date(`${year}-${month}-${day}`);
-        if (
-          !isNaN(testDate.getTime()) &&
-          testDate.getFullYear() == parseInt(year) &&
-          testDate.getMonth() + 1 == parseInt(month) &&
-          testDate.getDate() == parseInt(day)
-        ) {
-          convertedDate = `${year}-${month}-${day}`;
-          validDate = testDate;
-        }
-      }
-    }
-
-    // Try YYYY/MM/DD format
-    if (!convertedDate) {
-      const yyyymmdd_slash = cleanDate.match(
-        /^(\d{4})[\/](\d{1,2})[\/](\d{1,2})$/
-      );
-      if (yyyymmdd_slash) {
-        const year = yyyymmdd_slash[1];
-        const month = yyyymmdd_slash[2].padStart(2, '0');
-        const day = yyyymmdd_slash[3].padStart(2, '0');
-
-        // Create date and validate
-        const testDate = new Date(`${year}-${month}-${day}`);
-        if (
-          !isNaN(testDate.getTime()) &&
-          testDate.getFullYear() == parseInt(year) &&
-          testDate.getMonth() + 1 == parseInt(month) &&
-          testDate.getDate() == parseInt(day)
-        ) {
-          convertedDate = `${year}-${month}-${day}`;
-          validDate = testDate;
-        }
-      }
-    }
-  }
-
-  // Additional validation for reasonable date ranges
-  if (validDate && convertedDate) {
-    const currentYear = new Date().getFullYear();
-    const dateYear = validDate.getFullYear();
-
-    // Check if year is reasonable (between 1900 and current year + 1)
-    if (dateYear < 1900 || dateYear > currentYear + 1) {
-      return {
-        isValid: false,
-        convertedDate: '',
-        error: `Year must be between 1900 and ${
-          currentYear + 1
-        }. Got: ${dateYear}`
-      };
-    }
-
-    return {
-      isValid: true,
-      convertedDate,
-      error: ''
-    };
-  }
-
-  // If all formats failed, provide helpful error message
-  const supportedFormats = [
-    'YYYY-MM-DD (e.g., 2023-12-25)',
-    'DD/MM/YYYY (e.g., 25/12/2023)',
-    'DD-MM-YYYY (e.g., 25-12-2023)',
-    'MM/DD/YYYY (e.g., 12/25/2023)',
-    'MM-DD-YYYY (e.g., 12-25-2023)',
-    'DD.MM.YYYY (e.g., 25.12.2023)',
-    'YYYY/MM/DD (e.g., 2023/12/25)'
-  ];
-
-  return {
-    isValid: false,
-    convertedDate: '',
-    error: `Invalid date format: "${cleanDate}". Supported formats: ${supportedFormats.join(
-      ', '
-    )}`
-  };
-};
 
 // Updated: 2026-04-16 — Narrowed blocklist to only 'student' and 'guest' per user request.
 // Students are onboarded via the learners module (not staff), and 'guest' is a placeholder.
@@ -571,20 +346,10 @@ const validateRow = async (
     }
   }
 
-  // Check for existing staff ID
-  if (row.staff_id) {
-    try {
-      const { data: existing } = await StaffService.getStaff({
-        search: row.staff_id,
-        limit: 1
-      });
-      if (existing.length > 0 && existing[0].staff_id === row.staff_id) {
-        errors.push('Staff ID already exists');
-      }
-    } catch (error) {
-      console.error('Error checking staff ID existence:', error);
-    }
-  }
+  // No Staff ID check: since 2026-08-28 the database generates it on insert and
+  // ignores anything supplied, so a sheet value can neither collide nor be used.
+  // This block used to cost one extra query per row to validate a field that is
+  // now discarded.
 
   // Check for existing email across all institutions
   if (row.institution_email) {
@@ -774,7 +539,17 @@ export default function BulkUploadStaff() {
 
       // Validate each row
       const validatedData = await Promise.all(
-        jsonData.map(async (row: any, index) => {
+        jsonData.map(async (rawRow: any, index) => {
+          // Canonicalise names BEFORE validation and preview so the operator
+          // sees exactly what will be stored. The DB normalises regardless
+          // (trg_normalize_staff_names), so without this the preview would
+          // show "Anil Kumar " and the saved record "ANIL KUMAR" — a silent
+          // mismatch the user only discovers after importing.
+          const row: any = {
+            ...rawRow,
+            first_name: normalizeStaffName(rawRow.first_name),
+            last_name: normalizeStaffName(rawRow.last_name),
+          };
           const validation = await validateRow(
             row,
             categoryNames,
@@ -818,31 +593,9 @@ export default function BulkUploadStaff() {
         })
       );
 
-      // Check for duplicate staff IDs within the uploaded data
-      const staffIdCounts = new Map<string, number[]>();
-      validatedData.forEach((row, index) => {
-        if (row.staff_id && row.staff_id.trim()) {
-          const staffId = row.staff_id.trim().toLowerCase();
-          if (!staffIdCounts.has(staffId)) {
-            staffIdCounts.set(staffId, []);
-          }
-          staffIdCounts.get(staffId)!.push(row.rowNumber);
-        }
-      });
-
-      // Mark duplicate staff IDs as invalid
-      validatedData.forEach((row) => {
-        if (row.staff_id && row.staff_id.trim()) {
-          const staffId = row.staff_id.trim().toLowerCase();
-          const occurrences = staffIdCounts.get(staffId) || [];
-          if (occurrences.length > 1) {
-            row.isValid = false;
-            row.errors.push(
-              `Duplicate staff ID found in rows: ${occurrences.join(', ')}`
-            );
-          }
-        }
-      });
+      // Two rows can no longer claim the same Staff ID: the database issues each
+      // one from a per-institution counter, so duplicates within the file are
+      // impossible by construction.
 
       // Check for duplicate emails within the uploaded data (per institution)
       const emailInstitutionCounts = new Map<string, number[]>();
@@ -895,7 +648,17 @@ export default function BulkUploadStaff() {
       setPreviewData(validatedData);
     } catch (error) {
       console.error('Error processing file:', error);
-      toast.error('Error processing file. Please check the file format.');
+      // Surface the actual error so users (and support) know what went wrong.
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('auth') || msg.includes('Auth') || msg.includes('401')) {
+        toast.error('Authentication error — please refresh the page and try again.');
+      } else if (msg.includes('permission') || msg.includes('row-level security')) {
+        toast.error('Permission error — you may not have access to load reference data. Contact admin.');
+      } else if (msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')) {
+        toast.error('Network error — check your connection and try again.');
+      } else {
+        toast.error(`Error processing file: ${msg.slice(0, 200)}`);
+      }
     }
   };
 
@@ -960,11 +723,11 @@ export default function BulkUploadStaff() {
             marital_status: row.marital_status?.toLowerCase(),
             blood_group: row.blood_group,
             email: isViewOnly ? (row.email || undefined) : row.email,
-            institution_email: isViewOnly
-              ? (row.institution_email || undefined)
-              : (row.institution_email || row.email),
+            // Institution email is optional for ALL staff (BUG-003989).
+            // Don't fall back to personal email — it won't be @jkkn.ac.in.
+            institution_email: row.institution_email || undefined,
             phone: row.phone,
-            staff_id: row.staff_id,
+            // staff_id deliberately absent — trg_staff_autonumber issues it.
             profile_picture: row.profile_picture || '',
             address: row.address,
             state: row.state,
@@ -1005,7 +768,10 @@ export default function BulkUploadStaff() {
                 if (msg.includes('staff_institution_email_key')) {
                   errorMessage = `Email '${row.email}' already exists for this institution`;
                 } else if (msg.includes('staff_staff_id_key')) {
-                  errorMessage = `Staff ID '${row.staff_id}' already exists`;
+                  // Unreachable in normal operation — the generator checks the
+                  // code is free before returning it. Kept so the constraint
+                  // never surfaces as "Unknown error" if that ever changes.
+                  errorMessage = 'Generated Staff ID collided; please retry this row';
                 } else if (
                   msg.includes('duplicate key value violates unique constraint')
                 ) {
@@ -1073,13 +839,13 @@ export default function BulkUploadStaff() {
         // The parent component will handle data refresh via React Query
         setIsOpen(false);
         clearFile();
-      } else {
-        setIsOpen(false);
-        clearFile();
       }
+      // When ALL rows fail, keep the dialog open so the user can see
+      // validation details and fix data before retrying (BUG-003890).
     } catch (error) {
       console.error('Error uploading staff:', error);
-      toast.error('Error uploading staff members');
+      const msg = error instanceof Error ? error.message : String(error);
+      toast.error(`Upload failed: ${msg.slice(0, 200)}`);
     } finally {
       setIsUploading(false);
     }

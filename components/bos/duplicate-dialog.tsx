@@ -21,7 +21,6 @@ interface DuplicateDialogProps {
   syllabus: BosCourseSyllabus | null;
   institutionsId: string;
   sourceRegulationId: string;
-  regulations: Array<{ id: string; name: string }>;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
 }
@@ -31,7 +30,6 @@ export function DuplicateDialog({
   syllabus,
   institutionsId,
   sourceRegulationId,
-  regulations,
   onOpenChange,
   onSuccess,
 }: DuplicateDialogProps) {
@@ -40,6 +38,8 @@ export function DuplicateDialog({
   const [courseMapping, setCourseMapping] = useState<
     Array<{ source: string; target: string }>
   >([]);
+  const [regulations, setRegulations] = useState<Array<{ id: string; name: string }>>([]);
+  const [regulationsLoading, setRegulationsLoading] = useState(false);
 
   React.useEffect(() => {
     if (syllabus) {
@@ -51,6 +51,27 @@ export function DuplicateDialog({
       ]);
     }
   }, [syllabus]);
+
+  React.useEffect(() => {
+    if (!open || !institutionsId) return;
+    const controller = new AbortController();
+    setRegulationsLoading(true);
+    const url = new URL('/api/bos/regulations', window.location.origin);
+    url.searchParams.set('institutionId', institutionsId);
+    fetch(url.toString(), { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load regulations'))))
+      .then((json) => {
+        const rows: Array<{ id: string; title: string }> = json?.data ?? [];
+        setRegulations(rows.map((r) => ({ id: r.id, name: r.title })));
+      })
+      .catch((err) => {
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Failed to fetch regulations:', err);
+        }
+      })
+      .finally(() => setRegulationsLoading(false));
+    return () => controller.abort();
+  }, [open, institutionsId]);
 
   const generateTargetCode = (sourceCode: string) => {
     // Example: 24UGTA01 -> 25UGTA01 (increment year)
@@ -118,9 +139,17 @@ export function DuplicateDialog({
 
           <div>
             <label className="text-sm font-medium block mb-2">Target Regulation</label>
-            <Select value={targetRegulationId} onValueChange={setTargetRegulationId}>
+            <Select
+              value={targetRegulationId}
+              onValueChange={setTargetRegulationId}
+              disabled={regulationsLoading}
+            >
               <SelectTrigger>
-                <SelectValue placeholder="Select target regulation" />
+                <SelectValue
+                  placeholder={
+                    regulationsLoading ? 'Loading regulations…' : 'Select target regulation'
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 {regulations
@@ -132,6 +161,12 @@ export function DuplicateDialog({
                   ))}
               </SelectContent>
             </Select>
+            {!regulationsLoading &&
+              regulations.filter((r) => r.id !== sourceRegulationId).length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No other regulations available for this institution.
+                </p>
+              )}
           </div>
 
           {targetRegName && (

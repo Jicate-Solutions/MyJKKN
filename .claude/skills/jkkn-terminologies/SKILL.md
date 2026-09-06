@@ -44,8 +44,10 @@ These terms are preferred but allow contextual flexibility.
 - ALWAYS: learners (or "young learners" when age context needed)
 
 **Teaching Staff (Academic):**
-- NEVER: faculty, teachers, professors, instructors, tutors, educators
-- ALWAYS: learning facilitators
+- NEVER: faculty, teachers, professors, instructors, tutors, educators, facilitators
+- ALWAYS: Senior Learners (Director ruling 2026-07-14 — "Senior Learners everywhere",
+  supersedes the earlier learning-facilitators standard; the teaching role, NOT a
+  senior student — that concept is "peer mentor")
 
 **Non-Academic Staff:**
 - NEVER: staff, employees, workers
@@ -112,7 +114,7 @@ When writing code for JKKN projects:
 
 4. **UI Labels:**
    - "Learner Dashboard" (not "Student Dashboard")
-   - "Learning Facilitator Portal" (not "Teacher Portal")
+   - "Senior Learner Portal" (not "Teacher Portal")
    - "Learning Assessment Report" (not "Grade Report")
 
 ### Workflow 2: Content Review & Validation
@@ -141,7 +143,7 @@ When creating documentation:
    - Use JKKN terms from the first draft
 
 2. **Consistency check:**
-   - Verify all people references use: learners, learning facilitators, team members
+   - Verify all people references use: learners, Senior Learners, team members
    - Verify all space references use: learning studios, learning labs, etc.
    - Verify all academic references use: learning outcomes, learning pathway, etc.
 
@@ -160,7 +162,7 @@ When designing interfaces:
 
 2. **Error messages:**
    - "Learner did not meet learning outcomes" (not "Student failed")
-   - "Learning facilitator not found" (not "Teacher not found")
+   - "Senior Learner not found" (not "Teacher not found")
 
 3. **Notifications:**
    - "New learning task assigned" (not "New assignment")
@@ -170,7 +172,7 @@ When designing interfaces:
 
 When creating email templates, notifications, or communications:
 
-1. **Greetings:** Address learners, learning facilitators, team members appropriately
+1. **Greetings:** Address learners, Senior Learners, team members appropriately
 2. **Body:** Use JKKN terminology throughout
 3. **Sign-offs:** Reference JKKN community appropriately
 
@@ -193,7 +195,7 @@ This reference includes:
 Before finalizing any JKKN project deliverable, verify:
 
 - [ ] No instances of "student/students" (use learner/learners)
-- [ ] No instances of "teacher/teachers" (use learning facilitator)
+- [ ] No instances of "teacher/teachers/facilitator" (use Senior Learner)
 - [ ] No instances of "classroom" (use learning studio)
 - [ ] No instances of "syllabus" (use learning pathway)
 - [ ] No instances of "curriculum" (use learning framework)

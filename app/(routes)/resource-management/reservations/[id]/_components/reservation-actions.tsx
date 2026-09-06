@@ -19,8 +19,10 @@ import type { Reservation } from '@/types/reservation';
 import {
   useCancelReservation,
   useCheckInReservation,
-  useCheckOutReservation
+  useCheckOutReservation,
+  useDeleteReservation
 } from '@/hooks/reservation/use-reservation-operations';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useRouter } from 'next/navigation';
 
 interface ReservationActionsProps {
@@ -35,10 +37,13 @@ export function ReservationActions({
   const router = useRouter();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancellationReason, setCancellationReason] = useState('');
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const cancelReservation = useCancelReservation();
   const checkInReservation = useCheckInReservation();
   const checkOutReservation = useCheckOutReservation();
+  const deleteReservation = useDeleteReservation();
+  const { isSuperAdmin } = usePermissions();
 
   // Determine available actions
   const canEdit =
@@ -83,9 +88,16 @@ export function ReservationActions({
     });
   };
 
+  const handleDelete = async () => {
+    await deleteReservation.mutateAsync(reservation.id);
+    // onSuccess (in the hook) redirects to the reservations list.
+  };
+
   const hasActions = canEdit || canCancel || canCheckIn || canCheckOut;
 
-  if (!hasActions) {
+  // Super admins can delete any reservation, even ones with no other available
+  // actions (e.g. completed/cancelled), so keep the card visible for them.
+  if (!hasActions && !isSuperAdmin) {
     return null;
   }
 
@@ -166,6 +178,18 @@ export function ReservationActions({
               Cancel Reservation
             </Button>
           )}
+
+          {/* Delete — super admin only (hard delete, any status) */}
+          {isSuperAdmin && (
+            <Button
+              onClick={() => setShowDeleteDialog(true)}
+              variant='destructive'
+              className='w-full'
+            >
+              <Trash2 className='mr-2 h-4 w-4' />
+              Delete Reservation
+            </Button>
+          )}
         </CardContent>
       </Card>
 
@@ -223,6 +247,46 @@ export function ReservationActions({
                 <>
                   <Trash2 className='mr-2 h-4 w-4' />
                   Cancel Reservation
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog — super admin only */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Reservation</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the reservation. This action cannot be
+              undone. (Super admin only)
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={deleteReservation.isPending}
+            >
+              Keep Reservation
+            </Button>
+            <Button
+              variant='destructive'
+              onClick={handleDelete}
+              disabled={deleteReservation.isPending}
+            >
+              {deleteReservation.isPending ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className='mr-2 h-4 w-4' />
+                  Delete Permanently
                 </>
               )}
             </Button>

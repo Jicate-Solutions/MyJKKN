@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   useRemarketingRules,
   useAdAccountStatus,
@@ -51,10 +52,12 @@ const SYNC_STATUS_STYLES: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
 };
 
+const REMARKETING_TABS = ['rules', 'history'] as const;
+
 function RemarketingPageContent() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
-  const [activeTab, setActiveTab] = useState('rules');
+  const [activeTab, setActiveTab] = useTabParam('rules', REMARKETING_TABS);
   const [selectedRuleId, setSelectedRuleId] = useState<string | undefined>();
 
   const { rules, isLoading: rulesLoading, refetch } = useRemarketingRules({
@@ -146,7 +149,7 @@ function RemarketingPageContent() {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="rules">Audience Rules ({rules.length})</TabsTrigger>
               <TabsTrigger value="history">Sync History</TabsTrigger>
             </TabsList>
@@ -173,8 +176,8 @@ function RemarketingPageContent() {
                       <Card key={rule.id}>
                         <CardContent className="py-4">
                           <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-medium">{rule.rule_name}</h3>
                                 <Badge className={`text-xs ${platformStyle.color}`}>
                                   {platformStyle.label}
@@ -186,7 +189,7 @@ function RemarketingPageContent() {
                               {rule.description && (
                                 <p className="text-sm text-muted-foreground mt-1">{rule.description}</p>
                               )}
-                              <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                              <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
                                 {rule.audience_size != null && (
                                   <span className="flex items-center gap-1">
                                     <Users className="h-3 w-3" />{rule.audience_size} leads
@@ -231,7 +234,7 @@ function RemarketingPageContent() {
                                 </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 ml-4">
+                            <div className="flex items-center gap-2 ml-4 shrink-0">
                               {canEditRules && (
                                 <Button
                                   variant="outline"
@@ -352,7 +355,9 @@ function RemarketingPageContent() {
 export default function RemarketingPage() {
   return (
     <AdmissionErrorBoundary>
-      <RemarketingPageContent />
+      <Suspense fallback={null}>
+        <RemarketingPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

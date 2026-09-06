@@ -7,13 +7,18 @@ import {
   Search,
   History,
   Info,
+  Plus,
+  MinusCircle,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -32,163 +37,260 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/use-auth';
-import type {
-  ImsDepartmentStock,
-  ImsDepartmentStockMovement,
-} from '@/types/ims';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
+import {
+  useImsDepartmentsForSelect,
+  useImsDepartmentStock,
+  useImsDepartmentSummaries,
+  useImsDepartmentItemMovements,
+  useImsIssuableItems,
+  useIssueItemToDepartment,
+  useRecordDepartmentConsumption,
+} from '@/hooks/ims/use-ims-departments';
+import type { ImsDepartmentStock } from '@/types/ims';
 
-// Placeholder department data -- in production this would come from a hook
-// e.g. useImsDepartmentStock(filters) backed by aggregation of stock_issues
-const PLACEHOLDER_DEPARTMENTS = [
-  { id: 'dept-1', name: 'Science Lab', totalItems: 42, totalValue: 125000 },
-  { id: 'dept-2', name: 'Computer Lab', totalItems: 28, totalValue: 89000 },
-  { id: 'dept-3', name: 'Library', totalItems: 15, totalValue: 34000 },
-  { id: 'dept-4', name: 'Sports', totalItems: 21, totalValue: 45000 },
-];
-
-const PLACEHOLDER_STOCK: ImsDepartmentStock[] = [
-  {
-    department_id: 'dept-1',
-    department_name: 'Science Lab',
-    item_id: 'item-1',
-    item_name: 'Test Tubes',
-    total_issued: 200,
-    total_consumed: 150,
-    total_returned: 10,
-    balance: 60,
-  },
-  {
-    department_id: 'dept-1',
-    department_name: 'Science Lab',
-    item_id: 'item-2',
-    item_name: 'Beakers 250ml',
-    total_issued: 50,
-    total_consumed: 30,
-    total_returned: 5,
-    balance: 25,
-  },
-  {
-    department_id: 'dept-2',
-    department_name: 'Computer Lab',
-    item_id: 'item-3',
-    item_name: 'Printer Paper A4',
-    total_issued: 100,
-    total_consumed: 80,
-    total_returned: 0,
-    balance: 20,
-  },
-];
-
-const PLACEHOLDER_MOVEMENTS: ImsDepartmentStockMovement[] = [
-  {
-    id: 'mov-1',
-    type: 'received',
-    quantity: 50,
-    notes: 'Initial issue from central store',
-    created_at: '2026-02-10T09:00:00Z',
-    created_by: { full_name: 'Admin User' },
-  },
-  {
-    id: 'mov-2',
-    type: 'consumed',
-    quantity: 20,
-    notes: 'Used for practical class',
-    created_at: '2026-02-12T14:30:00Z',
-    created_by: { full_name: 'Lab Assistant' },
-  },
-  {
-    id: 'mov-3',
-    type: 'returned',
-    quantity: 5,
-    notes: 'Surplus return',
-    created_at: '2026-02-15T11:00:00Z',
-    created_by: { full_name: 'Lab Assistant' },
-  },
-];
+const formatCurrency = (value: number) =>
+  value.toLocaleString('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  });
 
 const MOVEMENT_TYPE_BADGE: Record<string, string> = {
   received: 'bg-green-100 text-green-800',
   consumed: 'bg-blue-100 text-blue-800',
-  returned: 'bg-orange-100 text-orange-800',
   adjusted: 'bg-purple-100 text-purple-800',
 };
 
+interface IssueFormData {
+  department_id: string;
+  item_id: string;
+  quantity: number;
+  notes: string;
+}
+
+const emptyIssueForm: IssueFormData = {
+  department_id: '',
+  item_id: '',
+  quantity: 0,
+  notes: '',
+};
+
 export default function DepartmentStockPage() {
+  const { storeId, institutionId } = useImsStoreContext();
   const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  // Issuing to a department and recording usage both mutate stock levels, so
+  // they need the same permission as Stock Adjustments. Gated at the action
+  // level rather than the page level so read-only viewers keep their access.
+  const canModifyStock = isSuperAdmin || canAccess('ims.stock', 'adjust');
 
   const [departmentId, setDepartmentId] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<ImsDepartmentStock | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ImsDepartmentStock | null>(
+    null
+  );
 
-  // Filter stock data based on department and search
-  const filteredStock = PLACEHOLDER_STOCK.filter((row) => {
-    if (departmentId !== 'all' && row.department_id !== departmentId) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return (
-        row.item_name.toLowerCase().includes(q) ||
-        row.department_name.toLowerCase().includes(q)
-      );
-    }
-    return true;
+  // Add Item (direct store → department issue)
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [issueForm, setIssueForm] = useState<IssueFormData>(emptyIssueForm);
+
+  // Record Usage (department consumption)
+  const [usageDialogOpen, setUsageDialogOpen] = useState(false);
+  const [usageRow, setUsageRow] = useState<ImsDepartmentStock | null>(null);
+  const [usageQuantity, setUsageQuantity] = useState(0);
+  const [usageNotes, setUsageNotes] = useState('');
+
+  const { data: departmentOptions = [] } =
+    useImsDepartmentsForSelect(institutionId);
+
+  const { data: issuableItems = [] } = useImsIssuableItems({
+    store_id: storeId,
+    institution_id: institutionId,
   });
+
+  const issueItem = useIssueItemToDepartment();
+  const recordUsage = useRecordDepartmentConsumption();
+
+  const { data: summaries = [], isLoading: summariesLoading } =
+    useImsDepartmentSummaries({
+      store_id: storeId,
+      institution_id: institutionId,
+    });
+
+  const { data: stockRows = [], isLoading: stockLoading } =
+    useImsDepartmentStock({
+      store_id: storeId,
+      institution_id: institutionId,
+      department_id: departmentId,
+      search,
+    });
+
+  const { data: movements = [], isLoading: movementsLoading } =
+    useImsDepartmentItemMovements(
+      selectedItem?.department_id ?? null,
+      selectedItem?.item_id ?? null,
+      { store_id: storeId, institution_id: institutionId }
+    );
 
   const openHistory = (item: ImsDepartmentStock) => {
     setSelectedItem(item);
     setHistoryDialogOpen(true);
   };
 
+  const openUsage = (row: ImsDepartmentStock) => {
+    setUsageRow(row);
+    setUsageQuantity(0);
+    setUsageNotes('');
+    setUsageDialogOpen(true);
+  };
+
+  const selectedIssueItem = issuableItems.find(
+    (i) => i.item_id === issueForm.item_id
+  );
+
+  const handleIssueSubmit = async () => {
+    if (!issueForm.department_id || !issueForm.item_id) {
+      toast.error('Please select a department and an item');
+      return;
+    }
+    if (issueForm.quantity <= 0) {
+      toast.error('Please enter a valid quantity');
+      return;
+    }
+    try {
+      await issueItem.mutateAsync({
+        data: {
+          department_id: issueForm.department_id,
+          item_id: issueForm.item_id,
+          quantity: issueForm.quantity,
+          notes: issueForm.notes,
+          store_id: storeId,
+          institution_id: institutionId,
+        },
+        userId: profile?.id || '',
+      });
+      toast.success('Item issued to department');
+      setIssueDialogOpen(false);
+      setIssueForm(emptyIssueForm);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to issue item'
+      );
+    }
+  };
+
+  const handleUsageSubmit = async () => {
+    if (!usageRow) return;
+    if (usageQuantity <= 0) {
+      toast.error('Please enter a valid quantity');
+      return;
+    }
+    try {
+      await recordUsage.mutateAsync({
+        data: {
+          department_id: usageRow.department_id,
+          item_id: usageRow.item_id,
+          quantity: usageQuantity,
+          notes: usageNotes,
+          store_id: storeId,
+          institution_id: institutionId,
+        },
+        userId: profile?.id || '',
+      });
+      toast.success('Usage recorded');
+      setUsageDialogOpen(false);
+      setUsageRow(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to record usage'
+      );
+    }
+  };
+
   return (
     <ContentLayout title="Department Stock">
       <div className="space-y-6">
-        {/* Info Card */}
+        {canModifyStock && (
+          <div className="flex justify-end">
+            <Button onClick={() => setIssueDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Item
+            </Button>
+          </div>
+        )}
+
         <Alert>
           <Info className="h-4 w-4" />
           <AlertTitle>Department Stock Tracking</AlertTitle>
           <AlertDescription>
-            Department stock is tracked from stock issues. Select a department to
-            view its inventory. Data shown below is representative of the stock
-            movement workflow.
+            Department stock is tracked from stock issues and consumption
+            entries. Adding an item here issues it straight from store stock,
+            without needing an indent. Select a department below to filter its
+            inventory.
           </AlertDescription>
         </Alert>
 
         {/* Department Summary Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {PLACEHOLDER_DEPARTMENTS.map((dept) => (
-            <Card
-              key={dept.id}
-              className={`cursor-pointer transition-colors hover:border-primary ${
-                departmentId === dept.id ? 'border-primary bg-primary/5' : ''
-              }`}
-              onClick={() =>
-                setDepartmentId(departmentId === dept.id ? 'all' : dept.id)
-              }
-            >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  {dept.name}
-                </CardTitle>
-                <Building2 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-lg font-bold">{dept.totalItems} items</div>
-                <p className="text-sm text-muted-foreground">
-                  {dept.totalValue.toLocaleString('en-IN', {
-                    style: 'currency',
-                    currency: 'INR',
-                    maximumFractionDigits: 0,
-                  })}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {summariesLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <BeatLoader color="hsl(var(--primary))" size={10} />
+          </div>
+        ) : summaries.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              <Building2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">
+                No department stock recorded for this store yet.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {summaries.map((dept) => (
+              <Card
+                key={dept.department_id}
+                className={`cursor-pointer transition-colors hover:border-primary ${
+                  departmentId === dept.department_id
+                    ? 'border-primary bg-primary/5'
+                    : ''
+                }`}
+                onClick={() =>
+                  setDepartmentId(
+                    departmentId === dept.department_id
+                      ? 'all'
+                      : dept.department_id
+                  )
+                }
+              >
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    {dept.department_name}
+                  </CardTitle>
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-lg font-bold">
+                    {dept.total_items} {dept.total_items === 1 ? 'item' : 'items'}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {formatCurrency(dept.total_value)}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {/* Filters */}
         <Card>
@@ -209,9 +311,9 @@ export default function DepartmentStockPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Departments</SelectItem>
-                  {PLACEHOLDER_DEPARTMENTS.map((d) => (
+                  {departmentOptions.map((d) => (
                     <SelectItem key={d.id} value={d.id}>
-                      {d.name}
+                      {d.department_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -223,9 +325,14 @@ export default function DepartmentStockPage() {
         {/* Stock Table */}
         <Card>
           <CardContent className="p-0">
-            {filteredStock.length === 0 ? (
+            {stockLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <BeatLoader color="hsl(var(--primary))" size={10} />
+              </div>
+            ) : stockRows.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
-                No department stock found. Select a department or adjust filters.
+                No department stock found. Try a different department or clear
+                the search.
               </div>
             ) : (
               <Table>
@@ -240,7 +347,7 @@ export default function DepartmentStockPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredStock.map((row) => (
+                  {stockRows.map((row) => (
                     <TableRow key={`${row.department_id}-${row.item_id}`}>
                       <TableCell className="font-medium">
                         {row.item_name}
@@ -256,14 +363,27 @@ export default function DepartmentStockPage() {
                         {row.balance}
                       </TableCell>
                       <TableCell className="text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openHistory(row)}
-                        >
-                          <History className="h-4 w-4 mr-1" />
-                          View History
-                        </Button>
+                        <div className="flex items-center justify-center gap-1">
+                          {canModifyStock && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={Number(row.balance) <= 0}
+                              onClick={() => openUsage(row)}
+                            >
+                              <MinusCircle className="h-4 w-4 mr-1" />
+                              Record Usage
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openHistory(row)}
+                          >
+                            <History className="h-4 w-4 mr-1" />
+                            View History
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -272,6 +392,180 @@ export default function DepartmentStockPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Add Item Dialog — direct store → department issue */}
+        <Dialog open={issueDialogOpen} onOpenChange={setIssueDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Item to Department</DialogTitle>
+              <DialogDescription>
+                Issues the item straight from store stock. Store quantity goes
+                down and the department&apos;s balance goes up.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="issue_department">Department</Label>
+                <Select
+                  value={issueForm.department_id}
+                  onValueChange={(v) =>
+                    setIssueForm((p) => ({ ...p, department_id: v }))
+                  }
+                >
+                  <SelectTrigger id="issue_department">
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departmentOptions.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.department_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="issue_item">Item</Label>
+                <Select
+                  value={issueForm.item_id}
+                  onValueChange={(v) =>
+                    setIssueForm((p) => ({ ...p, item_id: v }))
+                  }
+                >
+                  <SelectTrigger id="issue_item">
+                    <SelectValue placeholder="Select item" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {issuableItems.length === 0 ? (
+                      <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                        No items with stock available in this store.
+                      </div>
+                    ) : (
+                      issuableItems.map((item) => (
+                        <SelectItem key={item.item_id} value={item.item_id}>
+                          {item.item_name} ({item.item_code})
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {selectedIssueItem && (
+                  <p className="text-sm text-muted-foreground">
+                    Available in store: {selectedIssueItem.available_quantity}
+                    {selectedIssueItem.unit_abbreviation
+                      ? ` ${selectedIssueItem.unit_abbreviation}`
+                      : ''}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="issue_quantity">Quantity</Label>
+                <Input
+                  id="issue_quantity"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  max={selectedIssueItem?.available_quantity}
+                  value={issueForm.quantity}
+                  onChange={(e) =>
+                    setIssueForm((p) => ({
+                      ...p,
+                      quantity: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="issue_notes">Notes (optional)</Label>
+                <Textarea
+                  id="issue_notes"
+                  placeholder="e.g. Issued for lab practical"
+                  value={issueForm.notes}
+                  onChange={(e) =>
+                    setIssueForm((p) => ({ ...p, notes: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIssueDialogOpen(false)}
+                disabled={issueItem.isPending}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleIssueSubmit} disabled={issueItem.isPending}>
+                {issueItem.isPending ? 'Adding...' : 'Add Item'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Record Usage Dialog — department consumption */}
+        <Dialog open={usageDialogOpen} onOpenChange={setUsageDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Record Usage</DialogTitle>
+              <DialogDescription>
+                {usageRow && (
+                  <>
+                    {usageRow.item_name} — {usageRow.department_name}. Current
+                    balance: {usageRow.balance}
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="usage_quantity">Quantity Used</Label>
+                <Input
+                  id="usage_quantity"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  max={usageRow?.balance}
+                  value={usageQuantity}
+                  onChange={(e) =>
+                    setUsageQuantity(parseFloat(e.target.value) || 0)
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="usage_notes">Notes (optional)</Label>
+                <Textarea
+                  id="usage_notes"
+                  placeholder="e.g. Used in second-year practicals"
+                  value={usageNotes}
+                  onChange={(e) => setUsageNotes(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setUsageDialogOpen(false)}
+                disabled={recordUsage.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleUsageSubmit}
+                disabled={recordUsage.isPending}
+              >
+                {recordUsage.isPending ? 'Recording...' : 'Record Usage'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* History Dialog */}
         <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
@@ -287,39 +581,52 @@ export default function DepartmentStockPage() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-3 max-h-[400px] overflow-y-auto">
-              {PLACEHOLDER_MOVEMENTS.map((mov) => (
-                <div
-                  key={mov.id}
-                  className="flex items-start justify-between border rounded-lg p-3"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className={
-                          MOVEMENT_TYPE_BADGE[mov.type] ?? 'bg-gray-100 text-gray-800'
-                        }
-                      >
-                        {mov.type}
-                      </Badge>
-                      <span className="font-medium">
-                        {mov.type === 'consumed' || mov.type === 'returned'
-                          ? `-${mov.quantity}`
-                          : `+${mov.quantity}`}
-                      </span>
-                    </div>
-                    {mov.notes && (
-                      <p className="text-sm text-muted-foreground">{mov.notes}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      by {mov.created_by?.full_name ?? 'Unknown'}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {format(new Date(mov.created_at), 'dd MMM yyyy HH:mm')}
-                  </span>
+              {movementsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <BeatLoader color="hsl(var(--primary))" size={10} />
                 </div>
-              ))}
+              ) : movements.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-8">
+                  No movements recorded for this item.
+                </p>
+              ) : (
+                movements.map((mov) => (
+                  <div
+                    key={mov.id}
+                    className="flex items-start justify-between border rounded-lg p-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className={
+                            MOVEMENT_TYPE_BADGE[mov.type] ??
+                            'bg-gray-100 text-gray-800'
+                          }
+                        >
+                          {mov.type}
+                        </Badge>
+                        <span className="font-medium">
+                          {mov.type === 'consumed'
+                            ? `-${mov.quantity}`
+                            : `+${mov.quantity}`}
+                        </span>
+                      </div>
+                      {mov.notes && (
+                        <p className="text-sm text-muted-foreground">
+                          {mov.notes}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        by {mov.created_by?.full_name ?? 'Unknown'}
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      {format(new Date(mov.created_at), 'dd MMM yyyy HH:mm')}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </DialogContent>
         </Dialog>

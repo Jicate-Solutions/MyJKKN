@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  FileText,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -31,7 +32,10 @@ import {
 import {
   BosMeetingStatus,
   BOS_MEETING_STATUS_LABELS,
-  BOS_MEMBER_TYPE_LABELS,
+  bosCallLetterFilename,
+  bosMemberTypeLabel,
+  isBosChairmanRow,
+  isCouncilMeetingType,
 } from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
@@ -44,20 +48,39 @@ interface MemberEmailStatus {
   error_message: string | null;
 }
 
-// Status at which the chairman can send invitation emails to members.
-// Mirrors the server-side gate in /api/bos/meetings/[id]/notify-members.
-const NOTIFY_STATUS: BosMeetingStatus = 'expert_invited';
+// Status at which invitation emails can be sent. Mirrors the server-side gate
+// in /api/bos/meetings/[id]/notify-members:
+//   • Board of Studies   → chairman sends at 'expert_invited'
+//   • Academic Council   → principal sends at 'noticed' (no expert_invited step)
+const NOTIFY_STATUS_BOS: BosMeetingStatus = 'expert_invited';
+const NOTIFY_STATUS_AC: BosMeetingStatus = 'noticed';
 
 interface MembersTabProps {
   meetingId: string;
   compositionId: string;
   meetingStatus: BosMeetingStatus;
+  /** Meeting type — 'academic_council' flips the send gate to principal @ noticed. */
+  meetingType?: string;
+  /**
+   * Convening council/committee of the meeting (bos_meetings.committee_id).
+   * When set, only that committee's members are listed/invited.
+   */
+  committeeId?: string | null;
 }
 
-export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersTabProps) {
+export function MembersTab({ meetingId, compositionId, meetingStatus, meetingType, committeeId }: MembersTabProps) {
   const queryClient = useQueryClient();
-  const { data: members = [], isLoading } = useBosMembersByComposition(compositionId);
+  const { data: allMembers = [], isLoading } = useBosMembersByComposition(compositionId);
   const scope = useBosBoardScope();
+
+  // Scope the list to the meeting's convening committee. Legacy compositions
+  // may have members with no committee assignment — fall back to the full
+  // composition rather than showing an empty member list.
+  const members = useMemo(() => {
+    if (!committeeId) return allMembers;
+    const scoped = allMembers.filter((m) => m.committee_id === committeeId);
+    return scoped.length > 0 ? scoped : allMembers;
+  }, [allMembers, committeeId]);
 
   // Per-member latest email status for THIS meeting, sourced from
   // bos_email_send_log. Members with no log row appear as "Not Sent".
@@ -83,12 +106,18 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
   const [isSending, setIsSending] = useState(false);
 
   // ── Permission + lifecycle gate ────────────────────────────────────────────
-  // Email-send is enabled when the meeting is at expert_invited AND the user
-  // is the chairman (or super-admin). Anywhere else, the tab is read-only.
-  const isChairman =
-    scope.isSuperAdmin ||
-    (compositionId ? scope.isChairmanIn.has(compositionId) : false);
-  const canSendNotices = !scope.isLoading && isChairman && meetingStatus === NOTIFY_STATUS;
+  // BoS: chairman (or super-admin) sends at 'expert_invited'.
+  // Council (Academic Council / Governing Body): the principal (or super-admin)
+  // is the convener and sends the call letters at 'noticed' — they are NOT a
+  // bos_members chairman of the council body, so the chairman check would
+  // wrongly lock them out.
+  const isAc = isCouncilMeetingType(meetingType);
+  const notifyStatus = isAc ? NOTIFY_STATUS_AC : NOTIFY_STATUS_BOS;
+  const canSend = isAc
+    ? scope.isSuperAdmin || scope.isPrincipal
+    : scope.isSuperAdmin ||
+      (compositionId ? scope.isChairmanIn.has(compositionId) : false);
+  const canSendNotices = !scope.isLoading && canSend && meetingStatus === notifyStatus;
 
   // Members with usable email addresses — only these can be selected/sent.
   const eligibleIds = useMemo(
@@ -197,15 +226,17 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
               </span>
             )}
           </p>
-          {!canSendNotices && meetingStatus !== NOTIFY_STATUS && (
+          {!canSendNotices && meetingStatus !== notifyStatus && (
             <p className='text-xs text-muted-foreground'>
               Invitation emails can be sent once the meeting is at{' '}
-              <span className='font-medium'>{BOS_MEETING_STATUS_LABELS[NOTIFY_STATUS]}</span>.
+              <span className='font-medium'>{BOS_MEETING_STATUS_LABELS[notifyStatus]}</span>.
             </p>
           )}
-          {!canSendNotices && meetingStatus === NOTIFY_STATUS && !isChairman && !scope.isLoading && (
+          {!canSendNotices && meetingStatus === notifyStatus && !canSend && !scope.isLoading && (
             <p className='text-xs text-muted-foreground'>
-              Only the board chairman can send invitation emails.
+              {isAc
+                ? 'Only the Principal can send invitation emails.'
+                : 'Only the board chairman can send invitation emails.'}
             </p>
           )}
         </div>
@@ -257,6 +288,7 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
               <TableHead>Designation</TableHead>
               <TableHead>Email</TableHead>
               <TableHead className='w-32'>Contact</TableHead>
+              <TableHead className='w-28 text-center'>Preview</TableHead>
               <TableHead className='w-36'>Email Status</TableHead>
             </TableRow>
           </TableHeader>
@@ -286,7 +318,7 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
                   </TableCell>
                   <TableCell className='text-sm font-medium'>
                     {m.display_name}
-                    {m.member_type === 'chairman' && (
+                    {isBosChairmanRow(m) && (
                       <Badge variant='secondary' className='ml-2 text-xs'>
                         Chairman
                       </Badge>
@@ -294,7 +326,10 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
                   </TableCell>
                   <TableCell>
                     <Badge variant='outline' className='text-xs'>
-                      {BOS_MEMBER_TYPE_LABELS[m.member_type] ?? m.member_type}
+                      {/* Selected catalog type (bos_member_types) first; the
+                          coarse category label only for legacy rows with no
+                          member_type_id. */}
+                      {m.member_type_rec?.name ?? bosMemberTypeLabel(m.member_type)}
                     </Badge>
                   </TableCell>
                   <TableCell className='text-sm text-muted-foreground'>
@@ -314,6 +349,23 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
                   </TableCell>
                   <TableCell className='text-sm text-muted-foreground'>
                     {m.contact_no ?? '—'}
+                  </TableCell>
+                  <TableCell className='text-center' onClick={(e) => e.stopPropagation()}>
+                    {/* asChild lets the Button render its styles directly on the
+                        anchor so the native `download` attribute triggers a
+                        same-origin file save without a JS blob handler. */}
+                    <Button variant='outline' size='sm' className='h-8 gap-1.5' asChild>
+                      <a
+                        href={`/api/bos/meetings/${meetingId}/preview-pdf?memberId=${m.id}`}
+                        download={bosCallLetterFilename(meetingType, m.display_name)}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        aria-label={`Download call letter PDF for ${m.display_name}`}
+                      >
+                        <FileText className='h-3.5 w-3.5' />
+                        Preview
+                      </a>
+                    </Button>
                   </TableCell>
                   <TableCell>
                     {(() => {

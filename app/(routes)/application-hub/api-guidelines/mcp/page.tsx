@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { Suspense } from 'react';
 import McpDocs from './_components/mcp-docs';
 import {
   Breadcrumb,
@@ -58,7 +59,9 @@ export default function McpServerPage() {
           </p>
         </div>
         <ApiNav />
-        <McpDocs />
+        <Suspense fallback={null}>
+          <McpDocs />
+        </Suspense>
       </div>
     </ContentLayout>
   );

@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { CampusLivingAnalytics } from '@/lib/services/campus-living/campus-living-analytics';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useCampusLivingScope } from '@/hooks/campus-living/use-campus-living-scope';
 
 // Query key factory
 export const campusLivingAnalyticsKeys = {
@@ -13,60 +13,77 @@ export const campusLivingAnalyticsKeys = {
   mess: (filters: Record<string, unknown>) => ['campus-living-analytics', 'mess', filters] as const,
   incidents: (filters: Record<string, unknown>) => ['campus-living-analytics', 'incidents', filters] as const,
   trends: (filters: Record<string, unknown>) => ['campus-living-analytics', 'trends', filters] as const,
+  crossDomain: (filters: Record<string, unknown>) => ['campus-living-analytics', 'cross-domain', filters] as const,
 };
 
 // --- Query hooks ---
+//
+// The filter objects below carry `scope` (the RESOLVED viewer scope) rather than
+// the raw institutionId, and every `enabled` waits for permissions to load. Both
+// halves are required — see useCampusLivingScope for why (BUG-005831). These
+// hooks feed the seven /campus-living/analytics pages plus the Management
+// Dashboard's 30-day attendance trend, all of which read zero for a super admin
+// under the old shape.
 
 export function useOccupancyAnalytics(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.occupancy({ institutionId }),
-    queryFn: () => CampusLivingAnalytics.getOccupancyAnalytics(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingAnalyticsKeys.occupancy({ scope: scopeKey }),
+    queryFn: () => CampusLivingAnalytics.getOccupancyAnalytics(serviceArg),
+    enabled: ready,
   });
 }
 
 export function useAttendanceTrend(institutionId: string | undefined, dateFrom: string, dateTo: string, blockId?: string) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.attendance({ institutionId, dateFrom, dateTo, blockId }),
-    queryFn: () => CampusLivingAnalytics.getAttendanceTrend(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo, blockId),
-    enabled: (isSuperAdmin || !!institutionId) && !!dateFrom && !!dateTo,
+    queryKey: campusLivingAnalyticsKeys.attendance({ scope: scopeKey, dateFrom, dateTo, blockId }),
+    queryFn: () => CampusLivingAnalytics.getAttendanceTrend(serviceArg, dateFrom, dateTo, blockId),
+    enabled: ready && !!dateFrom && !!dateTo,
   });
 }
 
 export function useMaintenanceAnalytics(institutionId: string | undefined, dateFrom?: string, dateTo?: string) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.maintenance({ institutionId, dateFrom, dateTo }),
-    queryFn: () => CampusLivingAnalytics.getMaintenanceAnalytics(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingAnalyticsKeys.maintenance({ scope: scopeKey, dateFrom, dateTo }),
+    queryFn: () => CampusLivingAnalytics.getMaintenanceAnalytics(serviceArg, dateFrom, dateTo),
+    enabled: ready,
   });
 }
 
 export function useMessAnalytics(institutionId: string | undefined, dateFrom: string, dateTo: string) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.mess({ institutionId, dateFrom, dateTo }),
-    queryFn: () => CampusLivingAnalytics.getMessAnalytics(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo),
-    enabled: (isSuperAdmin || !!institutionId) && !!dateFrom && !!dateTo,
+    queryKey: campusLivingAnalyticsKeys.mess({ scope: scopeKey, dateFrom, dateTo }),
+    queryFn: () => CampusLivingAnalytics.getMessAnalytics(serviceArg, dateFrom, dateTo),
+    enabled: ready && !!dateFrom && !!dateTo,
   });
 }
 
 export function useIncidentAnalytics(institutionId: string | undefined, dateFrom?: string, dateTo?: string) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.incidents({ institutionId, dateFrom, dateTo }),
-    queryFn: () => CampusLivingAnalytics.getIncidentAnalytics(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingAnalyticsKeys.incidents({ scope: scopeKey, dateFrom, dateTo }),
+    queryFn: () => CampusLivingAnalytics.getIncidentAnalytics(serviceArg, dateFrom, dateTo),
+    enabled: ready,
   });
 }
 
 export function useRiskAlerts(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.trends({ institutionId }),
-    queryFn: () => CampusLivingAnalytics.generateRiskAlerts(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: campusLivingAnalyticsKeys.trends({ scope: scopeKey }),
+    queryFn: () => CampusLivingAnalytics.generateRiskAlerts(serviceArg),
+    enabled: ready,
+  });
+}
+
+export function useCrossDomainAnalytics(institutionId: string | undefined) {
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
+  return useQuery({
+    queryKey: campusLivingAnalyticsKeys.crossDomain({ scope: scopeKey }),
+    queryFn: () => CampusLivingAnalytics.getCrossDomainCorrelations(serviceArg),
+    enabled: ready,
   });
 }

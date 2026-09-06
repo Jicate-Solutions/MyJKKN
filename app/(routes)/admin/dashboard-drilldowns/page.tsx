@@ -24,10 +24,13 @@
 // =====================================================================
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   AlertTriangle,
+  ChevronRight,
   Compass,
   Database,
+  Instagram,
   MousePointerClick,
   RotateCcw,
   Save,
@@ -38,7 +41,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -69,11 +72,11 @@ import {
 } from './_components/drilldown-policy-service';
 
 // ---------------------------------------------------------------------------
-// Page wrapper — gated by PermissionGuard. Matches nav-config exactly.
+// Page wrapper — gated by SuperAdminOnly. Matches nav-config exactly.
 // ---------------------------------------------------------------------------
 export default function DashboardDrilldownsPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Dashboard Drilldown Configuration">
         <PageBreadcrumb
           items={[
@@ -84,7 +87,7 @@ export default function DashboardDrilldownsPage() {
         />
         <DashboardDrilldownsContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 
@@ -204,6 +207,34 @@ function DashboardDrilldownsContent() {
         canEdit={isSuperAdmin}
         onClose={closeEditor}
       />
+
+      {/* Related drill-down surfaces — cross-links to companion admin pages
+          that follow the same drill-down pattern but live outside the
+          dashboard.* metrics (e.g. /admission/social/attribution for
+          Instagram learner-creator outcome attribution, Phase 4). */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Related drill-downs</CardTitle>
+          <CardDescription>
+            Other admin surfaces that follow the same drill-down pattern.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link
+            href="/admission/social/attribution"
+            className="flex items-center gap-3 rounded-md border bg-card p-3 hover:bg-accent transition-colors"
+          >
+            <Instagram className="h-5 w-5 text-fuchsia-600" />
+            <div className="flex-1">
+              <div className="text-sm font-medium">Instagram attribution</div>
+              <div className="text-xs text-muted-foreground">
+                Leads by IG account · top performing posts · attribution window
+              </div>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </Link>
+        </CardContent>
+      </Card>
     </div>
   );
 }

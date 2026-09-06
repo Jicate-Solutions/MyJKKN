@@ -3,7 +3,7 @@
 // app/(routes)/admission/settings/years/_components/admission-year-form.tsx
 //
 // Create/edit form for an Admission Year record.
-// One admission year = one program. Start/end years describe the program cohort window.
+// An admission year is now institution-wide: institution + year + name + active.
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -14,7 +14,6 @@ import { toast } from 'react-hot-toast';
 import type { AdmissionYear } from '@/types/admission';
 import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,39 +36,22 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-const admissionYearSchema = z
-  .object({
-    institution_id: z.string().min(1, 'Institution is required'),
-    program_id: z.string().min(1, 'Program is required'),
-    admission_year_name: z
-      .string()
-      .min(2, 'Name must be at least 2 characters')
-      .max(150, 'Name must be at most 150 characters'),
-    program_start_year: z
-      .number({ invalid_type_error: 'Start year is required' })
-      .int()
-      .min(2000)
-      .max(2100),
-    program_end_year: z
-      .number({ invalid_type_error: 'End year is required' })
-      .int()
-      .min(2000)
-      .max(2100),
-    is_active: z.boolean().default(true)
-  })
-  .refine((d) => d.program_end_year >= d.program_start_year, {
-    message: 'End year must be greater than or equal to start year',
-    path: ['program_end_year']
-  });
+const admissionYearSchema = z.object({
+  institution_id: z.string().min(1, 'Institution is required'),
+  admission_year_name: z
+    .string()
+    .min(2, 'Name must be at least 2 characters')
+    .max(150, 'Name must be at most 150 characters'),
+  year: z
+    .number({ invalid_type_error: 'Year is required' })
+    .int()
+    .min(2000)
+    .max(2100),
+  is_active: z.boolean().default(true),
+  is_current: z.boolean().default(false)
+});
 
 type FormValues = z.infer<typeof admissionYearSchema>;
-
-interface ProgramOption {
-  id: string;
-  program_id: string;
-  program_name: string;
-  program_duration_yrs?: number | null;
-}
 
 interface AdmissionYearFormProps {
   admissionYear?: AdmissionYear;
@@ -86,8 +68,6 @@ export function AdmissionYearForm({
   // admission_staff, counselor) gets the full list; scope='own' gets only their own.
   const { institutions, loading: loadingInstitutions } =
     useInstitutionsWithAccess({ isActive: true });
-  const [programs, setPrograms] = useState<ProgramOption[]>([]);
-  const [loadingPrograms, setLoadingPrograms] = useState(false);
   const [nameManuallyEdited, setNameManuallyEdited] = useState(
     !!admissionYear?.admission_year_name
   );
@@ -101,32 +81,26 @@ export function AdmissionYearForm({
     resolver: zodResolver(admissionYearSchema),
     defaultValues: {
       institution_id: admissionYear?.institution_id || '',
-      program_id: admissionYear?.program_id || '',
       admission_year_name: admissionYear?.admission_year_name || '',
-      program_start_year:
-        admissionYear?.program_start_year ?? new Date().getFullYear(),
-      program_end_year:
-        admissionYear?.program_end_year ?? new Date().getFullYear() + 4,
-      is_active: admissionYear?.is_active ?? true
+      year: admissionYear?.year ?? new Date().getFullYear(),
+      is_active: admissionYear?.is_active ?? true,
+      is_current: admissionYear?.is_current ?? false
     }
   });
 
-  const watchedInstitutionId = form.watch('institution_id');
-  const watchedProgramId = form.watch('program_id');
-  const watchedStartYear = form.watch('program_start_year');
-  const watchedEndYear = form.watch('program_end_year');
+  const watchedYear = form.watch('year');
   const watchedName = form.watch('admission_year_name');
+  const watchedIsActive = form.watch('is_active');
 
   // Reset form with entity on edit
   useEffect(() => {
     if (isEditing && admissionYear) {
       form.reset({
         institution_id: admissionYear.institution_id,
-        program_id: admissionYear.program_id,
         admission_year_name: admissionYear.admission_year_name,
-        program_start_year: admissionYear.program_start_year,
-        program_end_year: admissionYear.program_end_year,
-        is_active: admissionYear.is_active
+        year: admissionYear.year,
+        is_active: admissionYear.is_active,
+        is_current: admissionYear.is_current
       });
     } else if (!isEditing) {
       // Only auto-fill institution if the user has access to exactly one.
@@ -144,8 +118,6 @@ export function AdmissionYearForm({
     }
   }, [admissionYear, userProfile, form, isEditing, canPickInstitution, institutions]);
 
-  // Institutions are fetched by useInstitutionsWithAccess() above — no manual effect needed.
-
   // Auto-set institution for users who can only see one institution
   useEffect(() => {
     if (canPickInstitution) return; // user has a choice, don't override
@@ -158,93 +130,15 @@ export function AdmissionYearForm({
     }
   }, [institutions, canPickInstitution, form]);
 
-  // Load programs whenever institution changes.
-  // Direct Supabase call (mirrors the seat-config page pattern) — avoids the
-  // heavier ProgramService path that pulls in user-access lookups not needed here.
-  useEffect(() => {
-    let cancelled = false;
-    async function loadPrograms() {
-      if (!watchedInstitutionId) {
-        setPrograms([]);
-        return;
-      }
-      try {
-        setLoadingPrograms(true);
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await (supabase as any)
-          .from('programs')
-          .select('id, program_id, program_name, program_duration_yrs')
-          .eq('institution_id', watchedInstitutionId)
-          .eq('is_active', true)
-          .order('program_name');
-        if (cancelled) return;
-        if (error) throw error;
-        const opts: ProgramOption[] = (data ?? []).map((p: any) => ({
-          id: p.id,
-          program_id: p.program_id,
-          program_name: p.program_name,
-          program_duration_yrs: p.program_duration_yrs ?? null
-        }));
-        setPrograms(opts);
-      } catch (error) {
-        if (cancelled) return;
-        logger.error('admissions', 'Error loading programs', error);
-        toast.error('Failed to load programs');
-      } finally {
-        if (!cancelled) setLoadingPrograms(false);
-      }
-    }
-    loadPrograms();
-    return () => {
-      cancelled = true;
-    };
-  }, [watchedInstitutionId]);
-
-  // Reset program when institution changes (only in create mode to avoid clearing edit state)
-  useEffect(() => {
-    if (isEditing) return;
-    if (!watchedInstitutionId) return;
-    const current = form.getValues('program_id');
-    if (current && !programs.some((p) => p.id === current)) {
-      form.setValue('program_id', '');
-    }
-  }, [watchedInstitutionId, programs, form, isEditing]);
-
-  // Auto-fill end year using program duration when program is picked
-  const selectedProgram = useMemo(
-    () => programs.find((p) => p.id === watchedProgramId),
-    [programs, watchedProgramId]
-  );
-
-  useEffect(() => {
-    if (!selectedProgram) return;
-    if (isEditing) return; // don't override existing values during edit
-    const duration = Number(selectedProgram.program_duration_yrs || 0);
-    if (duration > 0 && watchedStartYear) {
-      form.setValue(
-        'program_end_year',
-        Math.round(watchedStartYear + duration)
-      );
-    }
-  }, [selectedProgram, watchedStartYear, form, isEditing]);
-
   // Auto-suggest admission year name — only if user hasn't edited the name
   useEffect(() => {
     if (nameManuallyEdited) return;
-    if (!selectedProgram) return;
-    if (!watchedStartYear || !watchedEndYear) return;
-    const suggested = `${watchedStartYear}-${watchedEndYear} ${selectedProgram.program_name}`;
+    if (!watchedYear) return;
+    const suggested = `${watchedYear}-${watchedYear + 1}`;
     if (watchedName !== suggested) {
       form.setValue('admission_year_name', suggested);
     }
-  }, [
-    selectedProgram,
-    watchedStartYear,
-    watchedEndYear,
-    nameManuallyEdited,
-    watchedName,
-    form
-  ]);
+  }, [watchedYear, nameManuallyEdited, watchedName, form]);
 
   const currentYear = new Date().getFullYear();
   const yearOptions: number[] = useMemo(() => {
@@ -258,9 +152,14 @@ export function AdmissionYearForm({
       setIsSubmitting(true);
 
       const submitValues = {
-        ...values,
         institution_id:
-          values.institution_id || userProfile?.institution_id || ''
+          values.institution_id || userProfile?.institution_id || '',
+        admission_year_name: values.admission_year_name,
+        year: values.year,
+        is_active: values.is_active,
+        // Postgres demotes the institution's previous current cohort in a BEFORE
+        // trigger, so promoting here never needs a second call or a 23505 retry.
+        is_current: values.is_active && values.is_current
       };
 
       if (!submitValues.institution_id) {
@@ -375,52 +274,31 @@ export function AdmissionYearForm({
                 )}
               />
 
-              {/* Program */}
+              {/* Year */}
               <FormField
                 control={form.control}
-                name='program_id'
+                name='year'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program</FormLabel>
+                    <FormLabel>Year</FormLabel>
                     <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={
-                        !watchedInstitutionId ||
-                        loadingPrograms ||
-                        isEditing ||
-                        programs.length === 0
-                      }
+                      onValueChange={(v) => field.onChange(parseInt(v, 10))}
+                      value={field.value ? String(field.value) : ''}
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue
-                            placeholder={
-                              !watchedInstitutionId
-                                ? 'Pick an institution first'
-                                : loadingPrograms
-                                  ? 'Loading programs…'
-                                  : programs.length === 0
-                                    ? 'No active programs found'
-                                    : 'Select program'
-                            }
-                          />
+                          <SelectValue placeholder='Select year' />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {programs.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.program_name} ({p.program_id})
+                        {yearOptions.map((y) => (
+                          <SelectItem key={y} value={String(y)}>
+                            {y}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
-                    {isEditing && (
-                      <p className='text-xs text-muted-foreground'>
-                        Program cannot be changed when editing
-                      </p>
-                    )}
                   </FormItem>
                 )}
               />
@@ -434,7 +312,7 @@ export function AdmissionYearForm({
                     <FormLabel>Admission Year Name</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder='e.g. 2024-2028 B.Tech CSE'
+                        placeholder='e.g. 2024-2025'
                         {...field}
                         onChange={(e) => {
                           setNameManuallyEdited(true);
@@ -445,72 +323,8 @@ export function AdmissionYearForm({
                     <p className='text-xs text-muted-foreground'>
                       {nameManuallyEdited
                         ? 'Manual override — auto-suggestion disabled. Clear to regenerate on next change.'
-                        : 'Auto-generated from program and year range. Edit to customize.'}
+                        : 'Auto-generated from the selected year. Edit to customize.'}
                     </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Program Start Year */}
-              <FormField
-                control={form.control}
-                name='program_start_year'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Program Start Year</FormLabel>
-                    <Select
-                      onValueChange={(v) => field.onChange(parseInt(v, 10))}
-                      value={field.value ? String(field.value) : ''}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select start year' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent className='max-h-60 overflow-y-auto'>
-                        {yearOptions.map((y) => (
-                          <SelectItem key={y} value={String(y)}>
-                            {y}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Program End Year */}
-              <FormField
-                control={form.control}
-                name='program_end_year'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Program End Year</FormLabel>
-                    <Select
-                      onValueChange={(v) => field.onChange(parseInt(v, 10))}
-                      value={field.value ? String(field.value) : ''}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select end year' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent className='max-h-60 overflow-y-auto'>
-                        {yearOptions.map((y) => (
-                          <SelectItem key={y} value={String(y)}>
-                            {y}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {selectedProgram?.program_duration_yrs ? (
-                      <p className='text-xs text-muted-foreground'>
-                        Program duration:{' '}
-                        {selectedProgram.program_duration_yrs} years
-                      </p>
-                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -531,7 +345,37 @@ export function AdmissionYearForm({
                   <FormControl>
                     <Switch
                       checked={field.value}
+                      onCheckedChange={(checked) => {
+                        field.onChange(checked);
+                        // An inactive cohort cannot be the current one — the DB
+                        // trigger enforces this; mirror it so the UI never shows
+                        // a state the save would silently rewrite.
+                        if (!checked) form.setValue('is_current', false);
+                      }}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='is_current'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                  <div className='space-y-0.5'>
+                    <FormLabel>Current Admission Year</FormLabel>
+                    <div className='text-sm text-muted-foreground'>
+                      New leads and enquiries for this institution default to
+                      this cohort. Turning it on moves the marker off whichever
+                      year currently holds it.
+                    </div>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
                       onCheckedChange={field.onChange}
+                      disabled={!watchedIsActive}
                     />
                   </FormControl>
                 </FormItem>

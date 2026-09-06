@@ -25,7 +25,8 @@ import { DataTableViewOptions } from './view-options';
 import { DataTableExport } from './data-export';
 import type {
   DataTransformFunction,
-  ExportableData
+  ExportableData,
+  PdfExportOptions
 } from './utils/export-utils';
 import { resetUrlState } from './utils/deep-utils';
 import { parseDateFromUrl } from './utils/url-state';
@@ -79,7 +80,7 @@ interface DataTableToolbarProps<TData extends ExportableData> {
   totalSelectedItems?: number;
   deleteSelection?: () => void;
   getSelectedItems?: () => Promise<TData[]>;
-  getAllItems?: () => TData[];
+  getAllItems?: () => Promise<TData[]>;
   config: TableConfig;
   resetColumnSizing?: () => void;
   resetColumnOrder?: () => void;
@@ -88,6 +89,7 @@ interface DataTableToolbarProps<TData extends ExportableData> {
   columnWidths?: Array<{ wch: number }>;
   headers?: string[];
   transformFunction?: DataTransformFunction<TData>;
+  pdfOptions?: PdfExportOptions;
   customToolbarComponent?: React.ReactNode;
 }
 
@@ -107,6 +109,7 @@ export function DataTableToolbar<TData extends ExportableData>({
   columnWidths,
   headers,
   transformFunction,
+  pdfOptions,
   customToolbarComponent
 }: DataTableToolbarProps<TData>) {
   // Get router and pathname for URL state reset
@@ -134,23 +137,23 @@ export function DataTableToolbar<TData extends ExportableData>({
 
   // Track if the search is being updated locally
   const isLocallyUpdatingSearch = useRef(false);
+  // Ref mirror so the URL-sync effect can compare without localSearch as a dep
+  const localSearchRef = useRef(localSearch);
+  localSearchRef.current = localSearch;
 
-  // Update local search when URL param changes
+  // Update local search when URL param changes (external navigation / deep-link).
+  // localSearch intentionally excluded from deps — use the ref so this effect
+  // only fires on URL changes, not on every keystroke. Including localSearch
+  // would cause the effect to overwrite mid-typing text with the last-debounced
+  // URL value when the user pauses briefly then resumes typing.
   useEffect(() => {
-    // Skip if local update is in progress
-    if (isLocallyUpdatingSearch.current) {
-      return;
+    if (isLocallyUpdatingSearch.current) return;
+    const searchFromUrl = decodeURIComponent(searchParams.get('search') || '');
+    if (searchFromUrl !== localSearchRef.current) {
+      setLocalSearch(searchFromUrl);
     }
-
-    const searchFromUrl = searchParams.get('search') || '';
-    const decodedSearchFromUrl = searchFromUrl
-      ? decodeURIComponent(searchFromUrl)
-      : '';
-
-    if (decodedSearchFromUrl !== localSearch) {
-      setLocalSearch(decodedSearchFromUrl);
-    }
-  }, [searchParams, localSearch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const tableSearch = (table.getState().globalFilter as string) || '';
   // Also update local search when table globalFilter changes
@@ -375,8 +378,10 @@ export function DataTableToolbar<TData extends ExportableData>({
       ? new Array(totalSelectedItems).fill({} as TData)
       : [];
 
-  // Get all available items data for export
-  const allItems = getAllItems ? getAllItems() : [];
+  // Current-page rows for the "Export Current Page" action. The full-set
+  // "Export All Pages" action is handled inside the export component via
+  // getAllItems() (which fetches every matching row across pages).
+  const pageItems = table.getRowModel().rows.map((row) => row.original);
 
   return (
     <div className='flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-2'>
@@ -420,20 +425,22 @@ export function DataTableToolbar<TData extends ExportableData>({
         )}
       </div>
 
-      <div className='flex items-center gap-2'>
+      <div className='flex flex-wrap items-center gap-2'>
         {customToolbarComponent}
 
         {config.enableExport && (
           <DataTableExport
             table={table}
-            data={allItems}
+            data={pageItems}
             selectedData={selectedItems}
             getSelectedItems={getSelectedItems}
+            getAllItems={getAllItems}
             entityName={entityName}
             columnMapping={columnMapping}
             columnWidths={columnWidths}
             headers={headers}
             transformFunction={transformFunction}
+            pdfOptions={pdfOptions}
             size={config.size}
             config={config}
           />

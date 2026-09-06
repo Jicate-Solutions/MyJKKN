@@ -22,6 +22,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 // Dynamic import with ssr: false — timeline fetches via Supabase browser client.
 // Valid here because this is a Client Component.
+// Date requests (CARRE Lane B): same pattern — Supabase browser client, so ssr: false.
+const DateRequests = dynamic(() => import('./_components/date-requests'), { ssr: false });
+
 const ProposalTimeline = dynamic(
   () => import('./_components/timeline'),
   {
@@ -66,14 +69,22 @@ export default function ProposalStatusPage() {
       </Breadcrumb>
 
       <div className="max-w-xl">
-        <Link
-          href="/events/propose"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
-          aria-label="Back to propose form"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Propose
-        </Link>
+        <div className="flex items-center justify-between mb-4">
+          <Link
+            href="/events/propose"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Back to propose form"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Propose
+          </Link>
+          <Link
+            href="/events/proposals"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            All proposals →
+          </Link>
+        </div>
 
         <Card>
           <CardHeader>
@@ -91,6 +102,13 @@ export default function ProposalStatusPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Event-date requests — timestamps the ask for a confirmed date (LC Q4) */}
+        {id && (
+          <div className="mt-4">
+            <DateRequests proposalId={id} />
+          </div>
+        )}
       </div>
     </ContentLayout>
   );

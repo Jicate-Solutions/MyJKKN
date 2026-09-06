@@ -220,7 +220,7 @@ export function PositionsClient({
       {/* Actions & Filters Bar */}
       <div className="flex flex-wrap items-center gap-3">
         {isStaffOrAdmin && <CreatePositionDialog institutions={institutions} />}
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
           <Select value={filterCategory} onValueChange={(v) => setFilterCategory(v as FilterCategory)}>
             <SelectTrigger className="w-[180px] h-9 text-sm">
               <SelectValue placeholder="Category" />
@@ -459,7 +459,7 @@ function CreatePositionDialog({ institutions }: { institutions: { id: string; na
               onChange={(e) => setTitle(e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Category</Label>
               <Select value={category} onValueChange={(v) => setCategory(v as PositionCategory)}>
@@ -495,7 +495,7 @@ function CreatePositionDialog({ institutions }: { institutions: { id: string; na
               </Select>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Max Holders</Label>
               <Input
@@ -591,7 +591,7 @@ function EditPositionDialog({
             <Label>Title</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Category</Label>
               <Select value={category} onValueChange={setCategory}>
@@ -633,7 +633,7 @@ function EditPositionDialog({
               </Select>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Max Holders</Label>
               <Input

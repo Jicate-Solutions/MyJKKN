@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   BillingDiscount,
   DiscountFilters,
@@ -77,6 +78,25 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
+
+      const studentName = `${(data as any)?.bill?.student?.first_name || ''} ${(data as any)?.bill?.student?.last_name || ''}`.trim() || 'Unknown';
+      const template = BillingActivityTemplates.discountCreated(
+        discountData.discount_category,
+        discountAmount,
+        studentName
+      );
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: (data as any).id,
+        metadata: {
+          sub_type: template.sub_type,
+          bill_id: discountData.bill_id,
+          discount_type: discountData.discount_type,
+          discount_value: discountData.discount_value,
+          discount_amount: discountAmount,
+        },
+      });
+
       return data as unknown as BillingDiscount;
     } catch (error) {
       console.error('Error creating discount:', error);
@@ -119,6 +139,14 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
+
+      const template = BillingActivityTemplates.discountUpdated(id);
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        metadata: { sub_type: template.sub_type, updated_fields: Object.keys(discountData) },
+      });
+
       return data as unknown as BillingDiscount;
     } catch (error) {
       console.error('Error updating discount:', error);
@@ -136,6 +164,13 @@ export class BillingDiscountService {
         .eq('id', id);
 
       if (error) throw error;
+
+      const template = BillingActivityTemplates.discountDeleted(id);
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        metadata: { sub_type: template.sub_type },
+      });
     } catch (error) {
       console.error('Error deleting discount:', error);
       throw new Error(
@@ -363,6 +398,24 @@ export class BillingDiscountService {
 
       if (billUpdateError) throw billUpdateError;
 
+      const studentNameApprove = `${discountData.bill?.student?.first_name || ''} ${discountData.bill?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateApprove = BillingActivityTemplates.discountApproved(
+        discountData.discount_category,
+        discountData.discount_amount,
+        studentNameApprove
+      );
+      logActivityForCurrentUser({
+        ...templateApprove,
+        resourceId: id,
+        metadata: {
+          sub_type: templateApprove.sub_type,
+          bill_id: discountData.bill_id,
+          discount_amount: discountData.discount_amount,
+          new_final_amount: newFinalAmount,
+          new_balance_amount: newBalanceAmount,
+        },
+      });
+
       // If balance becomes 0, mark bill as paid
       if (newBalanceAmount === 0 && billDataTyped.status !== 'paid') {
         const { error: statusUpdateError } = await (this.supabase as any)
@@ -431,6 +484,18 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
+
+      const studentNameReject = `${currentDiscount.bill?.student?.first_name || ''} ${currentDiscount.bill?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReject = BillingActivityTemplates.discountRejected(
+        currentDiscount.discount_category,
+        studentNameReject
+      );
+      logActivityForCurrentUser({
+        ...templateReject,
+        resourceId: id,
+        metadata: { sub_type: templateReject.sub_type, rejection_reason: reason },
+      });
+
       return data;
     } catch (error) {
       console.error('Error rejecting discount:', error);
@@ -525,6 +590,24 @@ export class BillingDiscountService {
         .eq('id', discountData.bill_id);
 
       if (billUpdateError) throw billUpdateError;
+
+      const studentNameReverse = `${discountData.bill?.student?.first_name || ''} ${discountData.bill?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReverse = BillingActivityTemplates.discountReversed(
+        discountData.discount_category,
+        discountData.discount_amount,
+        studentNameReverse
+      );
+      logActivityForCurrentUser({
+        ...templateReverse,
+        resourceId: id,
+        metadata: {
+          sub_type: templateReverse.sub_type,
+          bill_id: discountData.bill_id,
+          discount_amount: discountData.discount_amount,
+          restored_final_amount: restoredFinalAmount,
+          restored_balance_amount: restoredBalanceAmount,
+        },
+      });
 
       return updatedDiscount;
     } catch (error) {

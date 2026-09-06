@@ -1,6 +1,7 @@
 'use client';
 
 import { forwardRef } from 'react';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Calendar, Lock, X, Users } from 'lucide-react';
@@ -31,6 +32,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
     },
     ref
   ) => {
+    const adapt = useAdaptiveLabels();
     // Helper function to get slot for a specific day and period
     const getSlotForDayAndPeriod = (day: DayOfWeek, periodId: string) => {
       if (!slots) return null;
@@ -43,7 +45,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
     const renderRegularSlot = (slot: any) => (
       <div className='text-blue-700 min-h-[50px] flex flex-col justify-center text-center'>
         <div className='font-semibold text-xs mb-0.5 leading-tight'>
-          {slot.course?.course_code || 'Course'}
+          {slot.course?.course_code || adapt('Course')}
         </div>
         {slot.staff_members && slot.staff_members.length > 0 && (
           <div className='text-xs text-gray-700 mb-0.5 leading-tight'>
@@ -98,7 +100,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                 ) : (
                   <div>
                     <div className='font-semibold text-xs mb-0.5 leading-tight'>
-                      {subSlot.course?.course_code || 'Course'}
+                      {subSlot.course?.course_code || adapt('Course')}
                     </div>
                     {subSlot.staff_members &&
                       subSlot.staff_members.length > 0 && (

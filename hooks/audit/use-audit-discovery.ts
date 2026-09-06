@@ -4,11 +4,12 @@
 //
 // Consumers: /audit/parameters/[code] discovery tab, Lead Auditor dashboard.
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   AuditDiscoveryService,
   type DiscoveryQueryResult,
 } from '@/lib/services/audit';
+import type { AuditStandingBoardRow } from '@/lib/types/audit';
 
 export const auditDiscoveryKeys = {
   all: ['audit', 'discovery'] as const,
@@ -29,7 +30,26 @@ export const auditDiscoveryKeys = {
     ] as const,
   metadata: (parameterCode: string, institutionId: string) =>
     [...auditDiscoveryKeys.all, 'metadata', parameterCode, institutionId] as const,
+  standingBoard: (cycleId: string) =>
+    [...auditDiscoveryKeys.all, 'standingBoard', cycleId] as const,
 };
+
+/**
+ * Standing "Whole Institution" board — org-wide params' current discovery status.
+ * Auto-runs on mount (unlike the manual per-param run) because it only surfaces
+ * aggregate counts, not PII rows, and the standing cycle is the always-on view.
+ */
+export function useStandingBoard(cycleId?: string) {
+  return useQuery({
+    queryKey: auditDiscoveryKeys.standingBoard(cycleId ?? ''),
+    queryFn: () =>
+      cycleId
+        ? AuditDiscoveryService.standingBoard(cycleId)
+        : Promise.resolve([] as AuditStandingBoardRow[]),
+    enabled: !!cycleId,
+    staleTime: 30 * 1000,
+  });
+}
 
 export interface RunDiscoveryQueryVars {
   parameter_code: string;

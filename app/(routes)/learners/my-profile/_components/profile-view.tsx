@@ -2,13 +2,19 @@
 
 import { useRouter } from 'next/navigation';
 import { LearnerProfile } from '@/types/learner-profile';
+import { useQuotaName } from '@/hooks/admission/use-quota-name';
+import { useCommunityName } from '@/hooks/admission/use-community-name';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { InfoField } from './info-field';
+import { ViewOnMapLink } from '@/components/learners/view-on-map-link';
 import { formatDate } from '@/lib/utils';
 import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
+import { useRouteById, useRouteStops } from '@/hooks/tms/use-route-lookup';
 import {
   Pencil,
   User,
@@ -24,6 +30,7 @@ import {
   BookOpen,
   Building,
   Bed,
+  Bus,
   Award,
   School,
   ClipboardList,
@@ -38,7 +45,31 @@ interface ProfileViewProps {
 }
 
 export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
+  const quotaName = useQuotaName((learner as { quota_id?: string }).quota_id);
+  const communityName = useCommunityName((learner as { community_category_id?: string }).community_category_id);
   const router = useRouter();
+
+  // Resolve the stored hostel/mess category FKs to display names.
+  const { hostelCategories: allHostelCategories } = useActiveHostelCategories();
+  const { messCategories: allMessCategories } = useActiveMessCategories();
+  const hostelCategoryName = allHostelCategories.find(
+    (c) => c.id === (learner as any).hostel_category_id
+  )?.name;
+  const messCategoryName = allMessCategories.find(
+    (c) => c.id === (learner as any).mess_category_id
+  )?.name;
+
+  // Resolve the Day-Scholar transport route + boarding-point names.
+  const transportRouteId = (learner as any).transport_route_id as string | undefined;
+  const { route: routeObj } = useRouteById(transportRouteId);
+  const { stops: routeStops } = useRouteStops(transportRouteId);
+  const routeName = routeObj
+    ? `${routeObj.route_number} - ${routeObj.route_name}`
+    : undefined;
+  const stopName = routeStops.find(
+    (s) => s.id === (learner as any).transport_stop_id
+  )?.stop_name;
+
   // Helper to mask Aadhar number (show only last 4 digits)
   const maskAadhar = (aadhar?: string | null) => {
     if (!aadhar) return 'Not provided';
@@ -179,7 +210,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               <InfoField label="Learner Type" value={learner.learner_type ? learner.learner_type.charAt(0).toUpperCase() + learner.learner_type.slice(1) : null} icon={User} />
               <Separator />
               <InfoField label="Religion" value={learner.religion} icon={BookOpen} />
-              <InfoField label="Community" value={learner.community} icon={Users} />
+              <InfoField label="Community" value={communityName} icon={Users} />
               <InfoField label="Caste" value={learner.caste} icon={Users} />
               <InfoField
                 label="Aadhar Number"
@@ -375,6 +406,10 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
                   icon={MapPin}
                 />
                 </div>
+                <ViewOnMapLink
+                  postOfficeId={learner.post_office_id}
+                  pincode={learner.permanent_address_pin_code}
+                />
                
               </div>
             </div>
@@ -406,7 +441,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
                 value={(learner as any).counseling_number}
                 icon={FileText}
               />
-              <InfoField label="Quota" value={(learner as any).quota} icon={Award} />
+              <InfoField label="Quota" value={quotaName} icon={Award} />
               <InfoField label="Category" value={(learner as any).category} icon={Users} />
               <InfoField
                 label="Scholarship Type"
@@ -453,8 +488,33 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
                 value={learner.accommodation_type}
                 icon={Home}
               />
-              <InfoField label="Hostel Type" value={(learner as any).hostel_type} icon={Bed} />
-              <InfoField label="Food Type" value={(learner as any).food_type} icon={FileText} />
+              {learner.accommodation_type === 'HOSTEL' && (
+                <>
+                  <InfoField label="Hostel Room Category" value={hostelCategoryName} icon={Bed} />
+                  <InfoField label="Mess Category" value={messCategoryName} icon={FileText} />
+                </>
+              )}
+              {learner.accommodation_type === 'DAY SCHOLAR' && (
+                <>
+                  <InfoField
+                    label="Bus Required"
+                    value={
+                      (learner as any).bus_required === true
+                        ? 'Yes'
+                        : (learner as any).bus_required === false
+                        ? 'No'
+                        : undefined
+                    }
+                    icon={Bus}
+                  />
+                  {(learner as any).bus_required === true && (
+                    <>
+                      <InfoField label="Route" value={routeName} icon={Bus} />
+                      <InfoField label="Boarding Point" value={stopName} icon={MapPin} />
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

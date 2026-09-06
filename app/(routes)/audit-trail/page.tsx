@@ -1,7 +1,7 @@
 'use client';
 // app/(routes)/audit-trail/page.tsx
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { FileText, Download } from 'lucide-react';
@@ -31,10 +31,13 @@ import { AuditAction, AuditModule, AuditSeverity } from '@/types/audit-trail';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ActivityTimelineView } from './_components/activity-timeline-view';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function AuditTrailPage() {
+const AUDIT_TRAIL_TABS = ['timeline', 'statistics'] as const;
+
+function AuditTrailPageInner() {
   const { profile: user } = useAuth();
-  const [activeTab, setActiveTab] = useState('timeline');
+  const [activeTab, setActiveTab] = useTabParam('timeline', AUDIT_TRAIL_TABS);
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFilter, setActionFilter] = useState('all');
   const [moduleFilter, setModuleFilter] = useState('all');
@@ -71,7 +74,7 @@ export default function AuditTrailPage() {
       </Breadcrumb>
 
       {/* Header */}
-      <div className='flex items-center justify-between mb-6'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6'>
         <div>
           <h1 className='text-3xl font-bold flex items-center gap-2'>
             <FileText className='h-8 w-8' />
@@ -81,7 +84,7 @@ export default function AuditTrailPage() {
             Track all system activities and changes
           </p>
         </div>
-        <Button variant='outline' onClick={handleExport}>
+        <Button variant='outline' onClick={handleExport} className='shrink-0 self-start sm:self-auto'>
           <Download className='mr-2 h-4 w-4' />
           Export Logs
         </Button>
@@ -316,5 +319,14 @@ export default function AuditTrailPage() {
         </TabsContent>
       </Tabs>
     </ContentLayout>
+  );
+}
+
+export default function AuditTrailPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <AuditTrailPageInner />
+    </Suspense>
   );
 }

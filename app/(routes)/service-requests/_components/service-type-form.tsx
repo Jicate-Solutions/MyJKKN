@@ -31,6 +31,7 @@ import { FieldBuilder } from './field-builder';
 import { ApprovalStepBuilder } from './approval-step-builder';
 import { ScopeSelector } from './scope-selector';
 import {
+  ALL_ROLES_WILDCARD,
   createServiceTypeSchema,
   type CreateServiceTypeDto,
   type CreateServiceTypeFieldDto,
@@ -127,6 +128,8 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
   });
 
   const watchedAllowedRoles = watch('allowed_roles');
+  // '*' sentinel = available to every authenticated user (see ALL_ROLES_WILDCARD).
+  const allRolesSelected = watchedAllowedRoles?.includes(ALL_ROLES_WILDCARD) ?? false;
 
   const handleFormSubmit = (data: CreateServiceTypeDto) => {
     onSubmit({
@@ -254,6 +257,27 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
             <Label>
               Allowed Roles <span className="text-red-500">*</span>
             </Label>
+
+            {/* All-roles toggle: sets the '*' sentinel so every authenticated
+                user (including custom roles created later) can see and submit
+                this request — no need to enumerate, and no future top-ups. */}
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <Checkbox
+                className="mt-0.5"
+                checked={allRolesSelected}
+                onCheckedChange={(checked) =>
+                  setValue('allowed_roles', checked ? [ALL_ROLES_WILDCARD] : [], {
+                    shouldValidate: true,
+                  })
+                }
+              />
+              <span>
+                Available to all roles
+                <span className="text-muted-foreground"> — every logged-in user, including roles added later</span>
+              </span>
+            </label>
+
+            {!allRolesSelected && (
             <Popover open={rolesPopoverOpen} onOpenChange={setRolesPopoverOpen} modal>
               <PopoverTrigger asChild>
                 <Button
@@ -347,6 +371,7 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
                 </Command>
               </PopoverContent>
             </Popover>
+            )}
             {errors.allowed_roles && (
               <p className="text-xs text-red-500">{errors.allowed_roles.message}</p>
             )}
@@ -476,6 +501,10 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
           <Separator />
 
           {/* Approval Steps */}
+          {/* Approvers are intentionally independent of Service Visibility:
+              any approver-eligible user can be picked here (RLS still gates
+              who's visible), and the builder offers a per-step role filter to
+              narrow the list. */}
           <ApprovalStepBuilder
             steps={approvalSteps}
             onChange={(newSteps) => {
@@ -483,7 +512,6 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
               setValue('approval_steps', newSteps, { shouldValidate: false });
             }}
             workflowType={watch('approval_workflow_type') as ApprovalWorkflowType}
-            institutionIds={scopeLevel === 'institution' ? scopeInstitutionIds : []}
           />
           {errors.approval_steps && (
             <p className="text-xs text-red-500 mt-2">{errors.approval_steps.message}</p>

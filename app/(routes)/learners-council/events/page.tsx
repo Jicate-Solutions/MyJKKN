@@ -3,6 +3,7 @@
  * Shows upcoming, past, and user's events in a tabbed view
  */
 
+import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { EventListClient } from './event-list-client';
 import Link from 'next/link';
@@ -27,10 +28,12 @@ export default async function EventsPage({
   }
   const isMD = profile.role === 'super_admin';
 
-  // Resolve scope: MD defaults to lc_wide, others default to institution
+  // The Learners Council is one body across every JKKN institution, so everyone opens on
+  // the full Council view; "My Institution" narrows it. (This used to default to the
+  // viewer's own college, which hid the rest of the Council behind a toggle few found.)
   const params = searchParams ? await searchParams : {};
   const scopeParam = params.scope;
-  const scopeAll = isMD ? (scopeParam !== 'institution') : (scopeParam === 'lc_wide');
+  const scopeAll = scopeParam !== 'institution';
 
   // Fetch events server-side for initial render
   const now = new Date().toISOString();
@@ -94,15 +97,17 @@ export default async function EventsPage({
         </div>
       </div>
 
-      <EventListClient
-        initialUpcoming={upcomingEvents || []}
-        upcomingCount={upcomingCount || 0}
-        initialPast={pastEvents || []}
-        pastCount={pastCount || 0}
-        initialMyEvents={myEvents || []}
-        myCount={myCount || 0}
-        userId={profile.id}
-      />
+      <Suspense fallback={null}>
+        <EventListClient
+          initialUpcoming={upcomingEvents || []}
+          upcomingCount={upcomingCount || 0}
+          initialPast={pastEvents || []}
+          pastCount={pastCount || 0}
+          initialMyEvents={myEvents || []}
+          myCount={myCount || 0}
+          userId={profile.id}
+        />
+      </Suspense>
     </div>
   );
 }

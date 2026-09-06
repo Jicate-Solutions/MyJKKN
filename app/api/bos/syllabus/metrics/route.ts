@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -37,8 +38,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Fetch all syllabi for institution with version info
-    const { data: syllabi, error: syllError } = await supabase
+    // CAS-aware via the denormalized counselling_code (shared by Aided + SF),
+    // so metrics span both siblings with a single equality filter.
+    const code = await counsellingCodeFor(supabase, institutionsId);
+
+    let metricsQuery = supabase
       .from('bos_course_syllabi')
       .select(`
         id,
@@ -55,9 +59,14 @@ export async function GET(request: Request) {
         course_content,
         po_mappings
       `)
-      .eq('institutions_id', institutionsId)
       .eq('is_archived', false)
       .order('course_code');
+    metricsQuery = code
+      ? metricsQuery.eq('counselling_code', code)
+      : metricsQuery.eq('institutions_id', institutionsId);
+
+    // Fetch all syllabi for institution with version info
+    const { data: syllabi, error: syllError } = await metricsQuery;
 
     if (syllError) throw syllError;
 

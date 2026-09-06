@@ -73,6 +73,33 @@ export class HostelLeaveService {
     }
   }
 
+  /**
+   * Returns all leave requests for a specific learner (own-scope view).
+   * Used by the My Hostel Requests tab — RLS enforces the learner_id = auth.uid() gate.
+   */
+  static async getMyLeaveRequests(profileId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_leave_requests')
+        .select('id, leave_type, from_date, to_date, reason, status, created_at')
+        .eq('learner_id', profileId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        logger.error('campus-living/leave', 'Failed to fetch own leave requests', error);
+        throw error;
+      }
+      return (data ?? []) as unknown as Pick<
+        HostelLeaveRequest,
+        'id' | 'leave_type' | 'from_date' | 'to_date' | 'reason' | 'status' | 'created_at'
+      >[];
+    } catch (error) {
+      logger.error('campus-living/leave', 'Unexpected error in getMyLeaveRequests', error);
+      throw error;
+    }
+  }
+
   static async getLeaveRequest(id: string) {
     try {
       const supabase = createClientSupabaseClient();

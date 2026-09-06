@@ -207,6 +207,7 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
                 <SelectItem value='in_progress'>In Progress</SelectItem>
                 <SelectItem value='resolved'>Resolved</SelectItem>
                 <SelectItem value='wont_fix'>Won&apos;t Fix</SelectItem>
+                <SelectItem value='duplicate'>Duplicate</SelectItem>
               </SelectContent>
             </Select>
           </div>

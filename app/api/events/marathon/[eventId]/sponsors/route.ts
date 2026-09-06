@@ -16,7 +16,9 @@ export async function GET(
     const supabase = createServiceRoleClient();
 
     const { data: sponsors, error } = await supabase
-      .from('marathon_sponsors')
+      // Events Platform Promotion PR1: marathon_sponsors → event_sponsors (compat view still resolves
+      // the old name, but read the canonical table directly).
+      .from('event_sponsors')
       .select('id, company_name, logo_url, website, tier, pipeline_stage')
       .eq('event_id', eventId)
       .eq('pipeline_stage', 'committed')

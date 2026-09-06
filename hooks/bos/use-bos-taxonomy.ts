@@ -29,10 +29,10 @@ const TAXONOMY_QUERY_KEY = ['bos', 'taxonomy'];
  * Hook for fetching taxonomy for a regulation.
  * Includes: K-values (Finks/Blooms), Programme Outcomes (POs), Programme Specific Outcomes (PSOs).
  */
-export function useBosTaxonomy(regulationId: string | undefined, institutionsId?: string) {
+export function useBosTaxonomy(regulationId: string | undefined, institutionsId?: string, boardId?: string) {
   return useQuery<BosRegulationTaxonomy, Error>({
-    queryKey: [...TAXONOMY_QUERY_KEY, regulationId, institutionsId],
-    queryFn: () => BosSyllabusService.getTaxonomy(regulationId!, institutionsId),
+    queryKey: [...TAXONOMY_QUERY_KEY, regulationId, institutionsId, boardId],
+    queryFn: () => BosSyllabusService.getTaxonomy(regulationId!, institutionsId, boardId),
     enabled: !!regulationId,
     staleTime: 10 * 60 * 1000, // 10 minutes
   });

@@ -33,7 +33,7 @@ export default async function AllPulseEntriesPage() {
       <div className="space-y-4 mt-4">
         <div>
           <div className="flex items-center gap-2">
-            <ClipboardList className="h-6 w-6 text-primary" />
+            <ClipboardList className="h-6 w-6 text-primary shrink-0" />
             <h1 className="text-2xl font-bold">All Work Pulse Submissions</h1>
           </div>
           <p className="text-sm text-muted-foreground mt-1">

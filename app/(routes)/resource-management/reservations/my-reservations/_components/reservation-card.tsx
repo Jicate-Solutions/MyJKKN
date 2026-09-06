@@ -93,8 +93,8 @@ export function ReservationCard({
       }
     >
       <CardHeader className='pb-3'>
-        <div className='flex items-start justify-between'>
-          <div className='flex-1'>
+        <div className='flex items-start justify-between gap-2'>
+          <div className='flex-1 min-w-0'>
             <h3 className='font-semibold text-lg line-clamp-1'>
               {reservation.resource?.name || 'Resource'}
             </h3>
@@ -104,7 +104,7 @@ export function ReservationCard({
           </div>
           <Badge
             variant={getStatusBadgeVariant(reservation.status)}
-            className='gap-1 ml-2'
+            className='gap-1 ml-2 shrink-0'
           >
             {getStatusIcon(reservation.status)}
             {reservation.status.charAt(0).toUpperCase() +

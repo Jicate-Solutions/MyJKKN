@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess, applyInstitutionScope, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveBosBoardScope, applyInstitutionScope, readableInstitutionIds, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
+import { courseDisplayFor } from '@/lib/utils/bos/coe-course-display';
+import { generateV35SyllabusHtml } from '@/lib/utils/bos/course-syllabus-html';
 import { BosCourseSyllabus } from '@/types/bos';
+import { isPharmacyModel, modelUniversityHeader } from '@/lib/services/bos/academic-model';
+import { generatePharmacyFormat } from '@/lib/utils/bos/pharmacy-syllabus-html';
 
 /**
  * GET /api/bos/syllabus/[id]/export-pdf
@@ -31,22 +35,27 @@ export async function GET(
     }
 
     // Step 2: Resolve institution scope
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // View-only observer tier: holder of the view grant who sits on no board reads all institutions (never widens writes).
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
 
     // Step 3: Parse query parameters
     const { searchParams } = new URL(request.url);
-    const format = (searchParams.get('format') || 'official') as 'official' | 'meeting_summary' | 'obe';
+    const format = (searchParams.get('format') || 'official') as 'official' | 'meeting_summary' | 'obe' | 'v35';
     const includeMappings = searchParams.get('include_mappings') !== 'false';
     const includeReferences = searchParams.get('include_references') !== 'false';
     const includePedagogy = searchParams.get('include_pedagogy') !== 'false';
 
     // Step 4: Fetch syllabus (CAS-aware filter — see syllabus/[id]/route.ts)
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', params.id);
 
-    const allowedIds = readableInstitutionIds(scope);
+    const allowedIds = readableInstitutionIds(scope, canReadAllBos);
     if (allowedIds !== null) {
       if (allowedIds.length === 0) {
         return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });
@@ -73,9 +82,38 @@ export async function GET(
       );
     }
 
+    // Prefer the live COE course_code/course_name (resolved by the stable
+    // course_id) over the stored snapshot, so a COE rename is reflected in the
+    // report. Falls back to the snapshot when course_id is null or COE is down.
+    const display = await courseDisplayFor(syllabus as BosCourseSyllabus);
+    const syllabusForPdf: BosCourseSyllabus = {
+      ...(syllabus as BosCourseSyllabus),
+      course_code: display.course_code,
+      course_name: display.course_name,
+    };
+
     // Step 5: Generate HTML based on format
+    // v3.5: the branded JKKN document (green template, capstone cards, LLC
+    // panel) — print-ready, renders the five Fink's/Capstone JSONB columns.
+    if (format === 'v35') {
+      const { data: inst } = await supabase
+        .from('institutions')
+        .select('name')
+        .eq('id', syllabusForPdf.institutions_id)
+        .maybeSingle();
+      const v35Html = generateV35SyllabusHtml(syllabusForPdf, {
+        institutionName: (inst?.name as string | undefined) ?? undefined,
+      });
+      return new NextResponse(v35Html, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${syllabusForPdf.course_code}-syllabus-v35.html"`,
+        },
+      });
+    }
+
     const html = generatePdfHtml(
-      syllabus as BosCourseSyllabus,
+      syllabusForPdf,
       format,
       {
         includeMappings,
@@ -89,7 +127,7 @@ export async function GET(
     return new NextResponse(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Content-Disposition': `attachment; filename="syllabus-${syllabus.course_code}-${format}.html"`,
+        'Content-Disposition': `attachment; filename="syllabus-${syllabusForPdf.course_code}-${format}.html"`,
       },
     });
   } catch (error) {
@@ -142,20 +180,33 @@ function generatePdfHtml(
       <body>
   `;
 
-  // Header
+  // Header — pharmacy (COP) models show the university/regulator and
+  // semester/year placement instead of the generic Stream line.
+  const pharmacy = isPharmacyModel(syllabus.academic_model);
+  const placement = pharmacy
+    ? syllabus.academic_model === 'pci_pharm'
+      ? (syllabus.semester ? `Semester ${syllabus.semester}` : '')
+      : (syllabus.academic_year ? `Year ${syllabus.academic_year}` : '')
+    : '';
   html += `
     <h1>${syllabus.course_code}: ${syllabus.course_name}</h1>
     <div class="metadata">
+      ${pharmacy ? `<p><strong>Regulation:</strong> ${modelUniversityHeader(syllabus.academic_model)}</p>` : ''}
+      ${pharmacy && placement ? `<p><strong>Placement:</strong> ${placement}</p>` : ''}
       <p><strong>Course Credits:</strong> ${syllabus.course_credits || 'N/A'}</p>
-      <p><strong>Stream:</strong> ${syllabus.stream || 'General'}</p>
+      ${pharmacy ? '' : `<p><strong>Stream:</strong> ${syllabus.stream || 'General'}</p>`}
       <p><strong>Version:</strong> ${syllabus.version_number}</p>
       <p><strong>Status:</strong> ${syllabus.is_latest ? 'Latest' : 'Archived'}</p>
       <p><strong>Last Modified:</strong> ${new Date(syllabus.last_modified_at).toLocaleDateString()}</p>
     </div>
   `;
 
-  // Format-specific content
-  if (format === 'official') {
+  // Format-specific content. Pharmacy (COP) models have no CO-PO/Bloom — they
+  // use a dedicated layout (Scope + Objectives + Content + Books + Exam Scheme
+  // + Internship) regardless of the requested `format`.
+  if (pharmacy) {
+    html += generatePharmacyFormat(syllabus, options);
+  } else if (format === 'official') {
     html += generateOfficalFormat(syllabus, cloData, contentData, textbooksData, resourcesData, pedagogyData, mappingsData, options);
   } else if (format === 'meeting_summary') {
     html += generateMeetingSummaryFormat(syllabus, mappingsData);

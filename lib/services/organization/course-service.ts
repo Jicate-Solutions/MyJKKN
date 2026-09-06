@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
+import { logger, serializeError } from '@/lib/utils/enhanced-logger';
 import type {
   Course,
   CreateCourseDto,
@@ -229,7 +230,17 @@ export class CourseService {
         }
       };
     } catch (error) {
-      console.error('Error fetching courses:', error);
+      // Fixed: 2026-08-13 - was `console.error('Error fetching courses:', error)`.
+      // The Next dev overlay serializes console args as JSON, and an Error's
+      // `message`/`stack` are non-enumerable, so every failure on this path
+      // reported as literally "Error fetching courses: {}" — undiagnosable.
+      // serializeError() flattens Error / PostgrestError / empty-object shapes
+      // and labels the empty case (failed fetch, blocked request, stale auth).
+      logger.error(
+        'organization/courses',
+        'Error fetching courses',
+        serializeError(error)
+      );
       throw error;
     }
   }

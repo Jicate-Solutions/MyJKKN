@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { logger, serializeError } from '@/lib/utils/enhanced-logger';
 import type { EntityType } from '@/types/organizations';
 
 interface UseInstitutionsWithAccessOptions {
   isActive?: boolean;
   autoFetch?: boolean;
-  entityType?: EntityType | 'all'; // Defaults to 'institution' — only shows educational institutions in dropdowns
+  entityType?: EntityType | 'all' | EntityType[]; // Defaults to 'institution'. Pass an array (e.g. ['institution','school']) to include multiple kinds
 }
 
 export function useInstitutionsWithAccess(
@@ -41,6 +42,12 @@ export function useInstitutionsWithAccess(
 
       let institutionNames;
 
+      // Super admins get every entity type (institutions AND schools) regardless
+      // of what the calling page asked for — they have global access, so the
+      // default entityType='institution' would otherwise hide schools from them.
+      // Non-super-admin users keep the page-specified entityType untouched.
+      const effectiveEntityType = isSuperAdmin ? 'all' : entityType;
+
       if (isSuperAdmin || isAdmissionGlobalUser) {
         // Super admins and admission global users see all institutions —
         // admission role users are cross-institution (no institution_id on their profile)
@@ -48,23 +55,32 @@ export function useInstitutionsWithAccess(
         institutionNames = await OrganizationService.getInstitutionNames(
           isActive,
           undefined,
-          entityType
+          effectiveEntityType
         );
       } else {
         // Regular users see only accessible institutions - pass userId for filtering
         institutionNames = await OrganizationService.getInstitutionNames(
           isActive,
           profile.id,
-          entityType
+          effectiveEntityType
         );
       }
 
       setInstitutions(institutionNames);
     } catch (err) {
-      console.error('Error fetching institutions:', err);
-      setError(
-        err instanceof Error ? err.message : 'Failed to fetch institutions'
+      const serialized = serializeError(err);
+      logger.error(
+        'organization/institutions',
+        'useInstitutionsWithAccess fetch failed',
+        serialized
       );
+      const message =
+        err instanceof Error
+          ? err.message
+          : (typeof serialized.message === 'string' && serialized.message) ||
+            (typeof serialized.code === 'string' && serialized.code) ||
+            'Failed to fetch institutions';
+      setError(message);
       setInstitutions([]);
     } finally {
       setLoading(false);

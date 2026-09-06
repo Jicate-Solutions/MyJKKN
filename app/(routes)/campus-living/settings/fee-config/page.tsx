@@ -3,20 +3,21 @@
 /**
  * Fee Configuration — /campus-living/settings/fee-config
  *
- * Wired 2026-04-24 (Agent D — settings real-save). Before today this page
- * had THREE fake-save buttons ("Add Room Type", "Edit", "Save Changes")
- * that only showed a warning toast. Wardens believed they were editing
- * hostel/mess fees for 2+ months; nothing persisted. Now persists to
- * `hostel_fee_config` via CampusLivingSettings service + react-query hooks.
+ * Category-based hostel fees only: an individual fee (amount + frequency) per
+ * hostel-room / mess / amenity category, scoped by hostel year, common to all
+ * institutions. A learner's hostel total is the sum of their selected
+ * categories' fees.
+ *
+ * The legacy room-type/AC/tier table (hostel_fee_config) was removed from this
+ * page on 2026-05-28 — hostel pricing now lives entirely in the category-fee
+ * model.
  *
  * Permission gate: `campus_living.settings.edit` (or super-admin).
  */
 
-import { useMemo, useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -25,99 +26,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Plus, Edit, IndianRupee, Trash2, Loader2, Info } from 'lucide-react';
-import { useAuth } from '@/hooks/use-auth';
+import { Info } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useAcademicYears } from '@/hooks/use-academic-years';
 import {
-  useHostelFeeConfigs,
-  useDeleteHostelFeeConfig,
-} from '@/hooks/campus-living/use-hostel-fee-config';
-import { FeeConfigDialog, type FeeConfigRow } from './_components/fee-config-dialog';
+  useActiveHostelYears,
+  useCurrentHostelYear,
+} from '@/hooks/campus-living/use-hostel-years';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CategoryFeesSection } from './_components/category-fees-section';
+import { PackageFeesSection } from './_components/package-fees-section';
+import { UpgradeFeesSection } from './_components/upgrade-fees-section';
+import { RoomSharingSection } from './_components/room-sharing-section';
 
-const formatCurrency = (amount?: number | null) => {
-  if (amount == null) return '—';
-  return amount.toLocaleString('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  });
-};
+const FEE_CONFIG_TABS = ['category', 'upgrade', 'package', 'sharing'] as const;
 
-const roomTypeLabel = (t: string) => {
-  const labels: Record<string, string> = {
-    single: 'Single',
-    double: 'Double',
-    triple: 'Triple',
-    quad: 'Quad',
-    dormitory: 'Dormitory',
-  };
-  return labels[t] ?? t;
-};
-
-const acStatusLabel = (s: string) => {
-  const labels: Record<string, string> = {
-    ac: 'AC',
-    non_ac: 'Non-AC',
-    cooler: 'Cooler',
-  };
-  return labels[s] ?? s;
-};
-
-export default function FeeConfigPage() {
-  const { profile } = useAuth();
+function FeeConfigPageInner() {
   const { permissions, isSuperAdmin } = usePermissions();
-  const institutionId = profile?.institution_id ?? undefined;
   const canEdit =
     isSuperAdmin || permissions?.['campus_living.settings.edit'] === true;
 
-  const { data: academicYears, isLoading: loadingYears } = useAcademicYears(
-    isSuperAdmin ? undefined : institutionId,
-  );
+  const { hostelYears, loading: loadingYears } = useActiveHostelYears();
+  const { currentYear } = useCurrentHostelYear();
 
   const [selectedYearId, setSelectedYearId] = useState<string | undefined>(undefined);
-  const effectiveYearId = selectedYearId ?? academicYears?.data?.[0]?.id ?? undefined;
-
-  const {
-    data: feeConfigs,
-    isLoading,
-    isError,
-    error,
-  } = useHostelFeeConfigs(institutionId, effectiveYearId);
-
-  const [editingRow, setEditingRow] = useState<FeeConfigRow | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const deleteMut = useDeleteHostelFeeConfig();
-
-  const rows = useMemo(() => feeConfigs ?? [], [feeConfigs]);
-
-  const handleAdd = () => {
-    setEditingRow(null);
-    setDialogOpen(true);
-  };
-
-  const handleEdit = (row: FeeConfigRow) => {
-    setEditingRow(row);
-    setDialogOpen(true);
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this fee configuration? This cannot be undone.')) return;
-    try {
-      await deleteMut.mutateAsync(id);
-    } catch {
-      // handled by mutation
-    }
-  };
+  const [activeTab, setActiveTab] = useTabParam('category', FEE_CONFIG_TABS);
+  const effectiveYearId =
+    selectedYearId ?? currentYear?.id ?? hostelYears?.[0]?.id ?? undefined;
 
   return (
     <ContentLayout title="Fee Configuration">
@@ -126,35 +61,27 @@ export default function FeeConfigPage() {
           <div>
             <h1 className="text-2xl font-bold">Fee Configuration</h1>
             <p className="text-muted-foreground">
-              Hostel fees by room type / AC status for the selected academic year
+              Hostel category fees (room / mess / amenities) for the selected hostel year
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Label className="text-sm whitespace-nowrap">Academic Year</Label>
-              <Select
-                value={effectiveYearId ?? ''}
-                onValueChange={(v) => setSelectedYearId(v)}
-                disabled={loadingYears || !academicYears?.data?.length}
-              >
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Select year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {academicYears?.data?.map((y: { id: string; academic_year_name?: string; year?: string }) => (
-                    <SelectItem key={y.id} value={y.id}>
-                      {y.academic_year_name ?? y.year ?? y.id.slice(0, 8)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {canEdit && effectiveYearId ? (
-              <Button onClick={handleAdd}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Fee Config
-              </Button>
-            ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className="text-sm whitespace-nowrap">Hostel Year</Label>
+            <Select
+              value={effectiveYearId ?? ''}
+              onValueChange={(v) => setSelectedYearId(v)}
+              disabled={loadingYears || !hostelYears?.length}
+            >
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="Select year" />
+              </SelectTrigger>
+              <SelectContent>
+                {hostelYears?.map((y) => (
+                  <SelectItem key={y.id} value={y.id}>
+                    {y.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -172,115 +99,52 @@ export default function FeeConfigPage() {
         {!effectiveYearId && !loadingYears ? (
           <Alert>
             <Info className="h-4 w-4" />
-            <AlertTitle>No academic year</AlertTitle>
+            <AlertTitle>No hostel year</AlertTitle>
             <AlertDescription>
-              No active academic years found. Create one under Organizations before configuring hostel fees.
+              No active hostel years found. Create one under{' '}
+              <a className="underline" href="/campus-living/settings/hostel-years">
+                Settings → Hostel Years
+              </a>{' '}
+              before configuring hostel fees.
             </AlertDescription>
           </Alert>
         ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <IndianRupee className="h-5 w-5" />
-              Fee Structure
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center justify-center py-10 text-muted-foreground">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                Loading fee configurations...
-              </div>
-            ) : isError ? (
-              <Alert variant="destructive">
-                <AlertTitle>Failed to load fee configs</AlertTitle>
-                <AlertDescription>{(error as Error)?.message ?? 'Unknown error'}</AlertDescription>
-              </Alert>
-            ) : rows.length === 0 ? (
-              <div className="text-center py-10 text-muted-foreground">
-                No fee configurations for this academic year yet.
-                {canEdit && effectiveYearId ? ' Click "Add Fee Config" to create the first one.' : ''}
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Room Type</TableHead>
-                    <TableHead>AC</TableHead>
-                    <TableHead>Annual Fee</TableHead>
-                    <TableHead>Semester Fee</TableHead>
-                    <TableHead>Monthly Fee</TableHead>
-                    <TableHead>Deposit</TableHead>
-                    <TableHead>Mess (sem)</TableHead>
-                    <TableHead>Mess (month)</TableHead>
-                    {canEdit ? <TableHead className="text-right">Actions</TableHead> : null}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="font-medium">{roomTypeLabel(row.room_type)}</TableCell>
-                      <TableCell>{acStatusLabel(row.ac_status)}</TableCell>
-                      <TableCell>{formatCurrency(row.annual_fee)}</TableCell>
-                      <TableCell>{formatCurrency(row.semester_fee)}</TableCell>
-                      <TableCell>{formatCurrency(row.monthly_fee)}</TableCell>
-                      <TableCell>{formatCurrency(row.deposit_amount)}</TableCell>
-                      <TableCell>{formatCurrency(row.mess_fee_semester)}</TableCell>
-                      <TableCell>{formatCurrency(row.mess_fee_monthly)}</TableCell>
-                      {canEdit ? (
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => handleEdit(row as FeeConfigRow)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDelete(row.id)}
-                              disabled={deleteMut.isPending}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      ) : null}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Payment Settings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Alert>
-              <Info className="h-4 w-4" />
-              <AlertTitle>Requires schema extension</AlertTitle>
-              <AlertDescription>
-                Late-fee, due-date, and installment settings are not yet persisted — they require
-                additional columns on <code>hostel_fee_config</code> (or a new
-                <code>hostel_payment_settings</code> table). Tracked separately with the migrations
-                team; this section will come online once those columns exist.
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        </Card>
+        {effectiveYearId ? (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
+              <TabsTrigger value="category">Category Fees</TabsTrigger>
+              <TabsTrigger value="upgrade">Upgrade Fees</TabsTrigger>
+              <TabsTrigger value="package">Package Fees</TabsTrigger>
+              <TabsTrigger value="sharing">Room Sharing</TabsTrigger>
+            </TabsList>
+            <TabsContent value="category">
+              <CategoryFeesSection hostelYearId={effectiveYearId} canEdit={canEdit} />
+            </TabsContent>
+            <TabsContent value="upgrade">
+              <UpgradeFeesSection hostelYearId={effectiveYearId} canEdit={canEdit} />
+            </TabsContent>
+            <TabsContent value="package">
+              <PackageFeesSection hostelYearId={effectiveYearId} canEdit={canEdit} />
+            </TabsContent>
+            {/* Deadlines and scope are global, not per hostel year — a settle
+                window is measured in days from a learner's arrival, not against
+                the year the page's selector is showing. */}
+            <TabsContent value="sharing">
+              <RoomSharingSection canEdit={canEdit} />
+            </TabsContent>
+          </Tabs>
+        ) : null}
       </div>
-
-      {institutionId && effectiveYearId ? (
-        <FeeConfigDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          institutionId={institutionId}
-          academicYearId={effectiveYearId}
-          initialValue={editingRow}
-        />
-      ) : null}
     </ContentLayout>
+  );
+}
+
+export default function FeeConfigPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <FeeConfigPageInner />
+    </Suspense>
   );
 }

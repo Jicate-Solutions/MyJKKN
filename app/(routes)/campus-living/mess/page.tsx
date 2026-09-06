@@ -16,16 +16,22 @@ import {
   TrendingUp,
   TrendingDown,
   Loader2,
+  Tags,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCampusLivingOverview } from '@/hooks/campus-living/use-campus-living-dashboard';
 
 export default function MessDashboardPage() {
   const { profile } = useAuth();
+  const { isLoading: permsLoading } = usePermissions();
   const institutionId = profile?.institution_id || '';
   const { isLoading: overviewLoading } = useCampusLivingOverview(institutionId);
 
-  const isLoading = overviewLoading;
+  // permsLoading is part of the gate: the query stays disabled until the viewer's
+  // scope resolves, and a disabled React Query reports isLoading:false, so without
+  // it the page renders its empty state before the first fetch starts (BUG-005831).
+  const isLoading = overviewLoading || permsLoading;
 
   if (isLoading) {
     return (
@@ -212,6 +218,7 @@ export default function MessDashboardPage() {
             { title: 'Waste Tracking', desc: 'Log and monitor food waste', href: '/campus-living/mess/waste', icon: Trash2 },
             { title: 'Menu Planner', desc: 'Plan weekly menus for all meals', href: '/campus-living/mess/menu', icon: CalendarDays },
             { title: 'Feedback', desc: 'View student ratings and complaints', href: '/campus-living/mess/feedback', icon: Star },
+            { title: 'Mess Categories', desc: 'Manage mess categories shared across institutions', href: '/campus-living/mess/categories', icon: Tags },
           ].map((link) => (
             <Link key={link.href} href={link.href}>
               <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">

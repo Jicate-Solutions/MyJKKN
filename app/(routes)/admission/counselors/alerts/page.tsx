@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAlertRules, useAlertHistory, useAlertMutations, useEventTypes } from '@/hooks/admission/use-activity-alerts';
 import {
@@ -33,6 +34,8 @@ const EVENT_ICONS: Record<string, React.ElementType> = {
   score_changed: TrendingUp,
 };
 
+const ALERTS_TABS = ['rules', 'history'] as const;
+
 function AlertsPageContent() {
   const { selectedInstitutionId, institutions, canAccessAllInstitutions } = useUserInstitutionAccess();
   const { canAccess } = usePermissions();
@@ -40,7 +43,7 @@ function AlertsPageContent() {
     || canAccess('admission', 'counselors.edit');
   const canToggleRules = canAccess('admission', 'counselors.edit');
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState('rules');
+  const [activeTab, setActiveTab] = useTabParam('rules', ALERTS_TABS);
 
   // For global users without a default institution, require picking one
   const institutionId = chosenInstitutionId || selectedInstitutionId;
@@ -136,7 +139,7 @@ function AlertsPageContent() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Institution:</span>
               <Select value={chosenInstitutionId || institutionId} onValueChange={setChosenInstitutionId}>
-                <SelectTrigger className="w-[250px] h-8 text-xs">
+                <SelectTrigger className="w-full sm:w-[250px] h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -200,7 +203,7 @@ function AlertsPageContent() {
                               <h3 className="font-medium">{eventType.label}</h3>
                               <p className="text-sm text-muted-foreground">{eventType.description}</p>
                               {rule && (
-                                <div className="flex gap-2 mt-1">
+                                <div className="flex flex-wrap gap-2 mt-1">
                                   {rule.notify_assigned_counselor && (
                                     <Badge variant="outline" className="text-xs">Assigned Counselor</Badge>
                                   )}
@@ -248,7 +251,7 @@ function AlertsPageContent() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium">{entry.message}</p>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <User className="h-3 w-3" />{entry.lead_name}
                               </span>
@@ -273,7 +276,9 @@ function AlertsPageContent() {
 export default function AlertsPage() {
   return (
     <AdmissionErrorBoundary>
-      <AlertsPageContent />
+      <Suspense fallback={null}>
+        <AlertsPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

@@ -2,7 +2,8 @@
 
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useAuth } from '@/hooks/use-auth';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -49,6 +50,7 @@ import { ConsultantAttributionCard } from './_components/consultant-attribution-
 import { ActivityTab } from './_components/tabs/activity-tab';
 import { CallsTab } from './_components/tabs/calls-tab';
 import { CommunicationTab } from './_components/tabs/communication-tab';
+import { AISuggestedResponses } from '@/components/admission/ai-suggested-responses';
 import { DetailsTab } from './_components/tabs/details-tab';
 import { JourneyTab } from './_components/tabs/journey-tab';
 import { LogCallDialog } from '@/components/admission/log-call-dialog';
@@ -110,7 +112,8 @@ import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-servic
 import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FunnelStage } from '@/types/admission';
-import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
+import { LeadStageBadge } from '../_components/columns';
 import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-message-dialog';
 import { LeadInlineConnectionIndicator } from '@/components/whatsapp/lead-inline-connection-indicator';
 import { showSendErrorToast } from '@/lib/whatsapp/show-send-error-toast';
@@ -125,34 +128,6 @@ import { useLeadCascadeHistory } from '@/hooks/admission/use-lead-cascade-histor
 // message, and follow-up dates on the detail page through the helpers.
 import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
 
-const FUNNEL_STAGES = [
-  { value: 'new', label: 'New' },
-  { value: 'contacted', label: 'Contacted' },
-  { value: 'not_reachable', label: 'Not Reachable' },
-  { value: 'interested', label: 'Interested' },
-  { value: 'follow_up_scheduled', label: 'Follow-up Scheduled' },
-  { value: 'engaged', label: 'Engaged' },
-  { value: 'qualified', label: 'Qualified' },
-  { value: 'application_started', label: 'Application Started' },
-  { value: 'application_submitted', label: 'Application Submitted' },
-  { value: 'documents_pending', label: 'Documents Pending' },
-  { value: 'documents_verified', label: 'Documents Verified' },
-  { value: 'interview_scheduled', label: 'Interview Scheduled' },
-  { value: 'interview_completed', label: 'Interview Completed' },
-  { value: 'offer_sent', label: 'Offer Sent' },
-  { value: 'offer_accepted', label: 'Offer Accepted' },
-  { value: 'token_paid', label: 'Token Paid' },
-  { value: 'applied', label: 'Applied' },
-  { value: 'offered', label: 'Offered' },
-  { value: 'enrolled', label: 'Enrolled' },
-  { value: 'confirmed', label: 'Confirmed' },
-  { value: 'declined', label: 'Declined' },
-  { value: 'withdrew', label: 'Withdrew' },
-  { value: 'expired', label: 'Expired' },
-  { value: 'lost', label: 'Lost' },
-  { value: 'dormant', label: 'Dormant' },
-];
-
 // Source options now come from useActiveLeadSources() — admin-curated rows
 // in admission_lead_sources_master replace this once-static list.
 
@@ -161,37 +136,6 @@ const GENDERS = [
   { value: 'female', label: 'Female' },
   { value: 'other', label: 'Other' }
 ];
-
-function getStageColor(stage: string | null): string {
-  const colors: Record<string, string> = {
-    new: 'bg-blue-100 text-blue-800 border-blue-200',
-    contacted: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-    not_reachable: 'bg-red-100 text-red-800 border-red-200',
-    interested: 'bg-sky-100 text-sky-800 border-sky-200',
-    follow_up_scheduled: 'bg-violet-100 text-violet-800 border-violet-200',
-    engaged: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200',
-    qualified: 'bg-purple-100 text-purple-800 border-purple-200',
-    application_started: 'bg-pink-100 text-pink-800 border-pink-200',
-    application_submitted: 'bg-rose-100 text-rose-800 border-rose-200',
-    documents_pending: 'bg-orange-100 text-orange-800 border-orange-200',
-    documents_verified: 'bg-amber-100 text-amber-800 border-amber-200',
-    interview_scheduled: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    interview_completed: 'bg-lime-100 text-lime-800 border-lime-200',
-    offer_sent: 'bg-green-100 text-green-800 border-green-200',
-    offer_accepted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    token_paid: 'bg-teal-100 text-teal-800 border-teal-200',
-    applied: 'bg-pink-100 text-pink-800 border-pink-200',
-    offered: 'bg-green-100 text-green-800 border-green-200',
-    enrolled: 'bg-cyan-100 text-cyan-800 border-cyan-200',
-    confirmed: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    declined: 'bg-red-100 text-red-800 border-red-200',
-    withdrew: 'bg-slate-100 text-slate-800 border-slate-200',
-    expired: 'bg-neutral-100 text-neutral-800 border-neutral-200',
-    lost: 'bg-gray-100 text-gray-800 border-gray-200',
-    dormant: 'bg-stone-100 text-stone-800 border-stone-200',
-  };
-  return colors[stage || 'new'] || 'bg-gray-100 text-gray-800 border-gray-200';
-}
 
 function LeadDetailSkeleton() {
   return (
@@ -225,11 +169,26 @@ function LeadDetailSkeleton() {
   );
 }
 
+const LEAD_DETAIL_TABS = ['activity', 'calls', 'communication', 'details', 'journey'] as const;
+
 function LeadDetailPageContent() {
   const { options: leadSources } = useActiveLeadSources();
+  // Dynamic stage list from admission_statuses — used for the stage selector
+  // dropdown and current-stage badge. Sorted by sort_order for consistent ordering.
+  const { data: leadStatuses = [] } = useAdmissionStatuses('lead', { activeOnly: true });
+  const sortedStages = [...leadStatuses].sort((a, b) => a.sort_order - b.sort_order);
   const params = useParams();
   const router = useRouter();
   const leadId = params.id as string;
+
+  // Active detail tab — URL-synced via ?tab= through the shared useTabParam hook
+  // so (a) inactive tabs are NOT mounted: Radix mounts every TabsContent's
+  // children eagerly, firing each tab's data hooks on load (Calls + Journey both
+  // call useLeadCallLogs, plus the heavy VoiceMemoPanel / journey aggregation),
+  // (b) the chosen tab survives a tab-refocus / back-navigation instead of
+  // snapping back to Activity, and (c) each tab is deep-linkable and favoritable
+  // (the global navbar star reads ?tab=).
+  const [activeTab, handleTabChange] = useTabParam('activity', LEAD_DETAIL_TABS);
 
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
@@ -387,9 +346,25 @@ function LeadDetailPageContent() {
     };
   }, [lead, timeline, communicationHistory]);
 
-  // Write computed scores back to DB for list page display
+  // Write computed scores back to DB for the list / work-kanban / AI score badges
+  // — but ONLY when a value actually changed (dirty-check). Previously this fired
+  // an admission_leads UPDATE through the heavy adm_leads_update RLS on EVERY
+  // detail view, and again after every comment/activity add (a new timeline entry
+  // recomputes the score), even when nothing changed. The dirty-check skips the
+  // redundant write, removing a per-view / per-comment RLS round-trip (Bugs 2/3).
   useEffect(() => {
-    if (!lead?.id || computedScores.score === 0 && computedScores.engagement === 0 && computedScores.quality === 0) return;
+    if (!lead?.id || (computedScores.score === 0 && computedScores.engagement === 0 && computedScores.quality === 0)) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const l = lead as any;
+    if (
+      l.score === computedScores.score &&
+      l.engagement_score === computedScores.engagement &&
+      l.quality_score === computedScores.quality &&
+      l.score_category === computedScores.category
+    ) {
+      return; // already current — no write needed
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase: any = createClientSupabaseClient();
@@ -697,7 +672,44 @@ function LeadDetailPageContent() {
         }
         throw new Error(json.error || 'Conversion failed');
       }
-      toast.success('Admitted created — redirecting...');
+
+      // Audit log — record WHO moved this lead. created_by + lead_id +
+      // learner_profile_id are all already captured at the column / FK level
+      // (ActivityService auto-sets created_by from auth.getUser(), the FK on
+      // the lead row points at the new learner profile). The description
+      // text is for HUMAN readers on the timeline, so we keep only the parts
+      // that read naturally — name, email, role, timestamp — and omit UUIDs
+      // that clutter the card without adding value. Fire-and-forget: if the
+      // audit insert fails, the primary action (conversion + redirect) must
+      // NOT be blocked, so we wrap in try/catch and only console.warn on
+      // failure.
+      try {
+        const performerName =
+          (profile as { full_name?: string } | null | undefined)?.full_name ??
+          profile?.email ??
+          'Unknown user';
+        const performerEmail = profile?.email ?? 'no email on file';
+        const performerRole =
+          (profile as { role?: string } | null | undefined)?.role ?? 'unknown role';
+        await createActivity.mutateAsync({
+          lead_id: lead.id,
+          activity_type: 'moved_to_counselor',
+          title: 'Moved to Counselor',
+          description: [
+            `Moved by: ${performerName}`,
+            `Email: ${performerEmail}`,
+            `Role: ${performerRole}`,
+          ].join(' · '),
+        });
+      } catch (logErr) {
+        // Audit-only failure — conversion already succeeded, so we continue.
+        console.warn(
+          '[admission/leads] Failed to log Move-to-Counselor activity:',
+          logErr,
+        );
+      }
+
+      toast.success('Moved to counselor — redirecting…');
       router.push(`/learners/enquiries/${json.profileId}/edit`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Conversion failed');
@@ -822,10 +834,20 @@ function LeadDetailPageContent() {
     institutionId: lead?.institution_id ?? null,
   });
 
-  // Consultants for dropdown (referral leads) — global across all institutions
-  const { data: consultantsDropdown = [] } = useConsultantsForDropdown();
-  const { data: studentsDropdown = [] } = useStudentsForDropdown(lead?.institution_id || undefined);
-  const { data: facultyDropdown = [] } = useFacultyForDropdown(lead?.institution_id || undefined);
+  // Consultants / students / faculty for the referral dropdowns — only needed
+  // inside the Edit dialog. Gated on showEditDialog by passing '' when closed,
+  // which trips each hook's `enabled: institutionId !== ''` guard, so the two
+  // 1000-row student/faculty fetches (and the consultants fetch) no longer fire
+  // on every detail-page load (Bug 4 mount storm). They load when the dialog opens.
+  const { data: consultantsDropdown = [] } = useConsultantsForDropdown(
+    showEditDialog ? undefined : ''
+  );
+  const { data: studentsDropdown = [] } = useStudentsForDropdown(
+    showEditDialog ? (lead?.institution_id || undefined) : ''
+  );
+  const { data: facultyDropdown = [] } = useFacultyForDropdown(
+    showEditDialog ? (lead?.institution_id || undefined) : ''
+  );
 
   // Consultant attributions for this lead (used in Details tab assignment section)
   const { attributions: leadAttributions } = useLeadAttributions(leadId);
@@ -835,6 +857,11 @@ function LeadDetailPageContent() {
   const [editConsultantId, setEditConsultantId] = useState('');
   const [editReferralType, setEditReferralType] = useState<ReferralType | ''>('');
   const [editReferrerId, setEditReferrerId] = useState('');
+  // A referrer with no record is stored as a name with a NULL referred_by_id.
+  // Without this the dropdown lookup below returns undefined on save and the
+  // name is silently erased — the edit form would quietly destroy the very
+  // thing the create form was just taught to record.
+  const [editManualReferrerName, setEditManualReferrerName] = useState('');
 
   // Primary program display name (from lead.program_id, with join fallback)
   const primaryProgramName = useMemo(() => {
@@ -870,14 +897,14 @@ function LeadDetailPageContent() {
 
   // (Edit-form admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
 
-  // Clear admission_year_id when primary program changes (old value stale)
-  useEffect(() => {
-    setEditForm((prev) =>
-      prev.admission_year_id
-        ? { ...prev, admission_year_id: '' }
-        : prev
-    );
-  }, [editPrimaryProgramId]);
+  // NOTE (2026-07-25): the effect that cleared admission_year_id whenever the
+  // primary program changed is gone. It dated from when admission_years carried
+  // a per-program dimension; that was dropped 2026-06-05 (admission years are
+  // institution-wide now), so program had stopped invalidating the cohort.
+  // Worse, openEditDialog() sets editForm.admission_year_id and
+  // editPrimaryProgramId in the same batch — so the effect fired on every dialog
+  // open and blanked the cohort it had just loaded, writing NULL back on save.
+  // Institution changes still clear it, in handleEditChange below.
 
   // Toggle for alternative programs — excludes the chosen primary.
   const toggleEditAlternativeProgram = (programId: string) => {
@@ -932,6 +959,7 @@ function LeadDetailPageContent() {
     // Pre-populate referral type and referrer
     setEditReferralType((l.referral_type as ReferralType) || '');
     setEditReferrerId(l.referred_by_id || '');
+    setEditManualReferrerName(l.referred_by_id ? '' : l.referred_by_name || '');
     // Pre-populate consultant from primary lead attribution (stored in consultant_lead_attributions, not on the lead row)
     const primaryAttribution = leadAttributions.find((a) => a.attribution_type === 'primary');
     setEditConsultantId(primaryAttribution?.consultant_id || l.referred_by_id || '');
@@ -968,8 +996,31 @@ function LeadDetailPageContent() {
       toast.error('First name and phone are required');
       return;
     }
+    // Required since 2026-07-25 — mirrors the create form. The picker pre-fills
+    // the institution's current cohort, so this only fires when the institution
+    // has no admission years configured or the user cleared it.
+    if (!editForm.admission_year_id) {
+      toast.error('Admission year is required');
+      return;
+    }
     const selectedState = indianStates.find((s) => s.id === editForm.state);
     const selectedDistrict = editDistricts.find((d) => d.id === editForm.district);
+    // The counselor dropdown is pre-seeded from assigned_counselor_id when the
+    // dialog opens, so "has a value" does NOT mean "the admin changed it".
+    // Compare against the seed to distinguish an intentional (re)assignment
+    // from an untouched field — otherwise every unrelated edit (e.g. course
+    // name) re-ran assignCounselor: overwrote assigned_at, inserted a
+    // duplicate "Counselor Assigned" timeline activity, and could re-notify
+    // the counselor.
+    const counselorChanged =
+      editCounselorProfileId !== (lead.assigned_counselor_id || '');
+    // Explicit unassign: admin picked "No counselor" while one was assigned.
+    // updateLead auto-clears assigned_counselor_id when counselor_id is sent
+    // without it (see LeadService.updateLead), so counselor_id: null suffices.
+    const shouldUnassignCounselor =
+      editForm.source !== 'referral' &&
+      editCounselorProfileId === '_none' &&
+      Boolean(lead.assigned_counselor_id || lead.counselor_id);
     updateLead.mutate(
       {
         id: lead.id,
@@ -1011,20 +1062,32 @@ function LeadDetailPageContent() {
             if (editReferralType === 'consultant') {
               return consultantsDropdown.find((c) => c.id === editConsultantId)?.name || null;
             }
+            // Fall back to the typed name so a name-only referral survives a
+            // save, and so an id the (active-only, capped) dropdown no longer
+            // returns does not blank an otherwise-good name.
+            const manual = editManualReferrerName.trim() || lead?.referred_by_name || null;
             if (editReferralType === 'student') {
-              return studentsDropdown.find((s) => s.id === editReferrerId)?.name || null;
+              return studentsDropdown.find((s) => s.id === editReferrerId)?.name || manual;
             }
             if (editReferralType === 'faculty') {
-              return facultyDropdown.find((f) => f.id === editReferrerId)?.name || null;
+              return facultyDropdown.find((f) => f.id === editReferrerId)?.name || manual;
             }
             return null;
           })(),
+          ...(shouldUnassignCounselor ? { counselor_id: null } : {}),
         },
       },
       {
         onSuccess: async () => {
-          // Best-effort: assign counselor or consultant based on source
-          if (editForm.source !== 'referral' && editCounselorProfileId && editCounselorProfileId !== '_none') {
+          // Best-effort: assign counselor or consultant based on source —
+          // only when the admin actually changed the selection (see
+          // counselorChanged above).
+          if (
+            editForm.source !== 'referral' &&
+            counselorChanged &&
+            editCounselorProfileId &&
+            editCounselorProfileId !== '_none'
+          ) {
             try {
               // Resolve profile → admission_counselors row (creates if missing)
               const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
@@ -1038,6 +1101,23 @@ function LeadDetailPageContent() {
               });
             } catch (e) {
               console.warn('[admission/leads] Could not assign counselor during edit:', e);
+            }
+          }
+          // Mirror assignCounselor's timeline logging for the unassign path so
+          // the audit trail shows who removed the counselor and when.
+          if (shouldUnassignCounselor) {
+            try {
+              const supabase = createClientSupabaseClient();
+              const { data: { user } } = await supabase.auth.getUser();
+              await (supabase as any).from('admission_lead_activities').insert({
+                lead_id: lead.id,
+                activity_type: 'note',
+                subject: 'Counselor Unassigned',
+                description: 'Counselor removed from this lead via lead edit',
+                created_by: user?.id || null,
+              });
+            } catch (e) {
+              console.warn('[admission/leads] Could not log counselor unassignment:', e);
             }
           }
           if (editForm.source === 'referral' && editReferralType === 'consultant' && editConsultantId && editConsultantId !== '_none' && lead.institution_id) {
@@ -1242,15 +1322,17 @@ function LeadDetailPageContent() {
           {/* Phase 6: Handover history banner (spec #13, #14) — renders only when history exists */}
           <HandoverBanner leadId={leadId} />
 
-          {/* Header — secondary action row (Convert to Admitted, More dropdown).
-              PR-B owns the action-hierarchy redesign of this region. */}
-          <div className="flex items-start justify-between">
-            <div />
-            {/* Phase 6 spec #14: disable all write-actions for the cascaded-away FROM-counselor.
-                pointer-events-none + opacity-50 communicate read-only visually.
-                No data-level enforcement here — that lives in RLS. */}
-            <div className={`flex items-center gap-2 ${isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}`}>
-              {/* Convert to Admitted — shows "View Learner Profile" once converted */}
+          {/* Header — secondary action row (Move to Counselor, More dropdown).
+              PR-B owns the action-hierarchy redesign of this region.
+              Button label changed 2026-05-19 from 'Convert to Admitted' →
+              'Move to Counselor' per product call. Underlying handler still
+              creates the learner_profiles row (handleConvertToLearner) — only
+              the user-facing copy changed. */}
+          {/* Phase 6 spec #14: disable all write-actions for the cascaded-away FROM-counselor.
+              pointer-events-none + opacity-50 communicate read-only visually.
+              No data-level enforcement here — that lives in RLS. */}
+          <div className={`flex flex-wrap items-center justify-end gap-2 ${isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}`}>
+              {/* Move to Counselor — shows "View Learner Profile" once moved */}
               {lead.learner_profile_id ? (
                 <>
                   <Button variant="outline" size="sm" asChild>
@@ -1266,16 +1348,18 @@ function LeadDetailPageContent() {
                   />
                 </>
               ) : (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleConvertToLearner}
-                  disabled={isConverting}
-                  className="bg-purple-600 hover:bg-purple-700"
-                >
-                  <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
-                  {isConverting ? 'Converting...' : 'Convert to Admitted'}
-                </Button>
+                <PermissionGuard module="admission" action="leads.convert_to_admitted" fallback={null}>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleConvertToLearner}
+                    disabled={isConverting}
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
+                    {isConverting ? 'Moving...' : 'Move to Counselor'}
+                  </Button>
+                </PermissionGuard>
               )}
 
               <DropdownMenu>
@@ -1309,7 +1393,6 @@ function LeadDetailPageContent() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
           </div>
 
           {/* Quick Actions Bar — Call, Log Call, WhatsApp, SMS, Note, Follow-up.
@@ -1334,35 +1417,39 @@ function LeadDetailPageContent() {
           {/* Stage Selector — disabled for cascaded-away FROM-counselor */}
           <Card className={isReadonlyCascadedView ? 'pointer-events-none opacity-60' : ''}>
             <CardContent className="py-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-medium">Current Stage:</span>
-                  <Badge className={`${getStageColor(lead.funnel_stage)} border`} variant="outline">
-                    {lead.funnel_stage?.replace(/_/g, ' ') || 'New'}
-                  </Badge>
+                  <LeadStageBadge stage={lead.funnel_stage} />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Move to:</span>
+                  <span className="text-sm text-muted-foreground shrink-0">Move to:</span>
                   <Select
                     value={lead.funnel_stage || 'new'}
                     onValueChange={handleStageChange}
                   >
-                    <SelectTrigger className="w-[200px]">
+                    <SelectTrigger className="w-full sm:w-[200px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(() => {
-                        const allowedNextStages = lead?.funnel_stage
-                          ? ALLOWED_STAGE_TRANSITIONS[lead.funnel_stage as FunnelStage] ?? []
-                          : FUNNEL_STAGES.map(s => s.value);
-                        return FUNNEL_STAGES.filter(
-                          s => allowedNextStages.includes(s.value as FunnelStage) || s.value === lead?.funnel_stage
-                        ).map((stage) => (
-                          <SelectItem key={stage.value} value={stage.value}>
+                      {sortedStages.map((stage) => (
+                        <SelectItem
+                          key={stage.code}
+                          value={stage.code}
+                          disabled={stage.code === lead?.funnel_stage}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="h-2 w-2 rounded-full shrink-0"
+                              style={{ backgroundColor: stage.color }}
+                            />
                             {stage.label}
-                          </SelectItem>
-                        ));
-                      })()}
+                            {stage.is_terminal && (
+                              <span className="text-xs text-muted-foreground">(Terminal)</span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1382,70 +1469,104 @@ function LeadDetailPageContent() {
               />
 
               {/* Tabs */}
-              <Tabs defaultValue="activity" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="activity">Activity</TabsTrigger>
-                  <TabsTrigger value="calls">Calls</TabsTrigger>
-                  <TabsTrigger value="communication">Communication</TabsTrigger>
-                  <TabsTrigger value="details">Details</TabsTrigger>
-                  <TabsTrigger value="journey">Journey</TabsTrigger>
-                </TabsList>
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+                <div className="overflow-x-auto">
+                  <TabsList className="w-max min-w-full">
+                    <TabsTrigger value="activity">Activity</TabsTrigger>
+                    <TabsTrigger value="calls">Calls</TabsTrigger>
+                    <TabsTrigger value="communication">Messages</TabsTrigger>
+                    <TabsTrigger value="details">Details</TabsTrigger>
+                    <TabsTrigger value="journey">Journey</TabsTrigger>
+                  </TabsList>
+                </div>
 
+                {/* Render ONLY the active tab's children. Radix mounts every
+                    TabsContent's children eagerly otherwise, so Calls + Journey
+                    would each fire useLeadCallLogs and render VoiceMemoPanel /
+                    the journey aggregation on first paint for tabs the user
+                    never opened. The TabsContent wrappers stay mounted (Radix
+                    handles visibility); only their data-bearing children are
+                    deferred until the tab is active. */}
                 <TabsContent value="activity" className="mt-4">
-                  <ActivityTab timeline={timeline} timelineLoading={timelineLoading} />
+                  {activeTab === 'activity' && (
+                    <ActivityTab timeline={timeline} timelineLoading={timelineLoading} />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="calls" className="mt-4">
-                  <CallsTab
-                    leadId={lead.id}
-                    institutionId={lead.institution_id || userInstitutionId || ''}
-                  />
+                  {activeTab === 'calls' && (
+                    <CallsTab
+                      leadId={lead.id}
+                      institutionId={lead.institution_id || userInstitutionId || ''}
+                    />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="communication" className="mt-4">
-                  <CommunicationTab
-                    leadFullName={lead?.full_name}
-                    leadPhone={lead?.phone}
-                    leadEmail={lead?.email}
-                    leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
-                    leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
-                    leadProgramName={lead?.program?.program_name || ''}
-                    waConnected={!!waStatus?.connected}
-                    commLoading={commLoading}
-                    communicationHistory={communicationHistory}
-                    templateAttachment={templateAttachment}
-                    setTemplateAttachment={setTemplateAttachment}
-                    channelTemplates={channelTemplates}
-                    selectedTemplateId={selectedTemplateId}
-                    setSelectedTemplateId={setSelectedTemplateId}
-                    setSendChannel={setSendChannel}
-                    setSendMessage={setSendMessage}
-                    sendMessage={sendMessage}
-                    isSending={isSending}
-                    handleSendPersonalWA={handleSendPersonalWA}
-                    replaceVariables={replaceVariables}
-                  />
+                  {activeTab === 'communication' && (
+                    <div className="space-y-4">
+                      <CommunicationTab
+                        leadFullName={lead?.full_name}
+                        leadPhone={lead?.phone}
+                        leadEmail={lead?.email}
+                        leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
+                        leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
+                        leadProgramName={lead?.program?.program_name || ''}
+                        waConnected={!!waStatus?.connected}
+                        commLoading={commLoading}
+                        communicationHistory={communicationHistory}
+                        templateAttachment={templateAttachment}
+                        setTemplateAttachment={setTemplateAttachment}
+                        channelTemplates={channelTemplates}
+                        selectedTemplateId={selectedTemplateId}
+                        setSelectedTemplateId={setSelectedTemplateId}
+                        setSendChannel={setSendChannel}
+                        setSendMessage={setSendMessage}
+                        sendMessage={sendMessage}
+                        isSending={isSending}
+                        handleSendPersonalWA={handleSendPersonalWA}
+                        replaceVariables={replaceVariables}
+                      />
+                      {/* AI reply drafts (Max lane). "Use This" only fills the
+                          compose box above — it never sends. */}
+                      {lead && (
+                        <AISuggestedResponses
+                          lead={lead}
+                          counselorName={lead.counselor?.name}
+                          institutionName={institutionName}
+                          defaultChannel="whatsapp"
+                          onSelectResponse={(response) => {
+                            setSendMessage(response.content);
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="details" className="mt-4 space-y-4">
-                  <DetailsTab
-                    lead={lead}
-                    institutionName={institutionName}
-                    primaryProgramName={primaryProgramName}
-                    alternativeProgramNames={alternativeProgramNames}
-                    programsLoading={programsLoading}
-                    gateEntryByName={gateEntryByName}
-                    leadAttributions={leadAttributions}
-                    openEditDialog={openEditDialog}
-                    setShowAssignCounselorDialog={setShowAssignCounselorDialog}
-                  />
+                  {activeTab === 'details' && (
+                    <DetailsTab
+                      lead={lead}
+                      institutionName={institutionName}
+                      primaryProgramName={primaryProgramName}
+                      alternativeProgramNames={alternativeProgramNames}
+                      programsLoading={programsLoading}
+                      gateEntryByName={gateEntryByName}
+                      leadAttributions={leadAttributions}
+                      openEditDialog={openEditDialog}
+                      setShowAssignCounselorDialog={setShowAssignCounselorDialog}
+                    />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="journey" className="mt-4">
-                  <JourneyTab
-                    leadId={lead.id}
-                    institutionId={lead.institution_id || userInstitutionId || ''}
-                  />
+                  {activeTab === 'journey' && (
+                    <JourneyTab
+                      leadId={lead.id}
+                      institutionId={lead.institution_id || userInstitutionId || ''}
+                    />
+                  )}
                 </TabsContent>
               </Tabs>
             </div>
@@ -2106,7 +2227,7 @@ function LeadDetailPageContent() {
                 {/* Personal Info */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Personal Information</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="edit-first_name">First Name *</Label>
                       <Input
@@ -2192,7 +2313,7 @@ function LeadDetailPageContent() {
                       className="mt-1"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label>State</Label>
                       <Select value={editForm.state} onValueChange={(v) => handleEditChange('state', v)}>
@@ -2247,7 +2368,7 @@ function LeadDetailPageContent() {
                 {/* Parent / Guardian */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Parent / Guardian</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="edit-parent_name">Parent Name</Label>
                       <Input
@@ -2282,15 +2403,15 @@ function LeadDetailPageContent() {
                 {/* Academic & Interest */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Academic & Interest</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <AdmissionYearSelect
                         institutionId={editProgramsInstitutionId}
-                        programId={editPrimaryProgramId}
                         value={editForm.admission_year_id}
                         onChange={(v) => handleEditChange('admission_year_id', v)}
                         id="edit-admission_year"
-                        placeholderNoProgram="Select the Interested Program first"
+                        autoSelectCurrent
+                        required
                       />
                     </div>
                     <div>
@@ -2455,6 +2576,7 @@ function LeadDetailPageContent() {
                             setEditReferralType(value as ReferralType);
                             setEditConsultantId('');
                             setEditReferrerId('');
+                            setEditManualReferrerName('');
                           }}
                         >
                           <SelectTrigger>
@@ -2507,6 +2629,34 @@ function LeadDetailPageContent() {
                               ))}
                             </SelectContent>
                           </Select>
+                        )}
+
+                        {/* Staff and learners are owned by HR / Admissions, so a
+                          * referrer with no record is kept as a name with a NULL
+                          * referred_by_id. Consultants are excluded: they are
+                          * created in the Consultants module and always linked. */}
+                        {(editReferralType === 'student' || editReferralType === 'faculty') && (
+                          <div className="space-y-1.5 rounded-md border border-dashed p-3">
+                            <Label htmlFor="edit-manual-referrer" className="text-xs">
+                              Not in the list?{' '}
+                              <span className="font-normal text-muted-foreground">
+                                Type the name
+                              </span>
+                            </Label>
+                            <Input
+                              id="edit-manual-referrer"
+                              placeholder="e.g. M.KRISHNAVENI / AP / Nursing"
+                              value={editManualReferrerName}
+                              onChange={(e) => {
+                                setEditManualReferrerName(e.target.value);
+                                if (e.target.value.trim()) setEditReferrerId('');
+                              }}
+                              disabled={!!editReferrerId && editReferrerId !== '_none'}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Saved as a name only — no linked record.
+                            </p>
+                          </div>
                         )}
                       </>
                     ) : (
@@ -2564,9 +2714,12 @@ function LeadDetailPageContent() {
 }
 
 export default function LeadDetailPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <AdmissionErrorBoundary>
-      <LeadDetailPageContent />
+      <Suspense fallback={null}>
+        <LeadDetailPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

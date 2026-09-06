@@ -1,16 +1,19 @@
+// @vitest-environment jsdom
+
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useBosPermissions, useHasBosPermission } from '@/hooks/bos/use-bos-permissions';
 import { useAuth } from '@/hooks/use-auth-provider';
 import { SYSTEM_ROLES } from '@/types/auth';
 
 // Mock the auth hook
-jest.mock('@/hooks/use-auth-provider');
+vi.mock('@/hooks/use-auth-provider');
 
-const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
+const mockUseAuth = vi.mocked(useAuth);
 
 describe('useBosPermissions', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('when user is not authenticated', () => {
@@ -54,6 +57,11 @@ describe('useBosPermissions', () => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           last_login: null,
+          phone_number: null,
+          bio: null,
+          gender: null,
+          designation: null,
+          avatar_url: null,
         },
         isLoading: false,
         error: null,
@@ -91,15 +99,20 @@ describe('useBosPermissions', () => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           last_login: null,
+          phone_number: null,
+          bio: null,
+          gender: null,
+          designation: null,
+          avatar_url: null,
           merged_permissions: {
-            'bos.syllabi.view': true,
-            'bos.syllabi.create': true,
-            'bos.syllabi.edit': true,
-            'bos.syllabi.delete': false,
-            'bos.syllabi.revise': true,
-            'bos.syllabi.duplicate': true,
-            'bos.syllabi.export': true,
-            'bos.syllabi.manage_taxonomy': false,
+            'academic.bos-syllabus.view': true,
+            'academic.bos-syllabus.create': true,
+            'academic.bos-syllabus.edit': true,
+            'academic.bos-syllabus.delete': false,
+            'academic.bos-syllabus.revise': true,
+            'academic.bos-syllabus.duplicate': true,
+            'academic.bos-syllabus.export': true,
+            'academic.bos-syllabus.manage_taxonomy': false,
           },
         },
         isLoading: false,
@@ -138,6 +151,11 @@ describe('useBosPermissions', () => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           last_login: null,
+          phone_number: null,
+          bio: null,
+          gender: null,
+          designation: null,
+          avatar_url: null,
         },
         isLoading: false,
         error: null,
@@ -175,6 +193,11 @@ describe('useBosPermissions', () => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           last_login: null,
+          phone_number: null,
+          bio: null,
+          gender: null,
+          designation: null,
+          avatar_url: null,
         },
         isLoading: false,
         error: null,
@@ -213,6 +236,11 @@ describe('useHasBosPermission', () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         last_login: null,
+        phone_number: null,
+        bio: null,
+        gender: null,
+        designation: null,
+        avatar_url: null,
       },
       isLoading: false,
       error: null,

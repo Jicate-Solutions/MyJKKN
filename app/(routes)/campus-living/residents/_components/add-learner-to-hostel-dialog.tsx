@@ -16,15 +16,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Loader2, Search, UserPlus } from 'lucide-react';
-import type { LearnerHostelite, LearnerHostelType } from '@/types/campus-living';
+import type { LearnerHostelite } from '@/types/campus-living';
 
 interface Props {
   open: boolean;
@@ -32,12 +25,9 @@ interface Props {
   institutionId: string | undefined;
 }
 
-type HostelTypeSelection = 'AC HOSTEL' | 'NON-AC HOSTEL' | 'unset';
-
 export function AddLearnerToHostelDialog({ open, onOpenChange, institutionId }: Props) {
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState<LearnerHostelite | null>(null);
-  const [hostelType, setHostelType] = useState<HostelTypeSelection>('unset');
 
   const { data: candidates = [], isLoading } = useSearchHosteliteCandidates(institutionId, search);
   const addMut = useAddLearnerToHostel();
@@ -45,7 +35,6 @@ export function AddLearnerToHostelDialog({ open, onOpenChange, institutionId }: 
   function reset() {
     setSearch('');
     setPicked(null);
-    setHostelType('unset');
   }
 
   function close() {
@@ -56,10 +45,8 @@ export function AddLearnerToHostelDialog({ open, onOpenChange, institutionId }: 
 
   async function handleConfirm() {
     if (!picked) return;
-    const ht: LearnerHostelType | undefined =
-      hostelType === 'unset' ? undefined : hostelType;
     try {
-      await addMut.mutateAsync({ learnerId: picked.id, hostelType: ht });
+      await addMut.mutateAsync({ learnerId: picked.id });
       reset();
       onOpenChange(false);
     } catch {
@@ -145,26 +132,6 @@ export function AddLearnerToHostelDialog({ open, onOpenChange, institutionId }: 
                   })}
                 </ul>
               )}
-            </div>
-          )}
-
-          {/* Hostel type */}
-          {picked && (
-            <div className='space-y-1'>
-              <Label htmlFor='add-hostel-type'>Hostel type (optional)</Label>
-              <Select
-                value={hostelType}
-                onValueChange={(v) => setHostelType(v as HostelTypeSelection)}
-              >
-                <SelectTrigger id='add-hostel-type'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='unset'>Not set yet</SelectItem>
-                  <SelectItem value='AC HOSTEL'>AC Hostel</SelectItem>
-                  <SelectItem value='NON-AC HOSTEL'>Non-AC Hostel</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           )}
         </div>

@@ -12,8 +12,9 @@ import { DataTable } from '@/components/data-table/data-table';
 import { profileColumns } from './columns';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { Button } from '@/components/ui/button';
-import { TrashIcon, ArrowRight, ArrowUpDown } from 'lucide-react';
+import { TrashIcon, ArrowRight, ArrowUpDown, DownloadIcon, Printer } from 'lucide-react';
 import Link from 'next/link';
+import { BulkPrintDialog, type BulkPrintLearner } from '@/components/id-cards/bulk-print-dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,6 +37,9 @@ import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { LearnerExportDialog } from './learner-export-dialog';
+import type { ProfilesSearchParams } from './data-table-schema';
+import { lifecycleFilterForTab, type LifecycleTabValue } from './lifecycle-status';
 
 const SORT_OPTIONS = [
   { value: 'first_name_asc',   label: 'Name (A → Z)',        sortBy: 'first_name',  sortOrder: 'asc'  },
@@ -52,7 +56,9 @@ interface ProfilesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'active' | 'inactive' | 'exited';
+  // Derived from LIFECYCLE_TABS rather than re-listed: this union was a
+  // hand-maintained copy that silently went stale the moment a tab was added.
+  statusFilter?: LifecycleTabValue;
 }
 
 /**
@@ -80,11 +86,57 @@ export function ProfilesTableServer({
   const [localData, setLocalData] = useState<LearnerProfile[]>(initialData);
   const [localMetadata, setLocalMetadata] = useState(metadata);
 
+  const [showExportDialog, setShowExportDialog] = useState(false);
+
+  // Phase 2 — bulk ID-card printing for selected learners
+  const [showBulkPrintDialog, setShowBulkPrintDialog] = useState(false);
+  const [learnersToPrint, setLearnersToPrint] = useState<BulkPrintLearner[]>([]);
+
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // 'all' is a TAB value, not a lifecycle_status enum label — fed straight into
+  // `.eq('lifecycle_status', …)` it would raise 22P02 and export nothing.
+  //
+  // It maps to the five statuses the page lists, NOT to "no status filter":
+  // exporting from "All Statuses" used to pull graduated / enquiry / rejected
+  // learners that the table on screen had never shown.
+  const exportStatusFilter = lifecycleFilterForTab(statusFilter ?? 'all');
+
+  const currentFilters: ProfilesSearchParams = {
+    page: Number(searchParams.get('page')) || 1,
+    pageSize: Number(searchParams.get('pageSize')) || 50,
+    institution_id: searchParams.get('institution_id') || undefined,
+    degree_id: searchParams.get('degree_id') || undefined,
+    department_id: searchParams.get('department_id') || undefined,
+    program_id: searchParams.get('program_id') || undefined,
+    semester_id: searchParams.get('semester_id') || undefined,
+    section_id: searchParams.get('section_id') || undefined,
+    academic_year_id: searchParams.get('academic_year_id') || undefined,
+    admission_year: Number(searchParams.get('admission_year')) || undefined,
+    gender: searchParams.get('gender') || undefined,
+    lifecycle_status: searchParams.get('lifecycle_status') || undefined,
+    is_profile_complete: searchParams.get('is_profile_complete') || undefined,
+    search: searchParams.get('search') || undefined,
+    // Carried alongside `search` so the export can reproduce the exact query
+    // the table ran, not just the same search term.
+    search_case_sensitive: searchParams.get('search_case_sensitive') || undefined,
+    search_exact_match: searchParams.get('search_exact_match') || undefined,
+    search_fields: searchParams.get('search_fields') || undefined,
+  };
+
   // Permission check - Super admin has full access, others need 'learners.delete' permission
-  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
+  const {
+    isSuperAdmin,
+    isAdmissionGlobalUser,
+    canAccess,
+    isLoading: permissionsLoading
+  } = usePermissions();
+
+  // Phase 2 — bulk ID-card printing. Branch on the loading state FIRST so an
+  // unknown permission never flash-denies or flash-allows the button.
+  const canPrintIdCards =
+    !permissionsLoading && (isSuperAdmin || canAccess('id_cards.jobs', 'manage'));
 
   // Derive current sort selection from URL params (server-side sort keys)
   const currentSortBy = searchParams.get('sort_by') || 'first_name';
@@ -230,6 +282,17 @@ export function ProfilesTableServer({
 
     return (
       <div className="flex items-center gap-2">
+        {/* Export button — always visible */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => setShowExportDialog(true)}
+        >
+          <DownloadIcon className="mr-2 h-4 w-4" />
+          Export
+        </Button>
+
         {/* Sort selector — always visible in the toolbar */}
         <Select value={currentSort} onValueChange={handleSortChange}>
           <SelectTrigger className="h-8 w-[165px] text-xs">
@@ -262,6 +325,27 @@ export function ProfilesTableServer({
                 Promote Selected ({props.selectedRows.length})
               </Link>
             </Button>
+            {canPrintIdCards && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  const rows = props.selectedRows as LearnerProfile[];
+                  setLearnersToPrint(
+                    rows.map((row) => ({
+                      learnerId: row.id,
+                      name: `${row.first_name} ${row.last_name ?? ''}`.trim(),
+                      rollNumber: row.roll_number ?? null
+                    }))
+                  );
+                  setShowBulkPrintDialog(true);
+                }}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Print ID Cards ({props.selectedRows.length})
+              </Button>
+            )}
             {canDeleteLearners && (
               <Button
                 onClick={() =>
@@ -301,6 +385,21 @@ export function ProfilesTableServer({
           enableSearch: false, // Disabled - using custom advanced search instead
         }}
         renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Export Dialog */}
+      <LearnerExportDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        filters={currentFilters}
+        statusFilter={exportStatusFilter}
+      />
+
+      {/* Bulk ID-card Print Dialog (Phase 2) */}
+      <BulkPrintDialog
+        open={showBulkPrintDialog}
+        onOpenChange={setShowBulkPrintDialog}
+        learners={learnersToPrint}
       />
 
       {/* Bulk Delete Confirmation Dialog */}

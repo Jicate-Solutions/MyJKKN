@@ -11,20 +11,51 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Trophy, ArrowRight, Lightbulb, IndianRupee, BookOpen, Building2, AlertCircle, ArrowUpDown, CalendarDays, Heart, Cpu, Palette, Users, HandHeart, Globe } from 'lucide-react';
+import { Trophy, ArrowRight, Lightbulb, IndianRupee, BookOpen, Building2, AlertCircle, ArrowUpDown, CalendarDays, Heart, Cpu, Palette, Users, HandHeart, Globe, type LucideIcon } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import Link from 'next/link';
 import { useParadigmShiftOverview } from '@/hooks/solutions/use-paradigm-shift';
 import { DepartmentCard } from './department-card';
 import { TierBadge, getTierColor } from './tier-badge';
 import { formatCurrency } from '@/lib/services/solutions';
-import type { ReadinessTier } from '@/lib/services/solutions/paradigm-shift-service';
+import { SOCIETAL_METRICS_UNAVAILABLE_REASON, type ReadinessTier } from '@/lib/services/solutions/paradigm-shift-service';
 import { CLUSTER_LABELS, type SolutionsCluster } from '@/lib/services/solutions/clusters';
 
 function getCurrentFYLabel(): string {
   const now = new Date();
   const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
   return `FY ${year}-${String(year + 1).slice(-2)}`;
+}
+
+/**
+ * A societal figure. `null` means the platform cannot measure it yet — render that
+ * plainly rather than a zero, which would read as a real measurement of nil impact.
+ */
+function SocietalCard({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number | null | undefined;
+}) {
+  const measured = typeof value === 'number';
+  return (
+    <Card className={measured ? 'border-emerald-200 bg-emerald-50/50' : 'border-dashed'}>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Icon className={`h-4 w-4 ${measured ? 'text-emerald-600' : 'text-muted-foreground'}`} />
+          <span className={`text-xs ${measured ? 'text-emerald-700' : 'text-muted-foreground'}`}>{label}</span>
+        </div>
+        {measured ? (
+          <p className="text-2xl font-bold text-emerald-900">{value.toLocaleString('en-IN')}</p>
+        ) : (
+          <p className="text-sm font-medium text-muted-foreground">Not tracked yet</p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export function OverviewGrid() {
@@ -55,6 +86,12 @@ export function OverviewGrid() {
     }
   }
   const institutions = institutionsRef.current;
+
+  // Societal figures are `null` while the platform has no way to capture them.
+  const hasSocietalData =
+    typeof data?.summary.total_beneficiaries === 'number' ||
+    typeof data?.summary.total_pro_bono === 'number' ||
+    typeof data?.summary.total_community_engagements === 'number';
 
   // Sort departments by selected criterion (highest first)
   const sortedDepts = data?.departments
@@ -139,43 +176,22 @@ export function OverviewGrid() {
         {/* Societal Value */}
         <div>
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Societal Value</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {isLoading ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <Card key={i}><CardContent className="p-4"><Skeleton className="h-8 w-20 mb-2" /><Skeleton className="h-4 w-32" /></CardContent></Card>
               ))
             ) : (
               <>
-                <Card className="border-emerald-200 bg-emerald-50/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Users className="h-4 w-4 text-emerald-600" />
-                      <span className="text-xs text-emerald-700">Beneficiaries</span>
-                    </div>
-                    <p className="text-2xl font-bold text-emerald-900">{(data?.summary.total_beneficiaries || 0).toLocaleString('en-IN')}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-emerald-200 bg-emerald-50/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <HandHeart className="h-4 w-4 text-emerald-600" />
-                      <span className="text-xs text-emerald-700">Pro-Bono Solutions</span>
-                    </div>
-                    <p className="text-2xl font-bold text-emerald-900">{data?.summary.total_pro_bono || 0}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-emerald-200 bg-emerald-50/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Globe className="h-4 w-4 text-emerald-600" />
-                      <span className="text-xs text-emerald-700">Community Engagements</span>
-                    </div>
-                    <p className="text-2xl font-bold text-emerald-900">{data?.summary.total_community_engagements || 0}</p>
-                  </CardContent>
-                </Card>
+                <SocietalCard icon={Users} label="Beneficiaries" value={data?.summary.total_beneficiaries} />
+                <SocietalCard icon={HandHeart} label="Pro-Bono Solutions" value={data?.summary.total_pro_bono} />
+                <SocietalCard icon={Globe} label="Community Engagements" value={data?.summary.total_community_engagements} />
               </>
             )}
           </div>
+          {!isLoading && data && !hasSocietalData && (
+            <p className="text-xs text-muted-foreground mt-2">{SOCIETAL_METRICS_UNAVAILABLE_REASON}</p>
+          )}
         </div>
       </div>
       {/* end of dual-axis summary */}

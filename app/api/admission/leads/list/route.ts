@@ -9,14 +9,15 @@ export const dynamic = 'force-dynamic';
 // Using the service role with manual auth/permission checks is the standard
 // pattern (same as marketing-leads-database-service).
 
-import { NextRequest, NextResponse, connection } from 'next/server';
+import { NextRequest, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
+import { jsonNoStore } from '@/lib/api-helpers/no-store-response';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import {
-  getCounselorScope,
-  buildLeadVisibilityOr,
-  isUserInLeadViewAllowlist,
-} from '@/lib/api-helpers/admission-counselor-scope';
+  resolveLeadAccess,
+  applyLeadVisibility,
+  leadViewDenialReason,
+} from '@/lib/api-helpers/admission-lead-visibility';
 
 // Retry only on undici / Node fetch transient failures (cold-start flakes on
 // Windows + Turbopack). Postgres errors should surface immediately without retry.
@@ -53,93 +54,47 @@ export async function GET(request: NextRequest) {
   try {
     const result = await retryOnFetchFailure(() => getAuthUser());
     if (result.error || !result.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return jsonNoStore({ error: 'Unauthorized' }, { status: 401 });
     }
     user = result.user;
   } catch (err) {
     console.error('[admission/leads/list] Auth fetch failed:', err);
-    return NextResponse.json(
+    return jsonNoStore(
       { error: 'Authentication temporarily unavailable. Please retry.' },
       { status: 503 }
     );
   }
 
-  // 2. Check the user has admission lead view access via the dynamic
-  //    permission system. Replaces the previous hardcoded allowlist
-  //    (super_admin / institution_scope='all' / role_key in admission/counselor)
-  //    so any custom role granted admission.leads.view works.
+  // 2. Resolve the caller's lead-access scope in a SINGLE round-trip.
+  //    fn_admission_lead_scope (SECURITY DEFINER) folds the former 5-query
+  //    prelude — profiles + user_has_permission + allowlist + global-flag +
+  //    admission_counselors — into one DB call, delegating to the same SQL
+  //    helpers adm_leads_select RLS uses (single source of truth). The shared
+  //    applyLeadVisibility() then scopes the query identically to the [id]
+  //    detail route so the two can never diverge (BUG-003956).
+  //    See lib/api-helpers/admission-lead-visibility.ts.
   const supabase = createServiceRoleClient();
 
-  const { data: profile } = await retryOnFetchFailure(() =>
-    supabase
-      .from('profiles')
-      .select('id, role, institution_id, is_super_admin')
-      .eq('id', user.id)
-      .single()
-  );
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
-  }
-
-  const isSuperAdmin = !!profile.is_super_admin || profile.role === 'super_admin';
-
-  let canViewLeads = isSuperAdmin;
-  if (!canViewLeads) {
-    const { data: permResult } = await retryOnFetchFailure(() =>
-      supabase.rpc('user_has_permission', {
-        user_id: user.id,
-        permission_key: 'admission.leads.view'
-      })
-    );
-    canViewLeads = !!permResult;
-  }
-
-  if (!canViewLeads) {
-    return NextResponse.json(
-      { error: 'Forbidden: admission.leads.view permission required' },
-      { status: 403 }
+  let access;
+  try {
+    access = await resolveLeadAccess(supabase, user.id);
+  } catch (err) {
+    console.error('[admission/leads/list] Scope resolution failed:', err);
+    return jsonNoStore(
+      { error: 'Authentication temporarily unavailable. Please retry.' },
+      { status: 503 }
     );
   }
 
-  // Defense-in-depth role allowlist (2026-05-11). The permission gate above
-  // only checks admission.leads.view, which is grantable via Role Management
-  // UI to ANY role. faculty/hod/principal/student all held it in production
-  // and were seeing the full leads list. This check mirrors the SQL helper
-  // _user_in_admission_lead_allowlist(uuid) used by adm_leads_select RLS, so
-  // the API (service-role) and RLS (authenticated) enforce the same gate.
-  // super_admin bypasses via isSuperAdmin already.
-  if (!isSuperAdmin) {
-    const inAllowlist = await retryOnFetchFailure(() =>
-      isUserInLeadViewAllowlist(supabase, user.id)
-    );
-    if (!inAllowlist) {
-      return NextResponse.json(
-        { error: 'Forbidden: role is not permitted to view admission leads' },
-        { status: 403 }
-      );
-    }
+  if (!access.profileExists) {
+    return jsonNoStore({ error: 'Profile not found' }, { status: 403 });
   }
 
-  // Cross-institution access flag drives the "show all institutions vs scope
-  // to own" branch below. True when super_admin OR any of the user's roles is
-  // institution_scope='all' OR the user's effective admission module scope is
-  // 'all_institutions' (per-module override).
-  let isAdmissionGlobalUser = isSuperAdmin;
-  if (!isAdmissionGlobalUser) {
-    const { data: scopedRoles } = await retryOnFetchFailure(() =>
-      supabase
-        .from('user_roles')
-        .select('custom_roles!inner(institution_scope, module_scopes)')
-        .eq('user_id', user.id)
-    );
-    isAdmissionGlobalUser = (scopedRoles || []).some((ur: any) => {
-      const cr = ur.custom_roles;
-      if (!cr) return false;
-      if (cr.institution_scope === 'all') return true;
-      const moduleScope = (cr.module_scopes ?? {})['admission'];
-      return moduleScope === 'all_institutions';
-    });
+  // Permission + defense-in-depth role allowlist gate (2026-05-11 lockdown):
+  // needs admission.leads.view AND the role allowlist; super-admin bypasses both.
+  const denial = leadViewDenialReason(access);
+  if (denial) {
+    return jsonNoStore({ error: denial }, { status: 403 });
   }
 
   // 3. Parse query parameters
@@ -147,12 +102,17 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get('page') || '1', 10);
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);
   const search = searchParams.get('search') || undefined;
-  // Default sort = last_activity_at DESC so dedup'd leads (e.g. an
-  // existing lead re-captured by a new campaign submission) bubble to
-  // the top instead of staying buried at their original created_at.
-  // Set via migration K; bumped on every admission_lead_source_captures
-  // insert. Callers can still override with ?sort_by=created_at.
-  const sortBy = searchParams.get('sort_by') || 'last_activity_at';
+  // Default sort = created_at DESC.
+  // Previously defaulted to last_activity_at DESC, which is bumped on every
+  // edit / source-capture and so re-floated the just-edited lead to the top
+  // after each update. To a counselor watching one lead, the list appeared to
+  // reshuffle / show "someone else's lead" between refetches
+  // (BUG-004123/BUG-004121/BUG-004120/BUG-004119/BUG-004117/BUG-003960/BUG-003954).
+  // created_at is immutable so the row's position is stable across edits.
+  // The leads list client already sends sort_by=created_at by default; this
+  // aligns the route default for any other caller (dashboard deep-links) that
+  // omits sort_by. Callers wanting recency can still pass ?sort_by=last_activity_at.
+  const sortBy = searchParams.get('sort_by') || 'created_at';
   const sortOrder = searchParams.get('sort_order') || 'desc';
   const funnelStage = searchParams.get('funnel_stage') || undefined;
   const priority = searchParams.get('priority') || undefined;
@@ -172,207 +132,194 @@ export async function GET(request: NextRequest) {
   const staleMinDays = staleMinDaysRaw ? Math.max(1, Math.min(365, parseInt(staleMinDaysRaw, 10))) : undefined;
 
   try {
-    // 4. Build the query with service role (no RLS overhead)
-    let query = supabase
-      .from('admission_leads')
-      .select(`
-        id,
-        institution_id,
-        full_name,
-        first_name,
-        last_name,
-        email,
-        phone,
-        funnel_stage,
-        stage,
-        source,
-        is_hot_lead,
-        is_priority,
-        score,
-        score_category,
-        date_of_birth,
-        gender,
-        address_line1,
-        city,
-        state,
-        parent_name,
-        parent_phone,
-        program_id,
-        alternative_programs,
-        interested_programs,
-        preferred_channel,
-        counselor_id,
-        expo_event_id,
-        created_at,
-        updated_at,
-        counselor:admission_counselors(id, name, email),
-        institution:institutions(id, name)
-      `, { count: 'exact' });
+    // Visibility scope was resolved above (access) in one round-trip;
+    // applyLeadVisibility() inside buildQuery applies it identically to the
+    // [id] detail route. No per-request scope queries or empty-result guards
+    // are needed here — applyLeadVisibility fails closed (a non-strict,
+    // non-global user with no institution matches a sentinel UUID = zero rows).
 
-    // 5. Compute counselor scope FIRST so its strict-counselor decision
-    //    can override the role-level institution_scope='all' flag.
-    //    The role-level "all institutions" was originally for admission
-    //    OFFICE staff. Strict counselors (counselor role with no
-    //    admin/admission override) must NEVER inherit cross-institution
-    //    visibility — they must see only their directly-assigned leads.
-    const scope = await getCounselorScope(supabase, user.id);
+    // Query factory — produces a fresh, identically-filtered query each call so
+    // it can be re-issued for the out-of-range page clamp (PostgREST 416, see
+    // the pagination section). supabase-js builders are single-use once awaited.
+    const buildQuery = () => {
+      let query = supabase
+        .from('admission_leads')
+        .select(`
+          id,
+          institution_id,
+          full_name,
+          first_name,
+          last_name,
+          email,
+          phone,
+          funnel_stage,
+          stage,
+          source,
+          is_hot_lead,
+          is_priority,
+          score,
+          score_category,
+          date_of_birth,
+          gender,
+          address_line1,
+          city,
+          state,
+          parent_name,
+          parent_phone,
+          program_id,
+          alternative_programs,
+          interested_programs,
+          preferred_channel,
+          counselor_id,
+          assigned_counselor_id,
+          expo_event_id,
+          created_at,
+          updated_at,
+          counselor:admission_counselors(id, name, email),
+          institution:institutions(id, name)
+        `, { count: 'exact' });
 
-    // 5a. Institution scoping.
-    //
-    // Two flavours:
-    //   - EXPLICIT (user picked an institution from the College dropdown):
-    //     always honored, regardless of strict-counselor status. The user
-    //     wants to narrow further to that one institution.
-    //   - IMPLICIT (no UI selection): only applied for non-strict-counselor
-    //     non-global users — clamps them to their own profile.institution_id.
-    //     Strict counselors' visibility is governed entirely by the OR clause
-    //     in 5b (counselor_id / assigned_counselor_id), since they may
-    //     legitimately own leads across institutions if assigned that way.
-    //
-    // 2026-05-11: previously the EXPLICIT branch was nested inside
-    // `if (!scope.isStrictCounselor)`, so a counselor's College dropdown
-    // selection was silently dropped — they saw their full cross-institution
-    // scope despite picking one institution. Moved out so user intent wins.
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    } else if (!scope.isStrictCounselor && !isAdmissionGlobalUser) {
-      if (!profile.institution_id) {
-        // User has no institution assigned — return empty result
-        return NextResponse.json({
-          data: [],
-          metadata: { total: 0, page, limit, totalPages: 0 },
-        });
+      // Visibility scoping — institution clamp (additive) + strict-counselor
+      // ownership OR + referral exclusion — all centralised in applyLeadVisibility
+      // (lib/api-helpers/admission-lead-visibility.ts) so the LIST and the [id]
+      // DETAIL route can never diverge (BUG-003956). excludeReferral=true: the
+      // list hides referral leads from counselors; detail keeps owned referrals.
+      query = applyLeadVisibility(query, access, {
+        explicitInstitutionId: institutionId,
+        excludeReferral: true,
+      });
+
+      // 6. Apply filters
+      if (funnelStage) {
+        const safe = funnelStage.replace(/[^a-z_]/g, '');
+        if (safe) {
+          query = query.or(`stage.eq.${safe},funnel_stage.eq.${safe}`);
+        }
       }
-      query = query.eq('institution_id', profile.institution_id);
-    }
 
-    // 5b. Counselor visibility — mirrors the RLS in
-    // supabase/migrations/20260510210000_admission_leads_strict_counselor_visibility.sql
-    // and 20260510220000_admission_leads_exclude_referral_for_counselors.sql.
-    // For users who hold one of the 4 counselor role_keys without a broader
-    // admission/admin role, restrict visibility to:
-    //   - leads where counselor_id = user's admission_counselors.id, OR
-    //   - leads where assigned_counselor_id = user.id
-    // AND
-    //   - source <> 'referral' (referrals belong to consultants, not counselors)
-    //
-    // CRITICAL: this branch is taken regardless of isAdmissionGlobalUser
-    // because admission_counselor role is configured institution_scope='all'
-    // in custom_roles — that flag is for admission OFFICE staff to see all
-    // institutions, NOT for counselors to bypass strict-visibility.
-    if (scope.isStrictCounselor) {
-      const orClause = buildLeadVisibilityOr(scope, user.id);
-      if (!orClause) {
-        // Counselor has no admission_counselors row.
-        // Strict-mode: nothing visible.
-        return NextResponse.json({
-          data: [],
-          metadata: { total: 0, page, limit, totalPages: 0 },
-        });
+      if (priority) {
+        if (priority === 'hot') {
+          query = query.eq('is_hot_lead', true);
+        } else if (priority === 'warm') {
+          query = query.eq('is_priority', true).eq('is_hot_lead', false);
+        } else if (priority === 'cold') {
+          query = query.eq('is_hot_lead', false).eq('is_priority', false);
+        }
       }
-      // Apply OR (assigned_counselor_id OR counselor_id matches) AND
-      // source <> 'referral'. PostgREST's chained .or().neq() builds
-      // exactly that conjunction.
-      query = query.or(orClause).neq('source', 'referral');
-    }
 
-    // 6. Apply filters
-    if (funnelStage) {
-      const safe = funnelStage.replace(/[^a-z_]/g, '');
-      if (safe) {
-        query = query.or(`stage.eq.${safe},funnel_stage.eq.${safe}`);
+      if (source) {
+        query = query.eq('source', source);
       }
-    }
 
-    if (priority) {
-      if (priority === 'hot') {
-        query = query.eq('is_hot_lead', true);
-      } else if (priority === 'warm') {
-        query = query.eq('is_priority', true).eq('is_hot_lead', false);
-      } else if (priority === 'cold') {
-        query = query.eq('is_hot_lead', false).eq('is_priority', false);
+      if (counselorId) {
+        query = query.eq('counselor_id', counselorId);
       }
-    }
 
-    if (source) {
-      query = query.eq('source', source);
-    }
+      if (expoEventId) {
+        query = query.eq('expo_event_id', expoEventId);
+      }
 
-    if (counselorId) {
-      query = query.eq('counselor_id', counselorId);
-    }
+      if (capturedBy) {
+        query = query.eq('captured_by', capturedBy);
+      }
 
-    if (expoEventId) {
-      query = query.eq('expo_event_id', expoEventId);
-    }
+      if (waOptIn === 'true') {
+        query = query.eq('wa_opt_in', true);
+      }
 
-    if (capturedBy) {
-      query = query.eq('captured_by', capturedBy);
-    }
-
-    if (waOptIn === 'true') {
-      query = query.eq('wa_opt_in', true);
-    }
-
-    // Filter by program — match against ALL three program-id storage columns
-    // since the 2026-04-21 split:
-    //   - program_id (single uuid, primary)            → `eq`
-    //   - alternative_programs (uuid[], multi-select) → `cs` (array contains)
-    //   - interested_programs (legacy uuid[])         → `cs` (pre-split rows)
-    // The `.or(...)` chain emits one PostgREST `or=(...)` clause so the user
-    // sees every lead that lists this program in any of the three columns.
-    // UUIDs are safe to interpolate (alphanumeric + dashes only — no escape
-    // hazards in the PostgREST OR syntax).
-    if (programId) {
-      query = query.or(
-        [
-          `program_id.eq.${programId}`,
-          `alternative_programs.cs.{${programId}}`,
-          `interested_programs.cs.{${programId}}`,
-        ].join(','),
-      );
-    }
-
-    if (search) {
-      const sanitized = sanitizeSearch(search);
-      if (sanitized) {
+      // Filter by program — match against ALL three program-id storage columns
+      // since the 2026-04-21 split:
+      //   - program_id (single uuid, primary)            → `eq`
+      //   - alternative_programs (uuid[], multi-select) → `cs` (array contains)
+      //   - interested_programs (legacy uuid[])         → `cs` (pre-split rows)
+      // The `.or(...)` chain emits one PostgREST `or=(...)` clause so the user
+      // sees every lead that lists this program in any of the three columns.
+      // UUIDs are safe to interpolate (alphanumeric + dashes only — no escape
+      // hazards in the PostgREST OR syntax).
+      if (programId) {
         query = query.or(
-          `full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%,email.ilike.%${sanitized}%`
+          [
+            `program_id.eq.${programId}`,
+            `alternative_programs.cs.{${programId}}`,
+            `interested_programs.cs.{${programId}}`,
+          ].join(','),
         );
       }
-    }
 
-    if (dateFrom) {
-      query = query.gte('created_at', dateFrom);
-    }
-    if (dateTo) {
-      query = query.lte('created_at', dateTo);
-    }
+      if (search) {
+        const sanitized = sanitizeSearch(search);
+        if (sanitized) {
+          query = query.or(
+            `full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%,email.ilike.%${sanitized}%`
+          );
+        }
+      }
 
-    // Stale filter — leads with no contact in N+ days. PostgREST has no direct
-    // COALESCE-comparison primitive, so emulate it with an OR over three
-    // mutually-exclusive branches: last_contact_at first, then last_activity_at
-    // when contact is null, then created_at when both are null. Cutoff is
-    // computed in JS so the comparison is a literal timestamp PostgREST accepts.
-    if (staleMinDays && staleMinDays > 0) {
-      const cutoff = new Date(Date.now() - staleMinDays * 24 * 60 * 60 * 1000).toISOString();
-      query = query.or(
-        `last_contact_at.lt.${cutoff},` +
-        `and(last_contact_at.is.null,last_activity_at.lt.${cutoff}),` +
-        `and(last_contact_at.is.null,last_activity_at.is.null,created_at.lt.${cutoff})`
-      );
+      // Date-wise filter on created_at. The DataTable toolbar sends date-only
+      // strings (YYYY-MM-DD); Postgres would cast those to midnight UTC, which
+      // (a) excludes leads created during the end date and (b) shifts the day
+      // boundary 5h30m off what IST users see in the UI. So date-only values
+      // are anchored to IST day boundaries; full ISO timestamps (other API
+      // callers) pass through unchanged.
+      const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+      if (dateFrom) {
+        const from = DATE_ONLY.test(dateFrom) ? `${dateFrom}T00:00:00+05:30` : dateFrom;
+        query = query.gte('created_at', from);
+      }
+      if (dateTo) {
+        const to = DATE_ONLY.test(dateTo) ? `${dateTo}T23:59:59.999+05:30` : dateTo;
+        query = query.lte('created_at', to);
+      }
+
+      // Stale filter — leads with no contact in N+ days. PostgREST has no direct
+      // COALESCE-comparison primitive, so emulate it with an OR over three
+      // mutually-exclusive branches: last_contact_at first, then last_activity_at
+      // when contact is null, then created_at when both are null. Cutoff is
+      // computed in JS so the comparison is a literal timestamp PostgREST accepts.
+      if (staleMinDays && staleMinDays > 0) {
+        const cutoff = new Date(Date.now() - staleMinDays * 24 * 60 * 60 * 1000).toISOString();
+        query = query.or(
+          `last_contact_at.lt.${cutoff},` +
+          `and(last_contact_at.is.null,last_activity_at.lt.${cutoff}),` +
+          `and(last_contact_at.is.null,last_activity_at.is.null,created_at.lt.${cutoff})`
+        );
+      }
+
+      // 7. Sorting.
+      // Stable secondary sort key (id) so rows sharing the same sortBy value
+      // (e.g. identical last_activity_at after a batch capture) keep a fixed
+      // relative order across refetches instead of reshuffling. Without it,
+      // editing one lead re-floats it and the list appears to "change" or show
+      // someone else's lead between refreshes.
+      // BUG-004123/BUG-004121/BUG-004120/BUG-004119/BUG-004117/BUG-003960/BUG-003954
+      return query
+        .order(sortBy, { ascending: sortOrder === 'asc' })
+        .order('id', { ascending: true });
+    };
+
+    // 8. Pagination with last-page clamp. A stale ?page=N past the (possibly
+    // just-filtered) result count makes PostgREST answer 416 "Requested Range
+    // Not Satisfiable" (BUG-003967). On that error we re-issue at page 1 so the
+    // table renders rather than throwing; metadata.totalPages still reports the
+    // true bound so the client's pager self-corrects.
+    const requestedPage = Math.max(1, page);
+    const from = (requestedPage - 1) * limit;
+    let { data, error, count } = await retryOnFetchFailure(() =>
+      buildQuery().range(from, from + limit - 1),
+    );
+    const isRangeError =
+      !!error &&
+      (String((error as any)?.code) === 'PGRST103' ||
+        /range not satisfiable/i.test(String((error as any)?.message)));
+    if (isRangeError) {
+      ({ data, error, count } = await retryOnFetchFailure(() =>
+        buildQuery().range(0, limit - 1),
+      ));
     }
-
-    // 7. Sorting and pagination
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    const from = (page - 1) * limit;
-    query = query.range(from, from + limit - 1);
-
-    const { data, error, count } = await retryOnFetchFailure(() => query);
 
     if (error) throw error;
 
-    // 8. Resolve program IDs to names server-side so the client never renders
+    // 9. Resolve program IDs to names server-side so the client never renders
     //    raw UUIDs while a client-side map loads.
     //
     //    Three columns can hold program IDs since the 2026-04-21 split:
@@ -437,7 +384,7 @@ export async function GET(request: NextRequest) {
       return { ...r, interested_program_names: names };
     });
 
-    return NextResponse.json({
+    return jsonNoStore({
       data: enriched,
       metadata: {
         total: count || 0,
@@ -462,6 +409,6 @@ export async function GET(request: NextRequest) {
     // to retry, instead of treating it as a permanent 500 bug.
     const status = isTransientFetchError(err) ? 503 : 500;
 
-    return NextResponse.json({ error: message }, { status });
+    return jsonNoStore({ error: message }, { status });
   }
 }

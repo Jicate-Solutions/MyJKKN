@@ -89,7 +89,7 @@ function LiveDashboardContent() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Button variant="ghost" size="sm" asChild className="mb-2">
             <Link href={`/admission/marketing/expos/${eventId}`}>
@@ -98,7 +98,7 @@ function LiveDashboardContent() {
             </Link>
           </Button>
           <h1 className="text-2xl font-bold">{event.event_name}</h1>
-          <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
               <MapPin className="h-3.5 w-3.5" />
               {event.city}
@@ -115,7 +115,7 @@ function LiveDashboardContent() {
             </Badge>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
           <RefreshCw className="h-3 w-3 animate-spin" />
           <span>Live — updated {lastUpdated}</span>
         </div>

@@ -48,6 +48,10 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceRoleClient();
 
     // ── Validate manual_stage transition (defense-in-depth — UI already filters) ──
+    // 2026-05-30 (BUG-004110/004111): replaced the hardcoded per-stage matrix
+    // with a "target is an active lead status" check, matching
+    // LeadService.updateStage. The static matrix rejected legitimate moves among
+    // the 26 active admission_statuses(scope='lead') rows.
     let validatedManualStage: string | null = null;
     if (body.manual_stage) {
       const { data: curLead } = await supabase
@@ -56,13 +60,25 @@ export async function POST(request: NextRequest) {
         .eq('id', body.lead_id)
         .single();
       const currentStage = (curLead?.funnel_stage || 'new') as FunnelStage;
-      const allowed = ALLOWED_STAGE_TRANSITIONS[currentStage] ?? [];
-      // Idempotent: allow no-op stage set (currentStage === manual_stage) silently
-      if (body.manual_stage !== currentStage && !allowed.includes(body.manual_stage as FunnelStage)) {
-        return NextResponse.json(
-          { error: 'INVALID_TRANSITION', message: `Cannot move stage from "${currentStage}" to "${body.manual_stage}"` },
-          { status: 422 }
+      if (body.manual_stage !== currentStage) {
+        const { data: activeStatuses } = await supabase
+          .from('admission_statuses')
+          .select('code')
+          .eq('scope', 'lead')
+          .eq('is_active', true);
+        const validCodes = new Set<string>(
+          (activeStatuses ?? []).map((s: any) => s.code as string),
         );
+        const known =
+          validCodes.size > 0
+            ? validCodes.has(body.manual_stage)
+            : Object.prototype.hasOwnProperty.call(ALLOWED_STAGE_TRANSITIONS, body.manual_stage);
+        if (!known) {
+          return NextResponse.json(
+            { error: 'INVALID_TRANSITION', message: `"${body.manual_stage}" is not an active lead status` },
+            { status: 422 }
+          );
+        }
       }
       validatedManualStage = body.manual_stage !== currentStage ? body.manual_stage : null;
     }

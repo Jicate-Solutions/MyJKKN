@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Bell } from 'lucide-react';
@@ -14,8 +15,10 @@ import {
 } from '@/components/data-table/data-table';
 import { createColumns } from '@/app/(routes)/academic/attendance/dashboard/_components/pending-attendance-columns';
 import { AttendanceDashboardService } from '@/lib/services/academic/attendance-dashboard-service';
+import { AttendanceEscalationService } from '@/lib/services/academic/attendance-escalation-service';
 import { usePendingAttendanceDateRange } from '@/hooks/academic/use-pending-attendance-date-range';
 import { useTimetablesForPending } from '@/hooks/academic/use-timetables-for-pending';
+import { PENDING_ATTENDANCE_EXPORT_CONFIG } from './pending-attendance-export-config';
 import { PendingStatsCards } from './pending-stats-cards';
 import { PendingDateRangeWarningBanner } from './pending-date-range-warning-banner';
 import { PendingDateRangeFilters } from './pending-date-range-filters';
@@ -37,7 +40,6 @@ interface PendingAttendanceClientProps {
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export function PendingAttendanceClient({
-  isSuperAdmin,
   isHOD,
   isFaculty,
   userInstitutionId,
@@ -48,16 +50,81 @@ export function PendingAttendanceClient({
 }: PendingAttendanceClientProps) {
   const router = useRouter();
 
-  // Main data + filter hook
+  // Main data + filter hook.
+  // The hook owns filter state (filters/updateFilters/resetFilters) and the
+  // dropdown's effectiveInstitutionId. We do NOT use the hook's own metadata for
+  // the stats cards: the hook (in hooks/academic/, out of this package's scope)
+  // gates institution scope on isSuperAdmin only, which would silently collapse a
+  // scope='all' view_all_institutions role (e.g. 'eao') back to its own
+  // institution — the BUG-004284 root cause PR #1618 fixed on the dashboard. So
+  // the cards are driven by the canViewAllInstitutions-aware client-local query
+  // below, keeping this fix inside app/(routes)/academic/attendance/pending/**.
   const {
-    metadata,
-    isLoading,
-    error,
     filters,
     updateFilters,
     resetFilters,
     effectiveInstitutionId,
   } = usePendingAttendanceDateRange();
+
+  // ─── Stats-cards metadata (canViewAllInstitutions-aware) ─────────────────────
+  // Mirrors the DataTable fetch's scope decision exactly: an all-institutions
+  // viewer with no college selected passes userInstitutionId === undefined → the
+  // service omits the institution filter and the cards reflect a COMBINED total
+  // across the colleges the role may read (student_attendance RLS, migration
+  // 20260624164500, scopes the rows). A scope='own' role (canViewAllInstitutions
+  // === false) stays pinned to userInstitutionId and is never over-granted.
+  const cardsFilters: DashboardFilters = {
+    userInstitutionId: canViewAllInstitutions
+      ? filters.institutionId
+      : userInstitutionId,
+    // page/limit are irrelevant to the metadata counts (computed over the full
+    // matched set before pagination), but kept consistent with the hook defaults.
+    page: 1,
+    limit: filters.limit ?? 10,
+    sortBy: filters.sortBy ?? 'attendance_date',
+    sortDirection: filters.sortDirection ?? 'desc',
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+    institutionId: filters.institutionId,
+    academicYearId: filters.academicYearId,
+    degreeId: filters.degreeId,
+    departmentId: filters.departmentId,
+    programId: filters.programId,
+    semesterId: filters.semesterId,
+    sectionId: filters.sectionId,
+    timetableId: filters.timetableId,
+    staffId: isFaculty && staffId ? staffId : filters.staffId,
+  };
+
+  // Enabled when the viewer may span all colleges (no institution required) OR an
+  // institution is resolvable — matching the hook's own enabled logic, just with
+  // the permission-aware gate instead of isSuperAdmin.
+  const cardsEnabled =
+    canViewAllInstitutions || !!cardsFilters.userInstitutionId;
+
+  const {
+    data: cardsData,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ['pending-attendance-cards', cardsFilters, canViewAllInstitutions],
+    queryFn: () =>
+      AttendanceDashboardService.getTodayPendingAttendance(cardsFilters),
+    enabled: cardsEnabled,
+    refetchInterval: 5 * 60 * 1000, // backlog view — matches the hook's cadence
+  });
+
+  const metadata = cardsData?.metadata ?? {
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 0,
+    overdueCount: 0,
+    todayCount: 0,
+    sectionsCount: 0,
+    subjectsCount: 0,
+    staffCount: 0,
+  };
 
   // Auto-apply faculty's staffId so faculty only see their own pending periods.
   // isFaculty and staffId are stable server-derived props, so [] is intentional.
@@ -80,13 +147,22 @@ export function PendingAttendanceClient({
 
   // ─── fetchDataFn ─────────────────────────────────────────────────────────────
 
-  // NOTE: This fetchData callback calls the same service as usePendingAttendanceDateRange.
-  // The hook drives the stats metadata cards; the DataTable drives paginated rows separately.
-  // This is a conscious trade-off matching the dashboard pattern — two fetches are intentional.
+  // NOTE: This fetchData callback calls the same service as the cards query above.
+  // The cards query (canViewAllInstitutions-aware) drives the stats metadata cards;
+  // this DataTable callback drives the paginated rows separately. Both apply the
+  // identical scope decision, so the cards and the table always agree on which
+  // colleges are in view. This is a conscious trade-off matching the dashboard
+  // pattern — two fetches are intentional.
   const fetchData = useCallback(
     async (params: DataFetchParams): Promise<DataFetchResult<PendingAttendancePeriod>> => {
       const serviceFilters: DashboardFilters = {
-        userInstitutionId: isSuperAdmin
+        // BUG-004284 (mirrors PR #1618): an all-institutions viewer (super_admin
+        // OR a scope='all' view_all_institutions role) with no college selected
+        // passes filters.institutionId === undefined → the service omits the
+        // institution filter and spans all colleges (student_attendance RLS scopes
+        // the rows). A scope='own' role has canViewAllInstitutions === false, so it
+        // stays pinned to userInstitutionId and is NEVER over-granted.
+        userInstitutionId: canViewAllInstitutions
           ? filters.institutionId
           : userInstitutionId,
         page: params.page,
@@ -123,7 +199,7 @@ export function PendingAttendanceClient({
         },
       };
     },
-    [filters, isSuperAdmin, userInstitutionId, isFaculty, staffId]
+    [filters, canViewAllInstitutions, userInstitutionId, isFaculty, staffId]
   );
 
   // ─── Action handlers ──────────────────────────────────────────────────────────
@@ -146,18 +222,80 @@ export function PendingAttendanceClient({
     [router]
   );
 
-  const handleSendReminder = useCallback(
-    (_period: PendingAttendancePeriod) => {
-      toast.error('Reminder feature coming soon');
+  // Escalate unmarked day-wise (session) attendance to the institution's
+  // Principal & Director as an in-app notification. Period-wise periods have no
+  // session escalation (yet) and report nothing to notify.
+  const escalateForPeriods = useCallback(
+    async (periods: PendingAttendancePeriod[]) => {
+      // One escalation pass per unique (institution, date); the service handles
+      // grouping and recipient lookup internally.
+      const seen = new Set<string>();
+      const targets = periods
+        .map((p) => ({
+          institutionId: p.institution_id,
+          date: p.attendance_date,
+        }))
+        .filter((t) => {
+          if (!t.institutionId) return false;
+          const key = `${t.institutionId}_${t.date}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+      if (targets.length === 0) {
+        toast.error('No institution found for the selected pending attendance.');
+        return;
+      }
+
+      try {
+        const results = await Promise.all(
+          targets.map((t) =>
+            AttendanceEscalationService.escalatePendingSessions({
+              institutionId: t.institutionId,
+              date: t.date,
+              ignoreCutoff: true, // manual reminder — do not wait for cutoff
+            })
+          )
+        );
+        const notified = results.reduce((sum, r) => sum + r.notified, 0);
+        const sessions = results.reduce(
+          (sum, r) => sum + r.escalatedSessions,
+          0
+        );
+
+        if (notified > 0) {
+          toast.success(
+            `Notified Principal & Director about ${sessions} pending session${
+              sessions === 1 ? '' : 's'
+            }.`
+          );
+        } else {
+          toast.error(
+            'Nothing to escalate — either no day-wise sessions are pending or no Principal/Director is configured.'
+          );
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to send reminder.'
+        );
+      }
     },
     []
   );
 
-  const handleBulkSendReminder = useCallback(
-    (_selectedRows: PendingAttendancePeriod[]) => {
-      toast.error('Reminder feature coming soon');
+  const handleSendReminder = useCallback(
+    (period: PendingAttendancePeriod) => {
+      void escalateForPeriods([period]);
     },
-    []
+    [escalateForPeriods]
+  );
+
+  const handleBulkSendReminder = useCallback(
+    (selectedRows: PendingAttendancePeriod[]) => {
+      void escalateForPeriods(selectedRows);
+    },
+    [escalateForPeriods]
   );
 
   // ─── Columns ──────────────────────────────────────────────────────────────────
@@ -241,7 +379,7 @@ export function PendingAttendanceClient({
         filters={filters}
         onFiltersChange={updateFilters}
         onReset={resetFilters}
-        isSuperAdmin={isSuperAdmin}
+        canViewAllInstitutions={canViewAllInstitutions}
         isHOD={isHOD}
         isFaculty={isFaculty}
         userInstitutionId={userInstitutionId}
@@ -267,48 +405,10 @@ export function PendingAttendanceClient({
           enableColumnVisibility: true,
           columnResizingTableId: 'pending-attendance-page-table',
         }}
-        exportConfig={{
-          entityName: 'pending-attendance-periods',
-          columnMapping: {
-            attendance_date: 'Date',
-            period_name: 'Period',
-            course_name: 'Course',
-            institution_name: 'Institution',
-            degree_name: 'Degree',
-            department_name: 'Department',
-            program_name: 'Program',
-            semester_name: 'Semester',
-            section_name: 'Section',
-            academic_year_name: 'Academic Year',
-            primary_staff_name: 'Primary Staff',
-          },
-          columnWidths: [
-            { wch: 15 },
-            { wch: 15 },
-            { wch: 20 },
-            { wch: 15 },
-            { wch: 15 },
-            { wch: 20 },
-            { wch: 20 },
-            { wch: 15 },
-            { wch: 12 },
-            { wch: 15 },
-            { wch: 20 },
-          ],
-          headers: [
-            'Date',
-            'Period',
-            'Course',
-            'Institution',
-            'Degree',
-            'Department',
-            'Program',
-            'Semester',
-            'Section',
-            'Academic Year',
-            'Primary Staff',
-          ],
-        }}
+        // headers/columnMapping/columnWidths all derive from one COLUMNS list —
+        // see pending-attendance-export-config.ts. `headers` MUST be the data
+        // keys; declaring the labels there exported blank rows.
+        exportConfig={PENDING_ATTENDANCE_EXPORT_CONFIG}
         renderToolbarContent={renderBulkToolbar}
       />
     </div>

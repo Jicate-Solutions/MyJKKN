@@ -29,13 +29,19 @@ async function handleSamlSso(
   request: NextRequest,
   binding: 'post' | 'redirect'
 ) {
+  // Hoisted OUT of the try: the catch needs these to report a failure back to
+  // the SP (see the error-Response path at the bottom) rather than rendering a
+  // JSON 500 on our own domain and stranding the user there.
+  // NOTE: For POST binding, formData() must be called only ONCE as
+  // the request body stream is consumed on first read
+  let samlRequest: string | null = null;
+  let relayState: string | null = null;
+  let effectiveBinding: 'post' | 'redirect' = binding;
+  // Populated once the AuthnRequest is parsed — where a failure Response goes.
+  let errorAcsUrl: string | null = null;
+  let errorInResponseTo: string | undefined;
+
   try {
-    // Extract SAML request from query params or body
-    // NOTE: For POST binding, formData() must be called only ONCE as
-    // the request body stream is consumed on first read
-    let samlRequest: string | null = null;
-    let relayState: string | null = null;
-    let effectiveBinding: 'post' | 'redirect' = binding;
 
     // ── Resume path (Option B, 2026-04-09) ────────────────────────────────
     // When an unauthenticated user hits /api/saml/sso we persist the request
@@ -53,11 +59,20 @@ async function handleSamlSso(
 
     if (samlReqId) {
       const adminClient = createServiceRoleClient();
+      // ATOMIC SINGLE-USE CLAIM: stamp `consumed_at` and read the row in ONE
+      // statement. `.is('consumed_at', null)` means the UPDATE matches at most
+      // once, so exactly one caller ever receives the row — two concurrent
+      // resumes (double-submit, browser prefetch) can no longer both read it
+      // before either clears it.
+      //
+      // This replaces a SELECT followed by an immediate DELETE, which (a) had
+      // that race, and (b) destroyed the audit trail on every login.
       const { data: pending, error: pendingError } = await adminClient
         .from('saml_pending_requests')
-        .select('saml_request, relay_state, binding, expires_at')
+        .update({ consumed_at: new Date().toISOString() })
         .eq('id', samlReqId)
         .is('consumed_at', null)
+        .select('saml_request, relay_state, binding, expires_at')
         .maybeSingle();
 
       if (pendingError || !pending) {
@@ -69,8 +84,14 @@ async function handleSamlSso(
         );
       }
 
+      // Publish BEFORE the expiry check so that, on expiry, the catch can still
+      // parse the request, recover the SP's ACS URL, and hand the browser back
+      // to the SP with a failure Status instead of dead-ending on jkkn.ai.
+      samlRequest = pending.saml_request as string;
+      relayState = (pending.relay_state as string | null) ?? null;
+      effectiveBinding = (pending.binding as 'post' | 'redirect') || 'redirect';
+
       if (new Date(pending.expires_at as string).getTime() < Date.now()) {
-        await adminClient.from('saml_pending_requests').delete().eq('id', samlReqId);
         throw new SamlError(
           'SAML request expired (10 min TTL). Please retry sign-in from MathWorks.',
           SamlStatusCode.REQUESTER,
@@ -78,12 +99,6 @@ async function handleSamlSso(
         );
       }
 
-      samlRequest = pending.saml_request as string;
-      relayState = (pending.relay_state as string | null) ?? null;
-      effectiveBinding = (pending.binding as 'post' | 'redirect') || 'redirect';
-
-      // Single-use: delete immediately so the same ID cannot be replayed.
-      await adminClient.from('saml_pending_requests').delete().eq('id', samlReqId);
       console.log('[saml/sso] Resumed pending request from DB:', samlReqId, 'binding:', effectiveBinding);
     } else if (binding === 'redirect') {
       const searchParams = request.nextUrl.searchParams;
@@ -107,6 +122,10 @@ async function handleSamlSso(
     // binding when resuming a persisted POST request via the redirect path)
     const { request: parsedRequest, spEntityId } =
       await SamlIdpService.parseAuthnRequest(samlRequest, effectiveBinding);
+
+    // From here on, every failure can be reported to the SP itself.
+    errorAcsUrl = parsedRequest.assertionConsumerServiceUrl;
+    errorInResponseTo = parsedRequest.id;
 
     console.log('[saml/sso] Received AuthnRequest:', {
       id: parsedRequest.id,
@@ -168,7 +187,7 @@ async function handleSamlSso(
     // single `full_name` column — no separate first_name/last_name fields.
     const { data: userProfile, error: profileError } = await supabase
       .from('profiles')
-      .select('id, email, full_name, role')
+      .select('id, email, full_name, role, is_active')
       .eq('id', authUser.id)
       .single();
 
@@ -180,8 +199,32 @@ async function handleSamlSso(
       );
     }
 
-    // Split full_name into first/last for MathWorks attribute mapping
-    const nameParts = (userProfile.full_name || '').trim().split(/\s+/);
+    // Deactivated accounts must not receive an assertion.
+    //
+    // This check cannot be inherited from /auth/callback: the SAML resume
+    // short-circuits there (see the `if (samlReqId)` branch) BEFORE both the
+    // invite-only gate and the is_active sign-out, precisely so role-based
+    // routing is skipped. That made this route the only remaining gate on the
+    // SAML path — and it wasn't gating, so a disabled MyJKKN account could
+    // still sign in to MATLAB.
+    if (userProfile.is_active === false) {
+      throw new SamlError(
+        'Account is inactive',
+        SamlStatusCode.AUTHN_FAILED,
+        'user_inactive'
+      );
+    }
+
+    // Split full_name into first/last for MathWorks attribute mapping.
+    // Titles are stored inline in `full_name` ("Mr. Ranjith K"), so a naive
+    // split on the first space sends MathWorks givenName="Mr." — which is what
+    // MATLAB then provisions the account under. Drop a leading title token,
+    // unless it is the only token.
+    const TITLE_PREFIX = /^(mr|mrs|ms|miss|dr|prof|shri|smt|er|capt|rev)\.?$/i;
+    const nameParts = (userProfile.full_name || '').trim().split(/\s+/).filter(Boolean);
+    if (nameParts.length > 1 && TITLE_PREFIX.test(nameParts[0])) {
+      nameParts.shift();
+    }
     const profileWithNames = {
       ...userProfile,
       first_name: nameParts[0] || '',
@@ -227,24 +270,93 @@ async function handleSamlSso(
   } catch (error) {
     console.error('[saml/sso] Error:', error);
 
-    if (error instanceof SamlError) {
-      return NextResponse.json(
+    // Never leak a non-SamlError's message: it may carry internal detail and
+    // `errorAcsUrl` is a value taken from the (unsigned) AuthnRequest.
+    const samlError =
+      error instanceof SamlError
+        ? error
+        : new SamlError(
+            'Internal server error',
+            SamlStatusCode.RESPONDER,
+            'internal_error'
+          );
+
+    // If we failed before parsing (e.g. an expired resume), make one best-effort
+    // attempt to recover the SP's ACS URL from the raw AuthnRequest.
+    if (!errorAcsUrl && samlRequest) {
+      try {
+        const { request: recovered } = await SamlIdpService.parseAuthnRequest(
+          samlRequest,
+          effectiveBinding
+        );
+        errorAcsUrl = recovered.assertionConsumerServiceUrl;
+        errorInResponseTo = recovered.id;
+      } catch (recoveryError) {
+        console.error(
+          '[saml/sso] Could not recover ACS URL for error Response:',
+          recoveryError
+        );
+      }
+    }
+
+    // SAML 2.0 Core §3.2.2: report the failure to the SP. This is also
+    // MathWorks' stated acceptance criterion — the browser must return to a
+    // MathWorks page even when the outcome is an error.
+    if (errorAcsUrl) {
+      console.log('[saml/sso] Returning SAML error Response to SP ACS:', {
+        acsUrl: errorAcsUrl,
+        statusCode: samlError.statusCode,
+        statusDetail: samlError.statusDetail,
+      });
+      const samlResponse = SamlIdpService.generateErrorResponse({
+        destination: errorAcsUrl,
+        statusCode: samlError.statusCode,
+        statusMessage: samlError.message,
+        inResponseTo: errorInResponseTo,
+      });
+      return new NextResponse(
+        generateAutoSubmitForm(
+          errorAcsUrl,
+          samlResponse,
+          relayState,
+          'Returning you to the application...',
+          'Sign-in could not be completed. Redirecting you back.'
+        ),
         {
-          error: error.message,
-          statusCode: error.statusCode,
-          statusDetail: error.statusDetail,
-        },
-        { status: 500 }
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }
       );
     }
 
+    // No SP to report to (unparseable or unknown AuthnRequest) — the JSON 500
+    // is the only remaining option.
     return NextResponse.json(
       {
-        error: 'Internal server error',
+        error: samlError.message,
+        statusCode: samlError.statusCode,
+        statusDetail: samlError.statusDetail,
       },
       { status: 500 }
     );
   }
+}
+
+/**
+ * Escape a value for interpolation into an HTML attribute.
+ *
+ * `relayState` is copied verbatim from the SP's query string and `acsUrl` comes
+ * out of the (unsigned) AuthnRequest — both are attacker-controlled, and both
+ * were previously interpolated raw, so a `"` broke out of the attribute and
+ * injected script into a page served from jkkn.ai.
+ */
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
@@ -253,7 +365,11 @@ async function handleSamlSso(
 function generateAutoSubmitForm(
   acsUrl: string,
   samlResponse: string,
-  relayState: string | null
+  relayState: string | null,
+  // The same form carries failure Responses back to the SP, where "Signing you
+  // in…" would be a lie for the ~200ms it is visible.
+  heading = 'Signing you in...',
+  subtext = 'Please wait while we redirect you to the application.'
 ): string {
   return `
 <!DOCTYPE html>
@@ -303,12 +419,12 @@ function generateAutoSubmitForm(
 <body>
   <div class="container">
     <div class="spinner"></div>
-    <h2>Signing you in...</h2>
-    <p>Please wait while we redirect you to the application.</p>
+    <h2>${heading}</h2>
+    <p>${subtext}</p>
   </div>
-  <form id="samlForm" method="POST" action="${acsUrl}">
-    <input type="hidden" name="SAMLResponse" value="${samlResponse}" />
-    ${relayState ? `<input type="hidden" name="RelayState" value="${relayState}" />` : ''}
+  <form id="samlForm" method="POST" action="${escapeHtmlAttribute(acsUrl)}">
+    <input type="hidden" name="SAMLResponse" value="${escapeHtmlAttribute(samlResponse)}" />
+    ${relayState ? `<input type="hidden" name="RelayState" value="${escapeHtmlAttribute(relayState)}" />` : ''}
   </form>
   <script>
     window.onload = function() {

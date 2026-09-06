@@ -340,6 +340,47 @@ export class LearnerProfileChangeService {
         updateData[key] = change.new;
       });
 
+      // community / caste TEXT columns are retired — a change request still
+      // captures them as readable labels, so resolve to the FK ids here and
+      // drop the text keys (else the UPDATE hits a non-existent column).
+      if ('community' in updateData || 'caste' in updateData) {
+        const { buildCommunityResolver } = await import('@/lib/utils/community-name-resolver');
+        const { buildCasteResolver } = await import('@/lib/utils/caste-name-resolver');
+        const resolveCommunity = await buildCommunityResolver(supabase);
+        const resolveCaste = await buildCasteResolver(supabase);
+        if ('community' in updateData) {
+          const cid = resolveCommunity(updateData.community);
+          delete updateData.community;
+          if (cid) updateData.community_category_id = cid;
+        }
+        if ('caste' in updateData) {
+          const cstId = resolveCaste(updateData.caste, updateData.community_category_id);
+          delete updateData.caste;
+          if (cstId) updateData.caste_id = cstId;
+        }
+      }
+
+      // quota / accommodation_type TEXT columns are retired too. quota resolves
+      // globally; accommodation_type is institution-scoped, so look up the
+      // learner's institution to resolve the FK. Drop the text key either way.
+      if ('quota' in updateData) {
+        const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
+        const resolveQuota = await buildQuotaResolver(supabase);
+        const qid = resolveQuota(updateData.quota);
+        delete updateData.quota;
+        if (qid) updateData.quota_id = qid;
+      }
+      if ('accommodation_type' in updateData) {
+        const accText = updateData.accommodation_type;
+        delete updateData.accommodation_type;
+        if (accText) {
+          const { buildAccommodationTypeResolver } = await import('@/lib/utils/accommodation-type-resolver');
+          const resolveAccommodation = await buildAccommodationTypeResolver(supabase);
+          const aid = resolveAccommodation(accText);
+          if (aid) updateData.accommodation_type_id = aid;
+        }
+      }
+
       const { error: updateError } = await supabase
         .from('learners_profiles')
         .update(updateData)

@@ -37,6 +37,7 @@ import {
   BookOpen
 } from 'lucide-react';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
 import { useSemesters } from '@/hooks/organization/use-semesters';
@@ -59,6 +60,7 @@ export function FacultyCalendarFilters({
   viewMode,
   className
 }: FacultyCalendarFiltersProps) {
+  const adapt = useAdaptiveLabels();
   // Local state for controlled inputs
   const [localFilters, setLocalFilters] =
     useState<FacultyCalendarFilters>(filters);
@@ -68,7 +70,10 @@ export function FacultyCalendarFilters({
   });
 
   // Data hooks
-  const { institutions } = useInstitutionsWithAccess();
+  // entityType: 'all' — include schools (entity_type='school'); the access
+  // filter still scopes to the user's own institutions. Default would be
+  // 'institution' and silently exclude school users.
+  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
   const { data: degrees } = useDegrees({
     institution_id: localFilters.institution_id,
     isActive: true
@@ -213,21 +218,23 @@ export function FacultyCalendarFilters({
               <PopoverTrigger asChild>
                 <Button
                   variant='outline'
-                  className='w-full justify-start text-left font-normal'
+                  className='w-full min-w-0 justify-start text-left font-normal'
                 >
-                  <CalendarIcon className='mr-2 h-4 w-4' />
-                  {dateRange.from ? (
-                    dateRange.to ? (
-                      <>
-                        {format(dateRange.from, 'LLL dd, y')} -{' '}
-                        {format(dateRange.to, 'LLL dd, y')}
-                      </>
+                  <CalendarIcon className='mr-2 h-4 w-4 shrink-0' />
+                  <span className='min-w-0 truncate'>
+                    {dateRange.from ? (
+                      dateRange.to ? (
+                        <>
+                          {format(dateRange.from, 'LLL dd, y')} -{' '}
+                          {format(dateRange.to, 'LLL dd, y')}
+                        </>
+                      ) : (
+                        format(dateRange.from, 'LLL dd, y')
+                      )
                     ) : (
-                      format(dateRange.from, 'LLL dd, y')
-                    )
-                  ) : (
-                    <span>Pick a date range</span>
-                  )}
+                      'Pick a date range'
+                    )}
+                  </span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent className='w-auto p-0' align='start'>
@@ -326,7 +333,7 @@ export function FacultyCalendarFilters({
             <div className='space-y-2'>
               <Label className='text-sm font-medium flex items-center gap-2'>
                 <GraduationCap className='h-3 w-3' />
-                Degree
+                {adapt('Degree')}
               </Label>
               <Select
                 value={localFilters.degree_id || 'all'}
@@ -339,10 +346,10 @@ export function FacultyCalendarFilters({
                 disabled={!localFilters.institution_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select degree' />
+                  <SelectValue placeholder={`Select ${adapt('degree')}`} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>All Degrees</SelectItem>
+                  <SelectItem value='all'>{adapt('All Degrees')}</SelectItem>
                   {degrees?.data?.map((degree) => (
                     <SelectItem key={degree.id} value={degree.id}>
                       {degree.degree_name}
@@ -358,7 +365,7 @@ export function FacultyCalendarFilters({
             <div className='space-y-2'>
               <Label className='text-sm font-medium flex items-center gap-2'>
                 <GraduationCap className='h-3 w-3' />
-                Department
+                {adapt('Department')}
                 {localFilters.department_id && (
                   <Button
                     variant='ghost'
@@ -381,10 +388,10 @@ export function FacultyCalendarFilters({
                 disabled={!localFilters.institution_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select department' />
+                  <SelectValue placeholder={`Select ${adapt('department')}`} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>All Departments</SelectItem>
+                  <SelectItem value='all'>{adapt('All Departments')}</SelectItem>
                   {departments?.data?.map((department) => (
                     <SelectItem key={department.id} value={department.id}>
                       {department.department_name}
@@ -400,7 +407,7 @@ export function FacultyCalendarFilters({
             <div className='space-y-2'>
               <Label className='text-sm font-medium flex items-center gap-2'>
                 <BookOpen className='h-3 w-3' />
-                Program
+                {adapt('Program')}
               </Label>
               <Select
                 value={localFilters.program_id || 'all'}
@@ -413,10 +420,10 @@ export function FacultyCalendarFilters({
                 disabled={!localFilters.department_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select program' />
+                  <SelectValue placeholder={`Select ${adapt('program')}`} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>All Programs</SelectItem>
+                  <SelectItem value='all'>{adapt('All Programs')}</SelectItem>
                   {programs?.data?.map((program) => (
                     <SelectItem key={program.id} value={program.id}>
                       {program.program_name}
@@ -472,7 +479,7 @@ export function FacultyCalendarFilters({
           {/* Semester Filter */}
           {viewMode === 'admin' && (
             <div className='space-y-2'>
-              <Label className='text-sm font-medium'>Semester</Label>
+              <Label className='text-sm font-medium'>{adapt('Semester')}</Label>
               <Select
                 value={localFilters.semester_id || 'all'}
                 onValueChange={(value) =>
@@ -484,10 +491,10 @@ export function FacultyCalendarFilters({
                 disabled={!localFilters.institution_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select semester' />
+                  <SelectValue placeholder={`Select ${adapt('semester')}`} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>All Semesters</SelectItem>
+                  <SelectItem value='all'>{adapt('All Semesters')}</SelectItem>
                   {semesters?.data?.map((semester) => (
                     <SelectItem key={semester.id} value={semester.id}>
                       {semester.semester_name}
@@ -501,7 +508,7 @@ export function FacultyCalendarFilters({
           {/* Section Filter */}
           {viewMode === 'admin' && (
             <div className='space-y-2'>
-              <Label className='text-sm font-medium'>Section</Label>
+              <Label className='text-sm font-medium'>{adapt('Section')}</Label>
               <Select
                 value={localFilters.section_name || 'all'}
                 onValueChange={(value) =>
@@ -513,10 +520,10 @@ export function FacultyCalendarFilters({
                 disabled={!localFilters.semester_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select section' />
+                  <SelectValue placeholder={`Select ${adapt('section')}`} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>All Sections</SelectItem>
+                  <SelectItem value='all'>{adapt('All Sections')}</SelectItem>
                   {sections?.data?.map((section) => (
                     <SelectItem key={section.id} value={section.section_name}>
                       {section.section_name}
@@ -646,7 +653,7 @@ export function FacultyCalendarFilters({
         <div className='pt-4 border-t'>
           <Button
             onClick={applyFilters}
-            className='w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-3 text-base shadow-lg hover:shadow-xl transition-all duration-200'
+            className='w-full h-auto whitespace-normal leading-tight bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-3 text-base shadow-lg hover:shadow-xl transition-all duration-200'
             size='lg'
           >
             <Filter className='h-5 w-5 mr-2' />

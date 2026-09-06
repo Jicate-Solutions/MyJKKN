@@ -1,0 +1,5 @@
+PLACEHOLDER_START
+function sanitize(text: string): string {
+  return text.replace(/[^\x00-\xFF]/g, '');
+}
+PLACEHOLDER_END

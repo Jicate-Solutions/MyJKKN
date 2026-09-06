@@ -1,0 +1,18 @@
+{
+  // Scoped typecheck for the centralized Procurement module. The full-project `tsc`
+  // exceeds the tool timeout and surfaces pre-existing repo errors unrelated to this
+  // work; this config narrows the surface to procurement code so each phase has a
+  // fast, meaningful type gate. Run: npx tsc -p tsconfig.pc.json --noEmit
+  "extends": "./tsconfig.json",
+  "include": [
+    "next-env.d.ts",
+    "types/procurement/**/*.ts",
+    "lib/services/procurement/**/*.ts",
+    "lib/procurement/**/*.ts",
+    "hooks/procurement/**/*.ts",
+    "components/procurement/**/*.tsx",
+    "app/(routes)/procurement/**/*.tsx",
+    "app/api/procurement/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

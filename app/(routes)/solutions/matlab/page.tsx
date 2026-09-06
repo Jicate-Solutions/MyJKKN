@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -7,10 +8,14 @@ import { Activity, Calendar, TrendingUp } from 'lucide-react';
 import { format } from 'date-fns';
 import { useMatlabStats, useMatlabSnapshots } from '@/hooks/solutions/use-matlab-analytics';
 import { AdoptionKPICards } from './_components/adoption-kpi-cards';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function MatlabDashboardPage() {
+const MATLAB_TABS = ['overview', 'startup-studio', 'solution-hub', 'roi'] as const;
+
+function MatlabDashboardInner() {
   const { data: statsRaw, isLoading: statsLoading } = useMatlabStats();
   const { data: snapshotsRaw, isLoading: snapshotsLoading } = useMatlabSnapshots();
+  const [activeTab, setActiveTab] = useTabParam('overview', MATLAB_TABS);
 
   const stats = (statsRaw as any)?.data ?? statsRaw ?? null;
   const snapshots = (snapshotsRaw as any)?.data ?? snapshotsRaw ?? [];
@@ -18,7 +23,7 @@ export default function MatlabDashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">MATLAB Adoption Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -26,7 +31,7 @@ export default function MatlabDashboardPage() {
           </p>
         </div>
         {stats?.last_snapshot_date && (
-          <Badge variant="outline" className="flex items-center gap-1">
+          <Badge variant="outline" className="flex items-center gap-1 shrink-0">
             <Calendar className="h-3 w-3" />
             Last import: {format(new Date(stats.last_snapshot_date), 'MMM d, yyyy')}
           </Badge>
@@ -37,8 +42,8 @@ export default function MatlabDashboardPage() {
       <AdoptionKPICards stats={stats} isLoading={statsLoading} />
 
       {/* Tabs */}
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="startup-studio">Startup Studio</TabsTrigger>
           <TabsTrigger value="solution-hub">Solution Hub</TabsTrigger>
@@ -143,7 +148,7 @@ export default function MatlabDashboardPage() {
               <CardTitle>License ROI</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 border rounded-lg">
                   <p className="text-sm text-muted-foreground">License Cost</p>
                   <p className="text-2xl font-bold">₹11,80,350</p>
@@ -166,5 +171,14 @@ export default function MatlabDashboardPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function MatlabDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MatlabDashboardInner />
+    </Suspense>
   );
 }

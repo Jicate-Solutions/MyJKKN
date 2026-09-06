@@ -48,8 +48,17 @@ export async function POST(
     const body: Omit<CreateBosAgendaItemDto, 'meeting_id' | 'item_number' | 'sort_order' | 'institutions_id'> =
       await request.json();
 
-    if (!body.item_title?.trim()) {
-      return NextResponse.json({ error: 'item_title is required' }, { status: 400 });
+    // Title is optional — description-only items are allowed. Require at least
+    // one of title or description so blank rows can't be saved.
+    const hasTitle = !!body.item_title?.trim();
+    const hasDescription = !!String(body.item_description ?? '')
+      .replace(/<[^>]*>/g, '')
+      .trim();
+    if (!hasTitle && !hasDescription) {
+      return NextResponse.json(
+        { error: 'Provide a title or description' },
+        { status: 400 },
+      );
     }
 
     // Resolve institutions_id from the parent meeting row
@@ -75,6 +84,8 @@ export async function POST(
       .from('bos_agenda_items')
       .insert({
         ...body,
+        // DB column is NOT NULL — store empty string when title is omitted.
+        item_title: body.item_title?.trim() ?? '',
         institutions_id: meeting.institutions_id,
         meeting_id: meetingId,
         item_number: nextNumber,

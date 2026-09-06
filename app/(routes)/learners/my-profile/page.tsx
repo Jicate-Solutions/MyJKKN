@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import ProfilePageContent from './_components/profile-page-content';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -28,9 +29,11 @@ export default async function MyProfilePage() {
     redirect('/');
   }
 
-  // Step 3: Lifecycle status validation
+  // Step 3: Lifecycle status validation. Pre-onboarding (induction-only) learners
+  // are allowed here so they can complete their profile before onboarding; every
+  // other restricted status is still bounced. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
   const validation = await StudentValidationService.validateStudentAccess(user.id);
-  if (!validation.allowed) {
+  if (!validation.allowed && validation.accessTier !== 'induction_only') {
     redirect(`/auth/login?reason=${validation.reason}`);
   }
 
@@ -78,6 +81,10 @@ export default async function MyProfilePage() {
         batch_name,
         batch_code,
         id
+      ),
+      accommodation_ref:accommodation_types!accommodation_type_id (
+        code,
+        name
       )
     `)
     .eq('id', profile.learner_id)
@@ -117,6 +124,16 @@ export default async function MyProfilePage() {
       </ContentLayout>
     );
   }
+
+  // accommodation_type TEXT column is retired — derive the legacy 'HOSTEL'/
+  // 'DAY SCHOLAR' value from the FK so the Accommodation card, its conditional
+  // sub-fields and calculateProfileCompletion() keep working off
+  // learner.accommodation_type.
+  const learnerRow = learnerProfile as Record<string, unknown>;
+  learnerRow.accommodation_type = accommodationLegacyFromCode(
+    (learnerRow.accommodation_ref as { code?: string } | null)?.code,
+  );
+  delete learnerRow.accommodation_ref;
 
   return (
     <ContentLayout title="My Profile">

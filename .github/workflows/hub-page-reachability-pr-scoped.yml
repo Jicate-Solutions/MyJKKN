@@ -1,0 +1,160 @@
+name: Hub Page Reachability (PR-scoped)
+
+# Catches the hub-page-404 bug class: a directory under app/(routes)/ has
+# `*/page.tsx` children (so its children are routable URLs) but no `page.tsx`
+# at the parent itself — direct navigation to the parent URL 404s in
+# Next.js App Router.
+#
+# The class has hit prod three times already (HR Apr 2026, PDE Jun 2 2026,
+# PDE sweep Jun 2 2026) with 5+6+1 = 12 instances fixed across hotfix PRs.
+# Memory `reference_hub_page_404_class.md` predicts the same class is
+# "likely present in CDC/campus-living" — a quick audit on jicate/main today
+# found 51 baseline violations across modules.
+#
+# This gate is the ratchet — new PRs cannot ADD missing hubs to the codebase.
+# Existing 51 baseline violations are ignored (PR-scoped delta-only, same
+# discipline as typecheck-pr-scoped.yml). Once a PR introduces a NEW directory
+# with `*/page.tsx` children but no own `page.tsx`, this fails with an
+# annotation pointing at the missing `<dir>/page.tsx`.
+#
+# False-positive filter: skips parallel routes (@*), private folders (_*),
+# route groups ((...) — these don't map to URL segments).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+  # Merge queue (2026-07-11): the delta audit re-runs on the queue's merged
+  # tree (group parent vs merged head = exactly this PR's slice) so a
+  # combination of individually-green PRs can't land a broken main.
+  # Inert until the merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  hub-reachability:
+    name: Hub Page Reachability (PR-scoped)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need base ref for delta computation
+
+      - name: Audit PR HEAD for missing hub pages
+        id: audit_head
+        run: |
+          set -e
+          # Scan all directories under app/(routes)/ — flag any directory
+          # that has descendants containing page.tsx but no page.tsx itself.
+          # Skip parallel-route (@), private (_) directories per Next.js
+          # routing semantics — they don't map to a direct URL.
+          find "app/(routes)" -mindepth 1 -type d 2>/dev/null | while read d; do
+            name=$(basename "$d")
+            case "$name" in
+              @*|_*) continue ;;
+            esac
+            # Check if directory has any descendant page.tsx
+            if find "$d" -mindepth 2 -name 'page.tsx' -print -quit 2>/dev/null | grep -q .; then
+              # Check if directory itself has page.tsx
+              if [ ! -f "$d/page.tsx" ]; then
+                # A Route Handler exporting GET also serves the URL (no 404):
+                # redirect-only landings use route.ts because a page-body
+                # redirect() degrades under the (routes) Suspense boundary.
+                if { [ -f "$d/route.ts" ] && grep -qE 'export (async )?(function|const) GET' "$d/route.ts"; } || \
+                   { [ -f "$d/route.js" ] && grep -qE 'export (async )?(function|const) GET' "$d/route.js"; }; then
+                  continue
+                fi
+                echo "$d"
+              fi
+            fi
+          done | sort > /tmp/missing-hubs-head.txt
+          head_count=$(wc -l < /tmp/missing-hubs-head.txt | tr -d ' ')
+          echo "head_count=$head_count" >> "$GITHUB_OUTPUT"
+          echo "::notice::PR HEAD has $head_count directories missing a hub page.tsx"
+
+      - name: Audit PR BASE for missing hub pages (baseline)
+        id: audit_base
+        env:
+          # pull_request → PR base; merge_group → the queue group's parent SHA.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -e
+          # Stash any working-tree changes (shouldn't be any in CI, but defensive)
+          # then checkout base SHA, run the same audit, restore PR head.
+          git stash --include-untracked --quiet || true
+          git checkout -q "$BASE_SHA"
+
+          find "app/(routes)" -mindepth 1 -type d 2>/dev/null | while read d; do
+            name=$(basename "$d")
+            case "$name" in
+              @*|_*) continue ;;
+            esac
+            if find "$d" -mindepth 2 -name 'page.tsx' -print -quit 2>/dev/null | grep -q .; then
+              if [ ! -f "$d/page.tsx" ]; then
+                # A Route Handler exporting GET also serves the URL (no 404):
+                # redirect-only landings use route.ts because a page-body
+                # redirect() degrades under the (routes) Suspense boundary.
+                if { [ -f "$d/route.ts" ] && grep -qE 'export (async )?(function|const) GET' "$d/route.ts"; } || \
+                   { [ -f "$d/route.js" ] && grep -qE 'export (async )?(function|const) GET' "$d/route.js"; }; then
+                  continue
+                fi
+                echo "$d"
+              fi
+            fi
+          done | sort > /tmp/missing-hubs-base.txt
+          base_count=$(wc -l < /tmp/missing-hubs-base.txt | tr -d ' ')
+          echo "base_count=$base_count" >> "$GITHUB_OUTPUT"
+          echo "::notice::PR BASE has $base_count directories missing a hub page.tsx (baseline)"
+
+          # Restore PR head
+          git checkout -q -
+
+      - name: Compute new violations (HEAD minus BASE)
+        id: delta
+        run: |
+          set -e
+          # New violations = on HEAD but not on BASE
+          comm -23 /tmp/missing-hubs-head.txt /tmp/missing-hubs-base.txt > /tmp/new-violations.txt
+          new_count=$(wc -l < /tmp/new-violations.txt | tr -d ' ')
+          echo "new_count=$new_count" >> "$GITHUB_OUTPUT"
+
+          # Also surface fixes (on BASE but not HEAD) for the celebration line
+          comm -13 /tmp/missing-hubs-head.txt /tmp/missing-hubs-base.txt > /tmp/fixed-violations.txt
+          fixed_count=$(wc -l < /tmp/fixed-violations.txt | tr -d ' ')
+          echo "fixed_count=$fixed_count" >> "$GITHUB_OUTPUT"
+
+      - name: Pass — no new missing hubs introduced
+        if: steps.delta.outputs.new_count == '0'
+        run: |
+          fixed=${{ steps.delta.outputs.fixed_count }}
+          if [ "$fixed" -gt 0 ]; then
+            echo "::notice::This PR FIXES $fixed hub-page-404 violations. Net improvement vs baseline."
+            cat /tmp/fixed-violations.txt
+          else
+            echo "::notice::No new hub-page-404 violations introduced. (baseline unchanged at ${{ steps.audit_base.outputs.base_count }} legacy violations — not in this PR's scope to fix)"
+          fi
+
+      - name: Fail — new missing hubs introduced
+        if: steps.delta.outputs.new_count != '0'
+        run: |
+          new_count=${{ steps.delta.outputs.new_count }}
+          echo "::error::This PR introduces $new_count NEW directories with child routes but no parent page.tsx — those URLs will 404 in production."
+          echo ""
+          echo "New violations:"
+          while IFS= read -r dir; do
+            echo "::error file=$dir,title=Missing hub page.tsx::Directory has child *.page.tsx routes but no page.tsx at this level → URL $dir will 404. Add a hub page.tsx (config-driven redirect mirroring app/(routes)/admin/pde/page.tsx is the project pattern)."
+            echo "  $dir/page.tsx"
+          done < /tmp/new-violations.txt
+
+          echo ""
+          echo "Background: Next.js App Router requires a page.tsx at every directory you want reachable as a URL. The hub-page-404 class has hit prod 3 times in 2026 (HR Apr, PDE Jun, PDE sweep Jun)."
+          echo ""
+          echo "Fix pattern: see app/(routes)/admin/pde/page.tsx (config-driven redirect) or app/(routes)/faculty/pde/page.tsx (hardcoded redirect). For dynamic-segment parents like [id]/page.tsx, use params-aware redirect — see app/(routes)/faculty/pde/cases/[id]/page.tsx."
+          exit 1

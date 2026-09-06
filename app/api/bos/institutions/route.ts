@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
-import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, hasAnyBosPermission, BOS_LOOKUP_VIEW_KEYS } from '@/lib/utils/bos/bos-access';
 
 interface CoeInstitution {
   id: string;
@@ -66,8 +66,14 @@ export async function GET() {
 
     const flattened = Array.from(grouped.values()).filter((o) => !!o.id);
 
-    // Non-admin scope → only the caller's own institution.
-    const visible = scope.isSuperAdmin
+    // Read-only observer: any BoS lookup view grant (courses/scheme/syllabus)
+    // lifts the own-institution filter so dropdowns can browse ALL institutions.
+    // VIEW ONLY — writes stay gated by guard*Write on the mutating routes.
+    const canReadAll =
+      scope.isSuperAdmin || (await hasAnyBosPermission(user.id, BOS_LOOKUP_VIEW_KEYS));
+
+    // Non-admin, non-observer scope → only the caller's own institution.
+    const visible = canReadAll
       ? flattened
       : scope.institutionsId
         ? flattened.filter((r) => r.myjkkn_institution_ids.includes(scope.institutionsId!))

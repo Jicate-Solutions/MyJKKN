@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { ImsActivityFeed } from '@/components/ims/activity-feed';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ import { summariseGstLines } from '@/lib/utils/ims-gst-calculator';
 import type { GstLineBreakdown } from '@/lib/utils/ims-gst-calculator';
 import { GRN_STATUS_CONFIG } from '@/types/ims';
 import type { ImsGRNItem } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -59,6 +61,18 @@ function itemToBreakdown(item: ImsGRNItem): GstLineBreakdown {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function GRNDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  return (
+    <ImsPageGuard module="ims.stock.grn" action="view">
+      <GRNDetailPageInner params={params} />
+    </ImsPageGuard>
+  );
+}
+
+function GRNDetailPageInner({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -339,6 +353,9 @@ export default function GRNDetailPage({
             </div>
           </CardContent>
         </Card>
+
+        {/* Phase F: end-to-end audit trail */}
+        <ImsActivityFeed entityType="grn" entityId={id} />
       </div>
     </ContentLayout>
   );

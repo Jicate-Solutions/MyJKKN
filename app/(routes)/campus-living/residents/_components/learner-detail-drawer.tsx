@@ -10,7 +10,10 @@
 //   3. Section 1: Learner record (read-only)
 //   4. Section 2: Hostel profile (read-only, from learner_hostel_profiles)
 //   5. Section 3: Allocation status (current active or "Allocate" CTA)
-//   6. Section 4: Recent activity — last 5 gate-passes + leaves + attendance +
+//   6. Section 4: Billing details — itemized bills across all academic years
+//      (campus_living_get_hostelite_bills RPC), with a billed/paid/outstanding
+//      roll-up. Added 2026-06-09.
+//   7. Section 5: Recent activity — last 5 gate-passes + leaves + attendance +
 //      open vacate. (Leaves added 2026-05-15 once /campus-living/leave UI route
 //      shipped; was deferred in PR #822 per /assumption-thrash Round 1 #2.)
 //
@@ -41,12 +44,14 @@ import {
   ClipboardList,
   DoorOpen,
   AlertCircle,
+  Receipt,
 } from 'lucide-react';
 import type {
   LearnerGatePassSummary,
   LearnerAttendanceSummary,
   LearnerVacateRequestSummary,
   LearnerLeaveSummary,
+  LearnerBillItem,
 } from '@/types/campus-living';
 
 interface Props {
@@ -54,6 +59,32 @@ interface Props {
   onClose: () => void;
   onEdit?: () => void; // opens existing edit drawer (warden+ only)
   canEdit?: boolean;
+  /** Open the inline room-allocation dialog for this (unallocated) learner.
+   *  When provided, the "Allocate to a block" CTA uses it instead of the old
+   *  /allocations/new wizard (which ignores the learner + has a broken submit). */
+  onAllocate?: () => void;
+  /** Placement readiness for an UNPLACED learner, from
+   *  fn_hostel_unallocated_candidates (supplied by the Allocations table).
+   *
+   *  The categories here are what the allocation RULES resolve, which is not
+   *  the same thing as `v_learner_hostelites.hostel_category_name` — that is
+   *  what the learner's own profile stores. Measured on 2026-09-02 the two
+   *  disagreed for 14 of the 61 unplaced learners: 10 whose profile says
+   *  Deluxe / Deluxe Plus while the rules resolve Classic, and 4 whose profile
+   *  is blank while the rules resolve a category fine. Showing only the profile
+   *  value told an admin a learner was getting a room they will not get, so
+   *  when this prop is present the resolved value leads and a disagreeing
+   *  profile value is called out rather than hidden.
+   *
+   *  `blockers` arrives already humanised (missing_items, else the bill-state
+   *  label) so the drawer and the table's "Why not allocated" column cannot
+   *  drift apart. */
+  placement?: {
+    readiness: 'ready' | 'incomplete';
+    resolvedRoomCategory: string | null;
+    resolvedMessCategory: string | null;
+    blockers: string[];
+  } | null;
 }
 
 function fullName(first: string | null, last: string | null): string {
@@ -80,7 +111,14 @@ function formatRupees(n: number | null | undefined): string {
   return `₹${n.toLocaleString('en-IN')}`;
 }
 
-export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Props) {
+export function LearnerDetailDrawer({
+  learnerId,
+  onClose,
+  onEdit,
+  canEdit,
+  onAllocate,
+  placement,
+}: Props) {
   const open = !!learnerId;
   const router = useRouter();
   const { institutions } = useInstitutionsWithAccess();
@@ -95,6 +133,15 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
     return match?.name ?? '—';
   }, [data, institutions]);
 
+  // Roll-up of the itemized bills (all academic years). Paid = billed −
+  // outstanding (each bill already carries balance_amount).
+  const billSummary = useMemo(() => {
+    const bills = data?.bills ?? [];
+    const billed = bills.reduce((s, b) => s + (b.final_amount ?? 0), 0);
+    const outstanding = bills.reduce((s, b) => s + (b.balance_amount ?? 0), 0);
+    return { count: bills.length, billed, outstanding, paid: billed - outstanding };
+  }, [data]);
+
   function handleOpenChange(next: boolean) {
     if (!next) onClose();
   }
@@ -103,6 +150,10 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
     if (!data?.learner) return;
     if (data.currentAllocation) {
       router.push(`/campus-living/allocations`);
+    } else if (onAllocate) {
+      // Open the inline allocate dialog (pre-selected learner, occupancy panel,
+      // working RPC) instead of the old wizard.
+      onAllocate();
     } else {
       router.push(`/campus-living/allocations/new?learner=${data.learner.id}`);
     }
@@ -151,11 +202,6 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
           <div className='mt-6 space-y-6'>
             {/* Status chips */}
             <div className='flex flex-wrap gap-2'>
-              {data.learner.hostel_type && (
-                <Badge variant={data.learner.hostel_type === 'AC HOSTEL' ? 'default' : 'secondary'}>
-                  {data.learner.hostel_type === 'AC HOSTEL' ? 'AC Hostel' : 'Non-AC Hostel'}
-                </Badge>
-              )}
               {data.learner.year_of_study !== null && data.learner.year_of_study !== undefined && (
                 <Badge variant='outline'>Year {data.learner.year_of_study}</Badge>
               )}
@@ -236,6 +282,74 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
 
             {/* Section 3: Allocation status */}
             <Section title='Allocation status'>
+              {/* Room / mess category. Without `placement` these come off the
+                  learner's profile (v_learner_hostelites) exactly as before.
+                  With it — i.e. an unplaced learner opened from the Allocations
+                  table — the rule-resolved category leads instead, because that
+                  is what allocation will actually give them. See the Props doc. */}
+              {placement ? (
+                <>
+                  <CategoryKV
+                    label='Room category'
+                    resolved={placement.resolvedRoomCategory}
+                    stored={data.learner.hostel_category_name}
+                  />
+                  <CategoryKV
+                    label='Mess category'
+                    resolved={placement.resolvedMessCategory}
+                    stored={data.learner.mess_category_name}
+                  />
+                </>
+              ) : (
+                <>
+                  <KV label='Room category' value={dash(data.learner.hostel_category_name)} />
+                  <KV label='Mess category' value={dash(data.learner.mess_category_name)} />
+                </>
+              )}
+
+              {/* Readiness — the same verdict and blocking reasons the
+                  Allocations table shows, so opening a row never contradicts
+                  the row it was opened from. */}
+              {placement && (
+                <div className='sm:col-span-2 rounded-md border p-3'>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <span className='text-[11px] text-muted-foreground'>Readiness</span>
+                    {placement.readiness === 'ready' ? (
+                      <Badge className='gap-1 border-green-200 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'>
+                        Ready to allocate
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant='outline'
+                        className='gap-1 border-amber-300 text-amber-700 dark:text-amber-400'
+                      >
+                        Incomplete
+                      </Badge>
+                    )}
+                  </div>
+                  {placement.readiness === 'ready' ? (
+                    <p className='mt-2 text-xs text-green-700 dark:text-green-400'>
+                      All conditions met — a bed can be assigned now.
+                    </p>
+                  ) : placement.blockers.length > 0 ? (
+                    <div className='mt-2 flex flex-wrap gap-1'>
+                      {placement.blockers.map((b) => (
+                        <Badge
+                          key={b}
+                          variant='outline'
+                          className='border-amber-300 text-[10px] text-amber-700 dark:text-amber-400'
+                        >
+                          {b}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className='mt-2 text-xs text-muted-foreground'>
+                      Blocked, but no specific reason was reported.
+                    </p>
+                  )}
+                </div>
+              )}
               {data.currentAllocation ? (
                 <>
                   <KV
@@ -265,7 +379,36 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
 
             <Separator />
 
-            {/* Section 4: Recent activity (4-slice — leaves added 2026-05-15) */}
+            {/* Section 4: Billing details (itemized bills — all academic years) */}
+            <Section title='Billing details'>
+              <div className='col-span-2 space-y-3'>
+                {/* Summary chips */}
+                <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
+                  <BillStat label='Billed' value={formatRupees(billSummary.billed)} />
+                  <BillStat label='Paid' value={formatRupees(billSummary.paid)} tone='paid' />
+                  <BillStat label='Outstanding' value={formatRupees(billSummary.outstanding)} tone={billSummary.outstanding > 0 ? 'due' : 'paid'} />
+                  <BillStat label='Bills' value={String(billSummary.count)} />
+                </div>
+
+                {/* Itemized list */}
+                {data.bills.length > 0 ? (
+                  <ul className='divide-y rounded-md border'>
+                    {data.bills.map((b: LearnerBillItem) => (
+                      <BillRow key={b.id} bill={b} />
+                    ))}
+                  </ul>
+                ) : (
+                  <div className='flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground'>
+                    <Receipt className='h-4 w-4' />
+                    No bills generated for this learner yet.
+                  </div>
+                )}
+              </div>
+            </Section>
+
+            <Separator />
+
+            {/* Section 5: Recent activity (4-slice — leaves added 2026-05-15) */}
             <Section title='Recent activity'>
               <div className='col-span-2 space-y-4'>
                 <ActivitySubsection
@@ -369,6 +512,42 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// Room/mess category for an UNPLACED learner: lead with what allocation will
+// actually resolve, and surface the profile's own value when it disagrees
+// rather than silently picking one of the two. A learner whose profile says
+// Deluxe but who resolves to Classic is a downgrade the admin needs to see
+// BEFORE assigning the bed, not after.
+function CategoryKV({
+  label,
+  resolved,
+  stored,
+}: {
+  label: string;
+  resolved: string | null;
+  stored: string | null;
+}) {
+  const mismatch = !!resolved && !!stored && resolved !== stored;
+  return (
+    <div>
+      <dt className='text-[11px] text-muted-foreground'>{label}</dt>
+      <dd className='text-sm'>{resolved ?? stored ?? '—'}</dd>
+      {mismatch && (
+        <p className='mt-0.5 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400'>
+          <AlertCircle className='mt-px h-3 w-3 shrink-0' />
+          <span>
+            Profile says {stored} — allocation resolves {resolved}
+          </span>
+        </p>
+      )}
+      {!resolved && stored && (
+        <p className='mt-0.5 text-[11px] text-muted-foreground'>
+          From the profile; no rule resolved one yet
+        </p>
+      )}
+    </div>
+  );
+}
+
 function KV({
   label,
   value,
@@ -435,5 +614,76 @@ function VacateRow({ vac }: { vac: LearnerVacateRequestSummary }) {
         <div>Submitted: {formatDate(vac.created_at)}</div>
       </div>
     </div>
+  );
+}
+
+// ─── Billing helpers ──────────────────────────────────────────────────
+
+function BillStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: 'paid' | 'due';
+}) {
+  const valueCls =
+    tone === 'paid' ? 'text-green-700' : tone === 'due' ? 'text-red-700' : 'text-foreground';
+  return (
+    <div className='rounded-md border bg-muted/20 px-3 py-2'>
+      <div className='text-[11px] text-muted-foreground'>{label}</div>
+      <div className={`font-mono text-sm font-medium ${valueCls}`}>{value}</div>
+    </div>
+  );
+}
+
+// Maps billing_student_bills.status → label + badge classes. Cancelled/superseded
+// are filtered out server-side, so only the live states reach here.
+function billStatusBadge(status: string | null): { label: string; cls: string } {
+  switch (status) {
+    case 'paid':
+      return { label: 'Paid', cls: 'bg-green-100 text-green-800 hover:bg-green-100' };
+    case 'partially_paid':
+      return { label: 'Partial', cls: 'bg-amber-100 text-amber-800 hover:bg-amber-100' };
+    case 'overdue':
+      return { label: 'Overdue', cls: 'bg-red-100 text-red-800 hover:bg-red-100' };
+    case 'unpaid':
+      return { label: 'Unpaid', cls: 'bg-slate-100 text-slate-700 hover:bg-slate-100' };
+    default:
+      return { label: status ? status.replace(/_/g, ' ') : '—', cls: '' };
+  }
+}
+
+function BillRow({ bill }: { bill: LearnerBillItem }) {
+  const badge = billStatusBadge(bill.status);
+  // Prefer the explicit description; fall back to the category (bill_description
+  // is null for auto-generated academic/hostel bills).
+  const title = bill.bill_description?.trim() || bill.category_name || 'Bill';
+  // Period: the bill's academic year if tagged, else the year-of-study it applies
+  // to (academic tuition bills carry applies_year_of_study, not academic_year_id).
+  const period =
+    bill.academic_year_name?.trim() ||
+    (bill.applies_year_of_study != null ? `Year ${bill.applies_year_of_study}` : null);
+
+  return (
+    <li className='flex items-start justify-between gap-3 px-3 py-2'>
+      <div className='min-w-0'>
+        <div className='truncate text-sm font-medium'>{title}</div>
+        <div className='flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground'>
+          {period && <span>{period}</span>}
+          {bill.due_date && <span>· Due {formatDate(bill.due_date)}</span>}
+          {bill.balance_amount != null && bill.balance_amount > 0 && (
+            <span>· Bal {formatRupees(bill.balance_amount)}</span>
+          )}
+        </div>
+      </div>
+      <div className='flex shrink-0 flex-col items-end gap-1'>
+        <span className='font-mono text-sm font-medium'>{formatRupees(bill.final_amount)}</span>
+        <Badge className={`w-fit border-transparent text-[10px] ${badge.cls}`}>
+          {badge.label}
+        </Badge>
+      </div>
+    </li>
   );
 }

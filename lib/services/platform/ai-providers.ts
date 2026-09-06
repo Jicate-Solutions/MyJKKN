@@ -81,12 +81,69 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
     label: 'Anthropic',
     envVarHint: 'ANTHROPIC_API_KEY',
     models: [
+      // ── Family aliases (always-latest) — the ONLY selectable Claude models.
+      // The Max-lane Claude CLI resolves `--model sonnet` / `--model opus` to
+      // Anthropic's current-latest in that tier, so these auto-follow new
+      // releases (Sonnet 5, Opus 5, …) with no config change, at ₹0 on the Max
+      // subscription. The concrete dated ids below are kept ONLY so historical
+      // ai_model_usage rows still resolve a friendly label + reference pricing;
+      // the picker no longer offers them (see ai-model-edit-dialog.tsx).
+      {
+        id: 'sonnet',
+        label: 'Sonnet (latest)',
+        inputPer1KTokensInr: 0.255,
+        outputPer1KTokensInr: 1.275,
+        modality: 'chat',
+        notes: 'Always the newest Sonnet (CLI resolves --model sonnet). Default for all Max-lane jobs. ₹0 on the Max subscription.',
+      },
+      {
+        id: 'opus',
+        label: 'Opus (latest)',
+        inputPer1KTokensInr: 0.425,
+        outputPer1KTokensInr: 2.125,
+        modality: 'chat',
+        notes: 'Always the newest Opus (CLI resolves --model opus). ₹0 on the Max subscription. Use for the highest-quality jobs.',
+      },
+      {
+        id: 'fable',
+        label: 'Fable (latest)',
+        // Published rates: $10 / million input, $50 / million output.
+        // Converted at the same ₹85/USD basis the rest of this list uses —
+        // Sonnet's 0.255/1.275 against $3/$15 and Opus's 0.425/2.125 against
+        // $5/$25 both resolve to 85, so Fable's $10/$50 gives 0.85/4.25 (exactly
+        // double Opus, matching the published ratio).
+        // A 0 sentinel was avoided deliberately: the console reads these to
+        // project spend and enforce monthly_spend_cap_inr, and 0 is
+        // indistinguishable from "genuinely free" — an API-lane job on Fable
+        // would report ₹0 and could never trip its cap.
+        // Source: https://platform.claude.com/docs/en/about-claude/pricing
+        inputPer1KTokensInr: 0.85,
+        outputPer1KTokensInr: 4.25,
+        modality: 'chat',
+        notes: 'Always the newest Fable (CLI resolves --model fable — verified 2026-08-06). ₹0 on the Max subscription; API-lane rates are $10/$50 per million tokens.',
+      },
       {
         id: 'claude-haiku-4-5',
         label: 'Claude Haiku 4.5 (cheap, fast)',
         inputPer1KTokensInr: 0.085,
         outputPer1KTokensInr: 0.425,
         modality: 'chat',
+      },
+      {
+        id: 'claude-haiku-4-5-20251001',
+        label: 'Claude Haiku 4.5 (dated snapshot)',
+        inputPer1KTokensInr: 0.085,
+        outputPer1KTokensInr: 0.425,
+        modality: 'chat',
+        notes: 'dated alias of claude-haiku-4-5',
+      },
+      {
+        id: 'claude-3-5-haiku-20241022',
+        label: 'Claude Haiku 3.5 (legacy)',
+        inputPer1KTokensInr: 0.068,
+        outputPer1KTokensInr: 0.34,
+        modality: 'chat',
+        notes: 'legacy Haiku 3.5',
       },
       {
         id: 'claude-sonnet-4-5',
@@ -96,11 +153,35 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
         modality: 'chat',
       },
       {
+        id: 'claude-sonnet-4-6',
+        label: 'Claude Sonnet 4.6',
+        inputPer1KTokensInr: 0.255,
+        outputPer1KTokensInr: 1.275,
+        modality: 'chat',
+        notes: 'Platform workhorse — default for cron AI features.',
+      },
+      {
+        id: 'claude-sonnet-4-20250514',
+        label: 'Claude Sonnet 4 (legacy dated id)',
+        inputPer1KTokensInr: 0.255,
+        outputPer1KTokensInr: 1.275,
+        modality: 'chat',
+        notes: 'legacy dated id — migrate off',
+      },
+      {
         id: 'claude-opus-4-7',
         label: 'Claude Opus 4.7 (highest quality)',
         inputPer1KTokensInr: 1.275,
         outputPer1KTokensInr: 6.375,
         modality: 'chat',
+      },
+      {
+        id: 'claude-opus-4-8',
+        label: 'Claude Opus 4.8 (highest quality)',
+        inputPer1KTokensInr: 0.425,
+        outputPer1KTokensInr: 2.125,
+        modality: 'chat',
+        notes: 'Anthropic list $5/$25 per MTok at ₹85/USD. Used by procurement PDF extraction.',
       },
     ],
   },
@@ -163,8 +244,15 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
     envVarHint: 'SARVAM_API_KEY',
     models: [
       {
+        id: 'saarika:v2.5',
+        label: 'Saarika v2.5 (multilingual ASR, current)',
+        perMinuteInr: 0.42,
+        modality: 'audio_transcription',
+        notes: 'Better Tamil/Hindi accuracy than Whisper; auto-detects language via language_code=unknown.',
+      },
+      {
         id: 'saaras:v2',
-        label: 'Saaras v2 (multilingual ASR)',
+        label: 'Saaras v2 (multilingual ASR, legacy)',
         perMinuteInr: 0.42,
         modality: 'audio_transcription',
         notes: 'Better Tamil/Hindi accuracy than Whisper.',

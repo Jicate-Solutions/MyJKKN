@@ -5,6 +5,9 @@ import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
+import TextAlign from '@tiptap/extension-text-align';
+import Subscript from '@tiptap/extension-subscript';
+import Superscript from '@tiptap/extension-superscript';
 import { useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -24,7 +27,16 @@ import {
   Unlink,
   Undo,
   Redo,
-  Minus
+  Minus,
+  Heading1,
+  Heading2,
+  Heading3,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Subscript as SubscriptIcon,
+  Superscript as SuperscriptIcon
 } from 'lucide-react';
 
 interface RichTextEditorProps {
@@ -34,6 +46,12 @@ interface RichTextEditorProps {
   maxLength?: number;
   disabled?: boolean;
   className?: string;
+  /**
+   * Show the extended (Word/SOP-style) toolbar — headings, paragraph alignment,
+   * and sub/superscript — on top of the basic formatting. Opt-in so existing
+   * consumers (notifications, parent portal) keep the compact toolbar.
+   */
+  extended?: boolean;
 }
 
 function ToolbarButton({
@@ -75,7 +93,7 @@ function ToolbarButton({
   );
 }
 
-function Toolbar({ editor }: { editor: Editor }) {
+function Toolbar({ editor, extended = false }: { editor: Editor; extended?: boolean }) {
   const setLink = useCallback(() => {
     const previousUrl = editor.getAttributes('link').href;
     const url = window.prompt('Enter URL', previousUrl || 'https://');
@@ -117,6 +135,31 @@ function Toolbar({ editor }: { editor: Editor }) {
         tooltip='Underline (Ctrl+U)'
       />
 
+      {extended && (
+        <>
+          <div className='w-px h-5 bg-border mx-1' />
+          {/* Headings */}
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            isActive={editor.isActive('heading', { level: 1 })}
+            icon={Heading1}
+            tooltip='Heading 1'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            isActive={editor.isActive('heading', { level: 2 })}
+            icon={Heading2}
+            tooltip='Heading 2'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            isActive={editor.isActive('heading', { level: 3 })}
+            icon={Heading3}
+            tooltip='Heading 3'
+          />
+        </>
+      )}
+
       <div className='w-px h-5 bg-border mx-1' />
 
       {/* Lists */}
@@ -132,6 +175,51 @@ function Toolbar({ editor }: { editor: Editor }) {
         icon={ListOrdered}
         tooltip='Numbered List'
       />
+
+      {extended && (
+        <>
+          <div className='w-px h-5 bg-border mx-1' />
+          {/* Alignment */}
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setTextAlign('left').run()}
+            isActive={editor.isActive({ textAlign: 'left' })}
+            icon={AlignLeft}
+            tooltip='Align Left'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setTextAlign('center').run()}
+            isActive={editor.isActive({ textAlign: 'center' })}
+            icon={AlignCenter}
+            tooltip='Align Center'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setTextAlign('right').run()}
+            isActive={editor.isActive({ textAlign: 'right' })}
+            icon={AlignRight}
+            tooltip='Align Right'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setTextAlign('justify').run()}
+            isActive={editor.isActive({ textAlign: 'justify' })}
+            icon={AlignJustify}
+            tooltip='Justify'
+          />
+          <div className='w-px h-5 bg-border mx-1' />
+          {/* Sub / Superscript */}
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleSubscript().run()}
+            isActive={editor.isActive('subscript')}
+            icon={SubscriptIcon}
+            tooltip='Subscript'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleSuperscript().run()}
+            isActive={editor.isActive('superscript')}
+            icon={SuperscriptIcon}
+            tooltip='Superscript'
+          />
+        </>
+      )}
 
       <div className='w-px h-5 bg-border mx-1' />
 
@@ -185,12 +273,18 @@ export function RichTextEditor({
   placeholder = 'Write your message...',
   maxLength,
   disabled = false,
-  className
+  className,
+  extended = false
 }: RichTextEditorProps) {
   const editor = useEditor({
+    // Tiptap renders on the server otherwise, causing hydration mismatches in
+    // the Next.js App Router. Defer the first render to the client.
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({
-        heading: false,
+        // Extended mode enables Word/SOP-style headings; compact mode keeps the
+        // original heading-free behaviour.
+        heading: extended ? { levels: [1, 2, 3] } : false,
         codeBlock: false,
         code: false,
         blockquote: false
@@ -204,7 +298,15 @@ export function RichTextEditor({
       }),
       Placeholder.configure({
         placeholder
-      })
+      }),
+      // Extended-only extensions (alignment + sub/superscript).
+      ...(extended
+        ? [
+            TextAlign.configure({ types: ['heading', 'paragraph'] }),
+            Subscript,
+            Superscript
+          ]
+        : [])
     ],
     content: value || '',
     editable: !disabled,
@@ -253,7 +355,7 @@ export function RichTextEditor({
         className
       )}
     >
-      {editor && <Toolbar editor={editor} />}
+      {editor && <Toolbar editor={editor} extended={extended} />}
       <EditorContent editor={editor} />
       {maxLength && (
         <div className='flex justify-end px-3 py-1 border-t bg-muted/20'>
@@ -273,7 +375,20 @@ export function RichTextEditor({
 
 /**
  * Strips HTML tags and returns plain text.
- * Used for push notifications and plain-text contexts.
+ * Used for push notifications, BoS minutes-PDF/DOCX narrative blocks,
+ * and other plain-text contexts.
+ *
+ * Entity decoding rules:
+ *   • &nbsp; → regular ASCII space. Both jsPDF (Times) and docx render
+ *     leading spaces faithfully, so indented bullet lines in the BoS
+ *     minutes narrative survive intact ("&nbsp; &nbsp; * 100 Marks…"
+ *     becomes "    * 100 Marks…" with the leading indent preserved).
+ *   • &amp; is decoded LAST — decoding it first would double-decode strings
+ *     like "&amp;nbsp;" (intended to *display* as the literal text "&nbsp;")
+ *     into an actual space.
+ *   • Numeric entities (&#NNNN; / &#xHHHH;) are decoded generically so
+ *     editor outputs containing typographic punctuation (smart quotes,
+ *     dashes via &#8217;, &#8211;, etc.) come through correctly.
  */
 export function stripHtml(html: string): string {
   if (!html) return '';
@@ -283,11 +398,24 @@ export function stripHtml(html: string): string {
     .replace(/<\/li>/gi, '\n')
     .replace(/<li>/gi, '• ')
     .replace(/<[^>]+>/g, '')
+    // Decode &amp; FIRST so double-encoded entities like "&amp;nbsp;"
+    // (TipTap escapes ampersands at save time, so user-typed "&nbsp;"
+    // round-trips as "&amp;nbsp;") get unwrapped to "&nbsp;" before the
+    // targeted decoders below run. Without this, "&nbsp;" survives as
+    // literal text in the rendered PDF/DOCX narrative.
     .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&hellip;/g, '…')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
     .replace(/&#039;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -305,20 +433,40 @@ export function RichTextDisplay({
 }) {
   if (!content) return null;
 
-  // If content doesn't contain HTML tags, render as plain text
+  // If content doesn't contain HTML tags, render as plain text preserving whitespace
   if (!/<[a-z][\s\S]*>/i.test(content)) {
-    return <span className={className}>{content}</span>;
+    return <span className={cn('whitespace-pre-wrap text-sm leading-relaxed', className)}>{content}</span>;
   }
 
   return (
     <div
       className={cn(
-        'prose prose-sm max-w-none',
-        'prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5',
-        '[&_ul]:list-disc [&_ul]:pl-5',
-        '[&_ol]:list-decimal [&_ol]:pl-5',
-        '[&_a]:text-blue-600 [&_a]:underline',
-        '[&_hr]:my-2 [&_hr]:border-border',
+        'max-w-none text-sm leading-relaxed text-foreground',
+        // Paragraphs — TipTap wraps each line in <p>
+        '[&_p]:mb-3 [&_p:last-child]:mb-0 [&_p]:leading-relaxed',
+        '[&_p:empty]:min-h-[1em]', // preserve empty paragraph spacing (blank lines)
+        // Headings
+        '[&_h1]:mb-3 [&_h1]:mt-4 [&_h1]:text-xl [&_h1]:font-bold',
+        '[&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-lg [&_h2]:font-semibold',
+        '[&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-base [&_h3]:font-semibold',
+        // Lists
+        '[&_ul]:mb-3 [&_ul]:mt-1 [&_ul]:list-disc [&_ul]:pl-5',
+        '[&_ol]:mb-3 [&_ol]:mt-1 [&_ol]:list-decimal [&_ol]:pl-5',
+        '[&_li]:mb-1 [&_li]:leading-relaxed',
+        // Inline styles
+        '[&_strong]:font-semibold',
+        '[&_em]:italic',
+        '[&_u]:underline',
+        '[&_s]:line-through',
+        // Links
+        '[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2',
+        // Horizontal rule
+        '[&_hr]:my-4 [&_hr]:border-border',
+        // Blockquote
+        '[&_blockquote]:my-3 [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground',
+        // Code
+        '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs',
+        '[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-4 [&_pre]:text-xs',
         className
       )}
       dangerouslySetInnerHTML={{ __html: content }}

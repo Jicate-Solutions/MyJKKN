@@ -237,7 +237,9 @@ export function useNIRFMetrics() {
 }
 
 /**
- * Calculate NAAC criteria
+ * NAAC publication metrics (Binary Accreditation 2024).
+ * CGPA/letter grades were retired 2026-07-09 — NAAC abolished them under the
+ * Binary framework; the response carries counts + framework tag only.
  */
 export function useNAACCriteria() {
   return useQuery({

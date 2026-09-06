@@ -29,7 +29,7 @@ function toCsvString<T>(data: T[], columns: CsvColumn<T>[]): string {
  * Fields starting with =, +, -, @, \t, \r are prefixed with a single quote
  * to prevent formula execution in spreadsheet applications.
  */
-function escapeCsvField(field: string): string {
+export function escapeCsvField(field: string): string {
   // Prevent CSV injection: prefix dangerous characters that spreadsheets interpret as formulas
   let sanitized = field;
   if (/^[=+\-@\t\r]/.test(sanitized)) {
@@ -40,6 +40,27 @@ function escapeCsvField(field: string): string {
     return `"${sanitized.replace(/"/g, '""')}"`;
   }
   return sanitized;
+}
+
+/**
+ * Build a complete CSV document from a header row plus pre-shaped value rows.
+ *
+ * Server-safe (no DOM) counterpart to `downloadCsv`, for API routes that stream
+ * `text/csv` straight to the client. Emits a UTF-8 BOM so Excel renders
+ * non-ASCII names correctly, and CRLF line endings per RFC 4180. Values are run
+ * through `escapeCsvField`, so quoting and formula-injection guarding are
+ * identical to the browser path.
+ *
+ * The header row is always emitted — an empty `rows` array yields a valid
+ * headers-only CSV rather than an empty file.
+ */
+export function buildCsvDocument(headers: string[], rows: unknown[][]): string {
+  const toRow = (fields: unknown[]) =>
+    fields
+      .map((value) => (value === null || value === undefined ? '' : escapeCsvField(String(value))))
+      .join(',');
+
+  return '﻿' + [toRow(headers), ...rows.map(toRow)].join('\r\n');
 }
 
 /**

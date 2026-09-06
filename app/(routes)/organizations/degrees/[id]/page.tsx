@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface DegreeDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -35,6 +36,7 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
 
   // Get permissions
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const canEditDegree =
     isSuperAdmin || canAccess('organizations.degrees', 'edit');
 
@@ -56,9 +58,11 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
     fetchDegree();
   }, [id]);
 
+  const pageTitle = adapt('Degree Details');
+
   if (loading) {
     return (
-      <ContentLayout title='Degree Details'>
+      <ContentLayout title={pageTitle}>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin' />
         </div>
@@ -68,11 +72,11 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
 
   if (error || !degree) {
     return (
-      <ContentLayout title='Degree Details'>
+      <ContentLayout title={pageTitle}>
         <div className='text-center py-8'>
-          <p className='text-destructive mb-4'>{error || 'Degree not found'}</p>
+          <p className='text-destructive mb-4'>{error || `${adapt('Degree')} not found`}</p>
           <Button variant='outline' asChild>
-            <Link href='/organizations/degrees'>Back to Degrees</Link>
+            <Link href='/organizations/degrees'>Back to {adapt('Degrees')}</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -80,7 +84,7 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
   }
 
   return (
-    <ContentLayout title='Degree Details'>
+    <ContentLayout title={pageTitle}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -97,35 +101,35 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/degrees'>Degrees</Link>
+              <Link href='/organizations/degrees'>{adapt('Degrees')}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Degree Details</BreadcrumbPage>
+            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex justify-between items-center'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
             <h1 className='text-2xl font-bold py-1'>{degree.degree_name}</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Degree Details
+              {pageTitle}
             </p>
           </div>
           {canEditDegree ? (
             <Button asChild>
               <Link href={`/organizations/degrees/${id}/edit`}>
                 <PenSquare className='mr-2 h-4 w-4' />
-                Edit Degree
+                {adapt('Edit Degree')}
               </Link>
             </Button>
           ) : (
             <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
-              Edit Degree
+              {adapt('Edit Degree')}
             </Button>
           )}
         </div>
@@ -137,13 +141,13 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
           <CardContent className='grid gap-6'>
             <div className='grid gap-4 md:grid-cols-2'>
               <div>
-                <p className='font-medium'>Degree ID</p>
+                <p className='font-medium'>{adapt('Degree ID')}</p>
                 <p className='text-base text-muted-foreground'>
                   {degree.degree_id}
                 </p>
               </div>
               <div>
-                <p className='font-medium'>Degree Name</p>
+                <p className='font-medium'>{adapt('Degree Name')}</p>
                 <p className='text-base text-muted-foreground'>
                   {degree.degree_name}
                 </p>

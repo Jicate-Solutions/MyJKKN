@@ -20,6 +20,34 @@ const config: ModuleNavConfig = {
   module: 'startup-studio',
   groups: [
     {
+      label: 'Foundations',
+      icon: 'Compass',
+      href: '/startup-studio/foundations',
+      // Pre-Appathon founder-formation on-ramp (Level 0). Covers /foundations,
+      // /my-journey, /[worksheetId], /review, /cohorts via startsWith.
+      matchPaths: ['/startup-studio/foundations'],
+      children: [
+        {
+          label: 'My Journey',
+          icon: 'Footprints',
+          href: '/startup-studio/foundations/my-journey',
+          matchPaths: ['/startup-studio/foundations/my-journey'],
+        },
+        {
+          label: 'Review',
+          icon: 'ClipboardCheck',
+          href: '/startup-studio/foundations/review',
+          matchPaths: ['/startup-studio/foundations/review'],
+        },
+        {
+          label: 'Cohorts',
+          icon: 'Users',
+          href: '/startup-studio/foundations/cohorts',
+          matchPaths: ['/startup-studio/foundations/cohorts'],
+        },
+      ],
+    },
+    {
       label: 'Portfolio',
       icon: 'Gauge',
       href: '/startup-studio/portfolio',
@@ -158,6 +186,53 @@ const config: ModuleNavConfig = {
           label: 'Submissions',
           icon: 'Inbox',
           href: '/startup-studio/submissions',
+        },
+      ],
+    },
+    {
+      label: 'School of Influencer',
+      icon: 'GraduationCap',
+      // 2026-08-13: the group href WAS the settings page, from 2026-07-31 (S2)
+      // when settings was the only screen that existed. That comment promised
+      // the rest would "add their own children here". They shipped — review
+      // queue, coordinators, attendance, lifecycle — and nobody came back, so
+      // the one tab for the whole programme pointed at the one screen a
+      // coordinator is deliberately not allowed to open
+      // (startup_studio.school_of_influence.configure is Director-level
+      // programme configuration). BUG-005799 / BUG-005800.
+      //
+      // The group now opens the REVIEW QUEUE — a coordinator's actual job — and
+      // every screen is a child. Settings is last because it is the rarest and
+      // the most consequential; it keeps its own configure key, and the other
+      // four are gated on cohort.manage, so nothing here inherits the
+      // Director's key by sitting next to it.
+      href: '/startup-studio/school-of-influence/admin/applications',
+      matchPaths: ['/startup-studio/school-of-influence'],
+      children: [
+        {
+          label: 'Applications',
+          icon: 'ClipboardList',
+          href: '/startup-studio/school-of-influence/admin/applications',
+        },
+        {
+          label: 'Coordinators',
+          icon: 'UserCheck',
+          href: '/startup-studio/school-of-influence/admin/coordinators',
+        },
+        {
+          label: 'Attendance',
+          icon: 'CheckSquare',
+          href: '/startup-studio/school-of-influence/admin/attendance',
+        },
+        {
+          label: 'Inactivity dry run',
+          icon: 'Activity',
+          href: '/startup-studio/school-of-influence/admin/lifecycle',
+        },
+        {
+          label: 'Settings',
+          icon: 'SlidersHorizontal',
+          href: '/startup-studio/school-of-influence/admin/settings',
         },
       ],
     },

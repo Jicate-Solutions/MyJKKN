@@ -10,6 +10,9 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  * GET /api/api-management/campus-living/blocks
  * List hostel blocks with optional filters and occupancy data.
  *
+ * hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id dropped.
+ * Institution scope flows through hostel_block_institutions junction.
+ *
  * Query params: page, limit, hostel_type, status
  */
 export const GET = withAuth(async (request, auth) => {
@@ -21,10 +24,23 @@ export const GET = withAuth(async (request, auth) => {
   const hostelType = getStringParam(url, 'hostel_type');
   const status = getStringParam(url, 'status');
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: blockIds, error: jErr } = await (auth.supabase as any)
+    .from('hostel_block_institutions')
+    .select('block_id')
+    .eq('institution_id', institutionId);
+  if (jErr) throw jErr;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ids = ((blockIds ?? []) as any[]).map((r) => r.block_id);
+  if (ids.length === 0) {
+    return paginatedResponse([], 0, page, limit);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query = (auth.supabase as any)
     .from('hostel_blocks')
     .select('*', { count: 'exact' })
-    .eq('institution_id', institutionId);
+    .in('id', ids);
 
   if (hostelType) query = query.eq('hostel_type', hostelType);
   if (status) query = query.eq('status', status);
@@ -39,45 +55,44 @@ export const GET = withAuth(async (request, auth) => {
 
 /**
  * POST /api/api-management/campus-living/blocks
- * Create a new hostel block.
+ * Create a new hostel block + auto-grant access to the caller's institution
+ * via hostel_block_institutions (is_primary=true).
  *
- * Mirrors the PR #746 pattern from `lib/services/campus-living/hostel-block-service.ts`:
- * after inserting into `hostel_blocks`, also write the matching row to
- * `hostel_block_institutions` with `is_primary=true`. Without the junction row,
- * non-super-admin readers cannot see the block (the junction-aware
- * `role_has_hostel_block_scope()` RLS helper returns false). The two writes
- * are NOT in a transaction (PostgREST limitation); if the M2M insert fails,
- * the block exists but is RLS-invisible. We surface that failure as 500
- * and rely on the audit-doc backfill SQL for recovery.
+ * hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id dropped.
+ * The block is created network-wide; ownership flows through the junction.
  */
 export const POST = withAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
   const body = await request.json();
+  const sanitized = sanitizeBody(body);
+  // Strip institution_id from inbound payload — column no longer exists.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delete (sanitized as any).institution_id;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (auth.supabase as any)
     .from('hostel_blocks')
-    .insert({ ...sanitizeBody(body), institution_id: institutionId })
+    .insert(sanitized)
     .select()
     .single();
 
   if (error) throw error;
 
-  // Mirror to M2M with is_primary=true (PR #746 pattern).
-  if (data?.id && data?.institution_id) {
+  // Auto-grant caller's institution as primary via the junction.
+  if (data?.id) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: m2mError } = await (auth.supabase as any)
       .from('hostel_block_institutions')
       .insert({
         block_id: data.id,
-        institution_id: data.institution_id,
+        institution_id: institutionId,
         is_primary: true,
       });
     if (m2mError) {
-      // Block already exists in hostel_blocks at this point. We surface the
-      // error so the API consumer knows the create failed end-to-end; the
-      // orphan parent row is recoverable via the backfill SQL in
-      // .claude/scratch/m2m-audit-2026-05-10.md §5.1.
+      // Block exists but invisible to caller's institution; surface error
+      // so the consumer can re-grant via the junction directly.
       throw m2mError;
     }
   }

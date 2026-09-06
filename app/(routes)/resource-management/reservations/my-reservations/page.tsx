@@ -1,11 +1,12 @@
 'use client';
 // app/(routes)/resource-management/reservations/my-reservations/page.tsx
 
-import { useState, useMemo } from 'react';
-import { Plus } from 'lucide-react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -14,9 +15,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DataTable } from '@/components/ui/data-table';
 import { ReservationFilters } from './_components/reservation-filters';
-import { ReservationCard } from './_components/reservation-card';
 import { useAuth } from '@/hooks/use-auth';
 import { useMyReservations } from '@/hooks/reservation/use-reservations';
 import {
@@ -25,62 +25,83 @@ import {
   useCheckOutReservation
 } from '@/hooks/reservation/use-reservation-operations';
 import { ReservationStatus } from '@/types/reservation';
-import { useRouter } from 'next/navigation';
+import type { Reservation } from '@/types/reservation';
+import { format } from 'date-fns';
+import {
+  Plus,
+  Eye,
+  Calendar,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  LogIn,
+  LogOut,
+  Trash2
+} from 'lucide-react';
 
 export default function MyReservationsPage() {
   const router = useRouter();
   const { profile: user } = useAuth();
-  const [activeTab, setActiveTab] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
-  // Fetch reservations
-  const { data: reservations = [], isLoading } = useMyReservations(
-    user?.id || ''
-  );
+  const {
+    data: reservations = [],
+    isLoading,
+    refetch
+  } = useMyReservations(user?.id || '');
 
-  // Mutations
   const cancelReservation = useCancelReservation();
   const checkInReservation = useCheckInReservation();
   const checkOutReservation = useCheckOutReservation();
 
-  // Filter reservations
-  const filteredReservations = useMemo(() => {
-    let filtered = [...reservations];
-
-    // Tab filter
-    if (activeTab !== 'all') {
-      filtered = filtered.filter((r) => r.status === activeTab);
-    }
-
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
+  // Status counts for the header badges
+  const counts = useMemo(() => {
+    return {
+      all: reservations.length,
+      pending: reservations.filter((r) => r.status === ReservationStatus.PENDING).length,
+      approved: reservations.filter((r) => r.status === ReservationStatus.APPROVED).length,
+      completed: reservations.filter((r) => r.status === ReservationStatus.COMPLETED).length,
+      cancelled: reservations.filter(
         (r) =>
-          r.resource?.name?.toLowerCase().includes(query) ||
-          r.purpose?.toLowerCase().includes(query)
+          r.status === ReservationStatus.CANCELLED ||
+          r.status === ReservationStatus.REJECTED
+      ).length
+    };
+  }, [reservations]);
+
+  // Filter reservations
+  const filteredData = useMemo(() => {
+    let rows = [...reservations];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      rows = rows.filter(
+        (r) =>
+          r.resource?.name?.toLowerCase().includes(q) ||
+          r.purpose?.toLowerCase().includes(q)
       );
     }
 
-    // Status filter
     if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
+      rows = rows.filter((r) => r.status === statusFilter);
     }
 
-    // Date filter
     const now = new Date();
     if (dateFilter === 'upcoming') {
-      filtered = filtered.filter((r) => new Date(r.start_time) > now);
+      rows = rows.filter((r) => new Date(r.start_time) > now);
     } else if (dateFilter === 'past') {
-      filtered = filtered.filter((r) => new Date(r.end_time) < now);
+      rows = rows.filter((r) => new Date(r.end_time) < now);
     } else if (dateFilter === 'today') {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      filtered = filtered.filter(
+      rows = rows.filter(
         (r) =>
           new Date(r.start_time) >= today && new Date(r.start_time) < tomorrow
       );
@@ -90,7 +111,7 @@ export default function MyReservationsPage() {
       weekStart.setHours(0, 0, 0, 0);
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekEnd.getDate() + 7);
-      filtered = filtered.filter(
+      rows = rows.filter(
         (r) =>
           new Date(r.start_time) >= weekStart &&
           new Date(r.start_time) < weekEnd
@@ -101,46 +122,37 @@ export default function MyReservationsPage() {
       monthStart.setHours(0, 0, 0, 0);
       const monthEnd = new Date(monthStart);
       monthEnd.setMonth(monthEnd.getMonth() + 1);
-      filtered = filtered.filter(
+      rows = rows.filter(
         (r) =>
           new Date(r.start_time) >= monthStart &&
           new Date(r.start_time) < monthEnd
       );
     }
 
-    // Sort by start time (newest first)
-    return filtered.sort(
+    return rows.sort(
       (a, b) =>
         new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
     );
-  }, [reservations, activeTab, searchQuery, statusFilter, dateFilter]);
+  }, [reservations, searchQuery, statusFilter, dateFilter]);
 
-  // Count reservations by status
-  const counts = useMemo(() => {
-    return {
-      all: reservations.length,
-      pending: reservations.filter(
-        (r) => r.status === ReservationStatus.PENDING
-      ).length,
-      approved: reservations.filter(
-        (r) => r.status === ReservationStatus.APPROVED
-      ).length,
-      completed: reservations.filter(
-        (r) => r.status === ReservationStatus.COMPLETED
-      ).length,
-      cancelled: reservations.filter(
-        (r) =>
-          r.status === ReservationStatus.CANCELLED ||
-          r.status === ReservationStatus.REJECTED
-      ).length
-    };
-  }, [reservations]);
+  // Pagination
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredData.slice(start, start + pageSize);
+  }, [filteredData, currentPage, pageSize]);
 
-  const handleClearFilters = () => {
+  const totalPages = Math.ceil(filteredData.length / pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, dateFilter]);
+
+  const handleClearFilters = useCallback(() => {
     setSearchQuery('');
     setStatusFilter('all');
     setDateFilter('all');
-  };
+    setCurrentPage(1);
+  }, []);
 
   const handleCancel = (id: string) => {
     if (!user) return;
@@ -167,6 +179,238 @@ export default function MyReservationsPage() {
     });
   };
 
+  // Format helpers
+  const formatDate = (dateStr: string) => {
+    try {
+      return format(new Date(dateStr), 'MMM dd, yyyy');
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatTime = (dateStr: string) => {
+    try {
+      return format(new Date(dateStr), 'hh:mm a');
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return (
+          <Badge className='bg-green-100 text-green-700 border-green-200 hover:bg-green-100 gap-1'>
+            <CheckCircle2 className='h-3 w-3' />
+            Approved
+          </Badge>
+        );
+      case 'pending':
+        return (
+          <Badge className='bg-yellow-100 text-yellow-700 border-yellow-200 hover:bg-yellow-100 gap-1'>
+            <Clock className='h-3 w-3' />
+            Pending
+          </Badge>
+        );
+      case 'rejected':
+        return (
+          <Badge className='bg-red-100 text-red-700 border-red-200 hover:bg-red-100 gap-1'>
+            <XCircle className='h-3 w-3' />
+            Rejected
+          </Badge>
+        );
+      case 'cancelled':
+        return (
+          <Badge className='bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-100 gap-1'>
+            <XCircle className='h-3 w-3' />
+            Cancelled
+          </Badge>
+        );
+      case 'completed':
+        return (
+          <Badge className='bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100 gap-1'>
+            <CheckCircle2 className='h-3 w-3' />
+            Completed
+          </Badge>
+        );
+      case 'no_show':
+        return (
+          <Badge className='bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-100 gap-1'>
+            <AlertCircle className='h-3 w-3' />
+            No Show
+          </Badge>
+        );
+      default:
+        return <Badge variant='outline'>{status}</Badge>;
+    }
+  };
+
+  const getPriorityBadge = (priority: number) => {
+    switch (priority) {
+      case 3:
+        return <Badge variant='destructive'>High</Badge>;
+      case 2:
+        return <Badge variant='default'>Normal</Badge>;
+      case 1:
+        return <Badge variant='secondary'>Low</Badge>;
+      default:
+        return <Badge variant='outline'>-</Badge>;
+    }
+  };
+
+  // DataTable columns
+  const columns = [
+    {
+      id: 'resource',
+      header: 'Resource',
+      accessorFn: (row: Reservation) => row.resource?.name,
+      cell: ({ row }: { row: any }) => {
+        const reservation = row.original;
+        return (
+          <div className='flex flex-col gap-1'>
+            <span className='font-medium text-sm'>
+              {reservation.resource?.name}
+            </span>
+            <span className='text-xs text-muted-foreground line-clamp-1 max-w-[200px]'>
+              {reservation.purpose}
+            </span>
+          </div>
+        );
+      }
+    },
+    {
+      id: 'datetime',
+      header: 'Date & Time',
+      accessorFn: (row: Reservation) => row.start_time,
+      cell: ({ row }: { row: any }) => {
+        const reservation = row.original;
+        return (
+          <div className='flex flex-col gap-1'>
+            <div className='flex items-center gap-1 text-sm'>
+              <Calendar className='h-3 w-3 text-muted-foreground' />
+              {formatDate(reservation.start_time)}
+            </div>
+            <div className='flex items-center gap-1 text-xs text-muted-foreground'>
+              <Clock className='h-3 w-3' />
+              {formatTime(reservation.start_time)} -{' '}
+              {formatTime(reservation.end_time)}
+            </div>
+          </div>
+        );
+      }
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      accessorFn: (row: Reservation) => row.status,
+      cell: ({ row }: { row: any }) => {
+        return getStatusBadge(row.original.status);
+      }
+    },
+    {
+      id: 'priority',
+      header: 'Priority',
+      accessorFn: (row: Reservation) => row.priority,
+      cell: ({ row }: { row: any }) => {
+        return getPriorityBadge(row.getValue('priority') as number);
+      }
+    },
+    {
+      id: 'quantity',
+      header: 'Qty',
+      accessorFn: (row: Reservation) => row.quantity,
+      cell: ({ row }: { row: any }) => (
+        <span className='text-sm'>{row.getValue('quantity')}</span>
+      )
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }: { row: any }) => {
+        const reservation = row.original;
+        const canCancel =
+          reservation.status === 'pending' || reservation.status === 'approved';
+        const canCheckIn =
+          reservation.status === 'approved' && !reservation.checked_in_at;
+        const canCheckOut =
+          reservation.status === 'approved' &&
+          reservation.checked_in_at &&
+          !reservation.checked_out_at;
+
+        return (
+          <div
+            className='flex items-center justify-end gap-2'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button
+              size='sm'
+              variant='outline'
+              className='gap-1'
+              onClick={() =>
+                router.push(
+                  `/resource-management/reservations/${reservation.id}`
+                )
+              }
+            >
+              <Eye className='h-3 w-3' />
+              View
+            </Button>
+            {canCheckIn && (
+              <Button
+                size='sm'
+                variant='default'
+                className='gap-1'
+                onClick={() => handleCheckIn(reservation.id)}
+              >
+                <LogIn className='h-3 w-3' />
+                Check In
+              </Button>
+            )}
+            {canCheckOut && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='gap-1'
+                onClick={() => handleCheckOut(reservation.id)}
+              >
+                <LogOut className='h-3 w-3' />
+                Check Out
+              </Button>
+            )}
+            {canCancel && (
+              <Button
+                size='sm'
+                variant='destructive'
+                className='gap-1'
+                onClick={() => handleCancel(reservation.id)}
+              >
+                <Trash2 className='h-3 w-3' />
+                Cancel
+              </Button>
+            )}
+          </div>
+        );
+      },
+      enableSorting: false,
+      enableHiding: false
+    }
+  ];
+
+  const serverSidePagination = {
+    currentPage,
+    totalPages,
+    pageSize,
+    totalItems: filteredData.length,
+    hasNextPage: currentPage < totalPages,
+    hasPreviousPage: currentPage > 1,
+    onPageChange: setCurrentPage,
+    onPageSizeChange: (size: number) => {
+      setPageSize(size);
+      setCurrentPage(1);
+    },
+    isLoading
+  };
+
   return (
     <ContentLayout title='My Reservations'>
       <Breadcrumb className='mb-6'>
@@ -187,8 +431,8 @@ export default function MyReservationsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      {/* Header Actions */}
-      <div className='flex items-center justify-between mb-6'>
+      {/* Header */}
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6'>
         <div>
           <h1 className='text-3xl font-bold'>My Reservations</h1>
           <p className='text-muted-foreground'>
@@ -196,6 +440,7 @@ export default function MyReservationsPage() {
           </p>
         </div>
         <Button
+          className='shrink-0'
           onClick={() => router.push('/resource-management/reservations/new')}
         >
           <Plus className='mr-2 h-4 w-4' />
@@ -203,107 +448,97 @@ export default function MyReservationsPage() {
         </Button>
       </div>
 
-      {/* Filters */}
-      <div className='mb-6'>
-        <ReservationFilters
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          statusFilter={statusFilter}
-          onStatusChange={setStatusFilter}
-          dateFilter={dateFilter}
-          onDateFilterChange={setDateFilter}
-          onClearFilters={handleClearFilters}
-        />
+      {/* Status Summary Badges */}
+      <div className='flex items-center gap-3 mb-6 flex-wrap'>
+        <Badge
+          variant={statusFilter === 'all' ? 'default' : 'outline'}
+          className='cursor-pointer px-3 py-1.5 text-sm'
+          onClick={() => setStatusFilter('all')}
+        >
+          All ({counts.all})
+        </Badge>
+        <Badge
+          variant={statusFilter === 'pending' ? 'default' : 'outline'}
+          className='cursor-pointer px-3 py-1.5 text-sm'
+          onClick={() =>
+            setStatusFilter(
+              statusFilter === 'pending' ? 'all' : 'pending'
+            )
+          }
+        >
+          <Clock className='h-3 w-3 mr-1' />
+          Pending ({counts.pending})
+        </Badge>
+        <Badge
+          variant={statusFilter === 'approved' ? 'default' : 'outline'}
+          className='cursor-pointer px-3 py-1.5 text-sm'
+          onClick={() =>
+            setStatusFilter(
+              statusFilter === 'approved' ? 'all' : 'approved'
+            )
+          }
+        >
+          <CheckCircle2 className='h-3 w-3 mr-1' />
+          Approved ({counts.approved})
+        </Badge>
+        <Badge
+          variant={statusFilter === 'completed' ? 'default' : 'outline'}
+          className='cursor-pointer px-3 py-1.5 text-sm'
+          onClick={() =>
+            setStatusFilter(
+              statusFilter === 'completed' ? 'all' : 'completed'
+            )
+          }
+        >
+          <CheckCircle2 className='h-3 w-3 mr-1' />
+          Completed ({counts.completed})
+        </Badge>
+        <Badge
+          variant={
+            statusFilter === 'cancelled' || statusFilter === 'rejected'
+              ? 'default'
+              : 'outline'
+          }
+          className='cursor-pointer px-3 py-1.5 text-sm'
+          onClick={() =>
+            setStatusFilter(
+              statusFilter === 'cancelled' ? 'all' : 'cancelled'
+            )
+          }
+        >
+          <XCircle className='h-3 w-3 mr-1' />
+          Cancelled ({counts.cancelled})
+        </Badge>
       </div>
 
-      {/* Tabs */}
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className='space-y-6'
-      >
-        <TabsList className='grid w-full grid-cols-5'>
-          <TabsTrigger value='all'>All ({counts.all})</TabsTrigger>
-          <TabsTrigger value='pending'>Pending ({counts.pending})</TabsTrigger>
-          <TabsTrigger value='approved'>
-            Approved ({counts.approved})
-          </TabsTrigger>
-          <TabsTrigger value='completed'>
-            Completed ({counts.completed})
-          </TabsTrigger>
-          <TabsTrigger value='cancelled'>
-            Cancelled ({counts.cancelled})
-          </TabsTrigger>
-        </TabsList>
+      {/* Filters */}
+      <Card className='mb-6'>
+        <CardContent className='p-6'>
+          <ReservationFilters
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            statusFilter={statusFilter}
+            onStatusChange={setStatusFilter}
+            dateFilter={dateFilter}
+            onDateFilterChange={setDateFilter}
+            onClearFilters={handleClearFilters}
+          />
+        </CardContent>
+      </Card>
 
-        <TabsContent value={activeTab} className='space-y-6'>
-          {/* Results Count */}
-          <div className='flex items-center justify-between'>
-            <p className='text-sm text-muted-foreground'>
-              {isLoading ? (
-                'Loading reservations...'
-              ) : (
-                <>
-                  <span className='font-semibold'>
-                    {filteredReservations.length}
-                  </span>{' '}
-                  reservation{filteredReservations.length !== 1 ? 's' : ''}{' '}
-                  found
-                </>
-              )}
-            </p>
-          </div>
-
-          {/* Loading State */}
-          {isLoading && (
-            <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className='h-[200px]' />
-              ))}
-            </div>
-          )}
-
-          {/* Empty State */}
-          {!isLoading && filteredReservations.length === 0 && (
-            <div className='py-12 text-center'>
-              <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted'>
-                <Plus className='h-8 w-8 text-muted-foreground' />
-              </div>
-              <h3 className='mb-2 text-lg font-semibold'>
-                No reservations found
-              </h3>
-              <p className='text-sm text-muted-foreground mb-4'>
-                {searchQuery || statusFilter !== 'all' || dateFilter !== 'all'
-                  ? 'Try adjusting your filters or search query'
-                  : 'Get started by creating your first reservation'}
-              </p>
-              <Button
-                onClick={() =>
-                  router.push('/resource-management/reservations/new')
-                }
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Create Reservation
-              </Button>
-            </div>
-          )}
-
-          {/* Reservations Grid */}
-          {!isLoading && filteredReservations.length > 0 && (
-            <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
-              {filteredReservations.map((reservation) => (
-                <ReservationCard
-                  key={reservation.id}
-                  reservation={reservation}
-                  onCancel={handleCancel}
-                  onCheckIn={handleCheckIn}
-                  onCheckOut={handleCheckOut}
-                />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+      {/* DataTable */}
+      <Card>
+        <CardContent className='p-6'>
+          <DataTable
+            columns={columns}
+            data={paginatedData}
+            getRowId={(row) => row.id}
+            onRefresh={refetch}
+            showRefresh={true}
+            serverSidePagination={serverSidePagination}
+          />
+        </CardContent>
+      </Card>
     </ContentLayout>
   );
 }

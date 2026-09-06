@@ -4,6 +4,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { LeaveCalendarService } from './leave-calendar-service';
+import { isStaffAssignedToRawSlot } from '@/lib/utils/academic/slot-staff-assignment';
 import type {
   StudentAttendance,
   UpdateStudentAttendanceDto,
@@ -11,6 +12,7 @@ import type {
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
   ConsolidatedAttendanceStudent,
+  ConsolidatedAttendancePeriod,
   UpsertConsolidatedAttendanceDto,
   AttendanceAuditEntry
 } from '@/types/attendance';
@@ -38,6 +40,32 @@ export function computeAttendanceDiff(
       old_status: old.status,
       new_status: newMap.get(old.student_id)!,
     }))
+}
+
+/**
+ * Merges an incoming attendance period into the existing stored period,
+ * unioning `students` by student_id instead of replacing the array.
+ * Practical periods split students across batches that all share one
+ * period_id — each batch only submits its own students, so a plain
+ * object-replace here would let the second batch's write wipe out the
+ * first batch's Present markers.
+ */
+function mergeAttendancePeriod(
+  existing: ConsolidatedAttendancePeriod | undefined,
+  incoming: ConsolidatedAttendancePeriod
+): ConsolidatedAttendancePeriod {
+  if (!existing) return incoming;
+
+  const studentMap = new Map<string, ConsolidatedAttendanceStudent>(
+    (existing.students || []).map((s) => [s.student_id, s])
+  );
+  (incoming.students || []).forEach((s) => studentMap.set(s.student_id, s));
+
+  return {
+    ...existing,
+    ...incoming,
+    students: Array.from(studentMap.values())
+  };
 }
 
 /**
@@ -158,17 +186,24 @@ export class AttendanceCoreService {
         }
       }
 
-      // STEP 5: Get the staff record for this user
+      // STEP 5: Get the staff record(s) for this user
       // Updated: 2025-10-13 - Use institution_email instead of email
       // profile.email matches staff.institution_email (not staff.email which is personal)
-      const { data: staffRecord } = await this.supabase
+      // Updated: 2026-07-06 (cross-institution teaching) - Do NOT filter the staff
+      // lookup by institution_id. A visiting staff's row belongs to their HOME
+      // institution while the timetable belongs to the institution they teach in,
+      // so the institution-scoped lookup returned no row and STEP 8 always rejected
+      // the save. Collect ALL staff rows for this email (duplicate rows across
+      // institutions exist in the wild) and authorize if ANY of them is assigned.
+      // Self-view RLS (staff.institution_email = auth.email()) permits this read.
+      const { data: staffRecords } = await this.supabase
         .from('staff')
         .select('id')
-        .eq('institution_email', (profileData as any).email)
-        .eq('institution_id', institutionId)
-        .maybeSingle();
+        .eq('institution_email', (profileData as any).email);
 
-      const userStaffId = (staffRecord as any)?.id;
+      const userStaffIds: string[] = (staffRecords ?? []).map(
+        (record: any) => record.id
+      );
 
       // STEP 6: Get timetable data to extract staff assignments
       const { data: timetableData, error: timetableError } = await this.supabase
@@ -247,19 +282,55 @@ export class AttendanceCoreService {
                 }
               });
             }
+
+            // Added: 2026-07-01 - Practical periods (period_mode='practical') assign staff
+            // per BATCH in practical_config.batches[].staff_mapping (course_id -> staff_id[]),
+            // NOT in staff_ids/sub_slots — those stay empty for practical slots. Without this,
+            // a faculty member assigned only via a practical batch (e.g. "Morning Practical")
+            // fails this save-time check even though they can see and open the period from
+            // My Classes (getFacultyTodayPeriods) and pass the roster-level canMarkAttendanceForSlot
+            // check (isStaffAssignedToSlot) — both of which already recognize this shape.
+            if (
+              periodSlot &&
+              periodSlot.period_mode === 'practical' &&
+              periodSlot.practical_config &&
+              Array.isArray(periodSlot.practical_config.batches)
+            ) {
+              periodSlot.practical_config.batches.forEach((batch: any) => {
+                const mapping = batch?.staff_mapping;
+                if (mapping && typeof mapping === 'object') {
+                  Object.values(mapping).forEach((staffList: any) => {
+                    if (Array.isArray(staffList)) {
+                      staffList.forEach((id: string) => allAssignedIds.add(id));
+                    }
+                  });
+                }
+              });
+            }
           });
         }
       });
 
       // STEP 8: Check authorization - Allow if either profile ID or staff ID matches
       const isAuthorizedByProfile = allAssignedIds.has(markedBy); // Check profile ID directly
-      const isAuthorizedByStaff = userStaffId
-        ? allAssignedIds.has(userStaffId)
-        : false;
+      const isAuthorizedByStaff = userStaffIds.some((id) =>
+        allAssignedIds.has(id)
+      );
 
       if (isAuthorizedByProfile || isAuthorizedByStaff) {
         const authType = isAuthorizedByProfile ? 'profile' : 'staff';
         return { isAuthorized: true, reason: `Assigned ${authType} member`, authorizationType: 'assigned_faculty' };
+      }
+
+      // STEP 8.5: Faculty with the general attendance-marking permission (e.g. covering
+      // a period outside their own department/timetable, such as a library/study hour)
+      // are already let past the roster-level gate by canMarkAttendanceForSlot's third
+      // tier (checkFacultyAttendancePermission) — mirror that here, otherwise the page
+      // lets them fill out and submit attendance that this save-time check then silently
+      // rejects, since they're neither specifically assigned nor HOD of that department.
+      const hasRolePermission = await this.checkFacultyAttendancePermission();
+      if (hasRolePermission) {
+        return { isAuthorized: true, reason: 'Role-based attendance permission', authorizationType: 'permission_based' };
       }
 
       // STEP 9: For development/testing - if no assignments found, allow with warning
@@ -469,12 +540,18 @@ export class AttendanceCoreService {
         }
 
         // Merge new attendance data with existing data
+        // Updated: 2026-07-22 - Merge per-period (not a shallow top-level
+        // spread) so a second practical batch writing to the same period_id
+        // unions students instead of replacing the first batch's array.
         const existingAttendanceData =
           ((currentRecord as any)?.attendance_data as ConsolidatedAttendanceData) || {};
-        const mergedAttendanceData = {
-          ...existingAttendanceData, // Keep existing periods
-          ...enrichedAttendanceData // Add/update new periods with authorization_type
-        };
+        const mergedAttendanceData: ConsolidatedAttendanceData = { ...existingAttendanceData };
+        Object.keys(enrichedAttendanceData).forEach((periodKey) => {
+          mergedAttendanceData[periodKey] = mergeAttendancePeriod(
+            existingAttendanceData[periodKey],
+            enrichedAttendanceData[periodKey]
+          );
+        });
 
         // Updated: 2025-10-09 - Update section_ids array for multi-section support
         const { data: updateResult, error: updateError } = await (this.supabase
@@ -497,9 +574,33 @@ export class AttendanceCoreService {
             updated_at
           `
           )
-          .single();
+          .maybeSingle();
 
         if (updateError) throw updateError;
+
+        // A null result here means the UPDATE matched the row for SELECT (we read it
+        // above) but affected 0 rows on write — the classic RLS write-vs-read
+        // asymmetry on student_attendance. The "Comprehensive attendance access by
+        // role" policy only grants writes to super_admin/admin/faculty, so an
+        // app-authorized HOD or assigned-staff marker with a different profiles.role
+        // is silently blocked. Surface it as an actionable permission error instead
+        // of the opaque PGRST116 ("0 rows") that PostgREST would otherwise throw.
+        if (!updateResult) {
+          const markerRole = data.editor_profile?.role || 'unknown';
+          logger.error('academic/attendance', 'Attendance update affected 0 rows (RLS write denied)', {
+            attendance_id: (existingRecord as any).id,
+            marked_by: data.marked_by,
+            marker_role: markerRole,
+            institution_id: data.institution_id,
+            is_edit_mode: !!data.is_edit_mode
+          });
+          throw new Error(
+            `You don't have permission to update this attendance record (role: ${markerRole}). ` +
+            `Attendance writes are restricted at the database level — only super admins, admins, and faculty ` +
+            `currently have write access. Ask an administrator to grant your role write access to attendance.`
+          );
+        }
+
         result = updateResult;
 
         // ─── Audit log: record per-student status changes ────────────────────────
@@ -1029,27 +1130,23 @@ export class AttendanceCoreService {
         return false;
       }
 
-      // Check if staff is in the main slot staff_members
-      if (targetSlot.staff_members && Array.isArray(targetSlot.staff_members)) {
-        const isAssignedToMain = targetSlot.staff_members.some(
-          (staff: any) => staff.id === staffId
-        );
-        if (isAssignedToMain) return true;
-      }
-
-      // Check if staff is in any sub-slot staff_members (for combined classes)
-      if (targetSlot.sub_slots && Array.isArray(targetSlot.sub_slots)) {
-        for (const subSlot of targetSlot.sub_slots) {
-          if (subSlot.staff_members && Array.isArray(subSlot.staff_members)) {
-            const isAssignedToSubSlot = subSlot.staff_members.some(
-              (staff: any) => staff.id === staffId
-            );
-            if (isAssignedToSubSlot) return true;
-          }
-        }
-      }
-
-      return false;
+      // Updated: 2026-08-10 - Match on the fields timetable_data actually stores.
+      // This used to read `staff_members` on the slot and its sub-slots — a field
+      // synthesised by getAvailablePeriodsForDate when it hydrates staff_ids, and
+      // never persisted. Measured on production: of 12,296 slots in active
+      // timetables, 0 carry staff_members while all 12,296 carry staff_ids and
+      // primary_staff_id. Tier 1 therefore could not succeed for any standard
+      // period, for any staff member; only the practical branch (written against
+      // the stored practical_config) ever returned true. Faculty were carried by
+      // the broad role-permission tier below, so the failure stayed invisible —
+      // until a user whose profiles.role lacks academic.attendance.mark hit all
+      // three tiers and was told "You are not assigned to teach any periods for
+      // this class" about periods she is the primary staff for.
+      //
+      // The predicate is shared so this check cannot drift from the assignment
+      // rules getAvailablePeriodsForDate and getFacultyTodayPeriods use to decide
+      // which periods to SHOW.
+      return isStaffAssignedToRawSlot(targetSlot, staffId);
     } catch (error) {
       logger.error('academic/attendance', 'Error checking staff assignment to slot', error);
       return false;
@@ -1079,6 +1176,43 @@ export class AttendanceCoreService {
         return false;
       }
 
+      // Updated: 2026-06-10 - Resolve the slot's timetable so we can branch on
+      // attendance_mode. session_wise (school day-wise) attendance is restricted
+      // to the class incharge or an admin/HOD; subject-staff assignment and the
+      // broad faculty permission deliberately do NOT grant access there.
+      const timetableMeta = await this.getTimetableAttendanceMeta(
+        timetableSlotId
+      );
+
+      if (timetableMeta?.attendance_mode === 'session_wise') {
+        // 1. Primary authority: the incharge recorded on the timetable.
+        if (
+          timetableMeta.class_incharge_id &&
+          timetableMeta.class_incharge_id === staffId
+        ) {
+          return true;
+        }
+
+        // 2. Fallback authority: section-level class_incharges (covers
+        //    timetables created before an incharge was set on the row).
+        if (timetableMeta.section_id) {
+          const { data: sectionIncharge } = await this.supabase
+            .from('class_incharges')
+            .select('id')
+            .eq('section_id', timetableMeta.section_id)
+            .eq('staff_id', staffId)
+            .eq('is_active', true)
+            .limit(1);
+          if (sectionIncharge && sectionIncharge.length > 0) {
+            return true;
+          }
+        }
+
+        // 3. Override: admin / HOD with department access.
+        return await this.checkHODDepartmentAccess(timetableSlotId);
+      }
+
+      // period_wise (default / college): existing authorization chain.
       // First check: Is staff specifically assigned to this slot?
       const isAssigned = await this.isStaffAssignedToSlot(
         staffId,
@@ -1108,6 +1242,48 @@ export class AttendanceCoreService {
     } catch (error) {
       logger.error('academic/attendance', 'Error checking attendance permission for slot', error);
       return false;
+    }
+  }
+
+  /**
+   * Updated: 2026-06-10
+   * Resolve the attendance-relevant metadata of the timetable that owns a slot.
+   * Used to branch authorization (and other behaviour) on attendance_mode.
+   */
+  private static async getTimetableAttendanceMeta(
+    timetableSlotId: string
+  ): Promise<{
+    attendance_mode: string;
+    section_id: string | null;
+    class_incharge_id: string | null;
+  } | null> {
+    try {
+      const timetableId =
+        await AttendanceCoreService.getTimetableIdFromSlotInternal(
+          timetableSlotId
+        );
+      if (!timetableId) return null;
+
+      const { data, error } = await this.supabase
+        .from('timetables')
+        .select('attendance_mode, section_id, class_incharge_id')
+        .eq('id', timetableId)
+        .single();
+
+      if (error || !data) return null;
+
+      return {
+        attendance_mode: (data as any).attendance_mode || 'period_wise',
+        section_id: (data as any).section_id || null,
+        class_incharge_id: (data as any).class_incharge_id || null
+      };
+    } catch (error) {
+      logger.error(
+        'academic/attendance',
+        'Error resolving timetable attendance meta',
+        error
+      );
+      return null;
     }
   }
 

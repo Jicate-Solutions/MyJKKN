@@ -46,17 +46,22 @@ export const learnerFeeItemSchema = z.object({
  * Replaces separate admission.status and student.status
  */
 export type LifecycleStatus =
-  | 'admitted'      // Initial contact/enquiry stage
-  | 'pending'      // Application submitted, pending review
-  | 'approved'     // Application approved, ready for enrollment
-  | 'account'      // Sent to accounts for billing
-  | 'rejected'     // Application rejected
-  | 'waitlisted'   // Application waitlisted
-  | 'active'       // Currently enrolled and active student
-  | 'inactive'     // Temporarily inactive (leave, suspension, etc.)
-  | 'exited'       // Left institution (dropout, transfer)
-  | 'graduated'    // Successfully completed program
-  | 'alumni';      // Post-graduation status
+  // 2026-05-20 workflow realignment — see migrations 20260520120000–20260520120200.
+  // Entry → form-submit → officer-verify → account → universal-fees-paid → balance-threshold → onboarding → active
+  | 'enquiry'           // Lead just moved to counselor (entry point of learner module)
+  | 'enquiry_submitted' // Learner completed the QR self-fill form; awaiting officer verification
+  | 'pending'           // Application submitted, pending review (legacy)
+  | 'approved'          // Application approved, ready for enrollment (legacy)
+  | 'account'           // Sent to accounts for billing; bills auto-generated
+  | 'reserved'          // Universal categories (application_fee + tuition) fully paid
+  | 'admitted'          // Balance fees threshold cleared (default 50%) — ready for onboarding
+  | 'rejected'          // Application rejected
+  | 'waitlisted'        // Application waitlisted
+  | 'active'            // Currently enrolled and active student (profile-complete + 60% paid)
+  | 'inactive'          // Temporarily inactive (leave, suspension, etc.)
+  | 'exited'            // Left institution (dropout, transfer)
+  | 'graduated'         // Successfully completed program
+  | 'alumni';           // Post-graduation status
 
 /**
  * Migration Source - Tracks origin of record
@@ -85,13 +90,24 @@ export interface LearnerProfile {
   // Personal Information
   first_name: string;
   last_name?: string;
+  // Tamil-script name (UTF-8 text columns, nullable). Captured on the
+  // /learners/profiles create + edit screens only; never derived from the
+  // English name, so an empty value means "not captured yet".
+  first_name_tamil?: string | null;
+  last_name_tamil?: string | null;
   date_of_birth: string;
   gender: string;
   religion: string;
-  community: string;
-  caste?: string;
+  community_category_id?: string | null;
+  caste_id?: string | null;
   aadhar_number?: string;
   blood_group?: string;
+  // External identifiers issued outside this system (alphanumeric, nullable).
+  // abc_id keeps its _id suffix from the official name "Academic Bank of
+  // Credits ID" — it is NOT a foreign key, unlike every other *_id here.
+  abc_id?: string | null;
+  emis?: string | null;
+  umis?: string | null;
   // Legacy integer year (e.g. 2026). Kept for B2A endpoint back-compat —
   // 6 endpoints still expose `?admission_year=` and read this column.
   admission_year?: number;
@@ -103,8 +119,7 @@ export interface LearnerProfile {
   admission_year_obj?: {
     id: string;
     admission_year_name: string;
-    program_start_year: number;
-    program_end_year: number;
+    year: number;
   } | null;
   learner_type?: 'regular' | 'irregular' | 'intern';
 
@@ -119,6 +134,10 @@ export interface LearnerProfile {
 
   // Previous Education
   last_school: string;
+  /** FK to school_master when the school was picked from the dropdown; null for manual entries. */
+  last_school_id?: string | null;
+  /** FK to postal_codes when a post office was picked for the address pincode. */
+  post_office_id?: string | null;
   board_of_study: string;
   tenth_marks?: {
     max_marks?: string;
@@ -148,7 +167,6 @@ export interface LearnerProfile {
   counseling_applied?: boolean;
   counseling_number?: string;
   scholarship_type?: string;
-  quota?: string;
   category?: string;
   entry_type: string;
 
@@ -165,8 +183,11 @@ export interface LearnerProfile {
 
   // Campus Life
   accommodation_type: string;
-  hostel_type?: string;
-  food_type?: string;
+  hostel_category_id?: string | null;
+  mess_category_id?: string | null;
+  bus_required?: boolean | null;
+  transport_route_id?: string | null;
+  transport_stop_id?: string | null;
   // Reference Information (legacy — person who vouches for the student)
   reference_type?: string;
   reference_name?: string;
@@ -284,12 +305,22 @@ export const learnerProfileSchema = z.object({
   // Personal Information (always required)
   first_name: z.string().min(2, 'First name is required'),
   last_name: z.string().optional(),
+  // Optional + nullable: the Tamil name columns are nullable and back-filled
+  // over time, so a blank field must never block a save.
+  first_name_tamil: z.string().nullable().optional(),
+  last_name_tamil: z.string().nullable().optional(),
   date_of_birth: z.string().min(1, 'Date of birth is required'),
   gender: z.string().min(1, 'Gender is required'),
   religion: z.string().min(1, 'Religion is required'),
-  community: z.string().min(1, 'Community is required'),
-  caste: z.string().optional(),
+  community_category_id: z.string().uuid('Community is required'),
+  caste_id: z.string().uuid().optional().or(z.literal('')),
   blood_group: z.string().optional(),
+  // External identifiers — optional + nullable, never format-checked here.
+  // See the migration header: the issuing bodies have each changed format and
+  // legacy holders still carry the old one.
+  abc_id: z.string().nullable().optional(),
+  emis: z.string().nullable().optional(),
+  umis: z.string().nullable().optional(),
   admission_year: z.number().optional(),
   learner_type: z.enum(['regular', 'irregular', 'intern']).optional(),
 
@@ -304,6 +335,8 @@ export const learnerProfileSchema = z.object({
 
   // Previous Education (always required)
   last_school: z.string().min(2, 'Last school is required'),
+  last_school_id: z.string().uuid().nullable().optional(),
+  post_office_id: z.string().uuid().nullable().optional(),
   board_of_study: z.string().min(2, 'Board of study is required'),
   tenth_marks: z.object({
     max_marks: z.string(),
@@ -326,7 +359,6 @@ export const learnerProfileSchema = z.object({
   counseling_applied: z.boolean().default(false),
   counseling_number: z.string().optional(),
   scholarship_type: z.string().optional(),
-  quota: z.string().optional(),
   category: z.string().optional(),
 
   // Entry type
@@ -345,8 +377,11 @@ export const learnerProfileSchema = z.object({
 
   // Campus Life
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
-  hostel_type: z.string().optional(),
-  food_type: z.string().optional(),
+  hostel_category_id: z.string().nullable().optional(),
+  mess_category_id: z.string().nullable().optional(),
+  bus_required: z.boolean().nullable().optional(),
+  transport_route_id: z.string().nullable().optional(),
+  transport_stop_id: z.string().nullable().optional(),
   // Reference
   reference_type: z.string().optional(),
   reference_name: z.string().optional(),
@@ -403,13 +438,18 @@ export interface UpdateLearnerProfileDto {
   // Personal Information
   first_name?: string;
   last_name?: string | null;
+  first_name_tamil?: string | null;
+  last_name_tamil?: string | null;
   date_of_birth?: string;
   gender?: string;
   religion?: string;
-  community?: string;
-  caste?: string | null;
+  community_category_id?: string | null;
+  caste_id?: string | null;
   aadhar_number?: string | null;
   blood_group?: string | null;
+  abc_id?: string | null;
+  emis?: string | null;
+  umis?: string | null;
   admission_year?: number | null;
   learner_type?: 'regular' | 'irregular' | 'intern' | null;
 
@@ -424,6 +464,8 @@ export interface UpdateLearnerProfileDto {
 
   // Previous Education
   last_school?: string;
+  last_school_id?: string | null;
+  post_office_id?: string | null;
   board_of_study?: string;
   tenth_marks?: {
     max_marks?: string;
@@ -446,7 +488,6 @@ export interface UpdateLearnerProfileDto {
   counseling_applied?: boolean | null;
   counseling_number?: string | null;
   scholarship_type?: string | null;
-  quota?: string | null;
   category?: string | null;
   entry_type?: string;
 
@@ -463,8 +504,11 @@ export interface UpdateLearnerProfileDto {
 
   // Campus Life
   accommodation_type?: string;
-  hostel_type?: string | null;
-  food_type?: string | null;
+  hostel_category_id?: string | null;
+  mess_category_id?: string | null;
+  bus_required?: boolean | null;
+  transport_route_id?: string | null;
+  transport_stop_id?: string | null;
   // Reference Information
   reference_type?: string | null;
   reference_name?: string | null;
@@ -493,6 +537,7 @@ export interface UpdateLearnerProfileDto {
   semester_id?: string | null;
   section_id?: string | null;
   academic_year_id?: string | null;
+  admission_year_id?: string | null;
   regulation_id?: string | null;
   batch_id?: string | null;
 
@@ -535,6 +580,16 @@ export interface EnrollmentDto {
  */
 export interface LearnerProfileFilters {
   search?: string;
+  /**
+   * The advanced-search modifiers the Learners Profiles list puts in the URL.
+   * They belong beside `search` because the export dialog reuses this filter
+   * type to reproduce the table's result set — forwarding the term without its
+   * modifiers made a case-sensitive or exact-match search export more rows
+   * than the table displayed.
+   */
+  search_case_sensitive?: boolean;
+  search_exact_match?: boolean;
+  search_fields?: string[];
   first_name?: string;
   last_name?: string;
   application_id?: string;
@@ -554,15 +609,28 @@ export interface LearnerProfileFilters {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  /**
+   * Calendar admission year (e.g. 2026), NOT an admission_years row id.
+   * Resolved to the matching row ids by resolveAdmissionYearIds() so it spans
+   * every institution in scope — see lib/utils/admission-year-filter.ts.
+   */
+  admission_year?: number;
   regulation_id?: string;
   batch_id?: string;
 
   // Demographics
   gender?: string;
   religion?: string;
-  community?: string;
+  community_category_id?: string | null;
   entry_type?: string;
+  /**
+   * @deprecated Names the RETIRED learners_profiles.accommodation_type TEXT
+   * column and is not read by getLearnerProfiles — setting it filters nothing.
+   * Use accommodation_type_id.
+   */
   accommodation_type?: string;
+  /** accommodation_types.id — the FK rows are actually stored against. */
+  accommodation_type_id?: string;
 
   // Date ranges
   created_from?: Date;
@@ -686,7 +754,7 @@ export interface LearnerDashboardStats {
  * Status groups for filtering
  */
 export const STATUS_GROUPS = {
-  ADMISSION_PIPELINE: ['admitted', 'pending', 'approved', 'account', 'rejected', 'waitlisted'] as LifecycleStatus[],
+  ADMISSION_PIPELINE: ['enquiry', 'enquiry_submitted', 'pending', 'approved', 'account', 'reserved', 'admitted', 'rejected', 'waitlisted'] as LifecycleStatus[],
   ENROLLED: ['active', 'inactive'] as LifecycleStatus[],
   COMPLETED: ['graduated', 'alumni'] as LifecycleStatus[],
   EXITED: ['exited'] as LifecycleStatus[],
@@ -696,17 +764,22 @@ export const STATUS_GROUPS = {
  * Status transitions map (allowed transitions)
  */
 export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
-  admitted: ['pending', 'account', 'rejected'],
+  // New workflow (2026-05-20 realignment)
+  enquiry: ['enquiry_submitted', 'account', 'rejected'],          // Skip form allowed for paper-walk-in
+  enquiry_submitted: ['account', 'rejected'],                     // Officer verifies and moves to account
+  account: ['reserved', 'admitted', 'approved', 'rejected'],      // Auto-promoted by payment trigger
+  reserved: ['admitted', 'rejected'],                             // Auto-promoted by threshold trigger
+  admitted: ['active', 'rejected'],                               // Onboarding fills constraints → auto-active
+  // Legacy paths preserved for back-compat / waitlist handling
   pending: ['account', 'approved', 'rejected', 'waitlisted'],
   approved: ['account', 'active', 'rejected'],
-  account: ['active', 'approved'],
-  rejected: ['pending'], // Allow reapplication
+  rejected: ['enquiry', 'pending'],                               // Allow reapplication
   waitlisted: ['approved', 'pending', 'rejected'],
   active: ['inactive', 'exited', 'graduated'],
   inactive: ['active', 'exited'],
-  exited: [], // Terminal state (manual intervention required)
+  exited: [],                                                     // Terminal state
   graduated: ['alumni'],
-  alumni: [], // Terminal state
+  alumni: [],                                                     // Terminal state
 };
 
 /**
@@ -714,10 +787,16 @@ export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
  * Updated: 2025-01-19 - Removed roll_number from active, added college_email as required
  */
 export const REQUIRED_FIELDS_BY_STATUS: Record<LifecycleStatus, string[]> = {
-  admitted: ['first_name', 'student_mobile', 'student_email'],
+  // 2026-05-20: Entry-point requirements minimal (same fields the bridge-convert API already populates).
+  enquiry: ['first_name', 'student_mobile'],
+  // Learner-completed self-fill form provides personal + academic + contact sections.
+  enquiry_submitted: ['first_name', 'date_of_birth', 'gender', 'religion', 'community_category_id', 'student_mobile', 'student_email'],
   pending: ['first_name', 'father_name', 'mother_name', 'date_of_birth', 'tenth_marks', 'twelfth_marks'],
   approved: ['institution_id', 'degree_id', 'department_id', 'program_id'],
-  account: ['institution_id', 'degree_id', 'department_id', 'program_id', 'fee_structure_type', 'tuition_fee'],
+  account: ['institution_id', 'degree_id', 'department_id', 'program_id'],
+  // 'reserved' and 'admitted' are gated by payment state (validated by RPC, not field-check).
+  reserved: [],
+  admitted: [],
   rejected: [],
   waitlisted: [],
   active: ['semester_id', 'section_id', 'academic_year_id', 'college_email'],

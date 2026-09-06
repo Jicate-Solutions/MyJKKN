@@ -32,6 +32,7 @@ import {
   Activity
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface TemplatePreviewModalProps {
   template: TimetableTemplate;
@@ -46,6 +47,7 @@ export function TemplatePreviewModal({
 }: TemplatePreviewModalProps) {
   const router = useRouter();
   const { isSuperAdmin, canAccess } = usePermissions();
+  const adapt = useAdaptiveLabels();
 
   const canCreate = isSuperAdmin || canAccess('academic.timetables', 'create');
   const canEdit = isSuperAdmin || canAccess('academic.timetables.templates', 'edit');
@@ -123,7 +125,7 @@ export function TemplatePreviewModal({
                 </CardTitle>
               </CardHeader>
               <CardContent className='space-y-4'>
-                <div className='grid grid-cols-2 gap-4'>
+                <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
                   <div className='space-y-3'>
                     <div className='flex items-center gap-2'>
                       <Building className='h-4 w-4 text-muted-foreground' />
@@ -135,7 +137,7 @@ export function TemplatePreviewModal({
 
                     <div className='flex items-center gap-2'>
                       <GraduationCap className='h-4 w-4 text-muted-foreground' />
-                      <span className='text-sm font-medium'>Program:</span>
+                      <span className='text-sm font-medium'>{adapt('Program')}:</span>
                       <span className='text-sm'>
                         {template.program?.program_name || 'N/A'}
                       </span>
@@ -143,7 +145,7 @@ export function TemplatePreviewModal({
 
                     <div className='flex items-center gap-2'>
                       <BookOpen className='h-4 w-4 text-muted-foreground' />
-                      <span className='text-sm font-medium'>Department:</span>
+                      <span className='text-sm font-medium'>{adapt('Department')}:</span>
                       <span className='text-sm'>
                         {template.department?.department_name || 'N/A'}
                       </span>
@@ -151,9 +153,9 @@ export function TemplatePreviewModal({
 
                     <div className='flex items-center gap-2'>
                       <Hash className='h-4 w-4 text-muted-foreground' />
-                      <span className='text-sm font-medium'>Semester:</span>
+                      <span className='text-sm font-medium'>{adapt('Semester')}:</span>
                       <Badge variant='secondary'>
-                        {template.semesters?.semester_name || 'Semester'}
+                        {template.semesters?.semester_name || adapt('Semester')}
                         {template.sections?.section_name && ` - ${template.sections.section_name}`}
                       </Badge>
                     </div>
@@ -295,7 +297,7 @@ export function TemplatePreviewModal({
           </div>
         </ScrollArea>
 
-        <DialogFooter className='flex gap-2'>
+        <DialogFooter className='flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             Close
           </Button>

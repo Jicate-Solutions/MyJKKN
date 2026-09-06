@@ -20,6 +20,7 @@ const SOURCE_STYLES: Record<string, { bg: string; label: string }> = {
   agent: { bg: 'bg-teal-100 text-teal-700 border-teal-200', label: 'Agent' },
   publisher: { bg: 'bg-cyan-100 text-cyan-700 border-cyan-200', label: 'Publisher' },
   admission_form: { bg: 'bg-violet-100 text-violet-700 border-violet-200', label: 'Form' },
+  learner_creator_content: { bg: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200', label: 'IG Creator' },
   other: { bg: 'bg-gray-100 text-gray-700 border-gray-200', label: 'Other' },
 };
 

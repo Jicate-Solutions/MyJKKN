@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
@@ -19,6 +18,7 @@ import {
   useInvoiceReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
+import { ReportPagination } from './report-pagination';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
 interface InvoiceReportTabProps {
@@ -30,11 +30,16 @@ export function InvoiceReportTab({
   filters,
   canExport
 }: InvoiceReportTabProps) {
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel' | 'csv'>(
-    'pdf'
-  );
-
-  const { report, loading, error, refetch } = useInvoiceReport(filters);
+  const {
+    report,
+    totalCount,
+    page,
+    setPage,
+    pageSize,
+    loading,
+    error,
+    refetch
+  } = useInvoiceReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -71,7 +76,7 @@ export function InvoiceReportTab({
   const handleExport = async () => {
     try {
       await exportReport('invoice', filters, {
-        format: exportFormat,
+        format: 'csv',
         include_summary: true,
         include_charts: false
       });
@@ -80,7 +85,8 @@ export function InvoiceReportTab({
     }
   };
 
-  const totalInvoices = report.length;
+  // Sum over the fetched PAGE only — the RPC does not return a true
+  // cross-page total, so the card below is labelled "(this page)".
   const totalAmount = report.reduce(
     (sum, invoice) => sum + invoice.grand_total,
     0
@@ -123,13 +129,13 @@ export function InvoiceReportTab({
             <FileText className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{totalInvoices}</div>
+            <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Total Amount</CardTitle>
+            <CardTitle className='text-sm font-medium'>Total Amount (this page)</CardTitle>
             <FileText className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
@@ -143,24 +149,13 @@ export function InvoiceReportTab({
       {/* Invoice Report Table */}
       <Card>
         <CardHeader>
-          <div className='flex justify-between items-center'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
             <CardTitle className='flex items-center gap-2'>
               <FileText className='h-5 w-5' />
               Invoice Report
             </CardTitle>
             {canExport && (
               <div className='flex items-center gap-2'>
-                <select
-                  value={exportFormat}
-                  onChange={(e) =>
-                    setExportFormat(e.target.value as 'pdf' | 'excel' | 'csv')
-                  }
-                  className='px-3 py-1 border rounded text-sm'
-                >
-                  <option value='pdf'>PDF</option>
-                  <option value='excel'>Excel</option>
-                  <option value='csv'>CSV</option>
-                </select>
                 <Button
                   variant='outline'
                   size='sm'
@@ -255,6 +250,12 @@ export function InvoiceReportTab({
               </Table>
             </div>
           )}
+          <ReportPagination
+            page={page}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
     </div>

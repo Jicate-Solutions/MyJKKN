@@ -16,6 +16,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useUserDepartmentAccess } from '@/hooks/use-user-department-access';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +42,8 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { type InstitutionType } from '@/hooks/use-institution-type';
 
 const courseMappingSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -71,10 +74,11 @@ export function CourseMappingForm({
   const router = useRouter();
   const queryClient = useQueryClient();
   const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const { departmentId, hasDepartmentRestriction } = useUserDepartmentAccess();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
+    Array<{ id: string; name: string; entity_type?: InstitutionType }>
   >([]);
   const [degrees, setDegrees] = useState<
     Array<{ id: string; degree_name: string }>
@@ -125,6 +129,16 @@ export function CourseMappingForm({
   const watchedProgramId = form.watch('program_id');
   const watchedSemesterId = form.watch('semester_id');
 
+  // Adapt field labels to the entity_type. Schools (entity_type='school')
+  // see Stream/Wing/Class/Term/Subject; colleges keep the originals.
+  // The *selected* institution wins; when none is picked we pass undefined so
+  // useAdaptiveLabels falls back to the logged-in user's own institution type
+  // (matching the page header) — a school user never momentarily sees college terms.
+  const selectedEntityType: InstitutionType | undefined = institutions.find(
+    (inst) => inst.id === watchedInstitutionId
+  )?.entity_type;
+  const adapt = useAdaptiveLabels(selectedEntityType);
+
   // Auto-select user's institution if they have one and not editing
   useEffect(() => {
     if (!isEditing && profile?.institution_id && hasDepartmentRestriction) {
@@ -134,16 +148,29 @@ export function CourseMappingForm({
 
   // Load institutions on mount
   useEffect(() => {
+    // Wait until permission state resolves so we fetch the correct scope.
+    if (isSuperAdmin === undefined) return;
+    if (!isSuperAdmin && !profile?.id) return;
+
     async function loadInstitutions() {
       try {
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all entity types.
+        // Super admins (no userId) see every institution; normal users are
+        // scoped to their own accessible institutions. (Auto-select of the
+        // user's own institution is handled by the separate effect above.)
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          isSuperAdmin ? undefined : profile?.id,
+          'all'
+        );
         setInstitutions(data);
       } catch (error) {
         console.error('Error loading institutions:', error);
       }
     }
     loadInstitutions();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, profile?.id]);
 
   // Chain loading of degrees based on institution
   useEffect(() => {
@@ -192,21 +219,26 @@ export function CourseMappingForm({
           watchedDegreeId
         );
 
-        // Filter departments for HOD users - show only their department
-        let filteredDepartments = data as { id: string; department_name: string; institution_id: string }[];
-        if (hasDepartmentRestriction && departmentId) {
-          filteredDepartments = (data as { id: string; department_name: string; institution_id: string }[]).filter(dept => dept.id === departmentId);
+        const allDepartments = data as {
+          id: string;
+          department_name: string;
+          institution_id: string;
+        }[];
 
-          // Auto-select user's department if not already selected
-          // Use setTimeout to ensure the form is ready
-          if (filteredDepartments.length > 0 && !watchedDepartmentId) {
-            setTimeout(() => {
-              form.setValue('department_id', departmentId);
-            }, 0);
-          }
+        // Pre-select the user's own department as a convenient default, but
+        // still expose every department so school staff can change it freely.
+        if (
+          hasDepartmentRestriction &&
+          departmentId &&
+          !watchedDepartmentId &&
+          allDepartments.some((dept) => dept.id === departmentId)
+        ) {
+          setTimeout(() => {
+            form.setValue('department_id', departmentId);
+          }, 0);
         }
 
-        setDepartments(filteredDepartments);
+        setDepartments(allDepartments);
       } catch (error) {
         console.error('Error loading departments:', error);
       }
@@ -313,9 +345,9 @@ export function CourseMappingForm({
           course_id: values.course_ids[0],
           is_active: values.is_active
         });
-        toast.success('Course mapping updated successfully');
+        toast.success(`${adapt('Course')} mapping updated successfully`);
       } else {
-        await CourseMappingService.bulkCreateCourseMappings(
+        const result = await CourseMappingService.bulkCreateCourseMappings(
           values.course_ids.map((course_id) => ({
             institution_id: values.institution_id,
             degree_id: values.degree_id,
@@ -326,9 +358,22 @@ export function CourseMappingForm({
             is_active: values.is_active
           }))
         );
-        toast.success(
-          `${values.course_ids.length} course mappings created successfully`
-        );
+
+        if (result.successCount > 0) {
+          toast.success(
+            `${result.successCount} ${adapt('course')} mapping${result.successCount > 1 ? 's' : ''} created successfully`
+          );
+        }
+        if (result.errorCount > 0) {
+          toast.error(
+            result.errors[0] ||
+              `Failed to create ${result.errorCount} ${adapt('course').toLowerCase()} mapping${result.errorCount > 1 ? 's' : ''}`
+          );
+        }
+        if (result.successCount === 0) {
+          // Nothing was created — stay on the form so the user can fix the selection.
+          return;
+        }
       }
       await queryClient.invalidateQueries({
         queryKey: ['course-mappings']
@@ -378,7 +423,6 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={hasDepartmentRestriction && !!profile?.institution_id}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -402,7 +446,7 @@ export function CourseMappingForm({
               name='degree_id'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Degree</FormLabel>
+                  <FormLabel>{adapt('Degree')}</FormLabel>
                   <Select
                     onValueChange={(value) => {
                       field.onChange(value);
@@ -412,11 +456,13 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={!watchedInstitutionId || hasDepartmentRestriction}
+                    disabled={!watchedInstitutionId}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder='Select degree' />
+                        <SelectValue
+                          placeholder={`Select ${adapt('Degree').toLowerCase()}`}
+                        />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -436,7 +482,7 @@ export function CourseMappingForm({
               name='department_id'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Department</FormLabel>
+                  <FormLabel>{adapt('Department')}</FormLabel>
                   <Select
                     onValueChange={(value) => {
                       field.onChange(value);
@@ -445,11 +491,13 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={!watchedDegreeId || hasDepartmentRestriction}
+                    disabled={!watchedDegreeId}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder='Select department' />
+                        <SelectValue
+                          placeholder={`Select ${adapt('Department').toLowerCase()}`}
+                        />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -469,7 +517,7 @@ export function CourseMappingForm({
               name='program_id'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Program</FormLabel>
+                  <FormLabel>{adapt('Program')}</FormLabel>
                   <Select
                     onValueChange={(value) => {
                       field.onChange(value);
@@ -481,7 +529,9 @@ export function CourseMappingForm({
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder='Select program' />
+                        <SelectValue
+                          placeholder={`Select ${adapt('Program').toLowerCase()}`}
+                        />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -501,7 +551,7 @@ export function CourseMappingForm({
               name='semester_id'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Semester</FormLabel>
+                  <FormLabel>{adapt('Semester')}</FormLabel>
                   <Select
                     onValueChange={(value) => {
                       field.onChange(value);
@@ -512,7 +562,9 @@ export function CourseMappingForm({
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder='Select semester' />
+                        <SelectValue
+                          placeholder={`Select ${adapt('Semester').toLowerCase()}`}
+                        />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -552,20 +604,21 @@ export function CourseMappingForm({
 
         <Card>
           <CardHeader>
-            <CardTitle>Select Courses</CardTitle>
+            <CardTitle>Select {adapt('Courses')}</CardTitle>
             <FormDescription>
-              Select one or more courses to map to the selected semester.
+              Select one or more {adapt('courses')} to map to the selected{' '}
+              {adapt('semester')}.
             </FormDescription>
           </CardHeader>
           <CardContent>
             <div className='space-y-4'>
               <Input
-                placeholder='Search available courses...'
+                placeholder={`Search available ${adapt('courses')}...`}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 disabled={!watchedSemesterId}
               />
-              <div className='flex items-center justify-between text-sm text-muted-foreground'>
+              <div className='flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground'>
                 <div className='flex items-center gap-2'>
                   <span>
                     {isCoursesLoading
@@ -650,8 +703,8 @@ export function CourseMappingForm({
                       ) : (
                         <p className='text-center text-muted-foreground'>
                           {isCoursesLoading
-                            ? 'Loading courses...'
-                            : 'No available courses for the selected criteria.'}
+                            ? `Loading ${adapt('courses')}...`
+                            : `No available ${adapt('courses')} for the selected criteria.`}
                         </p>
                       )}
                     </ScrollArea>

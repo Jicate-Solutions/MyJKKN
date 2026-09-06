@@ -1,14 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { FileText, Download, Users } from 'lucide-react';
+import { FileText, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 
-import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee, BOS_MEETING_STATUS_ORDER } from '@/types/bos';
+import { BosMeeting, BOS_MEETING_STATUS_ORDER, isBosChairmanRow } from '@/types/bos';
 import { useBosAgendaItems } from '@/hooks/bos/use-bos-agenda';
 import { useBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
@@ -43,9 +42,14 @@ interface DocCardProps {
   onGenerate: () => Promise<void>;
   disabled?: boolean;
   disabledReason?: string;
+  /**
+   * Button label override. Defaults to "Download PDF" to preserve existing
+   * callers; pass e.g. "Download Word" for the DOCX variant.
+   */
+  buttonLabel?: string;
 }
 
-function DocCard({ title, description, onGenerate, disabled, disabledReason }: DocCardProps) {
+function DocCard({ title, description, onGenerate, disabled, disabledReason, buttonLabel = 'Download PDF' }: DocCardProps) {
   const [loading, setLoading] = useState(false);
 
   const handleClick = async () => {
@@ -77,7 +81,7 @@ function DocCard({ title, description, onGenerate, disabled, disabledReason }: D
         className='shrink-0'
       >
         <Download className='mr-2 h-3.5 w-3.5' />
-        {loading ? 'Generating...' : 'Download PDF'}
+        {loading ? 'Generating...' : buttonLabel}
       </Button>
     </div>
   );
@@ -95,12 +99,23 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
   const { data: attendance = [], isLoading: loadingAttendance } = useBosAttendance(meeting.id);
   const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
   const { data: institutionCtx } = useInstitutionContext();
+  // Board name — read directly from the meeting embed (server-enriched via
+  // fetchCoeBoardMaps in /api/bos/meetings/[id]). Previously this used
+  // useBosBoard(meeting.board_id), which depended on the user's COE board
+  // scope; for any user whose scope didn't include this meeting's board
+  // (e.g. faculty members on cross-institution boards) the lookup returned
+  // undefined and the PDF heading lost the board-name portion. The detail
+  // endpoint now guarantees meeting.board is populated whenever the COE
+  // board lookup succeeds, so we just read it here. The "Board of Studies -"
+  // prefix is stripped because COE's board_name already includes it for
+  // some boards but not others — we want just the discipline label
+  // (e.g. "COMPUTER SCIENCE").
+  const boardName = meeting.board?.board_name
+    ?.replace(/^\s*Board of Studies\s*-\s*/i, '')
+    .trim();
 
-  const chairmanMember = members.find((m) => m.member_type === 'chairman');
+  const chairmanMember = members.find((m) => isBosChairmanRow(m));
   const chairmanName = chairmanMember?.display_name ?? 'Chairman';
-  const externalMembers = members.filter(
-    (m) => m.member_type !== 'internal_member' && m.member_type !== 'chairman'
-  );
 
   const isLoading = loadingAgenda || loadingAttendance || loadingMembers;
 
@@ -108,15 +123,19 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
   const hasAttendance = attendance.length > 0;
 
   const statusIndex = BOS_MEETING_STATUS_ORDER.indexOf(meeting.status);
-  const isBeforeNoticed   = statusIndex < BOS_MEETING_STATUS_ORDER.indexOf('noticed');
   const isBeforeCompleted = statusIndex < BOS_MEETING_STATUS_ORDER.indexOf('completed');
 
-  // Build the per-institution PDF header (logos fetched as base64 data-URLs)
+  // Build the per-institution PDF header (logos + seal/sign fetched as base64
+  // data-URLs). Seal + sign are optional — only Arts/Science populates them in
+  // institution-header.ts; Engineering returns undefined and the meeting-notice
+  // generator falls back to the text-only "Principal" line.
   async function buildHeader(): Promise<BosPdfHeader> {
     const h = getInstitutionHeader(institutionCtx?.name);
-    const [logoImage, rightLogoImage] = await Promise.all([
+    const [logoImage, rightLogoImage, sealImage, signImage] = await Promise.all([
       toBase64('/logo.png'),
       toBase64(h.rightLogoImage),
+      h.sealImage ? toBase64(h.sealImage) : Promise.resolve(undefined),
+      h.signImage ? toBase64(h.signImage) : Promise.resolve(undefined),
     ]);
     return {
       institution_name: h.institution_name,
@@ -125,6 +144,8 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
       logoImage,
       rightLogoImage,
       officials: h.officials,
+      sealImage,
+      signImage,
     };
   }
 
@@ -138,21 +159,72 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
   };
 
   const generateMinutes = async () => {
-    const [{ generateMinutesPdf }, header] = await Promise.all([
-      import('@/lib/utils/bos/bos-pdf-generator'),
-      buildHeader(),
-    ]);
-    generateMinutesPdf({ header, meeting, attendees: attendance, agendaItems, chairmanName });
-    toast.success('Minutes downloaded');
+    try {
+      const [header, h] = await Promise.all([
+        buildHeader(),
+        Promise.resolve(getInstitutionHeader(institutionCtx?.name)),
+      ]);
+
+      const response = await fetch(`/api/bos/meetings/${meeting.id}/minutes-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meeting,
+          attendees: attendance,
+          agendaItems,
+          chairmanName,
+          boardName,
+          boardType: meeting.board_type,
+          institutionName: h.institution_name || institutionCtx?.name || 'J.K.K. NATARAJA COLLEGE',
+          institutionAddress: h.institution_address,
+          institutionAccreditation: h.institution_accreditation,
+          secretaryName: h.officials?.secretary_name || 'Secretary',
+          principalName: h.officials?.principal_name || 'Principal',
+          principalTitle: 'Principal',
+          contactCell: h.officials?.contact_cell,
+          contactWeb: h.officials?.contact_web,
+          contactEmail: h.officials?.contact_email,
+          logoImage: header.logoImage,
+          rightLogoImage: header.rightLogoImage,
+        }),
+      });
+
+      if (!response.ok) throw new Error('PDF generation failed');
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `minutes-meeting-${meeting.meeting_number}-${meeting.academic_year}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success('Minutes downloaded');
+    } catch (error) {
+      console.error('Failed to generate minutes PDF:', error);
+      toast.error('Failed to generate PDF. Please try again.');
+    }
   };
 
-  const generateCallLetterFor = async (member: BosMember) => {
-    const [{ generateCallLetterPdf }, header] = await Promise.all([
-      import('@/lib/utils/bos/bos-pdf-generator'),
+  // DOCX twin of generateMinutes — same content, different renderer. The module
+  // is lazy-imported so the docx library (~300KB gzipped) doesn't ship in the
+  // initial bundle for users who never download a Word doc.
+  const generateMinutesWord = async () => {
+    const [{ generateMinutesDocx }, header] = await Promise.all([
+      import('@/lib/utils/bos/meeting-minutes-docx'),
       buildHeader(),
     ]);
-    generateCallLetterPdf({ header, meeting, agendaItems, expert: member, chairmanName });
-    toast.success(`Call letter for ${member.display_name} downloaded`);
+    await generateMinutesDocx({
+      header,
+      meeting,
+      attendees: attendance,
+      agendaItems,
+      chairmanName,
+      boardName,
+    });
+    toast.success('Minutes (Word) downloaded');
   };
 
   if (isLoading) {
@@ -191,53 +263,25 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
             }
             onGenerate={generateMinutes}
           />
+          {/* Word-format twin of the Minutes PDF. Same content, different
+              renderer (docx library, lazy-imported in generateMinutesWord). */}
+          <DocCard
+            title='Minutes of Meeting (Word)'
+            description='Same content as the PDF, in editable .docx format'
+            disabled={isBeforeCompleted || !hasAttendance}
+            disabledReason={
+              isBeforeCompleted
+                ? 'Meeting must be completed first'
+                : !hasAttendance
+                ? 'Record attendance first'
+                : undefined
+            }
+            onGenerate={generateMinutesWord}
+            buttonLabel='Download Word'
+          />
         </div>
       </div>
 
-      {/* ── Call Letters ───────────────────────────────── */}
-      {externalMembers.length > 0 && (
-        <div>
-          <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3'>
-            Call Letters — External Experts
-          </h4>
-          <div className='space-y-2'>
-            {externalMembers.map((member) => (
-              <div key={member.id} className='flex items-center gap-4 rounded-lg border p-3'>
-                <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted'>
-                  <Users className='h-4 w-4 text-muted-foreground' />
-                </div>
-                <div className='flex-1 min-w-0'>
-                  <p className='text-sm font-medium'>{member.display_name}</p>
-                  <p className='text-xs text-muted-foreground'>
-                    {member.display_designation ?? ''}
-                    {member.display_institution ? ` · ${member.display_institution}` : ''}
-                  </p>
-                </div>
-                <Badge variant='outline' className='text-xs capitalize'>
-                  {member.member_type.replace('_', ' ')}
-                </Badge>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  className='shrink-0'
-                  onClick={() => generateCallLetterFor(member)}
-                  disabled={isBeforeNoticed || !hasAgenda}
-                  title={
-                    isBeforeNoticed
-                      ? 'Available after notice is sent'
-                      : !hasAgenda
-                      ? 'Add agenda items first'
-                      : undefined
-                  }
-                >
-                  <Download className='mr-2 h-3.5 w-3.5' />
-                  Call Letter
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

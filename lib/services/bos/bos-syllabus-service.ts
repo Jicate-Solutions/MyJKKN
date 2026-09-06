@@ -93,7 +93,18 @@ export class BosSyllabusService {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to update syllabus' }));
-      throw new Error(err.error ?? 'Failed to update syllabus');
+      // UI-level rephrasing for the most common authz failure. We drop the
+      // technical "Forbidden:" prefix and the "or a super admin" clause
+      // (super-admin is an internal escalation, not something a regular
+      // user is meant to be told to ask for). Any other server error
+      // passes through verbatim so unknown failures stay diagnosable.
+      const raw = err.error ?? 'Failed to update syllabus';
+      const friendly =
+        typeof raw === 'string' &&
+        raw.startsWith('Forbidden: only the syllabus creator')
+          ? 'only the course designer, the board chairman can edit this syllabus'
+          : raw;
+      throw new Error(friendly);
     }
     return res.json();
   }
@@ -240,10 +251,14 @@ export class BosSyllabusService {
   // ── Taxonomy Management ────────────────────────────────────────────
 
   /**
-   * Fetch taxonomy for a regulation.
+   * Fetch taxonomy for a regulation, optionally scoped to a board. The server
+   * resolves board-first then falls back to the regulation-wide (board_id NULL) row.
    */
-  static async getTaxonomy(regulationId: string, institutionsId?: string): Promise<BosRegulationTaxonomy> {
-    const qs = institutionsId ? `?institutionsId=${encodeURIComponent(institutionsId)}` : '';
+  static async getTaxonomy(regulationId: string, institutionsId?: string, boardId?: string): Promise<BosRegulationTaxonomy> {
+    const params = new URLSearchParams();
+    if (institutionsId) params.set('institutionsId', institutionsId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     const res = await fetch(`/api/bos/taxonomy/${regulationId}${qs}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Taxonomy not found' }));

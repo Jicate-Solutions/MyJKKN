@@ -9,7 +9,80 @@ import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Timetable>[] = [
+/**
+ * Status for the list badge, DERIVED — never the stored `is_active` alone.
+ *
+ * 2026-08-31: a timetable whose end_date had passed still read "Active". The
+ * nightly `fn_deactivate_ended_timetables` cron is not at fault — it runs at
+ * 00:15 IST and has succeeded every day — but the boolean it maintains is only
+ * ever a snapshot, and this cell printed the snapshot:
+ *
+ *   - templates are DELIBERATELY skipped by that job (`is_template = false` in
+ *     its WHERE), so an expired template keeps `is_active = true` forever and
+ *     is precisely the row that was reported;
+ *   - between midnight IST and the job there is a real, if brief, stale window;
+ *   - nothing at all deactivates a timetable whose start_date is still ahead.
+ *
+ * Deriving instead of writing keeps the fix read-only: the job stays the single
+ * writer of `is_active`, and no screen can disagree with the dates on the row.
+ *
+ * Dates are compared as plain ISO strings in IST — NOT `new Date(...)`, which
+ * parses a bare 'YYYY-MM-DD' as UTC midnight and renders a day early at any
+ * negative offset.
+ */
+function timetableStatus({
+  isActive,
+  isTemplate,
+  startDate,
+  endDate
+}: {
+  isActive: boolean;
+  isTemplate: boolean;
+  startDate: string | null;
+  endDate: string | null;
+}): { label: string; className: string } {
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
+
+  // A template is a shape to copy, not a schedule that runs; its dates carry no
+  // meaning and it is exempt from expiry by design.
+  if (isTemplate) {
+    return {
+      label: 'Template',
+      className: 'bg-purple-50 text-purple-700 border-purple-200'
+    };
+  }
+  if (!isActive) {
+    return {
+      label: 'Inactive',
+      className: 'bg-gray-50 text-gray-700 border-gray-200'
+    };
+  }
+  if (endDate && endDate.slice(0, 10) < today) {
+    return {
+      label: 'Expired',
+      className: 'bg-amber-50 text-amber-700 border-amber-200'
+    };
+  }
+  if (startDate && startDate.slice(0, 10) > today) {
+    return {
+      label: 'Scheduled',
+      className: 'bg-blue-50 text-blue-700 border-blue-200'
+    };
+  }
+  return {
+    label: 'Active',
+    className: 'bg-green-50 text-green-700 border-green-200'
+  };
+}
+
+export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Timetable>[] => {
+  const adapt = adaptLabel || ((label) => label);
+  return [
   {
     id: 'select',
     enableResizing: false,
@@ -73,7 +146,7 @@ export const columns: ColumnDef<Timetable>[] = [
   {
     accessorKey: 'program.program_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program' />
+      <DataTableColumnHeader column={column} title={adapt('Program')} />
     ),
     cell: ({ row }) => {
       const timetable = row.original;
@@ -83,7 +156,7 @@ export const columns: ColumnDef<Timetable>[] = [
   {
     accessorKey: 'department.department_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Department' />
+      <DataTableColumnHeader column={column} title={adapt('Department')} />
     ),
     cell: ({ row }) => {
       const timetable = row.original;
@@ -91,10 +164,10 @@ export const columns: ColumnDef<Timetable>[] = [
     }
   },
   {
-    accessorFn: (row) => row.semesters?.semester_name || 'Semester',
+    accessorFn: (row) => row.semesters?.semester_name || adapt('Semester'),
     id: 'semester',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester / Section' />
+      <DataTableColumnHeader column={column} title={`${adapt('Semester')} / ${adapt('Section')}`} />
     ),
     cell: ({ row }) => {
       const timetable = row.original;
@@ -121,7 +194,7 @@ export const columns: ColumnDef<Timetable>[] = [
               : 'bg-purple-50 text-purple-700 border-purple-200'
           }
         >
-          {timetableType === 'semester' ? 'Semester' : 'Section'}
+          {timetableType === 'semester' ? adapt('Semester') : adapt('Section')}
         </Badge>
       );
     }
@@ -133,16 +206,18 @@ export const columns: ColumnDef<Timetable>[] = [
     ),
     cell: ({ row }) => {
       const isActive = row.getValue('is_active') as boolean;
+      const { label, className } = timetableStatus({
+        isActive,
+        isTemplate: (row.original as any)?.is_template === true,
+        startDate: (row.original as any)?.start_date ?? null,
+        endDate: (row.original as any)?.end_date ?? null
+      });
       return (
         <Badge
-          variant={isActive ? 'default' : 'secondary'}
-          className={
-            isActive
-              ? 'bg-green-50 text-green-700 border-green-200'
-              : 'bg-gray-50 text-gray-700 border-gray-200'
-          }
+          variant={label === 'Active' ? 'default' : 'secondary'}
+          className={className}
         >
-          {isActive ? 'Active' : 'Inactive'}
+          {label}
         </Badge>
       );
     }
@@ -177,4 +252,5 @@ export const columns: ColumnDef<Timetable>[] = [
     minSize: 60,
     maxSize: 80
   }
-];
+  ];
+};

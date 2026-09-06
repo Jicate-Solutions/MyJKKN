@@ -62,6 +62,19 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
 
   const submission = submissionRaw as any;
 
+  // Hoisted ABOVE the loading / error / not-found returns below. It used to sit
+  // under all three, which made it conditional on the most certain state change
+  // there is — every mount starts isLoading and then resolves, so the fiber went
+  // from calling three hooks to four and tripped "Expected static flag was
+  // missing". Reads submission optionally so it is safe before the data lands.
+  const existingUserScore = useMemo(() => {
+    const s = (submission?.scores ?? []) as any[];
+    if (!profile?.id || !s.length) return null;
+    return s.find(
+      (x: any) => x.judge_id === profile.id || x.judge?.id === profile.id
+    ) ?? null;
+  }, [profile?.id, submission?.scores]);
+
   const handleSubmitForReview = async () => {
     await submitForReview.mutateAsync({ id });
   };
@@ -124,13 +137,7 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
     ? JUDGE_ELIGIBLE_ROLES.includes(profile.role)
     : false;
 
-  // Check if user already scored this submission
-  const existingUserScore = useMemo(() => {
-    if (!profile?.id || !scores.length) return null;
-    return scores.find(
-      (s: any) => s.judge_id === profile.id || s.judge?.id === profile.id
-    ) ?? null;
-  }, [profile?.id, scores]);
+  // existingUserScore is computed above the early returns — see the note there.
 
   // User can judge if they are admin/super_admin OR if they have an existing score (meaning they were assigned as a judge)
   const canJudge = isAdminRole || !!existingUserScore;
@@ -329,7 +336,7 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
             </CardHeader>
             <CardContent>
               {/* Tier badge + total score */}
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex flex-wrap items-center gap-3 mb-4">
                 <span className={`px-3 py-1 rounded-full text-sm font-bold ${getTierColor(scoring.tier.level)}`}>
                   Level {scoring.tier.level}: {scoring.tier.label}
                 </span>
@@ -521,7 +528,7 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
                     </span>
                   </AlertDescription>
                 </Alert>
-                <div className="grid grid-cols-5 gap-3 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
                   <div className="text-center">
                     <p className="text-muted-foreground text-xs">Real Problem</p>
                     <p className="font-semibold text-lg">{existingUserScore.real_problem ?? '-'}</p>

@@ -42,9 +42,13 @@ function BillingStudentsContent() {
       program_id: searchParams.get('program_id') || undefined,
       semester_id: searchParams.get('semester_id') || undefined,
       section_id: searchParams.get('section_id') || undefined,
+      accommodation_type: searchParams.get('accommodation_type') || undefined,
+      q: searchParams.get('q') || undefined,
+      scan: searchParams.get('scan') || undefined,
       first_name: searchParams.get('first_name') || undefined,
       last_name: searchParams.get('last_name') || undefined,
       roll_number: searchParams.get('roll_number') || undefined,
+      register_number: searchParams.get('register_number') || undefined,
       mobile_number: searchParams.get('mobile_number') || undefined,
       is_profile_complete:
         searchParams.get('is_profile_complete') === 'true' ? true : undefined,
@@ -58,9 +62,11 @@ function BillingStudentsContent() {
     return {
       page: search.page,
       limit: search.pageSize,
+      query: search.q,
       first_name: search.first_name,
       last_name: search.last_name,
       roll_number: search.roll_number,
+      register_number: search.register_number,
       mobile_number: search.mobile_number,
       institution_id: search.institution_id,
       academic_year_id: search.academic_year_id,
@@ -69,6 +75,7 @@ function BillingStudentsContent() {
       program_id: search.program_id,
       semester_id: search.semester_id,
       section_id: search.section_id,
+      accommodation_type: search.accommodation_type,
       is_profile_complete: search.is_profile_complete
     };
   }, [search]);
@@ -76,8 +83,10 @@ function BillingStudentsContent() {
   // For backward compatibility with filters component, we still need this hook
   // but the actual data fetching will be handled by the DataTable
   const hasActiveFilters = !!(
+    search.q ||
     search.first_name ||
     search.roll_number ||
+    search.register_number ||
     search.mobile_number ||
     search.institution_id ||
     search.academic_year_id ||
@@ -85,7 +94,8 @@ function BillingStudentsContent() {
     search.department_id ||
     search.program_id ||
     search.semester_id ||
-    search.section_id
+    search.section_id ||
+    search.accommodation_type
   );
 
   const {
@@ -96,17 +106,23 @@ function BillingStudentsContent() {
 
   const canViewStudents = isSuperAdmin || canAccess('billing.schedule', 'view');
 
+  // `scan` is a UI-transport flag, not a learner attribute, so it rides
+  // alongside the domain filters rather than inside StudentSearchFilters.
   const handleFilterChange = (
-    newFilters: Partial<StudentSearchFiltersType>
+    newFilters: Partial<StudentSearchFiltersType> & { scan?: string }
   ) => {
     const params = new URLSearchParams(searchParams);
 
-    // Update URL params with new filter values
+    // Update URL params with new filter values. The unified search box travels
+    // as `query` in the filter object but as the shorter `q` in the URL, so a
+    // scanned link stays readable — translate it here rather than teaching the
+    // filters component two names for one thing.
     Object.entries(newFilters).forEach(([key, value]) => {
+      const paramKey = key === 'query' ? 'q' : key;
       if (value !== undefined && value !== null && value !== '') {
-        params.set(key, value.toString());
+        params.set(paramKey, value.toString());
       } else {
-        params.delete(key);
+        params.delete(paramKey);
       }
     });
 
@@ -169,21 +185,17 @@ function BillingStudentsContent() {
         ]}
       />
 
-      <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>{pageTitle}</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              {pageDescription}
-            </p>
-          </div>
-          {/* Export functionality is now handled by the DataTable component */}
+      {/* Tightened from space-y-6/mt-4 + a two-line header + p-6 card padding.
+          Those cost ~150 px above the search box, so on a laptop the clerk saw
+          the filters and about two result rows. */}
+      <div className='space-y-3 mt-3'>
+        <div>
+          <h1 className='text-xl font-bold'>{pageTitle}</h1>
+          <p className='text-sm text-muted-foreground'>{pageDescription}</p>
         </div>
 
-        {/* Statistics cards will be integrated into the DataTable */}
-
         <Card>
-          <CardContent className='p-6'>
+          <CardContent className='p-3 sm:p-4'>
             {/* Hide search filters for students - they only see their own data */}
             {!isStudent && (
               <StudentSearchFilters
@@ -192,7 +204,7 @@ function BillingStudentsContent() {
               />
             )}
 
-            <div className={isStudent ? '' : 'mt-6'}>
+            <div className={isStudent ? '' : 'mt-4'}>
               <StudentDataTable search={search} />
             </div>
           </CardContent>

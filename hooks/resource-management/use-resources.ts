@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { getErrorMessage } from '@/lib/utils';
@@ -45,19 +45,30 @@ export function useResources(initialFilters: ResourceFilters = {}) {
   });
   const [filters, setFilters] = useState<ResourceFilters>(initialFilters);
 
+  // Monotonically-incrementing counter. Each call to fetchResources stamps the
+  // in-flight request with the CURRENT counter value; when the response arrives
+  // it compares against the ref to decide whether to commit the result. If a
+  // newer request has already started (counter advanced), the stale response is
+  // silently discarded — preventing an older unfiltered fetch from overwriting
+  // a filtered one that already completed.
+  const requestIdRef = useRef(0);
+
   const fetchResources = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     try {
       setLoading(true);
       setError(null);
       const response = await ResourceService.getResources(filters);
+      if (requestId !== requestIdRef.current) return; // stale — a newer fetch won
       setResources(response.data);
       setMetadata(response.metadata);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [filters]);
 
@@ -324,7 +335,7 @@ export function useResourcesSelect(
   departmentId?: string
 ) {
   const [resources, setResources] = useState<
-    Array<{ id: string; name: string; status: string }>
+    Array<{ id: string; name: string; status: string; parent_category_id?: string }>
   >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

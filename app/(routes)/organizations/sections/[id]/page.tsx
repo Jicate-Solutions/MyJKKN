@@ -117,7 +117,7 @@ export default function SectionDetailsPage({
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex justify-between items-center'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
             <h1 className='text-2xl font-bold py-1'>{section.section_name}</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>

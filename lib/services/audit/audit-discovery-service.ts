@@ -21,7 +21,7 @@
 // The DB-side SECURITY DEFINER function is the ground-truth gatekeeper.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { AuditParameterCatalogRow } from '@/lib/types/audit';
+import type { AuditParameterCatalogRow, AuditStandingBoardRow } from '@/lib/types/audit';
 import { AuditParameterCatalogService } from './audit-parameter-catalog-service';
 import { AuditCycleService } from './audit-cycle-service';
 import { getPolicyInt } from '@/lib/policies/get-policy-client';
@@ -221,5 +221,19 @@ export class AuditDiscoveryService {
         ? this.validateDiscoverySql(parameter.discovery_query_sql)
         : null,
     };
+  }
+
+  /**
+   * Standing "Whole Institution" board — for each org-wide active parameter, runs
+   * its discovery over the cycle window and reports whether the always-on check
+   * produced fresh evidence ('measured') or none ('no_data'). One round-trip; the
+   * SECURITY DEFINER RPC reuses the hardened discovery executor internally.
+   */
+  static async standingBoard(cycleId: string): Promise<AuditStandingBoardRow[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_audit_standing_board', {
+      p_cycle_id: cycleId,
+    });
+    if (error) throw error;
+    return (data ?? []) as AuditStandingBoardRow[];
   }
 }

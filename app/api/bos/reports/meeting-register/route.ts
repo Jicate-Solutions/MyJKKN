@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
+import { resolveBosBoardScope, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/reports/meeting-register?boardId=&academicYear= ─────────────
 export async function GET(request: NextRequest) {
@@ -15,7 +17,17 @@ export async function GET(request: NextRequest) {
     const academicYear = searchParams.get('academicYear');
     const institutionsId = searchParams.get('institutionsId');
 
-    let query = supabase
+    // Read-only observer: holds the reports view grant but sits on no board —
+    // may READ the meeting register across every institution. Service-role
+    // bypasses the board-scoped RLS that would otherwise return empty. VIEW ONLY.
+    const scope = await resolveBosBoardScope(user.id);
+    const canReadAllBos = isBosReadAllObserver(
+      scope,
+      await hasBosPermission(user.id, 'academic.bos-reports.view')
+    );
+    const db = canReadAllBos ? createServiceRoleClient() : supabase;
+
+    let query = db
       .from('bos_meetings')
       .select(`
         id, meeting_number, meeting_title, academic_year, board_id, institutions_id,
@@ -26,7 +38,14 @@ export async function GET(request: NextRequest) {
 
     if (boardId) query = query.eq('board_id', boardId);
     if (academicYear) query = query.eq('academic_year', academicYear);
-    if (institutionsId) query = query.eq('institutions_id', institutionsId);
+    // CAS-aware via the denormalized counselling_code: includes meetings filed
+    // under either Aided/Self-Financing UUID of the selected institution.
+    if (institutionsId) {
+      const code = await counsellingCodeFor(db, institutionsId);
+      query = code
+        ? query.eq('counselling_code', code)
+        : query.eq('institutions_id', institutionsId);
+    }
 
     const { data: meetings, error } = await query;
     if (error) throw error;
@@ -42,11 +61,11 @@ export async function GET(request: NextRequest) {
     const enriched = await Promise.all(
       (meetings ?? []).map(async (m) => {
         const [{ count: attendeeCount }, { count: agendaCount }] = await Promise.all([
-          supabase.from('bos_meeting_attendees')
+          db.from('bos_meeting_attendees')
             .select('id', { count: 'exact', head: true })
             .eq('meeting_id', m.id)
             .eq('attendance_status', 'present'),
-          supabase.from('bos_agenda_items')
+          db.from('bos_agenda_items')
             .select('id', { count: 'exact', head: true })
             .eq('meeting_id', m.id),
         ]);

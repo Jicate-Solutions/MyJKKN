@@ -50,12 +50,6 @@ interface ApprovalStepBuilderProps {
   steps: CreateApprovalStepDto[];
   onChange: (steps: CreateApprovalStepDto[]) => void;
   workflowType?: ApprovalWorkflowType;
-  /**
-   * Institutions the service type is scoped to. When populated, the approver
-   * combobox shows only users from those institutions. When empty (e.g.
-   * "common" scope), all approver-eligible users are shown.
-   */
-  institutionIds?: string[];
 }
 
 /**
@@ -72,30 +66,24 @@ export function ApprovalStepBuilder({
   steps,
   onChange,
   workflowType = 'sequential',
-  institutionIds,
 }: ApprovalStepBuilderProps) {
   const { data: roles = [], isLoading: rolesLoading } = useCustomRolesForApproval();
 
-  // Lift the user fetch so all N StepRows share one query. The users are the
-  // same for every step — same role set, same institutions — so querying
-  // per-step would be N identical requests.
+  // Lift the user fetch so all N StepRows share one query — same role set for
+  // every step, so a per-step fetch would be N identical requests.
+  //
+  // Approvers are intentionally NOT scoped to the service type's Service
+  // Visibility (institution/degree/…). The author can pick ANY approver-
+  // eligible user; RLS still gates which profiles they're allowed to read.
+  // Students never appear (roleKeys excludes them), which keeps this
+  // unscoped list small. Narrowing the list is done per-step via the
+  // client-side "Filter by role" control in StepRow.
   const roleKeys = useMemo(() => roles.map((r) => r.role_key), [roles]);
-  const { data: allUsers = [], isLoading: usersLoading } = useUsersByRole(
+  const { data: users = [], isLoading: usersLoading } = useUsersByRole(
     roleKeys.length > 0 ? roleKeys : null,
-    institutionIds && institutionIds.length === 1 ? institutionIds[0] : undefined,
+    undefined,
     undefined
   );
-
-  // For multi-institution scope, useUsersByRole only accepts one institution,
-  // so we fan out and filter client-side.
-  const scopedUsers: UserWithRole[] = useMemo(() => {
-    if (institutionIds && institutionIds.length > 1) {
-      return allUsers.filter(
-        (u) => u.institution_id && institutionIds.includes(u.institution_id)
-      );
-    }
-    return allUsers;
-  }, [allUsers, institutionIds]);
 
   const rolesByKey = useMemo(() => {
     const m = new Map<string, CustomRole>();
@@ -105,9 +93,9 @@ export function ApprovalStepBuilder({
 
   const usersById = useMemo(() => {
     const m = new Map<string, UserWithRole>();
-    scopedUsers.forEach((u) => m.set(u.id, u));
+    users.forEach((u) => m.set(u.id, u));
     return m;
-  }, [scopedUsers]);
+  }, [users]);
 
   const getRoleLabel = (roleKey: string) =>
     rolesByKey.get(roleKey)?.role_name || roleKey.replace(/_/g, ' ');
@@ -235,10 +223,10 @@ export function ApprovalStepBuilder({
           step={step}
           steps={steps}
           isSequential={isSequential}
-          users={scopedUsers}
+          users={users}
           usersById={usersById}
           usersLoading={usersLoading || rolesLoading}
-          institutionIds={institutionIds}
+          roles={roles}
           getRoleLabel={getRoleLabel}
           onToggleUser={(user) => handleToggleUser(index, user)}
           onClearAll={() => handleClearAll(index)}
@@ -281,7 +269,7 @@ interface StepRowProps {
   users: UserWithRole[];
   usersById: Map<string, UserWithRole>;
   usersLoading: boolean;
-  institutionIds?: string[];
+  roles: CustomRole[];
   getRoleLabel: (key: string) => string;
   onToggleUser: (user: UserWithRole) => void;
   onClearAll: () => void;
@@ -298,7 +286,7 @@ function StepRow({
   users,
   usersById,
   usersLoading,
-  institutionIds,
+  roles,
   getRoleLabel,
   onToggleUser,
   onClearAll,
@@ -307,18 +295,44 @@ function StepRow({
   onRemove,
 }: StepRowProps) {
   const [open, setOpen] = useState(false);
+  // Per-step view filter — narrows the (unscoped) candidate list to one role
+  // so picking an approver in a long list is easy. 'all' = show everyone.
+  // This never affects what's saved; approver_role is derived from the picked
+  // user's own profile.role at selection time.
+  const [roleFilter, setRoleFilter] = useState<string>('all');
 
   const selectedIds = step.approver_user_ids ?? [];
   const selectedUsers = selectedIds
     .map((id) => usersById.get(id))
     .filter((u): u is UserWithRole => Boolean(u));
 
-  // IDs present in the step but missing from the current scoped user list.
-  // Happens when a user moved institution, was deleted, or RLS hides them.
-  // We surface them as "unknown" badges so the author can see + remove them.
+  // IDs present in the step but missing from the candidate list. Happens when
+  // a user was deleted or RLS hides them. We surface them as "unknown" badges
+  // so the author can see + remove them.
   const unknownIds = selectedIds.filter((id) => !usersById.has(id));
 
   const hasSelection = selectedIds.length > 0;
+
+  // Count candidates per role so the filter can show "RoleName (N)" and skip
+  // roles that have no eligible users.
+  const roleCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    users.forEach((u) => m.set(u.role, (m.get(u.role) ?? 0) + 1));
+    return m;
+  }, [users]);
+
+  const roleOptions = useMemo(
+    () => roles.filter((r) => (roleCounts.get(r.role_key) ?? 0) > 0),
+    [roles, roleCounts]
+  );
+
+  const filteredUsers = useMemo(
+    () =>
+      roleFilter === 'all'
+        ? users
+        : users.filter((u) => u.role === roleFilter),
+    [users, roleFilter]
+  );
 
   return (
     <Card>
@@ -369,7 +383,7 @@ function StepRow({
                         variant="outline"
                         className="gap-1 pl-2 pr-1 py-0.5 text-[11px] text-muted-foreground"
                       >
-                        Unknown user (outside current scope)
+                        Unknown user (no longer available)
                         <button
                           type="button"
                           aria-label="Remove"
@@ -392,6 +406,28 @@ function StepRow({
                     ))}
                   </div>
                 )}
+
+                {/* Step 1: (optional) narrow the candidate list by role.
+                    Lives OUTSIDE the approver popover to avoid nesting two
+                    Radix portals; picking a role just filters the list below. */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                    Filter by role
+                  </span>
+                  <Select value={roleFilter} onValueChange={setRoleFilter}>
+                    <SelectTrigger className="h-8 flex-1 text-xs" disabled={usersLoading}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All roles ({users.length})</SelectItem>
+                      {roleOptions.map((r) => (
+                        <SelectItem key={r.role_key} value={r.role_key}>
+                          {r.role_name} ({roleCounts.get(r.role_key)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 <Popover open={open} onOpenChange={setOpen} modal>
                   <PopoverTrigger asChild>
@@ -440,16 +476,18 @@ function StepRow({
                         <CommandEmpty>
                           {usersLoading
                             ? 'Loading…'
-                            : institutionIds && institutionIds.length > 0
-                            ? 'No approvers found in the scoped institutions.'
+                            : roleFilter !== 'all'
+                            ? 'No approvers with this role.'
                             : 'No approvers found.'}
                         </CommandEmpty>
                         <CommandGroup
-                          heading={`${users.length} approver${users.length === 1 ? '' : 's'}${
+                          heading={`${filteredUsers.length} approver${filteredUsers.length === 1 ? '' : 's'}${
+                            roleFilter !== 'all' ? ` · ${getRoleLabel(roleFilter)}` : ''
+                          }${
                             selectedIds.length > 0 ? ` · ${selectedIds.length} selected` : ''
                           }`}
                         >
-                          {users.map((u) => {
+                          {filteredUsers.map((u) => {
                             const isSelected = selectedIds.includes(u.id);
                             const roleLabel = getRoleLabel(u.role);
                             return (
@@ -531,7 +569,7 @@ function StepRow({
 
             {/* On Return: Restart From Step (sequential + step > 1 only) */}
             {isSequential && steps.length > 1 && (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                 <Label className="text-xs text-muted-foreground whitespace-nowrap">
                   On return, restart from:
                 </Label>
@@ -545,7 +583,7 @@ function StepRow({
                     onRestartFromChange(v === 'current' ? null : Number(v))
                   }
                 >
-                  <SelectTrigger className="w-[260px] h-8 text-xs">
+                  <SelectTrigger className="w-full sm:w-[260px] h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

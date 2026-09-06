@@ -30,10 +30,45 @@ export const TABLE_OVERRIDES: Record<string, string> = {
   daily_attendance: 'Academic',
   class_incharges: 'Academic',
   api_keys: 'System',
+  institution_program_approvals: 'Staff',
+  // Instagram monitoring audit log — doesn't follow the ig_ prefix because
+  // it sits alongside future social_<platform>_logs siblings.
+  social_instagram_logs: 'Instagram',
+  // Meta surface modules (catalog consolidation 2026-05-30, κ): tables that
+  // don't fit the per-module prefix below.
+  social_facebook_logs: 'Social Facebook', // sibling to social_instagram_logs
+  meta_campaigns: 'Social Ads', // ζ — sits alongside meta_ad_accounts/insights
+  // Foundation & Competitive-Exam Programme (2026-07-06): fp_* substrate plus
+  // the two exam_* catalog tables. Mapped explicitly (rather than via an
+  // `exam_` prefix) so the shared exam_* namespace can't swallow unrelated
+  // COE/exam tables. Module name matches the 'Foundation Programme' label in
+  // lib/permissions-audit/module-mappings.ts (foundation.* perms).
+  fp_students: 'Foundation Programme',
+  fp_cohorts: 'Foundation Programme',
+  fp_enrollments: 'Foundation Programme',
+  fp_items: 'Foundation Programme',
+  fp_assessments: 'Foundation Programme',
+  fp_assessment_items: 'Foundation Programme',
+  fp_attempts: 'Foundation Programme',
+  fp_responses: 'Foundation Programme',
+  fp_student_weakness: 'Foundation Programme',
+  fp_baselines: 'Foundation Programme',
+  fp_revision_plans: 'Foundation Programme',
+  exam_definitions: 'Foundation Programme',
+  exam_topic_map: 'Foundation Programme',
+  // Teaching-enterprise participant layer (2026-07-27): the cohort config table
+  // that replaced the hardcoded MBA enrolment predicate. Mapped explicitly
+  // rather than via a `teaching_` prefix so the generic word can't swallow
+  // unrelated future tables. Same module as improvement_* (improvement.* perms).
+  teaching_enterprise_cohorts: 'Improvement Board',
 };
 
 /** Prefix-to-module mapping checked in order; first match wins. */
 export const MODULE_PREFIXES: [string, string][] = [
+  ['reference_catalog', 'Reference'],
+  // Projects module tables (project_statuses, project_labels, …) — module
+  // registered 2026-07-12 with its first permission key (projects.view)
+  ['project_', 'Projects'],
   ['billing_', 'Billing'],
   ['learners_', 'Learners'],
   ['staff_plan', 'Academic'],
@@ -59,12 +94,41 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['health_', 'Health'],
   ['ims_', 'IMS'],
   ['marathon_', 'Marathon'],
+  ['hr_', 'Staff'],
   ['hostel_', 'Campus Living'],
   ['mess_', 'Campus Living'],
   ['pde_', 'PDE Learning'],
+  ['improvement_', 'Improvement Board'], // MBA teaching-enterprise: improvement_ideas/areas/idea_activity
+  ['cdc_', 'CDC'],
+  // Internship Module — operational substrate for cycles, sites, preceptors,
+  // vehicles, assignments, logbook, evaluations, attendance, incidents,
+  // certificates. Distinct from CDC's `cdc_internship_*` substrate (which
+  // models placement-style internship records inside Career Development
+  // Centre). Catalog ships alongside PR #1209 sidebar wiring.
+  ['internship_', 'Internship'],
   ['chatbot_', 'Chatbot'],
   ['chat_', 'Chatbot'],
+  // Course Events (2026-08-13): course_events, course_packages,
+  // course_sessions, course_installments, etc. `course_mappings` (Organization
+  // curriculum catalog) keeps its exact TABLE_OVERRIDES entry above, which is
+  // checked before this prefix scan, so it is unaffected.
+  ['course_', 'Courses'],
   ['expo_', 'Expo'],
+  // Instagram monitoring substrate (Phase 1B, 2026-05-30):
+  // ig_accounts / ig_account_metrics / ig_posts / ig_post_metrics →
+  // Instagram. Companion social_instagram_logs goes through TABLE_OVERRIDES.
+  // Phase 2 (ι, 2026-05-30): ig_stories / ig_story_insights /
+  // ig_dm_conversations / ig_dm_messages also bucket here via the same prefix.
+  ['ig_', 'Instagram'],
+  // Meta surface modules (catalog consolidation 2026-05-30, κ).
+  // Order: longer/more-specific meta_* prefixes BEFORE shorter ones.
+  ['meta_lead_', 'Social Lead Ads'], // meta_lead_forms, meta_lead_field_mappings (γ)
+  ['meta_leadgen_', 'Social Lead Ads'], // meta_leadgen_events (γ)
+  ['meta_capi_', 'Integrations Meta Pixel'], // meta_capi_events (ε)
+  ['meta_audience_', 'Integrations Meta Audiences'], // meta_audience_rules, meta_audience_sync_history (η)
+  ['meta_ad_', 'Social Ads'], // meta_ad_accounts, meta_ad_insights (ζ); meta_campaigns goes through TABLE_OVERRIDES
+  ['fb_', 'Social Facebook'], // fb_pages, fb_posts, fb_post_metrics, fb_page_metrics (β)
+  ['messenger_', 'Social Messenger'], // messenger_conversations, messenger_messages (δ)
   ['scholarship', 'Billing'],
   ['counselor_', 'Admission'],
   ['consultant_', 'Admission'],

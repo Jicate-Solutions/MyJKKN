@@ -1,0 +1,9 @@
+{
+  "route_prefixes": ["/admin/integrations/meta-audiences"],
+  "module_key": "integrations_meta_audiences",
+  "tables": ["meta_audience_rules", "meta_audience_sync_history"],
+  "permission_keys": [
+    "integrations.meta_audiences.view",
+    "integrations.meta_audiences.manage"
+  ]
+}

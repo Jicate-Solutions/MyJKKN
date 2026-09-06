@@ -21,6 +21,7 @@ import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { cn } from '@/lib/utils';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface FacultyQuickAttendanceProps {
   staffId: string;
@@ -36,7 +37,11 @@ export function FacultyQuickAttendance({
   selectedDate
 }: FacultyQuickAttendanceProps) {
   const router = useRouter();
+  const label = useAdaptiveLabels();
   const [loading, setLoading] = useState(true);
+  // Distinguishes a load FAILURE (timeout/network) from a genuine empty schedule,
+  // so we don't show a misleading "No classes scheduled" when the fetch errored.
+  const [loadError, setLoadError] = useState(false);
   const [periods, setPeriods] = useState<AttendancePeriodOption[]>([]);
   const [searchContext, setSearchContext] = useState<any>({});
 
@@ -54,6 +59,7 @@ export function FacultyQuickAttendance({
   const fetchFacultyPeriods = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError(false);
       const result = await FacultyAttendanceService.getFacultyTodayPeriods(
         staffId,
         targetDate
@@ -119,6 +125,10 @@ export function FacultyQuickAttendance({
       }
     } catch (error) {
       logger.error('academic/attendance', 'Error fetching faculty periods', error);
+      // A thrown error (e.g. statement timeout 57014) is a load FAILURE, not an
+      // empty schedule — surface a retryable state instead of "No classes today".
+      setLoadError(true);
+      setPeriods([]);
     } finally {
       setLoading(false);
     }
@@ -133,8 +143,15 @@ export function FacultyQuickAttendance({
     const recordId = periodRecordIds.get(period.timetable_slot_id);
 
     if (isMarked && recordId) {
-      // Navigate to attendance report details page
-      router.push(`/academic/attendance/reports/${recordId}`);
+      // Navigate to attendance report details page.
+      // Updated: 2026-07-21 - Pass the clicked period. One record holds every period
+      // marked that day, so without ?period= the report (and its Edit button) opened
+      // on period_details[0] — a faculty with 6+ marked periods could only ever view
+      // and edit the first one. Key is timetable_slot_id: that is what attendance_data
+      // is keyed by, and what the marking branch below sends as periodId.
+      router.push(
+        `/academic/attendance/reports/${recordId}?period=${encodeURIComponent(period.timetable_slot_id)}`
+      );
       return;
     } else {
       // Navigate to separate attendance marking page
@@ -209,6 +226,35 @@ export function FacultyQuickAttendance({
         <CardContent className='flex items-center justify-center py-12'>
           <Loader2 className='h-8 w-8 animate-spin text-primary' />
           <span className='ml-2'>Loading your schedule...</span>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Load FAILURE (timeout/network) — recoverable, NOT the same as "no classes".
+  // Never let a transient error read as an empty schedule (the false-negative
+  // behind the "no periods showing though I have class" reports).
+  if (loadError) {
+    return (
+      <Card>
+        <CardContent className='flex flex-col items-center justify-center gap-3 py-12 text-center'>
+          <AlertCircle className='h-8 w-8 text-amber-500' />
+          <div className='space-y-1'>
+            <p className='text-sm font-medium'>We couldn&apos;t load your schedule</p>
+            <p className='text-xs text-muted-foreground'>
+              This is usually a temporary network or server timeout — your classes
+              haven&apos;t changed. Please retry.
+            </p>
+          </div>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => {
+              void fetchFacultyPeriods();
+            }}
+          >
+            Retry
+          </Button>
         </CardContent>
       </Card>
     );
@@ -336,7 +382,7 @@ export function FacultyQuickAttendance({
                       {period.section_name && (
                         <div className='bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded-md text-center flex items-center justify-center gap-1.5 font-medium text-blue-700 dark:text-blue-300 col-span-1 xs:col-span-2 sm:col-span-1'>
                           <Users className='h-3 w-3 flex-shrink-0' />
-                          <span>Section {period.section_name}</span>
+                          <span>{label('Section')} {period.section_name}</span>
                         </div>
                       )}
                     </div>

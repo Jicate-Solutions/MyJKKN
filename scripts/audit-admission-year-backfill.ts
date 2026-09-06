@@ -81,7 +81,7 @@ async function main() {
     let query = (supabase as any)
       .from('learners_profiles')
       .select(
-        'id, application_id, first_name, last_name, lifecycle_status, institution_id, program_id, admission_year, admission_year_id, admission_year_obj:admission_years!admission_year_id(admission_year_name, program_start_year)'
+        'id, application_id, first_name, last_name, lifecycle_status, institution_id, program_id, admission_year, admission_year_id, admission_year_obj:admission_years!admission_year_id(admission_year_name, year)'
       )
       .range(from, from + pageSize - 1)
       .order('id', { ascending: true });
@@ -103,7 +103,7 @@ async function main() {
     for (const row of data as any[]) {
       const int = row.admission_year as number | null;
       const fk = row.admission_year_id as string | null;
-      const cohort = row.admission_year_obj?.program_start_year as number | null;
+      const cohort = row.admission_year_obj?.year as number | null;
       const cohortName = row.admission_year_obj?.admission_year_name as string | null;
 
       let issue: string | null = null;
@@ -111,7 +111,7 @@ async function main() {
         issue =
           'admitted row missing admission_year_id (no matching cohort for inst+program; create cohort and re-run backfill)';
       } else if (int != null && fk && cohort != null && int !== cohort) {
-        issue = `integer/FK mismatch: admission_year=${int} but cohort.program_start_year=${cohort}`;
+        issue = `integer/FK mismatch: admission_year=${int} but cohort.year=${cohort}`;
       } else if (int != null && !fk && row.institution_id && row.program_id) {
         issue = 'legacy integer set but no FK (candidate for future backfill)';
       }

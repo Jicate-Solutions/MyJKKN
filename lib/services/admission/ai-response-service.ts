@@ -4,6 +4,74 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AdmissionLead, TemplateType } from '@/types/admission';
 
+// ═════════════════════════════════════════════════════════════════════════
+// AI MODEL CONFIG ADOPTION (2026-07-02)
+// The model id is resolved from ai_model_config. IMPORTANT: this module is
+// bundled CLIENT-SIDE (barrel + hooks/admission/use-ai-responses.ts +
+// components/admission/ai-suggested-responses.tsx import it for the pure
+// personalizeTemplate helper), so the server-only config service must be
+// imported LAZILY inside the AI flow — a top-level import of
+// '@/lib/services/platform/ai-clients/chat' would break the client bundle.
+// On any resolution failure we degrade to the previously hardcoded model
+// (cutover invariant — zero behavior change).
+// ═════════════════════════════════════════════════════════════════════════
+
+const AI_RESPONSE_FEATURE_KEY = 'admission.ai_response';
+const AI_RESPONSE_FALLBACK_MODEL = 'claude-3-5-haiku-20241022';
+
+async function resolveAiResponseModel(): Promise<string> {
+  try {
+    const { resolveChatModel } = await import(
+      '@/lib/services/platform/ai-clients/chat'
+    );
+    const { model_id } = await resolveChatModel(AI_RESPONSE_FEATURE_KEY);
+    return model_id;
+  } catch {
+    // Config service unavailable (e.g. executed outside a server context) —
+    // keep working on the previously hardcoded model.
+    return AI_RESPONSE_FALLBACK_MODEL;
+  }
+}
+
+/** Best-effort usage recording — must never break the response flow. */
+async function recordAiResponseUsage(
+  modelId: string,
+  durationMs: number,
+  usage?: { input_tokens: number; output_tokens: number },
+  errorMessage?: string
+): Promise<void> {
+  try {
+    const { recordChatUsage } = await import(
+      '@/lib/services/platform/ai-clients/chat'
+    );
+    const { getModel } = await import(
+      '@/lib/services/platform/ai-providers'
+    );
+    const pricing = getModel('anthropic', modelId);
+    const costInr =
+      usage &&
+      pricing?.inputPer1KTokensInr != null &&
+      pricing?.outputPer1KTokensInr != null
+        ? Number(
+            (
+              (usage.input_tokens / 1000) * pricing.inputPer1KTokensInr +
+              (usage.output_tokens / 1000) * pricing.outputPer1KTokensInr
+            ).toFixed(6)
+          )
+        : null;
+    await recordChatUsage(AI_RESPONSE_FEATURE_KEY, 'anthropic', modelId, {
+      input_tokens: usage?.input_tokens,
+      output_tokens: usage?.output_tokens,
+      cost_inr: costInr ?? undefined,
+      duration_ms: durationMs,
+      success: !errorMessage,
+      error_message: errorMessage
+    });
+  } catch (recordError) {
+    console.error('[admission/ai-response] Usage recording failed:', recordError);
+  }
+}
+
 // Types
 export type CommunicationChannel = 'email' | 'whatsapp' | 'sms';
 
@@ -108,17 +176,39 @@ export class AIResponseService {
       // Build the prompt
       const prompt = this.buildResponsePrompt(input);
 
-      // Call Claude API
-      const response = await client.messages.create({
-        model: 'claude-3-5-haiku-20241022',
-        max_tokens: 2048,
-        temperature: 0.7,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ]
+      // Resolve the configured model (lazy import; falls back to the
+      // previously hardcoded model on any config failure), then call Claude.
+      const modelId = await resolveAiResponseModel();
+
+      const startedAt = Date.now();
+      let response: Anthropic.Message;
+      try {
+        response = await client.messages.create({
+          model: modelId,
+          max_tokens: 2048,
+          temperature: 0.7,
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ]
+        });
+      } catch (apiError) {
+        await recordAiResponseUsage(
+          modelId,
+          Date.now() - startedAt,
+          undefined,
+          apiError instanceof Error
+            ? apiError.message.slice(0, 500)
+            : String(apiError)
+        );
+        throw apiError;
+      }
+
+      await recordAiResponseUsage(modelId, Date.now() - startedAt, {
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens
       });
 
       // Extract text content
@@ -228,6 +318,68 @@ export class AIResponseService {
       subject,
       variablesUsed
     };
+  }
+
+  /**
+   * Build the 11 placeholder variables the seeded `admission.ai_response`
+   * prompt_template expects (Max-lane registry job). Assembly is reused
+   * VERBATIM from buildResponsePrompt so the enqueued job produces the same
+   * drafts the direct Anthropic call did. Keys MUST match the {{...}}
+   * placeholder names exactly:
+   *   institution_name, lead_name, interested_programs, funnel_stage,
+   *   priority, source, recent_interactions, channel, intent,
+   *   counselor_name, custom_prompt
+   */
+  static buildResponsePayload(
+    input: GenerateResponseInput
+  ): Record<string, string> {
+    const { leadContext, channel, intent, customPrompt } = input;
+    const { lead, recentInteractions, counselorName, institutionName } =
+      leadContext;
+
+    const interested_programs =
+      lead.interested_programs && lead.interested_programs.length > 0
+        ? lead.interested_programs.join(', ')
+        : 'Not specified';
+
+    const recent_interactions =
+      recentInteractions && recentInteractions.length > 0
+        ? recentInteractions
+            .slice(0, 5)
+            .map(
+              (i) =>
+                `${i.type.toUpperCase()} (${i.direction}): ${i.summary} - ${new Date(
+                  i.timestamp
+                ).toLocaleDateString()}`
+            )
+            .join('; ')
+        : 'None recorded';
+
+    return {
+      institution_name: institutionName || 'an educational institution',
+      lead_name: lead.full_name,
+      interested_programs,
+      funnel_stage: this.formatStageName(lead.funnel_stage),
+      priority: lead.is_hot_lead ? 'Hot' : lead.is_priority ? 'Warm' : 'Cold',
+      source: lead.source || 'Unknown',
+      recent_interactions,
+      channel,
+      intent: this.formatIntentName(intent),
+      counselor_name: counselorName || 'your counselor',
+      custom_prompt:
+        customPrompt && customPrompt.trim() ? customPrompt.trim() : 'None'
+    };
+  }
+
+  /**
+   * Public wrapper so the server route can parse the Max drain's answer text
+   * with the same tolerant JSON parsing the direct-call path used.
+   */
+  static parseSuggestions(
+    answerText: string,
+    channel: CommunicationChannel
+  ): SuggestedResponse[] {
+    return this.parseResponseSuggestions(answerText, channel);
   }
 
   /**

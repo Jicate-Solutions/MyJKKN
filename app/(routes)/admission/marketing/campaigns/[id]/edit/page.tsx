@@ -140,7 +140,6 @@ export default function CampaignEditPage() {
   const { admissionYears: yearsFromList, loading: yearsLoading } =
     useAdmissionYears(
       !isGlobal ? campaign?.institution_id ?? null : null,
-      programId || null,
     );
 
   // Same belt-and-braces approach for admission_year.
@@ -153,9 +152,7 @@ export default function CampaignEditPage() {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('admission_years')
-        .select(
-          'id, admission_year_name, program_start_year, program_end_year, is_active',
-        )
+        .select('id, admission_year_name, year, is_active')
         .eq('id', campaign!.admission_year_id!)
         .maybeSingle();
       if (error) throw error;
@@ -181,10 +178,7 @@ export default function CampaignEditPage() {
       {
         id: currentAdmissionYear.id,
         admission_year_name: currentAdmissionYear.admission_year_name,
-        program_start_year:
-          (currentAdmissionYear as any).program_start_year ?? 0,
-        program_end_year:
-          (currentAdmissionYear as any).program_end_year ?? 0,
+        year: (currentAdmissionYear as any).year ?? 0,
         is_active: (currentAdmissionYear as any).is_active ?? true,
       },
       ...yearsFromList,
@@ -372,10 +366,7 @@ export default function CampaignEditPage() {
                     <Select
                       key={`program-${programId || 'empty'}`}
                       value={programId}
-                      onValueChange={(v) => {
-                        setProgramId(v);
-                        setAdmissionYearId('');
-                      }}
+                      onValueChange={setProgramId}
                       disabled={isGlobal}
                     >
                       <SelectTrigger>
@@ -402,18 +393,16 @@ export default function CampaignEditPage() {
                       key={`year-${admissionYearId || 'empty'}`}
                       value={admissionYearId}
                       onValueChange={setAdmissionYearId}
-                      disabled={isGlobal || !programId || yearsLoading}
+                      disabled={isGlobal || yearsLoading}
                     >
                       <SelectTrigger>
                         <SelectValue
                           placeholder={
                             yearsLoading
                               ? 'Loading…'
-                              : !programId
-                                ? 'Pick a program first'
-                                : admissionYears.length === 0
-                                  ? 'No active years'
-                                  : 'Pick a year (optional)'
+                              : admissionYears.length === 0
+                                ? 'No active years'
+                                : 'Pick a year (optional)'
                           }
                         />
                       </SelectTrigger>
@@ -439,7 +428,7 @@ export default function CampaignEditPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Start date</Label>
                   <Input
@@ -466,7 +455,7 @@ export default function CampaignEditPage() {
                   placeholder="e.g. 50000"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Target leads</Label>
                   <Input

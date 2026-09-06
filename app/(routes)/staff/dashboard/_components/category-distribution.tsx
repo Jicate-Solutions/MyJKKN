@@ -163,7 +163,7 @@ export function CategoryDistribution({
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
           <div>
             <CardTitle className='flex items-center gap-2'>
               <Tags className='h-5 w-5' />
@@ -181,7 +181,7 @@ export function CategoryDistribution({
       </CardHeader>
       <CardContent>
         <Tabs defaultValue='bar' className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='bar'>Bar Chart</TabsTrigger>
             <TabsTrigger value='pie'>Pie Chart</TabsTrigger>
             <TabsTrigger value='list'>Top Categories</TabsTrigger>

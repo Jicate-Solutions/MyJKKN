@@ -95,7 +95,7 @@ const INSTRUCTIONS: (string | undefined)[][] = [
   ['• name                    — Resource name. Max 200 chars. Must be unique within the same institution + location.'],
   ['• parent_category_name    — Must match a value in "Reference: Categories" exactly.'],
   ['• institution_name        — Must match a value in "Reference: Institutions" exactly.'],
-  ['• status                  — One of: available, occupied, maintenance, out_of_order, retired'],
+  ['• status                  — One of: available, occupied, maintenance, out_of_order, retired, inactive'],
   ['• booking_type            — One of: reservation, walk_in, both'],
   [],
   ['OPTIONAL FIELDS'],
@@ -199,7 +199,7 @@ export default function DownloadResourceTemplate() {
         {
           type: 'list',
           sqref: 'G2:G1000',
-          formula1: '"available,occupied,maintenance,out_of_order,retired"',
+          formula1: '"available,occupied,maintenance,out_of_order,retired,inactive"',
           showDropDown: true
         },
         {

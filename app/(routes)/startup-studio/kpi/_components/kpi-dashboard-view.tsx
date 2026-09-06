@@ -443,8 +443,8 @@ export function KpiDashboardView() {
 
       {/* Framework Filter Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <div className="flex items-center justify-between">
-          <TabsList>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="all">All</TabsTrigger>
             {frameworks.map((fw) => (
               <TabsTrigger key={fw} value={fw}>
@@ -452,7 +452,7 @@ export function KpiDashboardView() {
               </TabsTrigger>
             ))}
           </TabsList>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Button variant="outline" size="sm" asChild>
               <Link href="/startup-studio/kpi/reports">
                 Impact Reports

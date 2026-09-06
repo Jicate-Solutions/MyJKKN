@@ -173,8 +173,8 @@ export function PersonalTemplatesTab({ institutionId }: PersonalTemplatesTabProp
           {templates.map((t) => (
             <Card key={t.id} className="relative">
               <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 min-w-0">
                     <CardTitle className="text-base">{t.name}</CardTitle>
                     <Badge className={CATEGORY_LABELS[t.category]?.color || ''}>
                       {CATEGORY_LABELS[t.category]?.label || t.category}
@@ -183,7 +183,7 @@ export function PersonalTemplatesTab({ institutionId }: PersonalTemplatesTabProp
                       <Badge variant="outline" className="text-xs">Default</Badge>
                     )}
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 shrink-0">
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handlePreview(t.content)}>
                       <Eye className="h-4 w-4" />
                     </Button>

@@ -22,6 +22,22 @@ export const attendanceReportsSearchParamsSchema = z.object({
   attendance_status: z.enum(['all', 'completed', 'pending']).optional(),
   attendance_threshold: z.coerce.number().optional(),
 
+  /**
+   * Explicit report window, ISO yyyy-mm-dd, set by the From/To fields in the
+   * filter panel.
+   *
+   * Kept as two plain params rather than folded into `dateRange` below: that one
+   * is a stringified JSON blob the DataTable owns, and a report window that a
+   * user can read off the URL and share is worth more than reusing it.
+   *
+   * OVERLAP, not containment: a timetable counts whenever it teaches inside the
+   * window, whatever its own start and end dates. Requiring the timetable to
+   * begin and finish inside the range was tried and reverted — every timetable
+   * at CAS (Aided) runs to 31 Oct, so any earlier To date matched none of 26.
+   */
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+
   // Date range filter is a stringified JSON in the URL
   dateRange: z
     .string()

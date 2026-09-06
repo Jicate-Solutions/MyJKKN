@@ -37,6 +37,8 @@ interface StaffMember {
   first_name: string;
   last_name: string;
   designation?: string;
+  institution_id?: string;
+  institution?: { id: string; name: string } | null;
 }
 
 interface StaffSearchSelectorProps {
@@ -56,15 +58,22 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // In-flight requests to prevent duplicate concurrent fetches
 const inFlightRequests = new Map<string, Promise<StaffMember[]>>();
 
-async function fetchStaffForInstitution(institutionId: string): Promise<StaffMember[]> {
+async function fetchStaffForInstitution(
+  institutionId: string,
+  forTeachingAssignment = false
+): Promise<StaffMember[]> {
+  // External (cross-institution) lookups use a distinct cache key — they go
+  // through the permission-gated assignment path and return a reduced shape.
+  const cacheKey = forTeachingAssignment ? `ext:${institutionId}` : institutionId;
+
   // Check cache first
-  const cached = staffCache.get(institutionId);
+  const cached = staffCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
   }
 
   // Check if there's already an in-flight request
-  const inFlight = inFlightRequests.get(institutionId);
+  const inFlight = inFlightRequests.get(cacheKey);
   if (inFlight) {
     return inFlight;
   }
@@ -75,17 +84,18 @@ async function fetchStaffForInstitution(institutionId: string): Promise<StaffMem
       const result = await StaffService.getStaffViaAPI({
         institution_id: institutionId,
         limit: 1000,
-        isActive: true
+        isActive: true,
+        ...(forTeachingAssignment ? { for_teaching_assignment: true } : {})
       });
       const staffData = result.data as StaffMember[];
-      staffCache.set(institutionId, { data: staffData, timestamp: Date.now() });
+      staffCache.set(cacheKey, { data: staffData, timestamp: Date.now() });
       return staffData;
     } finally {
-      inFlightRequests.delete(institutionId);
+      inFlightRequests.delete(cacheKey);
     }
   })();
 
-  inFlightRequests.set(institutionId, requestPromise);
+  inFlightRequests.set(cacheKey, requestPromise);
   return requestPromise;
 }
 
@@ -108,9 +118,36 @@ export function StaffSearchSelector({
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const debouncedSearchTerm = useDebounceValue(searchTerm, 300);
 
+  // Cross-institution ("visiting staff") picker state. Staff who teach here but
+  // belong to a sister institution are assigned by staff.id — no shadow staff
+  // rows are created in this institution.
+  const [externalInstitutionId, setExternalInstitutionId] = useState('');
+  const [externalStaffList, setExternalStaffList] = useState<StaffMember[]>([]);
+  const [isLoadingExternal, setIsLoadingExternal] = useState(false);
+  const [otherInstitutions, setOtherInstitutions] = useState<
+    { id: string; name: string }[]
+  >([]);
+  // Accumulated staff details across home/external fetches + edit-mode lookups,
+  // so selected visiting staff keep resolving after the external list changes.
+  const [knownStaff, setKnownStaff] = useState<Map<string, StaffMember>>(
+    () => new Map()
+  );
+  // Staff ids we already tried (and failed) to resolve — prevents refetch loops
+  // for deleted/unreadable rows.
+  const attemptedLookupsRef = useRef<Set<string>>(new Set());
+
   // Track initialization to prevent multiple onChange calls
   const hasInitializedRef = useRef(false);
   const mountedRef = useRef(true);
+
+  const mergeKnownStaff = useCallback((members: StaffMember[]) => {
+    if (members.length === 0) return;
+    setKnownStaff((prev) => {
+      const next = new Map(prev);
+      members.forEach((m) => next.set(m.id, m));
+      return next;
+    });
+  }, []);
 
   // Create a stable signature of the value for dependency tracking
   const valueSignature = useMemo(() => {
@@ -168,6 +205,7 @@ export function StaffSearchSelector({
         const data = await fetchStaffForInstitution(institutionId);
         if (!cancelled && mountedRef.current) {
           setStaffList(data);
+          mergeKnownStaff(data);
         }
       } catch (error) {
         // Failed to fetch staff - show empty list
@@ -186,7 +224,116 @@ export function StaffSearchSelector({
     return () => {
       cancelled = true;
     };
-  }, [institutionId]);
+  }, [institutionId, mergeKnownStaff]);
+
+  // Load the institutions list for the "Other institutions" section lazily,
+  // the first time the popover opens. Unscoped on purpose: visiting staff may
+  // come from ANY active institution; /api/staff enforces the
+  // academic.staff.planning.edit permission on the actual staff lookup.
+  useEffect(() => {
+    if (!open || otherInstitutions.length > 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { OrganizationService } = await import(
+          '@/lib/services/organization/organization-service'
+        );
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          undefined,
+          'all'
+        );
+        if (!cancelled && mountedRef.current) {
+          setOtherInstitutions(
+            data
+              .filter((inst) => inst.id !== institutionId)
+              .map((inst) => ({ id: inst.id, name: inst.name }))
+          );
+        }
+      } catch {
+        if (!cancelled && mountedRef.current) {
+          setOtherInstitutions([]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, otherInstitutions.length, institutionId]);
+
+  // Fetch staff of the selected external institution (assignment-gated API path)
+  useEffect(() => {
+    if (!externalInstitutionId) {
+      setExternalStaffList([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      setIsLoadingExternal(true);
+      try {
+        const data = await fetchStaffForInstitution(externalInstitutionId, true);
+        if (!cancelled && mountedRef.current) {
+          setExternalStaffList(data);
+          mergeKnownStaff(data);
+        }
+      } catch {
+        if (!cancelled && mountedRef.current) {
+          setExternalStaffList([]);
+        }
+      } finally {
+        if (!cancelled && mountedRef.current) {
+          setIsLoadingExternal(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [externalInstitutionId, mergeKnownStaff]);
+
+  // Edit mode: assignments may reference visiting staff present in neither
+  // list (the home list is institution-scoped). Resolve them directly — the
+  // staff_select_visiting_teacher RLS policy admits staff already assigned in
+  // an accessible institution's plan.
+  useEffect(() => {
+    const missing = selectedStaffIds.filter(
+      (id) =>
+        !knownStaff.has(id) &&
+        !staffList.some((s) => s.id === id) &&
+        !attemptedLookupsRef.current.has(id)
+    );
+    if (missing.length === 0) return;
+    missing.forEach((id) => attemptedLookupsRef.current.add(id));
+
+    let cancelled = false;
+
+    (async () => {
+      const { createClientSupabaseClient } = await import(
+        '@/lib/supabase/client'
+      );
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('staff')
+        .select(
+          'id, first_name, last_name, designation, institution_id, institution:institutions!staff_institution_id_fkey(id, name)'
+        )
+        .in('id', missing);
+      if (error) return; // non-fatal: unresolved names degrade to "Unknown Staff"
+      if (!cancelled && mountedRef.current && data) {
+        mergeKnownStaff(data as unknown as StaffMember[]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStaffIds, knownStaff, staffList, mergeKnownStaff]);
 
   // Handle search filtering (client-side)
   const filteredStaff = useMemo(() => {
@@ -206,6 +353,22 @@ export function StaffSearchSelector({
   const availableStaff = useMemo(() => {
     return filteredStaff.filter((staff) => !selectedStaffIds.includes(staff.id));
   }, [filteredStaff, selectedStaffIds]);
+
+  // External staff: same client-side search + already-assigned filtering
+  const availableExternalStaff = useMemo(() => {
+    let list = externalStaffList;
+    if (debouncedSearchTerm && debouncedSearchTerm.length >= 2) {
+      const searchLower = debouncedSearchTerm.toLowerCase();
+      list = list.filter(
+        (staff) =>
+          staff.first_name.toLowerCase().includes(searchLower) ||
+          staff.last_name.toLowerCase().includes(searchLower) ||
+          (staff.designation &&
+            staff.designation.toLowerCase().includes(searchLower))
+      );
+    }
+    return list.filter((staff) => !selectedStaffIds.includes(staff.id));
+  }, [externalStaffList, debouncedSearchTerm, selectedStaffIds]);
 
   // Sync assignment IDs only once on initial load
   // This ensures all assignments have unique IDs for React key management
@@ -277,23 +440,42 @@ export function StaffSearchSelector({
     [uniqueAssignments, onChange]
   );
 
+  // Resolve staff details from the home list or the accumulated cross-fetch map
+  const resolveStaff = useCallback(
+    (staffId: string): StaffMember | undefined =>
+      staffList.find((s) => s.id === staffId) ?? knownStaff.get(staffId),
+    [staffList, knownStaff]
+  );
+
   // Get staff name from staff list
   const getStaffName = useCallback(
     (staffId: string) => {
-      const staff = staffList.find((s) => s.id === staffId);
+      const staff = resolveStaff(staffId);
       if (isLoading && !staff) return 'Loading...';
       return staff ? `${staff.first_name} ${staff.last_name}` : 'Unknown Staff';
     },
-    [staffList, isLoading]
+    [resolveStaff, isLoading]
   );
 
   // Get staff designation
   const getStaffDesignation = useCallback(
     (staffId: string) => {
-      const staff = staffList.find((s) => s.id === staffId);
+      const staff = resolveStaff(staffId);
       return staff?.designation || '';
     },
-    [staffList]
+    [resolveStaff]
+  );
+
+  // Visiting = the staff row belongs to a different institution than the plan.
+  // Derived at render time; nothing extra is stored on the assignment.
+  const getVisitingLabel = useCallback(
+    (staffId: string): string | null => {
+      const staff = resolveStaff(staffId);
+      if (!staff?.institution_id || !institutionId) return null;
+      if (staff.institution_id === institutionId) return null;
+      return staff.institution?.name || 'Other institution';
+    },
+    [resolveStaff, institutionId]
   );
 
   return (
@@ -413,6 +595,70 @@ export function StaffSearchSelector({
                 </CommandGroup>
               </CommandList>
             </Command>
+
+            {/* Cross-institution (visiting staff) section. Rendered outside the
+                Command so cmdk's internal matching never hides these rows; the
+                shared search input still filters them via availableExternalStaff. */}
+            <div className='border-t'>
+              <div className='px-2 py-2 space-y-1.5'>
+                <p className='text-xs font-medium text-muted-foreground'>
+                  Other institutions (visiting staff)
+                </p>
+                <Select
+                  value={externalInstitutionId || undefined}
+                  onValueChange={setExternalInstitutionId}
+                >
+                  <SelectTrigger className='h-8 text-xs'>
+                    <SelectValue placeholder='Browse another institution...' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {otherInstitutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {externalInstitutionId &&
+                (isLoadingExternal ? (
+                  <div className='px-3 pb-2 text-xs text-muted-foreground'>
+                    Loading staff...
+                  </div>
+                ) : availableExternalStaff.length === 0 ? (
+                  <div className='px-3 pb-2 text-xs text-muted-foreground'>
+                    No staff members found in this institution.
+                  </div>
+                ) : (
+                  <div className='max-h-48 overflow-y-auto pb-1'>
+                    {availableExternalStaff.map((staff) => (
+                      <button
+                        key={staff.id}
+                        type='button'
+                        onClick={() => addStaffAssignment(staff.id)}
+                        className='w-full px-3 py-1.5 text-left hover:bg-accent flex items-center justify-between gap-2 cursor-pointer'
+                      >
+                        <div className='flex flex-col min-w-0'>
+                          <span className='font-medium text-sm truncate'>
+                            {staff.first_name} {staff.last_name}
+                          </span>
+                          {staff.designation && (
+                            <span className='text-xs text-muted-foreground truncate'>
+                              {staff.designation}
+                            </span>
+                          )}
+                        </div>
+                        <Badge
+                          variant='outline'
+                          className='text-[10px] shrink-0 border-amber-300 text-amber-700'
+                        >
+                          Visiting
+                        </Badge>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+            </div>
           </PopoverContent>
         </Popover>
       </div>
@@ -430,6 +676,7 @@ export function StaffSearchSelector({
             {uniqueAssignments.map((assignment) => {
               const staffName = getStaffName(assignment.staff_id);
               const staffDesignation = getStaffDesignation(assignment.staff_id);
+              const visitingLabel = getVisitingLabel(assignment.staff_id);
 
               return (
                 <Card
@@ -440,9 +687,19 @@ export function StaffSearchSelector({
                     <div className='flex items-center justify-between'>
                       <div className='flex items-center gap-2'>
                         <div>
-                          <CardTitle className='text-sm font-medium'>
-                            {staffName}
-                          </CardTitle>
+                          <div className='flex items-center gap-2'>
+                            <CardTitle className='text-sm font-medium'>
+                              {staffName}
+                            </CardTitle>
+                            {visitingLabel && (
+                              <Badge
+                                variant='outline'
+                                className='text-[10px] border-amber-300 text-amber-700'
+                              >
+                                Visiting — {visitingLabel}
+                              </Badge>
+                            )}
+                          </div>
                           {staffDesignation && (
                             <p className='text-xs text-muted-foreground mt-0.5'>
                               {staffDesignation}
@@ -513,6 +770,7 @@ export function StaffSearchSelector({
             <Label className='text-xs text-muted-foreground'>Summary:</Label>
             {uniqueAssignments.map((assignment) => {
               const staffName = getStaffName(assignment.staff_id);
+              const visitingLabel = getVisitingLabel(assignment.staff_id);
               return (
                 <Badge
                   key={`summary-badge-${assignment.assignment_id}`}
@@ -520,6 +778,7 @@ export function StaffSearchSelector({
                   className='text-xs'
                 >
                   {staffName}
+                  {visitingLabel ? ` (${visitingLabel})` : ''}
                 </Badge>
               );
             })}

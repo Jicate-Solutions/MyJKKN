@@ -27,6 +27,11 @@ export interface HodMetrics {
   marking_compliance_pct: number;
   open_grievances: number;
   pending_leave_approvals: number;
+  // "Oldest open item" ages (whole days) so the dashboard can colour Grievances /
+  // Leave by AGE, not just count. Returned by fn_hod_metrics (migration
+  // 20260722200000). 0 when there is nothing open/pending.
+  grievance_oldest_days?: number;
+  leave_oldest_days?: number;
   department_health_score?: DepartmentHealthScore;
 }
 
@@ -36,6 +41,8 @@ const EMPTY_METRICS: HodMetrics = {
   marking_compliance_pct: 0,
   open_grievances: 0,
   pending_leave_approvals: 0,
+  grievance_oldest_days: 0,
+  leave_oldest_days: 0,
   department_health_score: {
     score: 0,
     band: 'red',

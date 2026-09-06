@@ -3,7 +3,11 @@
 import type { ColumnDef } from '@tanstack/react-table';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { HostelResidentWithProfile, HostelResidentType } from '@/types/hostel-residents';
+import type {
+  HostelResidentWithProfile,
+  HostelResidentWithInstitutions,
+  HostelResidentType,
+} from '@/types/hostel-residents';
 import { HostelResidentRowActions } from './row-actions';
 
 const typeVariant: Record<
@@ -23,18 +27,23 @@ interface ColumnArgs {
   isSuperAdmin: boolean;
 }
 
+// hostel-rooms-v2 PR 3 (2026-05-26): rows now carry derived_institution_ids
+// via getResidentsWithInstitutions(). Columns type widens accordingly.
 export function createColumns({
   institutionMap,
   isSuperAdmin,
-}: ColumnArgs): ColumnDef<HostelResidentWithProfile>[] {
-  const cols: ColumnDef<HostelResidentWithProfile>[] = [
+}: ColumnArgs): ColumnDef<HostelResidentWithInstitutions>[] {
+  const cols: ColumnDef<HostelResidentWithInstitutions>[] = [
     {
       id: 'select',
       header: ({ table }) => (
         <Checkbox
           checked={
-            table.getIsAllPageRowsSelected() ||
-            (table.getIsSomePageRowsSelected() && 'indeterminate')
+            table.getIsAllPageRowsSelected()
+              ? true
+              : table.getIsSomePageRowsSelected()
+                ? 'indeterminate'
+                : false
           }
           onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
           aria-label='Select all'
@@ -111,16 +120,37 @@ export function createColumns({
     },
   ];
 
-  // Institution column only for super_admin (cross-institution view)
+  // hostel-rooms-v2 PR 3 (2026-05-26): Institution column restored.
+  // Source switched from the dropped hostel_residents.institution_id to the
+  // resident's active hostel_allocations → block → hostel_block_institutions
+  // (the new derived_institution_ids array). Renders:
+  //   - 0 ids   → "Not allocated" muted badge
+  //   - 1 id    → institution name
+  //   - 2+ ids  → "Name1 + N more"
+  // Visible only for super_admin (cross-institution view).
   if (isSuperAdmin) {
     cols.splice(4, 0, {
-      accessorKey: 'institution_id',
+      id: 'derived_institutions',
       header: 'Institution',
-      cell: ({ row }) => (
-        <span className='text-xs text-muted-foreground'>
-          {institutionMap.get(row.original.institution_id) ?? row.original.institution_id}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const ids = row.original.derived_institution_ids ?? [];
+        if (ids.length === 0) {
+          return (
+            <Badge variant='outline' className='text-xs text-muted-foreground'>
+              Not allocated
+            </Badge>
+          );
+        }
+        const first = institutionMap.get(ids[0]) ?? ids[0];
+        if (ids.length === 1) {
+          return <span className='text-xs text-muted-foreground'>{first}</span>;
+        }
+        return (
+          <span className='text-xs text-muted-foreground'>
+            {first} <span className='ml-1 text-[10px] uppercase tracking-wide'>+{ids.length - 1} more</span>
+          </span>
+        );
+      },
     });
   }
 

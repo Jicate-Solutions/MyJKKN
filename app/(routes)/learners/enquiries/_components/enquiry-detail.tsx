@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
+import { useRouteById, useRouteStops } from '@/hooks/tms/use-route-lookup';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import {
@@ -35,15 +38,123 @@ import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-bad
 import { UserIcon } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useEnquiryReferralContext } from '@/hooks/admission/use-enquiry-referral';
+import { indianStates, getDistrictsByState, getTaluksByDistrict } from '@/lib/data/locations';
+import { formatTwelfthGroup } from '@/lib/utils/mappings/enquiry-excel-mappings';
 // Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
+
+// Permanent-address columns store two formats in production:
+//   - QR self-fill saves snake_case IDs ('tamil_nadu', 'krishnagiri')
+//   - Legacy enquiry form saves display names ('TAMIL NADU', 'ERODE')
+// Detail view should always render the human-readable name. These helpers
+// resolve either format to the canonical display name; fall back to the
+// raw stored value when no match (so unknown / hand-edited entries stay
+// visible instead of disappearing).
+function resolveStateName(stored: string | null | undefined): string {
+  if (!stored) return '';
+  const n = stored.trim().toLowerCase();
+  const byId = indianStates.find((s) => s.id.toLowerCase() === n);
+  if (byId) return byId.name;
+  const byName = indianStates.find((s) => s.name.toLowerCase() === n);
+  if (byName) return byName.name;
+  return stored;
+}
+
+function resolveDistrictName(
+  stored: string | null | undefined,
+  stateStored: string | null | undefined,
+): string {
+  if (!stored) return '';
+  const n = stored.trim().toLowerCase();
+  // Scope to the learner's state when possible for an unambiguous match;
+  // fall back to a global scan otherwise.
+  const stateMatch = stateStored
+    ? indianStates.find(
+        (s) =>
+          s.id.toLowerCase() === stateStored.trim().toLowerCase() ||
+          s.name.toLowerCase() === stateStored.trim().toLowerCase(),
+      )
+    : null;
+  const statesToScan = stateMatch ? [stateMatch] : indianStates;
+  for (const s of statesToScan) {
+    const districts = getDistrictsByState(s.id);
+    const byId = districts.find((d) => d.id.toLowerCase() === n);
+    if (byId) return byId.name;
+    const byName = districts.find((d) => d.name.toLowerCase() === n);
+    if (byName) return byName.name;
+  }
+  return stored;
+}
+
+function resolveTalukName(
+  stored: string | null | undefined,
+  stateStored: string | null | undefined,
+  districtStored: string | null | undefined,
+): string {
+  if (!stored) return '';
+  const n = stored.trim().toLowerCase();
+  const stateMatch = stateStored
+    ? indianStates.find(
+        (s) =>
+          s.id.toLowerCase() === stateStored.trim().toLowerCase() ||
+          s.name.toLowerCase() === stateStored.trim().toLowerCase(),
+      )
+    : null;
+  const statesToScan = stateMatch ? [stateMatch] : indianStates;
+  for (const s of statesToScan) {
+    const districts = getDistrictsByState(s.id);
+    const distMatch = districtStored
+      ? districts.find(
+          (d) =>
+            d.id.toLowerCase() === districtStored.trim().toLowerCase() ||
+            d.name.toLowerCase() === districtStored.trim().toLowerCase(),
+        )
+      : null;
+    const districtsToScan = distMatch ? [distMatch] : districts;
+    for (const d of districtsToScan) {
+      const taluks = getTaluksByDistrict(s.id, d.id);
+      const byId = taluks.find((t) => t.id.toLowerCase() === n);
+      if (byId) return byId.name;
+      const byName = taluks.find((t) => t.name.toLowerCase() === n);
+      if (byName) return byName.name;
+    }
+  }
+  return stored;
+}
+
+import { useQuotaName } from '@/hooks/admission/use-quota-name';
+import { useCommunityName } from '@/hooks/admission/use-community-name';
 
 interface EnquiryDetailProps {
   enquiry: LearnerProfile;
 }
 
 export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
+  const quotaName = useQuotaName((enquiry as { quota_id?: string }).quota_id);
+  const communityName = useCommunityName((enquiry as { community_category_id?: string }).community_category_id);
   const [activeSection, setActiveSection] = useState('personal');
   const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+
+  // Resolve the stored hostel/mess category FKs to display names.
+  const { hostelCategories: allHostelCategories } = useActiveHostelCategories();
+  const { messCategories: allMessCategories } = useActiveMessCategories();
+  const hostelCategoryName = allHostelCategories.find(
+    (c) => c.id === (enquiry as any).hostel_category_id
+  )?.name;
+  const messCategoryName = allMessCategories.find(
+    (c) => c.id === (enquiry as any).mess_category_id
+  )?.name;
+
+  // Resolve the Day-Scholar transport route + boarding-point names.
+  const transportRouteId = (enquiry as any).transport_route_id as string | undefined;
+  const { route: routeObj } = useRouteById(transportRouteId);
+  const { stops: routeStops } = useRouteStops(transportRouteId);
+  const routeName = routeObj
+    ? `${routeObj.route_number} - ${routeObj.route_name}`
+    : undefined;
+  const stopName = routeStops.find(
+    (s) => s.id === (enquiry as any).transport_stop_id
+  )?.stop_name;
+
   const canViewFinance = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'finance.view');
 
   const sections = [
@@ -211,7 +322,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                       <h4 className='text-sm font-medium text-muted-foreground'>
                         Community
                       </h4>
-                      <p className='text-sm'>{enquiry.community}</p>
+                      <p className='text-sm'>{communityName || 'Not specified'}</p>
                     </div>
                     <div className='space-y-1'>
                       <h4 className='text-sm font-medium text-muted-foreground'>
@@ -463,7 +574,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                         Quota
                       </h4>
                       <p className='text-sm'>
-                        {enquiry.quota || 'Not specified'}
+                        {quotaName || 'Not specified'}
                       </p>
                     </div>
                   </div>
@@ -549,7 +660,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                           Group/Stream
                         </h4>
                         <p className='text-sm'>
-                          {enquiry.twelfth_marks.group || 'Not specified'}
+                          {formatTwelfthGroup(enquiry.twelfth_marks.group)}
                         </p>
                       </div>
                       <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
@@ -674,7 +785,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                           State
                         </h4>
                         <p className='text-sm'>
-                          {enquiry.permanent_address_state}
+                          {resolveStateName(enquiry.permanent_address_state)}
                         </p>
                       </div>
                       <div className='space-y-1'>
@@ -682,7 +793,10 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                           District
                         </h4>
                         <p className='text-sm'>
-                          {enquiry.permanent_address_district}
+                          {resolveDistrictName(
+                            enquiry.permanent_address_district,
+                            enquiry.permanent_address_state,
+                          )}
                         </p>
                       </div>
                       <div className='space-y-1'>
@@ -690,7 +804,11 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                           Taluk
                         </h4>
                         <p className='text-sm'>
-                          {enquiry.permanent_address_taluk || 'Not specified'}
+                          {resolveTalukName(
+                            enquiry.permanent_address_taluk,
+                            enquiry.permanent_address_state,
+                            enquiry.permanent_address_district,
+                          ) || 'Not specified'}
                         </p>
                       </div>
                       <div className='space-y-1'>
@@ -725,53 +843,62 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                   </div>
                   <div className='space-y-1'>
                     <h3 className='text-sm font-medium text-muted-foreground'>
-                      Hostel Type
+                      Hostel Room Category
                     </h3>
                     <p className='text-sm'>
-                      {enquiry.hostel_type || 'Not applicable'}
+                      {hostelCategoryName || 'Not applicable'}
                     </p>
                   </div>
                   <div className='space-y-1'>
                     <h3 className='text-sm font-medium text-muted-foreground'>
-                      Food Type
+                      Mess Category
                     </h3>
                     <p className='text-sm'>
-                      {enquiry.food_type || 'Not applicable'}
+                      {messCategoryName || 'Not applicable'}
                     </p>
                   </div>
+                  {enquiry.accommodation_type === 'DAY SCHOLAR' && (
+                    <>
+                      <div className='space-y-1'>
+                        <h3 className='text-sm font-medium text-muted-foreground'>
+                          Bus Required
+                        </h3>
+                        <p className='text-sm'>
+                          {(enquiry as any).bus_required === true
+                            ? 'Yes'
+                            : (enquiry as any).bus_required === false
+                            ? 'No'
+                            : 'Not applicable'}
+                        </p>
+                      </div>
+                      {(enquiry as any).bus_required === true && (
+                        <>
+                          <div className='space-y-1'>
+                            <h3 className='text-sm font-medium text-muted-foreground'>
+                              Route
+                            </h3>
+                            <p className='text-sm'>{routeName || 'Not applicable'}</p>
+                          </div>
+                          <div className='space-y-1'>
+                            <h3 className='text-sm font-medium text-muted-foreground'>
+                              Boarding Point
+                            </h3>
+                            <p className='text-sm'>{stopName || 'Not applicable'}</p>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
 
-                <Separator />
-
-                <div className='space-y-4'>
-                  <h3 className='text-sm font-semibold'>Reference Information</h3>
-                  <div className='grid grid-cols-2 gap-4'>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Reference Type
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.reference_type || 'Not specified'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Reference Name
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.reference_name || 'Not applicable'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Reference Contact
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.reference_contact || 'Not applicable'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                {/* Reference Information block removed 2026-05-21.
+                 *  Referral attribution lives on the lead's Referral &
+                 *  Consultant section and propagates to the learner via
+                 *  /api/admission/bridge/convert (referral_type,
+                 *  referred_by_id, referred_by_name). The legacy text
+                 *  columns reference_type / reference_name / reference_contact
+                 *  stay on learners_profiles for historical data + B2A
+                 *  compatibility but are no longer surfaced on this view. */}
               </CardContent>
             </>
           )}
@@ -807,7 +934,6 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                     { name: 'uniform_fee', label: 'Uniform Fee' },
                     { name: 'hospital_training_fee', label: 'Hospital Training Fee' },
                     { name: 'placement_fee', label: 'Placement Fee' },
-                    { name: 'transport_fee', label: 'Transport Fee' },
                   ];
                   const presentLegacy = legacyFields.filter(
                     ({ name }) =>

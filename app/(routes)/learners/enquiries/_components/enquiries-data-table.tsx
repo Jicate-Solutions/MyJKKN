@@ -35,13 +35,25 @@ interface EnquiriesDataTableProps {
   search: EnquiriesSearchParams;
   /**
    * Filter by lifecycle status
-   * - 'admitted': Only enquiries
+   * - 'enquiry': New entry-point (post 2026-05-20 realignment — was 'admitted')
+   * - 'enquiry_submitted': Learner completed QR self-fill form
+   * - 'admitted': Post-fees-threshold (new meaning)
    * - 'pending': Only pending applications
    * - 'rejected': Only rejected applications
    * - 'waitlisted': Only waitlisted applications
    * - undefined: All admission statuses
    */
-  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted';
+  statusFilter?:
+    | 'enquiry'
+    | 'enquiry_submitted'
+    | 'admitted'
+    | 'pending'
+    | 'approved'
+    | 'account'
+    | 'reserved'
+    | 'rejected'
+    | 'waitlisted'
+    | 'fees_setup_pending';
 }
 
 /**
@@ -255,7 +267,7 @@ export function EnquiriesDataTable({
     <div className="flex items-center gap-2">
       {props.selectedRows.length > 0 && (
         <>
-          <PermissionGuard module="learners.enquiries" action="bulk_status_update">
+          <PermissionGuard module="learners.enquiries" action="bulk_status_update" fallback={null}>
             <Button
               onClick={() =>
                 handleBulkStatusUpdate(props.selectedRows as LearnerProfile[], props.resetSelection)

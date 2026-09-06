@@ -1,0 +1,178 @@
+name: AI estate guard
+
+# Asks PRODUCTION once a morning: is everything that runs itself still running?
+#
+# WHY THIS EXISTS
+#   On 2026-08-04 an audit found five nightly routines throwing the same Postgres
+#   error every night for weeks, three Max-lane routines that had never fired
+#   once since being switched on, and the live anon-exposure sweep red for 23
+#   consecutive runs since 2026-07-31. Every one of those failures was already
+#   written down — in ai_routine_schedules.last_status, or on the Actions tab.
+#   Nothing read either. The information existed; the attention did not.
+#
+# WHY IT REPORTS EVEN WHEN NOTHING IS WRONG
+#   A guard that only speaks up on failure cannot be distinguished from a guard
+#   that has died. Silence would mean both. So this posts every single day, and
+#   an all-clear is a real message rather than an absence of one. If the daily
+#   issue comment stops appearing, THAT is the alarm.
+#
+# WHY IT IS NOT A RED X
+#   The job exits 0 whatever it finds. The anon sweep spent four days as a red X
+#   that nobody opened — a permanently-red check is indistinguishable from
+#   background noise, and teaches people to stop looking. Findings go in the
+#   digest, where they are readable, instead of in an exit code, where they are
+#   not. The job only fails when the guard itself could not run, because that is
+#   the one state where the digest would be lying.
+#
+# IT NEVER WRITES TO THE DATABASE. Status reads only.
+
+on:
+  schedule:
+    # 06:41 IST (01:11 UTC) — early enough to read before the day starts, and
+    # deliberately off the hour: :00 is when every scheduled job on the platform
+    # fires at once and runners queue behind each other.
+    - cron: '11 1 * * *'
+  workflow_dispatch:
+  # Exercise the guard on PRs that change the guard, so a change to it is tested
+  # by its own run before it can silently stop guarding.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/ai-estate-guard.mjs'
+      - '.github/workflows/ai-estate-guard.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ai-estate-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: AI estate proof of life
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # The guard's own tests run on every invocation, and are what a PR proves.
+      # A guard that is not itself tested is a guard that quietly stops guarding
+      # — and the classifier is where the judgement lives, so it is where a
+      # regression would hide.
+      - name: Test the guard
+        run: npx vitest run __tests__/ci/ai-estate-guard.test.ts
+
+      # Skipped on pull_request: PR contexts do not get the secret, and a
+      # credential-less run must never be mistaken for a clean estate. Same
+      # reasoning, and same secret, as anon-exposure-live.yml.
+      - name: Read the estate
+        id: guard
+        if: github.event_name != 'pull_request'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+
+          # A guard that cannot check must still SPEAK. The original version
+          # exited here, which skipped the posting step and sent nothing — so a
+          # blind morning looked exactly like a morning that never came, and the
+          # only trace was a red mark on the Actions tab.
+          #
+          # That is not hypothetical. This job failed blind on its very first
+          # scheduled run (2026-08-05 01:48 UTC) because SUPABASE_DB_URL had gone
+          # missing, and the live anon-exposure sweep failed the same way 25 times
+          # from 2026-07-31 with nobody reading a single one. Relying on someone
+          # noticing a red tick is the assumption this whole job exists to reject.
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            {
+              echo "# AI estate — could NOT be checked"
+              echo
+              echo "**This is not an all-clear.** The guard ran but had no way to reach the"
+              echo "database, so it inspected nothing at all."
+              echo
+              echo "\`SUPABASE_DB_URL\` is not set on this repository, so every routine, job"
+              echo "and scheduled check is currently **unwatched**."
+              echo
+              echo "**To fix:** add \`SUPABASE_DB_URL\` under Settings → Secrets and variables"
+              echo "→ Actions. It is the production Postgres connection string. The same"
+              echo "secret also revives the live anon-exposure sweep, which has been blind"
+              echo "since 2026-07-31."
+              echo
+              echo "_Sent deliberately. A silent failure here would be indistinguishable from"
+              echo "a healthy estate, which is the exact confusion this guard exists to remove._"
+            } > digest.md
+            echo "blind=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Estate not checked::SUPABASE_DB_URL is not set — a 'could not check' digest was posted instead."
+            cat digest.md
+            exit 0   # exit 0 HERE so the posting step still runs; the job is failed at the end.
+          fi
+
+          echo "blind=false" >> "$GITHUB_OUTPUT"
+          node scripts/ci/ai-estate-guard.mjs > digest.md
+          echo "--- digest ---"
+          cat digest.md
+
+      - name: Put the digest on the run summary
+        if: always() && github.event_name != 'pull_request'
+        run: cat digest.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      # One rolling issue, commented daily. A new issue per day would be 365
+      # notifications a year and would train the reader to mute the thread; one
+      # thread with a daily comment keeps the history skimmable in one place.
+      # always() so a blind morning still gets a message. The whole design rests
+      # on "a digest arrives every day, so its absence means the guard died" —
+      # skipping this step on failure would put a third meaning into silence.
+      - name: Post the digest
+        if: always() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUMMARY: ${{ steps.guard.outputs.summary }}
+        run: |
+          set -uo pipefail
+          TITLE="AI estate — daily proof of life"
+          NUM=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+                  --label ai-estate-guard --limit 1 --json number --jq '.[0].number // empty')
+
+          if [ -z "$NUM" ]; then
+            gh label create ai-estate-guard \
+              --repo "$GITHUB_REPOSITORY" \
+              --description "Daily proof-of-life digest for self-running jobs" \
+              --color 0E7C66 2>/dev/null || true
+            # `gh issue create` has no --json flag; it prints the issue URL.
+            URL=$(gh issue create --repo "$GITHUB_REPOSITORY" \
+                    --title "$TITLE" \
+                    --label ai-estate-guard \
+                    --body-file digest.md 2>/dev/null) || true
+            if [ -n "${URL:-}" ]; then
+              echo "Opened tracking issue ${URL##*/} — $URL"
+              exit 0
+            fi
+            echo "::warning::Could not open the tracking issue; the digest is still on the run summary."
+            exit 0
+          fi
+
+          gh issue comment "$NUM" --repo "$GITHUB_REPOSITORY" --body-file digest.md \
+            && echo "Commented on #$NUM — $SUMMARY" \
+            || echo "::warning::Could not comment on #$NUM; the digest is still on the run summary."
+
+      # Runs LAST, on purpose. The digest has already been posted by now, so the
+      # reader is told what happened either way; this only decides the tick's
+      # colour. A blind run must not be able to pass as a healthy one just
+      # because a message went out.
+      - name: Fail the job if the estate was never checked
+        if: steps.guard.outputs.blind == 'true'
+        run: |
+          echo "::error title=Estate not checked::SUPABASE_DB_URL is not set, so nothing was inspected. The digest explaining this has been posted."
+          exit 1

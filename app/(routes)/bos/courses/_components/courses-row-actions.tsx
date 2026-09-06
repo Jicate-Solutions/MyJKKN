@@ -47,7 +47,13 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
 
   if (syllabus.regulation_id) {
     try {
-      const taxRes = await fetch(`/api/bos/taxonomy/${syllabus.regulation_id}`);
+      // Board-aware + institution-scoped so the legend resolves the SAME framework
+      // the syllabus CO panel uses (per-board override, falling back to the
+      // regulation-wide default).
+      const taxParams = new URLSearchParams();
+      if (syllabus.institutions_id) taxParams.set('institutionsId', syllabus.institutions_id);
+      if (syllabus.board_id) taxParams.set('boardId', syllabus.board_id);
+      const taxRes = await fetch(`/api/bos/taxonomy/${syllabus.regulation_id}?${taxParams.toString()}`);
       if (taxRes.ok) {
         const taxonomy = await taxRes.json();
         kValues = taxonomy.k_values;
@@ -80,7 +86,10 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
     logoImage: '/logo.png',
     rightLogoImage: header.rightLogoImage,
     course_code: course.course_code,
-    course_name: course.course_name,
+    // COE surfaces the title as course_name OR course_title depending on the
+    // response shape (see BosCourseMaster). The table column already falls back;
+    // do the same here so the PDF doesn't receive undefined.
+    course_name: course.course_name ?? course.course_title ?? course.course_code,
     course_part: partLabel,
     total_hours: totalHours,
     contact_hours: course.theory_hours ?? undefined,
@@ -89,6 +98,9 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
     clos: outcomesContent?.clos ?? [],
     k_values: kValues,
     units: syllabus.course_content?.units ?? [],
+    practical_topics: syllabus.course_content?.is_practical
+      ? (syllabus.course_content?.topics ?? [])
+      : undefined,
     textbooks: syllabus.textbooks?.primary ?? [],
     references: syllabus.textbooks?.references ?? [],
     web_resources: syllabus.web_resources?.resources ?? [],
@@ -96,6 +108,12 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
     po_mappings: syllabus.po_mappings?.mappings ?? [],
     po_keys: poKeys,
     pso_keys: psoKeys,
+    // v3.5 Fink's Formative + Capstone blocks
+    concept_applications: syllabus.concept_applications,
+    assessment_pattern: syllabus.assessment_pattern,
+    capstone_project: syllabus.capstone_project,
+    capstone_rubric: syllabus.capstone_rubric,
+    llc_conference: syllabus.llc_conference,
   });
 }
 

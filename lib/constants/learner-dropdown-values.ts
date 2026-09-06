@@ -10,7 +10,11 @@
 // DROPDOWN VALUE CONSTANTS (Database format - UPPERCASE)
 // ============================================
 
-export const GENDER_VALUES = ['MALE', 'FEMALE', 'OTHER'] as const;
+// Title Case, mirroring the learners_profiles_gender_check / profiles_gender_check
+// domain (20260820160000). Lists in this file do NOT share one casing convention:
+// RELIGION/COMMUNITY/etc. remain UPPERCASE, which is why the validators below match
+// case-insensitively and return the canonical spelling rather than an uppercased input.
+export const GENDER_VALUES = ['Male', 'Female', 'Other'] as const;
 
 export const RELIGION_VALUES = [
   'HINDU',
@@ -61,17 +65,6 @@ export const ACCOMMODATION_VALUES = [
   'HOME'
 ] as const;
 
-export const HOSTEL_TYPE_VALUES = [
-  'AC HOSTEL',
-  'NON-AC HOSTEL'
-] as const;
-
-export const FOOD_TYPE_VALUES = [
-  'VEG',
-  'NON-VEG',
-  'VEGAN'
-] as const;
-
 export const QUOTA_VALUES = [
   'GOVERNMENT',
   'GOVERNMENT 7.5%',
@@ -95,8 +88,6 @@ export type Community = typeof COMMUNITY_VALUES[number];
 export type BloodGroup = typeof BLOOD_GROUP_VALUES[number];
 export type EntryType = typeof ENTRY_TYPE_VALUES[number];
 export type AccommodationType = typeof ACCOMMODATION_VALUES[number];
-export type HostelType = typeof HOSTEL_TYPE_VALUES[number];
-export type FoodType = typeof FOOD_TYPE_VALUES[number];
 export type Quota = typeof QUOTA_VALUES[number];
 export type ScholarshipType = typeof SCHOLARSHIP_TYPE_VALUES[number];
 
@@ -117,7 +108,7 @@ export interface DropdownValidationResult {
  * Validates and normalizes dropdown values with case-insensitive matching
  *
  * @param value - The input value to validate (can be any case)
- * @param allowedValues - Array of allowed values (UPPERCASE format)
+ * @param allowedValues - Array of allowed values, in their canonical spelling
  * @param fieldName - Name of the field for error messages
  * @param required - Whether the field is required (default: false)
  * @returns Validation result with normalized value or error
@@ -125,16 +116,16 @@ export interface DropdownValidationResult {
  * @example
  * // Accepts any case
  * validateDropdownValue('male', GENDER_VALUES, 'Gender', true)
- * // Returns: { valid: true, normalizedValue: 'MALE' }
+ * // Returns: { valid: true, normalizedValue: 'Male' }
  *
  * validateDropdownValue('Male', GENDER_VALUES, 'Gender', true)
- * // Returns: { valid: true, normalizedValue: 'MALE' }
+ * // Returns: { valid: true, normalizedValue: 'Male' }
  *
  * validateDropdownValue('MALE', GENDER_VALUES, 'Gender', true)
- * // Returns: { valid: true, normalizedValue: 'MALE' }
+ * // Returns: { valid: true, normalizedValue: 'Male' }
  *
  * validateDropdownValue('XYZ', GENDER_VALUES, 'Gender', true)
- * // Returns: { valid: false, error: 'Invalid Gender: "XYZ". Valid options: MALE, FEMALE, OTHER' }
+ * // Returns: { valid: false, error: 'Invalid Gender: "XYZ". Valid options: Male, Female, Other' }
  */
 export function validateDropdownValue<T extends readonly string[]>(
   value: string | undefined | null,
@@ -156,14 +147,18 @@ export function validateDropdownValue<T extends readonly string[]>(
     };
   }
 
-  // Normalize to UPPERCASE for comparison
-  const normalized = value.trim().toUpperCase();
+  // Match case-insensitively and return the canonical spelling FROM THE LIST.
+  // Uppercasing the input and returning that only works while every list is UPPERCASE;
+  // GENDER_VALUES is Title Case, so 'male' -> 'MALE' would fail to match
+  // ['Male','Female','Other'] and silently reject every gender in a bulk upload.
+  const match = allowedValues.find(
+    (allowed) => allowed.toUpperCase() === value.trim().toUpperCase()
+  );
 
-  // Validate against allowed values
-  if (allowedValues.includes(normalized as any)) {
+  if (match) {
     return {
       valid: true,
-      normalizedValue: normalized
+      normalizedValue: match
     };
   }
 
@@ -177,14 +172,14 @@ export function validateDropdownValue<T extends readonly string[]>(
 
 /**
  * Normalizes dropdown value without throwing errors (for API processing)
- * Returns normalized UPPERCASE value if valid, undefined if invalid or empty
+ * Returns the canonical spelling if valid, undefined if invalid or empty
  *
  * @param value - The input value to normalize
- * @param allowedValues - Array of allowed values (UPPERCASE format)
- * @returns Normalized UPPERCASE value or undefined
+ * @param allowedValues - Array of allowed values, in their canonical spelling
+ * @returns The canonical value from allowedValues, or undefined
  *
  * @example
- * normalizeDropdownValue('male', GENDER_VALUES) // Returns: 'MALE'
+ * normalizeDropdownValue('male', GENDER_VALUES) // Returns: 'Male'
  * normalizeDropdownValue('XYZ', GENDER_VALUES)  // Returns: undefined
  * normalizeDropdownValue('', GENDER_VALUES)     // Returns: undefined
  */
@@ -194,8 +189,8 @@ export function normalizeDropdownValue(
 ): string | undefined {
   if (!value?.trim()) return undefined;
 
-  const normalized = value.trim().toUpperCase();
-  return allowedValues.includes(normalized as any) ? normalized : undefined;
+  const target = value.trim().toUpperCase();
+  return allowedValues.find((allowed) => allowed.toUpperCase() === target);
 }
 
 // ============================================
@@ -203,9 +198,9 @@ export function normalizeDropdownValue(
 // ============================================
 
 export const GENDER_OPTIONS = [
-  { value: 'MALE', label: 'Male' },
-  { value: 'FEMALE', label: 'Female' },
-  { value: 'OTHER', label: 'Other' }
+  { value: 'Male', label: 'Male' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Other', label: 'Other' }
 ] as const;
 
 export const RELIGION_OPTIONS = [
@@ -257,21 +252,19 @@ export const ACCOMMODATION_OPTIONS = [
   { value: 'HOME', label: 'Home' }
 ] as const;
 
-export const HOSTEL_TYPE_OPTIONS = [
-  { value: 'AC HOSTEL', label: 'AC Hostel' },
-  { value: 'NON-AC HOSTEL', label: 'Non-AC Hostel' }
-] as const;
-
-export const FOOD_TYPE_OPTIONS = [
-  { value: 'VEG', label: 'Vegetarian' },
-  { value: 'NON-VEG', label: 'Non-Vegetarian' },
-  { value: 'VEGAN', label: 'Vegan' }
-] as const;
-
 export const QUOTA_OPTIONS = [
   { value: 'GOVERNMENT', label: 'Government Quota' },
   { value: 'GOVERNMENT 7.5%', label: 'Government 7.5% Quota' },
   { value: 'MANAGEMENT', label: 'Management Quota' }
+] as const;
+
+export const BOARD_OF_STUDY_OPTIONS = [
+  { value: 'state_board', label: 'State Board' },
+  { value: 'cbse', label: 'CBSE' },
+  { value: 'icse', label: 'ICSE' },
+  { value: 'matriculation', label: 'Matriculation' },
+  { value: 'anglo_indian', label: 'Anglo Indian' },
+  { value: 'others', label: 'Others' }
 ] as const;
 
 export const SCHOLARSHIP_TYPE_OPTIONS = [
@@ -280,3 +273,36 @@ export const SCHOLARSHIP_TYPE_OPTIONS = [
   { value: '7.5% SCHOLARSHIP', label: '7.5% Scholarship' },
   { value: 'NOT APPLICABLE', label: 'Not Applicable' }
 ] as const;
+
+// Parent occupation categories. Derived from analysis of 4,445 father + 4,325
+// mother values in learners_profiles (2026-05-19). Covers ~95-98% of existing
+// distinct values when fuzzy-matched via the migration. The OTHER option
+// triggers a conditional free-text input in the form so unique occupations are
+// still captureable. Used for BOTH father_occupation and mother_occupation —
+// homemaker fits both even though it's mostly mothers in practice.
+export const OCCUPATION_OPTIONS = [
+  { value: 'HOMEMAKER',           label: 'Homemaker',                                       tamil: 'இல்லத்தரசி' },
+  { value: 'DAILY_WAGE_WORKER',   label: 'Daily Wage Worker (Coolie / Labour)',             tamil: 'கூலி வேலை' },
+  { value: 'FARMER',              label: 'Farmer / Agriculture',                            tamil: 'விவசாயி' },
+  { value: 'DRIVER',              label: 'Driver / Conductor',                              tamil: 'ஓட்டுநர்' },
+  { value: 'BUSINESS',            label: 'Business / Self-Employed',                        tamil: 'சொந்த தொழில்' },
+  { value: 'WEAVER',              label: 'Weaver / Textile Worker',                         tamil: 'நெசவாளர்' },
+  { value: 'TAILOR',              label: 'Tailor',                                          tamil: 'தையற்காரர்' },
+  { value: 'SKILLED_TRADE',       label: 'Skilled Trade (Mason / Electrician / Carpenter)', tamil: 'கைவினைஞர்' },
+  { value: 'TEACHER',             label: 'Teacher / Professor',                             tamil: 'ஆசிரியர்' },
+  { value: 'HEALTHCARE',          label: 'Healthcare (Nurse / Pharmacist)',                 tamil: 'சுகாதார பணி' },
+  { value: 'GOVERNMENT_EMPLOYEE', label: 'Government Employee',                             tamil: 'அரசு பணியாளர்' },
+  { value: 'PRIVATE_EMPLOYEE',    label: 'Private Employee',                                tamil: 'தனியார் பணியாளர்' },
+  { value: 'ENGINEER',            label: 'Engineer / Professional',                         tamil: 'பொறியாளர்' },
+  { value: 'DECEASED',            label: 'Deceased / Late',                                 tamil: 'காலமானார்' },
+  { value: 'OTHER',               label: 'Other (specify)',                                 tamil: 'பிற' },
+] as const;
+
+export type OccupationCode = (typeof OCCUPATION_OPTIONS)[number]['value'];
+
+// Helper: given a saved value, return the option that matches by VALUE.
+// Returns undefined if no match — caller treats this as "needs OTHER + text".
+export function findOccupationOption(saved: string | null | undefined) {
+  if (!saved) return undefined;
+  return OCCUPATION_OPTIONS.find((o) => o.value === saved.trim());
+}

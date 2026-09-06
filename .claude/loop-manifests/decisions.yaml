@@ -1,0 +1,217 @@
+# Director Decisions Verdict manifest — DISCOVERY PASS 2026-07-13 (read-only).
+# NO sim or walk has been EXECUTED against this manifest yet — every value
+# below was verified by prod-DB reads (Mgmt API, ref kvizhngldtiuufknvehv) or
+# jicate/main file reads, but the sim SQL itself is designed-not-yet-run.
+# First executor: update these header lines with the run receipt.
+# RE-VERIFIED 2026-07-13 (independent second pass): fn_decision_outcome_check
+# + fn_decision_resolve_metric full definitions, director_decisions
+# constraints/RLS/FK, admission_leads NOT-NULLs + FK + 9 triggers, funnel_stage
+# enum ('enrolled','new' real), fn_create_dashboard_work_item dual-insert,
+# cron route + vercel.json "0 4 * * *", all 4 fuel rows, both profile ids,
+# sidebarMenuLink.ts:451, admin/loops 'graded' bug, zero app/pg readers of
+# prediction_correct. One correction applied: the loop_edges block below.
+#
+# WHAT THIS LOOP IS (loop_registry row, read 2026-07-13): stack_tier=3,
+# loop_class=accountability, domain=governance — "Director decisions logged →
+# verdict-check cron asks 'did it happen?'". Spec: jicate/main
+# specs/decisions-spec.md (Draft v2, 2026-04-25). Private to the Director by
+# design (visibility CHECK allows ONLY 'private_to_director'; RLS is
+# auth.uid()=director_user_id for SELECT/INSERT/UPDATE — verified pg_policy).
+#
+# MECHANISM (all verified in pg_proc / jicate/main):
+#   director_decisions row (title, alternatives, predicted_outcome,
+#   outcome_metric_query JSONB, outcome_due_at)
+#   → Vercel cron "0 4 * * *" (vercel.json) GET
+#     /api/dashboard/cron/decisions-verdict-check (Bearer CRON_SECRET)
+#   → fn_decision_outcome_check() [SECURITY DEFINER, LIMIT 100 due pending rows]
+#     → fn_decision_resolve_metric(metric, query, due_at) — whitelist:
+#       admission_funnel_conversion_rate · enrolments_per_counselor_per_month ·
+#       median_hours_lead_to_first_activity · enrolments_from_education_fair_top_tier ·
+#       compliance_evidence_coverage_pct_across_10_bodies
+#     → writes status='outcome_recorded', actual_outcome_value,
+#       prediction_correct, verdict_notes on the SAME row
+#     → fn_create_dashboard_work_item(...) inserts a notifications row
+#       (kind='work_item', category='dashboard:approval', idempotency_key
+#       'decision_verdict:<id>:<outcome_due_at YYYY-MM-DD>', 168h) AND its
+#       user_notifications fan-out row in the same fn (verified prosrc).
+#   Surfaces: /dashboard decision queue (fn_dashboard_queue_list over
+#   notifications) and /admin/loops fuel counts (super_admin-only route,
+#   lib/sidebarMenuLink.ts line 451 on jicate/main).
+#
+# FUEL (prod, 2026-07-13): 4 rows total, all director_user_id=b2bcb548-6b4c-
+# 4c75-a6b3-72dd5e9a94f1 (the real Director), all made 2026-04-25.
+#   2× outcome_recorded (both prediction_correct=false),
+#   1× pending due 2026-07-25 (Q3 AI investment — will be graded for real then),
+#   1× pending due 2026-05-25 with TBD_AT_VERDICT_TIME formula — PERMANENTLY
+#     re-touched: EVERY fn run appends a "Manual verdict required" line to its
+#     verdict_notes (observed multi-day append trail in the row).
+#
+# INBOUND loop_edges (re-read 2026-07-13, second pass): exactly ONE edge —
+# arps→decisions, what_flows='escalations', is_draft=false. (An earlier draft
+# of this manifest listed three edges incl. two drafts; the live SELECT
+# returns only the arps edge — trust the current read.)
+#
+# KNOWN GAP (report, don't fix — /loops rail 4): jicate/main
+# app/(routes)/admin/loops/page.tsx line 218 counts director_decisions
+# .eq('status','graded') — 'graded' is NOT in the status CHECK vocabulary
+# (pending_outcome|outcome_recorded|reversed|superseded), so that tower count
+# is always 0 (the invented-enum-value bug class).
+loop_key: decisions
+name: Director Decisions Verdict
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: director_decisions   # decision + prediction enter here (no app write surface exists on jicate/main — creation is DB-level; RLS insert_self allows the director persona itself)
+  action: director_decisions  # SAME table: the verdict IS the action (actual_outcome_value, prediction_correct, verdict_notes); notification sink = notifications + user_notifications
+
+# Measure fn EXISTS (registry gates.m='on' confirmed in pg_proc:
+# fn_decision_outcome_check() + fn_decision_resolve_metric(text,jsonb,tstz)
+# RETURNS (actual numeric, correct boolean, notes text, handled boolean)),
+# so a sim block is warranted. DESIGNED FROM VERIFIED SCHEMA, NOT YET RUN.
+sim:
+  sentinel: ZZAUDIT
+  # Determinism comes from INSTITUTION SCOPING: outcome_metric_query.institution_id
+  # filters admission_funnel_conversion_rate to ONLY the sentinel institution's
+  # leads (fn_decision_resolve_metric: `v_institution_id IS NULL OR
+  # institution_id = v_institution_id`). admission_leads.institution_id has a
+  # REAL FK -> institutions (ON DELETE CASCADE), so a sentinel institution row
+  # must be seeded first (institutions' only required no-default column: name).
+  # admission_leads NOT-NULLs: institution_id, phone, source (enum lead_source,
+  # default 'website'), funnel_stage (ENUM, default 'new'; 'enrolled' is a
+  # verified label), first_name, gate_entry_count (default 0).
+  # Verdict window = [due_at-30d, due_at); baseline window = the 30d before that
+  # (leave it empty -> baseline 0, irrelevant for absolute_gte).
+  seed_input: |
+    WITH inst AS (
+      INSERT INTO public.institutions (name) VALUES ('ZZAUDIT Institution') RETURNING id
+    ), leads AS (
+      INSERT INTO public.admission_leads (institution_id, phone, first_name, funnel_stage, created_at)
+      SELECT inst.id, 'ZZAUDIT-' || g::text, 'ZZAUDIT',
+             CASE WHEN g = 1 THEN 'enrolled'::funnel_stage ELSE 'new'::funnel_stage END,
+             now() - interval '10 days'
+      FROM inst, generate_series(1,4) g
+      RETURNING institution_id
+    )
+    INSERT INTO public.director_decisions
+      (director_user_id, title, context, alternatives, chosen_alternative_idx,
+       predicted_outcome, outcome_metric_query, outcome_due_at, status)
+    SELECT '1d35bef2-2b62-4f64-b2d0-196eb8047fac',  -- test.superadmin profile id (verified in profiles 2026-07-13); FK -> profiles(id)
+           'ZZAUDIT sim decision', 'moat-audit sim seed',
+           '[{"label":"A"},{"label":"B"}]'::jsonb, 0,
+           'sentinel conversion >= 50%',
+           jsonb_build_object(
+             'metric','admission_funnel_conversion_rate',
+             'institution_id', (SELECT institution_id FROM leads LIMIT 1)::text,
+             'comparison','absolute_gte','target_value','50'),
+           now() - interval '1 hour', 'pending_outcome';
+  seed_action: |
+    -- Not applicable for this loop: the "action" columns (actual_outcome_value,
+    -- prediction_correct) live on the SAME director_decisions row seeded above
+    -- and are written by the verifier itself. Nothing to backdate.
+    SELECT 1;
+  verifier: "public.fn_decision_outcome_check()"
+  asserts:
+    # Assert ONLY on the sentinel row's columns, NEVER on the fn's integer
+    # return (it also touches the real due TBD row — see notes).
+    # 1 enrolled / 4 total -> ROUND(100.0*1/4, 2) = 25.00 < target 50.
+    no_change: "25.00"    # SELECT actual_outcome_value FROM director_decisions WHERE title='ZZAUDIT sim decision' => 25.00, prediction_correct=false, status='outcome_recorded'
+    known_delta: { seed: "UPDATE 2 more ZZAUDIT leads to funnel_stage='enrolled' (3/4 enrolled)", expect: "75.00" }  # prediction_correct flips to true (75.00 >= 50)
+  reset_between_deltas: |
+    UPDATE public.director_decisions
+    SET status='pending_outcome', actual_outcome_value=NULL,
+        actual_outcome_recorded_at=NULL, prediction_correct=NULL, verdict_notes=NULL
+    WHERE title = 'ZZAUDIT sim decision';
+  notes:
+    - DESIGNED-NOT-RUN — this discovery pass was read-only; first regress run
+      must confirm the 25.00/75.00 asserts and append its receipt here.
+    - verifier grades ALL due pending rows (LIMIT 100), including the REAL
+      TBD_AT_VERDICT_TIME row 013f2f58 (appends verdict_notes) and, from
+      2026-07-25, the real Q3 decision cf962133 — inside BEGIN..ROLLBACK this
+      is harmless; NEVER run the verifier on committed data in a sim.
+    - verifier also inserts notifications + user_notifications work-item rows
+      per graded decision — rolled back with everything else.
+    - admission_leads INSERT fires triggers (fn_auto_assign_counselor_v3,
+      update_counselor_current_leads, attribution/learner syncs, stage-change
+      log — verified pg_trigger). They roll back too, but if one RAISES, the
+      seed fails — that is a finding to report, not a reason to disable
+      triggers on prod.
+    - funnel_stage and source are ENUMs — use real labels ('enrolled','new');
+      an invented label errors (match-real-vocabulary memory).
+    - outcome_metric_query values target_value/institution_id are parsed with
+      NULLIF(x,'')::NUMERIC/UUID — pass them as strings in the JSONB.
+    - TBD_AT_VERDICT_TIME in formula, and composite {metrics:[...]} queries,
+      take DIFFERENT code paths (manual-verdict work item / all_must_hit-vs-
+      any_must_hit) — this sim covers the single-metric path only.
+    - asserts derive from THIS loop's SQL (ROUND(...,2) numeric) — never carry
+      SCF's 0.00/2.00 here.
+
+confound:
+  # outcome column (actual_outcome_value) + verdict column (prediction_correct)
+  # both exist on director_decisions, so the block is warranted — but the
+  # causal question for an ACCOUNTABILITY loop is calibration-over-time (does
+  # the Director's hit-rate improve as verdicts accumulate?), not
+  # tried-vs-not_tried. Fuel check 2026-07-13: only 2 graded rows (both
+  # prediction_correct=false) => report unmeasurable-no-fuel, don't conclude.
+  verdict_column: prediction_correct
+  query: |
+    SELECT date_trunc('quarter', decision_made_at)::date AS quarter,
+           count(*) FILTER (WHERE status = 'outcome_recorded')          AS graded,
+           count(*) FILTER (WHERE prediction_correct IS TRUE)           AS correct,
+           count(*) FILTER (WHERE prediction_correct IS FALSE)          AS wrong,
+           count(*) FILTER (WHERE status = 'pending_outcome')           AS pending
+    FROM director_decisions
+    GROUP BY 1 ORDER BY 1;
+  min_rows: 10
+
+# feed_forward: OMITTED — no machine reader exists. Verified 2026-07-13:
+# fn_decision_outcome_check is the ONLY pg_proc function whose source touches
+# prediction_correct, and no jicate/main app code reads it back at
+# decision-entry time (there is no decision-entry UI at all). Registry
+# gates.f='half' matches: today's feed-forward is the HUMAN Director reading
+# the 'Verdict: CORRECT/WRONG' work item on /dashboard. For f='on', something
+# like fn_decision_prior_track_record surfaced when a new decision is framed
+# would need to exist — it does not.
+
+walk:
+  personas:
+    superadmin: test.superadmin@jkkn.ac.in   # profile 1d35bef2-2b62-4f64-b2d0-196eb8047fac (verified); MUST be the sentinel row's director_user_id or RLS hides everything (select_self policy)
+  # No decision-entry page exists on jicate/main, so hop 1 is a COMMITTED
+  # DB-level seed (RLS insert_self permits the persona to insert its own row
+  # via authenticated PostgREST; Mgmt-API service-role seed is equivalent).
+  # Zero-substrate determinism trick for the walk: outcome_metric_query
+  # .institution_id = a RANDOM uuid (jsonb only — no FK) => the metric scans 0
+  # leads => actual = 0 (CASE WHEN total=0 THEN 0), target_value '0' +
+  # absolute_gte => prediction_correct = TRUE. No admission_leads writes on
+  # committed prod data at all.
+  hops:
+    - { as: superadmin, do: db_seed_committed,
+        detail: "INSERT sentinel director_decisions row: director_user_id=<superadmin profile id>, title='ZZAUDIT walk decision', outcome_due_at=now()-1h, outcome_metric_query={metric:'admission_funnel_conversion_rate', institution_id:'<random uuid>', comparison:'absolute_gte', target_value:'0'}",
+        assert_db: "1 pending_outcome row, title='ZZAUDIT walk decision'" }
+    - { as: cron, do: api_get, path: /api/dashboard/cron/decisions-verdict-check,
+        detail: "Bearer CRON_SECRET (known-secret-via-localhost pattern if prod secret unavailable)",
+        assert: "http 200, ok:true, graded >= 1" }
+    - { as: superadmin, do: db_assert,
+        detail: "sentinel row status='outcome_recorded', prediction_correct=true, actual_outcome_value=0; notifications row idempotency_key='decision_verdict:<id>:<due YYYY-MM-DD>' + its user_notifications fan-out row targeted to the superadmin profile" }
+    - { as: superadmin, do: open_assert, page: /dashboard,
+        expect: "decision queue (approvals) shows 'Verdict: CORRECT — ZZAUDIT walk decision' work item" }
+    - { as: superadmin, do: open_assert, page: /admin/loops,
+        expect: "decisions loop card fuel count includes the graded row (super_admin-only route; NOTE the card's 'graded' count is the always-0 status-vocabulary bug — do not treat that 0 as a walk failure)" }
+  forbidden:
+    - ANY write to the real Director's rows (director_user_id b2bcb548-6b4c-4c75-a6b3-72dd5e9a94f1) — never touch their status/due dates/notifications.
+    - UNAVOIDABLE-BUT-DISCLOSE — a committed cron run ALSO re-touches the real
+      due TBD row 013f2f58 (one verdict_notes append; its work-item is deduped
+      by idempotency key). Show this in the hop plan and get explicit go.
+    - From 2026-07-25 the real Q3 decision cf962133 becomes due — a walk cron
+      trigger would grade a REAL decision earlier than its natural 04:00 UTC
+      run. Flag before running; prefer walking before that date or after the
+      natural run has already graded it.
+  cleanup: |
+    DELETE FROM user_notifications WHERE notification_id IN
+      (SELECT id FROM notifications WHERE title LIKE '%ZZAUDIT%');
+    DELETE FROM notifications WHERE title LIKE '%ZZAUDIT%';
+    DELETE FROM director_decisions WHERE title LIKE 'ZZAUDIT%';
+    -- verify in a SEPARATE call (delete-then-count in one statement sees the
+    -- pre-delete snapshot): ZZAUDIT counts = 0 in all three tables AND
+    -- director_decisions total restored (4 as of 2026-07-13).
+
+registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"half"}'  # verified loop_registry 2026-07-13

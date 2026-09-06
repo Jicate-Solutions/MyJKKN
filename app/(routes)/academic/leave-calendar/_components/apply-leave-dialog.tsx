@@ -59,8 +59,10 @@ export function ApplyLeaveDialog({
       toast.success('Leave submitted successfully');
       onClose();
     },
-    onError: () => {
-      setError('Failed to submit leave. Please try again.');
+    onError: (err) => {
+      setError(
+        err instanceof Error ? err.message : 'Failed to submit leave. Please try again.'
+      );
     }
   });
 

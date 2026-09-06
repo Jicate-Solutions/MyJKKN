@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import toast from 'react-hot-toast';
 
 /**
@@ -53,6 +54,7 @@ export function ImportDialog({
   onOpenChange,
   onImportComplete
 }: ImportDialogProps) {
+  const adapt = useAdaptiveLabels();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -137,7 +139,7 @@ export function ImportDialog({
       // Show toast notification
       if (data.success) {
         toast.success(
-          `Successfully imported ${data.successCount} program${data.successCount !== 1 ? 's' : ''}!`,
+          `Successfully imported ${data.successCount} ${adapt('program')}${data.successCount !== 1 ? 's' : ''}!`,
           {
             icon: <CheckCircle2 className="h-4 w-4" />,
             duration: 5000
@@ -211,11 +213,11 @@ export function ImportDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            Import Programs
+            Import {adapt('Programs')}
           </DialogTitle>
           <DialogDescription>
-            Upload an Excel file to import multiple programs at once. The file must match
-            the template format with 3-level cascading hierarchy (Institution → Degree → Department).
+            Upload an Excel file to import multiple {adapt('programs')} at once. The file must match
+            the template format with 3-level cascading hierarchy (Institution → {adapt('Degree')} → {adapt('Department')}).
           </DialogDescription>
         </DialogHeader>
 
@@ -271,10 +273,10 @@ export function ImportDialog({
                 </>
               ) : (
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <FileSpreadsheet className="h-8 w-8 text-green-600" />
-                    <div className="text-left">
-                      <p className="font-medium">{file.name}</p>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <FileSpreadsheet className="h-8 w-8 text-green-600 shrink-0" />
+                    <div className="text-left min-w-0">
+                      <p className="font-medium truncate">{file.name}</p>
                       <p className="text-sm text-gray-500">
                         {(file.size / 1024).toFixed(2)} KB
                       </p>
@@ -319,7 +321,7 @@ export function ImportDialog({
                           Import Successful!
                         </p>
                         <p className="text-sm text-green-700 dark:text-green-300">
-                          Successfully imported {result.successCount} program
+                          Successfully imported {result.successCount} {adapt('program')}
                           {result.successCount !== 1 ? 's' : ''} out of {result.totalRows}{' '}
                           row{result.totalRows !== 1 ? 's' : ''}.
                         </p>
@@ -361,7 +363,7 @@ export function ImportDialog({
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    <p className="font-medium mb-2">Duplicate Program IDs Found:</p>
+                    <p className="font-medium mb-2">Duplicate {adapt('Program')} IDs Found:</p>
                     <ul className="list-disc list-inside text-sm space-y-1">
                       {result.duplicateCodes.map((msg, index) => (
                         <li key={index}>{msg}</li>

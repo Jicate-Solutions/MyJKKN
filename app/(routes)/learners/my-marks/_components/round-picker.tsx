@@ -11,15 +11,15 @@
  */
 
 import { cn } from '@/lib/utils';
-import type { CiaRound } from '@/types/internal-marks';
+import type { CiaViewRound } from '@/types/my-marks';
 
 interface Props {
-  rounds: CiaRound[];
+  rounds: CiaViewRound[];
   value?: number;
   onChange: (round: number) => void;
 }
 
-function roundMax(round: CiaRound): number {
+function roundMax(round: CiaViewRound): number {
   return (round.components ?? []).reduce((acc, c) => acc + (c.max_marks ?? 0), 0);
 }
 

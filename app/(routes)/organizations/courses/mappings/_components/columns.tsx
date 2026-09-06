@@ -10,7 +10,19 @@ import { FileText } from 'lucide-react';
 import Link from 'next/link';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 
-export const columns: ColumnDef<CourseMapping>[] = [
+/**
+ * Column factory for the course-mappings table.
+ *
+ * Columns are normally a static module-level constant, but the headers need to
+ * adapt to the institution type (e.g. "Course Name" → "Subject Name" for
+ * schools). Since `useAdaptiveLabels()` is a hook that can only run during
+ * render, the table passes its live `adapt` function in here. Defaults to an
+ * identity function so the columns still render unadapted if called without one.
+ */
+export function getCourseMappingColumns(
+  adapt: (label: string) => string = (label) => label
+): ColumnDef<CourseMapping>[] {
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -40,7 +52,7 @@ export const columns: ColumnDef<CourseMapping>[] = [
   {
     id: 'course_code',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Course Code' />
+      <DataTableColumnHeader column={column} title={`${adapt('Course')} Code`} />
     ),
     cell: ({ row }) => {
       const mapping = row.original;
@@ -59,7 +71,7 @@ export const columns: ColumnDef<CourseMapping>[] = [
   {
     id: 'course_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Course Name' />
+      <DataTableColumnHeader column={column} title={`${adapt('Course')} Name`} />
     ),
     cell: ({ row }) => {
       const mapping = row.original;
@@ -90,7 +102,7 @@ export const columns: ColumnDef<CourseMapping>[] = [
   {
     id: 'department',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Department' />
+      <DataTableColumnHeader column={column} title={adapt('Department')} />
     ),
     cell: ({ row }) => {
       const mapping = row.original;
@@ -106,7 +118,7 @@ export const columns: ColumnDef<CourseMapping>[] = [
   {
     id: 'program',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program' />
+      <DataTableColumnHeader column={column} title={adapt('Program')} />
     ),
     cell: ({ row }) => {
       const mapping = row.original;
@@ -122,7 +134,7 @@ export const columns: ColumnDef<CourseMapping>[] = [
   {
     id: 'semester',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester' />
+      <DataTableColumnHeader column={column} title={adapt('Semester')} />
     ),
     cell: ({ row }) => {
       const mapping = row.original;
@@ -179,4 +191,5 @@ export const columns: ColumnDef<CourseMapping>[] = [
     enableHiding: false,
     size: 60
   }
-];
+  ];
+}

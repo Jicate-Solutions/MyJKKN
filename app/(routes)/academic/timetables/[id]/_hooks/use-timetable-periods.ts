@@ -76,11 +76,13 @@ export function useTimetablePeriods(
           .map((period: any) => {
             if (!period) return null;
 
+            let base: Period | null = null;
+
             // Legacy format: has period_id instead of id
             if (period.period_id && !period.id) {
               legacyCount++;
 
-              return {
+              base = {
                 id: period.period_id,
                 period_name: period.period_name,
                 start_time: period.start_time,
@@ -90,15 +92,43 @@ export function useTimetablePeriods(
                 created_at: period.created_at || new Date().toISOString(),
                 updated_at: period.updated_at || new Date().toISOString()
               } as Period;
-            }
-
-            // New format: already has id field
-            if (period.id) {
+            } else if (period.id) {
+              // New format: already has id field
               modernCount++;
-              return period as Period;
+              base = period as Period;
             }
 
-            return null;
+            if (!base) return null;
+
+            // Fixed: 2026-08-19 - timetables.periods is a denormalized SNAPSHOT of the
+            // period rows, written when the timetable was configured. Editing a timing in
+            // the Period master (academic/periods) does NOT rewrite that snapshot, so the
+            // grid kept rendering pre-edit times while "Search Period" — which joins the
+            // master by id — rendered the corrected ones (JKKN AHS, Aug 2026). The master
+            // is the authority for name/timings: overlay it here, keeping the snapshot's
+            // ordering and any field the master does not own. Periods deleted from the
+            // master have no live row, so their snapshot values are left untouched.
+            const master = availablePeriods.find((p) => p.id === base!.id);
+            if (!master) return base;
+
+            // REPURPOSE GUARD: a differing name means the master row was edited into a
+            // DIFFERENT period, not merely re-timed (AHS turned its "AHS P6" row into
+            // "AHS BREAK" and created a new P6 elsewhere). Slots already scheduled
+            // against it must keep their own definition; repointing them is a data
+            // repair, not something this read path may infer.
+            const snapshotName = String(base.period_name ?? '').trim();
+            const masterName = String(master.period_name ?? '').trim();
+            if (snapshotName && masterName && snapshotName !== masterName) {
+              return base;
+            }
+
+            return {
+              ...base,
+              period_name: master.period_name,
+              start_time: master.start_time,
+              end_time: master.end_time,
+              is_break: master.is_break ?? base.is_break
+            } as Period;
           })
           .filter(Boolean) as Period[];
 

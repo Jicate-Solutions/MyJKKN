@@ -8,12 +8,22 @@ import type {
   BosBulkImportResponse,
 } from '@/types/bos-courses';
 import type { CourseFormInput } from '@/lib/services/bos/courses-schemas';
+import type { AcademicModel } from '@/types/bos';
 import { useAuth } from '@/hooks/use-auth';
 
 export interface CourseFilters {
   institution_id?: string;  // omit to fetch all institutions (super-admin only)
   regulation_code?: string;
   program_code?: string;
+  /**
+   * When set, the server returns courses for THIS composition's board only,
+   * authorised by institution scope (not the caller's own board memberships).
+   * Used by the syllabus form so a user building a syllabus for a composition
+   * sees that board's courses regardless of which boards they personally sit on.
+   */
+  composition_id?: string;
+  /** Multi-board: scope to a specific board of the composition (defaults to primary). */
+  board_id?: string;
   search?: string;
   is_active?: 'true' | 'false';
   limit?: number;
@@ -25,9 +35,14 @@ interface MutateContext {
   institution_code: string;
   regulation_code: string;
   regulation_id?: string;
+  /** COE board UUID — the server verifies it against the caller's boardsOf. */
+  board_id?: string;
   /** Human-readable board code — resolved client-side from the picked board_id
    *  so the server can persist both keys without a second lookup. */
   board_code?: string;
+  /** Academic model resolved from the board (COP: B.Pharm vs Pharm.D). Drives
+   *  the pharmacy/AHS payload branch in toCoeCreatePayload. */
+  academic_model?: AcademicModel;
 }
 
 // User-scoped cache root — mirrors use-bos-board-scope / use-bos-compositions.

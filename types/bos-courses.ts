@@ -21,7 +21,11 @@ export type CourseType =
   | 'Internship' | 'Language' | 'Naanmuthalvan' | 'Non Academic'
   | 'Non Major Elective Practical' | 'Non Major Elective'
   | 'Practical' | 'Project'
-  | 'Skill Enhancement Practical' | 'Skill Enhancement';
+  | 'Skill Enhancement Practical' | 'Skill Enhancement'
+  // AICTE / Anna University engineering categories — keep in sync with
+  // COURSE_TYPE_VALUES in lib/services/bos/courses-schemas.ts.
+  | 'Engineering Science Courses' | 'Professional Core Courses' | 'Programme Elective'
+  | 'Open Elective Courses' | 'Employability Enhancement Courses';
 
 /** Roman numerals I..XX (1..20). Pairs with CourseType in COE to form
  *  course_type_code (e.g., "Core" + "I" => "Core-I"). */
@@ -33,8 +37,13 @@ export type CourseLevel =
 
 export type EvaluationType = 'CIA' | 'ESE' | 'CIA + ESE';
 export type ResultType = 'Mark' | 'Status' | 'comment' | 'credit';
+// COE `course_mapping.course_group` — constrained by
+// course_mapping_course_group_check to COURSE_GROUP_VALUES
+// ('General', 'Elective - I', …). Do not send bare numbers here;
+// the numeric banding key is `group_order`.
 export type CourseGroup =
-  | 'General' | 'Elective - I' | 'Elective - II' | 'Elective - III'
+  | 'General'
+  | 'Elective - I' | 'Elective - II' | 'Elective - III'
   | 'Elective - IV' | 'Elective - V' | 'Elective - VI';
 
 export interface BosCourseMaster {
@@ -62,10 +71,20 @@ export interface BosCourseMaster {
   evaluation_type: EvaluationType;
   result_type: ResultType;
   theory_hours: number;
+  tutorial_hours: number | null;   // optional L-T-P tutorial component; defaults to 0
   practical_hours: number;
   class_hours: number;
+  // *_max_mark is the QUESTION-PAPER ceiling (the ESE may be written for 100).
+  // *_converted_mark is the WEIGHTAGE that component carries in total_max_mark
+  // (that 100-mark paper may be scaled down to 50). They're equal for most
+  // courses and diverge on Theory + Practical ones. The BoS Max Marks form
+  // edits the CONVERTED pair; the max pair stays COE-owned. COE's mapper always
+  // emits the converted keys, defaulting a NULL column to 0 — so treat 0 as
+  // "not set" and fall back to *_max_mark rather than trusting it as a value.
   internal_max_mark: number;
   external_max_mark: number;
+  internal_converted_mark?: number | null;
+  external_converted_mark?: number | null;
   total_max_mark: number;
   internal_pass_mark: number;
   external_pass_mark: number;
@@ -98,6 +117,7 @@ export interface BosCourseFormData {
   exam_duration: number;
   credit: number;
   theory_hours: number;
+  tutorial_hours?: number;   // optional — defaults to 0 when omitted
   practical_hours: number;
   internal_max_mark: number;
   external_max_mark: number;
@@ -117,6 +137,10 @@ export interface BosCourseMapping {
   course_group: CourseGroup | null;
   semester_code: string | null;
   course_order: number | null;
+  // COE `course_mapping.group_order` — usually equals the course order number;
+  // elective options share one group_order so they band + count once in totals.
+  // Optional: older COE deployments / optimistic rows may omit it.
+  group_order?: number | null;
   regulation_code: string | null;
   is_active: boolean;
   mapping_status: 'Active' | 'Locked' | string;   // Lock state for the mapping row itself.
@@ -133,9 +157,13 @@ export interface BosCourseMappingDetailed extends BosCourseMapping {
   course: Pick<
     BosCourseMaster,
     | 'course_code' | 'course_name' | 'course_category' | 'course_type'
+    | 'course_type_code'
     | 'course_part_master' | 'credit' | 'exam_duration'
-    | 'theory_hours' | 'practical_hours'
+    | 'theory_hours' | 'tutorial_hours' | 'practical_hours'
     | 'internal_max_mark' | 'external_max_mark' | 'total_max_mark'
+    // Optional on the master, so it stays optional here — the semester table
+    // reads it to grey out and un-delete locked rows.
+    | 'course_status'
   >;
 }
 

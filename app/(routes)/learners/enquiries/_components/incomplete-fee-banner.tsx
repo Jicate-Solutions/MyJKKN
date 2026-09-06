@@ -10,7 +10,6 @@ const FEE_DIM_LABELS: Record<string, string> = {
   program_id: 'Program',
   admission_year_id: 'Admission Year',
   quota_id: 'Quota',
-  accommodation_type_id: 'Accommodation',
   community_category_id: 'Community',
 };
 
@@ -20,7 +19,6 @@ const FEE_DIM_ORDER: Array<keyof typeof FEE_DIM_LABELS> = [
   'degree_id',
   'department_id',
   'quota_id',
-  'accommodation_type_id',
   'community_category_id',
   'institution_id',
 ];
@@ -41,22 +39,23 @@ interface IncompleteFeeBannerProps {
 
 /**
  * Renders on top of the enquiry edit form when:
- *   - lifecycle_status = 'admitted'
+ *   - lifecycle_status IN ('enquiry', 'enquiry_submitted')
  *   - legacy_fee_mode  = true
  *
- * Shows which fee-matrix dimensions are missing. When all 8 dims are filled,
+ * Shows which fee-matrix dimensions are missing. When all 7 dims are filled,
  * the banner stays visible but flips to a "ready to apply" message — saving
  * then triggers admission_adopt_structure_for_lead via the form's commitSubmit.
  *
- * Why a banner instead of a per-field highlight: surfaces the gap once at the
- * top of the form rather than scattering red rings across multiple sections.
+ * 2026-05-20: Pre-realignment this triggered on lifecycle_status='admitted'
+ * (then the entry point). Now it covers the new pair of entry-point statuses.
  */
 export function IncompleteFeeBanner({ learner }: IncompleteFeeBannerProps) {
   if (!learner) return null;
 
   const isLegacy = (learner as { legacy_fee_mode?: boolean }).legacy_fee_mode === true;
-  const isAdmitted = learner.lifecycle_status === 'admitted';
-  if (!isLegacy || !isAdmitted) return null;
+  const status = learner.lifecycle_status;
+  const isAtEntry = status === 'enquiry' || status === 'enquiry_submitted';
+  if (!isLegacy || !isAtEntry) return null;
 
   const missing = getMissingFeeDimensions(learner);
   const ready = missing.length === 0;

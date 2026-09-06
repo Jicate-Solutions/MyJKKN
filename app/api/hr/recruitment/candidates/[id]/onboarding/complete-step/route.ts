@@ -97,15 +97,9 @@ export async function POST(
       : [];
     const allRoleKeys = new Set<string>([profileRole, ...userRoleKeys].filter(Boolean));
 
-    const allowed = isSuperAdmin || [...allRoleKeys].some((k) => ALLOWED_ROLE_KEYS.has(k));
-    if (!allowed) {
-      return NextResponse.json(
-        { error: 'Forbidden — onboarding edits require super_admin, hr_officer, hr_head, or director_jkkn' },
-        { status: 403 }
-      );
-    }
-
-    // Fetch current onboarding_steps
+    // Fetch current onboarding_steps.
+    // 2026-07-06: onboarding is now a PRE-JOIN stage — steps are completed
+    // between final approval and staff creation ('joined' kept for legacy).
     const { data: candidate, error: fetchErr } = await supabase
       .from('hr_recruitment_candidates')
       .select('id, status, role_specific_details')
@@ -115,9 +109,9 @@ export async function POST(
     if (!candidate) {
       return NextResponse.json({ error: 'Candidate not found' }, { status: 404 });
     }
-    if (candidate.status !== 'joined') {
+    if (!['approved', 'package_fixed', 'offer_issued', 'joined'].includes(candidate.status)) {
       return NextResponse.json(
-        { error: `Onboarding steps can only be updated for joined candidates. Current status: ${candidate.status}` },
+        { error: `Onboarding steps can only be updated after final approval. Current status: ${candidate.status}` },
         { status: 400 }
       );
     }
@@ -135,6 +129,35 @@ export async function POST(
       return NextResponse.json(
         { error: `step_index ${step_index} out of range (0..${steps.length - 1})` },
         { status: 400 }
+      );
+    }
+
+    // Per-step authorization (dynamic assignment, 2026-07-06):
+    //   - step pinned to a user  → only that user (super-admin override)
+    //   - step assigned a role   → holders of that role_key (super-admin override)
+    //   - unassigned step        → legacy HR allow-list (back-compat)
+    const targetStep = steps[step_index] as OnboardingStep & {
+      assigned_role?: string | null;
+      assigned_user_id?: string | null;
+    };
+    let stepAllowed: boolean;
+    if (targetStep.assigned_user_id) {
+      stepAllowed = isSuperAdmin || targetStep.assigned_user_id === user.id;
+    } else if (targetStep.assigned_role) {
+      stepAllowed =
+        isSuperAdmin || allRoleKeys.has(targetStep.assigned_role.toLowerCase());
+    } else {
+      stepAllowed = isSuperAdmin || [...allRoleKeys].some((k) => ALLOWED_ROLE_KEYS.has(k));
+    }
+    if (!stepAllowed) {
+      const who = targetStep.assigned_user_id
+        ? 'its assigned person'
+        : targetStep.assigned_role
+        ? `holders of role '${targetStep.assigned_role}'`
+        : 'HR (hr_officer, hr_head, director_jkkn) or super_admin';
+      return NextResponse.json(
+        { error: `Forbidden — this step can only be completed by ${who}.` },
+        { status: 403 }
       );
     }
 

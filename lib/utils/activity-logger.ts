@@ -20,6 +20,30 @@ export interface LogActivityParams {
  */
 export async function logActivity(params: LogActivityParams): Promise<void> {
   try {
+    // Best-effort server-side IP capture. Most call sites don't pass `request`,
+    // so the action's IP used to be lost (only auth routes, which pass request,
+    // had it) — leaving update/create/approve/export logs with no IP. Reading the
+    // incoming request headers here stamps the IP for every caller without
+    // threading `request` through dozens of call sites. Forward-only: it cannot
+    // backfill blank history. `next/headers` is imported dynamically (and guarded)
+    // so it is never pulled into client bundles and never breaks logging in a
+    // client/background/no-request context.
+    let ipAddress: string | undefined;
+    if (!params.request) {
+      try {
+        const { headers } = await import('next/headers');
+        const h = await headers();
+        const forwarded = h.get('x-forwarded-for');
+        ipAddress =
+          forwarded?.split(',')[0]?.trim() ||
+          h.get('x-real-ip') ||
+          h.get('x-client-ip') ||
+          undefined;
+      } catch {
+        // next/headers unavailable here (no request scope) — skip IP capture.
+      }
+    }
+
     await ActivityService.logActivity({
       user_id: params.userId,
       action_type: params.actionType,
@@ -28,6 +52,7 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
       resource_name: params.resourceName,
       description: params.description,
       request: params.request,
+      ip_address: ipAddress,
       metadata: {
         ...params.metadata,
         status_code: params.statusCode

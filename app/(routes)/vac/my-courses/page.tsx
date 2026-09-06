@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
 import { useMyEnrollments, useCourseCompletionPct } from '@/hooks/vac/use-vac';
+import { useTabParam } from '@/hooks/use-tab-param';
 import type { VACEnrollmentWithDetails, VACEnrollmentStatus } from '@/types/vac';
 import {
   BookOpen,
@@ -173,11 +174,13 @@ function EnrollmentCardSkeleton() {
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
-export default function MyCoursesPage() {
+const MY_COURSES_TABS = ['my-courses', 'professional'] as const;
+
+function MyCoursesInner() {
   const { profile } = useAuth();
   const userId = profile?.id || '';
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState('my-courses');
+  const [activeTab, setActiveTab] = useTabParam('my-courses', MY_COURSES_TABS);
 
   const { data: enrollments, isLoading } = useMyEnrollments(userId);
 
@@ -301,7 +304,7 @@ export default function MyCoursesPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="my-courses">
               My Courses ({filteredRegular.length})
             </TabsTrigger>
@@ -369,5 +372,14 @@ export default function MyCoursesPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function MyCoursesPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MyCoursesInner />
+    </Suspense>
   );
 }

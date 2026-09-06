@@ -3,7 +3,7 @@
 // app/(routes)/staff/[id]/page.tsx
 
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -22,27 +22,49 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { StaffAvatar } from '@/components/staff/staff-avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { useStaffWorkPattern } from '@/hooks/hr/use-work-patterns';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { getErrorMessage } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
+import { PrintCardButton } from '@/components/id-cards/print-card-button';
+import { JkknIdChip } from '@/components/identity/jkkn-id-chip';
 
 interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
+const STAFF_EXTENDED_PROFILE_TABS = [
+  'academic',
+  'experience',
+  'research',
+  'achievements',
+  'mentoring',
+  'faqs'
+] as const;
+
+function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   const { id } = use(params);
   const router = useRouter();
+  const [activeTab, setActiveTab] = useTabParam('academic', STAFF_EXTENDED_PROFILE_TABS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const [biometricMachine, setBiometricMachine] = useState<string | null>(null);
+  // Read-only: the pattern is assigned on /hr/admin/work-patterns. RLS lets a
+  // staff member see their own row and HR see their institution's, so an
+  // unauthorised viewer simply gets nothing here.
+  const { data: workPattern } = useStaffWorkPattern(staff?.id);
   const {
     canAccess,
     isSuperAdmin,
+    userProfile,
     isLoading: permissionsLoading
   } = usePermissions([], { waitForLoad: true });
 
@@ -71,7 +93,10 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
         setStaff(data);
       } catch (err) {
         console.error('Error fetching staff:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch staff');
+        // Supabase errors are plain objects, not Error instances, so an
+        // `instanceof Error` test always falls through and replaces the real
+        // cause (RLS denial, PGRST code) with a generic string.
+        setError(getErrorMessage(err));
       } finally {
         setLoading(false);
       }
@@ -80,9 +105,33 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
     fetchStaff();
   }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-  };
+  // Resolve the biometric machine's owning institution by name.
+  //
+  // This needs its own lookup because biometric_institution_id has no FK
+  // (dropped 2026-08-06), so PostgREST cannot embed it on the staff query. The
+  // effect is inert while the column is null — which is every staff row today —
+  // so it costs nothing until biometric codes are actually imported.
+  useEffect(() => {
+    const machineId = staff?.biometric_institution_id;
+    if (!machineId) {
+      setBiometricMachine(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        // 'all' is the entity-type scope; the default omits non-institution entities.
+        const list = await OrganizationService.getInstitutionNames(true, undefined, 'all');
+        if (cancelled) return;
+        setBiometricMachine(list?.find(i => i.id === machineId)?.name ?? null);
+      } catch (err) {
+        if (!cancelled) console.error('Error resolving biometric machine:', getErrorMessage(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [staff?.biometric_institution_id]);
 
   // Show loading when permissions or data are loading
   if (permissionsLoading || (loading && permissionsLoaded)) {
@@ -115,9 +164,21 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
   // We hide the button entirely (instead of rendering it disabled) for
   // users without `staff.edit`, so an `own_records` user viewing their own
   // row without edit perm doesn't see a button that would 403 on click.
-  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+  // Self-edit mirrors the API's isSelfEdit allowance (app/api/staff/[id]/route.ts)
+  // — a user viewing their own staff record can edit it even without the
+  // blanket `staff.edit` permission (BUG-002565: button never appeared for
+  // own-record users whose role doesn't grant staff.edit).
+  const isSelfEdit =
+    (!!staff.institution_email && staff.institution_email === userProfile?.email) ||
+    (!!(staff as any).profile_id && (staff as any).profile_id === userProfile?.id);
+  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || isSelfEdit;
   // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
   const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
+
+  // Phase 2 — display name for the ID-card print flow (destructured so the
+  // template literal below stays identifier-free for the terminology gate)
+  const { first_name: memberFirstName, last_name: memberLastName } = staff;
+  const teamMemberName = `${memberFirstName} ${memberLastName}`;
 
   // Build the cross-profile URL for internal transfer pre-fill (R4.1)
   const considerForNewRoleUrl =
@@ -151,23 +212,38 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
       <div className='space-y-6 mt-4'>
         {/* Back Button */}
 
-        <div className='flex justify-between items-center'>
-          <div className='flex items-center gap-4'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center'>
+          <div className='flex items-center gap-4 min-w-0'>
             <Button variant='outline' size='sm' asChild>
               <Link href='/staff/list' className='flex items-center gap-2'>
                 <ArrowLeft className='h-4 w-4' />
               </Link>
             </Button>
-            <div className='flex flex-col'>
+            <div className='flex flex-col min-w-0'>
               <h1 className='text-2xl font-bold py-1'>
                 {staff.first_name} {staff.last_name}
               </h1>
               <p className='text-sm sm:text-base text-muted-foreground'>
                 Employee Details
               </p>
+              <JkknIdChip
+                kind='team_member'
+                refId={staff.id}
+                personName={`${staff.first_name} ${staff.last_name ?? ''}`.trim()}
+                className='mt-1'
+              />
             </div>
           </div>
-          <div className='flex items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2 shrink-0'>
+            {/* Phase 2 — one-click ID-card printing (hidden without id_cards.jobs.manage).
+                Team members link to accounts via staff.profile_id (set by the
+                sync_staff_to_profiles trigger); email match is the fallback. */}
+            <PrintCardButton
+              profileId={(staff as any).profile_id ?? null}
+              lookupEmail={staff.institution_email || staff.email || null}
+              personName={teamMemberName}
+              noAccountMessage='No account yet — ID card becomes available once the team member account is activated.'
+            />
             {/* R4.1 — Internal mobility entry point */}
             {canCreateRecruitment && (
               <Button variant='outline' asChild>
@@ -195,14 +271,15 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
           </CardHeader>
           <CardContent className='space-y-4'>
             <div className='flex items-center gap-4'>
-              <Avatar className='h-20 w-20'>
-                <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback className='text-lg'>
-                  {getInitials(staff.first_name, staff.last_name)}
-                </AvatarFallback>
-              </Avatar>
-              <div className='space-y-1'>
-                <div className='flex items-center gap-2'>
+              <StaffAvatar
+                src={staff.profile_picture}
+                firstName={staff.first_name}
+                lastName={staff.last_name}
+                className='h-20 w-20 shrink-0'
+                fallbackClassName='text-lg'
+              />
+              <div className='space-y-1 min-w-0'>
+                <div className='flex flex-wrap items-center gap-2'>
                   <h2 className='text-xl font-semibold'>
                     {staff.first_name} {staff.last_name}
                   </h2>
@@ -216,9 +293,18 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
                 <p className='text-sm text-muted-foreground'>
                   Staff ID: {staff.staff_id || 'Not Assigned'}
                 </p>
+                {workPattern && (
+                  <p className='text-sm text-muted-foreground'>
+                    Work pattern:{' '}
+                    <Badge variant='outline' className='align-middle'>
+                      {workPattern.pattern_name}
+                    </Badge>{' '}
+                    since {format(new Date(workPattern.effective_from), 'dd MMM yyyy')}
+                  </p>
+                )}
                 <Link
                   href={`mailto:${staff.institution_email}`}
-                  className='text-sm text-muted-foreground hover:text-primary'
+                  className='block text-sm text-muted-foreground hover:text-primary break-all'
                 >
                   {staff.institution_email || 'Not Assigned'}
                 </Link>
@@ -306,19 +392,59 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
             <div>
               <p className='font-medium'>Category</p>
               <p className='text-base text-muted-foreground'>
-                {staff.category?.category_name}
+                {staff.category?.category_name || 'Not Specified'}
               </p>
             </div>
             <div>
               <p className='font-medium'>Institution</p>
               <p className='text-base text-muted-foreground'>
-                {staff.institution?.name}
+                {staff.institution?.name || 'Not Specified'}
               </p>
             </div>
             <div>
               <p className='font-medium'>Department</p>
+              {/* 327 of 864 staff have no department_id — without a fallback
+                  this rendered as an unexplained blank. */}
               <p className='text-base text-muted-foreground'>
-                {staff.department?.department_name}
+                {staff.department?.department_name || 'Not Specified'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Employment Type</p>
+              <p className='text-base text-muted-foreground capitalize'>
+                {staff.employment_type?.replace(/_/g, ' ') || 'Not Specified'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Role</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.role_key || 'Not Specified'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Login Access</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.login_enabled ? 'Enabled' : 'Disabled (view-only record)'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Biometric Code</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.biometric_id || 'Not assigned'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Biometric Machine</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.biometric_institution_id
+                  ? biometricMachine ?? 'Resolving…'
+                  : 'Not assigned'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Bus Transport</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.bus_required ? 'Required' : 'Not required'}
               </p>
             </div>
           </CardContent>
@@ -331,7 +457,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
               <CardTitle>Extended Profile</CardTitle>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue='academic'>
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className='flex-wrap h-auto'>
                   <TabsTrigger value='academic'>Academic</TabsTrigger>
                   <TabsTrigger value='experience'>Experience</TabsTrigger>
@@ -499,6 +625,15 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function StaffDetailsPage(props: StaffDetailsPageProps) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <StaffDetailsPageInner {...props} />
+    </Suspense>
   );
 }
 

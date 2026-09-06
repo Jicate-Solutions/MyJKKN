@@ -1123,9 +1123,14 @@ BEGIN
 END;
 $$;
 
--- Restrict execution to authenticated users only
-REVOKE ALL ON FUNCTION auth.check_user_permission FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION auth.check_user_permission TO authenticated;
+-- Restrict execution to authenticated users only.
+-- IMPORTANT (Director-locked 2026-06-06): `REVOKE FROM PUBLIC` alone is
+-- INSUFFICIENT. Supabase's default privileges grant `anon` EXECUTE on every
+-- new public function directly (separate from PUBLIC). Must explicitly
+-- REVOKE FROM anon too — otherwise the function is callable by any
+-- unauthenticated client holding the public anon key.
+REVOKE EXECUTE ON FUNCTION auth.check_user_permission FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION auth.check_user_permission TO authenticated;
 ```
 
 #### Template 3: Trigger Function

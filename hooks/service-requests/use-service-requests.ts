@@ -71,6 +71,8 @@ export function useServiceRequests(filters?: ServiceRequestFilters) {
       }
       return res.json();
     },
+    // Hold the current page on screen while the next one loads.
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -100,6 +102,8 @@ export function useMyServiceRequests(filters?: Partial<ServiceRequestFilters>) {
       }
       return res.json();
     },
+    // Hold the current page on screen while the next one loads.
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -130,14 +134,21 @@ export function useServiceRequest(id: string) {
  * mistyping caused the inbox page to reshape rows through `a.service_request`
  * and silently drop everything.
  */
-export function usePendingApprovals(filters?: { service_type_id?: string; page?: number; limit?: number }) {
+export function usePendingApprovals(filters?: {
+  service_type_id?: string;
+  priority?: string;
+  /** Matched against request_number server-side, across the whole queue. */
+  search?: string;
+  page?: number;
+  limit?: number;
+}) {
   return useQuery<ServiceRequestListResponse>({
     queryKey: serviceRequestKeys.pendingApprovals(filters),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filters) {
         Object.entries(filters).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
+          if (value !== undefined && value !== null && value !== '') {
             params.set(key, String(value));
           }
         });
@@ -149,6 +160,9 @@ export function usePendingApprovals(filters?: { service_type_id?: string; page?:
       }
       return res.json();
     },
+    // Keep the previous page on screen while the next one loads, so paging
+    // through the queue doesn't flash the "All caught up!" empty state.
+    placeholderData: (previous) => previous,
     refetchInterval: 30000,
   });
 }
@@ -328,6 +342,36 @@ export function useCancelServiceRequest() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: serviceRequestKeys.all });
       toast.success('Request cancelled');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+/**
+ * Permanently delete a service request (super-admin only).
+ *
+ * The DELETE is gated by RLS (is_super_admin()); the API returns 403 for any
+ * other caller, so the onError toast surfaces the denial cleanly.
+ */
+export function useDeleteServiceRequest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/service-requests/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to delete request');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: serviceRequestKeys.all });
+      toast.success('Request deleted');
     },
     onError: (error: Error) => {
       toast.error(error.message);

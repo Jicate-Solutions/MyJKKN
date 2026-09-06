@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-// ── GET /api/bos/meetings/next-number?boardId=&academicYear= ─────────────────
+// ── GET /api/bos/meetings/next-number ────────────────────────────────────────
+//
+// Returns the suggested next meeting number for a composition (max(meeting_number)+1),
+// plus the list of already-taken numbers so the client can validate manual overrides
+// without a second round-trip.
+//
+// Required: compositionId
+// (boardId/academicYear are accepted for back-compat but ignored when compositionId
+//  is present — composition_id is the canonical scope per BoS spec.)
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -11,23 +19,31 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const boardId = searchParams.get('boardId');
-    const academicYear = searchParams.get('academicYear');
+    const compositionId = searchParams.get('compositionId');
 
-    if (!boardId || !academicYear) {
+    if (!compositionId) {
       return NextResponse.json(
-        { error: 'boardId and academicYear are required' },
+        { error: 'compositionId is required' },
         { status: 400 }
       );
     }
 
-    const { count } = await supabase
+    const { data: rows, error } = await supabase
       .from('bos_meetings')
-      .select('id', { count: 'exact', head: true })
-      .eq('board_id', boardId)
-      .eq('academic_year', academicYear);
+      .select('meeting_number')
+      .eq('composition_id', compositionId);
 
-    return NextResponse.json({ next_number: (count ?? 0) + 1 });
+    if (error) throw error;
+
+    const takenNumbers = (rows ?? [])
+      .map((r: any) => Number(r.meeting_number))
+      .filter((n) => Number.isFinite(n));
+    const highest = takenNumbers.length > 0 ? Math.max(...takenNumbers) : 0;
+
+    return NextResponse.json({
+      next_number: highest + 1,
+      taken_numbers: takenNumbers,
+    });
   } catch (error) {
     console.error('[bos/meetings/next-number] GET error:', error);
     return NextResponse.json({ error: 'Failed to get next meeting number' }, { status: 500 });

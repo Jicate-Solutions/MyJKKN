@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Row } from '@tanstack/react-table';
-import { MoreHorizontal, Eye, Edit, Trash2, Receipt } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, ReceiptIndianRupee, Ban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -25,8 +25,15 @@ import {
 import { StudentBill } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useDeleteStudentBill } from '@/hooks/billing/use-student-bills';
-import { useRouter } from 'next/navigation';
+import { useCancelBill } from '@/hooks/billing/use-bill-cancellation';
+import { BillCancelDialog } from '@/components/billing/bill-cancel-dialog';
 import Link from 'next/link';
+import type {
+  BillCancelReasonCode,
+  BillCancellationAttachment
+} from '@/types/billing-bill-cancellation';
+
+const CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -36,23 +43,42 @@ export function DataTableRowActions<TData>({
   row
 }: DataTableRowActionsProps<TData>) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const router = useRouter();
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   const bill = row.original as StudentBill;
   const { canAccess, isSuperAdmin } = usePermissions();
   const deleteStudentBill = useDeleteStudentBill();
+  const cancelBill = useCancelBill();
 
   const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
-  const canDeleteBills =
-    isSuperAdmin || canAccess('billing.schedule', 'delete');
+  // Its own key, not billing.schedule.update: cancelling writes off money.
+  const canCancelBills = isSuperAdmin || canAccess('billing.schedule', 'cancel');
+  const isCancellable = CANCELLABLE_STATUSES.includes(bill.status);
 
   const handleDelete = async () => {
     try {
       await deleteStudentBill.mutateAsync(bill.id);
       setShowDeleteDialog(false);
-      // The data table will automatically refetch
     } catch (error) {
       console.error('Error deleting bill:', error);
+    }
+  };
+
+  // The dialog collects the reason code, notes and documents that
+  // fn_cancel_student_bill requires. This used to send NOTHING but the id --
+  // the service accepted a `reason` argument no caller ever passed.
+  const handleCancel = async (payload: {
+    reasonCode: BillCancelReasonCode;
+    reason: string;
+    attachments: BillCancellationAttachment[];
+  }) => {
+    if (cancelBill.isPending) return;
+    try {
+      await cancelBill.mutateAsync({ billId: bill.id, ...payload });
+      setShowCancelDialog(false);
+    } catch {
+      // Guard message already surfaced by the hook; keep the dialog open so
+      // the operator can read it beside what they typed.
     }
   };
 
@@ -71,15 +97,9 @@ export function DataTableRowActions<TData>({
         <DropdownMenuContent align='end' className='w-[200px]'>
           <DropdownMenuLabel>Actions</DropdownMenuLabel>
           <DropdownMenuItem asChild>
-            <Link href={`/billing/schedule/${bill.id}`}>
-              <Eye className='mr-2 h-4 w-4' />
-              View Details
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href={`/billing/schedule/students/${bill.student_id}`}>
-              <Receipt className='mr-2 h-4 w-4' />
-              Student Bills
+            <Link href={`/billing/schedule/students/${bill.student_id}?tab=bills`}>
+              <ReceiptIndianRupee className='mr-2 h-4 w-4' />
+              View / Student Bills
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -91,7 +111,16 @@ export function DataTableRowActions<TData>({
               </Link>
             </DropdownMenuItem>
           )}
-          {canDeleteBills && (
+          {canCancelBills && isCancellable && (
+            <DropdownMenuItem
+              className='text-amber-700 focus:text-amber-800 focus:bg-amber-50'
+              onClick={() => setShowCancelDialog(true)}
+            >
+              <Ban className='mr-2 h-4 w-4' />
+              Cancel Bill
+            </DropdownMenuItem>
+          )}
+          {isSuperAdmin && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -106,6 +135,26 @@ export function DataTableRowActions<TData>({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <BillCancelDialog
+        open={showCancelDialog}
+        onOpenChange={setShowCancelDialog}
+        bills={[
+          {
+            id: bill.id,
+            bill_description: bill.bill_description,
+            final_amount: bill.final_amount,
+            status: bill.status,
+            student_name: `${bill.student?.first_name || ''} ${
+              bill.student?.last_name || ''
+            }`.trim()
+          }
+        ]}
+        institutionName={bill.institution?.name || 'Unknown Institution'}
+        isPending={cancelBill.isPending}
+        onConfirm={handleCancel}
+      />
+
+      {/* Delete Dialog — super admin only */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -116,7 +165,8 @@ export function DataTableRowActions<TData>({
               {`${bill.student?.first_name || ''} ${
                 bill.student?.last_name || ''
               }`.trim()}
-              ? This action cannot be undone.
+              ? This action cannot be undone. All related payments, receipts,
+              discounts, and refunds will also be permanently removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

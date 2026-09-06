@@ -18,7 +18,7 @@
 //   title, event_date, venue, audience, expected_attendance, budget_band
 // Redirect: /events/propose/<id>/status
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -30,8 +30,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { ArrowLeft, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { toast } from 'react-hot-toast';
 import {
   EventProposalAudience,
@@ -55,6 +60,15 @@ function nextWeekday(): string {
 function ProposeForm() {
   const router = useRouter();
   const supabase = createClientSupabaseClient();
+  // Pull profile from the shared AuthProvider (cf. project memory:
+  // "Auth gate must use AuthProvider, not local profile fetch").
+  const { profile } = useAuth();
+  const isSuperAdmin = profile?.role === 'super_admin';
+  // event_proposals.institution_id is NOT NULL. Super admins (and the rare
+  // user without a profile institution) must pick one explicitly.
+  const needsInstitutionPicker = isSuperAdmin || !profile?.institution_id;
+  const { institutions: accessibleInstitutions, loading: institutionsLoading } =
+    useInstitutionsWithAccess({ autoFetch: needsInstitutionPicker });
 
   const [submitting, setSubmitting] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -64,6 +78,15 @@ function ProposeForm() {
   const [eventDate, setEventDate] = useState(nextWeekday());
   const [venue, setVenue] = useState('');
   const [audience, setAudience] = useState<EventProposalAudience[]>([]);
+
+  // Institution selection — defaults to the user's profile institution once
+  // AuthProvider resolves. Super admins still see the picker and can change it.
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState('');
+  useEffect(() => {
+    if (profile?.institution_id && !selectedInstitutionId) {
+      setSelectedInstitutionId(profile.institution_id);
+    }
+  }, [profile?.institution_id, selectedInstitutionId]);
 
   // Progressive disclosure fields
   const [expectedAttendance, setExpectedAttendance] = useState('');
@@ -80,29 +103,29 @@ function ProposeForm() {
     if (!title.trim()) { toast.error('Event title is required'); return; }
     if (audience.length === 0) { toast.error('Select at least one audience'); return; }
 
+    // Resolve institution — picker wins (super admin choice), then profile.
+    // CRITICAL: event_proposals.institution_id is NOT NULL.
+    const resolvedInstitutionId = selectedInstitutionId || profile?.institution_id || null;
+    if (!resolvedInstitutionId) {
+      toast.error(
+        isSuperAdmin
+          ? 'Please select an institution for this proposal'
+          : 'Your profile has no institution — contact admin'
+      );
+      return;
+    }
+
     setSubmitting(true);
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { toast.error('Sign in first'); setSubmitting(false); return; }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('institution_id, role, email, phone_number')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile?.institution_id) {
-      toast.error('Your profile has no institution');
-      setSubmitting(false);
-      return;
-    }
-
     const payload: Record<string, unknown> = {
-      institution_id: profile.institution_id,
+      institution_id: resolvedInstitutionId,
       proposer_id: user.id,
-      sender_role: profile.role ?? null,
-      sender_email: profile.email ?? user.email ?? null,
-      contact_phone: profile.phone_number ?? null,
+      sender_role: profile?.role ?? null,
+      sender_email: profile?.email ?? user.email ?? null,
+      contact_phone: (profile as { phone_number?: string | null })?.phone_number ?? null,
       title: title.trim().slice(0, 80),
       event_date: eventDate || null,
       venue: venue.trim() || null,
@@ -220,6 +243,38 @@ function ProposeForm() {
         )}
       </div>
 
+      {/* Institution picker — visible only when the user lacks an auto-resolved
+          institution (super admin) or needs to override the default. */}
+      {needsInstitutionPicker && (
+        <div className="space-y-1.5">
+          <Label htmlFor="institution-select" className="text-base font-medium">
+            Institution{!profile?.institution_id ? ' *' : ''}
+          </Label>
+          <Select
+            value={selectedInstitutionId}
+            onValueChange={setSelectedInstitutionId}
+          >
+            <SelectTrigger id="institution-select" className="text-base">
+              <SelectValue
+                placeholder={institutionsLoading ? 'Loading institutions…' : 'Select institution'}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {accessibleInstitutions.map((inst) => (
+                <SelectItem key={inst.id} value={inst.id}>
+                  {inst.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {isSuperAdmin
+              ? 'As super admin, pick which institution this proposal belongs to.'
+              : 'Pick the institution this proposal belongs to.'}
+          </p>
+        </div>
+      )}
+
       {/* Progressive disclosure toggle */}
       <button
         type="button"
@@ -313,10 +368,15 @@ export default function ProposeEventPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="max-w-2xl">
-        <Button variant="ghost" size="sm" asChild className="mb-4">
-          <Link href="/events"><ArrowLeft className="mr-1 h-4 w-4" />Back</Link>
-        </Button>
+      <div className="w-full">
+        <div className="flex items-center justify-between mb-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/events"><ArrowLeft className="mr-1 h-4 w-4" />Back</Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/events/proposals">My Proposals</Link>
+          </Button>
+        </div>
 
         <Card>
           <CardHeader>

@@ -4,19 +4,21 @@
 // "Add Member" dialog for a BoS Composition.
 //
 // Behaviour:
-//   - chairman | internal_member  -> Facilitator picker (staff with
-//                                    employment_categories = "Facilitator",
-//                                    scoped to current institution).
-//   - university_nominee | subject_expert | industry_expert | alumni
-//                                 -> External Expert picker (BoS experts
-//                                    across ALL institutions).
+//   - Every member type asks Source first — Staff (internal) | External Expert —
+//     same control as the Governing Body / Academic Council Add Member dialogs.
+//   - Staff → Facilitator picker (employment_categories = "Facilitator",
+//     scoped to current institution / CAS siblings).
+//   - External Expert → BoS experts across ALL institutions.
+//   - Exception: catalog name "Nominated by the Governing Body" → still asks
+//     Source, but the picker lists that institution's Governing Body roster
+//     for the composition's academic year (GET /api/bos/governing-body).
 //
 // Once a person is selected, display fields auto-fill and lock so the
 // caller cannot accidentally edit canonical contact info. Use "Change"
 // to clear the selection and pick someone else.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, X, Loader2 } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
@@ -47,35 +49,62 @@ import {
 import { Badge } from '@/components/ui/badge';
 
 import { useAddBosMember } from '@/hooks/bos/use-bos-members';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useInstitutionContextById } from '@/hooks/use-institution-context';
 import {
+  BosCommittee,
   BosMemberType,
+  BosMemberTypeRecord,
   BOS_MEMBER_TYPE_LABELS,
   BosExternalExpert,
 } from '@/types/bos';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-// ── Member-type → source mapping ───────────────────────────────────────────────
-// Internal types come from staff (Facilitator). External types come from the
-// BoS External Expert directory. Keep this in sync with bos_external_experts
-// category enum.
+/** Catalog name match — "Nominated by the Governing Body" (and close variants). */
+function isGoverningBodyNomineeType(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return /governing\s*body/i.test(name);
+}
 
-const EXTERNAL_EXPERT_TYPES: BosMemberType[] = [
+// base_type values that represent EXTERNAL people (BoS Experts), not internal
+// staff. When Source = "External Expert" the Member Type dropdown is filtered to
+// these so only expert-appropriate types show; Source = "Staff (internal)" is
+// left unfiltered. Mirrors EXTERNAL_BASE_TYPES in the TA/DA rate-settings dialog.
+const EXTERNAL_EXPERT_BASE_TYPES: ReadonlySet<BosMemberType> = new Set<BosMemberType>([
   'university_nominee',
   'subject_expert',
+  'academic_expert',
   'industry_expert',
   'alumni',
   'startup',
-];
+  'student',
+  // Faculty / Chairman are usually internal, but can be brought in from the
+  // external-expert directory (e.g. a chairman or faculty member from another
+  // institution) — so they stay selectable under Source = External Expert.
+  'faculty_member',
+  'chairman',
+]);
 
-function isExternalExpertType(t: BosMemberType): boolean {
-  return EXTERNAL_EXPERT_TYPES.includes(t);
+type MemberSource = 'staff' | 'expert';
+
+/** Row shape returned by GET /api/bos/governing-body for the nominee picker. */
+export interface GbNomineeRow {
+  id: string;
+  staff_id?: string | null;
+  expert_id?: string | null;
+  member_type?: string | null;
+  display_name: string;
+  display_designation?: string | null;
+  display_department?: string | null;
+  display_institution?: string | null;
+  email?: string | null;
+  contact_no?: string | null;
 }
 
 // ── Lookup row shapes ─────────────────────────────────────────────────────────
 // Matches the JSON returned by /api/bos/lookup/facilitators and /api/bos/experts.
 
-interface FacilitatorRow {
+export interface FacilitatorRow {
   id: string;
   first_name: string;
   last_name: string;
@@ -102,18 +131,47 @@ interface AddMemberDialogProps {
    */
   institutionsId: string;
   /**
-   * IDs of staff already present on this composition. The FacilitatorPicker
-   * filters them out so the same person can't be added twice. The DB also
-   * enforces this via uniq_bos_members_composition_staff — this prop is just
-   * the UX softener so the user never sees the duplicate option.
+   * Committees of this composition's institution. The dialog asks which
+   * committee the new member sits on; members are grouped by committee on the
+   * detail page. Empty list = the select is hidden and members go to "General".
    */
-  assignedStaffIds?: readonly string[];
+  committees?: readonly BosCommittee[];
   /**
-   * IDs of external experts already present on this composition. See
-   * `assignedStaffIds` — same rationale, mirrored for the expert picker.
+   * Institution-wise member types (from /bos/member-types). When provided,
+   * the Member Type dropdown is table-driven and the insert carries
+   * member_type_id; member_type is set to the row's base_type so chairman
+   * authorization and the staff/expert picker keep working. Empty list =
+   * fall back to the legacy hardcoded enum (old data / unseeded institution).
    */
-  assignedExpertIds?: readonly string[];
+  memberTypes?: readonly BosMemberTypeRecord[];
+  /**
+   * Existing members of this composition (staff/expert source + committee).
+   * Used to hide people already on the SELECTED committee from the pickers —
+   * the same person may legitimately sit on two different committees, so the
+   * exclusion is per committee, mirroring the DB's per-(composition,
+   * committee) unique indexes (20260610_bos_committees.sql).
+   */
+  existingMembers?: readonly {
+    staff_id?: string | null;
+    expert_id?: string | null;
+    committee_id?: string | null;
+  }[];
+  /**
+   * Member types to hide from the picker. Used by the Academic Council, which
+   * auto-snapshots BoS chairmen and so removes 'chairman' from the manual-add
+   * options (the council's presiding officer is added as a 'principal' instead).
+   * Applies to both the table-driven and legacy-enum dropdowns.
+   */
+  excludeMemberTypes?: readonly BosMemberType[];
+  /**
+   * Composition academic year — required to resolve the Governing Body roster
+   * when Member Type is "Nominated by the Governing Body".
+   */
+  academicYear?: string;
 }
+
+/** Sentinel for "no committee" in the Radix Select (empty value is reserved). */
+const GENERAL_COMMITTEE = '__general__';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -122,22 +180,106 @@ export function AddMemberDialog({
   onClose,
   compositionId,
   institutionsId,
-  assignedStaffIds,
-  assignedExpertIds,
+  committees = [],
+  memberTypes = [],
+  existingMembers = [],
+  excludeMemberTypes = [],
+  academicYear,
 }: AddMemberDialogProps) {
   const addMember = useAddBosMember();
-  // Stable Set references so the pickers can do O(1) `.has(id)` filtering
-  // without rebuilding the set on every keystroke.
+
+  // Source mirrors Governing Body / Academic Council: Staff (internal) vs
+  // External Expert. Drives the picker for every member type AND (below)
+  // filters the Member Type dropdown when External Expert is chosen.
+  const [source, setSource] = useState<MemberSource>('staff');
+  const [selectedGbMember, setSelectedGbMember] = useState<GbNomineeRow | null>(null);
+
+  // Member type — table-driven when the institution has bos_member_types rows,
+  // legacy hardcoded enum otherwise. Defaults are derived (not effect-synced):
+  // null state = "user hasn't picked yet" → first row by sort_order.
+  // excludeMemberTypes hides types the caller doesn't allow (e.g. AC hides
+  // 'chairman'); applied to the table-driven list by base_type.
+  const activeMemberTypes = useMemo(
+    () =>
+      memberTypes.filter(
+        (t) => t.is_active && !excludeMemberTypes.includes(t.base_type),
+      ),
+    [memberTypes, excludeMemberTypes],
+  );
+  // When Source = External Expert, restrict the Member Type dropdown to
+  // external (expert) types only. Staff (internal) leaves the list unfiltered.
+  const visibleMemberTypes = useMemo(
+    () =>
+      source === 'expert'
+        ? activeMemberTypes.filter((t) => EXTERNAL_EXPERT_BASE_TYPES.has(t.base_type))
+        : activeMemberTypes,
+    [activeMemberTypes, source],
+  );
+  const legacyMemberTypeEntries = useMemo(
+    () =>
+      (Object.entries(BOS_MEMBER_TYPE_LABELS) as [BosMemberType, string][]).filter(
+        ([value]) => !excludeMemberTypes.includes(value),
+      ),
+    [excludeMemberTypes],
+  );
+  const [memberTypeId, setMemberTypeId] = useState<string | null>(null);
+  const [legacyMemberType, setLegacyMemberType] = useState<BosMemberType>('internal_member');
+
+  // Default to the first VISIBLE type. A stored id that isn't in the current
+  // (source-filtered) list is ignored here too — belt-and-suspenders with the
+  // source effect below — so the Select never shows a blank/hidden value.
+  const effectiveMemberTypeId =
+    memberTypeId && visibleMemberTypes.some((t) => t.id === memberTypeId)
+      ? memberTypeId
+      : visibleMemberTypes[0]?.id ?? null;
+  const selectedTypeRow = effectiveMemberTypeId
+    ? visibleMemberTypes.find((t) => t.id === effectiveMemberTypeId) ?? null
+    : null;
+  // Behaviour key used everywhere below (picker choice, payload member_type).
+  const memberType: BosMemberType =
+    activeMemberTypes.length > 0
+      ? (selectedTypeRow?.base_type ?? 'internal_member')
+      : legacyMemberType;
+
+  // Catalog display name — drives the "Nominated by the Governing Body" path.
+  const memberTypeName =
+    activeMemberTypes.length > 0
+      ? (selectedTypeRow?.name ?? '')
+      : BOS_MEMBER_TYPE_LABELS[legacyMemberType];
+  const isGbNominee = isGoverningBodyNomineeType(memberTypeName);
+
+  // null = "user hasn't picked yet" → default to the first (lowest sort_order)
+  // active committee; the API returns committees already ordered. Derived
+  // rather than synced via effect; resetAll() returns it to null on close.
+  const [committeeId, setCommitteeId] = useState<string | null>(null);
+  const effectiveCommitteeId =
+    committeeId ?? committees.find((c) => c.is_active)?.id ?? GENERAL_COMMITTEE;
+  const selectedCommitteeId =
+    effectiveCommitteeId === GENERAL_COMMITTEE ? null : effectiveCommitteeId;
+
+  // People already on the SELECTED committee — hidden from the pickers. Stable
+  // Set references so the pickers can do O(1) `.has(id)` filtering without
+  // rebuilding the set on every keystroke.
   const assignedStaffSet = useMemo(
-    () => new Set(assignedStaffIds ?? []),
-    [assignedStaffIds],
+    () =>
+      new Set(
+        existingMembers
+          .filter((m) => (m.committee_id ?? null) === selectedCommitteeId)
+          .map((m) => m.staff_id)
+          .filter((id): id is string => !!id),
+      ),
+    [existingMembers, selectedCommitteeId],
   );
   const assignedExpertSet = useMemo(
-    () => new Set(assignedExpertIds ?? []),
-    [assignedExpertIds],
+    () =>
+      new Set(
+        existingMembers
+          .filter((m) => (m.committee_id ?? null) === selectedCommitteeId)
+          .map((m) => m.expert_id)
+          .filter((id): id is string => !!id),
+      ),
+    [existingMembers, selectedCommitteeId],
   );
-
-  const [memberType, setMemberType] = useState<BosMemberType>('internal_member');
 
   // Selected source row + derived display fields. Exactly one of
   // selectedFacilitator / selectedExpert is non-null at a time.
@@ -150,53 +292,79 @@ export function AddMemberDialog({
   // Display fields. Locked once a person is selected.
   const [displayName, setDisplayName] = useState('');
   const [displayDesignation, setDisplayDesignation] = useState('');
+  const [displayDepartment, setDisplayDepartment] = useState('');
   const [displayInstitution, setDisplayInstitution] = useState('');
   const [email, setEmail] = useState('');
   const [contactNo, setContactNo] = useState('');
 
-  const useExpertPicker = isExternalExpertType(memberType);
-  const hasSelection = !!selectedFacilitator || !!selectedExpert;
+  // Picker driven by Source (like GB), not base_type. GB-nominee types still
+  // use Source but load people from the Governing Body roster.
+  const useExpertPicker = !isGbNominee && source === 'expert';
+  const hasSelection =
+    !!selectedFacilitator || !!selectedExpert || !!selectedGbMember;
 
   // Reset to a clean slate.
   const resetAll = () => {
-    setMemberType('internal_member');
+    setMemberTypeId(null);
+    setLegacyMemberType('internal_member');
+    setCommitteeId(null);
+    setSource('staff');
     setSelectedFacilitator(null);
     setSelectedExpert(null);
+    setSelectedGbMember(null);
     setDisplayName('');
     setDisplayDesignation('');
+    setDisplayDepartment('');
     setDisplayInstitution('');
     setEmail('');
     setContactNo('');
   };
 
-  // Switching member type between internal/external buckets clears the
-  // currently-selected person, since a facilitator cannot be persisted
-  // as an industry_expert and vice versa.
+  // Changing member type clears the current person.
   useEffect(() => {
-    if (useExpertPicker && selectedFacilitator) {
-      setSelectedFacilitator(null);
-      setDisplayName('');
-      setDisplayDesignation('');
-      setDisplayInstitution('');
-      setEmail('');
-      setContactNo('');
-    }
-    if (!useExpertPicker && selectedExpert) {
-      setSelectedExpert(null);
-      setDisplayName('');
-      setDisplayDesignation('');
-      setDisplayInstitution('');
-      setEmail('');
-      setContactNo('');
-    }
-  }, [useExpertPicker, selectedExpert, selectedFacilitator]);
+    setSelectedFacilitator(null);
+    setSelectedExpert(null);
+    setSelectedGbMember(null);
+    setDisplayName('');
+    setDisplayDesignation('');
+    setDisplayDepartment('');
+    setDisplayInstitution('');
+    setEmail('');
+    setContactNo('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGbNominee, effectiveMemberTypeId, legacyMemberType]);
+
+  // Switching Internal/External clears the current person, but PRESERVES the
+  // Member Type selection. Chairman / Faculty Member are valid under both
+  // sources, so flipping to External Expert must keep that pick rather than
+  // snapping back to the first type. `effectiveMemberTypeId` already ignores a
+  // stored id that isn't in the (source-filtered) visible list and falls back
+  // to the first visible type, so a now-hidden internal-only type (e.g.
+  // Department Autonomous Coordinator) is handled without nulling here — and
+  // toggling back to Staff restores it.
+  useEffect(() => {
+    setSelectedFacilitator(null);
+    setSelectedExpert(null);
+    setSelectedGbMember(null);
+    setDisplayName('');
+    setDisplayDesignation('');
+    setDisplayDepartment('');
+    setDisplayInstitution('');
+    setEmail('');
+    setContactNo('');
+  }, [source]);
 
   const handleSelectFacilitator = (row: FacilitatorRow) => {
     setSelectedFacilitator(row);
     setSelectedExpert(null);
+    setSelectedGbMember(null);
     const fullName = `${row.first_name} ${row.last_name}`.trim();
     setDisplayName(fullName);
     setDisplayDesignation(row.designation ?? '');
+    // department.department_name on the staff row → denormalised onto
+    // bos_members.display_department for the call-letter PDF. Falls back
+    // to empty string if the staff record has no department assigned.
+    setDisplayDepartment(row.department?.department_name ?? '');
     setDisplayInstitution(row.institution?.name ?? '');
     setEmail(row.institution_email ?? row.email ?? '');
     setContactNo(row.phone ?? '');
@@ -205,9 +373,24 @@ export function AddMemberDialog({
   const handleSelectExpert = (row: BosExternalExpert) => {
     setSelectedExpert(row);
     setSelectedFacilitator(null);
-    setDisplayName(row.name);
+    setSelectedGbMember(null);
+    setDisplayName(row.title ? `${row.title} ${row.name}` : row.name);
     setDisplayDesignation(row.designation ?? '');
+    // External experts store department directly on the expert row.
+    setDisplayDepartment(row.department_name ?? '');
     setDisplayInstitution(row.institution_name ?? '');
+    setEmail(row.email ?? '');
+    setContactNo(row.contact_no ?? '');
+  };
+
+  const handleSelectGbMember = (row: GbNomineeRow) => {
+    setSelectedGbMember(row);
+    setSelectedFacilitator(null);
+    setSelectedExpert(null);
+    setDisplayName(row.display_name ?? '');
+    setDisplayDesignation(row.display_designation ?? '');
+    setDisplayDepartment(row.display_department ?? '');
+    setDisplayInstitution(row.display_institution ?? '');
     setEmail(row.email ?? '');
     setContactNo(row.contact_no ?? '');
   };
@@ -215,48 +398,80 @@ export function AddMemberDialog({
   const handleClearSelection = () => {
     setSelectedFacilitator(null);
     setSelectedExpert(null);
+    setSelectedGbMember(null);
     setDisplayName('');
     setDisplayDesignation('');
+    setDisplayDepartment('');
     setDisplayInstitution('');
     setEmail('');
     setContactNo('');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!hasSelection) {
       toast.error(
-        useExpertPicker
-          ? 'Please select an external expert'
-          : 'Please select a staff member'
+        isGbNominee
+          ? source === 'expert'
+            ? 'Please select a Governing Body member (external)'
+            : 'Please select a Governing Body member (internal)'
+          : source === 'expert'
+            ? 'Please select an external expert'
+            : 'Please select a staff member',
       );
       return;
     }
 
-    try {
-      await addMember.mutateAsync({
+    // Fire-and-forget: `useAddBosMember`'s onMutate has already pushed a
+    // placeholder row into the cache by the time `.mutate()` returns, so we
+    // can close the dialog immediately. The user then sees the new member
+    // appear in the list this tick instead of waiting for the network
+    // round-trip. Toast / error rollback are wired via per-call callbacks.
+    addMember.mutate(
+      {
         institutions_id: institutionsId,
         composition_id: compositionId,
-        member_type: memberType,
+        committee_id: selectedCommitteeId,
+        // Catalog-driven: persist the SELECTED type's name verbatim (what the
+        // user picked, e.g. 'Nominated by the Governing Body'); behaviour
+        // derives from member_type_id → base_type. Legacy enum dropdown keeps
+        // writing the enum value.
+        member_type:
+          activeMemberTypes.length > 0
+            ? (selectedTypeRow?.name ?? memberType)
+            : legacyMemberType,
+        member_type_id: activeMemberTypes.length > 0 ? effectiveMemberTypeId : null,
         // Persist the source link so future edits can re-resolve canonical info.
-        staff_id: selectedFacilitator?.id,
-        expert_id: selectedExpert?.id,
+        // GB nominee: copy staff_id / expert_id from the Governing Body roster.
+        staff_id: selectedGbMember
+          ? (selectedGbMember.staff_id ?? undefined)
+          : selectedFacilitator?.id,
+        expert_id: selectedGbMember
+          ? (selectedGbMember.expert_id ?? undefined)
+          : selectedExpert?.id,
         display_name: displayName.trim(),
         display_designation: displayDesignation.trim() || undefined,
+        display_department: displayDepartment.trim() || undefined,
         display_institution: displayInstitution.trim() || undefined,
         email: email.trim() || undefined,
         contact_no: contactNo.trim() || undefined,
         is_active: true,
-        sort_order: 0,
-      });
-      toast.success('Member added');
-      resetAll();
-      onClose();
-    } catch (err) {
-      logger.error('academic/bos', 'Failed to add member', err);
-      toast.error((err as Error).message || 'Failed to add member');
-    }
+        // sort_order deliberately omitted — the API appends the member at the
+        // end of the roster (count + 1). Sending 0 pinned every new member to
+        // the top and left the whole table unordered.
+      },
+      {
+        onSuccess: () => toast.success('Member added'),
+        onError: (err) => {
+          logger.error('academic/bos', 'Failed to add member', err);
+          toast.error((err as Error).message || 'Failed to add member');
+        },
+      },
+    );
+
+    resetAll();
+    onClose();
   };
 
   return (
@@ -269,36 +484,115 @@ export function AddMemberDialog({
         }
       }}
     >
-      <DialogContent className='max-w-md'>
+      <DialogContent className='max-w-md max-h-[85vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>Add Member</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className='space-y-4'>
+          {/* ── Committee ────────────────────────────────────────────────── */}
+          {committees.length > 0 && (
+            <div className='space-y-2'>
+              <Label>Committee</Label>
+              <Select value={effectiveCommitteeId} onValueChange={setCommitteeId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {committees.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {c.short_code ? ` (${c.short_code})` : ''}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={GENERAL_COMMITTEE}>
+                    General (no committee)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* ── Member Type ──────────────────────────────────────────────── */}
+          {/* Table-driven from bos_member_types when the institution has rows;
+              legacy hardcoded enum otherwise (old data / unseeded institution). */}
           <div className='space-y-2'>
             <Label>
               Member Type <span className='text-destructive'>*</span>
             </Label>
+            {activeMemberTypes.length > 0 ? (
+              <Select
+                value={effectiveMemberTypeId ?? undefined}
+                onValueChange={setMemberTypeId}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {visibleMemberTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select
+                value={legacyMemberType}
+                onValueChange={(v) => setLegacyMemberType(v as BosMemberType)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {legacyMemberTypeEntries.map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          {/* ── Source — always, mirrors Governing Body dialog ───────────── */}
+          <div className='space-y-2'>
+            <Label>
+              Source <span className='text-destructive'>*</span>
+            </Label>
             <Select
-              value={memberType}
-              onValueChange={(v) => setMemberType(v as BosMemberType)}
+              value={source}
+              onValueChange={(v) => setSource(v as MemberSource)}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(BOS_MEMBER_TYPE_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
+                <SelectItem value='staff'>Staff (internal)</SelectItem>
+                <SelectItem value='expert'>External Expert</SelectItem>
               </SelectContent>
             </Select>
+            {isGbNominee && (
+              <p className='text-xs text-muted-foreground'>
+                Pick from this institution&apos;s Governing Body roster for{' '}
+                {academicYear || 'the composition year'}.
+              </p>
+            )}
           </div>
 
-          {/* ── Picker (depends on member type) ─────────────────────────── */}
-          {useExpertPicker ? (
+          {/* ── Picker: GB roster for nominee type, else staff/experts ───── */}
+          {isGbNominee ? (
+            <GoverningBodyMemberPicker
+              institutionsId={institutionsId}
+              academicYear={academicYear}
+              source={source}
+              selected={selectedGbMember}
+              onSelect={handleSelectGbMember}
+              onClear={handleClearSelection}
+              excludeStaffIds={assignedStaffSet}
+              excludeExpertIds={assignedExpertSet}
+            />
+          ) : useExpertPicker ? (
             <ExpertPicker
               memberType={memberType}
               selected={selectedExpert}
@@ -381,7 +675,7 @@ export function AddMemberDialog({
 // ── Facilitator picker ────────────────────────────────────────────────────────
 // Renders inline (no Popover portal) to avoid Radix Dialog focus-trap conflicts.
 
-function FacilitatorPicker({
+export function FacilitatorPicker({
   institutionsId,
   selected,
   onSelect,
@@ -396,6 +690,10 @@ function FacilitatorPicker({
   excludeIds?: ReadonlySet<string>;
 }) {
   const [search, setSearch] = useState('');
+  // The lookup hits COE + Supabase per request, so firing it on every keystroke
+  // put ~8 requests on the wire for a 8-letter name and made the list flicker
+  // as out-of-order responses landed. 300ms collapses that to one.
+  const debouncedSearch = useDebounceValue(search, 300);
   const [rows, setRows] = useState<FacilitatorRow[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -431,14 +729,14 @@ function FacilitatorPicker({
     } else {
       params.set('institutionsId', institutionsId);
     }
-    if (search) params.set('search', search);
+    if (debouncedSearch) params.set('search', debouncedSearch);
     fetch(`/api/bos/lookup/facilitators?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((json) => { if (!cancelled) setRows(json.data ?? []); })
       .catch((err) => { if (!cancelled) logger.error('academic/bos', 'Facilitator fetch failed', err); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [search, institutionsId, idsCsv, selected, institutionCtx.isLoading]);
+  }, [debouncedSearch, institutionsId, idsCsv, selected, institutionCtx.isLoading]);
 
   // Hide staff that are already on this composition. Filtering on the client
   // is sufficient because the lookup endpoint returns a capped page (limit
@@ -516,7 +814,7 @@ function FacilitatorPicker({
 
 // ── Expert picker ─────────────────────────────────────────────────────────────
 
-function ExpertPicker({
+export function ExpertPicker({
   memberType,
   selected,
   onSelect,
@@ -531,6 +829,9 @@ function ExpertPicker({
   excludeIds?: ReadonlySet<string>;
 }) {
   const [search, setSearch] = useState('');
+  // Debounced for the same reason as FacilitatorPicker — one request per pause
+  // instead of one per keystroke.
+  const debouncedSearch = useDebounceValue(search, 300);
   const [rows, setRows] = useState<BosExternalExpert[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -543,14 +844,14 @@ function ExpertPicker({
       limit: '200',
       isActive: 'true',
     });
-    if (search) params.set('search', search);
+    if (debouncedSearch) params.set('search', debouncedSearch);
     fetch(`/api/bos/experts?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((json) => { if (!cancelled) setRows(json.data ?? []); })
       .catch((err) => { if (!cancelled) logger.error('academic/bos', 'Expert fetch failed', err); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [search, selected]);
+  }, [debouncedSearch, selected]);
 
   // Hide experts already on this composition. Same approach as
   // FacilitatorPicker — see the comment there.
@@ -563,7 +864,9 @@ function ExpertPicker({
       <div className='space-y-2'>
         <Label>Select External Expert <span className='text-destructive'>*</span></Label>
         <div className='flex items-center justify-between rounded-md border px-3 py-2'>
-          <span className='text-sm font-medium'>{selected.name}</span>
+          <span className='text-sm font-medium'>
+            {selected.title ? `${selected.title} ` : ''}{selected.name}
+          </span>
           <Button type='button' variant='ghost' size='sm' className='h-7 px-2 text-xs' onClick={onClear}>
             <X className='mr-1 h-3 w-3' />Change
           </Button>
@@ -607,7 +910,9 @@ function ExpertPicker({
                     className='flex flex-col items-start gap-0.5'
                   >
                     <div className='flex w-full items-center justify-between gap-2'>
-                      <span className='font-medium text-sm truncate'>{row.name}</span>
+                      <span className='font-medium text-sm truncate'>
+                        {row.title ? `${row.title} ` : ''}{row.name}
+                      </span>
                       <Badge variant='outline' className='text-[10px] py-0'>
                         {row.category}
                       </Badge>
@@ -616,6 +921,194 @@ function ExpertPicker({
                       <span className='text-xs text-muted-foreground truncate w-full'>
                         {subline}
                       </span>
+                    )}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          )}
+        </CommandList>
+      </Command>
+    </div>
+  );
+}
+
+// ── Governing Body nominee picker ─────────────────────────────────────────────
+// Lists active members of the institution's Governing Body for the given
+// academic year. Source filters staff_id (internal) vs expert_id (external).
+
+export function GoverningBodyMemberPicker({
+  institutionsId,
+  academicYear,
+  source,
+  selected,
+  onSelect,
+  onClear,
+  excludeStaffIds,
+  excludeExpertIds,
+}: {
+  institutionsId: string;
+  academicYear?: string;
+  source: MemberSource;
+  selected: GbNomineeRow | null;
+  onSelect: (row: GbNomineeRow) => void;
+  onClear: () => void;
+  excludeStaffIds?: ReadonlySet<string>;
+  excludeExpertIds?: ReadonlySet<string>;
+}) {
+  const [search, setSearch] = useState('');
+  const [rows, setRows] = useState<GbNomineeRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [missingBody, setMissingBody] = useState(false);
+
+  useEffect(() => {
+    if (selected) return;
+    if (!academicYear?.trim()) {
+      setRows([]);
+      setMissingBody(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setMissingBody(false);
+    const params = new URLSearchParams({
+      institutionsId,
+      academicYear: academicYear.trim(),
+    });
+    fetch(`/api/bos/governing-body?${params.toString()}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((json) => {
+        if (cancelled) return;
+        setMissingBody(!json.composition);
+        setRows((json.members as GbNomineeRow[]) ?? []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          logger.error('academic/bos', 'Governing Body roster fetch failed', err);
+          setRows([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [institutionsId, academicYear, selected]);
+
+  const filtered = useMemo(() => {
+    const bySource = rows.filter((r) =>
+      source === 'expert' ? !!r.expert_id : !!r.staff_id,
+    );
+    const deduped = bySource.filter((r) => {
+      if (source === 'expert' && r.expert_id && excludeExpertIds?.has(r.expert_id)) {
+        return false;
+      }
+      if (source === 'staff' && r.staff_id && excludeStaffIds?.has(r.staff_id)) {
+        return false;
+      }
+      return true;
+    });
+    const q = search.trim().toLowerCase();
+    if (!q) return deduped;
+    return deduped.filter((r) => {
+      const hay = [
+        r.display_name,
+        r.display_designation,
+        r.display_institution,
+        r.member_type,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [rows, source, search, excludeStaffIds, excludeExpertIds]);
+
+  const label =
+    source === 'expert'
+      ? 'Select Governing Body Member (external)'
+      : 'Select Governing Body Member (internal)';
+
+  if (selected) {
+    return (
+      <div className='space-y-2'>
+        <Label>
+          {label} <span className='text-destructive'>*</span>
+        </Label>
+        <div className='flex items-center justify-between rounded-md border px-3 py-2'>
+          <span className='text-sm font-medium'>{selected.display_name}</span>
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            className='h-7 px-2 text-xs'
+            onClick={onClear}
+          >
+            <X className='mr-1 h-3 w-3' />
+            Change
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!academicYear?.trim()) {
+    return (
+      <div className='space-y-2'>
+        <Label>
+          {label} <span className='text-destructive'>*</span>
+        </Label>
+        <p className='text-xs text-muted-foreground rounded-md border px-3 py-2'>
+          This composition has no academic year — cannot load the Governing Body roster.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className='space-y-2'>
+      <Label>
+        {label} <span className='text-destructive'>*</span>
+      </Label>
+      <Command shouldFilter={false} className='rounded-md border'>
+        <CommandInput
+          placeholder='Search Governing Body members…'
+          value={search}
+          onValueChange={setSearch}
+        />
+        <CommandList className='max-h-[200px]'>
+          {loading ? (
+            <div className='flex items-center justify-center py-6 text-xs text-muted-foreground'>
+              <Loader2 className='mr-2 h-3 w-3 animate-spin' />
+              Loading…
+            </div>
+          ) : filtered.length === 0 ? (
+            <CommandEmpty>
+              {missingBody
+                ? 'No Governing Body for this institution / year. Prepare it under Governing Body first.'
+                : rows.length === 0
+                  ? 'Governing Body has no members yet.'
+                  : source === 'expert'
+                    ? 'No external Governing Body members match (or all already added).'
+                    : 'No internal Governing Body members match (or all already added).'}
+            </CommandEmpty>
+          ) : (
+            <CommandGroup>
+              {filtered.map((row) => {
+                const subline = [row.display_designation, row.member_type, row.display_institution]
+                  .filter(Boolean)
+                  .join(' • ');
+                return (
+                  <CommandItem
+                    key={row.id}
+                    value={row.id}
+                    onSelect={() => onSelect(row)}
+                    className='flex flex-col items-start gap-0.5'
+                  >
+                    <span className='font-medium text-sm'>{row.display_name}</span>
+                    {subline && (
+                      <span className='text-xs text-muted-foreground'>{subline}</span>
                     )}
                   </CommandItem>
                 );

@@ -27,6 +27,7 @@ function normalizeMappingResponse(
         credit:             joined.credit       ?? joined.credits         ?? 0,
         // Prefer the full course record for structural fields missing from the join.
         course_part_master: full?.course_part_master ?? joined.course_part_master ?? joined.part ?? null,
+        course_type_code:   full?.course_type_code   ?? joined.course_type_code   ?? null,
         exam_duration:      full?.exam_duration      ?? joined.exam_duration      ?? null,
         theory_hours:       full?.theory_hours       ?? joined.theory_hours       ?? null,
         practical_hours:    full?.practical_hours     ?? joined.practical_hours    ?? null,
@@ -76,7 +77,12 @@ export async function GET(request: NextRequest) {
         is_active:       searchParams.get('is_active')     ?? 'true',
         details:         searchParams.get('details')       ?? 'true',
         id:              searchParams.get('id')            ?? undefined,
-        limit:           searchParams.get('limit')         ?? '500',
+        // COE's /api/v1/course-mapping does range(0, limit-1) and IGNORES offset,
+        // so it can't be drained page-by-page — request the producer's single-call
+        // max (10000) instead. A CAS college's all-program scheme (no program_code)
+        // exceeds 500, and since COE sorts PG (24P*) before UG (24U*), the dropped
+        // tail is the UG data.
+        limit:           searchParams.get('limit')         ?? '10000',
       }),
       client.get<unknown>('/api/v1/courses', {
         institutions_id: coeInstitutionId,
@@ -84,7 +90,10 @@ export async function GET(request: NextRequest) {
         // No program_code — shared courses (Tamil, English, NME) are not
         // program-scoped in COE, so filtering by program would exclude them.
         is_active:       'true',
-        limit:           '500',
+        // Was '500' — truncated the courses supplement so UG structural fields
+        // (Part, L+P, hours) went missing for large (CAS) institutions. 10000 is
+        // the COE producer's single-call cap.
+        limit:           '10000',
         offset:          '0',
       }),
     ]);

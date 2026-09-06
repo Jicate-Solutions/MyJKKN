@@ -3,9 +3,15 @@
 // Admission Accreditation Report Service (PR-A3, 2026-04-17)
 //
 // Renamed from NAACReportService. Generates accreditation reports from
-// admission data — currently NAAC Criterion 2.1.1 (Average Enrollment %)
+// admission data — currently NAAC Metric 8.1.1 (Student enrolment vs
+// sanctioned intake, Binary Accreditation 2024 framework)
 // + emits fan-out evidence rows for applicable bodies:
-//   NAAC 2.1.1 + NIRF TLR_SS (enrollment data serves both)
+//   NAAC 8.1.1 + NIRF TLR_SS (enrollment data serves both)
+//
+// Re-keyed 2026-07-09 (stale-metric audit PR-7): previously emitted the
+// old-framework Criterion code '2.1.1', which is absent from the Binary
+// catalog. Prod had zero ('NAAC','2.1.1') junction rows at re-key time,
+// so no data migration was needed.
 //
 // Per Compliance Unification Program:
 // specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md PR-A3
@@ -15,6 +21,10 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  EVIDENCE_CONFLICT_TARGET,
+  EVIDENCE_CONFLICT_TARGET_LEGACY,
+} from '@/lib/types/accreditation';
 
 export interface NAACEnrollmentRow {
   institution_name: string;
@@ -36,8 +46,8 @@ export class AdmissionAccreditationReportService {
   private static supabase = createClientSupabaseClient();
 
   /**
-   * Generate NAAC Criteria 2.1.1 report
-   * Average Enrollment Percentage — years sourced from academic_years table
+   * Generate NAAC Metric 8.1.1 report (Binary framework)
+   * Student enrolment vs sanctioned intake — years sourced from academic_years table
    */
   static async generateEnrollmentReport(
     institutionId?: string,
@@ -160,27 +170,35 @@ export class AdmissionAccreditationReportService {
    * Emit fan-out evidence rows for enrollment data (PR-A3).
    * Called on-demand when a NAAC/NIRF report is finalized to record that the
    * enrollment snapshot was generated. Emits to quality_evidence_mappings:
-   *   - NAAC 2.1.1 (Average Enrollment Percentage)
+   *   - NAAC 8.1.1 (Student enrolment vs sanctioned intake, Binary framework)
    *   - NIRF TLR_SS (Teaching: Student Strength)
    * Same source_id semantics as PR-A5 (polymorphic — source_table is the
    * academic_years row or snapshot identifier).
    *
-   * Idempotent via UNIQUE constraint on
-   * (source_table, source_id, body_code, metric_code).
+   * Idempotent via UNIQUE constraint quality_evidence_mappings_source_scope_key.
+   * LIVE TODAY that key is five columns — (source_table, source_id, body_code,
+   * metric_code, programme_id). Migration 20260809101400 adds institution_id,
+   * and is not applied anywhere yet, which is why this still carries a
+   * six-column fallback. Do not delete either target on the strength of this
+   * comment; check the live constraint first.
+   *
+   * `conflictTarget` reports which key this call actually landed on — 'legacy'
+   * for the five-column key, 'scoped' once 20260809101400 is applied. Returned
+   * rather than logged because this service runs on the browser client.
    */
   static async emitEnrollmentEvidence(
     institutionId: string,
     academicYearId: string,
-  ): Promise<{ evidenceRowsCreated: number }> {
+  ): Promise<{ evidenceRowsCreated: number; conflictTarget: 'scoped' | 'legacy' }> {
     const evidenceRows = [
       {
         source_table: 'academic_years',
         source_id: academicYearId,
         institution_id: institutionId,
         body_code: 'NAAC',
-        metric_code: '2.1.1',
+        metric_code: '8.1.1',
         is_auto: false,
-        metadata: { source: 'admission-accreditation-report-service', metric_name: 'Average Enrollment Percentage' },
+        metadata: { source: 'admission-accreditation-report-service', metric_name: 'Student enrolment vs sanctioned intake' },
       },
       {
         source_table: 'academic_years',
@@ -193,20 +211,37 @@ export class AdmissionAccreditationReportService {
       },
     ];
 
-    const { data, error } = await (this.supabase as any)
-      .from('quality_evidence_mappings')
-      .upsert(evidenceRows, {
-        onConflict: 'source_table,source_id,body_code,metric_code',
-        ignoreDuplicates: true,
-      })
-      .select();
+    // The conflict target must match quality_evidence_mappings_source_scope_key
+    // EXACTLY or Postgres raises 42P10. institution_id joins that key in
+    // migration 20260809101400, which is unapplied everywhere — so the LIVE
+    // five-column key is tried first and six is the fallback. Leading with six
+    // would put a guaranteed 42P10 plus a retry on every report generation, and
+    // this service runs against the browser client, so that error would surface
+    // as a 400 in the user's network tab and in error monitoring. Flip the order
+    // (or delete the fallback) when 20260809101400 is applied.
+    const upsert = (onConflict: string) =>
+      (this.supabase as any)
+        .from('quality_evidence_mappings')
+        .upsert(evidenceRows, { onConflict, ignoreDuplicates: true })
+        .select();
+
+    // Which key was used is RETURNED, not console.warn'd. This service uses the
+    // browser client, so a console warning fires in the end user's tab where no
+    // operator or log aggregator will ever see it — the caller can surface or
+    // record this instead.
+    let conflictTarget: 'scoped' | 'legacy' = 'legacy';
+    let { data, error } = await upsert(EVIDENCE_CONFLICT_TARGET_LEGACY);
+    if (error?.code === '42P10') {
+      conflictTarget = 'scoped';
+      ({ data, error } = await upsert(EVIDENCE_CONFLICT_TARGET));
+    }
 
     if (error) {
       console.error('[admission/accreditation] emitEnrollmentEvidence failed:', error);
       throw error;
     }
 
-    return { evidenceRowsCreated: (data ?? []).length };
+    return { evidenceRowsCreated: (data ?? []).length, conflictTarget };
   }
 }
 

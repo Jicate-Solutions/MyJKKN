@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDE for Learners — JKKN Institutions</title>
+<style>
+  :root {
+    --jkkn-navy: #1B2A4E;
+    --jkkn-gold: #D4A437;
+    --ink: #1a1a1a;
+    --muted: #555;
+    --bg: #fafaf7;
+    --rule: #e8e6df;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+    line-height: 1.65;
+    color: var(--ink);
+    background: var(--bg);
+    font-size: 16px;
+  }
+  header {
+    border-bottom: 2px solid var(--jkkn-gold);
+    padding-bottom: 16px;
+    margin-bottom: 32px;
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 12px;
+    color: var(--jkkn-gold);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  h1 {
+    color: var(--jkkn-navy);
+    font-size: 32px;
+    line-height: 1.2;
+    margin: 0 0 8px;
+    font-weight: 700;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 17px;
+    margin: 0;
+  }
+  h2 {
+    color: var(--jkkn-navy);
+    font-size: 22px;
+    margin: 40px 0 12px;
+    font-weight: 600;
+  }
+  h3 {
+    color: var(--jkkn-navy);
+    font-size: 17px;
+    margin: 24px 0 8px;
+    font-weight: 600;
+  }
+  p { margin: 0 0 14px; }
+  ul, ol { padding-left: 22px; margin: 0 0 16px; }
+  li { margin-bottom: 8px; }
+  strong { color: var(--jkkn-navy); }
+  .lead {
+    font-size: 18px;
+    color: var(--ink);
+    border-left: 3px solid var(--jkkn-gold);
+    padding-left: 16px;
+    margin: 24px 0 32px;
+  }
+  .categories {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .categories dt {
+    font-weight: 600;
+    color: var(--jkkn-navy);
+    margin-top: 12px;
+  }
+  .categories dt:first-child { margin-top: 0; }
+  .categories dd {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .steps {
+    counter-reset: step;
+    list-style: none;
+    padding-left: 0;
+  }
+  .steps li {
+    counter-increment: step;
+    padding-left: 48px;
+    position: relative;
+    margin-bottom: 16px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 32px;
+    height: 32px;
+    background: var(--jkkn-navy);
+    color: var(--jkkn-gold);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .cta {
+    background: var(--jkkn-navy);
+    color: white;
+    padding: 20px 24px;
+    border-radius: 6px;
+    margin: 32px 0;
+  }
+  .cta h3 {
+    color: var(--jkkn-gold);
+    margin-top: 0;
+  }
+  .cta p { color: white; margin-bottom: 0; }
+  .cta a { color: var(--jkkn-gold); }
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 24px;
+    margin-top: 48px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  @media print {
+    body { background: white; padding: 24px; }
+    .cta { background: white; color: var(--ink); border: 2px solid var(--jkkn-navy); }
+    .cta h3, .cta a, .cta p { color: var(--ink); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">For Learners · JKKN Institutions</div>
+  <h1>PDE — your work now has a place</h1>
+  <p class="subtitle">A short guide for UG and PG students across all eight JKKN colleges.</p>
+</header>
+
+<p class="lead">
+  Your degree records what you studied. The Principal Development Engine records what you actually <em>did</em> — leadership, community work, clinical skill, language, problem-solving, judgment. These now have an official place in your transcript.
+</p>
+
+<h2>Why this matters</h2>
+
+<p>
+  Right now, your degree certificate shows your subjects and marks. It does not show that you mentored juniors, organised a community health camp, conducted a clinical case, or built something from scratch.
+</p>
+
+<p>
+  Employers, foreign universities, and accreditation bodies have started asking for proof of these things. PDE is JKKN's official way to give you that proof — verified by faculty, version-stamped, and downloadable as a separate transcript.
+</p>
+
+<h2>The seven categories — what they look like in your life</h2>
+
+<div class="categories">
+  <dl>
+    <dt>Judgment</dt>
+    <dd>You made a hard call with incomplete information. A clinical decision. An ethical choice. A team conflict you navigated.</dd>
+    <dt>Embodied</dt>
+    <dd>A skill in your hands or body — surgical suturing, lab technique, performance, drafting, equipment handling.</dd>
+    <dt>Problem-finding</dt>
+    <dd>You spotted something nobody else flagged. A gap, an inefficiency, an unmet need. You named it before fixing it.</dd>
+    <dt>Accountability</dt>
+    <dd>You owned an outcome — including when it went wrong. You followed through visibly.</dd>
+    <dt>Social leadership</dt>
+    <dd>Peer mentoring, leading a team project, holding a committee role, organising a community initiative.</dd>
+    <dt>Cultural & civic</dt>
+    <dd>Indian language proficiency, local community projects, traditional practice, voter engagement, civic participation.</dd>
+    <dt>Credential</dt>
+    <dd>A formal certificate, licence, or external recognition you earned outside coursework.</dd>
+  </dl>
+</div>
+
+<h2>How to submit a demonstration</h2>
+
+<ol class="steps">
+  <li><strong>Pick a category.</strong> Go to <a href="/learn/pde/demonstrations/new">/learn/pde/demonstrations/new</a> and choose which of the seven fits your work.</li>
+  <li><strong>Add evidence.</strong> Upload a short video, a document, a photo, or a witness signature. One artefact is enough. Keep it small.</li>
+  <li><strong>Submit and wait.</strong> A faculty validator reviews within seven days. You will get a notification when it is reviewed.</li>
+</ol>
+
+<h2>What faculty will see — and how validation works</h2>
+
+<p>
+  Faculty see your evidence and the rubric for the category you chose. They confirm the work is yours, judge how strong the demonstration is, and either validate, ask for more evidence, or decline with a reason. You can resubmit.
+</p>
+
+<p>
+  Some categories — peer mentoring, for example — are validated by a peer reviewer rather than faculty. The system handles routing.
+</p>
+
+<h2>What you get</h2>
+
+<ul>
+  <li><strong>A PDE transcript</strong> separate from your academic transcript. NAAC- and NBA-ready. You can download it from <a href="/learn/pde/transcript">/learn/pde/transcript</a>.</li>
+  <li><strong>An agency-index</strong> — a single signal of your overall engagement, useful for placement conversations.</li>
+  <li><strong>Capability versioning</strong> — as you grow, your earlier work is preserved rather than overwritten. You can show progression over time.</li>
+  <li><strong>Recognition</strong> for work you were already doing but had nowhere to record.</li>
+</ul>
+
+<h2>Where to start</h2>
+
+<p>
+  Go to <a href="/learn/pde/demonstrations">/learn/pde/demonstrations</a>. Pick one thing you have done this semester. Submit it. The first one takes ten minutes; later ones take less.
+</p>
+
+<p>
+  Participation is encouraged, not mandatory. Learners who submit demonstrations in their first year typically have a much stronger transcript by graduation.
+</p>
+
+<div class="cta">
+  <h3>Need help?</h3>
+  <p>
+    Ask your class mentor or write to <a href="mailto:pde@jkkn.ac.in">pde@jkkn.ac.in</a>. Full FAQ at <a href="/docs/pde/comms/faq.html">faq.html</a>.
+  </p>
+</div>
+
+<footer>
+  JKKN Institutions · Principal Development Engine · Revised 2026-05-20
+</footer>
+
+</body>
+</html>

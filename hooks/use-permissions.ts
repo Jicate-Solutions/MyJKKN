@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RoleService } from '@/lib/services/roles/role-service';
-import { UserRolesService } from '@/lib/services/users/user-roles-service';
+import { userRolesQueryOptions } from '@/hooks/use-user-roles';
 import { SYSTEM_ROLES, UserRoleAssignment } from '@/types/auth';
 import { Profile, StudentStatus } from '@/types/auth';
 import { useAuth } from './use-auth';
 import { getRolePermissions, applyBOSFallback } from '@/lib/services/bos/bos-role-permissions';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface UsePermissionsOptions {
   /**
@@ -39,6 +40,127 @@ interface PermissionData {
   primaryRole: UserRoleAssignment | null;
 }
 
+/**
+ * How long the handover lookup may hold up the whole permission fetch.
+ *
+ * This RPC runs for every non-super-admin on every permissions load. Awaiting it
+ * with no ceiling means one hanging PostgREST call — a slow pool, a dropped
+ * connection, a Supabase blip — pins `isLoading` true and every page gate on the
+ * platform renders its access-denied/spinner branch until the socket gives up.
+ * The role-derived map is already in hand at this point, so the correct
+ * behaviour on a slow call is to ship it and let the next fetch pick up the
+ * handovers.
+ */
+const HANDOVER_RPC_TIMEOUT_MS = 2000;
+
+/** Module-level so the "RPC not deployed yet" warning is logged ONCE per page
+ *  load, not once per permission fetch. Before the migration is applied this
+ *  fires on every fetch for every user, which is how a console gets useless. */
+let handoverRpcWarned = false;
+
+function warnOnceAboutHandoverRpc(detail: string) {
+  if (handoverRpcWarned) return;
+  handoverRpcWarned = true;
+  console.warn('[permissions] handover keys unavailable (logged once):', detail);
+}
+
+/**
+ * Director's Desk — OR the viewer's live handover keys into the role-derived map.
+ *
+ * WHY THIS EXISTS. `user_has_permission()` in the database was taught to read
+ * handovers, which unlocks the DATA behind every RLS policy. But this hook never
+ * calls that function — it merges `custom_roles.permissions` client-side. Without
+ * the same merge here, a receiver would be able to read the rows and still land on
+ * an access-denied panel guarding them: the exact "fixed one layer, broke one
+ * along" defect this repo has hit three times (see the four-layers rule —
+ * page gate · RLS · RPC · API route).
+ *
+ * RETURNS A COPY, ALWAYS. This used to write `permissions[key] = true` into its
+ * ARGUMENT and hand the same reference back. On the legacy path that argument is
+ * `role.permissions` — the permissions object of the CustomRole record fetched by
+ * RoleService — so one user's handover keys were written into the object that
+ * represents the ROLE, and that same object then became the cached permission map.
+ * The role record and the permission map were aliases of each other.
+ *
+ * (Scope check, done rather than assumed: `RoleService.getRoleByKey` re-fetches on
+ * every call with no module-level cache, so this did NOT reach other users. It was
+ * an aliasing bug inside one session, not a cross-user leak. Still wrong, and the
+ * fix is one line: copy first, mutate the copy, never touch the caller's object.)
+ *
+ * FAILS SOFT, DELIBERATELY. This code can reach production before the migration
+ * that creates `fn_my_handover_permissions` is applied — in this repo merging does
+ * not apply migrations, and the two halves ship independently. If the RPC is
+ * missing, RLS refuses it, or it simply takes too long, we return the role-derived
+ * permissions untouched. A hard failure here would break permissions for every user
+ * on the platform to deliver a feature only the Director is using yet.
+ *
+ * Handovers can only ever ADD. Nothing here sets a key to false, so no handover
+ * can take away access someone already holds by role.
+ *
+ * REVOKE IS NOT INSTANT ON THE CLIENT. The merged keys live in this query's cache
+ * for its staleTime (5 minutes), so a revoked receiver keeps their page gates open
+ * until the next refetch. The DATA closes immediately — every RLS policy re-asks
+ * the database — so the worst case is an open shell over rows that return nothing,
+ * not a leak. Documented honestly in specs/director-desk/SPEC.md rather than
+ * claimed to be instant.
+ */
+async function applyHandoverGrants(
+  permissions: Record<string, boolean>
+): Promise<Record<string, boolean>> {
+  // Copy up front. Every return path below returns `out`, never the argument, so
+  // there is no path — success, error, timeout — that hands the caller's object back.
+  const out: Record<string, boolean> = { ...permissions };
+
+  try {
+    const supabase = createClientSupabaseClient();
+    // `as any`: the generated database types are regenerated from the applied
+    // schema, and this RPC ships in the same PR as the migration that creates
+    // it — so the types cannot know about it yet. Matches the existing house
+    // pattern for new RPCs (195 call sites).
+    const rpc = (supabase as any)
+      .rpc('fn_my_handover_permissions')
+      .then((r: { data: unknown; error: { message: string } | null }) => r);
+
+    // A sentinel rather than a rejection: a timeout here is an expected,
+    // non-exceptional outcome, and modelling it as an error would put it in the
+    // same bucket as "the RPC does not exist".
+    const TIMED_OUT = Symbol('handover-rpc-timeout');
+    const raced = await Promise.race([
+      rpc,
+      new Promise<typeof TIMED_OUT>((resolve) =>
+        setTimeout(() => resolve(TIMED_OUT), HANDOVER_RPC_TIMEOUT_MS)
+      )
+    ]);
+
+    if (raced === TIMED_OUT) {
+      warnOnceAboutHandoverRpc(
+        `no response in ${HANDOVER_RPC_TIMEOUT_MS}ms — falling back to role permissions`
+      );
+      return out;
+    }
+
+    const { data, error } = raced as {
+      data: unknown;
+      error: { message: string } | null;
+    };
+
+    if (error) {
+      warnOnceAboutHandoverRpc(error.message);
+      return out;
+    }
+
+    if (Array.isArray(data)) {
+      for (const key of data) {
+        if (typeof key === 'string' && key) out[key] = true;
+      }
+    }
+  } catch (handoverError) {
+    warnOnceAboutHandoverRpc(String(handoverError));
+  }
+
+  return out;
+}
+
 // Stable fallback references to prevent infinite re-render loops.
 // Using inline `|| {}` or `|| []` creates new objects each render,
 // which breaks useMemo dependency checks downstream.
@@ -57,11 +179,14 @@ export function usePermissions(
   
   const { waitForLoad = false } = options;
 
+  const queryClient = useQueryClient();
+
   // Fetch permissions using React Query for caching
-  const { 
-    data: permissionData, 
-    isLoading: queryLoading, 
-    error: queryError 
+  const {
+    data: permissionData,
+    isLoading: queryLoading,
+    error: queryError,
+    refetch: refetchPermissions
   } = useQuery<PermissionData>({
     queryKey: ['permissions', userProfile?.id, userProfile?.role],
     queryFn: async () => {
@@ -92,7 +217,13 @@ export function usePermissions(
 
       // Try multi-role approach first (fetches roles with permissions via SECURITY DEFINER)
       try {
-        const roles = await UserRolesService.getUserRoles(userProfile.id);
+        // Resolve through the SHARED ['user-roles', userId] cache entry
+        // (hooks/use-user-roles.ts) — the navbar's UserNav reads the same
+        // entry, so the rpc/get_user_roles_with_details call happens ONCE per
+        // staleTime window across all consumers instead of once per fetcher.
+        const roles = await queryClient.fetchQuery(
+          userRolesQueryOptions(userProfile.id)
+        );
 
         if (roles && roles.length > 0) {
           // Merge permissions client-side from the already-fetched role data
@@ -150,7 +281,7 @@ export function usePermissions(
           );
 
           return {
-            permissions: mergedPermissions,
+            permissions: await applyHandoverGrants(mergedPermissions),
             isSuperAdmin: false,
             userRoles: roles,
             primaryRole: roles.find((r) => r.is_primary) || roles[0]
@@ -183,14 +314,20 @@ export function usePermissions(
       );
 
       return {
-        permissions: rolePermissions,
+        // Same merge on the legacy path. Missing it here would make handovers
+        // work for users whose roles resolve via user_roles and silently fail
+        // for those falling back to profiles.role — an intermittent bug that
+        // looks like "it works for some people".
+        permissions: await applyHandoverGrants(
+          rolePermissions as Record<string, boolean>
+        ),
         isSuperAdmin: false,
         userRoles: [],
         primaryRole: null
       };
     },
     enabled: !!userProfile && !authLoading,
-    staleTime: 2 * 60 * 1000, // 2 minutes cache (reduced from 10 to reflect permission changes faster)
+    staleTime: 5 * 60 * 1000, // 5 minutes — aligned with the shared ['user-roles'] entry (2026-08-02 shell dedupe); role/permission edits still land within one window
     gcTime: 10 * 60 * 1000,   // 10 minutes garbage collection
     retry: 1,
     // Respect global default (false). The old per-query override caused PermissionGuard
@@ -473,6 +610,11 @@ export function usePermissions(
     isInstitutionScoped,
     getModuleScope,
     userProfile,
+    // Refetch the permission query — used by nav surfaces to offer an explicit
+    // "Retry" when permissions fail to load, instead of silently collapsing to a
+    // Dashboard-only menu (which makes a transient load failure look like a
+    // permanent loss of access — CLAUDE.md #27).
+    refetch: refetchPermissions,
 
     // Multi-role properties
     userRoles,          // All roles assigned to the user

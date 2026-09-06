@@ -1,0 +1,17 @@
+{
+  "baseUrl": "https://www.jkkn.ai",
+  "envPath": "../../.env.local",
+  "accounts": {
+    "superadmin": "test.superadmin@jkkn.ac.in",
+    "hod": "test.hod@jkkn.ac.in",
+    "faculty": "test.faculty@jkkn.ac.in",
+    "student": "test.student@jkkn.ac.in",
+    "staff": "test.staff@jkkn.ac.in"
+  },
+  "defaultSet": [
+    ["superadmin", "/ai-pulse/dept"],
+    ["hod", "/ai-pulse/lab"],
+    ["faculty", "/ai-pulse/my-pulse"],
+    ["student", "/ai-pulse"]
+  ]
+}

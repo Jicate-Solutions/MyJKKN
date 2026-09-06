@@ -25,9 +25,12 @@ async function getClient() {
   );
 }
 
-// GET /api/hr/recruitment/approval-flows
-// Read-only preview of recruitment routing rules.
-// HR Admins use /hr/policies to edit these via the generic policy UI.
+import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+
+// GET  /api/hr/recruitment/approval-flows — list recruitment routing rules.
+// POST /api/hr/recruitment/approval-flows — upsert a role-category flow
+//      template across one or more organizations (dynamic flow builder,
+//      /hr/admin/recruitment-approval-flows).
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -58,6 +61,66 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 500 }
+    );
+  }
+}
+
+/**
+ * Body: { flow_name, role_categories: RoleCategory[], steps:
+ *         ApprovalFlowStepTemplate[], hr_organization_ids: string[], is_active? }
+ * (legacy single `role_category` string also accepted).
+ * Gated on hr.recruitment.edit (or super-admin). RLS additionally restricts
+ * which orgs a non-admin can actually write.
+ */
+export async function POST(request: NextRequest) {
+  await connection();
+  try {
+    const supabase = await getClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
+    if (!isSuperAdmin) {
+      const { data: canEdit } = await supabase.rpc('user_has_permission', {
+        permission_name: 'hr.recruitment.edit',
+      });
+      if (!canEdit) {
+        return NextResponse.json(
+          { error: 'Insufficient permissions to edit approval flows' },
+          { status: 403 }
+        );
+      }
+    }
+
+    const body = await request.json();
+    const roleCategories: string[] = Array.isArray(body.role_categories)
+      ? body.role_categories
+      : body.role_category
+      ? [body.role_category]
+      : [];
+    if (!body.flow_name || roleCategories.length === 0 || !Array.isArray(body.steps)) {
+      return NextResponse.json(
+        { error: 'flow_name, role_categories and steps are required' },
+        { status: 400 }
+      );
+    }
+    if (!Array.isArray(body.hr_organization_ids) || body.hr_organization_ids.length === 0) {
+      return NextResponse.json({ error: 'hr_organization_ids is required' }, { status: 400 });
+    }
+
+    const result = await RecruitmentService.upsertRecruitmentFlow(supabase, {
+      flow_name: body.flow_name,
+      role_categories: roleCategories as import('@/types/hr-recruitment').RoleCategory[],
+      steps: body.steps,
+      hr_organization_ids: body.hr_organization_ids,
+      is_active: body.is_active ?? true,
+    });
+    return NextResponse.json({ data: result });
+  } catch (err) {
+    console.error('[hr/recruitment/approval-flows] POST error', err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { status: 400 }
     );
   }
 }

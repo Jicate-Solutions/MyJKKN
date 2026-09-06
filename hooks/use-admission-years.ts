@@ -2,15 +2,15 @@
 
 // hooks/use-admission-years.ts
 //
-// Shared hook for the cascading (institution + program) -> admission_years fetch.
+// Shared hook for the institution-scoped admission_years fetch.
 // Extracted 2026-04-23 from inline useEffect blocks in:
 //   - app/(routes)/admission/leads/new/page.tsx:283-306
 //   - app/(routes)/admission/leads/[id]/page.tsx:980-1001
 //
-// Returns only ACTIVE admission years for the given (institution, program) pair,
-// ordered by program_start_year DESC so the most recent cohort is first in the
-// dropdown. Skips fetching (and clears state) when either input is missing —
-// callers can safely render the disabled placeholder state.
+// Returns only ACTIVE admission years for the given institution, ordered by
+// year DESC so the most recent cohort is first in the dropdown. Skips fetching
+// (and clears state) when the institution is missing — callers can safely
+// render the disabled placeholder state.
 
 import { useEffect, useState } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -18,9 +18,10 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 export interface AdmissionYearOption {
   id: string;
   admission_year_name: string;
-  program_start_year: number;
-  program_end_year: number;
+  year: number;
   is_active: boolean;
+  /** Institution's designated current cohort (Settings → Admission Years). */
+  is_current: boolean;
 }
 
 export interface UseAdmissionYearsResult {
@@ -31,8 +32,7 @@ export interface UseAdmissionYearsResult {
 }
 
 export function useAdmissionYears(
-  institutionId: string | null | undefined,
-  programId: string | null | undefined
+  institutionId: string | null | undefined
 ): UseAdmissionYearsResult {
   const [admissionYears, setAdmissionYears] = useState<AdmissionYearOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -40,7 +40,7 @@ export function useAdmissionYears(
   const [refetchKey, setRefetchKey] = useState(0);
 
   useEffect(() => {
-    if (!institutionId || !programId) {
+    if (!institutionId) {
       setAdmissionYears([]);
       setLoading(false);
       setError(null);
@@ -54,11 +54,10 @@ export function useAdmissionYears(
     const supabase = createClientSupabaseClient();
     (supabase as any)
       .from('admission_years')
-      .select('id, admission_year_name, program_start_year, program_end_year, is_active')
+      .select('id, admission_year_name, year, is_active, is_current')
       .eq('institution_id', institutionId)
-      .eq('program_id', programId)
       .eq('is_active', true)
-      .order('program_start_year', { ascending: false })
+      .order('year', { ascending: false })
       .then(({ data, error: queryError }: { data: any; error: any }) => {
         if (cancelled) return;
         if (queryError) {
@@ -74,7 +73,7 @@ export function useAdmissionYears(
     return () => {
       cancelled = true;
     };
-  }, [institutionId, programId, refetchKey]);
+  }, [institutionId, refetchKey]);
 
   return {
     admissionYears,

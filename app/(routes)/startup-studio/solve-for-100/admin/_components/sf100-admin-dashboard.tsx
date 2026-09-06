@@ -30,6 +30,10 @@ import {
 } from '@/hooks/startup-studio';
 import { SF100EnrollmentsTable } from '../../programs/[programId]/enrollments/_components/sf100-enrollments-table';
 import { SF100VerificationQueue as SF100VerificationQueueRich } from '../../programs/[programId]/verification-queue/_components/sf100-verification-queue';
+import { SF100AdjustmentsPanel } from './sf100-adjustments-panel';
+import { Sf100MentorsManager } from './sf100-mentors-manager';
+import { Sf100InvestorNotesPanel } from './sf100-investor-notes-panel';
+import { Sf100MeetingRequestsPanel } from './sf100-meeting-requests-panel';
 
 // ── Phase colors ────────────────────────────────────────────────────
 const PHASE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -51,7 +55,7 @@ const PROGRAM_STATUS_CONFIG: Record<string, { label: string; className: string }
   archived: { label: 'Archived', className: 'bg-gray-100 text-gray-500 border-gray-200' },
 };
 
-const VALID_TABS = ['overview', 'programs', 'enrollments', 'verification'] as const;
+const VALID_TABS = ['overview', 'programs', 'enrollments', 'verification', 'adjustments', 'mentors', 'investor-notes', 'meeting-requests'] as const;
 
 // ── Loading skeleton ────────────────────────────────────────────────
 function AdminSkeleton() {
@@ -379,7 +383,7 @@ export function SF100AdminDashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="w-full justify-start overflow-x-auto">
+        <TabsList className="w-full justify-start overflow-x-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Phase Funnel</TabsTrigger>
           <TabsTrigger value="programs">Programs ({programs.length})</TabsTrigger>
           <TabsTrigger value="enrollments">Enrollments ({totalEnrolled})</TabsTrigger>
@@ -390,6 +394,10 @@ export function SF100AdminDashboard() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
+          <TabsTrigger value="mentors">Mentors &amp; Investors</TabsTrigger>
+          <TabsTrigger value="investor-notes">Investor Notes</TabsTrigger>
+          <TabsTrigger value="meeting-requests">Meeting Requests</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -431,6 +439,22 @@ export function SF100AdminDashboard() {
 
         <TabsContent value="verification">
           <SF100VerificationQueueRich programId={programId} />
+        </TabsContent>
+
+        <TabsContent value="adjustments">
+          <SF100AdjustmentsPanel programId={programId} />
+        </TabsContent>
+
+        <TabsContent value="mentors">
+          <Sf100MentorsManager />
+        </TabsContent>
+
+        <TabsContent value="investor-notes">
+          <Sf100InvestorNotesPanel />
+        </TabsContent>
+
+        <TabsContent value="meeting-requests">
+          <Sf100MeetingRequestsPanel />
         </TabsContent>
       </Tabs>
     </div>

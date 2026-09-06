@@ -61,6 +61,7 @@ import {
   Trash2,
   ExternalLink,
   Shield,
+  Network,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -72,8 +73,11 @@ import {
   useRemoveMember,
   useDeactivateNAACCommittee,
 } from '@/hooks/accreditation/use-naac-committees';
+import { useMyCommitteeRoster } from '@/hooks/accreditation/use-my-committee-roster';
+import { decideCommitteeDetailAccess, isSeatCurrent } from '../_lib/committee-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CommitteeMemberRole } from '@/lib/services/accreditation/accreditation-committee-service';
+import { MeetingsSection } from './_components/meetings-section';
 import { toast } from 'sonner';
 
 const ROLE_LABELS: Record<CommitteeMemberRole, string> = {
@@ -96,8 +100,7 @@ const ROLE_ACCENT: Record<CommitteeMemberRole, string> = {
 
 interface ProfileLite {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
+  full_name: string | null;
   email: string | null;
   role: string | null;
   institution_id: string | null;
@@ -111,7 +114,7 @@ function useProfileLookup(userIds: string[]) {
       const sb = createClientSupabaseClient() as any;
       const { data, error } = await sb
         .from('profiles')
-        .select('id, first_name, last_name, email, role, institution_id')
+        .select('id, full_name, email, role, institution_id')
         .in('id', userIds);
       if (error) throw error;
       return ((data ?? []) as ProfileLite[]).reduce<Record<string, ProfileLite>>(
@@ -159,9 +162,29 @@ export default function NAACCommitteeDetailPage({
   const { id } = use(params);
   const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
 
-  const canView = isSuperAdmin || can('accreditation.naac.committees.view');
+  const hasViewPermission =
+    isSuperAdmin || can('accreditation.naac.committees.view');
+
+  // Director decision 8: being named on THIS committee's roster opens it, no
+  // matter what the viewer's job title is. Only read when the permission did
+  // not already answer the question.
+  const { data: mySeats, isLoading: rosterLoading } =
+    useMyCommitteeRoster({ enabled: !permsLoading && !hasViewPermission });
+
+  // Director decision 7: an expired seat is refused here, with the date, so
+  // the viewer never falls through to the notFound() below and is told this
+  // committee does not exist.
+  const access = decideCommitteeDetailAccess({
+    hasViewPermission,
+    seats: mySeats ?? [],
+    committeeId: id,
+  });
+  const canView = access.allowed;
+
   const canManageMembers =
     isSuperAdmin || can('accreditation.naac.committees.members.manage');
+  const canManageMeetings =
+    isSuperAdmin || can('accreditation.naac.committees.meetings.manage');
   const canEdit = isSuperAdmin || can('accreditation.naac.committees.edit');
   const canDelete = isSuperAdmin || can('accreditation.naac.committees.delete');
 
@@ -178,7 +201,7 @@ export default function NAACCommitteeDetailPage({
   const profileIds = [...new Set([...memberUserIds, ...(chairId ? [chairId] : [])])];
   const { data: profiles } = useProfileLookup(profileIds);
 
-  if (permsLoading || cLoading) {
+  if (permsLoading || cLoading || rosterLoading) {
     return (
       <ContentLayout title="IQAC Committee">
         <Skeleton className="h-40 w-full" />
@@ -198,20 +221,32 @@ export default function NAACCommitteeDetailPage({
     );
   }
 
-  if (!committee) {
-    notFound();
-  }
-
+  // Refusal is decided BEFORE notFound(). RLS denial in this repo is silent —
+  // a denied read returns null with no error — so the previous order turned
+  // "you are not allowed" into a 404, which tells the viewer the committee does
+  // not exist. That is the same fabricated-absence failure the roster arm was
+  // written to end, so it is fixed here rather than left to bite the first real
+  // member. A genuine bad id still 404s, below.
   if (!canView) {
     return (
       <ContentLayout title="IQAC Committee">
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            You do not have permission to view this committee.
+          <CardContent className="space-y-3 py-10 text-center">
+            <p className="text-base font-semibold">{access.title}</p>
+            <p className="mx-auto max-w-xl text-sm text-muted-foreground">
+              {access.detail}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Who to ask: <span className="font-medium">{access.contact}</span>
+            </p>
           </CardContent>
         </Card>
       </ContentLayout>
     );
+  }
+
+  if (!committee) {
+    notFound();
   }
 
   return (
@@ -249,6 +284,8 @@ export default function NAACCommitteeDetailPage({
                       <Building2 className="h-3.5 w-3.5" />
                       {institution.iqac_code ? `[${institution.iqac_code}] ` : ''}
                       {institution.name}
+                      {committee.committee_type === 'cluster' &&
+                        ' · filing location'}
                     </span>
                   )}
                 </div>
@@ -282,10 +319,18 @@ export default function NAACCommitteeDetailPage({
           </CardContent>
         </Card>
 
+        {/* Cluster scope — only for councils that span institutions */}
+        {committee.committee_type === 'cluster' && (
+          <ClusterScopeCard
+            memberInstitutionIds={committee.member_institution_ids ?? []}
+            filedUnderLabel={institution?.name ?? null}
+          />
+        )}
+
         {/* Members */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-5 w-5" />
                 Members
@@ -316,6 +361,11 @@ export default function NAACCommitteeDetailPage({
                     <TableHead>Role</TableHead>
                     <TableHead>Source</TableHead>
                     <TableHead>Joined</TableHead>
+                    {/* Director decision 7: access ends on this date, so the
+                        list has to show it. Without it a manager reads an
+                        expired member as a sitting one and cannot explain why
+                        that person says the page is shut. */}
+                    <TableHead>Term end</TableHead>
                     {canManageMembers && (
                       <TableHead className="text-right">Action</TableHead>
                     )}
@@ -360,6 +410,28 @@ export default function NAACCommitteeDetailPage({
                           )}
                         </TableCell>
                         <TableCell className="text-xs">{m.joined_at}</TableCell>
+                        <TableCell className="text-xs">
+                          {m.term_end ? (
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              {m.term_end}
+                              {!isSeatCurrent({
+                                committeeId: m.committee_id,
+                                termEnd: m.term_end,
+                              }) && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-100"
+                                >
+                                  Term ended
+                                </Badge>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              No end date
+                            </span>
+                          )}
+                        </TableCell>
                         {canManageMembers && (
                           <TableCell className="text-right">
                             <RemoveMemberButton
@@ -377,6 +449,9 @@ export default function NAACCommitteeDetailPage({
             )}
           </CardContent>
         </Card>
+
+        {/* Meetings — Loop Review (IQAC Meeting Loop, PR 2/3) */}
+        <MeetingsSection committee={committee} canManage={canManageMeetings} />
       </div>
     </ContentLayout>
   );
@@ -384,18 +459,150 @@ export default function NAACCommitteeDetailPage({
 
 function profileName(p: ProfileLite | undefined): string | null {
   if (!p) return null;
-  const parts = [p.first_name, p.last_name].filter(Boolean);
-  return parts.length ? parts.join(' ') : p.email ?? null;
+  return p.full_name?.trim() || (p.email ?? null);
+}
+
+// ----------------------------------------------------------------------------
+// Cluster scope card — a cluster council (the Cluster Academic Council spans
+// every college and both schools) is held by several institutions at once. Its
+// institution_id is only where the row is FILED so RLS can reach it, never who
+// owns it. Without this card the page rendered a cluster council identically to
+// a single-institution committee: no roster, no span, no explanation of why it
+// sits under one institution. Wording and colour match the "Cluster councils"
+// section on the committees hub so the two surfaces agree.
+//
+// Mounted only when committee_type === 'cluster', so every other committee
+// keeps its existing render path and issues no extra query.
+// ----------------------------------------------------------------------------
+
+interface ClusterMemberInstitution {
+  id: string;
+  name: string;
+  iqac_code: string | null;
+}
+
+function ClusterScopeCard({
+  memberInstitutionIds,
+  filedUnderLabel,
+}: {
+  memberInstitutionIds: string[];
+  filedUnderLabel: string | null;
+}) {
+  const { data: memberInstitutions, isLoading } = useQuery({
+    queryKey: [
+      'institutions',
+      'cluster-roster',
+      [...memberInstitutionIds].sort().join(','),
+    ],
+    queryFn: async (): Promise<ClusterMemberInstitution[]> => {
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb
+        .from('institutions')
+        .select('id, name, iqac_code')
+        .in('id', memberInstitutionIds)
+        .order('name');
+      if (error) throw error;
+      return (data ?? []) as ClusterMemberInstitution[];
+    },
+    enabled: memberInstitutionIds.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const resolved = memberInstitutions ?? [];
+  // The roster is a plain uuid[]; institutions the viewer's RLS hides simply do
+  // not come back. Say so rather than letting the count disagree with the list.
+  const unresolvedCount = memberInstitutionIds.length - resolved.length;
+
+  return (
+    <Card className="border-2 border-amber-300 bg-amber-50/40 dark:bg-amber-950/20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Network className="h-5 w-5 text-amber-600" />
+          Cluster council
+        </CardTitle>
+        <p className="mt-2 text-sm font-medium">
+          {memberInstitutionIds.length > 0
+            ? `Spans ${memberInstitutionIds.length} institution${
+                memberInstitutionIds.length === 1 ? '' : 's'
+              }`
+            : 'Cluster roster not recorded'}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {memberInstitutionIds.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            This council is marked as a cluster, but no member institutions are
+            recorded against it yet.
+          </p>
+        ) : isLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {resolved.map((inst) => (
+              <div
+                key={inst.id}
+                className="flex items-start gap-2 rounded-lg border bg-card p-2.5 text-sm"
+              >
+                <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span>
+                  {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
+                  {inst.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isLoading && unresolvedCount > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {unresolvedCount} further institution
+            {unresolvedCount === 1 ? ' is' : 's are'} on this roster but outside
+            what you can see, so{' '}
+            {unresolvedCount === 1 ? 'its name is' : 'their names are'} not
+            listed here.
+          </p>
+        )}
+
+        <p className="flex items-start gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+          <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Filed under {filedUnderLabel ?? 'an institution row'} — a filing
+            location, not an owner. The council belongs to every institution it
+            spans.
+          </span>
+        </p>
+      </CardContent>
+    </Card>
+  );
 }
 
 // ----------------------------------------------------------------------------
 // Add member dialog — two tabs: Internal (search profiles) / External (name+org+email)
 // ----------------------------------------------------------------------------
 
+/**
+ * Default term end offered in the dialog: the 31 March on or after today — the
+ * Indian academic year end, and the same date the database default uses for
+ * machine write paths. Prefilled so the field is one click rather than a
+ * chore, but still a real editable choice the appointer makes.
+ *
+ * Built from local calendar fields, never `new Date('YYYY-MM-DD')`, which
+ * parses as UTC midnight and shifts the date for anyone behind Greenwich.
+ */
+function defaultTermEnd(now: Date = new Date()): string {
+  const yearEnd = `${now.getFullYear()}-03-31`;
+  const mm = `${now.getMonth() + 1}`.padStart(2, '0');
+  const dd = `${now.getDate()}`.padStart(2, '0');
+  const today = `${now.getFullYear()}-${mm}-${dd}`;
+  return today <= yearEnd ? yearEnd : `${now.getFullYear() + 1}-03-31`;
+}
+
 function AddMemberDialog({ committeeId }: { committeeId: string }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'internal' | 'external'>('internal');
   const [role, setRole] = useState<CommitteeMemberRole>('member');
+  // Director decision 7: required, not optional. Access ends on this date.
+  const [termEnd, setTermEnd] = useState<string>(defaultTermEnd());
 
   // Internal state
   const [userSearch, setUserSearch] = useState('');
@@ -418,9 +625,9 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
       const sb = createClientSupabaseClient() as any;
       const { data, error } = await sb
         .from('profiles')
-        .select('id, first_name, last_name, email, role, institution_id')
+        .select('id, full_name, email, role, institution_id')
         .or(
-          `first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`,
+          `full_name.ilike.%${q}%,email.ilike.%${q}%`,
         )
         .limit(10);
       if (error) throw error;
@@ -437,11 +644,20 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
     setExternalOrg('');
     setExternalEmail('');
     setRole('member');
+    setTermEnd(defaultTermEnd());
     setTab('internal');
   };
 
   const handleSubmit = async () => {
     try {
+      // Checked before either branch: the term end date is what ends this
+      // person's access, so adding a member without one is not a thing the
+      // dialog can do. The column is NOT NULL as well — this check exists so
+      // the appointer is told in words rather than shown a raw 23502.
+      if (!termEnd) {
+        toast.error('A term end date is required — access ends on this date');
+        return;
+      }
       if (tab === 'internal') {
         if (!selectedUser) {
           toast.error('Select a user first');
@@ -451,6 +667,7 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
           committee_id: committeeId,
           user_id: selectedUser.id,
           role,
+          term_end: termEnd,
         });
       } else {
         if (!externalName.trim()) {
@@ -463,6 +680,7 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
           external_name: externalName.trim(),
           external_org: externalOrg.trim() || null,
           external_email: externalEmail.trim() || null,
+          term_end: termEnd,
         });
       }
       toast.success('Member added');
@@ -577,6 +795,23 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
             </div>
           </TabsContent>
         </Tabs>
+
+        <div className="space-y-1.5 pt-2">
+          <Label htmlFor="member-term-end">
+            Term end <span className="text-red-600">*</span>
+          </Label>
+          <Input
+            id="member-term-end"
+            type="date"
+            required
+            value={termEnd}
+            onChange={(e) => setTermEnd(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            The last day of their term. Their access to this committee — its
+            roster, meetings and resolutions — ends automatically the day after.
+          </p>
+        </div>
 
         <div className="space-y-1.5 pt-2">
           <Label>Role</Label>

@@ -30,7 +30,7 @@ The v2.1 Phase 1a spec proposed building a NEW module — wrong diagnosis. The c
 | 1 | `ComplianceService` class (AI-solution quota compliance) | `lib/services/solutions/compliance-service.ts` | N/A (not accreditation) | **PR-A1** (rename to disambiguate) |
 | 2 | `PublicationsService.getAccreditationMetrics(type?: 'nirf'\|'naac')` + `calculateNIRFMetrics()` + `calculateNAACCriteria()` | `lib/services/solutions/publications-service.ts` | NIRF + NAAC (half-built substrate!) | **PR-A2** (extend to 10 bodies + introduce evidence junction) |
 | 3 | `naac-report-service` + `use-naac-report` hook + `naac-report-generator` component | `lib/services/admission/`, `hooks/admission/`, `app/(routes)/admission/group-dashboard/_components/` | NAAC only | **PR-A3** (retrofit to read from substrate, extend to all bodies) |
-| 4 | `/admin/pde/naac-evidence/page.tsx` | Admin PDE | NAAC only | **PR-A4** (retrofit to substrate, add body switcher) |
+| 4 | `/pde/admin/naac-evidence/page.tsx` | Admin PDE | NAAC only | **PR-A4** (retrofit to substrate, add body switcher) |
 | 5 | `/campus-living/reports/anti-ragging-compliance/page.tsx` | Campus Living | UGC anti-ragging only (not tagged as evidence) | **PR-A5** (emit UGC + NAAC 7.7 + NAAC 5.6(Auto) evidence rows) |
 | 6 | `/api/b2a/grievance/*` (3 routes) — gateway exists, grievance module does NOT (0-row tables) | B2A gateway | NAAC 7.7 planned | **PR-A6** (complete grievance module behind gateway, emit multi-body evidence) |
 | 7 | `/api/solutions/publications/accreditation/{naac,nirf}/route.ts` + top-level | Solutions Hub | NAAC + NIRF routes | Touched in PR-A2 |
@@ -172,11 +172,11 @@ Body dashboards (depend on PR-A2, can run parallel once A2 merges):
 
 ### PR-A4 — Retrofit Admin PDE NAAC-evidence page
 
-**Goal:** PDE's NAAC evidence page becomes a general `/admin/pde/accreditation-evidence/[body]` page that renders any of the 10 bodies.
+**Goal:** PDE's NAAC evidence page becomes a general `/pde/admin/accreditation-evidence/[body]` page that renders any of the 10 bodies.
 
 **Scope:**
-- Rename `app/(routes)/admin/pde/naac-evidence/page.tsx` → `app/(routes)/admin/pde/accreditation-evidence/[body]/page.tsx`
-- 301 redirect `/admin/pde/naac-evidence` → `/admin/pde/accreditation-evidence/naac`
+- Rename `app/(routes)/pde/admin/naac-evidence/page.tsx` → `app/(routes)/pde/admin/accreditation-evidence/[body]/page.tsx`
+- 301 redirect `/pde/admin/naac-evidence` → `/pde/admin/accreditation-evidence/naac`
 - Page reads `quality_evidence_mappings` filtered by body + uses `sh_accreditation_metrics` for column headers
 - CSV download works for any body
 - Sidebar link updates
@@ -184,8 +184,8 @@ Body dashboards (depend on PR-A2, can run parallel once A2 merges):
 **Files touched:** ~5
 
 **Acceptance:**
-- Existing /admin/pde/naac-evidence URL redirects to new path + renders identical NAAC view
-- New `/admin/pde/accreditation-evidence/nirf` renders NIRF evidence table
+- Existing /pde/admin/naac-evidence URL redirects to new path + renders identical NAAC view
+- New `/pde/admin/accreditation-evidence/nirf` renders NIRF evidence table
 - Repeat for all 10 bodies
 
 **Body coverage:** ALL 10

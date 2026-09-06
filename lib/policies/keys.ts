@@ -50,7 +50,7 @@ export const POLICY_KEYS = {
   // Object policy: { tasks: string[], categories: string[] }.
   // Consumed by lib/services/telephony/call-pipeline-service.ts (server-only,
   // pipeline runs in API routes / cron, never client). Director can edit via
-  // /admin/telephony-policies — no deploy needed.
+  // /admission/settings/telephony-policies — no deploy needed.
   TELEPHONY_EXOVOICE_CONFIG: 'telephony.exovoice.config',
 
   // Telephony — CDR sync windowing (object: {default_lookback_days, chunk_max_days})
@@ -87,7 +87,7 @@ export const POLICY_KEYS = {
   WA_BYOW_SYNTHETIC_AUDIT_ENABLED: 'wa_byow.synthetic_audit_enabled',
 
   // Voice Memo Monitor (2026-05-10) — runtime-tunable thresholds for
-  // /admission/counselors/voice-memos. Director-tweakable via /admin/voice-memo-monitor.
+  // /admission/counselors/voice-memos. Director-tweakable via /admission/settings/voice-memo-monitor.
   VOICE_MEMO_MONITOR_WINDOW_HOURS: 'voice_memo_monitor.window_hours',
   VOICE_MEMO_MONITOR_STUCK_THRESHOLD_MINUTES: 'voice_memo_monitor.stuck_threshold_minutes',
   VOICE_MEMO_MONITOR_FAILURE_RATE_RED_PCT: 'voice_memo_monitor.failure_rate_red_pct',
@@ -157,7 +157,7 @@ export const POLICY_KEYS = {
 
   // T4.2 deduction-engine knobs (Director-locked spec 2026-05-15).
   // Seeded as global rows by 20260626000000_hr_pay_components_and_payslip_line_items.sql.
-  // Editable via /admin/hr/policies/payroll-* UIs (ships in a later T-sprint).
+  // Editable via /hr/admin/policies/payroll-* UIs (ships in a later T-sprint).
   // Consumer: lib/services/hr/payroll/deduction-engine.ts.
   //
   // tds_slabs: { regime, fiscal_year, slabs:[{upto_inr,rate_pct}], rebate_87a_*, surcharge_thresholds, cess_pct }
@@ -185,30 +185,31 @@ export const POLICY_KEYS = {
   // Array of { label, role_keys: string[] } — how HR dashboard widgets cluster roles.
   HR_DASHBOARD_ROLE_GROUPS: 'hr.dashboard.role_groups',
 
-  // Nav landing pages (super-admin-tunable redirect targets for /admin module roots).
-  // Consumed by app/(routes)/admin/page.tsx, /admin/lti/page.tsx, /admin/pde/page.tsx.
+  // Nav landing pages (super-admin-tunable redirect targets for module roots).
+  // Consumed by app/(routes)/admin/page.tsx + /admin/lti/page.tsx + /pde/admin/page.tsx
+  // + /pde/learn/page.tsx + the 4 sweep hubs added 2026-06-02
+  // (/pde/learn/cases, /pde/admin/rubrics, /pde/admin/accreditation-evidence,
+  // /pde/admin/transcript).
   // Editable via /admin/landing-pages — zero-deploy redirect retargeting.
   NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
   NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
   NAV_ADMIN_PDE_DEFAULT_LANDING: 'nav.admin.pde.default_landing',
+  NAV_CAMPUS_WALK_SCOREBOARD_DEFAULT_LANDING: 'nav.campus_walk.scoreboard.default_landing',
+  NAV_ADMIN_PDE_RUBRICS_DEFAULT_LANDING: 'nav.admin.pde.rubrics.default_landing',
+  NAV_ADMIN_PDE_ACCREDITATION_EVIDENCE_DEFAULT_LANDING: 'nav.admin.pde.accreditation_evidence.default_landing',
+  NAV_ADMIN_PDE_TRANSCRIPT_DEFAULT_LANDING: 'nav.admin.pde.transcript.default_landing',
+  NAV_LEARN_PDE_DEFAULT_LANDING: 'nav.learn.pde.default_landing',
+  NAV_LEARN_PDE_CASES_DEFAULT_LANDING: 'nav.learn.pde.cases.default_landing',
+  // PDE Module Extraction (2026-06-09): top-level /pde landing.
+  // Consumed by app/(routes)/pde/page.tsx — the new unified PDE module hub.
+  NAV_PDE_DEFAULT_LANDING: 'nav.pde.default_landing',
 
-  // HR Recruitment approvals — viewer-scope enforcement.
-  // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
-  // Master toggle (boolean) + per-role scope_rules (JSONB object).
-  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
-  HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
-  HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
-
-  // HR Recruitment approvals — role-match enforcement on Approve action.
-  // Consumed by lib/services/hr/recruitment-service.ts (approveCandidate).
-  // Seeded by 20260516120000_seed_recruitment_role_enforcement_policies.sql.
-  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
-  // When enforce_role_match=true, the caller's role_keys must include
-  // approval_chain[current_step].approver_role OR overlap with override_roles
-  // OR the caller must be super_admin. When false (default), today's behavior
-  // is preserved — any user with hr.recruitment.approve can approve any step.
-  HR_RECRUITMENT_APPROVALS_ENFORCE_ROLE_MATCH: 'hr.recruitment.approvals.enforce_role_match',
-  HR_RECRUITMENT_APPROVALS_OVERRIDE_ROLES: 'hr.recruitment.approvals.override_roles',
+  // HR Recruitment approvals — the platform_policies-driven viewer-scoping +
+  // role-match toggles (enforce_scoping / scope_rules / enforce_role_match /
+  // override_roles) were REMOVED 2026-07-06. Step-approver enforcement is now
+  // ALWAYS ON and driven by the approval-flow chain itself
+  // (/hr/admin/recruitment-approval-flows). Policy rows deleted by migration
+  // 20260706130000_remove_recruitment_approvals_scope_policies.sql.
 
   // -- Forms (W3-M9 follow-up — workflow engine + notifications) -------------
   // Object: per-event notification templates rendered by the form-submission
@@ -227,6 +228,160 @@ export const POLICY_KEYS = {
   // Consumed by lib/services/dashboard/widget-config-service.ts; edited via
   // /admin/dashboard/widget-config (Director-only). No deploy needed.
   DASHBOARD_ROLE_WIDGETS: 'dashboard.role_widgets',
+
+  // PDE Rubrics — Social & Leadership Trust (Phase 8) -------------------------
+  // 4 rubrics defining the durable-value category AI cannot replicate: working
+  // with humans, leading peers, holding committee positions, organizing
+  // communities. Each row is a JSONB object with evidence_required, min_*
+  // thresholds, validator_role, deliverables, and scoring_band.
+  // Seeded by 20260518_pde_social_leadership_rubrics.sql (scope=global).
+  // Editable via /pde/admin/rubrics/social-leadership (Director-only).
+  // Consumer (future): demonstration-evaluator services will read these via
+  // fn_get_policy to validate Phase-8 submissions. No deploy needed to retune.
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_PEER_MENTOR: 'pde.rubrics.social_leadership.peer_mentor',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_TEAM_PROJECT_LEAD: 'pde.rubrics.social_leadership.team_project_lead',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_COMMITTEE_ROLE: 'pde.rubrics.social_leadership.committee_role',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_COMMUNITY_ORGANIZER: 'pde.rubrics.social_leadership.community_organizer',
+  // PDE Rubrics — Cultural & Civic Literacy (Phase 9, NEP 2020-aligned)
+  // 4 rubric rows that define how JKKN students earn the cultural & civic
+  // literacy slice of their PDE score. Seeded by
+  // supabase/migrations/20260518_pde_cultural_civic_rubrics.sql.
+  // Edited via /pde/admin/rubrics/cultural-civic (Director-only).
+  // Reflects NEP 2020 §4.6-4.7 (IKS + mother-tongue), §4.23 (fundamental
+  // duties / constitutional values), §11.8 (community-service credit).
+  // JKKN-Tamil-Nadu rooted: Tamil is the primary approved language; local-
+  // community contexts include panchayat collaboration + self-help-group
+  // engagement; tradition domains include classical (Bharatanatyam /
+  // Carnatic / Tamil literature) and folk forms.
+  PDE_RUBRICS_CULTURAL_CIVIC_INDIAN_LANGUAGE_PROFICIENCY: 'pde.rubrics.cultural_civic.indian_language_proficiency',
+  PDE_RUBRICS_CULTURAL_CIVIC_LOCAL_COMMUNITY_PROJECT: 'pde.rubrics.cultural_civic.local_community_project',
+  PDE_RUBRICS_CULTURAL_CIVIC_TRADITION_ATTUNEMENT: 'pde.rubrics.cultural_civic.tradition_attunement',
+  PDE_RUBRICS_CULTURAL_CIVIC_CIVIC_ENGAGEMENT: 'pde.rubrics.cultural_civic.civic_engagement',
+  // PDE Rubrics — Embodied Practice (Phase 7) -------------------------------
+  // Per-discipline rubric for hands-on skill demonstrations across JKKN
+  // colleges. Each value is an object with shape:
+  //   { discipline, rubric: [{skill, evidence_required, validator_role,
+  //     scoring_band:[min,max], passing_threshold}],
+  //     min_demonstrations_per_year, validity_period_months }
+  // Edited via /pde/admin/rubrics/embodied (super-admin). Consumed by PDE
+  // demonstration gate logic at runtime — no deploy required to retune.
+  PDE_RUBRICS_EMBODIED_MEDICAL: 'pde.rubrics.embodied.medical',
+  PDE_RUBRICS_EMBODIED_PHARMACY: 'pde.rubrics.embodied.pharmacy',
+  PDE_RUBRICS_EMBODIED_NURSING: 'pde.rubrics.embodied.nursing',
+  PDE_RUBRICS_EMBODIED_DENTAL: 'pde.rubrics.embodied.dental',
+  PDE_RUBRICS_EMBODIED_ENGINEERING: 'pde.rubrics.embodied.engineering',
+
+  // Campus Living — Fractional Occupancy (PR ζ / θ, 2026-05-28) -------------
+  // An unfilled Premium upgrade-vacancy's differential price auto-drops by
+  // FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT every
+  // FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS days until taken or
+  // the hostel year ends (decision 8). Seeded global rows: 20 / 60.
+  // Consumed by lib/services/campus-living/vacancy-price-drop-service.ts
+  // (server-only — runs in the vacancy-price-drops cron, never client).
+  FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT: 'fractional_occupancy.empty_vacancy_drop_pct',
+  FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS: 'fractional_occupancy.empty_vacancy_drop_interval_days',
+
+  // Hostel Fees — Settle Then Bill (Director 2026-08-09) ---------------------
+  // Don't bill at move-in: let the room fill for WINDOW_DAYS (restarting on
+  // each new joiner, capped at OUTER_LIMIT_DAYS from first open, and short-
+  // circuited the moment the room is full), then bill everyone at the
+  // occupancy that exists at that moment. Seeded global rows by
+  // supabase/migrations/20260815060000_hostel_settle_then_bill.sql:
+  // false / 5 / 20 / 5.
+  // HOSTEL_SETTLE_BILL_ENABLED is the MASTER SWITCH — while false the whole
+  // mechanism is inert (no window opens, nothing is billed, nothing credited).
+  HOSTEL_SETTLE_BILL_ENABLED: 'hostel.settle_bill.enabled',
+  HOSTEL_SETTLE_BILL_WINDOW_DAYS: 'hostel.settle_bill.window_days',
+  HOSTEL_SETTLE_BILL_OUTER_LIMIT_DAYS: 'hostel.settle_bill.outer_limit_days',
+  HOSTEL_SETTLE_BILL_BILL_DUE_DAYS: 'hostel.settle_bill.bill_due_days',
+  // Hours every current resident has to agree to a room buyout before the
+  // request lapses. A sole occupant never waits.
+  // supabase/migrations/20260819032000_hostel_room_buyout.sql seeds 48.
+  HOSTEL_SETTLE_BILL_BUYOUT_CONSENT_HOURS: 'hostel.settle_bill.buyout_consent_hours',
+
+  // Empty-bed intimation — tell a resident her room is under-filled and what it
+  // is costing her, so she can invite someone before the settle window closes.
+  // Seeded by supabase/migrations/20260815060001_empty_bed_intimation.sql:
+  // false / 2 / <template>. ENABLED is its own master switch, separate from
+  // HOSTEL_SETTLE_BILL_ENABLED — notices can be armed first, since they move no
+  // money, and that is the intended order.
+  HOSTEL_EMPTY_BED_NOTICE_ENABLED: 'hostel.empty_bed_notice.enabled',
+  HOSTEL_EMPTY_BED_NOTICE_REMINDER_INTERVAL_DAYS:
+    'hostel.empty_bed_notice.reminder_interval_days',
+  HOSTEL_EMPTY_BED_NOTICE_MESSAGE_TEMPLATE: 'hostel.empty_bed_notice.message_template',
+
+  // Bed Economics — scalar tunables (Bed Economics PR A, 2026-06-07) ---------
+  // Seeded as global system rows by
+  // supabase/migrations/20260607120000_bed_economics_substrate.sql (§3) and read
+  // at runtime by the fn_bed_econ_* RPCs (denominator / mess toggle / sellable
+  // filter / stoplight targets / stale-vacancy window / housekeeping unit cost).
+  // EDIT surface = the super-admin settings panel on the bed-economics dashboard
+  // page (PR B, gear → sheet); storage stays in platform_policies (the single
+  // locked registry). Spec: specs/bed-economics-dashboard-spec-2026-06-07.md §7.1.
+  // Constant strings here MUST match the policy_key values seeded in the migration.
+  BED_ECON_DENOMINATOR: 'bed_econ.denominator',
+  BED_ECON_INCLUDE_MESS_IN_REVENUE: 'bed_econ.include_mess_in_revenue',
+  BED_ECON_SELLABLE_ROOM_PURPOSES: 'bed_econ.sellable_room_purposes',
+  BED_ECON_OCCUPANCY_TARGET_PCT: 'bed_econ.occupancy_target_pct',
+  BED_ECON_COLLECTION_TARGET_PCT: 'bed_econ.collection_target_pct',
+  BED_ECON_STALE_VACANCY_DAYS: 'bed_econ.stale_vacancy_days',
+  BED_ECON_HOUSEKEEPING_COST_PER_ROOM_MONTH: 'bed_econ.housekeeping_cost_per_room_month',
+
+  // Social Governance (Director's-View consequences surface, 2026-06-18) -------
+  // The thresholds and flags behind /admission/social/governance. Each value is
+  // read via fn_get_policy and turned into a plain-English consequence computed
+  // against the live metrics tables. The platform_policies rows for these keys
+  // are seeded by a sibling agent's migration; until then the policy readers
+  // fail-soft to documented code defaults (see app/api/social/governance/route.ts).
+  // Constant strings here MUST match the policy_key values that migration seeds.
+  // Edited via /admission/social/admin/policies (super-admin).
+  SOCIAL_DORMANCY_THRESHOLD_DAYS: 'social.dormancy_threshold_days',
+  SOCIAL_COMPLIANCE_MIN_FOLLOWERS: 'social.compliance.min_followers',
+  SOCIAL_COMPLIANCE_MIN_POSTS: 'social.compliance.min_posts',
+  SOCIAL_FOLLOWBACK_RATIO_THRESHOLD: 'social.followback_ratio_threshold',
+  SOCIAL_REALTIME_ENABLED: 'social.realtime_enabled',
+
+  // Post-class feedback → attendance confirmation ("show the split").
+  // gate_mode: off | visibility (show completion, non-blocking) | hard.
+  // window_hours: grace window after class within which feedback is due; also
+  // splits present-pending into within-window vs overdue on the dashboard.
+  // Seeded as global system rows in platform_policies; edited via admin policy UI.
+  SESSION_FEEDBACK_GATE_MODE: 'session_feedback.gate_mode',
+  SESSION_FEEDBACK_WINDOW_HOURS: 'session_feedback.window_hours',
+  // Faculty-engagement adoption (2026-07-04). When TRUE, the DERIVED, non-destructive
+  // "effective attendance %" (present-but-no-feedback lowers a learner's attendance %)
+  // is computed for eligibility surfaces. Default FALSE (dark). Compliance sign-off
+  // required before enabling — exam-eligibility regulatory surface (spec R2). Never
+  // mutates attendance_data. Seeded by 20260731020000_scf_hard_gate_enforcement_and_coupling.sql.
+  SESSION_FEEDBACK_ATTENDANCE_COUPLING_ENABLED: 'session_feedback.attendance_coupling_enabled',
+  // Forward-only rollout (2026-07-05). Sessions before this IST date are grandfathered:
+  // never marked incomplete/overdue and excluded from confirmed-attendance eligibility.
+  // Resolved by fn_scf_faculty_completion (and, in Build 2, fn_scf_effective_attendance).
+  // Seeded by 20260705_scf_enforcement_start_date_forward_only.sql. Default '2026-07-05'.
+  SESSION_FEEDBACK_ENFORCEMENT_START_DATE: 'session_feedback.enforcement_start_date',
+
+  // Exam attendance eligibility (2026-07-26). Previously a hardcoded constant pair
+  // duplicated in FOUR places (exam-audit compute, the learner's running-score card,
+  // the consolidation advisory panel, and the Senior Learner guide prose) whose only
+  // stated authority was the comment "// university norm". Director confirmed the
+  // rule and approved consolidating it onto one row.
+  //
+  // It is a THREE-band rule, not a pass/fail gate:
+  //   pct >= attendance_pct              -> eligible
+  //   condonation_floor_pct <= pct < attendance_pct -> needs condonation
+  //   pct <  condonation_floor_pct       -> at risk of ineligibility
+  //
+  // Scope-aware: seeded global, but fn_get_policy resolves institution rows first,
+  // so a college whose affiliating university sets a different norm gets its own row
+  // without a code change. Seeded by
+  // 20260726193000_exam_eligibility_thresholds_policy.sql. Defaults 75 / 65.
+  //
+  // NOT the same as the similarly-valued keys elsewhere — do not conflate with
+  // internal_marks_insight_config.attendance_threshold ("counts as regular" for the
+  // insight engine), cdc.min_attendance_pct_for_internship_certificate,
+  // internship.policy.attendance_fail_below_pct, or vac.completion_attendance_threshold.
+  EXAM_ELIGIBILITY_ATTENDANCE_PCT: 'academic.exam_eligibility.attendance_pct',
+  EXAM_ELIGIBILITY_CONDONATION_FLOOR_PCT: 'academic.exam_eligibility.condonation_floor_pct',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

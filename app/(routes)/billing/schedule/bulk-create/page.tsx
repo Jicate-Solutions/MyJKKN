@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -64,8 +65,9 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { useStudentsForBulkOperations } from '@/hooks/billing/use-student-search';
 import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import { usePermissions } from '@/hooks/use-permissions';
-import { ImportBillsDialog } from './_components/import-bills-dialog';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import toast from 'react-hot-toast';
 import type { Institution, Degree, Department, Program, Semester } from '@/types/organizations';
 import type { BillingCategory } from '@/types/billing';
@@ -87,6 +89,7 @@ const bulkBillSchema = z.object({
   program_id: z.string().optional(),
   semester_id: z.string().optional(),
   item_category_id: z.string().min(1, 'Item category is required'),
+  academic_year_id: z.string().min(1, 'Academic year is required'),
   bill_description: z.string().optional(),
   due_date: z.date({ required_error: 'Due date is required' }),
   quantity: z.number().min(1, 'Quantity must be at least 1').default(1),
@@ -108,7 +111,6 @@ type BulkBillFormData = z.infer<typeof bulkBillSchema>;
 
 export default function BulkCreateBillsPage() {
   const router = useRouter();
-  const [importOpen, setImportOpen] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [degrees, setDegrees] = useState<Degree[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -135,8 +137,14 @@ export default function BulkCreateBillsPage() {
     isSuperAdmin,
     isLoading: permissionsLoading
   } = usePermissions();
+  const adapt = useAdaptiveLabels();
+  // Both keys: bulk_create opens this flow, create is what the RLS INSERT
+  // policy on billing_student_bills checks. Granting bulk_create alone would
+  // let the page render and then fail every insert with an RLS denial.
   const canCreateBills =
-    isSuperAdmin || canAccess('billing.schedule', 'create');
+    isSuperAdmin ||
+    (canAccess('billing.schedule', 'create') &&
+      canAccess('billing.schedule', 'bulk_create'));
 
   const form = useForm<BulkBillFormData>({
     resolver: zodResolver(bulkBillSchema),
@@ -147,11 +155,16 @@ export default function BulkCreateBillsPage() {
       // Defaulting to 0 silently passed validation when the user submitted
       // without touching the input.
       tax_amount: 0,
-      is_recurring: false
+      is_recurring: false,
+      academic_year_id: ''
     }
   });
 
   const watchedValues = form.watch();
+  const { data: academicYearsData } = useAcademicYears(
+    watchedValues.institution_id || undefined
+  );
+  const academicYears = academicYearsData?.data || [];
   const totalAmount =
     (watchedValues.quantity || 0) * (watchedValues.unit_amount || 0);
   const finalAmount = totalAmount + (watchedValues.tax_amount || 0);
@@ -236,8 +249,14 @@ export default function BulkCreateBillsPage() {
   const loadInstitutions = async () => {
     try {
       setIsLoadingInstitutions(true);
+      // College-only: the billing schedule bills entity_type='institution'.
+      // Schools are billed through /billing/school-fees, which owns its own
+      // plans, term calendar and generation run — listing them here would let
+      // a clerk raise a college bill against a school learner.
       const institutionNames = await OrganizationService.getInstitutionNames(
-        true
+        true,
+        undefined,
+        'institution'
       );
       setInstitutions(institutionNames as Institution[]);
     } catch (error) {
@@ -429,7 +448,12 @@ export default function BulkCreateBillsPage() {
         {/* Bulk upload from Excel — alternate path that bypasses the form below.
             Each row of the uploaded sheet becomes one bill (own student, own
             amount, own due date, own category). The form below remains for the
-            common "same bill, many students" case. */}
+            common "same bill, many students" case.
+
+            Links to a dedicated page rather than opening a dialog: the upload is
+            a review flow (preview the sheet → read the validation → confirm),
+            and a table of ten columns across several hundred rows needs the
+            width. Mirrors /billing/schedule/bulk-edit. */}
         <Card className='border-dashed bg-muted/40'>
           <CardContent className='flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between'>
             <div className='flex items-start gap-3'>
@@ -442,8 +466,8 @@ export default function BulkCreateBillsPage() {
                 </p>
                 <p className='text-sm text-muted-foreground'>
                   Download the Excel template, fill one row per bill, then
-                  upload to create them all at once. Each row needs a roll
-                  number, billing category, due date, and amount.
+                  upload it. You review the parsed rows and the validation
+                  results before any bill is created.
                 </p>
               </div>
             </div>
@@ -457,27 +481,18 @@ export default function BulkCreateBillsPage() {
                   Download Template
                 </a>
               </Button>
-              <Button
-                size='sm'
-                onClick={() => setImportOpen(true)}
-                disabled={!canCreateBills}
-              >
-                <Upload className='mr-2 h-4 w-4' />
-                Upload Excel
+              {/* No `disabled` guard needed: the page already returns the
+                  "no permission" state above when canCreateBills is false, so
+                  reaching this render means the user may create bills. */}
+              <Button size='sm' asChild>
+                <Link href='/billing/schedule/bulk-create/upload'>
+                  <Upload className='mr-2 h-4 w-4' />
+                  Upload Excel
+                </Link>
               </Button>
             </div>
           </CardContent>
         </Card>
-
-        <ImportBillsDialog
-          open={importOpen}
-          onOpenChange={setImportOpen}
-          onImportComplete={() => {
-            // Stay on the page so the user can upload another batch if they
-            // want. Future: refresh a "recent imports" panel if we add one.
-            setImportOpen(false);
-          }}
-        />
 
         <Form {...form}>
 
@@ -533,6 +548,7 @@ export default function BulkCreateBillsPage() {
                               form.setValue('program_id', undefined);
                               form.setValue('semester_id', undefined);
                               form.setValue('item_category_id', '');
+                              form.setValue('academic_year_id', '');
                               setSelectedStudents([]);
                             }}
                             value={field.value}
@@ -568,7 +584,7 @@ export default function BulkCreateBillsPage() {
                       name='degree_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Degree (optional)</FormLabel>
+                          <FormLabel>{adapt('Degree')} (optional)</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               const next = value === 'all' ? undefined : value;
@@ -590,14 +606,14 @@ export default function BulkCreateBillsPage() {
                                     !watchedValues.institution_id
                                       ? 'Select institution first'
                                       : isLoadingDegrees
-                                      ? 'Loading degrees...'
-                                      : 'All degrees'
+                                      ? `Loading ${adapt('degrees')}...`
+                                      : `All ${adapt('degrees')}`
                                   }
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value='all'>All degrees</SelectItem>
+                              <SelectItem value='all'>All {adapt('degrees')}</SelectItem>
                               {degrees.map((degree) => (
                                 <SelectItem key={degree.id} value={degree.id}>
                                   {degree.degree_name}
@@ -615,7 +631,7 @@ export default function BulkCreateBillsPage() {
                       name='department_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Department (optional)</FormLabel>
+                          <FormLabel>{adapt('Department')} (optional)</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               const next = value === 'all' ? undefined : value;
@@ -634,17 +650,17 @@ export default function BulkCreateBillsPage() {
                                 <SelectValue
                                   placeholder={
                                     !watchedValues.degree_id
-                                      ? 'Select degree first'
+                                      ? `Select ${adapt('degree')} first`
                                       : isLoadingDepartments
-                                      ? 'Loading departments...'
-                                      : 'All departments'
+                                      ? `Loading ${adapt('departments')}...`
+                                      : `All ${adapt('departments')}`
                                   }
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
                               <SelectItem value='all'>
-                                All departments
+                                All {adapt('departments')}
                               </SelectItem>
                               {departments.map((department) => (
                                 <SelectItem
@@ -666,7 +682,7 @@ export default function BulkCreateBillsPage() {
                       name='program_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Program (optional)</FormLabel>
+                          <FormLabel>{adapt('Program')} (optional)</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               const next = value === 'all' ? undefined : value;
@@ -684,16 +700,16 @@ export default function BulkCreateBillsPage() {
                                 <SelectValue
                                   placeholder={
                                     !watchedValues.department_id
-                                      ? 'Select department first'
+                                      ? `Select ${adapt('department')} first`
                                       : isLoadingPrograms
-                                      ? 'Loading programs...'
-                                      : 'All programs'
+                                      ? `Loading ${adapt('programs')}...`
+                                      : `All ${adapt('programs')}`
                                   }
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value='all'>All programs</SelectItem>
+                              <SelectItem value='all'>All {adapt('programs')}</SelectItem>
                               {programs.map((program) => (
                                 <SelectItem
                                   key={program.id}
@@ -714,7 +730,7 @@ export default function BulkCreateBillsPage() {
                       name='semester_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Semester (optional)</FormLabel>
+                          <FormLabel>{adapt('Semester')} (optional)</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               const next = value === 'all' ? undefined : value;
@@ -782,6 +798,41 @@ export default function BulkCreateBillsPage() {
                                   value={category.id}
                                 >
                                   {category.category_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='academic_year_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Academic Year</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={!watchedValues.institution_id}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchedValues.institution_id
+                                      ? 'Select institution first'
+                                      : 'Select academic year'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {academicYears.map((ay: any) => (
+                                <SelectItem key={ay.id} value={ay.id}>
+                                  {ay.academic_year_name}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -974,33 +1025,20 @@ export default function BulkCreateBillsPage() {
                         </FormLabel>
                         <FormControl>
                           <Input
-                            type='number'
-                            min='1'
-                            step='1'
+                            type='text'
                             inputMode='numeric'
+                            pattern='[0-9]*'
                             placeholder='0'
                             {...field}
                             value={field.value?.toString() ?? ''}
                             onChange={(e) => {
-                              // Empty input → undefined so zod fires its
-                              // required_error path. parseInt(..., 10) drops
-                              // any decimal a user pastes (e.g. "100.99" → 100)
-                              // so the displayed value matches what gets saved.
-                              const raw = e.target.value;
+                              const raw = e.target.value.replace(/[^0-9]/g, '');
                               if (raw === '') {
                                 field.onChange(undefined);
                                 return;
                               }
                               const parsed = parseInt(raw, 10);
                               field.onChange(Number.isNaN(parsed) ? undefined : parsed);
-                            }}
-                            onKeyDown={(e) => {
-                              // Block the user from typing a decimal point /
-                              // exponent in the first place — keeps the UI in
-                              // sync with the integer-only schema.
-                              if (['.', 'e', 'E', '+', '-'].includes(e.key)) {
-                                e.preventDefault();
-                              }
                             }}
                           />
                         </FormControl>

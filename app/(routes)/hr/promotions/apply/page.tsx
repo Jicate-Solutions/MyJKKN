@@ -8,7 +8,7 @@
  * Architecture (per reference_platform_policies_director_view_pattern.md):
  *   - policy row: hr.promotion_policy (platform_policies)
  *   - reader: fn_get_policy RPC (from PromotionService.getPromotionPolicy)
- *   - editor: /admin/hr/policies/promotion (Wave 3 policy shell — not in scope here)
+ *   - editor: /hr/admin/policies/promotion (Wave 3 policy shell — not in scope here)
  *   - this UI: applies the policy at submit time
  */
 
@@ -268,7 +268,7 @@ export default function PromotionApplyPage() {
                       pts)
                     </span>
                   </label>
-                  <div className="grid grid-cols-3 gap-3 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
                     <div>
                       <Label htmlFor="training">Training days</Label>
                       <Input
@@ -340,7 +340,7 @@ export default function PromotionApplyPage() {
                 </CardContent>
               </Card>
 
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <Button type="submit" disabled={submitting || !staffCtx || !policy}>
                   {submitting ? 'Submitting…' : 'Submit Application'}
                   <ArrowRight className="ml-2 h-4 w-4" />

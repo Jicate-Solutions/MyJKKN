@@ -1,12 +1,27 @@
 'use client';
 
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Lock, AlertCircle, Edit } from 'lucide-react';
+import { ArrowLeft, Lock, AlertCircle, Edit, Trash2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import { Timetable } from '@/types/academics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { TimetableService } from '@/lib/services/academic/timetable-service';
+import { revalidateTimetables } from '../../_actions/revalidate-timetables';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface TimetableHeaderProps {
   timetable: Timetable;
@@ -15,7 +30,9 @@ interface TimetableHeaderProps {
   attendanceCount?: number;
   isSuperAdmin?: boolean;
   canEdit?: boolean; // New prop
+  canDelete?: boolean;
   todaysCycle?: number | null; // For cycle-format timetables: today's active cycle
+  inchargeName?: string | null; // Resolved class incharge display name (session/day-wise)
 }
 
 /**
@@ -34,11 +51,32 @@ export function TimetableHeader({
   attendanceCount = 0,
   isSuperAdmin = false,
   canEdit = false,
-  todaysCycle = null
+  canDelete = false,
+  todaysCycle = null,
+  inchargeName = null
 }: TimetableHeaderProps) {
   const router = useRouter();
+  const adapt = useAdaptiveLabels();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await TimetableService.deleteTimetable(timetable.id);
+      await revalidateTimetables();
+      setDeleteDialogOpen(false);
+      router.push('/academic/timetables');
+    } catch (error) {
+      logger.error('academic/timetables', 'Error deleting timetable', error);
+      setDeleteDialogOpen(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
+    <>
     <div className='bg-white rounded-lg shadow-sm border'>
       <div className='p-6'>
         <div className='flex items-center justify-between mb-4'>
@@ -62,7 +100,7 @@ export function TimetableHeader({
               {/* Updated: 2025-10-08 - Only show Section badge for section-level timetables */}
               {timetable.timetable_type === 'section' && timetable.sections?.section_name && (
                 <Badge variant='outline' className='text-sm'>
-                  Section {timetable.sections.section_name}
+                  {adapt('Section')} {timetable.sections.section_name}
                 </Badge>
               )}
 
@@ -83,7 +121,7 @@ export function TimetableHeader({
                   className='text-sm border-orange-500 text-orange-700'
                 >
                   <Lock className='h-3 w-3 mr-1' />
-                  Locked - Attendance Marked
+                  Attendance Marked
                 </Badge>
               )}
             </div>
@@ -92,7 +130,7 @@ export function TimetableHeader({
               {timetable.timetable_type === 'semester'
                 ? 'Semester-level timetable with multi-section slot support'
                 : timetable.timetable_type === 'section' && timetable.sections?.section_name
-                ? `Section-level timetable for Section ${timetable.sections.section_name}`
+                ? `Section-level timetable for ${adapt('Section')} ${timetable.sections.section_name}`
                 : 'Manage and view the timetable details'}
             </p>
           </div>
@@ -112,6 +150,22 @@ export function TimetableHeader({
               >
                 <Edit className='h-4 w-4 mr-2' />
                 Edit
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant='destructive'
+                size='sm'
+                onClick={() => {
+                  if (!isNavigableId(timetable.id)) {
+                    toast.error('Unable to delete. Please refresh the page and try again.');
+                    return;
+                  }
+                  setDeleteDialogOpen(true);
+                }}
+              >
+                <Trash2 className='h-4 w-4 mr-2' />
+                Delete
               </Button>
             )}
             <Button variant='outline' size='sm' onClick={onBack}>
@@ -148,12 +202,22 @@ export function TimetableHeader({
                   aware that changes may affect existing attendance records.
                 </>
               ) : (
+                // Fixed: 2026-08-13 (BUG-005790/91/92/93) - This used to read
+                // "This timetable is locked for editing … you cannot modify or
+                // delete this timetable". That was never true for a user holding
+                // academic.timetables.edit: the per-period lock it advertised
+                // compares master `periods.id` against slot ids collected from
+                // `timetable_data[cycle][periodId].slot_id`, so it never matches.
+                // Four HODs read the banner as a hard block and filed it as a bug.
+                // State the real risk instead of asserting a block that isn't there.
                 <>
-                  <strong>This timetable is locked for editing.</strong>{' '}
-                  Attendance has been marked for {attendanceCount || 'some'}{' '}
-                  period(s). You cannot modify or delete this timetable to
-                  preserve attendance data integrity. Staff changes should be
-                  made through the Staff Planning module if needed.
+                  <strong>
+                    Attendance has been marked for{' '}
+                    {attendanceCount || 'some'} period(s).
+                  </strong>{' '}
+                  Editing or deleting those slots may affect existing attendance
+                  records, so change them only when you mean to. Staff changes
+                  are usually better made through the Staff Planning module.
                 </>
               )}
             </AlertDescription>
@@ -215,25 +279,25 @@ export function TimetableHeader({
             <h3 className='font-medium text-gray-900'>Program Information</h3>
             <div className='space-y-3 text-sm'>
               <div>
-                <span className='text-gray-500'>Degree</span>
+                <span className='text-gray-500'>{adapt('Degree')}</span>
                 <p className='font-medium'>
                   {timetable.degree?.degree_name || 'N/A'}
                 </p>
               </div>
               <div>
-                <span className='text-gray-500'>Program</span>
+                <span className='text-gray-500'>{adapt('Program')}</span>
                 <p className='font-medium'>
                   {timetable.program?.program_name || 'N/A'}
                 </p>
               </div>
               <div>
-                <span className='text-gray-500'>Department</span>
+                <span className='text-gray-500'>{adapt('Department')}</span>
                 <p className='font-medium'>
                   {timetable.department?.department_name || 'N/A'}
                 </p>
               </div>
               <div>
-                <span className='text-gray-500'>Semester</span>
+                <span className='text-gray-500'>{adapt('Semester')}</span>
                 <p className='font-medium'>
                   {timetable.semesters?.semester_name || 'N/A'}
                 </p>
@@ -257,7 +321,7 @@ export function TimetableHeader({
               {/* Updated: 2025-10-08 - Section - Only show for section-level timetables with a section */}
               {timetable.timetable_type === 'section' && timetable.sections?.section_name && (
                 <div>
-                  <span className='text-gray-500'>Section</span>
+                  <span className='text-gray-500'>{adapt('Section')}</span>
                   <p className='font-medium'>
                     {timetable.sections.section_name}
                   </p>
@@ -267,9 +331,9 @@ export function TimetableHeader({
               {/* For semester-level, show available sections count */}
               {timetable.timetable_type === 'semester' && (
                 <div>
-                  <span className='text-gray-500'>Available Sections</span>
+                  <span className='text-gray-500'>{adapt('Sections')}</span>
                   <p className='font-medium'>
-                    {timetable.available_sections?.length || 0} section(s)
+                    {timetable.available_sections?.length || 0} {adapt('Section').toLowerCase()}(s)
                   </p>
                 </div>
               )}
@@ -300,10 +364,52 @@ export function TimetableHeader({
                   })}
                 </p>
               </div>
+              {/* Attendance configuration (school day-wise support) */}
+              <div>
+                <span className='text-gray-500'>Attendance Mode</span>
+                <p className='font-medium'>
+                  {timetable.attendance_mode === 'session_wise'
+                    ? 'Day-wise (FN & AN sessions)'
+                    : 'Period-wise (every period)'}
+                </p>
+              </div>
+              <div>
+                <span className='text-gray-500'>Class Incharge</span>
+                <p className='font-medium'>
+                  {inchargeName || 'Not assigned'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+
+    <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This action cannot be undone. This will permanently delete the
+            timetable &quot;{timetable.timetable_name}&quot; and all its
+            associated data.
+            <br /><br />
+            <strong>Note:</strong> If this timetable has been used for attendance tracking,
+            the deletion will be prevented to preserve attendance records.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={confirmDelete}
+            disabled={isDeleting}
+            className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

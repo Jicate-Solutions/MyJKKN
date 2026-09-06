@@ -21,6 +21,7 @@ import { SectionService } from '@/lib/services/organization/section-service';
 import { TimetablesSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface TimetableFiltersProps {
   searchParams: TimetablesSearchParams;
@@ -64,6 +65,7 @@ export function TimetableFilters({
   const [searchValue, setSearchValue] = useState(searchParams.search || '');
   const [isSearching, setIsSearching] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
+  const adapt = useAdaptiveLabels();
 
   /**
    * Effective institution ID — prefers URL param (user explicitly chose one),
@@ -73,6 +75,17 @@ export function TimetableFilters({
    * Performance fix: 2026-03-20
    */
   const effectiveInstitutionId = searchParams.institution_id || userInstitutionId;
+
+  /**
+   * Effective department ID — mirrors effectiveInstitutionId above.
+   * FIX (BUG-002592 / BUG-002720 / BUG-003027): userDepartmentId was already
+   * being passed down from the server for HOD/faculty users but was never
+   * applied, so the Program dropdown (and therefore Semester/Section) stayed
+   * disabled until the user manually re-selected Degree → Department — which
+   * HOD users cannot do for departments outside their own scope. Falling back
+   * to userDepartmentId here unblocks the downstream chain immediately.
+   */
+  const effectiveDepartmentId = searchParams.department_id || userDepartmentId;
 
   // CRITICAL FIX: Use ref to store the latest onFilterChange callback
   // This allows useEffects to call the latest callback without re-triggering
@@ -117,7 +130,8 @@ export function TimetableFilters({
     async function loadInstitutions() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools. Dropdown is super-admin-only.
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/timetables', 'Error loading institutions', error);
@@ -142,6 +156,17 @@ export function TimetableFilters({
       stableFilterChange('institution_id', userInstitutionId);
     }
   }, [userInstitutionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-set department filter for HOD/faculty users, mirroring the institution
+  // auto-set above. FIX (BUG-002592 / BUG-002720 / BUG-003027): userDepartmentId
+  // was previously accepted as a prop but never wired up, so department_id never
+  // reached the URL/search params and the Program/Semester/Section filters stayed
+  // disabled for these users.
+  useEffect(() => {
+    if (userDepartmentId && !searchParams.department_id) {
+      stableFilterChange('department_id', userDepartmentId);
+    }
+  }, [userDepartmentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     async function loadDegrees() {
@@ -179,10 +204,10 @@ export function TimetableFilters({
 
   useEffect(() => {
     async function loadPrograms() {
-      if (searchParams.department_id) {
+      if (effectiveDepartmentId) {
         try {
           const data = await ProgramService.getProgramsByDepartment(
-            searchParams.department_id
+            effectiveDepartmentId
           );
           setPrograms(data);
         } catch (error) {
@@ -193,7 +218,7 @@ export function TimetableFilters({
       }
     }
     loadPrograms();
-  }, [searchParams.department_id]);
+  }, [effectiveDepartmentId]);
 
   useEffect(() => {
     async function loadSemesters() {
@@ -292,7 +317,7 @@ export function TimetableFilters({
       </div>
 
       <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center'>
           {isSuperAdmin && (
             <Select
               value={searchParams.institution_id || 'all'}
@@ -340,10 +365,10 @@ export function TimetableFilters({
             disabled={!effectiveInstitutionId}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select degree' />
+              <SelectValue placeholder={`Select ${adapt('degree')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Degrees</SelectItem>
+              <SelectItem value='all'>{adapt('All Degrees')}</SelectItem>
               {degrees.map((degree) => (
                 <SelectItem key={degree.id} value={degree.id}>
                   {degree.degree_name}
@@ -367,10 +392,10 @@ export function TimetableFilters({
             disabled={!searchParams.degree_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select department' />
+              <SelectValue placeholder={`Select ${adapt('department')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Departments</SelectItem>
+              <SelectItem value='all'>{adapt('All Departments')}</SelectItem>
               {departments.map((dept) => (
                 <SelectItem key={dept.id} value={dept.id}>
                   {dept.department_name}
@@ -390,13 +415,13 @@ export function TimetableFilters({
                 onFilterChange('section', undefined);
               }
             }}
-            disabled={!searchParams.department_id}
+            disabled={!effectiveDepartmentId}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select program' />
+              <SelectValue placeholder={`Select ${adapt('program')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Programs</SelectItem>
+              <SelectItem value='all'>{adapt('All Programs')}</SelectItem>
               {programs.map((program) => (
                 <SelectItem key={program.id} value={program.id}>
                   {program.program_name}
@@ -417,7 +442,7 @@ export function TimetableFilters({
         )}
       </div>
 
-      <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+      <div className='flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center'>
         <Select
           value={searchParams.semester || 'all'}
           onValueChange={(value) => {
@@ -431,10 +456,10 @@ export function TimetableFilters({
           disabled={!searchParams.program_id}
         >
           <SelectTrigger className='w-full sm:w-[180px]'>
-            <SelectValue placeholder='Select semester' />
+            <SelectValue placeholder={`Select ${adapt('semester')}`} />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Semesters</SelectItem>
+            <SelectItem value='all'>{adapt('All Semesters')}</SelectItem>
             {semesters.map((semester) => (
               <SelectItem key={semester.id} value={semester.id}>
                 {semester.semester_name}
@@ -477,10 +502,10 @@ export function TimetableFilters({
           disabled={!searchParams.semester}
         >
           <SelectTrigger className='w-full sm:w-[180px]'>
-            <SelectValue placeholder='Select section' />
+            <SelectValue placeholder={`Select ${adapt('section')}`} />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Sections</SelectItem>
+            <SelectItem value='all'>{adapt('All Sections')}</SelectItem>
             {/* Show all sections with their IDs */}
             {sections.map((section) => (
               <SelectItem key={section.id} value={section.id}>

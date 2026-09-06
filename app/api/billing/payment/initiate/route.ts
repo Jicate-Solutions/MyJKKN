@@ -47,9 +47,9 @@ async function handlePOST(request: NextRequest) {
     // Step 4: Verify user has access to the student
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('id, role')
+      .select('id, role, learner_id')
       .eq('id', user.id)
-      .single() as { data: { id: string; role: string } | null; error: unknown };
+      .single() as { data: { id: string; role: string; learner_id: string | null } | null; error: unknown };
 
     if (profileError || !profile) {
       logger.error('billing/payment-api', 'Failed to fetch user profile', profileError);
@@ -59,8 +59,10 @@ async function handlePOST(request: NextRequest) {
       );
     }
 
-    // For students, they can only pay their own bills
-    if (profile.role === 'student' && profile.id !== student_id) {
+    // For students, they can only pay their own bills. Billing keys student_id
+    // to learners_profiles.id — the profile's learner_id, NOT the auth uid
+    // (profiles.id). Comparing profile.id here 403'd every student.
+    if (profile.role === 'student' && (!profile.learner_id || profile.learner_id !== student_id)) {
       logger.warn('billing/payment-api', 'Student attempting to pay for another student', {
         user_id: user.id,
         student_id,

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card } from '@/components/ui/card';
 import { useApplications } from '@/hooks/use-applications';
@@ -9,14 +8,6 @@ import { ApplicationHubFilters } from './_components/application-hub-filters';
 import { CategoryService } from '@/lib/services/application/category-service';
 import { Category } from '@/types/categories';
 import { BeatLoader } from 'react-spinners';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
 import { ApplicationGrid } from './_components/application-grid';
 import { useAuth } from '@/hooks/use-auth';
 import { Application } from '@/types/applications';
@@ -202,22 +193,8 @@ export default function ApplicationHubPage() {
 
   return (
     <ContentLayout title='Application Hub'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Application Hub</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className='space-y-6 mt-2'>
-        <div className='flex items-center justify-between'>
+      <div className='space-y-6'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
             <h1 className='text-2xl font-bold py-1'>Application Hub</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
@@ -227,7 +204,7 @@ export default function ApplicationHubPage() {
               )}
             </p>
           </div>
-          <div className='flex gap-2'>
+          <div className='flex gap-2 shrink-0'>
             <Button
               onClick={handleRefresh}
               variant='outline'

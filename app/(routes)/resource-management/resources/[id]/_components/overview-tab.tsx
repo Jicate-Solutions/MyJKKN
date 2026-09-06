@@ -70,6 +70,8 @@ export function OverviewTab({ resource }: OverviewTabProps) {
                   ? 'bg-blue-100 text-blue-800'
                   : resource.status === 'maintenance'
                   ? 'bg-yellow-100 text-yellow-800'
+                  : resource.status === 'inactive'
+                  ? 'bg-slate-200 text-slate-600'
                   : 'bg-gray-100 text-gray-800'
               }`}
             >

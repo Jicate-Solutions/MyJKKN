@@ -6,7 +6,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  TrendingUp
+  User
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,11 +18,19 @@ interface ApprovalStatsCardsProps {
     rejected_today: number;
     overdue_approvals: number;
   } | null;
+  myStats?: {
+    my_pending: number;
+    my_approved_total: number;
+    my_approved_today: number;
+    my_rejected_total: number;
+    my_rejected_today: number;
+  } | null;
   isLoading?: boolean;
 }
 
 export function ApprovalStatsCards({
   stats,
+  myStats,
   isLoading = false
 }: ApprovalStatsCardsProps) {
   const cards = [
@@ -32,7 +40,9 @@ export function ApprovalStatsCards({
       icon: Clock,
       color: 'text-yellow-600',
       bgColor: 'bg-yellow-50',
-      borderColor: 'border-yellow-200'
+      borderColor: 'border-yellow-200',
+      subtitle: 'Awaiting approval',
+      myLabel: myStats ? `${myStats.my_pending} waiting for you` : null
     },
     {
       title: 'Approved Today',
@@ -40,7 +50,11 @@ export function ApprovalStatsCards({
       icon: CheckCircle2,
       color: 'text-green-600',
       bgColor: 'bg-green-50',
-      borderColor: 'border-green-200'
+      borderColor: 'border-green-200',
+      subtitle: 'Approved in last 24h',
+      myLabel: myStats
+        ? `You approved ${myStats.my_approved_today} today (${myStats.my_approved_total} total)`
+        : null
     },
     {
       title: 'Rejected Today',
@@ -48,7 +62,11 @@ export function ApprovalStatsCards({
       icon: XCircle,
       color: 'text-red-600',
       bgColor: 'bg-red-50',
-      borderColor: 'border-red-200'
+      borderColor: 'border-red-200',
+      subtitle: 'Rejected in last 24h',
+      myLabel: myStats
+        ? `You rejected ${myStats.my_rejected_today} today (${myStats.my_rejected_total} total)`
+        : null
     },
     {
       title: 'Overdue',
@@ -56,7 +74,9 @@ export function ApprovalStatsCards({
       icon: AlertTriangle,
       color: 'text-orange-600',
       bgColor: 'bg-orange-50',
-      borderColor: 'border-orange-200'
+      borderColor: 'border-orange-200',
+      subtitle: 'Requires immediate action',
+      myLabel: null
     }
   ];
 
@@ -99,11 +119,14 @@ export function ApprovalStatsCards({
             <CardContent>
               <div className='text-3xl font-bold'>{card.value}</div>
               <p className='text-xs text-muted-foreground mt-1'>
-                {card.title === 'Pending Approvals' && 'Awaiting your approval'}
-                {card.title === 'Approved Today' && 'Approved in last 24h'}
-                {card.title === 'Rejected Today' && 'Rejected in last 24h'}
-                {card.title === 'Overdue' && 'Requires immediate action'}
+                {card.subtitle}
               </p>
+              {card.myLabel && (
+                <p className='text-xs font-medium mt-2 flex items-center gap-1'>
+                  <User className='h-3 w-3' />
+                  {card.myLabel}
+                </p>
+              )}
             </CardContent>
           </Card>
         );

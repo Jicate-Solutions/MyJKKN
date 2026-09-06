@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Ellipsis, LogOut, Download, ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { Ellipsis, LogOut, Download, ChevronDown, ChevronRight, FileText, AlertTriangle, RefreshCw } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -13,19 +13,28 @@ import {
   TooltipProvider
 } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'motion/react';
-import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData, MENU_PERMISSIONS, filterToInductionOnlyMenu } from '@/lib/sidebarMenuLink';
 import { getModulesBySection } from '@/lib/navigation/modules';
 import { getPageRegistry, getPageByPath } from '@/lib/navigation/page-registry';
 import { filterByPermissions } from '@/lib/navigation/permission-filter';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useEffect, useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionType } from '@/hooks/use-institution-type';
+import { adaptMenuLabels, adaptLabel } from '@/lib/utils/school-label-adapter';
 import {
   useExpandedSidebarModule,
   useExpandedSidebarModuleHydration,
 } from '@/hooks/use-expanded-sidebar-module';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
+import { useHasAnyTournamentRole } from '@/hooks/events/use-has-any-tournament-role';
+import {
+  useIsSoiCoordinator,
+  withSoiCoordinatorNavAccess,
+} from '@/hooks/school-of-influence/use-soi-coordinator-nav-access';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
+import { useIsInductionOnly } from '@/hooks/use-my-lifecycle-status';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
 import { FavoriteStar } from '@/components/Favorites/FavoriteStar';
@@ -43,9 +52,13 @@ export function Menu({ isOpen }: MenuProps) {
   const {
     permissions,
     isSuperAdmin,
+    isStudent,
     isLoading: permissionsLoading,
+    error: permissionsError,
+    refetch: refetchPermissions,
     userProfile
   } = usePermissions();
+  const { institutionType } = useInstitutionType();
   const { isInstalled, canInstall, installApp } = usePWA();
   const { open: openCommandPalette } = useCommandPalette();
   // Wave 2b PR-S2: persist per-section collapsed state to localStorage
@@ -80,6 +93,27 @@ export function Menu({ isOpen }: MenuProps) {
   const marathonEventId = pathname.match(/\/events\/marathon\/([^/]+)/)?.[1] ?? '';
   const { isMember: isMarathonCommitteeMember } = useCommitteeMembership(marathonEventId);
 
+  // Per-event tournament organizers (in-charge / committee / volunteer) hold no
+  // sports.tournaments.* key but ARE let into the module by RoutePermissionGuard's
+  // fallbackCheck. Skip the RPC for users the menu already shows the module to.
+  const hasTournamentViewKey = isSuperAdmin || permissions['sports.tournaments.view'] === true;
+  const hasTournamentRole = useHasAnyTournamentRole(!permissionsLoading && !hasTournamentViewKey);
+
+  // School of Influence coordinators are appointed in cohort_coordinators, not
+  // granted a key, so filterByPermissions could never see them and the sidebar
+  // hid the programme from the one person whose job it is (BUG-005799 /
+  // BUG-005800). Same shape as the tournament seam above; the hook skips the
+  // lookup entirely for super admins and for anyone already holding the key.
+  const isSoiCoordinator = useIsSoiCoordinator();
+
+  // Students: the My Hostel sidebar entry is shown only for actual hostel
+  // residents (learners_profiles accommodation = hostel), not every student.
+  const isStudentRole = userProfile?.role === 'student';
+  const { data: isHosteler } = useIsHosteler(isStudentRole);
+  // Pre-onboarding (induction-only) learners: scope the sidebar to My Induction +
+  // My Profile. Proxy.ts is the real gate; this hides links that would only redirect.
+  const isInductionOnly = useIsInductionOnly(isStudentRole);
+
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
     if (!userProfile) return null;
@@ -105,7 +139,9 @@ export function Menu({ isOpen }: MenuProps) {
     // its 16 submenus (`/admission/marketing/expos`) becomes accessible. The
     // expo_counselor role legitimately needs expo access and gets it through
     // its own `custom_roles.permissions`, so it is intentionally NOT skipped.
-    let enrichedPermissions = { ...permissions };
+    const enrichedPermissions = {
+      ...withSoiCoordinatorNavAccess(permissions, isSoiCoordinator),
+    };
     const EXPO_ENRICHMENT_SKIP_ROLES = new Set([
       'admission_counselor',
       'learner_counselor',
@@ -122,11 +158,30 @@ export function Menu({ isOpen }: MenuProps) {
       enrichedPermissions['events.marathon.ops.committee_access'] = true;
     }
 
+    // Tournament in-charges / committee members / volunteers (2026-07-21).
+    // Without this the nav contradicted the route guard: an appointed student
+    // in-charge was let into /events/tournament by fallbackCheck but never shown
+    // the link, so the in-charge feature was unreachable for its intended users.
+    // Grants nothing new — fn_has_any_tournament_role() is the SAME check the
+    // guard runs, and every page/API still authorizes per event (useTournamentAccess
+    // -> canView/canManage, canViewTournament/canManageTournament server-side).
+    if (hasTournamentRole) {
+      enrichedPermissions['sports.tournaments.view'] = true;
+    }
+
+    // Students: gate the My Hostel entry on live hostel residency. The role-wide
+    // campus_living.my_hostel.view grant covers every student; overwrite it with
+    // user_is_hosteler() so dayscholars don't get a dead-end menu.
+    if (isStudentRole) {
+      enrichedPermissions['campus_living.my_hostel.view'] =
+        permissions['campus_living.my_hostel.view'] === true && isHosteler === true;
+    }
+
     return {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember, hasTournamentRole, isSoiCoordinator, isStudentRole, isHosteler]);
 
   // Debug: Log permission state for troubleshooting
   if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {
@@ -147,11 +202,19 @@ export function Menu({ isOpen }: MenuProps) {
   // since `MODULES` deliberately does not carry submenu data — same trade-off as
   // bottom-navbar.tsx. Sections with zero accessible menus (after permission
   // filtering) are dropped, exactly as before.
-  const pagesRaw = GetRoleBasedPages(pathname, roleData);
+  const pagesRawBase = GetRoleBasedPages(pathname, roleData);
+  const pagesRaw = isInductionOnly ? filterToInductionOnlyMenu(pagesRawBase) : pagesRawBase;
+
+  // Adapt menu labels based on institution type (school → classes/terms, college → programs/semesters)
+  const pagesAdapted = useMemo(
+    () => adaptMenuLabels(pagesRaw, institutionType),
+    [pagesRaw, institutionType]
+  );
+
   const pages = useMemo(() => {
     // Index permission-filtered groups by groupLabel for O(1) lookup
-    const byLabel = new Map<string, (typeof pagesRaw)[number]>();
-    for (const g of pagesRaw) {
+    const byLabel = new Map<string, (typeof pagesAdapted)[number]>();
+    for (const g of pagesAdapted) {
       if (g.groupLabel) byLabel.set(g.groupLabel, g);
     }
 
@@ -170,7 +233,7 @@ export function Menu({ isOpen }: MenuProps) {
     // set but are NOT yet in MODULES (forward-compat: a new section can ship
     // in sidebarMenuLink before being added to MODULES, and shouldn't vanish).
     // These trail at the end. Drop is impossible — surfacing the gap visibly.
-    for (const g of pagesRaw) {
+    for (const g of pagesAdapted) {
       if (g.groupLabel && !matchedLabels.has(g.groupLabel)) {
         ordered.push(g);
       } else if (!g.groupLabel) {
@@ -181,7 +244,7 @@ export function Menu({ isOpen }: MenuProps) {
     }
 
     return ordered;
-  }, [pagesRaw]);
+  }, [pagesAdapted]);
 
   // DEV-only: warn if any group exceeds the flat-item thresholds set by the
   // validator (prevents regression back to cluttered flat lists on new modules).
@@ -197,6 +260,29 @@ export function Menu({ isOpen }: MenuProps) {
       console.error('Error during logout:', error);
     }
   };
+
+  // Distinguish a genuine "no access" state from a transient permission-LOAD
+  // failure. A signed-in STAFF user (non-student) who has a role on their profile
+  // should always resolve at least one permission; an EMPTY merged set (or a
+  // query error) means permissions didn't load — almost always a transient
+  // network/RPC hiccup, not a real loss of access. We must NOT silently collapse
+  // to a Dashboard-only menu in that case: that reads as "you lost all your
+  // access" and is the exact confusion behind BUG-004281 (CLAUDE.md #27 — surface
+  // failures explicitly).
+  //
+  // Exclusions (legitimate empty-permission states, NOT failures):
+  //   - super admins: menu isn't permission-keyed; `permissions` is empty by design.
+  //   - students: student-status rules (inactive/exited/pending) deliberately empty
+  //     the permission set, which is a valid no-menu state.
+  //   - users with no profile role: nothing to load.
+  const hasAnyTruePermission = Object.values(permissions).some((v) => v === true);
+  const permissionsLoadFailed =
+    !isSuperAdmin &&
+    !isStudent &&
+    !permissionsLoading &&
+    !!userProfile &&
+    !!userProfile.role &&
+    (!!permissionsError || !hasAnyTruePermission);
 
   return (
     <div className='overflow-y-auto overflow-x-hidden h-full custom-scrollbar'>
@@ -231,7 +317,9 @@ export function Menu({ isOpen }: MenuProps) {
       </div>
       <nav className='mt-2 h-full w-full'>
         {permissionsLoading ? (
-          <div className='flex justify-center items-center py-4'>
+          // flex defaults to `row`, so without flex-col these placeholder bars
+          // rendered squeezed side-by-side instead of as stacked menu rows.
+          <div className='flex flex-col items-center py-4 px-2'>
             <div className='animate-pulse h-4 w-24 bg-muted rounded mb-2'></div>
             {[1, 2, 3, 4, 5].map((i) => (
               <div
@@ -239,6 +327,42 @@ export function Menu({ isOpen }: MenuProps) {
                 className='animate-pulse h-8 w-full bg-muted rounded-md mb-2'
               ></div>
             ))}
+          </div>
+        ) : permissionsLoadFailed ? (
+          // Explicit, recoverable state — never silently collapse to Dashboard-only
+          // when permissions failed to load (BUG-004281). The user keeps a way out
+          // (Retry + Dashboard) and a plain-language reason.
+          <div className='flex flex-col items-center justify-center gap-3 px-4 py-12 text-center'>
+            <AlertTriangle className='h-8 w-8 text-amber-500' aria-hidden />
+            <div className='space-y-1'>
+              <p className='text-sm font-medium text-foreground'>
+                We couldn&apos;t load your menu
+              </p>
+              <p className='text-xs text-muted-foreground'>
+                Your access didn&apos;t load. This is almost always a temporary
+                network hiccup — your permissions haven&apos;t changed.
+              </p>
+            </div>
+            <button
+              type='button'
+              onClick={() => {
+                void refetchPermissions();
+              }}
+              className='inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+            >
+              <RefreshCw className='h-3.5 w-3.5' aria-hidden />
+              Retry
+            </button>
+            <Link
+              href='/'
+              className='text-xs text-muted-foreground underline-offset-2 hover:underline'
+            >
+              Go to Dashboard
+            </Link>
+            <p className='text-[11px] text-muted-foreground'>
+              If this keeps happening, refresh the page or contact your
+              administrator.
+            </p>
           </div>
         ) : (
           <ul className='flex flex-col min-h-[calc(100vh-48px-36px-16px-32px)] lg:min-h-[calc(100vh-32px-40px-32px)] items-start space-y-1 px-2'>
@@ -332,6 +456,14 @@ export function Menu({ isOpen }: MenuProps) {
                   // Skip Dashboard ('/') — it has no sub-pages and stays a plain link.
                   const moduleSlug = href === '/' ? null : href.replace(/^\//, '').split('/')[0]!;
 
+                  // Rows with hand-authored submenus self-anchor under their full-path
+                  // key so several accordion rows can share one top-level slug (e.g.
+                  // /hr, /hr/recruitment and /hr/admin each expand independently).
+                  // Auto-discovery rows keep the one-anchor-per-slug competition below,
+                  // which exists so siblings never re-list the same manifest children.
+                  const hasExplicitSubmenus = submenus.length > 0 && !noSubmenus;
+                  const accordionKey = hasExplicitSubmenus && moduleSlug ? href.replace(/^\//, '') : moduleSlug;
+
                   // Children source priority:
                   //  1. `noSubmenus: true` on the row → plain link, no
                   //     children at all (skip both submenus and manifest).
@@ -344,7 +476,7 @@ export function Menu({ isOpen }: MenuProps) {
                   //
                   // Only the anchor row for each slug gets sub-pages; non-anchor
                   // siblings render as plain links.
-                  const isAnchor = moduleSlug ? anchorBySlug.get(moduleSlug) === href : false;
+                  const isAnchor = moduleSlug ? (hasExplicitSubmenus || anchorBySlug.get(moduleSlug) === href) : false;
                   const moduleSubPages = (isAnchor && !noSubmenus)
                     ? (submenus.length > 0
                         ? submenus.map((sub) => {
@@ -353,6 +485,14 @@ export function Menu({ isOpen }: MenuProps) {
                               path: sub.href,
                               title: sub.label,
                               module: moduleSlug ?? '',
+                              // Hand-authored `submenus` carry no permission of their
+                              // own, so filterByPermissions used to treat them as
+                              // "no permission required → visible to all" — leaking the
+                              // full menu (e.g. IMS) to users who only hold a subset of
+                              // the module's permissions. Attach the route's permission
+                              // from the manifest, falling back to MENU_PERMISSIONS, so
+                              // each child is gated like auto-discovered pages are.
+                              permission: fromManifest?.permission ?? MENU_PERMISSIONS[sub.href],
                               icon: fromManifest?.icon ?? FileText,
                               iconName: fromManifest?.iconName ?? 'FileText',
                               keywords: [],
@@ -381,7 +521,7 @@ export function Menu({ isOpen }: MenuProps) {
                   // - No accessible direct children → plain link
                   // - Otherwise → accordion
                   const useAccordion = isOpen !== false && directChildren.length > 0;
-                  const isExpanded = useAccordion && expandedModule === moduleSlug;
+                  const isExpanded = useAccordion && expandedModule === accordionKey;
 
                   return (
                     <div className='w-full group/row' key={href}>
@@ -402,10 +542,10 @@ export function Menu({ isOpen }: MenuProps) {
                                     // via the module's /dashboard sub-page (auto-discovered),
                                     // Ctrl+K, or direct URL.
                                     e.preventDefault();
-                                    toggleModule(moduleSlug!);
+                                    toggleModule(accordionKey!);
                                   }}
                                   aria-expanded={isExpanded}
-                                  aria-controls={isExpanded ? `sidebar-submenu-${moduleSlug}` : undefined}
+                                  aria-controls={isExpanded ? `sidebar-submenu-${accordionKey}` : undefined}
                                   asChild
                                 >
                                   <Link href={href}>
@@ -496,7 +636,7 @@ export function Menu({ isOpen }: MenuProps) {
                         <AnimatePresence initial={false}>
                           {isExpanded && (
                             <motion.ul
-                              id={`sidebar-submenu-${moduleSlug}`}
+                              id={`sidebar-submenu-${accordionKey}`}
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: 'auto', opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
@@ -520,7 +660,7 @@ export function Menu({ isOpen }: MenuProps) {
                                         <span className='mr-4'>
                                           <SubIcon size={18} />
                                         </span>
-                                        <span className='max-w-[160px] truncate'>{sub.title}</span>
+                                        <span className='max-w-[160px] truncate'>{adaptLabel(sub.title, institutionType)}</span>
                                       </Link>
                                     </Button>
                                   </li>

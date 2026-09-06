@@ -4,47 +4,55 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { isValidUUID } from '@/lib/utils/uuid-validator';
 import type { PaymentAuditEventType, PaymentAuditLog } from '@/types/payment-gateway';
 
 export class PaymentAuditService {
-  // System user ID for payment audit events (when no student ID available)
-  // This should be a dedicated system account in the users table
-  private static readonly SYSTEM_AUDIT_USER_ID = '00000000-0000-0000-0000-000000000000';
+  /**
+   * Payment events are raised from contexts that have no signed-in user at all
+   * (Razorpay webhooks, the razorpay-late-auth cron) and identify the payer by
+   * learners_profiles.id, which is NOT a profiles.id. Callers also pass the
+   * literal 'unknown' when the identity isn't known. Coerce anything that isn't
+   * a real UUID to null so a bad identifier can never reject the audit write.
+   */
+  private static asUuid(value: string | null | undefined): string | null {
+    return value && isValidUUID(value) ? value : null;
+  }
 
   /**
-   * Logs a payment security event to the user_activity_logs table
-   * This is used for tracking all security-related payment events
+   * Logs a payment security event to the payment_audit_logs table.
+   *
+   * This previously wrote to user_activity_logs, whose user_id is NOT NULL with
+   * an FK to profiles(id) — so every insert failed with 23503 (learner ids are
+   * not profile ids) and was swallowed below, leaving zero forensic trail. See
+   * migration 20260804090000_payment_audit_logs.sql.
    */
   static async logSecurityEvent(auditLog: PaymentAuditLog): Promise<void> {
     try {
       const supabase = createServiceRoleClient();
 
-      // Map audit event to activity log format
-      // Note: user_activity_logs requires user_id to be NOT NULL
-      // We use the student_id if available, otherwise a system audit user
       const activityData = {
-        user_id: auditLog.studentId || this.SYSTEM_AUDIT_USER_ID,
-        action_type: auditLog.eventType,
-        resource_type: 'payment_transaction',
-        resource_id: null, // Transaction ID is not a UUID, store in metadata instead
-        resource_name: `Payment Transaction: ${auditLog.transactionId}`,
+        event_type: auditLog.eventType,
+        transaction_id: auditLog.transactionId,
+        student_id: this.asUuid(auditLog.studentId),
+        institution_id: this.asUuid(auditLog.institutionId),
+        expected_amount: auditLog.expectedAmount ?? null,
+        actual_amount: auditLog.actualAmount ?? null,
+        client_status: auditLog.clientStatus ?? null,
+        server_status: auditLog.serverStatus ?? null,
         description: this.getEventDescription(auditLog),
         ip_address: auditLog.ipAddress || null,
         user_agent: auditLog.userAgent || null,
-        institution_id: auditLog.institutionId || null,
         metadata: {
-          eventType: auditLog.eventType,
-          transactionId: auditLog.transactionId,
-          expectedAmount: auditLog.expectedAmount,
-          actualAmount: auditLog.actualAmount,
-          clientStatus: auditLog.clientStatus,
-          serverStatus: auditLog.serverStatus,
           ...auditLog.metadata,
+          // Preserve the raw identifiers even when they aren't UUID-shaped.
+          rawStudentId: auditLog.studentId ?? null,
+          rawInstitutionId: auditLog.institutionId ?? null,
         },
       };
 
       // Use raw insert to bypass TypeScript strict typing
-      const { error } = await (supabase as any).from('user_activity_logs').insert(activityData);
+      const { error } = await (supabase as any).from('payment_audit_logs').insert(activityData);
 
       if (error) {
         logger.error('billing/payment-audit', 'Failed to log security event', {
@@ -283,16 +291,16 @@ export class PaymentAuditService {
   private static getEventDescription(auditLog: PaymentAuditLog): string {
     switch (auditLog.eventType) {
       case 'PAYMENT_VERIFICATION_SUCCESS':
-        return `Payment verified successfully with HDFC API for amount ${auditLog.actualAmount}`;
+        return `Payment verified successfully with the gateway for amount ${auditLog.actualAmount}`;
 
       case 'PAYMENT_VERIFICATION_FAILED':
-        return `Payment verification failed - HDFC status: ${auditLog.serverStatus}`;
+        return `Payment verification failed - gateway status: ${auditLog.serverStatus}`;
 
       case 'PAYMENT_MANIPULATION_DETECTED':
-        return `⚠️ SECURITY: Payment manipulation detected - Client claimed ${auditLog.clientStatus} but HDFC returned ${auditLog.serverStatus}`;
+        return `⚠️ SECURITY: Payment manipulation detected - Client claimed ${auditLog.clientStatus} but the gateway returned ${auditLog.serverStatus}`;
 
       case 'PAYMENT_AMOUNT_MISMATCH':
-        return `⚠️ SECURITY: Amount mismatch - Expected ${auditLog.expectedAmount}, HDFC returned ${auditLog.actualAmount}`;
+        return `⚠️ SECURITY: Amount mismatch - Expected ${auditLog.expectedAmount}, gateway returned ${auditLog.actualAmount}`;
 
       case 'PAYMENT_REPLAY_BLOCKED':
         return `Replay attack blocked - Transaction already processed`;
@@ -301,7 +309,7 @@ export class PaymentAuditService {
         return `⚠️ SECURITY: Invalid webhook signature detected - possible spoofing attempt`;
 
       case 'PAYMENT_CALLBACK_RECEIVED':
-        return `Payment callback received from HDFC gateway with status: ${auditLog.clientStatus}`;
+        return `Payment callback received from the gateway with status: ${auditLog.clientStatus}`;
 
       case 'PAYMENT_RECEIPT_CREATED':
         return `Receipt created for verified payment - Amount: ${auditLog.actualAmount}`;

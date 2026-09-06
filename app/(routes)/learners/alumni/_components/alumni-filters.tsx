@@ -703,7 +703,7 @@ export function AlumniFilters({ searchParams, statusFilter }: AlumniFiltersProps
             </div>
 
             {/* Search and Clear Filters Buttons */}
-            <div className='flex justify-between pt-2'>
+            <div className='flex flex-wrap gap-2 justify-between pt-2'>
               <Button variant='outline' onClick={handleClear}>
                 <RotateCcw className='mr-2 h-4 w-4' />
                 Clear All Filters

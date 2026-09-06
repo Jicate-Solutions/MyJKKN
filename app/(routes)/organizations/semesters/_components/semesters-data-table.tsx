@@ -1,8 +1,9 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
 import type { SemestersSearchParams } from './data-table-schema';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import {
   Plus,
@@ -47,6 +48,8 @@ interface SemestersDataTableProps {
 export function SemestersDataTable({ search }: SemestersDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const label = useAdaptiveLabels();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Semester[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -130,7 +133,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
 
       if (successful > 0) {
         toast.success(
-          `Successfully deleted ${successful} semester${
+          `Successfully deleted ${successful} ${label('semester').toLowerCase()}${
             successful > 1 ? 's' : ''
           }`
         );
@@ -138,7 +141,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} semester${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${label('semester').toLowerCase()}${failed > 1 ? 's' : ''}`
         );
       }
 
@@ -154,7 +157,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
       setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting semesters:', error);
-      toast.error('An error occurred while deleting semesters');
+      toast.error(`An error occurred while deleting ${label('semesters')}`);
     } finally {
       setIsDeleting(false);
     }
@@ -180,7 +183,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
       toast.success('Export completed successfully');
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export semesters');
+      toast.error(`Failed to export ${label('semesters')}`);
     }
   };
 
@@ -214,7 +217,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <Button
           onClick={() => router.push('/organizations/semesters/new')}
@@ -222,7 +225,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
           className='h-8'
         >
           <Plus className='mr-2 h-4 w-4' />
-          Add Semester
+          Add {label("semester")}
         </Button>
       )}
 
@@ -290,7 +293,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adapt) as any}
         exportConfig={{
           entityName: 'semesters',
           columnMapping: {},
@@ -313,12 +316,12 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Semesters`
-                : `Delete Semester: ${selectedForDelete[0]?.semester_name}`}
+                ? `Delete ${selectedForDelete.length} ${label("semester")}s`
+                : `Delete ${label("semester")}: ${selectedForDelete[0]?.semester_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              semester{selectedForDelete.length > 1 ? 's' : ''} and all related
+              {label('semester')}{selectedForDelete.length > 1 ? 's' : ''} and all related
               data.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -327,12 +330,12 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
           {selectedForDelete.length > 0 && (
             <div className='my-4 p-3 bg-muted rounded-lg'>
               <div className='text-sm font-medium mb-2'>
-                Semester{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+                {label('Semester')}{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
               </div>
               <div className='space-y-1 max-h-32 overflow-y-auto'>
                 {selectedForDelete.map((semester) => (
                   <div key={semester.id} className='text-sm'>
-                    • {semester.semester_name} (Semester{' '}
+                    • {semester.semester_name} ({label('Semester')}{' '}
                     {semester.semester_code})
                   </div>
                 ))}
@@ -355,8 +358,8 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Semesters`
-                    : 'Semester'
+                    ? `${selectedForDelete.length} ${label("semester")}s`
+                    : label("semester")
                 }`
               )}
             </AlertDialogAction>

@@ -7,7 +7,7 @@
 // What this page is
 // -----------------
 // The employee-side surface for fulfilling the document-upload requirements
-// defined by HR in /admin/hr/required-documents (PR #809). Each row in the
+// defined by HR in /hr/admin/required-documents (PR #809). Each row in the
 // checklist is a hr_required_documents policy row applicable to full-time
 // staff, joined with the latest live upload from hr_employee_documents.
 //

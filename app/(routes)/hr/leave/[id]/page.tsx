@@ -19,6 +19,8 @@ import {
   useCancelApplication,
 } from '@/hooks/hr/use-leave';
 import { LEAVE_DURATION_LABELS, LEAVE_STATUS_LABELS } from '@/types/hr';
+import { LeaveDocumentList } from '../_components/leave-document-list';
+import { ApprovalChainTimeline } from '../_components/approval-chain-timeline';
 
 export default function ApplicationDetailPage() {
   const params = useParams();
@@ -79,6 +81,14 @@ export default function ApplicationDetailPage() {
               <div className="text-muted-foreground mb-1">Reason</div>
               <p className="whitespace-pre-wrap">{app.reason}</p>
             </div>
+            <div className="sm:col-span-2">
+              {/* The applicant's own view of what they attached — and, for an
+                  emergency filed empty, the reminder that it is still owed. */}
+              <LeaveDocumentList
+                documents={app.documents}
+                outstanding={(app.documents?.length ?? 0) === 0 && !!app.is_emergency}
+              />
+            </div>
             {app.rejection_reason && (
               <div className="text-red-700 dark:text-red-400">
                 <div className="mb-1">Rejection Reason</div>
@@ -91,25 +101,9 @@ export default function ApplicationDetailPage() {
         <Card>
           <CardHeader><CardTitle className="text-sm">Approval Chain (frozen at apply-time)</CardTitle></CardHeader>
           <CardContent>
-            <ol className="space-y-2">
-              {app.approval_chain.map((step, idx) => (
-                <li key={idx} className="flex items-center gap-3 text-sm">
-                  <span className={`h-2 w-2 rounded-full ${
-                    step.status === 'approved' ? 'bg-green-500' :
-                    step.status === 'rejected' ? 'bg-red-500' :
-                    idx === app.current_step ? 'bg-yellow-500' : 'bg-muted'
-                  }`} />
-                  <span className="font-medium">Step {step.step_order}:</span>
-                  <span>{step.approver_role}</span>
-                  <span className="text-xs text-muted-foreground">({step.status})</span>
-                  {step.decided_at && (
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {new Date(step.decided_at).toLocaleString()}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ol>
+            {/* Same component as the approver's detail sheet, so the applicant
+                and the approver read one chain, not two renderings of it. */}
+            <ApprovalChainTimeline app={app} />
           </CardContent>
         </Card>
 
@@ -120,9 +114,9 @@ export default function ApplicationDetailPage() {
               <div className="space-y-2">
                 {comments.map((c) => (
                   <div key={c.id} className="border-l-2 border-muted pl-3 py-1">
-                    <p className="text-sm">{c.body}</p>
+                    <p className="text-sm">{c.comment}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {c.author_id} · {new Date(c.created_at).toLocaleString()}
+                      {new Date(c.created_at).toLocaleString()}
                     </p>
                   </div>
                 ))}

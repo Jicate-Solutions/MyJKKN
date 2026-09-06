@@ -1,3 +1,5 @@
+import type { NotificationTargeting as StoredTargeting } from '@/lib/notifications/target-audience';
+
 export interface PushSubscription {
   id: string;
   user_id: string;
@@ -30,6 +32,13 @@ export interface Notification {
   expires_at?: string;
   created_at: string;
   updated_at: string;
+  /**
+   * The stored `targeting` JSONB as it comes back from the API — every legacy
+   * key included. `NotificationTargeting` below is the narrower shape the
+   * create form SENDS; this is the wider shape production actually HOLDS, so
+   * the two are deliberately not the same type.
+   */
+  targeting?: StoredTargeting | null;
 }
 
 export interface UserNotification {
@@ -48,6 +57,17 @@ export interface NotificationTargeting {
   semester_id?: string;
   section_id?: string;
   target_roles?: string[];
+  /**
+   * Saved-audience ids resolved through the `resolve_audience` RPC.
+   *
+   * Declared here because the send route already reads it in two places
+   * (app/api/notifications/send/route.ts — the fail-closed audience guard and
+   * the resolver). It was missing from this interface, which left two TS2339
+   * errors sitting in that file on main; `typescript.ignoreBuildErrors` masks
+   * them at build time and TypeCheck (PR-scoped) is file-scoped, so they surface
+   * against whichever PR next touches the file. Purely additive and optional.
+   */
+  audience_ids?: string[];
 }
 
 export interface NotificationAttachment {
@@ -208,7 +228,7 @@ export interface PendingAction {
 // (app/api/admin/notifications/audiences/route.ts and [id]/route.ts),
 // but it was never added to this file — blocking all production deploys
 // since the notifications module merged. See the audience form for the
-// UI side: app/(routes)/admin/notifications/audiences/_components/audience-form.tsx
+// UI side: app/(routes)/notifications/admin/audiences/_components/audience-form.tsx
 export const VALID_BUILT_IN_AUDIENCE_NAMES = [
   'role_filter',
   'institution_filter',

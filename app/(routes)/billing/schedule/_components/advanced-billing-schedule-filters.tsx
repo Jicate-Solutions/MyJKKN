@@ -12,16 +12,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RotateCcw, Filter, X } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingScheduleSearchParams } from './data-table-schema';
+import {
+  ACCOMMODATION_TYPE_OPTIONS,
+  LIFECYCLE_STATUS_FILTER_OPTIONS
+} from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 import { DateRange } from 'react-day-picker';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +35,7 @@ import { cn } from '@/lib/utils';
 interface AdvancedBillingScheduleFiltersProps {
   searchParams: BillingScheduleSearchParams;
   onFilterChange: (key: string, value: string | undefined) => void;
+  onBatchFilterChange: (changes: Record<string, string | undefined>) => void;
   onClearFilters: () => void;
 }
 
@@ -63,9 +69,18 @@ interface FilterValidation {
   suggestions: string[];
 }
 
+const CASCADE_CLEAR_MAP: Record<string, string[]> = {
+  institution_id: ['degree_id', 'department_id', 'program_id', 'semester_id', 'section_id', 'academic_year_id'],
+  degree_id: ['department_id', 'program_id', 'semester_id', 'section_id'],
+  department_id: ['program_id', 'semester_id', 'section_id'],
+  program_id: ['semester_id', 'section_id'],
+  semester_id: ['section_id']
+};
+
 export function AdvancedBillingScheduleFilters({
   searchParams,
   onFilterChange,
+  onBatchFilterChange,
   onClearFilters
 }: AdvancedBillingScheduleFiltersProps) {
   const [filterState, setFilterState] = useState<FilterState>({
@@ -91,7 +106,40 @@ export function AdvancedBillingScheduleFilters({
   });
 
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  // Kept outside filterState: admission years are global (not dependent on the
+  // institution → degree → … cascade the rest of that object models), and the
+  // list is de-duplicated to NAMES because admission_years holds one row per
+  // year per institution (79 rows / 9 names).
+  const [admissionYearNames, setAdmissionYearNames] = useState<string[]>([]);
+  const { canAccess } = usePermissions();
+
+  useEffect(() => {
+    async function loadAdmissionYears() {
+      try {
+        const rows = await AdmissionYearService.listAllActiveYearNames();
+        // Service orders year-descending; Set preserves insertion order.
+        setAdmissionYearNames([
+          ...new Set(rows.map((r) => r.admission_year_name).filter(Boolean))
+        ]);
+      } catch (error) {
+        console.error('Error loading admission years:', error);
+      }
+    }
+    loadAdmissionYears();
+  }, []);
+  const {
+    institutions: allAccessibleInstitutions,
+    loading: loadingAccessibleInstitutions,
+  } = useInstitutionsWithAccess({ isActive: true });
+
+  // College-only, same rule as the basic filter bar and the students page:
+  // the hook forces entityType 'all' for super admins, so the restriction has
+  // to be applied to the RESULT or schools/offices leak into this dropdown.
+  const accessibleInstitutions = useMemo(
+    () => allAccessibleInstitutions.filter((i) => i.entity_type === 'institution'),
+    [allAccessibleInstitutions]
+  );
+  const hasMultiInstitutionAccess = accessibleInstitutions.length > 1;
 
   // Smart filter validation that checks hierarchy consistency
   const validateFilters = useCallback((): FilterValidation => {
@@ -148,45 +196,37 @@ export function AdvancedBillingScheduleFilters({
     };
   }, [searchParams, filterState]);
 
-  // Optimized filter change handler that only clears invalid dependent filters
   const handleSmartFilterChange = useCallback(
     (key: string, value: string | undefined) => {
-      // Always apply the current filter change
-      onFilterChange(key, value);
+      const toClear = CASCADE_CLEAR_MAP[key];
 
-      // Smart cascade logic: only clear filters that become invalid
-      if (!value) {
-        // If clearing a filter, clear its dependents
-        const clearMap: Record<string, string[]> = {
-          institution_id: ['degree_id', 'department_id', 'program_id', 'semester_id', 'section_id', 'academic_year_id'],
-          degree_id: ['department_id', 'program_id', 'semester_id', 'section_id'],
-          department_id: ['program_id', 'semester_id', 'section_id'],
-          program_id: ['semester_id', 'section_id'],
-          semester_id: ['section_id']
-        };
-
-        const toClear = clearMap[key] || [];
-        toClear.forEach(filterKey => {
-          onFilterChange(filterKey, undefined);
-        });
+      if (toClear) {
+        const changes: Record<string, string | undefined> = { [key]: value };
+        for (const filterKey of toClear) {
+          changes[filterKey] = undefined;
+        }
+        onBatchFilterChange(changes);
+      } else {
+        onFilterChange(key, value);
       }
     },
-    [onFilterChange]
+    [onFilterChange, onBatchFilterChange]
   );
 
   // Auto-fix invalid filters on page load
   useEffect(() => {
     const validation = validateFilters();
     if (!validation.isValid) {
-      // Auto-clear invalid filters after a brief delay to allow data to load
       const timer = setTimeout(() => {
-        validation.invalidFilters.forEach(filterKey => {
-          onFilterChange(filterKey, undefined);
-        });
+        const changes: Record<string, string | undefined> = {};
+        for (const filterKey of validation.invalidFilters) {
+          changes[filterKey] = undefined;
+        }
+        onBatchFilterChange(changes);
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [validateFilters, onFilterChange]);
+  }, [validateFilters, onBatchFilterChange]);
 
   // Enhanced data loading with error handling and caching
   const loadFilterData = useCallback(async (
@@ -229,9 +269,16 @@ export function AdvancedBillingScheduleFilters({
     }
   }, [searchParams]);
 
-  // Load institutions and categories on mount
+  // Sync accessible institutions into filterState for cascade logic.
   useEffect(() => {
-    loadFilterData('institutions', () => OrganizationService.getInstitutionNames(true));
+    if (!loadingAccessibleInstitutions) {
+      setFilterState(prev => ({ ...prev, institutions: accessibleInstitutions }));
+      setLoading(prev => ({ ...prev, institutions: false }));
+    }
+  }, [accessibleInstitutions, loadingAccessibleInstitutions]);
+
+  // Load categories on mount
+  useEffect(() => {
     loadFilterData('categories', async () => {
       const result = await BillingCategoryService.getBillingCategories();
       return result.data;
@@ -304,22 +351,20 @@ export function AdvancedBillingScheduleFilters({
     }
   }, [searchParams.semester_id, loadFilterData]);
 
-  // Auto-set institution for non-super admin users
+  // Auto-pin institution for single-institution users.
   useEffect(() => {
     if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !searchParams.institution_id &&
-      !loading.institutions
+      !loadingAccessibleInstitutions &&
+      accessibleInstitutions.length === 1 &&
+      !searchParams.institution_id
     ) {
-      onFilterChange('institution_id', userProfile.institution_id);
+      onFilterChange('institution_id', accessibleInstitutions[0].id);
     }
   }, [
-    userProfile,
-    isSuperAdmin,
+    accessibleInstitutions,
     searchParams.institution_id,
     onFilterChange,
-    loading.institutions
+    loadingAccessibleInstitutions,
   ]);
 
   const handleDateRangeChange = useCallback((range: DateRange | undefined) => {
@@ -402,11 +447,42 @@ export function AdvancedBillingScheduleFilters({
       });
     }
 
+    if (searchParams.lifecycle_status) {
+      const opt = LIFECYCLE_STATUS_FILTER_OPTIONS.find(
+        (o) => o.value === searchParams.lifecycle_status
+      );
+      filters.push({
+        key: 'lifecycle_status',
+        value: searchParams.lifecycle_status,
+        label: `Learner Status: ${opt?.label || searchParams.lifecycle_status}`
+      });
+    }
+
     if (searchParams.is_recurring) {
       filters.push({
         key: 'is_recurring',
         value: searchParams.is_recurring,
         label: `Type: ${searchParams.is_recurring === 'true' ? 'Recurring' : 'One-time'}`
+      });
+    }
+
+    if (searchParams.accommodation_type) {
+      const opt = ACCOMMODATION_TYPE_OPTIONS.find(
+        (o) => o.value === searchParams.accommodation_type
+      );
+      filters.push({
+        key: 'accommodation_type',
+        value: searchParams.accommodation_type,
+        label: `Accommodation: ${opt?.label || searchParams.accommodation_type}`
+      });
+    }
+
+    // Value IS the display label here — the filter carries the year name.
+    if (searchParams.admission_year) {
+      filters.push({
+        key: 'admission_year',
+        value: searchParams.admission_year,
+        label: `Admission Year: ${searchParams.admission_year}`
       });
     }
 
@@ -419,7 +495,7 @@ export function AdvancedBillingScheduleFilters({
   return (
     <div className='space-y-4'>
       {/* Filter Header with Collapse/Expand */}
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
         <div className='flex items-center gap-2'>
           <Filter className='h-4 w-4' />
           <span className='font-medium'>Advanced Filters</span>
@@ -486,7 +562,7 @@ export function AdvancedBillingScheduleFilters({
         <>
           {/* Institution & Academic Hierarchy */}
           <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
-            {isSuperAdmin && (
+            {hasMultiInstitutionAccess && (
               <div className='space-y-2'>
                 <Label>Institution</Label>
                 <Select
@@ -494,14 +570,14 @@ export function AdvancedBillingScheduleFilters({
                   onValueChange={(value) => {
                     handleSmartFilterChange('institution_id', value === 'all' ? undefined : value);
                   }}
-                  disabled={loading.institutions}
+                  disabled={loadingAccessibleInstitutions}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder='Select institution' />
                   </SelectTrigger>
                   <SelectContent className='max-h-60 overflow-y-auto'>
                     <SelectItem value='all'>All Institutions</SelectItem>
-                    {filterState.institutions.map((inst) => (
+                    {accessibleInstitutions.map((inst) => (
                       <SelectItem key={inst.id} value={inst.id}>
                         {inst.name}
                       </SelectItem>
@@ -525,6 +601,7 @@ export function AdvancedBillingScheduleFilters({
                 </SelectTrigger>
                 <SelectContent className='max-h-60 overflow-y-auto'>
                   <SelectItem value='all'>All Academic Years</SelectItem>
+                  <SelectItem value='unspecified'>Unspecified</SelectItem>
                   {filterState.academicYears.map((year) => (
                     <SelectItem key={year.id} value={year.id}>
                       {year.name}
@@ -671,6 +748,59 @@ export function AdvancedBillingScheduleFilters({
                 </SelectContent>
               </Select>
             </div>
+
+            <div className='space-y-2'>
+              <Label>Accommodation Type</Label>
+              <Select
+                value={searchParams.accommodation_type || 'all'}
+                onValueChange={(value) =>
+                  handleSmartFilterChange(
+                    'accommodation_type',
+                    value === 'all' ? undefined : value
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder='Select accommodation type' />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Accommodation</SelectItem>
+                  {ACCOMMODATION_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Admission year = the cohort the learner joined in. Distinct from
+                Academic Year above, which is the year the BILL belongs to.
+                Keyed by name because admission_years is per-institution. */}
+            <div className='space-y-2'>
+              <Label>Admission Year</Label>
+              <Select
+                value={searchParams.admission_year || 'all'}
+                onValueChange={(value) =>
+                  handleSmartFilterChange(
+                    'admission_year',
+                    value === 'all' ? undefined : value
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder='Select admission year' />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Admission Years</SelectItem>
+                  {admissionYearNames.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Bill-specific Filters */}
@@ -694,6 +824,28 @@ export function AdvancedBillingScheduleFilters({
                   <SelectItem value='overdue'>Overdue</SelectItem>
                   <SelectItem value='cancelled'>Cancelled</SelectItem>
                   <SelectItem value='refunded'>Refunded</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className='space-y-2'>
+              <Label>Learner Status</Label>
+              <Select
+                value={searchParams.lifecycle_status || 'all'}
+                onValueChange={(value) =>
+                  handleSmartFilterChange('lifecycle_status', value === 'all' ? undefined : value)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder='Filter by learner status' />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Learner Status</SelectItem>
+                  {LIFECYCLE_STATUS_FILTER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

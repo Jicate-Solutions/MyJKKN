@@ -62,6 +62,7 @@ export function ReceiptsFiltersClient() {
     searchParams.get('institution_id') ||
     searchParams.get('student_id') ||
     searchParams.get('payment_mode') ||
+    searchParams.get('collection_type') ||
     searchParams.get('receipt_date_from') ||
     searchParams.get('receipt_date_to');
 
@@ -126,6 +127,30 @@ export function ReceiptsFiltersClient() {
               <SelectItem value='bank_transfer'>Bank Transfer</SelectItem>
               <SelectItem value='dd'>DD</SelectItem>
               <SelectItem value='cheque'>Cheque</SelectItem>
+              <SelectItem value='combined'>Combined Payment</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Collection ownership. One payment can settle both management and
+            government bills, so this matches receipts CONTAINING such a line —
+            a mixed receipt shows under either option. */}
+        <div className='space-y-2'>
+          <Label htmlFor='collection_type' className='text-sm'>
+            Collection
+          </Label>
+          <Select
+            value={searchParams.get('collection_type') || 'all'}
+            onValueChange={(value) => handleFilterChange('collection_type', value)}
+            disabled={isPending}
+          >
+            <SelectTrigger id='collection_type'>
+              <SelectValue placeholder='All Collections' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Collections</SelectItem>
+              <SelectItem value='management'>Includes Management fees</SelectItem>
+              <SelectItem value='government'>Includes Government fees</SelectItem>
             </SelectContent>
           </Select>
         </div>

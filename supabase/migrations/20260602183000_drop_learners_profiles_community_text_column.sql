@@ -1,0 +1,11 @@
+-- ============================================================================
+-- Drop learners_profiles.community TEXT column (FK-only)
+-- ============================================================================
+-- Final step of the community TEXT -> community_category_id migration. All
+-- writes persist community_category_id; all reads derive the community CODE from
+-- the FK (community_categories). Triggers/view/RPCs were updated in
+-- 20260602181000 + 20260602182000, and the NOT NULL was dropped there, so the
+-- column has no remaining dependencies. community_category_id is now the sole
+-- source of truth.
+-- ============================================================================
+ALTER TABLE public.learners_profiles DROP COLUMN community;

@@ -35,6 +35,12 @@ export const WIDGET_IDS = [
   'decision_queue',
   'activity_feed',
   'leaderboards',
+  'ai_agency',
+  // Dormant by default: deliberately absent from HARDCODED_DEFAULT, so no role
+  // sees it until the Director adds it to a role in
+  // /admin/dashboard/widget-config (which writes the dashboard.role_widgets
+  // platform_policies row). Registering the ID here is what makes it selectable.
+  'daily_intel',
 ] as const;
 
 export type WidgetId = (typeof WIDGET_IDS)[number];
@@ -64,11 +70,12 @@ const HARDCODED_DEFAULT: RoleWidgetMap = {
     'counselor_staffing_alert',
     'whatsapp_health',
     'hero',
+    'ai_agency',
     'decision_queue',
     'activity_feed',
     'leaderboards',
   ],
-  hr_officer: ['morning_brief', 'hero', 'decision_queue', 'activity_feed'],
+  hr_officer: ['morning_brief', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
   counselor: [
     'morning_brief',
     'counselor_staffing_alert',
@@ -78,12 +85,12 @@ const HARDCODED_DEFAULT: RoleWidgetMap = {
     'activity_feed',
     'leaderboards',
   ],
-  hod: ['morning_brief', 'whatsapp_health', 'hero', 'decision_queue', 'activity_feed'],
-  faculty: ['morning_brief', 'hero', 'decision_queue', 'activity_feed'],
-  principal: ['morning_brief', 'hero', 'decision_queue', 'activity_feed'],
-  accounts: ['morning_brief', 'hero', 'decision_queue', 'activity_feed'],
+  hod: ['morning_brief', 'whatsapp_health', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
+  faculty: ['morning_brief', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
+  principal: ['morning_brief', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
+  accounts: ['morning_brief', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
   student: ['morning_brief', 'hero'],
-  _default: ['morning_brief', 'decision_queue'],
+  _default: ['morning_brief', 'decision_queue', 'ai_agency'],
 };
 
 /**
@@ -124,13 +131,18 @@ export async function getRoleWidgetMap(): Promise<RoleWidgetMap> {
 }
 
 /**
- * Return the ordered list of widget IDs to render for a given role.
+ * Pure selection half of {@link getWidgetsForRole} — no I/O.
  *
- * `roleKey` should be the lowercased `profiles.role` value. Pass `null` for
- * unauthenticated callers — they get the `_default` list.
+ * Extracted 2026-08-01 (dashboard TTFB): the map fetch does not depend on the
+ * viewer's role, so /dashboard fetches the map in parallel with persona
+ * resolution and then applies this exact selection logic synchronously.
+ * Byte-for-byte the same resolution order getWidgetsForRole always used:
+ * role entry → _default entry → hardcoded _default.
  */
-export async function getWidgetsForRole(roleKey: string | null): Promise<string[]> {
-  const map = await getRoleWidgetMap();
+export function pickWidgetsForRole(
+  map: RoleWidgetMap,
+  roleKey: string | null
+): string[] {
   if (roleKey && map[roleKey] && map[roleKey].length > 0) {
     return map[roleKey];
   }
@@ -138,6 +150,17 @@ export async function getWidgetsForRole(roleKey: string | null): Promise<string[
     return map._default;
   }
   return HARDCODED_DEFAULT._default;
+}
+
+/**
+ * Return the ordered list of widget IDs to render for a given role.
+ *
+ * `roleKey` should be the lowercased `profiles.role` value. Pass `null` for
+ * unauthenticated callers — they get the `_default` list.
+ */
+export async function getWidgetsForRole(roleKey: string | null): Promise<string[]> {
+  const map = await getRoleWidgetMap();
+  return pickWidgetsForRole(map, roleKey);
 }
 
 /**

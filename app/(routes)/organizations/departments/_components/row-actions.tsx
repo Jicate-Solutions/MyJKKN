@@ -26,6 +26,7 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { toast } from 'react-hot-toast';
 import { Department } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -42,6 +43,7 @@ export function DataTableRowActions<TData>({
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const department = row.original as Department;
 
   const canView =
@@ -55,14 +57,14 @@ export function DataTableRowActions<TData>({
     setIsDeleting(true);
     try {
       await DepartmentService.deleteDepartment(department.id);
-      toast.success('Department deleted successfully');
+      toast.success(`${adapt('Department')} deleted successfully`);
       router.refresh();
       if (onDelete) {
         onDelete(department.id);
       }
     } catch (error) {
       console.error('Error deleting department:', error);
-      toast.error('Failed to delete department');
+      toast.error(`Failed to delete ${adapt('department')}`);
     } finally {
       setIsDeleting(false);
       setShowDeleteAlert(false);
@@ -120,7 +122,7 @@ export function DataTableRowActions<TData>({
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              department &quot;{department.department_name}&quot;.
+              {adapt('department')} &quot;{department.department_name}&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

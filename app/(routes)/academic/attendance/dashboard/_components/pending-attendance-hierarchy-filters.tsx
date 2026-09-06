@@ -27,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RotateCcw, CalendarIcon, X, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface PendingAttendanceHierarchyFiltersProps {
   filters: {
@@ -58,6 +59,7 @@ export function PendingAttendanceHierarchyFilters({
 }: PendingAttendanceHierarchyFiltersProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const label = useAdaptiveLabels();
 
   // Use dashboard filters as defaults
   const effectiveInstitutionId = dashboardInstitutionId || filters.institutionId || userInstitutionId;
@@ -151,7 +153,7 @@ export function PendingAttendanceHierarchyFilters({
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <Button
             variant='ghost'
             className='h-auto p-0 hover:bg-transparent'
@@ -324,7 +326,7 @@ export function PendingAttendanceHierarchyFilters({
 
           {/* Degree */}
           <div className='space-y-2'>
-            <Label htmlFor='degree'>Degree</Label>
+            <Label htmlFor='degree'>{label('Degree')}</Label>
             <Select
               value={filters.degreeId || undefined}
               onValueChange={(value) => {
@@ -339,7 +341,7 @@ export function PendingAttendanceHierarchyFilters({
               disabled={!effectiveInstitutionId}
             >
               <SelectTrigger>
-                <SelectValue placeholder='Select degree' />
+                <SelectValue placeholder={`Select ${label('degree')}`} />
               </SelectTrigger>
               <SelectContent>
                 {degrees.map((degree: any) => (
@@ -353,7 +355,7 @@ export function PendingAttendanceHierarchyFilters({
 
           {/* Department */}
           <div className='space-y-2'>
-            <Label htmlFor='department'>Department</Label>
+            <Label htmlFor='department'>{label('Department')}</Label>
             <Select
               value={filters.departmentId || undefined}
               onValueChange={(value) => {
@@ -367,7 +369,7 @@ export function PendingAttendanceHierarchyFilters({
               disabled={!filters.degreeId}
             >
               <SelectTrigger>
-                <SelectValue placeholder='Select department' />
+                <SelectValue placeholder={`Select ${label('department')}`} />
               </SelectTrigger>
               <SelectContent>
                 {Array.from(
@@ -388,7 +390,7 @@ export function PendingAttendanceHierarchyFilters({
 
           {/* Program */}
           <div className='space-y-2'>
-            <Label htmlFor='program'>Program</Label>
+            <Label htmlFor='program'>{label('Program')}</Label>
             <Select
               value={filters.programId || undefined}
               onValueChange={(value) => {
@@ -401,7 +403,7 @@ export function PendingAttendanceHierarchyFilters({
               disabled={!filters.departmentId}
             >
               <SelectTrigger>
-                <SelectValue placeholder='Select program' />
+                <SelectValue placeholder={`Select ${label('program')}`} />
               </SelectTrigger>
               <SelectContent>
                 {Array.from(
@@ -419,7 +421,7 @@ export function PendingAttendanceHierarchyFilters({
 
           {/* Semester */}
           <div className='space-y-2'>
-            <Label htmlFor='semester'>Semester</Label>
+            <Label htmlFor='semester'>{label('Semester')}</Label>
             <Select
               value={filters.semesterId || undefined}
               onValueChange={(value) => {
@@ -431,7 +433,7 @@ export function PendingAttendanceHierarchyFilters({
               disabled={!filters.departmentId}
             >
               <SelectTrigger>
-                <SelectValue placeholder='Select semester' />
+                <SelectValue placeholder={`Select ${label('semester')}`} />
               </SelectTrigger>
               <SelectContent>
                 {Array.from(
@@ -452,7 +454,7 @@ export function PendingAttendanceHierarchyFilters({
 
           {/* Section */}
           <div className='space-y-2'>
-            <Label htmlFor='section'>Section</Label>
+            <Label htmlFor='section'>{label('Section')}</Label>
             <Select
               value={filters.sectionId || undefined}
               onValueChange={(value) =>
@@ -463,10 +465,10 @@ export function PendingAttendanceHierarchyFilters({
               disabled={!filters.semesterId}
             >
               <SelectTrigger>
-                <SelectValue placeholder='Select section' />
+                <SelectValue placeholder={`Select ${label('section')}`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value='all_sections'>All Sections</SelectItem>
+                <SelectItem value='all_sections'>{label('All Sections')}</SelectItem>
                 {Array.from(
                   new Map(
                     sections.map((section: any) => [section.section_name, section])

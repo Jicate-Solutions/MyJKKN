@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -12,6 +13,7 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { OnboardingDataTable } from './_components/onboarding-data-table';
 import { FeeChangeEventNotificationBell } from './_components/_change-events/notification-bell';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function BillingOnboardingPage() {
   return (
@@ -48,8 +50,20 @@ export default function BillingOnboardingPage() {
             </div>
           </div>
 
-          {/* Data Table */}
-          <OnboardingDataTable />
+          {/* Data Table — Suspense needed for useSearchParams() */}
+          <Suspense
+            fallback={
+              <div className='space-y-4'>
+                <Skeleton className='h-10 w-64' />
+                <Skeleton className='h-10 w-full' />
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className='h-12 w-full' />
+                ))}
+              </div>
+            }
+          >
+            <OnboardingDataTable />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>

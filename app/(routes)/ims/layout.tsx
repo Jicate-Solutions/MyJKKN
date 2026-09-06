@@ -1,16 +1,18 @@
 'use client';
 
-import { Store, ArrowRight } from 'lucide-react';
+import { Store, ArrowRight, ShieldAlert } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { StoreSwitcher } from '@/components/ims/store-switcher';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function ImsLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { storeId, isStoreSelected, isSuperAdmin, isStoreAdmin, isResolving, userProfile } = useImsStoreContext();
+  const { canAccess, isLoading: permissionsLoading } = usePermissions();
 
   // Allow the stores settings page through always — that's where stores are created
   const isStoreManagementPage = pathname?.startsWith('/ims/settings/stores');
@@ -19,6 +21,37 @@ export default function ImsLayout({ children }: { children: React.ReactNode }) {
   // store_admin manages their institution's IMS store — they need the picker if no store resolves,
   // NOT the dead-end "No Store Assigned" message that regular users see.
   const isAdminLike = isSuperAdmin || isStoreAdmin;
+
+  // Gate 0: Permission check — must come before any store work.
+  // While permissions resolve, render the same skeleton as Gate A so the UI doesn't flash.
+  if (permissionsLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="animate-pulse text-muted-foreground text-sm">Checking access...</div>
+      </div>
+    );
+  }
+
+  // Block users without ims.view at the module gateway. super_admin bypasses all permission checks.
+  if (!isSuperAdmin && !canAccess('ims', 'view')) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-6">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center space-y-4">
+            <ShieldAlert className="h-12 w-12 mx-auto text-muted-foreground" />
+            <h2 className="text-xl font-semibold">Access Denied</h2>
+            <p className="text-muted-foreground text-sm">
+              You do not have permission to access the Inventory Management System.
+              Please contact your administrator if you believe this is a mistake.
+            </p>
+            <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')}>
+              Back to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Gate A: Zustand not yet hydrated from localStorage (storeId is undefined on first render)
   if (storeId === undefined) {

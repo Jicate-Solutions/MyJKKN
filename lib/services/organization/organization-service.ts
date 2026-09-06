@@ -11,6 +11,7 @@ import type {
   EntityType
 } from '@/types/organizations';
 import { StorageService } from '@/lib/storage/storage-service';
+import { logger, serializeError } from '@/lib/utils/enhanced-logger';
 import type { Database } from '@/types/database.types';
 
 export class OrganizationService {
@@ -402,7 +403,9 @@ export class OrganizationService {
       }
 
       // Apply entity type filter (default: show all in getInstitutions for the management page)
-      if (filters.entityType && filters.entityType !== 'all') {
+      if (Array.isArray(filters.entityType)) {
+        query = query.in('entity_type', filters.entityType);
+      } else if (filters.entityType && filters.entityType !== 'all') {
         query = query.eq('entity_type', filters.entityType);
       }
 
@@ -450,11 +453,20 @@ export class OrganizationService {
         }
       };
     } catch (error) {
-      console.error('Error in getInstitutions:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to fetch institutions'
+      const serialized = serializeError(error);
+      logger.error(
+        'organization/institutions',
+        'getInstitutions failed',
+        serialized
       );
-      throw error;
+      const message =
+        error instanceof Error
+          ? error.message
+          : (typeof serialized.message === 'string' && serialized.message) ||
+            (typeof serialized.code === 'string' && serialized.code) ||
+            'Failed to fetch institutions';
+      toast.error(message);
+      throw error instanceof Error ? error : new Error(message);
     }
   }
 
@@ -548,7 +560,7 @@ export class OrganizationService {
   static async getInstitutionNames(
     isActive?: boolean,
     userId?: string,
-    entityType: EntityType | 'all' = 'institution'
+    entityType: EntityType | 'all' | EntityType[] = 'institution'
   ): Promise<
     { id: string; name: string; counselling_code: string; entity_type: EntityType }[]
   > {
@@ -558,7 +570,13 @@ export class OrganizationService {
         const { data: institutions } = await this.getInstitutions({
           isActive,
           userId,
-          entityType
+          entityType,
+          // This is a name-only dropdown source, not a paged management list.
+          // getInstitutions() defaults to limit:10, which silently truncates
+          // the dropdown for users who can access more than 10 institutions
+          // (the desired institution disappears → "unable to select"). Lift
+          // the cap so every accessible institution is returned.
+          limit: 1000
         });
         return institutions.map((inst) => ({
           id: inst.id,
@@ -577,8 +595,11 @@ export class OrganizationService {
         query = query.eq('is_active', isActive);
       }
 
-      // Default: only return institutions (not offices/companies) for dropdown usage
-      if (entityType && entityType !== 'all') {
+      // Default: only return institutions (not offices/companies) for dropdown usage.
+      // An array (e.g. ['institution','school']) is matched with IN.
+      if (Array.isArray(entityType)) {
+        query = query.in('entity_type', entityType);
+      } else if (entityType && entityType !== 'all') {
         query = query.eq('entity_type', entityType);
       }
 
@@ -588,8 +609,18 @@ export class OrganizationService {
 
       return data || [];
     } catch (error) {
-      console.error('Error fetching institution names:', error);
-      throw error;
+      const serialized = serializeError(error);
+      logger.error(
+        'organization/institutions',
+        'getInstitutionNames failed',
+        serialized
+      );
+      if (error instanceof Error) throw error;
+      const message =
+        (typeof serialized.message === 'string' && serialized.message) ||
+        (typeof serialized.code === 'string' && serialized.code) ||
+        'Unknown Supabase error fetching institution names';
+      throw new Error(message);
     }
   }
 

@@ -25,7 +25,8 @@ export const RESOURCE_STATUS = {
   OCCUPIED: 'occupied',
   MAINTENANCE: 'maintenance',
   OUT_OF_ORDER: 'out_of_order',
-  RETIRED: 'retired'
+  RETIRED: 'retired',
+  INACTIVE: 'inactive'
 } as const;
 
 export const RESERVATION_STATUS = {
@@ -630,6 +631,9 @@ export interface ResourceFilters {
   // Used by /hr/my-assets (PR-3) to scope to assignee_type='staff' + me.
   assignee_type?: 'staff' | 'student' | 'vendor' | 'none';
   assignee_id?: string;
+  // Procurement intake (2026-07-11): records created by GRN receipts carry the
+  // 'needs-setup' tag until the RM team fills in room/caretaker.
+  needs_setup?: boolean;
   page?: number;
   limit?: number;
   sortBy?: 'name' | 'created_at' | 'status';

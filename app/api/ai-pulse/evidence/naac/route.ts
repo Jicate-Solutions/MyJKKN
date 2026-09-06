@@ -2,7 +2,7 @@
 // ============================================================================
 // GET /api/ai-pulse/evidence/naac
 //
-// Returns the IQAC NAAC Criterion 3.3.1 evidence preview as JSON.
+// Returns the IQAC NAAC Attribute 9 (Research & Innovation Outcomes) evidence preview as JSON.
 //
 // Query params:
 //   from              ISO date YYYY-MM-DD (optional — defaults to last 90 days)
@@ -70,6 +70,15 @@ export async function GET(request: NextRequest) {
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Explicit role gate — placement PII export. "Logged in" is not enough;
+    // require the NAAC-evidence permission (super-admin bypass is in the RPC).
+    const { data: canExport } = await (supabase as any).rpc('user_has_permission', {
+      permission_name: 'aiPulse:naac.evidence_export',
+    });
+    if (!canExport) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Parse query params + apply defaults.

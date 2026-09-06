@@ -12,7 +12,7 @@
  * @route /academic/leave-onduty/approvals
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { Suspense, useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
@@ -75,8 +75,11 @@ import { toast } from 'sonner';
 
 import { ApplicationDetailsDialog } from './_components/application-details-dialog';
 import { ForwardDialog } from './_components/forward-dialog';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function ApprovalsPage() {
+const APPROVALS_TABS = ['pending', 'approved', 'rejected', 'all'] as const;
+
+function ApprovalsPageInner() {
   const router = useRouter();
   const { profile, isLoading: authLoading } = useAuth();
   const { can, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
@@ -88,7 +91,7 @@ export default function ApprovalsPage() {
   const [comments, setComments] = useState('');
   const [rowSelection, setRowSelection] = useState({});
   const [bulkAction, setBulkAction] = useState<'approved' | 'rejected' | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>('pending');
+  const [statusFilter, setStatusFilter] = useTabParam('pending', APPROVALS_TABS);
 
   // Phase 2 — sponsor approval queue state
   const [sponsorAction, setSponsorAction] = useState<{
@@ -511,7 +514,7 @@ export default function ApprovalsPage() {
 
       {/* Status Tabs */}
       <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
-        <TabsList className="grid w-full grid-cols-4 max-w-md">
+        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:max-w-md sm:gap-0 sm:overflow-visible">
           <TabsTrigger value="pending">Pending</TabsTrigger>
           <TabsTrigger value="approved">Approved</TabsTrigger>
           <TabsTrigger value="rejected">Rejected</TabsTrigger>
@@ -521,7 +524,7 @@ export default function ApprovalsPage() {
         <TabsContent value={statusFilter} className="mt-6">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>
                     {statusFilter === 'pending' && 'Pending Approvals'}
@@ -538,7 +541,7 @@ export default function ApprovalsPage() {
 
             {/* Bulk Action Buttons - Only show for pending applications */}
             {statusFilter === 'pending' && Object.keys(rowSelection).filter(key => rowSelection[key]).length > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-muted-foreground">
                   {Object.keys(rowSelection).filter(key => rowSelection[key]).length} selected
                 </span>
@@ -868,5 +871,14 @@ export default function ApprovalsPage() {
       />
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ApprovalsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ApprovalsPageInner />
+    </Suspense>
   );
 }

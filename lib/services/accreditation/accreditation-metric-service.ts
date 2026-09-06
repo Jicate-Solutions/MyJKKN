@@ -40,7 +40,11 @@ export interface AccreditationMetricInput {
   metric_name: string;
   category?: string | null;
   max_score?: number | null;
-  weightage?: number | null;
+  // `weightage` is intentionally absent from the WRITE type. The column is still
+  // on sh_accreditation_metrics and still returned by AccreditationMetricRow, but
+  // nothing consumes it — no function, no view, no scoring path — and it is NULL
+  // on all 107 production metrics. Leaving it writable let the manage-metrics form
+  // save a number that did nothing. Give it a reader first, then add it back here.
   calculation_method?: string | null;
   data_sources?: string[] | null;
   verification_requirements?: string | null;

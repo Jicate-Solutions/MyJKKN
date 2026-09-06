@@ -31,7 +31,7 @@ PRs that hardcode policy must be rejected.
 
 The following are already covered by in-flight work — exclude from the "remaining work" lists below.
 
-- **/admin/, /admin/lti/, /admin/pde/ default redirects** → handled by Agent J's PR in the same wave (config-row replacement of `redirect('/admin/bug-reports')`, `redirect('/admin/lti/launches')`, `redirect('/admin/pde/assessments')`).
+- **/admin/, /admin/lti/, /pde/admin/ default redirects** → handled by Agent J's PR in the same wave (config-row replacement of `redirect('/admin/bug-reports')`, `redirect('/admin/lti/launches')`, `redirect('/pde/admin/assessments')`).
 - **/admin/landing-pages/** UI for managing landing-page redirects → handled by Agent K.
 - **4 module-specific config tables shipped 2026-04-29:**
   - `retention_policies` (R-001 reference impl, replaces `90 days` purge in `/api/cron/duty-log-retention`)

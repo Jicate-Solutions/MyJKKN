@@ -4,6 +4,17 @@ export const dynamic = 'force-dynamic';
 // Server-side fetch endpoint for marketing leads database.
 // Uses service role client to bypass RLS overhead that causes statement timeouts.
 // Supports: GET ?action=leads|districts|stats|batches
+//
+// FIX (2026-08-02): the `districts`, `stats`, and `batches` actions previously
+// fetched EVERY row for the institution and aggregated in JS. PostgREST caps
+// un-ranged selects at 10,000 rows and still returns HTTP 200 — with 100,950
+// rows in prod the aggregates were silently computed over <10% of the data
+// (districts showed 1 of 4; batches showed 1 of 2 with total_records=10,000
+// instead of 77,902; totalSchools said 131 instead of 893). All three actions
+// now call ONE SQL aggregate RPC, get_marketing_leads_facets (SECURITY
+// INVOKER, EXECUTE locked to service_role — see the migration of the same
+// name), which computes exact facets over the full table in a single
+// round-trip. Same disease and fix shape as PR #2762.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
@@ -69,119 +80,53 @@ export async function GET(request: NextRequest) {
       }
 
       case 'districts': {
-        const { data, error } = await supabase
-          .from('marketing_leads_database')
-          .select('district')
-          .eq('institution_id', institutionId)
-          .not('district', 'is', null)
-          .order('district');
-
+        // Exact distinct districts over the FULL table via SQL aggregate —
+        // the old row-fetch was capped at 10k rows and returned 1 of 4
+        // districts in prod.
+        const { data: facets, error } = await supabase.rpc(
+          'get_marketing_leads_facets',
+          { p_institution_id: institutionId }
+        );
         if (error) throw error;
 
-        const unique = [...new Set((data || []).map((r: any) => r.district).filter(Boolean))];
-        return NextResponse.json(unique);
+        return NextResponse.json(facets?.districts || []);
       }
 
       case 'stats': {
-        // Use aggregate queries instead of fetching all rows
-        // (fetching all rows hits Supabase's default row limit and truncates results)
-
-        // 1. Total count via exact count
-        const { count: totalLeads, error: countError } = await supabase
-          .from('marketing_leads_database')
-          .select('id', { count: 'exact', head: true })
-          .eq('institution_id', institutionId);
-
-        if (countError) throw countError;
-
-        // 2. Distinct districts
-        const { data: districtRows, error: districtError } = await supabase
-          .from('marketing_leads_database')
-          .select('district')
-          .eq('institution_id', institutionId)
-          .not('district', 'is', null);
-
-        if (districtError) throw districtError;
-        const totalDistricts = new Set((districtRows || []).map((r: any) => r.district)).size;
-
-        // 3. Distinct schools
-        const { data: schoolRows, error: schoolError } = await supabase
-          .from('marketing_leads_database')
-          .select('school_name')
-          .eq('institution_id', institutionId)
-          .not('school_name', 'is', null);
-
-        if (schoolError) throw schoolError;
-        const totalSchools = new Set((schoolRows || []).map((r: any) => r.school_name)).size;
-
-        // 4. Gender breakdown via individual counts
-        const [maleResult, femaleResult, otherResult] = await Promise.all([
-          supabase
-            .from('marketing_leads_database')
-            .select('id', { count: 'exact', head: true })
-            .eq('institution_id', institutionId)
-            .eq('gender', 'Male'),
-          supabase
-            .from('marketing_leads_database')
-            .select('id', { count: 'exact', head: true })
-            .eq('institution_id', institutionId)
-            .eq('gender', 'Female'),
-          supabase
-            .from('marketing_leads_database')
-            .select('id', { count: 'exact', head: true })
-            .eq('institution_id', institutionId)
-            .not('gender', 'in', '("Male","Female")')
-            .not('gender', 'is', null),
-        ]);
-
-        // 5. Distinct upload batches
-        const { data: batchRows, error: batchError } = await supabase
-          .from('marketing_leads_database')
-          .select('upload_batch_id')
-          .eq('institution_id', institutionId)
-          .not('upload_batch_id', 'is', null);
-
-        if (batchError) throw batchError;
-        const totalUploads = new Set((batchRows || []).map((r: any) => r.upload_batch_id)).size;
+        // ONE SQL aggregate round-trip over the full table. The previous
+        // implementation used exact head-counts for totals/gender (correct)
+        // but still fetched raw rows for the three DISTINCT computations,
+        // which the 10k PostgREST cap silently truncated.
+        const { data: facets, error } = await supabase.rpc(
+          'get_marketing_leads_facets',
+          { p_institution_id: institutionId }
+        );
+        if (error) throw error;
 
         return NextResponse.json({
-          totalLeads: totalLeads || 0,
-          totalDistricts,
-          totalSchools,
+          totalLeads: facets?.total_leads || 0,
+          totalDistricts: facets?.total_districts || 0,
+          totalSchools: facets?.total_schools || 0,
           genderBreakdown: {
-            male: maleResult.count || 0,
-            female: femaleResult.count || 0,
-            other: otherResult.count || 0,
+            male: facets?.gender_male || 0,
+            female: facets?.gender_female || 0,
+            other: facets?.gender_other || 0,
           },
-          totalUploads,
+          totalUploads: facets?.total_uploads || 0,
         });
       }
 
       case 'batches': {
-        const { data, error } = await supabase
-          .from('marketing_leads_database')
-          .select('upload_batch_id, upload_file_name, uploaded_by, created_at')
-          .eq('institution_id', institutionId)
-          .order('created_at', { ascending: false });
-
+        // Per-batch rollup in SQL — the old row-fetch grouped only the first
+        // 10k rows, so a 77,902-record batch reported total_records=10,000
+        // and the second batch was invisible.
+        const { data: facets, error } = await supabase.rpc(
+          'get_marketing_leads_facets',
+          { p_institution_id: institutionId }
+        );
         if (error) throw error;
 
-        // Group by batch
-        const batchMap = new Map<string, any>();
-        for (const row of data || []) {
-          if (!batchMap.has(row.upload_batch_id)) {
-            batchMap.set(row.upload_batch_id, {
-              upload_batch_id: row.upload_batch_id,
-              upload_file_name: row.upload_file_name,
-              uploaded_by: row.uploaded_by,
-              created_at: row.created_at,
-              total_records: 0,
-            });
-          }
-          batchMap.get(row.upload_batch_id)!.total_records += 1;
-        }
-
-        return NextResponse.json(Array.from(batchMap.values()));
+        return NextResponse.json(facets?.batches || []);
       }
 
       default:

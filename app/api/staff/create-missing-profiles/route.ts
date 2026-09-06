@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse , connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { selectInBatches } from '@/lib/utils/supabase-batched-in';
 
 
 // Create admin client for user management
@@ -30,17 +31,6 @@ interface StaffWithProfileId {
   gender: string;
   designation: string;
   profile_id: string;
-}
-
-// Function to generate temporary password
-function generateTemporaryPassword(): string {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let password = 'Staff_';
-  for (let i = 0; i < 8; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return password + '!';
 }
 
 /**
@@ -207,14 +197,18 @@ export async function POST(request: Request) {
       throw staffError;
     }
 
-    // Get existing profiles with all fields to check if they need updates
-    const { data: existingProfiles, error: profilesError } = await supabaseAdmin
-      .from('profiles')
-      .select('email, id, role, institution_id, department_id, gender, phone_number, designation')
-      .in(
-        'email',
-        allStaff.map((s) => s.institution_email)
-      );
+    // Get existing profiles with all fields to check if they need updates.
+    // Batched: ~800+ staff emails in one .in() builds a >31KB URL the Supabase
+    // gateway rejects with HTTP 400 ("Bad Request"), which previously made this
+    // route 500 before any profile was created. See selectInBatches.
+    const { data: existingProfiles, error: profilesError } = await selectInBatches(
+      allStaff.map((s) => s.institution_email),
+      (chunk) =>
+        supabaseAdmin
+          .from('profiles')
+          .select('email, id, role, institution_id, department_id, gender, phone_number, designation')
+          .in('email', chunk)
+    );
 
     if (profilesError) {
       throw profilesError;
@@ -227,11 +221,13 @@ export async function POST(request: Request) {
     const profileIds = existingProfiles.map((p) => p.id);
     const { data: primaryUserRolesRaw } =
       profileIds.length > 0
-        ? await supabaseAdmin
-            .from('user_roles')
-            .select('user_id, custom_roles!inner(role_key)')
-            .in('user_id', profileIds)
-            .eq('is_primary', true)
+        ? await selectInBatches(profileIds, (chunk) =>
+            supabaseAdmin
+              .from('user_roles')
+              .select('user_id, custom_roles!inner(role_key)')
+              .in('user_id', chunk)
+              .eq('is_primary', true)
+          )
         : { data: [] as any[] };
     const primaryRoleByUserId = new Map<string, string>();
     for (const ur of primaryUserRolesRaw || []) {

@@ -17,8 +17,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelWaitlist } from '@/hooks/campus-living/use-hostel-waitlist';
+import { useHostelWaitlist, useCancelWaitlistUpgrade } from '@/hooks/campus-living/use-hostel-waitlist';
 import {
   ArrowLeft,
   Search,
@@ -38,6 +49,7 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   declined: { label: 'Declined', variant: 'secondary' },
   expired: { label: 'Expired', variant: 'outline' },
   allocated: { label: 'Allocated', variant: 'success' },
+  cancelled: { label: 'Cancelled', variant: 'destructive' },
 };
 
 const priorityConfig: Record<number, { label: string; color: string }> = {
@@ -50,14 +62,17 @@ export default function WaitlistPage() {
   const { profile } = useAuth();
   const { data: waitlistResult, isLoading } = useHostelWaitlist(profile?.institution_id ?? '');
   const waitlist = waitlistResult?.data;
+  const cancelUpgrade = useCancelWaitlistUpgrade();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('waiting');
 
   const filteredWaitlist = waitlist?.filter((w) => {
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
       searchQuery.length === 0 ||
-      w.learner_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (w.notes ?? '').toLowerCase().includes(searchQuery.toLowerCase());
+      w.learner_name.toLowerCase().includes(q) ||
+      (w.roll_number ?? '').toLowerCase().includes(q) ||
+      (w.notes ?? '').toLowerCase().includes(q);
     const matchesStatus = statusFilter === 'all' || w.status === statusFilter;
     return matchesSearch && matchesStatus;
   }) ?? [];
@@ -183,8 +198,9 @@ export default function WaitlistPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Learner ID</TableHead>
-                  <TableHead>Room Type</TableHead>
+                  <TableHead>Learner</TableHead>
+                  <TableHead>Waiting for</TableHead>
+                  <TableHead>Held room</TableHead>
                   <TableHead>Priority Score</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Submitted</TableHead>
@@ -200,9 +216,43 @@ export default function WaitlistPage() {
                   return (
                     <TableRow key={entry.id}>
                       <TableCell>
-                        <p className="font-medium">{entry.learner_id}</p>
+                        <p className="font-medium">{entry.learner_name}</p>
+                        {entry.roll_number && (
+                          <p className="text-xs text-muted-foreground">{entry.roll_number}</p>
+                        )}
+                        {(entry.institution_name || entry.semester_name) && (
+                          <p className="text-xs text-muted-foreground/80">
+                            {[entry.institution_name, entry.semester_name].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
                       </TableCell>
-                      <TableCell className="capitalize">{entry.preferred_room_type ?? 'Any'}</TableCell>
+                      <TableCell>
+                        {entry.target_category_name ? (
+                          <span className="text-sm">
+                            {entry.target_category_name}
+                            {entry.target_category_type && (
+                              <span className="text-xs text-muted-foreground"> ({entry.target_category_type})</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-sm capitalize text-muted-foreground">{entry.preferred_room_type ?? 'Any'}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {entry.held_room_number ? (
+                          <div className="text-sm">
+                            <span>
+                              Room {entry.held_room_number}
+                              {entry.held_room_floor != null ? ` · Floor ${entry.held_room_floor}` : ''}
+                            </span>
+                            {entry.held_block_name && (
+                              <span className="block text-xs text-muted-foreground">{entry.held_block_name}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge className={`text-xs ${pCfg.color}`}>{entry.priority_score} ({pCfg.label})</Badge>
                       </TableCell>
@@ -239,6 +289,38 @@ export default function WaitlistPage() {
                               Confirm
                             </Button>
                           )}
+                          {(entry.status === 'waiting' || entry.status === 'offered') && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  disabled={cancelUpgrade.isPending}
+                                >
+                                  Cancel
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Cancel this upgrade request?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This reverts {entry.learner_name}&apos;s category back to the original,
+                                    releases any held bed, and cancels the unpaid upgrade bill. This can&apos;t be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Keep request</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => cancelUpgrade.mutate(entry.id)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Cancel &amp; revert
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -246,7 +328,7 @@ export default function WaitlistPage() {
                 })}
                 {filteredWaitlist.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No waitlist entries found
                     </TableCell>
                   </TableRow>

@@ -36,6 +36,8 @@ import { BeatLoader } from 'react-spinners';
 import { Building2, Plus, AlertCircle, Search, MapPin, Radar } from 'lucide-react';
 import { useSites, useSiteTypes } from '@/hooks/internships/useSites';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../_components/no-access-alert';
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
 
@@ -79,6 +81,7 @@ export default function InternshipSitesPage() {
   }, [institutions]);
 
   return (
+    <PermissionGuard module="internship.sites" action="view" fallback={<NoAccessAlert />}>
     <ContentLayout title="Internships — Sites">
       <Breadcrumb>
         <BreadcrumbList>
@@ -292,5 +295,6 @@ export default function InternshipSitesPage() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

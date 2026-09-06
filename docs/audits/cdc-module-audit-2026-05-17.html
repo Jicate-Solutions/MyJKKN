@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CDC Module Audit · 2026-05-17</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root { --ink:#0b1320; --muted:#5b6776; --line:#e6e8ec; --green:#0b6d41; --red:#b42318; --amber:#b54708; --bg:#fafafa; }
+  *{box-sizing:border-box}
+  body { font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color:var(--ink); background:var(--bg); margin:0; }
+  main { max-width: 920px; margin:0 auto; padding: 56px 32px 96px; }
+  h1 { font-size: 34px; margin: 0 0 4px; letter-spacing:-0.01em;}
+  .sub { color:var(--muted); margin: 0 0 32px; font-size: 14px; }
+  h2 { font-size: 22px; margin: 40px 0 12px; padding-top:24px; border-top:1px solid var(--line);}
+  h3 { font-size: 17px; margin: 24px 0 8px; }
+  p, li { font-size: 15.5px; }
+  ul { margin: 6px 0 12px 0; padding-left: 22px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0 20px; font-size: 14.5px; }
+  th, td { text-align:left; padding: 9px 12px; border-bottom:1px solid var(--line); vertical-align: top;}
+  th { background:#f3f4f6; font-weight:600;}
+  .verdict { padding: 14px 18px; border-radius: 10px; border:1px solid; margin: 16px 0; font-weight:500; }
+  .verdict.red { color: var(--red); border-color: #fda29b; background:#fef3f2; }
+  .verdict.green { color: var(--green); border-color:#abefc6; background:#ecfdf3; }
+  .verdict.amber { color: var(--amber); border-color:#fedf89; background:#fffaeb; }
+  code { font: 13px/1.45 ui-monospace, "SF Mono", Menlo, monospace; background:#f3f4f6; padding: 1.5px 6px; border-radius:4px; }
+  .chip { display:inline-block; font-size:12px; padding:2px 8px; border-radius:99px; background:#eef0f4; color:var(--muted); margin-right:6px;}
+  .chip.green { background:#ecfdf3; color:var(--green); }
+  .chip.red { background:#fef3f2; color:var(--red);}
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  blockquote { border-left:3px solid var(--line); padding: 4px 14px; color:var(--muted); margin: 12px 0; font-style:italic; }
+  .footer { margin-top: 48px; font-size: 13px; color:var(--muted); border-top:1px solid var(--line); padding-top: 16px;}
+</style>
+</head>
+<body>
+<main>
+  <h1>CDC Module Audit</h1>
+  <p class="sub">JKKN Placements, Trainings &amp; Corporate Relations · Audit date 2026-05-17 · Source: Google Chat space <code>AAAA01oZdOo</code> + MyJKKN codebase sweep</p>
+
+  <h2>1. What the chat space is</h2>
+  <table>
+    <tr><th>Display name</th><td>JKKN Placements, Trainings &amp; Corporate Relations Discussions</td></tr>
+    <tr><th>Created</th><td>2024-03-13 (running ~26 months)</td></tr>
+    <tr><th>Last active</th><td>2026-04-25 (campus drive at JKKNCAS for Premier Fine Linens)</td></tr>
+    <tr><th>Members</th><td>87 humans · 2 ROLE_MANAGER (Director, CEO) · 85 ROLE_MEMBER</td></tr>
+    <tr><th>History state</th><td>HISTORY_ON, threaded</td></tr>
+    <tr><th>CDC head</th><td>ROBERT MARIA VINCENT (Head/CDC) — explicitly self-identified in chat</td></tr>
+    <tr><th>CDC ops team</th><td>RAVISHANKAR S (CDC), Muthazhahan D (CDC) — repeatedly tagged for coordination</td></tr>
+  </table>
+
+  <h2>2. What CDC actually does (workflow inventory)</h2>
+  <p>Across ~283 messages reviewed, CDC runs <b>four parallel workflows</b>, each currently glued together by Google Chat + Google Sheets + Google Drive + Google Forms + manual Word/PDF circulars.</p>
+
+  <h3>Workflow A · Campus Recruitment Drives</h3>
+  <ul>
+    <li>Companies sighted: Premier Fine Linens, L.G. Balakrishnan &amp; Bros, Sakthi Auto Components, Rinex Edutech (10 LPA), Rinex Technologies, JICATE Solutions, Dharan Hospital, Foxconn, Datazoic, Sanmar Group, MathWorks, KC Overseas, Pavana Abroad Studies, 4ovation.</li>
+    <li>Lifecycle: <i>Company outreach → Campus Circular (Word doc) → Eligibility/Willingness collection (Google Sheet) → Poster + Promo Video (Jicate Designers) → Drive day attendance (manual headcount per dept) → Technical/HR rounds → Selection results → Offer letter → Placement Day Celebration</i>.</li>
+    <li>Cross-institutional: JKKNCET + JKKNCAS often bid together for the same drive (Sakthi Auto wanted 50 from CET + 30 from CAS).</li>
+    <li>Department-wise attendance is tracked verbally on chat: "AIDS – 4/5, BCA – 4/6, Computer Science – 4/5, Commerce – 19/19, TFD – 12/12…". This is the kind of state a database should hold.</li>
+  </ul>
+
+  <h3>Workflow B · Internships &amp; Industry Immersion</h3>
+  <ul>
+    <li>Sakthi Auto (60-day, Jan–Mar, ₹12,000+ stipend), Foxconn (₹15K stipend), MathWorks Industry Immersion, Dharan Hospital recruitment drive.</li>
+    <li>CDC distributes internship certificates after completion (JKKNCAS – 5 learners, JKKNCET – 2 learners receipt from chat).</li>
+    <li>Required-document checklists run via chat ("Mark Sheet, ID Card, Aadhar, 4 Photos, Bank Passbook in 2 copies each").</li>
+  </ul>
+
+  <h3>Workflow C · Career Guidance Outreach to Government Schools</h3>
+  <ul>
+    <li>"AI Horizons: Discover, Design, Do — Unlock Opportunities and Career Pathways" — 2-hour workshops at Government Higher Secondary Schools (Veppadai, Chithode, Sankari, Magudanchavadi, Pallipalayam, Kumarapalayam, JKK Rangammal Girls School).</li>
+    <li>Sample size scales: 95, 120, 74, 55, 283 (two-school day), 12th-standard students.</li>
+    <li><b>This is admission-funnel outreach disguised as career guidance.</b> CEO explicitly said: <i>"Note: This would further enhance in reaching the students and parents looking for ADMISSION"</i>. The poster says "Why JKKN?" — it's brand recall for the JKKN-2026-27 admission campaign.</li>
+  </ul>
+
+  <h3>Workflow D · Internal Learner Development</h3>
+  <ul>
+    <li><b>IDP (Individual Development Plan)</b> for first-year freshers — 297 students, captured via Google Form, "auto-generates a digital report" for 3-year career-customised plan.</li>
+    <li>Passion mapping: Robotics 18, App-dev, Coding, Craft, Culturals, Sports, ML, AI, Entrepreneurship.</li>
+    <li>Clubs spawned from passion chart: Solar, IoT, Circuit Design, Robotics, IIC Program.</li>
+    <li>Senior-fresher mentorship pairings; "Tech Spotlight" weekly sessions.</li>
+    <li>Aspiration tracking — 5 dept toppers present "their aspiring companies (Wipro, Google, Tesla)" to juniors.</li>
+    <li>Skill stack push: Infosys Springboard, Python/C training, communication, AI tools (NotebookLM, Gemini, Claude — yes, by name).</li>
+    <li>Unnati Training Programme — 90-hour structured training for final-year aided students with valediction event.</li>
+    <li>External opportunity bulletin: ISRO Scientist drive, SBI Youth for India Fellowship, DRDO 6-month internship, MRB pharmacist exam prep.</li>
+  </ul>
+
+  <h2>3. Where the work currently lives (and why that's a problem)</h2>
+  <table>
+    <tr><th>Activity</th><th>Current home</th><th>Failure mode</th></tr>
+    <tr><td>Drive announcements</td><td>Chat + Word circulars</td><td>No structured schedule, can't filter "drives this month"; no audit trail.</td></tr>
+    <tr><td>Willingness lists</td><td>Google Sheets (one per drive, fresh sheet each time)</td><td>No learner-profile linkage; willingness history is lost between drives; can't predict drop-out risk.</td></tr>
+    <tr><td>Eligibility checks</td><td>Email + chat opinion</td><td>"Eligible AND willing" criteria are repeated manually; no rule engine; reseat re-work on every drive.</td></tr>
+    <tr><td>Drive-day attendance</td><td>Chat message ("AIDS 4/5, BCA 4/6")</td><td>No historical analytics; no per-learner attendance pattern; CEO can't see institution-wise show-up rate over time.</td></tr>
+    <tr><td>Selection results</td><td>Chat + Word doc list</td><td>No structured offer record; placement statistics for NAAC/AICTE require manual re-keying; "company-wise / college-wise / double-triple offers / highest package" all computed by hand at flex-design time.</td></tr>
+    <tr><td>Offer letters</td><td>Manual handover at Placement Day</td><td>No digital trail; learner can't retrieve later.</td></tr>
+    <tr><td>Internship certificates</td><td>PDF in chat attachments</td><td>Same as above; certificate retrieval is by remembering which chat day.</td></tr>
+    <tr><td>IDP for freshers</td><td>Google Form → no follow-through</td><td>Forms expire; "digital report" mentioned has no system-of-record; 297 fresher plans live in a spreadsheet at best.</td></tr>
+    <tr><td>School workshops</td><td>Chat + Drive folder of photos</td><td>No admission attribution — CDC drives kids to "Why JKKN?" sessions but the link to admission leads is not captured.</td></tr>
+    <tr><td>Placement statistics</td><td>Recomputed each year for marketing flex</td><td>NAAC/AICTE accreditation needs historical placement data; current process leaks every academic year.</td></tr>
+  </table>
+
+  <h2>4. Codebase audit — does MyJKKN already cover any of this?</h2>
+  <p>Full sweep across <code>app/(routes)</code>, <code>lib/services</code>, <code>types/</code>, <code>supabase/setup/01_tables.sql</code>, <code>supabase/migrations/</code>, and <code>lib/sidebarMenuLink.ts</code>:</p>
+
+  <table>
+    <tr><th>Existing module</th><th>Why it's not a fit for CDC</th></tr>
+    <tr><td><code>/admission</code></td><td>Pre-enrolment funnel only. Lead → application → admit. Doesn't model corporate recruiters or learner outcomes after admit. No company table, no drive table.</td></tr>
+    <tr><td><code>/learners</code> + <code>/learners/alumni</code></td><td>Learner profile + alumni filter. Alumni route is a stub list view, not a placement system. No placement history, no skills/aspirations, no IDP.</td></tr>
+    <tr><td><code>/academic</code></td><td>Timetables, attendance for CLASS sessions, periods. Does not model "training programme" as an entity. <i>cdc_drive_attendance</i> is a different shape from <i>student_attendance</i> (different lifecycle, different rules).</td></tr>
+    <tr><td><code>/hr/recruitment</code></td><td>Hires EMPLOYEES (faculty, staff). Reverse-flow from CDC: CDC manages COMPANIES that hire LEARNERS. Table shapes are not compatible. Reusing would break HR semantics.</td></tr>
+    <tr><td><code>/staff</code></td><td>Staff records; CDC head/coordinator are staff rows but the module has no operational surface for placement.</td></tr>
+    <tr><td><code>/organizations</code></td><td>Institution + dept hierarchy. Has a "placement" contact-type slot on <code>institution-form.tsx</code> (just a name+phone field for placement officer). No recruiter table.</td></tr>
+    <tr><td><code>/resource-management</code></td><td><b>Reusable for venue booking</b> ("Senthuraja Hall", "Vibrant Arangam", "ThinkTank Room"). Should be a touchpoint, not a host.</td></tr>
+    <tr><td><code>/startup-studio</code></td><td>Has <code>startup_events</code>, <code>event_registrations</code>, <code>event_venue_assignments</code>, <code>event_team_attendance</code>. <b>Tempting reuse target</b> — but the startup-studio lifecycle is innovation → demo → judging. CDC lifecycle is recruiter → eligibility → selection → offer. Forcing one schema onto both will produce a mess. Treat startup-studio's patterns as a design <i>reference</i>, not a host.</td></tr>
+    <tr><td><code>/application-hub</code></td><td>SaaS app catalogue for the MyJKKN platform. Unrelated.</td></tr>
+    <tr><td><code>/admission/settings/templates/documents</code></td><td>Has a category enum entry <code>placement: 'Placement'</code> — purely a document template label. No data behind it.</td></tr>
+  </table>
+
+  <div class="verdict red">
+    <b>Verdict: build a new CDC module.</b> Zero applicable schema exists today. The chat workflow has 4 distinct sub-workflows (drives, internships, school outreach, IDP/clubs) with their own lifecycles. None fits cleanly into existing modules. Forcing fit into <code>/hr/recruitment</code> or <code>/startup-studio</code> would corrupt those domains' semantics.
+  </div>
+
+  <h2>5. Proposed CDC module shape</h2>
+
+  <h3>Top-level sidebar group</h3>
+  <p><code>Career Development Centre</code> · icon <code>Briefcase</code> (already imported in <code>lib/sidebarMenuLink.ts</code>) · routes under <code>/cdc/*</code>.</p>
+
+  <h3>Schema (Phase 1 substrate)</h3>
+  <table>
+    <tr><th>Table</th><th>Purpose</th><th>Holds the data currently in…</th></tr>
+    <tr><td><code>cdc_recruiters</code></td><td>Companies, sectors, contact, package band, status (active/blacklist)</td><td>Word circulars + chat mentions</td></tr>
+    <tr><td><code>cdc_drives</code></td><td>Campus drive event: recruiter, institutions[], venue, date, type, package, status (announced/willingness-open/closed/results-out)</td><td>"On Campus Drive" announcement messages + posters</td></tr>
+    <tr><td><code>cdc_drive_eligibility</code></td><td>Per-drive eligibility rules (program_id, semester_min, cgpa_min, gender, allowed_arrears)</td><td>"Eligibility: BE/BTech 65% or 6.84 CGPA" lines in chat</td></tr>
+    <tr><td><code>cdc_drive_willingness</code></td><td>Learner self-declares interest; status (willing/withdrawn/confirmed/parent-consented)</td><td>Google Sheets per drive</td></tr>
+    <tr><td><code>cdc_drive_attendance</code></td><td>Per-learner attendance per round (registered/attended/no-show), round_type (tech/hr/final)</td><td>Manual "AIDS 4/5, BCA 4/6" headcounts</td></tr>
+    <tr><td><code>cdc_placements</code></td><td>Selected learners with offer details (package_lpa, role, location, offer_letter_url)</td><td>Word doc selected-list + flex</td></tr>
+    <tr><td><code>cdc_internships</code></td><td>Internship records with start/end, stipend, certificate_url, converted-to-offer flag</td><td>Chat-attached internship certificate PDFs</td></tr>
+    <tr><td><code>cdc_idp_responses</code></td><td>First-year fresher development plan (interests, aspirations, club picks, 3-yr plan)</td><td>Google Form submissions</td></tr>
+    <tr><td><code>cdc_clubs</code></td><td>Solar / IoT / Robotics / Circuit Design / IIC — name, coordinator_staff_id, member_count</td><td>Verbal chat references</td></tr>
+    <tr><td><code>cdc_club_memberships</code></td><td>Learner ↔ club, role (member/lead), join_date</td><td>(new)</td></tr>
+    <tr><td><code>cdc_mentor_pairings</code></td><td>Senior learner mentor ↔ fresher mentee</td><td>Verbal in chat</td></tr>
+    <tr><td><code>cdc_school_workshops</code></td><td>Outreach event at govt school (school_name, batch_size, photo_album, lead_attribution_to_admission_year)</td><td>Chat + Drive folders</td></tr>
+    <tr><td><code>cdc_training_programmes</code></td><td>Structured training (Unnati 90hr, MRB exam prep, Infosys Springboard cohort) with curriculum, dates, attendees</td><td>Chat-level coordination</td></tr>
+    <tr><td><code>cdc_external_opportunities</code></td><td>Director-publishable bulletin board (ISRO, SBI YFI, DRDO, MRB) with deadline, eligibility, apply_url</td><td>Chat copy-paste from news sites</td></tr>
+  </table>
+
+  <h3>Operational pages (Phase 2)</h3>
+  <ul>
+    <li><code>/cdc/drives</code> — Drive Calendar + status board</li>
+    <li><code>/cdc/drives/[id]</code> — Single drive: eligibility · willingness · attendance · selections · offer-letter uploads · photo gallery</li>
+    <li><code>/cdc/recruiters</code> — Company directory with engagement history</li>
+    <li><code>/cdc/placements</code> — All-time placement record with company/college/package filters</li>
+    <li><code>/cdc/internships</code> — Internship roster + certificate vault</li>
+    <li><code>/cdc/idp</code> — Fresher IDP intake + tracking dashboard (replaces Google Form)</li>
+    <li><code>/cdc/clubs</code> — Club roster, coordinators, members, weekly-session log</li>
+    <li><code>/cdc/workshops</code> — School outreach events (feeds admission attribution)</li>
+    <li><code>/cdc/training</code> — Unnati, MRB, Springboard cohorts</li>
+    <li><code>/cdc/opportunities</code> — Director-curated external bulletin</li>
+    <li><code>/cdc/analytics</code> — Placement statistics dashboard (NAAC/AICTE-ready)</li>
+  </ul>
+
+  <h3>Cross-module touchpoints (no duplication)</h3>
+  <table>
+    <tr><th>From CDC</th><th>To existing module</th><th>How</th></tr>
+    <tr><td>Drive venue</td><td><code>/resource-management</code></td><td>FK to <code>resource_reservations</code> for Senthuraja Hall, ThinkTank Room, Vibrant Arangam.</td></tr>
+    <tr><td>Drive notifications</td><td><code>/notifications</code></td><td>Push/SMS/WhatsApp to willing learners on shortlist/result change.</td></tr>
+    <tr><td>Placement record</td><td><code>/learners/profiles</code></td><td>Show learner's placement card on profile page.</td></tr>
+    <tr><td>Workshop attribution</td><td><code>/admission</code></td><td>School workshop → admission lead source attribution (closes the "Why JKKN?" loop).</td></tr>
+    <tr><td>CDC coordinator roles</td><td><code>/admin/custom_roles</code></td><td>New role keys: <code>cdc_head</code>, <code>cdc_coordinator</code>, <code>cdc_school_coordinator</code>, <code>drive_admin</code>.</td></tr>
+    <tr><td>Drive policies</td><td><code>/admin/platform_policies</code></td><td>e.g. <code>cdc.willingness_window_hours_before_drive</code>, <code>cdc.attendance_required_pct_for_certificate</code>.</td></tr>
+  </table>
+
+  <h2>6. Decisions Director must lock before any DDL</h2>
+  <p>Per <code>/assumption-thrash</code> discipline — these are not technical questions; they shape the schema permanently.</p>
+  <ol>
+    <li><b>Recruiter scope:</b> Are companies platform-global (shared across all 8 institutions) or institution-scoped? Chat says shared (JKKNCET+JKKNCAS bid together for Sakthi Auto). <i>Recommend: platform-global with per-institution preferred-partner flag.</i></li>
+    <li><b>Drive type taxonomy:</b> On-campus, off-campus, walk-in, virtual? Plus "Industry Immersion" (MathWorks-style observation visits — non-recruiting) — separate entity or drive_type='immersion'?</li>
+    <li><b>Internship vs Placement:</b> Same record with <code>outcome_type</code> enum (internship/PPO/full-time), or two tables? Sakthi Auto chat shows internship → potential placement transition.</li>
+    <li><b>IDP ownership:</b> Replace Google Form completely with native MyJKKN page (full owner), or deep-link to existing Google Form + ingest responses via Forms MCP?</li>
+    <li><b>Willingness consent:</b> Chat says "fill up by learners &amp; parents going to Sakthi Auto". Should willingness require parent_consent_url field?</li>
+    <li><b>Photo gallery:</b> Native upload to Supabase Storage, or keep storing Google Drive folder URLs?</li>
+    <li><b>School workshop → admission funnel:</b> Should workshop attendees become admission_leads with source='cdc_school_workshop'?</li>
+    <li><b>Placement statistics for NAAC:</b> Auto-export to NAAC Criterion 5 (placement) and AICTE annual return formats? (If yes, fields must match those reports' columns.)</li>
+    <li><b>Multi-institution access:</b> Is CDC a central HQ that operates across institutions (one CDC head, multiple coordinators) or each college has its own independent CDC?</li>
+    <li><b>Existing CDC head role:</b> Robert Maria Vincent is already in staff records — promote to <code>cdc_head</code> custom role? Check if such a role exists.</li>
+  </ol>
+
+  <h2>7. Sequencing recommendation</h2>
+  <table>
+    <tr><th>Sprint</th><th>Deliverable</th><th>Unblocks</th></tr>
+    <tr><td>0</td><td><code>/assumption-thrash</code> on the 10 decisions above</td><td>schema lock</td></tr>
+    <tr><td>1</td><td>Substrate: cdc_recruiters, cdc_drives, cdc_drive_eligibility, cdc_drive_willingness, cdc_drive_attendance, cdc_placements, cdc_internships + RLS + custom-role keys</td><td>Workflow A &amp; B</td></tr>
+    <tr><td>2</td><td>Drive operations UI: announce → willingness intake → attendance capture → selection entry → offer-letter vault</td><td>Replaces Workflow A end-to-end</td></tr>
+    <tr><td>3</td><td>IDP intake page (replaces Google Form) + clubs + mentor pairings</td><td>Replaces Workflow D</td></tr>
+    <tr><td>4</td><td>School workshop module + admission lead attribution + training programmes (Unnati / MRB / Springboard)</td><td>Replaces Workflow C + bridges /admission</td></tr>
+    <tr><td>5</td><td>Placement analytics dashboard + NAAC/AICTE-ready exports + Placement Day flex auto-generator</td><td>Replaces year-end manual flex pipeline</td></tr>
+  </table>
+
+  <p>Total ~6 sprints (~3 months) for full Google-Chat → MyJKKN migration of CDC.</p>
+
+  <h2>8. What we should NOT do</h2>
+  <ul>
+    <li>Don't extend <code>/hr/recruitment</code> for student placement. Different domain. Mixing breaks both.</li>
+    <li>Don't fork <code>/startup-studio</code>'s schema. Reference its patterns, but build a separate table family.</li>
+    <li>Don't migrate every old Drive folder retroactively — start from Phase-2 drives onward; let chat history stay archival.</li>
+    <li>Don't kill the chat space on day-one. Use it as a notification destination for 1–2 sprints until users adopt the UI.</li>
+  </ul>
+
+  <div class="footer">
+    Audit produced by codebase sweep + Chat MCP pull of <code>spaces/AAAA01oZdOo</code> · 87 members · 4 workflows identified · 13 new tables proposed · 0 existing tables suitable for reuse.
+  </div>
+</main>
+</body>
+</html>

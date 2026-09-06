@@ -543,6 +543,19 @@ const otherStatesData: State[] = [
           { id: 'mysore_urban', name: 'Mysore Urban' },
           { id: 'mysore_rural', name: 'Mysore Rural' }
         ]
+      },
+      // Added 2026-08-28: a real staff member lives here (pincode 571313) and
+      // the district was unmappable, which would have forced the operator to
+      // overwrite a correct address to satisfy the now-required picker.
+      {
+        id: 'chamarajanagar',
+        name: 'Chamarajanagar',
+        taluks: [
+          { id: 'chamarajanagar_taluk', name: 'Chamarajanagar' },
+          { id: 'gundlupet', name: 'Gundlupet' },
+          { id: 'kollegal', name: 'Kollegal' },
+          { id: 'yelandur', name: 'Yelandur' }
+        ]
       }
     ]
   },
@@ -564,6 +577,19 @@ const otherStatesData: State[] = [
         taluks: [
           { id: 'kochi_urban', name: 'Kochi Urban' },
           { id: 'kochi_rural', name: 'Kochi Rural' }
+        ]
+      },
+      // Added 2026-08-28, same reason as Chamarajanagar: a real staff address
+      // (pincode 686021) that the dataset could not represent.
+      {
+        id: 'kottayam',
+        name: 'Kottayam',
+        taluks: [
+          { id: 'kottayam_taluk', name: 'Kottayam' },
+          { id: 'changanassery', name: 'Changanassery' },
+          { id: 'kanjirappally', name: 'Kanjirappally' },
+          { id: 'meenachil', name: 'Meenachil' },
+          { id: 'vaikom', name: 'Vaikom' }
         ]
       }
     ]
@@ -796,4 +822,169 @@ export const getTaluksByDistrict = (
   const districts = getDistrictsByState(stateId);
   const district = districts.find((d) => d.id === districtId);
   return district ? district.taluks : [];
+};
+
+/**
+ * Resolve a stored permanent_address_* value to its dropdown ID.
+ *
+ * Two storage formats coexist in production for these columns:
+ *   (a) legacy / admission-form rows store the display NAME, often
+ *       uppercase (e.g. 'TAMIL NADU', 'SALEM', 'METTUR');
+ *   (b) QR-student-form rows store the snake_case ID directly
+ *       (e.g. 'tamil_nadu', 'salem', 'mettur').
+ *
+ * Both edit surfaces (enquiry form, QR student form) bind ID-based
+ * <Select>s, so a raw name never matches an option and the field renders
+ * blank. This resolver tries an ID match first (cheap, unambiguous) then
+ * falls back to a case-insensitive NAME match. Returns '' when nothing
+ * matches so the caller can safely default.
+ */
+export const getLocationIdByName = (
+  name: string | undefined | null,
+  type: 'state' | 'district' | 'taluk',
+  stateId?: string,
+): string => {
+  if (!name) return '';
+  try {
+    const normalized = name.trim().toLowerCase();
+
+    if (type === 'state') {
+      const byId = indianStates.find((s) => s.id.toLowerCase() === normalized);
+      if (byId) return byId.id;
+      const byName = indianStates.find((s) => s.name.toLowerCase() === normalized);
+      return byName?.id ?? '';
+    }
+
+    if (type === 'district') {
+      for (const state of indianStates) {
+        const byId = getDistrictsByState(state.id).find((d) => d.id.toLowerCase() === normalized);
+        if (byId) return byId.id;
+      }
+      for (const state of indianStates) {
+        const byName = getDistrictsByState(state.id).find((d) => d.name.toLowerCase() === normalized);
+        if (byName) return byName.id;
+      }
+      return '';
+    }
+
+    // taluk
+    const search = (sid: string): string | undefined => {
+      const districts = getDistrictsByState(sid);
+      for (const district of districts) {
+        const byId = getTaluksByDistrict(sid, district.id).find((t) => t.id.toLowerCase() === normalized);
+        if (byId) return byId.id;
+      }
+      for (const district of districts) {
+        const byName = getTaluksByDistrict(sid, district.id).find((t) => t.name.toLowerCase() === normalized);
+        if (byName) return byName.id;
+      }
+      return undefined;
+    };
+
+    if (stateId) {
+      const hit = search(stateId);
+      if (hit) return hit;
+    } else {
+      for (const state of indianStates) {
+        const hit = search(state.id);
+        if (hit) return hit;
+      }
+    }
+    return '';
+  } catch (error) {
+    console.error('[locations] getLocationIdByName failed:', error, { name, type, stateId });
+    return '';
+  }
+};
+
+/**
+ * Name/id -> picker id, PASSING AN UNRECOGNISED VALUE STRAIGHT THROUGH.
+ *
+ * Use this — not getLocationIdByName — whenever the value comes out of a
+ * database column that predates the picker.
+ *
+ * getLocationIdByName returns '' for anything not in the dataset. Feed that to
+ * a combobox and the field renders EMPTY, and if the field is required the
+ * operator's only way to save an unrelated edit is to pick a different value —
+ * silently destroying a correct address. That is not hypothetical: it happened
+ * to learner taluks (a learner whose taluk was KANAGAGRI, absent from Salem's
+ * list, could not be saved without overwriting it).
+ *
+ * Returning the raw value instead means the combobox can render it verbatim
+ * via `options.find(...)?.name || field.value`, so unknown data stays visible
+ * and intact until someone deliberately changes it.
+ */
+export const resolveLocationId = (
+  name: string | undefined | null,
+  type: 'state' | 'district' | 'taluk',
+  stateId?: string
+): string => {
+  if (!name) return '';
+  return getLocationIdByName(name, type, stateId) || name;
+};
+
+/**
+ * Name -> picker id, ignoring case, spaces, underscores and punctuation.
+ *
+ * getLocationIdByName only folds case, so 'TAMILNADU' — the single most common
+ * legacy spelling in the staff table — matches neither the id 'tamil_nadu' nor
+ * the name 'Tamil Nadu' and comes back empty.
+ *
+ * Use this for INPUT that a human typed (bulk-edit sheets, imports), where the
+ * intent is unambiguous and the canonical spelling is written back. Do NOT use
+ * it to decide that two stored values are the same record: squashing whitespace
+ * is exactly what collapsed 'NOT 219' and 'NOT219' — two different people — in
+ * the staff-ID work. That risk does not apply to state and district names,
+ * whose dataset has no space-only distinctions.
+ */
+export const getLocationIdByFuzzyName = (
+  name: string | undefined | null,
+  type: 'state' | 'district',
+  stateId?: string
+): string => {
+  if (!name) return '';
+  const squash = (v: string) => v.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const target = squash(name);
+  if (!target) return '';
+
+  if (type === 'state') {
+    return (
+      indianStates.find((s) => squash(s.id) === target || squash(s.name) === target)?.id ?? ''
+    );
+  }
+
+  const statesToSearch = stateId
+    ? indianStates.filter((s) => s.id === stateId)
+    : indianStates;
+
+  for (const state of statesToSearch) {
+    const hit = getDistrictsByState(state.id).find(
+      (d) => squash(d.id) === target || squash(d.name) === target
+    );
+    if (hit) return hit.id;
+  }
+  return '';
+};
+
+/**
+ * Picker id -> display name, passing an unrecognised id straight through.
+ * The mirror of resolveLocationId, for the save direction and for labels.
+ */
+export const getLocationDisplayName = (
+  id: string | undefined | null,
+  type: 'state' | 'district',
+  stateId?: string
+): string => {
+  if (!id) return '';
+  if (type === 'state') {
+    return indianStates.find((s) => s.id === id)?.name ?? id;
+  }
+  if (stateId) {
+    return getDistrictsByState(stateId).find((d) => d.id === id)?.name ?? id;
+  }
+  for (const state of indianStates) {
+    const hit = getDistrictsByState(state.id).find((d) => d.id === id);
+    if (hit) return hit.name;
+  }
+  return id;
 };

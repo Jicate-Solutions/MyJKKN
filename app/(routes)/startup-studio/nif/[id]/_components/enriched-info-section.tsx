@@ -121,9 +121,9 @@ export function EnrichedInfoSection({ candidate }: EnrichedInfoSectionProps) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">Startup Details</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {candidate?.kyc_status && (
               <Badge variant="outline" className={KYC_COLORS[candidate.kyc_status] || ''}>
                 KYC: {candidate.kyc_status}

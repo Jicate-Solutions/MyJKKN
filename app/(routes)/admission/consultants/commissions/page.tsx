@@ -149,7 +149,7 @@ export default function CommissionTrackingPage() {
 
     const term = searchTerm.toLowerCase();
     return transactionsData.data.filter((t) =>
-      t.transaction_code?.toLowerCase().includes(term) ||
+      t.transaction_number?.toLowerCase().includes(term) ||
       t.consultant?.name?.toLowerCase().includes(term) ||
       t.lead?.full_name?.toLowerCase().includes(term)
     );
@@ -221,34 +221,32 @@ export default function CommissionTrackingPage() {
       'Consultant Code',
       'Lead/Student',
       'Fee Amount',
-      'Commission Rate',
-      'Rate Type',
-      'Calculated Amount',
-      'Final Amount',
+      'Commission Rate (%)',
+      'Gross Amount',
       'TDS Amount',
+      'Other Deductions',
       'Net Amount',
       'Status',
       'Milestone Stage',
       'Created Date',
-      'Status Changed Date',
+      'Approved Date',
     ];
 
     const rows = data.map((t) => [
-      t.transaction_code || t.id.slice(0, 8),
+      t.transaction_number || t.id.slice(0, 8),
       t.consultant?.name || '',
       t.consultant?.code || '',
       t.lead?.full_name || '',
-      t.fee_amount,
-      t.commission_rate,
-      t.rate_type,
-      t.calculated_amount,
-      t.final_amount,
+      t.commission_basis_amount ?? '',
+      t.commission_rate ?? '',
+      t.gross_amount,
       t.tds_amount || 0,
+      t.other_deductions || 0,
       t.net_amount,
       t.status,
       t.milestone_stage || '',
       t.created_at ? format(new Date(t.created_at), 'yyyy-MM-dd') : '',
-      t.status_changed_at ? format(new Date(t.status_changed_at), 'yyyy-MM-dd') : '',
+      t.approved_at ? format(new Date(t.approved_at), 'yyyy-MM-dd') : '',
     ]);
 
     const csvContent = [
@@ -275,7 +273,9 @@ export default function CommissionTrackingPage() {
     toast.success(`Exported ${data.length} transactions`);
   };
 
-  const formatCurrency = (amount: number) => {
+  // Several money columns are nullable; render an em dash rather than "₹NaN".
+  const formatCurrency = (amount: number | null | undefined) => {
+    if (amount === null || amount === undefined || Number.isNaN(amount)) return '—';
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
@@ -508,7 +508,7 @@ export default function CommissionTrackingPage() {
                         return (
                           <TableRow key={transaction.id}>
                             <TableCell className="font-mono text-sm">
-                              {transaction.transaction_code || transaction.id.slice(0, 8)}
+                              {transaction.transaction_number || transaction.id.slice(0, 8)}
                             </TableCell>
                             <TableCell>
                               <div className="font-medium">
@@ -524,16 +524,17 @@ export default function CommissionTrackingPage() {
                               </div>
                             </TableCell>
                             <TableCell className="text-right">
-                              {formatCurrency(transaction.fee_amount)}
+                              {formatCurrency(transaction.commission_basis_amount)}
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="font-medium text-primary">
                                 {formatCurrency(transaction.net_amount)}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {transaction.rate_type === 'percentage'
+                                {transaction.commission_rate !== null &&
+                                transaction.commission_rate !== undefined
                                   ? `${transaction.commission_rate}%`
-                                  : 'Flat'}
+                                  : '—'}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -655,7 +656,7 @@ export default function CommissionTrackingPage() {
           <DialogHeader>
             <DialogTitle>Commission Transaction Details</DialogTitle>
             <DialogDescription>
-              Transaction {viewTransaction?.transaction_code || viewTransaction?.id.slice(0, 8)}
+              Transaction {viewTransaction?.transaction_number || viewTransaction?.id.slice(0, 8)}
             </DialogDescription>
           </DialogHeader>
           {viewTransaction && (
@@ -671,23 +672,30 @@ export default function CommissionTrackingPage() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Fee Amount</Label>
-                  <p className="font-medium">{formatCurrency(viewTransaction.fee_amount)}</p>
+                  <p className="font-medium">
+                    {formatCurrency(viewTransaction.commission_basis_amount)}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Commission Rate</Label>
                   <p className="font-medium">
-                    {viewTransaction.rate_type === 'percentage'
+                    {viewTransaction.commission_rate !== null &&
+                    viewTransaction.commission_rate !== undefined
                       ? `${viewTransaction.commission_rate}%`
-                      : formatCurrency(viewTransaction.commission_rate)}
+                      : '—'}
                   </p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Calculated Amount</Label>
-                  <p className="font-medium">{formatCurrency(viewTransaction.calculated_amount)}</p>
+                  <Label className="text-muted-foreground">Gross Amount</Label>
+                  <p className="font-medium">{formatCurrency(viewTransaction.gross_amount)}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Final Amount</Label>
-                  <p className="font-medium">{formatCurrency(viewTransaction.final_amount)}</p>
+                  <Label className="text-muted-foreground">TDS</Label>
+                  <p className="font-medium">{formatCurrency(viewTransaction.tds_amount)}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Other Deductions</Label>
+                  <p className="font-medium">{formatCurrency(viewTransaction.other_deductions)}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Net Amount (Payable)</Label>
@@ -705,10 +713,10 @@ export default function CommissionTrackingPage() {
                   <Label className="text-muted-foreground">Created</Label>
                   <p className="font-medium">{format(new Date(viewTransaction.created_at), 'PPpp')}</p>
                 </div>
-                {viewTransaction.status_changed_at && (
+                {viewTransaction.approved_at && (
                   <div>
-                    <Label className="text-muted-foreground">Status Changed</Label>
-                    <p className="font-medium">{format(new Date(viewTransaction.status_changed_at), 'PPpp')}</p>
+                    <Label className="text-muted-foreground">Approved</Label>
+                    <p className="font-medium">{format(new Date(viewTransaction.approved_at), 'PPpp')}</p>
                   </div>
                 )}
               </div>

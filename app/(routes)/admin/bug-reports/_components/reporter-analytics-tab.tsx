@@ -89,7 +89,8 @@ const CATEGORY_LABELS: Record<BugReportCategory, string> = {
   ui_design: 'UI/Design',
   performance: 'Performance',
   security: 'Security',
-  other: 'Other'
+  other: 'Other',
+  question: 'Question'
 };
 
 // ---------------------------------------------------------------------------

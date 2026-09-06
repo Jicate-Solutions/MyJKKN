@@ -2,7 +2,9 @@
 // Real-time Sales Alerts Service (Zing equivalent)
 // Listens for lead activity events and sends instant notifications to counselors
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 // ============================================================================
 // TYPES
@@ -117,6 +119,16 @@ const EVENT_TEMPLATES: Record<AlertEventType, {
 // ============================================================================
 
 export class ActivityAlertService {
+  // Browser (session-bound) client. Correct for the React-Query hooks in
+  // hooks/admission/use-activity-alerts.ts, which run in the user's tab.
+  //
+  // On the SERVER this client carries no session, so every query runs as the
+  // Postgres role `anon`. All RLS policies on activity_alert_rules /
+  // activity_alert_history are `TO authenticated` only, so as `anon` reads
+  // return an empty array (silently — HTTP 200, no error) and writes are
+  // rejected. Server callers (app/api/admission/alerts/route.ts) therefore
+  // MUST pass their own session-bound client via the optional `client`
+  // parameter on every method below.
   private static supabase = createClientSupabaseClient();
 
   // ============================================================================
@@ -126,8 +138,12 @@ export class ActivityAlertService {
   /**
    * Get all alert rules for an institution
    */
-  static async getAlertRules(filters: AlertRuleFilters): Promise<ActivityAlertRule[]> {
-    let query = (this.supabase as any)
+  static async getAlertRules(
+    filters: AlertRuleFilters,
+    client?: SupabaseClient
+  ): Promise<ActivityAlertRule[]> {
+    const db = client ?? this.supabase;
+    let query = (db as any)
       .from('activity_alert_rules')
       .select('*')
       .order('event_type', { ascending: true });
@@ -152,8 +168,9 @@ export class ActivityAlertService {
   /**
    * Get a single alert rule by ID
    */
-  static async getAlertRule(id: string): Promise<ActivityAlertRule | null> {
-    const { data, error } = await (this.supabase as any)
+  static async getAlertRule(id: string, client?: SupabaseClient): Promise<ActivityAlertRule | null> {
+    const db = client ?? this.supabase;
+    const { data, error } = await (db as any)
       .from('activity_alert_rules')
       .select('*')
       .eq('id', id)
@@ -169,8 +186,12 @@ export class ActivityAlertService {
   /**
    * Create a new alert rule
    */
-  static async createAlertRule(input: CreateAlertRuleInput): Promise<ActivityAlertRule> {
-    const { data, error } = await (this.supabase as any)
+  static async createAlertRule(
+    input: CreateAlertRuleInput,
+    client?: SupabaseClient
+  ): Promise<ActivityAlertRule> {
+    const db = client ?? this.supabase;
+    const { data, error } = await (db as any)
       .from('activity_alert_rules')
       .insert({
         institution_id: input.institution_id,
@@ -191,7 +212,12 @@ export class ActivityAlertService {
   /**
    * Update an alert rule
    */
-  static async updateAlertRule(id: string, input: UpdateAlertRuleInput): Promise<ActivityAlertRule> {
+  static async updateAlertRule(
+    id: string,
+    input: UpdateAlertRuleInput,
+    client?: SupabaseClient
+  ): Promise<ActivityAlertRule> {
+    const db = client ?? this.supabase;
     const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
     if (input.is_enabled !== undefined) updateData.is_enabled = input.is_enabled;
@@ -200,7 +226,7 @@ export class ActivityAlertService {
     if (input.notification_channels !== undefined) updateData.notification_channels = input.notification_channels;
     if (input.conditions !== undefined) updateData.conditions = input.conditions;
 
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await (db as any)
       .from('activity_alert_rules')
       .update(updateData)
       .eq('id', id)
@@ -214,8 +240,9 @@ export class ActivityAlertService {
   /**
    * Delete an alert rule
    */
-  static async deleteAlertRule(id: string): Promise<void> {
-    const { error } = await (this.supabase as any)
+  static async deleteAlertRule(id: string, client?: SupabaseClient): Promise<void> {
+    const db = client ?? this.supabase;
+    const { error } = await (db as any)
       .from('activity_alert_rules')
       .delete()
       .eq('id', id);
@@ -226,22 +253,30 @@ export class ActivityAlertService {
   /**
    * Toggle an alert rule on/off
    */
-  static async toggleAlertRule(id: string, isEnabled: boolean): Promise<ActivityAlertRule> {
-    return this.updateAlertRule(id, { is_enabled: isEnabled });
+  static async toggleAlertRule(
+    id: string,
+    isEnabled: boolean,
+    client?: SupabaseClient
+  ): Promise<ActivityAlertRule> {
+    return this.updateAlertRule(id, { is_enabled: isEnabled }, client);
   }
 
   /**
    * Initialize default alert rules for an institution
    * Creates one rule per event type with default settings
    */
-  static async initializeDefaultRules(institutionId: string): Promise<ActivityAlertRule[]> {
+  static async initializeDefaultRules(
+    institutionId: string,
+    client?: SupabaseClient
+  ): Promise<ActivityAlertRule[]> {
+    const db = client ?? this.supabase;
     const eventTypes: AlertEventType[] = [
       'wa_reply', 'payment_initiated', 'application_submitted',
       'lead_reengaged', 'document_uploaded', 'chatbot_handoff', 'score_changed',
     ];
 
     // Check which rules already exist
-    const existing = await this.getAlertRules({ institutionId });
+    const existing = await this.getAlertRules({ institutionId }, client);
     const existingTypes = new Set(existing.map(r => r.event_type));
 
     const newRules: CreateAlertRuleInput[] = eventTypes
@@ -258,7 +293,7 @@ export class ActivityAlertService {
 
     if (newRules.length === 0) return existing;
 
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await (db as any)
       .from('activity_alert_rules')
       .insert(newRules)
       .select();
@@ -274,11 +309,15 @@ export class ActivityAlertService {
   /**
    * Get alert history
    */
-  static async getAlertHistory(filters: AlertHistoryFilters): Promise<{
+  static async getAlertHistory(
+    filters: AlertHistoryFilters,
+    client?: SupabaseClient
+  ): Promise<{
     entries: AlertHistoryEntry[];
     total: number;
   }> {
-    let query = (this.supabase as any)
+    const db = client ?? this.supabase;
+    let query = (db as any)
       .from('activity_alert_history')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
@@ -313,20 +352,25 @@ export class ActivityAlertService {
   /**
    * Process an activity event and trigger alerts if matching rules exist
    */
-  static async processEvent(params: {
-    institutionId: string;
-    eventType: AlertEventType;
-    leadId: string;
-    leadName: string;
-    counselorId?: string;
-    metadata?: Record<string, unknown>;
-  }): Promise<{ alertSent: boolean; notifiedUsers: string[] }> {
+  static async processEvent(
+    params: {
+      institutionId: string;
+      eventType: AlertEventType;
+      leadId: string;
+      leadName: string;
+      counselorId?: string;
+      metadata?: Record<string, unknown>;
+    },
+    client?: SupabaseClient
+  ): Promise<{ alertSent: boolean; notifiedUsers: string[] }> {
+    const db = client ?? this.supabase;
+
     // 1. Get matching enabled rules
     const rules = await this.getAlertRules({
       institutionId: params.institutionId,
       eventType: params.eventType,
       isEnabled: true,
-    });
+    }, client);
 
     if (rules.length === 0) {
       return { alertSent: false, notifiedUsers: [] };
@@ -359,35 +403,36 @@ export class ActivityAlertService {
       ...(params.metadata as Record<string, string> || {}),
     });
 
-    // 5. Send notifications using the notification system
-    // Create notification records for each user
-    for (const userId of usersToNotify) {
-      try {
-        await (this.supabase as any)
-          .from('notifications')
-          .insert({
-            user_id: userId,
-            type: 'info',
-            category: 'admission',
-            priority: params.eventType === 'payment_initiated' ? 'high' : 'normal',
-            title: template.title,
-            message,
-            metadata: {
-              event_type: params.eventType,
-              lead_id: params.leadId,
-              ...params.metadata,
-            },
-            action_url: `/admission/leads/${params.leadId}`,
-            action_label: 'View Lead',
-            channels: rule.notification_channels,
-          });
-      } catch (err) {
-        console.error(`[activity-alert] Failed to send notification to ${userId}:`, err);
-      }
+    // 5. Send notifications via the shared fanout helper — writes ONE
+    //    notifications row (real columns) + a user_notifications link per
+    //    recipient. The previous inline insert used non-existent columns
+    //    (user_id/type/message/action_url/action_label/channels) and never
+    //    fanned out to user_notifications, so alerts never reached the bell.
+    try {
+      await fanoutNotification(db as any, {
+        title: template.title,
+        body: message,
+        userIds: usersToNotify,
+        createdBy: usersToNotify[0],
+        category: 'admission',
+        priority: params.eventType === 'payment_initiated' ? 'high' : 'normal',
+        url: `/admission/leads/${params.leadId}`,
+        targeting: { type: 'user', user_ids: usersToNotify },
+        metadata: {
+          event_type: params.eventType,
+          lead_id: params.leadId,
+          action_label: 'View Lead',
+          channels: rule.notification_channels,
+          ...params.metadata,
+        },
+        source: 'activity-alert',
+      });
+    } catch (err) {
+      console.error('[activity-alert] Failed to send notifications:', err);
     }
 
     // 6. Log to history
-    await (this.supabase as any)
+    await (db as any)
       .from('activity_alert_history')
       .insert({
         institution_id: params.institutionId,

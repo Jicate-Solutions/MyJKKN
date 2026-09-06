@@ -46,9 +46,18 @@ export function InstitutionComparisonTable({
           <TableRow>
             <TableHead>Institution</TableHead>
             <TableHead className="text-right">Leads</TableHead>
-            <TableHead className="text-right">Applied</TableHead>
-            <TableHead className="text-right">Enrolled</TableHead>
-            <TableHead className="text-right">Rejected</TableHead>
+            {/* 2026-05-20: Applied/Enrolled (funnel_stage) replaced with
+                 lifecycle-status counts. Enquiry = entry-point inflow;
+                 Enquiry Submitted = learner completed QR self-fill, awaiting
+                 officer verification; Account = billing queue; Reserved =
+                 universal fees paid; Admitted = post-threshold (includes
+                 Active). Column order mirrors the lifecycle workflow + the
+                 top KPI strip on the page header. */}
+            <TableHead className="text-right">Enquiry</TableHead>
+            <TableHead className="text-right">Enquiry Submitted</TableHead>
+            <TableHead className="text-right">Fees Pending</TableHead>
+            <TableHead className="text-right">Reserved</TableHead>
+            <TableHead className="text-right">Admitted</TableHead>
             <TableHead className="text-right">Seats</TableHead>
             <TableHead className="text-right">Fill %</TableHead>
           </TableRow>
@@ -64,9 +73,11 @@ export function InstitutionComparisonTable({
                 {inst.institution_name}
               </TableCell>
               <TableCell className="text-right">{inst.total_leads}</TableCell>
-              <TableCell className="text-right">{inst.applied}</TableCell>
-              <TableCell className="text-right">{inst.enrolled}</TableCell>
-              <TableCell className="text-right">{inst.rejected}</TableCell>
+              <TableCell className="text-right">{inst.enquiry_count}</TableCell>
+              <TableCell className="text-right">{inst.enquiry_submitted_count}</TableCell>
+              <TableCell className="text-right">{inst.account_count}</TableCell>
+              <TableCell className="text-right">{inst.reserved_count}</TableCell>
+              <TableCell className="text-right font-semibold">{inst.admitted_count}</TableCell>
               <TableCell className="text-right">{inst.total_seats || '—'}</TableCell>
               <TableCell className="text-right">
                 {inst.total_seats > 0 ? getFillBadge(inst.fill_percentage) : '—'}

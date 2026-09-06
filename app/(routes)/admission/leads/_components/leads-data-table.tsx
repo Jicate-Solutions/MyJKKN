@@ -1,20 +1,24 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { getLeadColumns, FUNNEL_STAGES } from './columns';
+import { getLeadColumns, LeadStageBadge, useLeadStageOptions } from './columns';
+import { SourceBadge, OverdueBadge } from './source-badge';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { formatDateDMY } from '@/lib/utils/date-format';
+import type { AdmissionLead } from '@/types/admission';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useExpoEvents, useCounselorsList } from '@/hooks/admission';
 import { useActiveLeadSources } from '@/hooks/admission/use-active-lead-sources';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +41,122 @@ import toast from 'react-hot-toast';
 // Source dropdown options now come from useActiveLeadSources() — admin-curated
 // rows in admission_lead_sources_master replace this once-static list.
 
+type LeadFetchParams = {
+  page: number;
+  limit: number;
+  search: string;
+  from_date: string;
+  to_date: string;
+  sort_by: string;
+  sort_order: string;
+};
+
+// Export schema for the Leads table — the single source of truth for the
+// CSV/XLSX columns, their labels and their widths, in column order.
+//
+// This table used to pass `columnMapping: {}` / `headers: []`, which silently
+// broke the export in two ways:
+//   - `{}` is TRUTHY, so both data-export.tsx and export-utils.ts kept it and
+//     never ran their auto-generate fallback. exportToExcel then wrote every
+//     cell as `row[mapping[key]]` = `row[undefined]`, collapsing the whole
+//     sheet into ONE column literally named "undefined".
+//   - `headers: []` fell back to the table's COLUMN IDS, three of which
+//     (`institution`, `interested_courses`, `assigned_to`) are display-only
+//     ids with no matching data key — they exported blank or as
+//     "[object Object]" — while `phone` never exported at all because the
+//     table renders it inside the `email` column.
+//
+// Keys are deliberately DISTINCT from the table's column ids: data-export.tsx
+// drops any export header that collides with a HIDDEN table column, so
+// non-colliding keys guarantee the full set is emitted regardless of the
+// user's column-visibility choices. The transformFunction below produces
+// exactly these keys.
+const LEAD_EXPORT_COLUMNS: ReadonlyArray<{
+  key: string;
+  label: string;
+  width: number;
+}> = [
+  { key: 'lead_name', label: 'Lead Name', width: 26 },
+  { key: 'phone_number', label: 'Phone', width: 16 },
+  { key: 'email_address', label: 'Email', width: 28 },
+  { key: 'stage_label', label: 'Stage', width: 20 },
+  { key: 'source_label', label: 'Source', width: 18 },
+  { key: 'priority_label', label: 'Priority', width: 12 },
+  { key: 'lead_score', label: 'Score', width: 10 },
+  { key: 'institution_name', label: 'Institution', width: 30 },
+  { key: 'programs_interested', label: 'Interested Courses', width: 34 },
+  { key: 'counselor_name', label: 'Assigned To', width: 22 },
+  { key: 'gender_value', label: 'Gender', width: 10 },
+  { key: 'dob', label: 'Date of Birth', width: 14 },
+  { key: 'parent', label: 'Parent Name', width: 22 },
+  { key: 'parent_contact', label: 'Parent Phone', width: 16 },
+  { key: 'city_name', label: 'City', width: 16 },
+  { key: 'state_name', label: 'State', width: 16 },
+  { key: 'created_on', label: 'Created On', width: 14 },
+];
+
+const LEAD_EXPORT_HEADERS = LEAD_EXPORT_COLUMNS.map((c) => c.key);
+const LEAD_EXPORT_MAPPING: Record<string, string> = Object.fromEntries(
+  LEAD_EXPORT_COLUMNS.map((c) => [c.key, c.label])
+);
+const LEAD_EXPORT_WIDTHS = LEAD_EXPORT_COLUMNS.map((c) => ({ wch: c.width }));
+
+function LeadMobileCard({ lead }: { lead: AdmissionLead }) {
+  return (
+    <Link
+      href={`/admission/leads/${lead.id}`}
+      className="block rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+    >
+      <div className="p-4 space-y-2.5">
+        {/* Name row + stage badge */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-semibold text-sm truncate">
+              {lead.full_name || 'Unknown'}
+            </span>
+            {lead.is_hot_lead && (
+              <Flame className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+            )}
+            {lead.is_priority && !lead.is_hot_lead && (
+              <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500 shrink-0" />
+            )}
+          </div>
+          <LeadStageBadge stage={lead.funnel_stage} />
+        </div>
+
+        {/* Contact info */}
+        {(lead.phone || lead.email) && (
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            {lead.phone && <div>{lead.phone}</div>}
+            {lead.email && <div className="truncate">{lead.email}</div>}
+          </div>
+        )}
+
+        {/* Programs + source + overdue badges */}
+        <div className="flex flex-wrap gap-1 items-center">
+          {lead.interested_program_names?.[0] && (
+            <Badge variant="outline" className="text-xs font-normal py-0">
+              {lead.interested_program_names[0]}
+              {(lead.interested_program_names.length ?? 0) > 1 &&
+                ` +${lead.interested_program_names.length - 1}`}
+            </Badge>
+          )}
+          <SourceBadge source={lead.source} />
+          <OverdueBadge nextFollowupAt={lead.next_followup_at} />
+        </div>
+
+        {/* Footer: assigned counselor + created date */}
+        <div className="flex items-center justify-between gap-2 pt-1.5 border-t text-xs text-muted-foreground">
+          <span className="truncate">
+            {lead.counselor?.name || 'Unassigned'}
+          </span>
+          <span className="shrink-0">{formatDateDMY(lead.created_at)}</span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 export function LeadsDataTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -51,6 +171,9 @@ export function LeadsDataTable() {
   const { options: leadSources } = useActiveLeadSources({
     institutionId: profile?.institution_id ?? null,
   });
+  // Reads stage options from admission_statuses (scope='lead'); falls back to
+  // hardcoded FUNNEL_STAGES while loading so the dropdown is never empty.
+  const stageOptions = useLeadStageOptions();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<AdmissionLead[]>(
     []
@@ -59,31 +182,64 @@ export function LeadsDataTable() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Timestamp of the last successful list fetch — gates the visibility refetch
+  // below so a trivial alt-tab within VISIBILITY_STALE_MS is a no-op instead of
+  // re-running the (heavy) service-role list endpoint on every refocus.
+  const lastFetchedAtRef = useRef(0);
+  // Debounce handle so rapid multi-filter changes coalesce into ONE refetch
+  // instead of one heavy round-trip per dropdown click.
+  const refetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Filter changes need to (a) bump refetchKey so the DataTable refetches AND
   // (b) reset the URL's ?page= param to 1. Without the page reset, switching
   // a filter while on page 5 of unfiltered results lands the user on page 5
   // of the filtered set — which is usually beyond the new last page, so the
   // API returns an empty page and the table looks broken/unfiltered.
+  // Debounced (~300ms): the filter Select state updates immediately (UI stays
+  // responsive); only the network refetch is coalesced, so adjusting 3 filters
+  // costs one round-trip, not three.
   const bumpRefetchAndResetPage = useCallback(() => {
-    setRefetchKey((prev) => prev + 1);
-    // Use replaceState (not router.replace) to avoid a Next.js navigation
-    // round-trip — we just want to drop `page` from the URL bar; the
-    // DataTable's URL-state hook will pick up page=1 on its next read.
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      if (url.searchParams.has('page')) {
-        url.searchParams.delete('page');
-        window.history.replaceState(null, '', url.toString());
+    if (refetchDebounceRef.current) clearTimeout(refetchDebounceRef.current);
+    refetchDebounceRef.current = setTimeout(() => {
+      // Use replaceState (not router.replace) to avoid a Next.js navigation
+      // round-trip — we just want to drop `page` from the URL bar; the
+      // DataTable's URL-state hook will pick up page=1 on its next read.
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('page')) {
+          url.searchParams.delete('page');
+          window.history.replaceState(null, '', url.toString());
+        }
       }
-    }
+      setRefetchKey((prev) => prev + 1);
+    }, 300);
   }, []);
 
-  // Auto-refetch when page becomes visible (e.g., user navigates back from lead detail/create)
+  // Clear any pending debounced refetch on unmount.
   useEffect(() => {
-    const handleFocus = () => setRefetchKey((prev) => prev + 1);
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+    return () => {
+      if (refetchDebounceRef.current) clearTimeout(refetchDebounceRef.current);
+    };
+  }, []);
+
+  // Auto-refetch when the tab becomes visible again (e.g., user navigates back from lead
+  // detail/create) — but ONLY if the data is stale (older than VISIBILITY_STALE_MS), so a
+  // trivial alt-tab no longer re-runs the heavy service-role list endpoint on every refocus.
+  // Still uses visibilitychange instead of window.focus so that Radix UI dropdown portals
+  // (which briefly shift window focus) don't trigger a mid-interaction refetch that races
+  // against the user's filter selection.
+  useEffect(() => {
+    const VISIBILITY_STALE_MS = 60_000;
+    const handleVisibility = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - lastFetchedAtRef.current > VISIBILITY_STALE_MS
+      ) {
+        setRefetchKey((prev) => prev + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
   // Bridge from lead mutations → this manual-refetch DataTable. The hooks
@@ -190,14 +346,16 @@ export function LeadsDataTable() {
     { id: string; name: string; count: number }[]
   >([]);
   useEffect(() => {
-    if (!institutionId) {
-      setProgramOptions([]);
-      return;
-    }
     let cancelled = false;
     const ctrl = new AbortController();
+    // No institutionId (global user, no college picked) → omit the param;
+    // the endpoint then returns programs across ALL institutions, so the
+    // Programs filter works without forcing a college selection first.
+    // Non-global users without an institution get [] from the API (fail-closed).
     fetch(
-      `/api/admission/leads/program-counts?institution_id=${encodeURIComponent(institutionId)}`,
+      institutionId
+        ? `/api/admission/leads/program-counts?institution_id=${encodeURIComponent(institutionId)}`
+        : '/api/admission/leads/program-counts',
       { signal: ctrl.signal }
     )
       .then((r) => (r.ok ? r.json() : null))
@@ -218,7 +376,7 @@ export function LeadsDataTable() {
       cancelled = true;
       ctrl.abort();
     };
-  }, [institutionId, refetchKey]);
+  }, [institutionId]);
 
   // Auto-detect counselor ID for non-manager counselors (they only see assigned leads)
   const [myCounselorId, setMyCounselorId] = useState<string | null>(null);
@@ -254,62 +412,68 @@ export function LeadsDataTable() {
   const myCounselorIdRef = useRef(myCounselorId);
   myCounselorIdRef.current = myCounselorId;
 
-  const fetchData = useCallback(async (params: {
-    page: number;
-    limit: number;
-    search: string;
-    from_date: string;
-    to_date: string;
-    sort_by: string;
-    sort_order: string;
-  }) => {
-    try {
-      const currentStageFilter = stageFilterRef.current;
-      const currentPriorityFilter = priorityFilterRef.current;
-      const currentSourceFilter = sourceFilterRef.current;
-      const currentCounselorFilter = counselorFilterRef.current;
-      const currentExpoFilter = expoFilterRef.current;
-      const currentProgramFilter = programFilterRef.current;
-      const currentStaleMinDays = staleMinDaysRef.current;
+  // Single source of truth for the getLeads() filter payload. Both the paged
+  // table fetch and the "Export All Pages" fetch build from this, so the
+  // exported rows can never drift from the rows the table is showing.
+  const buildLeadFilters = useCallback((params: LeadFetchParams) => {
+    const currentStageFilter = stageFilterRef.current;
+    const currentPriorityFilter = priorityFilterRef.current;
+    const currentSourceFilter = sourceFilterRef.current;
+    const currentCounselorFilter = counselorFilterRef.current;
+    const currentExpoFilter = expoFilterRef.current;
+    const currentProgramFilter = programFilterRef.current;
+    const currentStaleMinDays = staleMinDaysRef.current;
 
-      const result = await LeadService.getLeads({
-        institution_id: institutionId || '',
-        page: params.page,
-        limit: params.limit,
-        search: params.search || undefined,
-        sort_by: params.sort_by || 'created_at',
-        sort_order: (params.sort_order as 'asc' | 'desc') || 'desc',
-        date_from: params.from_date || undefined,
-        date_to: params.to_date || undefined,
-        funnel_stage:
-          currentStageFilter && currentStageFilter !== '_all'
-            ? (currentStageFilter as any)
-            : undefined,
-        priority:
-          currentPriorityFilter && currentPriorityFilter !== '_all'
-            ? (currentPriorityFilter as any)
-            : undefined,
-        source:
-          currentSourceFilter && currentSourceFilter !== '_all'
-            ? (currentSourceFilter as any)
-            : undefined,
-        counselor_id:
-          currentCounselorFilter && currentCounselorFilter !== '_all'
-            ? currentCounselorFilter
-            : (!isManager && myCounselorIdRef.current) ? myCounselorIdRef.current  // Auto-filter for counselors
-            : undefined,
-        expo_event_id:
-          currentExpoFilter && currentExpoFilter !== '_all'
-            ? currentExpoFilter
-            : undefined,
-        program_id: currentProgramFilter || undefined,
-        stale_min_days:
-          currentStaleMinDays && currentStaleMinDays > 0
-            ? currentStaleMinDays
-            : undefined,
-      });
+    return {
+      // institutionId is undefined in All-Institutions / global-user mode.
+      // `|| ''` coerced it to '' which flows into UUID-typed RPC params and
+      // throws 22P02 invalid input syntax for type uuid "" (BUG-003967/003959).
+      // undefined is the correct "all institutions" signal — getLeads drops it.
+      institution_id: institutionId || undefined,
+      page: params.page,
+      limit: params.limit,
+      search: params.search || undefined,
+      sort_by: params.sort_by || 'created_at',
+      sort_order: (params.sort_order as 'asc' | 'desc') || 'desc',
+      date_from: params.from_date || undefined,
+      date_to: params.to_date || undefined,
+      funnel_stage:
+        currentStageFilter && currentStageFilter !== '_all'
+          ? (currentStageFilter as any)
+          : undefined,
+      priority:
+        currentPriorityFilter && currentPriorityFilter !== '_all'
+          ? (currentPriorityFilter as any)
+          : undefined,
+      source:
+        currentSourceFilter && currentSourceFilter !== '_all'
+          ? (currentSourceFilter as any)
+          : undefined,
+      counselor_id:
+        currentCounselorFilter && currentCounselorFilter !== '_all'
+          ? currentCounselorFilter
+          : (!isManager && myCounselorIdRef.current) ? myCounselorIdRef.current  // Auto-filter for counselors
+          : undefined,
+      expo_event_id:
+        currentExpoFilter && currentExpoFilter !== '_all'
+          ? currentExpoFilter
+          : undefined,
+      program_id: currentProgramFilter || undefined,
+      stale_min_days:
+        currentStaleMinDays && currentStaleMinDays > 0
+          ? currentStaleMinDays
+          : undefined,
+    };
+  }, [institutionId, isManager]);
+
+  const fetchData = useCallback(async (params: LeadFetchParams) => {
+    try {
+      const result = await LeadService.getLeads(buildLeadFilters(params));
 
       const leads = result.data || [];
+      // Mark the time of this successful fetch so the visibilitychange handler
+      // can skip refetching on a quick alt-tab (see VISIBILITY_STALE_MS above).
+      lastFetchedAtRef.current = Date.now();
 
       // Best-effort: batch-fetch primary consultant for each lead on this page.
       // Only update attributionsMap once (when async fetch completes) to avoid
@@ -321,14 +485,18 @@ export function LeadsDataTable() {
             attrs.forEach((a) => {
               if (a.consultant?.name) map.set(a.admission_id, a.consultant.name);
             });
-            setAttributionsMap(map);
+            // Only update state if the content actually changed so we don't
+            // trigger a second re-render (and columns memo recalc) on every load.
+            setAttributionsMap((prev) => {
+              if (prev.size === map.size && [...map].every(([k, v]) => prev.get(k) === v)) return prev;
+              return map;
+            });
           })
           .catch(() => {
-            // Non-critical -- leads list works without consultant names
-            setAttributionsMap(new Map());
+            setAttributionsMap((prev) => (prev.size === 0 ? prev : new Map()));
           });
       } else {
-        setAttributionsMap(new Map());
+        setAttributionsMap((prev) => (prev.size === 0 ? prev : new Map()));
       }
 
       return {
@@ -345,7 +513,42 @@ export function LeadsDataTable() {
       console.error('Error fetching leads:', error);
       throw error;
     }
-  }, [institutionId]);
+  }, [buildLeadFilters]);
+
+  // Full matching set across every page — powers "Export All Pages" and the
+  // cross-page "Select all N" banner. Without this the DataTable falls back to
+  // paging through fetchData at the table's pageSize (default 10), so a
+  // month-wide export fired ~80 sequential calls at the heavy service-role list
+  // endpoint and looked like a hang. The list route caps `limit` at 200, so we
+  // page at 200 — ~4 round-trips for the same data.
+  const fetchAllItems = useCallback(async (params: LeadFetchParams) => {
+    const PAGE_SIZE = 200;
+    // Hard ceiling so an unfiltered "Export All" on a 100k-row tenant can't
+    // spin forever; the toast still reports how many rows were written.
+    const MAX_ROWS = 10_000;
+
+    const first = await LeadService.getLeads({
+      ...buildLeadFilters(params),
+      page: 1,
+      limit: PAGE_SIZE,
+    });
+    const all = [...(first.data || [])];
+    const totalPages = Math.min(
+      first.metadata?.totalPages || 1,
+      Math.ceil(MAX_ROWS / PAGE_SIZE)
+    );
+
+    for (let p = 2; p <= totalPages; p++) {
+      const next = await LeadService.getLeads({
+        ...buildLeadFilters(params),
+        page: p,
+        limit: PAGE_SIZE,
+      });
+      all.push(...(next.data || []));
+      if (all.length >= MAX_ROWS) break;
+    }
+    return all as any[];
+  }, [buildLeadFilters]);
 
   const handleBulkDelete = async (
     selectedRows: AdmissionLead[],
@@ -501,7 +704,7 @@ export function LeadsDataTable() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="_all">All Stages</SelectItem>
-              {FUNNEL_STAGES.map((stage) => (
+              {stageOptions.map((stage) => (
                 <SelectItem key={stage.value} value={stage.value}>
                   {stage.label}
                 </SelectItem>
@@ -533,20 +736,19 @@ export function LeadsDataTable() {
           )}
 
           {/* Programs / Interested Courses chip — also promoted 2026-05-04.
-              Disabled until an institution is in focus (programs are
-              institution-scoped). The horizontal ProgramTabs strip below
-              this row remains as a secondary quick-nav. */}
+              Always enabled (2026-06-10): with no college in focus, the
+              program-counts endpoint returns programs across all accessible
+              institutions, so global users can filter by program without
+              picking a college first. Selecting a college still narrows
+              the option list (programs are institution-scoped). */}
           <Select
             value={programFilter ?? '_all'}
             onValueChange={(value) =>
               handleProgramSelect(value === '_all' ? null : value)
             }
-            disabled={!institutionId}
           >
             <SelectTrigger className="w-full min-w-[120px] sm:w-[180px] h-8 text-xs flex-1 sm:flex-none">
-              <SelectValue
-                placeholder={institutionId ? 'All Programs' : 'Pick college'}
-              />
+              <SelectValue placeholder="All Programs" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="_all">All Programs</SelectItem>
@@ -744,32 +946,86 @@ export function LeadsDataTable() {
     </div>
   );
 
+  // Complete-detail export config. The transform flattens each lead row (whose
+  // display values live in nested relations — `institution.name`,
+  // `counselor.name` — and in the route-enriched `interested_program_names`)
+  // into the flat LEAD_EXPORT_COLUMNS schema. Stage and source labels reuse the
+  // same admin-curated lists that feed the filter dropdowns, so an export never
+  // shows a raw enum the UI has been configured to rename.
+  const exportConfig = useMemo(() => {
+    // Explicit <string, string>: leadSources[].value is the narrow
+    // LeadSourceEnum, so an inferred Map would reject a plain-string lookup.
+    const stageLabels = new Map<string, string>(
+      stageOptions.map((s) => [s.value, s.label])
+    );
+    const sourceLabels = new Map<string, string>(
+      leadSources.map((s) => [s.value, s.label])
+    );
+    const titleCase = (v?: string | null) =>
+      v ? v.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+
+    return {
+      entityName: 'leads',
+      headers: LEAD_EXPORT_HEADERS,
+      columnMapping: LEAD_EXPORT_MAPPING,
+      columnWidths: LEAD_EXPORT_WIDTHS,
+      transformFunction: (row: AdmissionLead) => ({
+        lead_name: row.full_name ?? '',
+        phone_number: row.phone ?? '',
+        email_address: row.email ?? '',
+        stage_label:
+          stageLabels.get(row.funnel_stage) ?? titleCase(row.funnel_stage),
+        source_label: sourceLabels.get(row.source) ?? titleCase(row.source),
+        priority_label: titleCase(row.priority),
+        lead_score: row.score ?? '',
+        institution_name: row.institution?.name ?? '',
+        programs_interested: (row.interested_program_names ?? []).join('; '),
+        // Referral leads are credited to a consultant rather than a counselor.
+        // attributionsMap is populated per visible page, so an all-pages export
+        // falls back to the counselor name for off-page referral rows.
+        counselor_name:
+          attributionsMap.get(row.id) ?? row.counselor?.name ?? '',
+        gender_value: titleCase(row.gender),
+        dob: row.date_of_birth ? formatDateDMY(row.date_of_birth) : '',
+        parent: row.parent_name ?? '',
+        parent_contact: row.parent_phone ?? '',
+        city_name: row.city ?? '',
+        state_name: row.state ?? '',
+        created_on: row.created_at ? formatDateDMY(row.created_at) : '',
+      }),
+    };
+  }, [stageOptions, leadSources, attributionsMap]);
+
   // Memoize getColumns to avoid creating a new function reference on every render.
   // The DataTable's internal useMemo depends on getColumns identity.
   const stableGetColumns = useCallback(
-    () => getLeadColumns(attributionsMap) as any,
-    [attributionsMap]
+    () =>
+      getLeadColumns(attributionsMap, {
+        id: profile?.id ?? null,
+        counselorId: myCounselorId,
+      }) as any,
+    [attributionsMap, profile?.id, myCounselorId]
   );
 
   return (
     <>
       <DataTable
         fetchDataFn={fetchData}
+        fetchAllItemsFn={fetchAllItems}
         getColumns={stableGetColumns}
-        exportConfig={{
-          entityName: 'leads',
-          columnMapping: {},
-          columnWidths: [],
-          headers: []
-        }}
+        exportConfig={exportConfig}
         idField="id"
         config={{
           enableUrlState: true,
-          enableDateFilter: false,
+          // Date-wise filter (created_at range) — the toolbar's CalendarDatePicker
+          // feeds from_date/to_date into fetchData, which forwards them as
+          // date_from/date_to to /api/admission/leads/list (day-inclusive, IST).
+          enableDateFilter: true,
           enableExport: true,
           enableRowSelection: true
         }}
         renderToolbarContent={renderCustomToolbar}
+        renderMobileRow={(item) => <LeadMobileCard lead={item as AdmissionLead} />}
         refetchKey={refetchKey}
       />
 

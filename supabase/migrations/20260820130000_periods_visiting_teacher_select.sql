@@ -1,0 +1,86 @@
+-- =====================================================================
+-- 20260820130000 — visiting teachers can read the periods of the
+--                  institutions they teach in
+-- =====================================================================
+-- PURELY ADDITIVE. Creates ONE new SELECT policy on public.periods. No existing
+-- policy, function, table or column is modified. RLS policies of the same command
+-- are OR-ed, so this can only ever widen SELECT for staff who actually teach in
+-- the institution — it cannot restrict any existing access.
+--
+-- THE DEFECT (reported by JKKN College of Allied Health Sciences)
+-- --------------------------------------------------------------
+-- "The external or visitor staffs are unable to mark an attendance for AHS."
+--
+-- 20260706_cross_institution_teaching.sql established that a staff member may
+-- teach in a sister institution while keeping their single home-institution
+-- `staff` row, and granted visiting teachers SELECT on the academic structure of
+-- the institutions they teach in:
+--     courses, sections, semesters, degrees, departments, programs
+-- `periods` was not in that list. It is the only table left in the attendance
+-- read path that still scopes strictly to profiles.institution_id:
+--     "Users can view accessible periods" -> profiles.institution_id = periods.institution_id
+--     "periods_select_institution"        -> institution_id IN (profiles.institution_id)
+-- (both read from the live catalogue 2026-08-20).
+--
+-- WHY THIS BREAKS MARKING RATHER THAN JUST HIDING TIMES
+-- ----------------------------------------------------
+-- AttendanceService.getAvailablePeriodsForDate collects the period ids referenced
+-- by the timetable slots and resolves them against the `periods` master:
+--     periodsData.find(p => p.id === slot.period_id)
+-- For a visiting teacher that query returns ZERO rows — RLS filters silently, with
+-- error = null — so every slot resolves to `period_name: 'Unknown Period'` and
+-- `start_time: ''`. The periods list is unusable, and the break filter
+-- (`periodData?.is_break`) also stops working because is_break is undefined.
+--
+-- Note the timetable itself is already reachable: `timetables_select_visiting_
+-- teacher` exists on the live database. This is the one remaining gap.
+--
+-- MEASURED ON PRODUCTION 2026-08-20 (SELECT only; these numbers drift)
+-- -------------------------------------------------------------------
+--   13 active staff whose home institution is NOT AHS are assigned to teach there
+--   via AHS staff planning (11 faculty, 1 hod, 1 staff_counselor — from JKKN
+--   Dental College and JKKN College of Pharmacy). 14 distinct non-AHS staff ids
+--   appear inside AHS active timetable_data.
+--   All three roles hold academic.attendance.mark, so permissions are NOT the
+--   blocker — visibility is.
+--   None of them holds a user_institution_access row for AHS, which is the other
+--   way the older policies could have admitted them.
+--
+-- WHY A POLICY AND NOT user_institution_access ROWS
+-- -------------------------------------------------
+-- Granting each visiting teacher a user_institution_access row would also work,
+-- but the access_type values actually in use are: super_admin, full, billing_only,
+-- billing, admin. There is no "teaching" grade, so every available option
+-- over-privileges a visiting lecturer far beyond reading period timings, and it
+-- would have to be repeated by hand for every future visiting teacher. The policy
+-- below grants exactly what the existing design already grants for the sibling
+-- lookup tables, and it applies automatically to anyone assigned through staff
+-- planning.
+--
+-- SCOPE
+-- -----
+-- SELECT only. Write policies on `periods` (insert/update/delete) are untouched —
+-- a visiting teacher can read the timings of the institution they teach in and
+-- cannot alter them. staff_teaches_in_institution() is SECURITY DEFINER and
+-- derives strictly from staff_plan_courses -> staff_plans.institution_id, so a
+-- user with no teaching assignment in an institution gains nothing.
+-- =====================================================================
+
+-- Identical in form to the six lookup-table policies added by
+-- 20260706_cross_institution_teaching.sql, deliberately: the intent is to finish
+-- that migration's list, not to invent a new access rule.
+DROP POLICY IF EXISTS "periods_select_visiting_teacher" ON public.periods;
+CREATE POLICY "periods_select_visiting_teacher" ON public.periods
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+NOTIFY pgrst, 'reload schema';
+
+-- =====================================================================
+-- DEPLOY — no ordering constraint, no application change required
+-- =====================================================================
+-- This migration stands alone. No TypeScript accompanies it: the affected reads
+-- already query `periods` normally and simply received zero rows. Applying it
+-- makes those existing queries return the rows they always intended to.
+--
+-- Rollback: DROP POLICY "periods_select_visiting_teacher" ON public.periods;
+-- =====================================================================

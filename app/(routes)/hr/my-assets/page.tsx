@@ -150,7 +150,7 @@ export default function MyAssetsPage() {
       <div className="mt-6 space-y-4">
         <Card>
           <CardHeader>
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Laptop className="h-4 w-4" />
@@ -162,7 +162,7 @@ export default function MyAssetsPage() {
                 </p>
               </div>
               {isHrOfficer && (
-                <Button asChild variant="outline" size="sm">
+                <Button asChild variant="outline" size="sm" className="shrink-0">
                   <Link href="/resource-management/resources">
                     View all institution assets →
                   </Link>

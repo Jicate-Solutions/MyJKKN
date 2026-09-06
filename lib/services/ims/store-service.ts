@@ -25,22 +25,20 @@ export class ImsStoreService {
     metadata: { total: number; page: number; limit: number; totalPages: number };
   }> {
     try {
-      // Ensure auth session is established before querying.
-      // useImsStores fires with enabled:true on mount — before the Supabase
-      // client restores JWT from cookies. Without a valid JWT the request
-      // goes as 'anon' and the TO authenticated RLS policy returns 0 rows.
+      // Guard: if the Supabase browser client hasn't yet restored the session
+      // from cookies (race on cold mount), getSession() returns null and the
+      // query would run as 'anon', silently returning 0 rows due to RLS.
+      // Throwing here lets React Query retry with backoff until the session
+      // is available — without making an extra HTTP round-trip to /auth/v1/user.
       const { data: { session } } = await this.supabase.auth.getSession();
       if (!session) {
-        const { data: { user }, error: userError } = await this.supabase.auth.getUser();
-        if (userError || !user) {
-          throw new Error('[ImsStoreService] No authenticated session for store query');
-        }
+        throw new Error('[ImsStoreService] Session not yet available — will retry');
       }
 
       let query = this.supabase
         .from('ims_stores')
         .select(
-          '*, manager:profiles!ims_stores_manager_id_fkey(id, full_name)',
+          '*, institution:institutions(id, name), manager:profiles!ims_stores_manager_id_fkey(id, full_name)',
           { count: 'exact' }
         );
 
@@ -83,7 +81,15 @@ export class ImsStoreService {
         },
       };
     } catch (error) {
-      console.error('[ImsStoreService] Error in getStores:', error);
+      const e = error as { message?: string; code?: string; details?: string; hint?: string };
+      console.error(
+        '[ImsStoreService] Error in getStores:',
+        e?.message ?? String(error),
+        '| code:', e?.code,
+        '| details:', e?.details,
+        '| hint:', e?.hint,
+        '| raw:', JSON.stringify(error, Object.getOwnPropertyNames(error ?? {}))
+      );
       throw error;
     }
   }
@@ -105,7 +111,15 @@ export class ImsStoreService {
 
       return data as ImsStoreWithRelations;
     } catch (error) {
-      console.error('[ImsStoreService] Error in getStore:', error);
+      const e = error as { message?: string; code?: string; details?: string; hint?: string };
+      console.error(
+        '[ImsStoreService] Error in getStore:',
+        e?.message ?? String(error),
+        '| code:', e?.code,
+        '| details:', e?.details,
+        '| hint:', e?.hint,
+        '| raw:', JSON.stringify(error, Object.getOwnPropertyNames(error ?? {}))
+      );
       throw error;
     }
   }
@@ -123,6 +137,14 @@ export class ImsStoreService {
 
       if (error) {
         if (error.code === '23505') {
+          // Two different unique constraints can fire here — don't report the
+          // warehouse collision as a duplicate store code.
+          const detail = `${error.message ?? ''} ${error.details ?? ''}`;
+          if (detail.includes('one_warehouse_per_institution')) {
+            throw new Error(
+              'This institution already has a warehouse. Turn off the warehouse flag on the existing store first.'
+            );
+          }
           throw new Error(`Store code "${data.code}" already exists`);
         }
         throw error;
@@ -225,35 +247,46 @@ export class ImsStoreService {
 
   /**
    * Lightweight store list for the switcher dropdown.
-   * Super admins see all active stores; regular users see only their institution's stores.
+   * Super admins see all active stores; regular users see their institution's
+   * stores PLUS any store explicitly granted to them via ims_user_store_grants.
    */
   static async getStoresForSelect(
     institutionId?: string | null,
     isSuperAdmin?: boolean
   ): Promise<{ id: string; name: string; code: string; institution_id: string | null }[]> {
     try {
-      // Ensure auth session is established before querying.
-      // On page refresh, React may resolve cached userProfile before
-      // the Supabase HTTP client has restored session from cookies.
-      // Without a valid JWT, the request goes as 'anon' and RLS
-      // policies targeting 'authenticated' return 0 rows.
+      // Guard: if the Supabase browser client hasn't yet restored the session
+      // from cookies (race on cold mount), getSession() returns null and the
+      // query would run as 'anon', silently returning 0 rows due to RLS.
+      // Throwing here lets React Query retry with backoff until the session
+      // is available — without making an extra HTTP round-trip to /auth/v1/user.
       const { data: { session } } = await this.supabase.auth.getSession();
       if (!session) {
-        // Fallback: getUser() validates via HTTP cookies (more reliable with SSR)
-        const { data: { user }, error: userError } = await this.supabase.auth.getUser();
-        if (userError || !user) {
-          throw new Error('[ImsStoreService] No authenticated session for store query');
-        }
+        throw new Error('[ImsStoreService] Session not yet available — will retry');
       }
 
       let query = this.supabase
         .from('ims_stores')
-        .select('id, name, code, institution_id')
+        // is_pos_store rides along so the switcher can label counters and the
+        // routing rule can tell a shop from a lab without another round-trip.
+        .select('id, name, code, institution_id, is_pos_store')
         .eq('is_active', true)
         .order('name');
 
       if (!isSuperAdmin && institutionId) {
-        query = query.eq('institution_id', institutionId);
+        // Cross-institution grants: a user may be allowed to operate a store
+        // outside their own institution. RLS already permits reading those rows
+        // (ims_stores SELECT is USING(true)); this filter is what makes them
+        // appear in the switcher. Kept as a separate round-trip rather than an
+        // embedded join because ims_user_store_grants has no FK path to
+        // ims_stores that PostgREST can traverse in this direction.
+        const grantedStoreIds = await this.getGrantedStoreIds();
+
+        query = grantedStoreIds.length
+          ? query.or(
+              `institution_id.eq.${institutionId},id.in.(${grantedStoreIds.join(',')})`
+            )
+          : query.eq('institution_id', institutionId);
       }
 
       const { data, error } = await query;
@@ -263,6 +296,95 @@ export class ImsStoreService {
       return data || [];
     } catch (error) {
       console.error('[ImsStoreService] Error in getStoresForSelect:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Store ids granted to the current user beyond their own institution.
+   *
+   * Returns [] on error rather than throwing: a failure here should degrade the
+   * switcher to "own institution only" — the pre-grants behaviour — not blank
+   * the dropdown and strand the user on the store picker.
+   */
+  static async getGrantedStoreIds(): Promise<string[]> {
+    const { data: { session } } = await this.supabase.auth.getSession();
+    if (!session) return [];
+
+    // Filtered by user_id explicitly even though the SELECT policy already
+    // scopes to auth.uid(): that same policy lets a super_admin read EVERY
+    // user's grants, so an unfiltered query here would leak other people's
+    // stores into the switcher the day this is called on a super-admin path.
+    const { data, error } = await this.supabase
+      .from('ims_user_store_grants')
+      .select('store_id')
+      .eq('user_id', session.user.id)
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('[ImsStoreService] Error loading store grants:', error);
+      return [];
+    }
+
+    return (data || []).map((row) => row.store_id as string);
+  }
+
+  /**
+   * All active stores for the admin "allocate a store to this user" UI, each
+   * carrying its institution name.
+   *
+   * The name matters here in a way it does not in the switcher: these controls
+   * hand out access ACROSS institutions, so "JKKN Pharmacy" alone is ambiguous
+   * — the admin needs to see which institution they are opening up.
+   */
+  static async getStoresForAssignment(): Promise<
+    {
+      id: string;
+      name: string;
+      code: string;
+      institution_id: string | null;
+      institution_name: string | null;
+    }[]
+  > {
+    try {
+      const { data, error } = await this.supabase
+        .from('ims_stores')
+        .select('id, name, code, institution_id, institutions(name)')
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) throw error;
+
+      return (data || []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        institution_id: row.institution_id,
+        institution_name: row.institutions?.name ?? null,
+      }));
+    } catch (error) {
+      console.error('[ImsStoreService] Error in getStoresForAssignment:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cross-institution store grants held by a specific user.
+   * Admin-facing: readable only by a super_admin (RLS on ims_user_store_grants).
+   */
+  static async getUserStoreGrants(userId: string): Promise<string[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('ims_user_store_grants')
+        .select('store_id')
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      return (data || []).map((row: any) => row.store_id as string);
+    } catch (error) {
+      console.error('[ImsStoreService] Error in getUserStoreGrants:', error);
       throw error;
     }
   }
@@ -300,6 +422,11 @@ export class ImsStoreService {
     institutionId: string
   ): Promise<ImsStore[]> {
     try {
+      const { data: { session } } = await this.supabase.auth.getSession();
+      if (!session) {
+        throw new Error('[ImsStoreService] Session not yet available — will retry');
+      }
+
       const { data, error } = await this.supabase
         .from('ims_stores')
         .select('*')

@@ -14,9 +14,26 @@ import type {
 export const hostelAttendanceKeys = {
   all: ['hostel-attendance'] as const,
   list: (filters: Record<string, unknown>) => ['hostel-attendance', 'list', filters] as const,
-  byDate: (institutionId: string | undefined, date: string) => ['hostel-attendance', 'by-date', institutionId, date] as const,
+  byDate: (institutionId: string | undefined, date: string, blockId?: string) =>
+    ['hostel-attendance', 'by-date', institutionId, date, blockId] as const,
   detail: (id: string) => ['hostel-attendance', 'detail', id] as const,
+  markable: (institutionId: string | undefined, blockId: string | undefined) =>
+    ['hostel-attendance', 'markable', institutionId, blockId] as const,
+  dashboard: (institutionId: string | undefined, date: string, blockId: string | undefined) =>
+    ['hostel-attendance', 'dashboard', institutionId, date, blockId] as const,
+  myBlockAccess: ['hostel-attendance', 'my-block-access'] as const,
 };
+
+// The current user's active block grants (user_block_access, self-readable).
+// Non-empty for wardens — used to scope the Mark Attendance UI to their
+// assigned blocks. Empty for admins/unscoped staff.
+export function useMyBlockAccess() {
+  return useQuery({
+    queryKey: hostelAttendanceKeys.myBlockAccess,
+    queryFn: () => HostelAttendanceService.getMyBlockGrants(),
+    staleTime: 60_000,
+  });
+}
 
 // --- Query hooks ---
 
@@ -29,12 +46,59 @@ export function useHostelAttendance(institutionId: string | undefined, filters?:
   });
 }
 
-export function useAttendanceByDate(institutionId: string | undefined, date: string) {
+// Aggregate stats for the Hostel Attendance landing page (totals, block-wise
+// breakdown, 7-day trend). Replaces the old useHostelAttendance(list) call that
+// the page mis-read as an aggregate, leaving it stuck on all-zeros.
+export function useAttendanceDashboard(
+  institutionId: string | undefined,
+  date: string,
+  blockId?: string
+) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: hostelAttendanceKeys.byDate(institutionId, date),
-    queryFn: () => HostelAttendanceService.getAttendanceByDate(isSuperAdmin ? undefined : institutionId, date),
-    enabled: (isSuperAdmin || !!institutionId) && !!date,
+    queryKey: hostelAttendanceKeys.dashboard(institutionId, date, blockId),
+    queryFn: () =>
+      HostelAttendanceService.getAttendanceDashboard(
+        isSuperAdmin ? undefined : institutionId,
+        date,
+        blockId
+      ),
+    enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+// Active residents merged with their allocation (block/room/bed) for the
+// Mark Attendance page. blockId narrows to residents allocated in that block.
+export function useMarkableResidents(institutionId: string | undefined, blockId?: string) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: hostelAttendanceKeys.markable(institutionId, blockId),
+    queryFn: () =>
+      HostelAttendanceService.getMarkableResidents(
+        isSuperAdmin ? undefined : institutionId,
+        blockId
+      ),
+    enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+// blockId, when given, scopes the query to that block directly instead of the
+// viewer's own institution_id — a block can house residents from multiple
+// affiliated colleges (hostel-rooms-v2), so filtering by the marking staff
+// member's own institution wrongly hides records for residents of other
+// institutions housed in the same block (same pitfall getMarkableResidents
+// below already documents and avoids).
+export function useAttendanceByDate(institutionId: string | undefined, date: string, blockId?: string) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: hostelAttendanceKeys.byDate(institutionId, date, blockId),
+    queryFn: () =>
+      HostelAttendanceService.getAttendanceByDate(
+        blockId ? undefined : (isSuperAdmin ? undefined : institutionId),
+        date,
+        blockId
+      ),
+    enabled: (isSuperAdmin || !!institutionId || !!blockId) && !!date,
   });
 }
 

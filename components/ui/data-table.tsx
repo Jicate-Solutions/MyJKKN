@@ -224,6 +224,11 @@ interface DataTableProps<TData, TValue> {
   onSearch?: (query: string) => void;
 
   /**
+   * Initial value for the search input (useful when restoring from URL params).
+   */
+  initialSearch?: string;
+
+  /**
    * Server-side pagination configuration
    * If provided, disables client-side pagination and uses external pagination
    */
@@ -266,6 +271,7 @@ export function DataTable<TData, TValue>({
   onRefresh,
   showRefresh = true,
   onSearch,
+  initialSearch = '',
   serverSidePagination,
   rowSelection: externalRowSelection,
   onRowSelectionChange: externalOnRowSelectionChange,
@@ -274,7 +280,7 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     []
   );
-  const [globalFilter, setGlobalFilter] = React.useState('');
+  const [globalFilter, setGlobalFilter] = React.useState(initialSearch);
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({});
   
@@ -295,9 +301,25 @@ export function DataTable<TData, TValue>({
     pageSize: 10,
   });
 
+  // Track whether the search effect is firing for the first time on mount.
+  // Without this guard, the effect fires immediately with globalFilter=''
+  // (the default), which triggers a full unfiltered server fetch. If that
+  // fetch is slow (e.g. 394 rows with 6 joins), it can complete AFTER a
+  // subsequent filtered fetch and silently overwrite the filtered results —
+  // making it look like the filter "isn't working".
+  const isInitialMount = React.useRef(true);
+
   // Debounce search for server-side filtering
   React.useEffect(() => {
     if (!onSearch) return;
+
+    // Skip the very first fire when globalFilter is still the initial value.
+    // Only skip if the initial value is empty — if initialSearch is non-empty
+    // (e.g. restored from URL params) we still want to fire on mount.
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      if (!globalFilter) return;
+    }
 
     const timer = setTimeout(() => {
       onSearch(globalFilter);

@@ -22,6 +22,7 @@ import type {
   JobFilters,
   JobListResponse,
   JobStatus,
+  SalaryDuration,
 } from '@/types/hr-recruitment';
 
 // =====================================================================================
@@ -40,10 +41,29 @@ export class RecruitmentJobsService {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    // Whitelist sortable columns; anything else falls back to created_at so a
+    // bad/spoofed sort_by can't reach the query builder.
+    const SORTABLE = new Set([
+      'title',
+      'role_category',
+      'status',
+      'is_public',
+      'positions_open',
+      'positions_filled',
+      'posted_at',
+      'created_at',
+      'job_type',
+      'city',
+    ]);
+    const sortBy = filters.sortBy && SORTABLE.has(filters.sortBy)
+      ? filters.sortBy
+      : 'created_at';
+    const ascending = filters.sortOrder === 'asc';
+
     let q = supabase
       .from('hr_recruitment_jobs')
       .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
+      .order(sortBy, { ascending })
       .range(from, to);
 
     if (filters.hr_organization_id) {
@@ -119,7 +139,9 @@ export class RecruitmentJobsService {
     }
 
     const insertPayload: Record<string, unknown> = {
-      hr_organization_id: payload.hr_organization_id,
+      // null lets the hr_recruitment_jobs_fill_org trigger derive it from
+      // institution_id; an explicit value (legacy callers) is respected.
+      hr_organization_id: payload.hr_organization_id ?? null,
       institution_id: payload.institution_id ?? null,
       title: payload.title.trim(),
       role_category: payload.role_category,
@@ -130,6 +152,21 @@ export class RecruitmentJobsService {
       positions_open: payload.positions_open ?? 1,
       positions_filled: payload.positions_filled ?? 0,
       department_id: payload.department_id ?? null,
+      // Extended fields (2026-06-27)
+      job_code: payload.job_code ?? null,
+      job_type: payload.job_type ?? null,
+      industry: payload.industry ?? null,
+      employer_type: payload.employer_type ?? null,
+      country: payload.country ?? null,
+      state: payload.state ?? null,
+      city: payload.city ?? null,
+      zip_code: payload.zip_code ?? null,
+      education_level: payload.education_level ?? null,
+      min_experience_years: payload.min_experience_years ?? null,
+      max_experience_years: payload.max_experience_years ?? null,
+      salary_currency: payload.salary_currency ?? 'INR',
+      salary_duration: (payload.salary_duration ?? 'per_month') as SalaryDuration,
+      display_salary: payload.display_salary ?? false,
       status: payload.status ?? 'draft',
       is_public: payload.is_public ?? false,
       posted_at: payload.posted_at ?? null,

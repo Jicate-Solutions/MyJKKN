@@ -135,7 +135,12 @@ export class LCCommunicationService {
   }
 
   /**
-   * Create a new announcement as draft
+   * Create an announcement.
+   *
+   * Saves a draft by default. Pass `publish: true` to submit it live in one step -- only
+   * LC office bearers (or a super admin) may do that, and the database rejects it for
+   * anyone else via fn_lc_announcement_guard_publish(). reviewed_by / published_at are
+   * deliberately NOT sent from the client; the trigger stamps the real publisher.
    */
   static async createAnnouncement(
     data: CreateAnnouncementDto,
@@ -151,7 +156,7 @@ export class LCCommunicationService {
         scope: data.scope,
         scope_id: data.scope_id || null,
         attachments: data.attachments || null,
-        status: 'draft' as AnnouncementStatus,
+        status: (data.publish ? 'published' : 'draft') as AnnouncementStatus,
         created_by: userId,
         read_count: 0
       })
@@ -163,7 +168,46 @@ export class LCCommunicationService {
       throw new Error(`Failed to create announcement: ${error.message}`);
     }
 
+    if (data.publish) {
+      await this.notifyMembersOfAnnouncement(created as LCAnnouncement);
+    }
+
     return created as LCAnnouncement;
+  }
+
+  /**
+   * Notify LC members about a newly-live announcement, scoped to its target audience.
+   * Never throws -- a notification failure must not fail the publish itself.
+   */
+  private static async notifyMembersOfAnnouncement(announcement: LCAnnouncement): Promise<void> {
+    try {
+      let membersQuery = this.supabase
+        .from('lc_members')
+        .select('user_id')
+        .eq('status', 'active');
+
+      // Filter members by announcement scope to avoid cross-institution notifications
+      if (announcement.scope === 'institution' && announcement.scope_id) {
+        membersQuery = membersQuery.eq('institution_id', announcement.scope_id);
+      }
+
+      const { data: members } = await membersQuery;
+
+      if (members && members.length > 0) {
+        const notifications = members.map((m: { user_id: string }) => ({
+          user_id: m.user_id,
+          type: 'announcement' as const,
+          title: 'New Announcement',
+          message: announcement.title,
+          link: '/learners-council/communication',
+          reference_id: announcement.id,
+          reference_type: 'announcement',
+        }));
+        await LCNotificationService.bulkCreateNotifications(notifications);
+      }
+    } catch (notifErr) {
+      console.warn('[lc/communication] Failed to send announcement notifications:', notifErr);
+    }
   }
 
   /**
@@ -199,20 +243,16 @@ export class LCCommunicationService {
   }
 
   /**
-   * Publish an announcement (set status to published)
+   * Submit an announcement live (set status to published).
+   *
+   * Only LC office bearers (or a super admin) may do this; the database enforces it via
+   * fn_lc_announcement_guard_publish(), which also stamps reviewed_by / reviewed_at /
+   * published_at from the real session. Those columns are not sent from here.
    */
-  static async publishAnnouncement(
-    id: string,
-    reviewerId: string
-  ): Promise<LCAnnouncement> {
+  static async publishAnnouncement(id: string): Promise<LCAnnouncement> {
     const { data, error } = await this.supabase
       .from('lc_announcements')
-      .update({
-        status: 'published' as AnnouncementStatus,
-        reviewed_by: reviewerId,
-        reviewed_at: new Date().toISOString(),
-        published_at: new Date().toISOString()
-      })
+      .update({ status: 'published' as AnnouncementStatus })
       .eq('id', id)
       .select()
       .single();
@@ -222,35 +262,48 @@ export class LCCommunicationService {
       throw new Error(`Failed to publish announcement: ${error.message}`);
     }
 
-    // Notify LC members about the new announcement (scoped to target audience)
+    await this.notifyMembersOfAnnouncement(data as LCAnnouncement);
+
+    return data as LCAnnouncement;
+  }
+
+  /**
+   * Send a draft announcement back to its author with a reason.
+   *
+   * Office bearers only -- enforced by fn_lc_announcement_guard_publish(), which also stamps
+   * returned_by / returned_at. The author is notified so they can fix and resubmit.
+   */
+  static async returnAnnouncement(id: string, reason: string): Promise<LCAnnouncement> {
+    const { data, error } = await this.supabase
+      .from('lc_announcements')
+      .update({ status: 'returned' as AnnouncementStatus, return_reason: reason })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error returning announcement:', error);
+      throw new Error(`Failed to return announcement: ${error.message}`);
+    }
+
+    // Notify the author that their draft came back, with the reason.
     try {
-      const announcement = data as LCAnnouncement;
-      let membersQuery = this.supabase
-        .from('lc_members')
-        .select('user_id')
-        .eq('status', 'active');
-
-      // Filter members by announcement scope to avoid cross-institution notifications
-      if (announcement.scope === 'institution' && announcement.scope_id) {
-        membersQuery = membersQuery.eq('institution_id', announcement.scope_id);
-      }
-
-      const { data: members } = await membersQuery;
-
-      if (members && members.length > 0) {
-        const notifications = members.map((m: { user_id: string }) => ({
-          user_id: m.user_id,
-          type: 'announcement' as const,
-          title: 'New Announcement',
-          message: announcement.title,
-          link: '/learners-council/communication',
-          reference_id: announcement.id,
-          reference_type: 'announcement',
-        }));
-        await LCNotificationService.bulkCreateNotifications(notifications);
+      const a = data as LCAnnouncement;
+      if (a.created_by) {
+        await LCNotificationService.bulkCreateNotifications([
+          {
+            user_id: a.created_by,
+            type: 'announcement' as const,
+            title: 'Announcement sent back',
+            message: `"${a.title}" was returned: ${reason}`,
+            link: '/learners-council/communication',
+            reference_id: a.id,
+            reference_type: 'announcement',
+          },
+        ]);
       }
     } catch (notifErr) {
-      console.warn('[lc/communication] Failed to send announcement notifications:', notifErr);
+      console.warn('[lc/communication] Failed to notify author of return:', notifErr);
     }
 
     return data as LCAnnouncement;
@@ -323,11 +376,14 @@ export class LCCommunicationService {
 
     const readCount = (reads || []).length;
 
-    // Get total active LC members for the same institution as denominator for percentage
-    // First get the announcement to know its institution
+    // Denominator = the active LC members this announcement was actually addressed to.
+    // NOTE: lc_announcements has no institution_id column; the audience is carried on
+    // scope/scope_id. Reading institution_id here errored silently and left the
+    // denominator as "every member", understating the read percentage of a
+    // college-scoped announcement.
     const { data: announcement } = await this.supabase
       .from('lc_announcements')
-      .select('institution_id')
+      .select('scope, scope_id')
       .eq('id', announcementId)
       .single();
 
@@ -336,9 +392,8 @@ export class LCCommunicationService {
       .select('id', { count: 'exact', head: true })
       .eq('status', 'active');
 
-    // Scope to institution if announcement has one
-    if ((announcement as any)?.institution_id) {
-      memberQuery = memberQuery.eq('institution_id', (announcement as any).institution_id);
+    if (announcement?.scope === 'institution' && announcement.scope_id) {
+      memberQuery = memberQuery.eq('institution_id', announcement.scope_id);
     }
 
     const { count: totalMembers } = await memberQuery;
@@ -1359,7 +1414,57 @@ export class LCCommunicationService {
       // Don't fail - channel is created
     }
 
+    // A scoped channel must reach its whole group, not just whoever made it.
+    await this.seedScopeMembers((channel as { id: string }).id, data.type);
+
     return channel as LCChatChannel;
+  }
+
+  /**
+   * Turn a channel's SCOPE into real lc_chat_members rows (BUG-04).
+   *
+   * Channel visibility is membership-based (lc_chat_channels_select resolves
+   * through fn_is_lc_chat_member), so a channel whose only member is its creator
+   * is visible to exactly one person -- which is what an 'executive' / 'chapter' /
+   * 'vertical' / 'portfolio' channel used to be. The scope was stored and never
+   * resolved into people.
+   *
+   * The resolution runs server-side (createServiceRoleClient) because a council
+   * office bearer may hold learners-council.* without learners.* / yuva.*: the
+   * browser client returns 0 rows for those reads -- silently, error === null --
+   * and cannot insert membership rows for anyone but itself. The route re-imposes
+   * the caller's institution scope, so nothing cross-tenant can be pulled in.
+   *
+   * 'custom' and 'direct' are unchanged: their membership is exactly the explicit
+   * member_ids above.
+   *
+   * Never throws -- mirroring notifyMembersOfAnnouncement, a seeding failure must
+   * not destroy the channel that was just created successfully.
+   */
+  private static async seedScopeMembers(
+    channelId: string,
+    type: CreateChatChannelDto['type']
+  ): Promise<void> {
+    if (type === 'custom' || type === 'direct') return;
+
+    try {
+      const response = await fetch('/api/learners-council/chat/seed-scope-members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_id: channelId }),
+      });
+
+      if (!response.ok) {
+        console.warn(
+          '[lc/communication] Scope member seeding returned',
+          response.status,
+          'for channel',
+          channelId
+        );
+      }
+    } catch (seedErr) {
+      console.warn('[lc/communication] Failed to seed scope members:', seedErr);
+    }
   }
 
   /**

@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -7,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCampusLivingOverview } from '@/hooks/campus-living/use-campus-living-dashboard';
 import {
   Building2,
@@ -15,12 +18,9 @@ import {
   ClipboardCheck,
   CalendarOff,
   Wrench,
-  UtensilsCrossed,
   ShieldAlert,
   DoorOpen,
   ArrowRight,
-  TrendingUp,
-  TrendingDown,
   Loader2,
   AlertTriangle,
   UserCheck,
@@ -29,10 +29,25 @@ import {
 
 export default function CampusLivingDashboardPage() {
   const { profile } = useAuth();
+  const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
+  const router = useRouter();
   const institutionId = profile?.institution_id ?? '';
+
+  // Redirect pure residents (no dashboard.view) to their personal My Hostel hub.
+  // Gate on permsLoading — while usePermissions resolves, isSuperAdmin/can() are
+  // both false, which would otherwise bounce admins/wardens off the dashboard.
+  useEffect(() => {
+    if (!permsLoading && !isSuperAdmin && !can('campus_living.dashboard.view')) {
+      router.replace('/campus-living/my-hostel');
+    }
+  }, [permsLoading, isSuperAdmin, can, router]);
   const { data: dashboardData, isLoading, error } = useCampusLivingOverview(institutionId);
 
-  if (isLoading) {
+  // permsLoading keeps the spinner up while the viewer's scope resolves — the
+  // overview query is deliberately disabled until then (useCampusLivingScope),
+  // and a disabled React Query reports isLoading:false, so without this gate the
+  // page renders its blank/zero stats before the first fetch starts (BUG-005831).
+  if (isLoading || permsLoading) {
     return (
       <ContentLayout title="Campus Living">
         <div className="flex items-center justify-center min-h-[400px]">
@@ -84,7 +99,7 @@ export default function CampusLivingDashboardPage() {
               Hostel management, attendance, leave, and facility overview
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/campus-living/attendance/mark">
                 <ClipboardCheck className="mr-2 h-4 w-4" />

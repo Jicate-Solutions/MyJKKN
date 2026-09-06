@@ -38,14 +38,14 @@ export default function DiscoveryPage() {
         ]}
       />
       <div className="space-y-6 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">Discovery Visits</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
               Track client site visits and discovery sessions
             </p>
           </div>
-          <Button asChild>
+          <Button asChild className="shrink-0">
             <Link href="/solutions/discovery/new">
               <Plus className="mr-2 h-4 w-4" />
               Log Visit
@@ -169,8 +169,8 @@ export default function DiscoveryPage() {
             {visits.map((visit: DiscoveryVisit) => (
               <Card key={visit.id}>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="p-2 rounded-full bg-muted">
                         <Building2 className="h-4 w-4" />
                       </div>
@@ -185,7 +185,7 @@ export default function DiscoveryPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
                       {visit.follow_up_required && (
                         <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
                           Follow-up Required

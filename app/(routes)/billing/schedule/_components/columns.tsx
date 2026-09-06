@@ -5,6 +5,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { StudentBill } from '@/types/billing-schedule';
 import { Badge } from '@/components/ui/badge';
+import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import type { LifecycleStatus } from '@/types/learner-profile';
 import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import Link from 'next/link';
@@ -40,7 +42,8 @@ export const columns: ColumnDef<StudentBill>[] = [
       />
     ),
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    enableResizing: false
   },
   {
     accessorKey: 'student',
@@ -146,11 +149,35 @@ export const columns: ColumnDef<StudentBill>[] = [
     maxSize: 200,
     cell: ({ row }) => {
       const bill = row.original;
+      // Category-upgrade bills all sit under the generic "Hostel/Mess Upgrade Fee"
+      // category, so surface the from→to detail (stored in bill_description, e.g.
+      // "Classic Room → Deluxe Room") for the accounts team.
+      const isUpgradeBill =
+        bill.item_category?.category_name === 'Hostel Upgrade Fee' ||
+        bill.item_category?.category_name === 'Mess Upgrade Fee';
+      const isGovernment =
+        (bill.item_category as { collection_type?: string } | undefined)
+          ?.collection_type === 'government';
       return (
         <div>
-          <div className='font-medium'>
-            {bill.item_category?.category_name || 'N/A'}
+          <div className='flex items-center gap-1.5'>
+            <span className='font-medium'>
+              {bill.item_category?.category_name || 'N/A'}
+            </span>
+            {isGovernment && (
+              <span
+                className='shrink-0 rounded border border-amber-500 px-1 text-[10px] leading-4 text-amber-700 dark:text-amber-400'
+                title='Collected on behalf of a government body — not management revenue.'
+              >
+                Govt
+              </span>
+            )}
           </div>
+          {isUpgradeBill && bill.bill_description && (
+            <div className='text-sm text-muted-foreground'>
+              {bill.bill_description}
+            </div>
+          )}
           {bill.item_category?.frequency && (
             <div className='text-sm text-muted-foreground capitalize'>
               {bill.item_category.frequency}
@@ -179,6 +206,22 @@ export const columns: ColumnDef<StudentBill>[] = [
         </div>
       );
     }
+  },
+  {
+    accessorKey: 'academic_year',
+    id: 'academic_year',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Academic Year' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 160,
+    cell: ({ row }) => (
+      <span className='text-sm'>
+        {row.original.academic_year?.academic_year_name ?? 'Unspecified'}
+      </span>
+    ),
+    enableSorting: false
   },
   {
     accessorKey: 'final_amount',
@@ -243,6 +286,26 @@ export const columns: ColumnDef<StudentBill>[] = [
       return value.includes(row.getValue(id));
     }
   },
+  {
+    accessorKey: 'lifecycle_status',
+    id: 'lifecycle_status',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Learner Status' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 170,
+    cell: ({ row }) => {
+      const status = row.original.student?.lifecycle_status;
+      if (!status) {
+        return <span className='text-sm text-muted-foreground'>—</span>;
+      }
+      return <LifecycleStatusBadge status={status as LifecycleStatus} />;
+    },
+    // lifecycle_status lives on the embedded learner, not on the bill row, so
+    // server-side ordering by it isn't wired — keep it unsortable.
+    enableSorting: false
+  },
 
   {
     accessorKey: 'created_at',
@@ -263,6 +326,7 @@ export const columns: ColumnDef<StudentBill>[] = [
     cell: ({ row }) => <DataTableRowActions row={row} />,
     enableSorting: false,
     enableHiding: false,
+    enableResizing: false,
     size: 60,
     minSize: 60,
     maxSize: 80

@@ -22,6 +22,90 @@ const config: ModuleNavConfig = {
       matchPaths: ['/admission/dashboard', '/admission'],
     },
     {
+      // Social-media monitoring + lead-gen surfaces. Relocated from
+      // /admin/social/* 2026-06-10 (Director: "social can be moved to top of
+      // admission crm module") — admin-cluster relocation program, one module
+      // = one URL prefix. 2026-06-11: pages gated by granular social.*
+      // permission keys (PermissionGuard + MENU_PERMISSIONS), grantable per
+      // role via Role Management. Users without the key who click the tab
+      // see the restriction card, not a silent redirect.
+      label: 'Social',
+      icon: 'Share2',
+      href: '/admission/social',
+      matchPaths: ['/admission/social'],
+      children: [
+        {
+          label: 'Overview',
+          icon: 'Share2',
+          href: '/admission/social',
+          exact: true,
+        },
+        {
+          label: 'Insights',
+          icon: 'LineChart',
+          href: '/admission/social/insights',
+        },
+        {
+          label: 'Instagram',
+          icon: 'Instagram',
+          href: '/admission/social/instagram',
+        },
+        {
+          label: 'Facebook',
+          icon: 'Facebook',
+          href: '/admission/social/facebook',
+        },
+        {
+          label: 'Lead Ads',
+          icon: 'Megaphone',
+          href: '/admission/social/lead-ads',
+        },
+        {
+          label: 'Dept Accounts',
+          icon: 'KeyRound',
+          href: '/admission/social/departments',
+        },
+        // Relocated from /admin/* 2026-06-11 (admin-cluster relocation
+        // wave-2 — attribution + Meta integrations join Social).
+        {
+          label: 'Attribution',
+          icon: 'TrendingUp',
+          href: '/admission/social/attribution',
+        },
+        {
+          label: 'Meta Pixel',
+          icon: 'Target',
+          href: '/admission/social/meta-pixel',
+        },
+        {
+          label: 'Audiences',
+          icon: 'UsersRound',
+          href: '/admission/social/meta-audiences',
+        },
+        // 2026-06-23 — Social Governance wave (#1493/#1494/#1496). Director's-
+        // view consequences surface: each live social.* policy rendered as a
+        // plain-English consequence, linking to the super-admin policy editor.
+        // Added here so it renders as a reachable tier-3 chip (was NAV_EXCLUDE'd
+        // pending this wiring). Gated social.view via MENU_PERMISSIONS — matches
+        // the page's own PermissionGuard. The admin policy editor itself stays
+        // OFF this strip (super-admin-only; reached via the page's "Edit →" links).
+        {
+          label: 'Governance',
+          icon: 'ShieldCheck',
+          href: '/admission/social/governance',
+        },
+        // 2026-06-24 — Social Loop Engine. The weekly READ→DECIDE→LEARN
+        // improvement loop for a handle (pharmacy pilot; graph-readable so
+        // engagement is live). Reachable tier-3 chip, gated social.view via
+        // MENU_PERMISSIONS — matches the page's PermissionGuard.
+        {
+          label: 'Loop',
+          icon: 'RefreshCw',
+          href: '/admission/social/loop',
+        },
+      ],
+    },
+    {
       label: 'Analytics',
       icon: 'LineChart',
       href: '/admission/analytics',
@@ -302,6 +386,36 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Inbox',
+      icon: 'Inbox',
+      href: '/admission/inbox/messenger',
+      matchPaths: ['/admission/inbox'],
+      // Tier-3 chips for inbound social channels. Messenger + Instagram DMs
+      // land here via Meta webhooks (substrate: PR #1149, #1153). When
+      // master kill-switches (meta.messenger.is_enabled / ig.dm.is_enabled)
+      // are off, the chip is still rendered but the page shows a disabled
+      // placeholder.
+      children: [
+        {
+          label: 'Messenger',
+          icon: 'MessageCircle',
+          href: '/admission/inbox/messenger',
+          matchPaths: ['/admission/inbox/messenger'],
+        },
+        {
+          // Instagram DM inbox. Page reads from ig_dm_conversations /
+          // ig_dm_messages (substrate: PR #1153). Empty state surfaces the
+          // "Awaiting IG Advanced Access approval" notice until Meta
+          // approves the App Review submission documented in
+          // docs/meta-integration-app-review-submission-2026.md.
+          label: 'Instagram',
+          icon: 'Instagram',
+          href: '/admission/inbox/instagram',
+          matchPaths: ['/admission/inbox/instagram'],
+        },
+      ],
+    },
+    {
       label: 'AI Insights',
       icon: 'Sparkles',
       href: '/admission/insights',
@@ -387,6 +501,7 @@ const config: ModuleNavConfig = {
             '/admission/settings/lookups',
             '/admission/settings/lookups/quotas',
             '/admission/settings/lookups/community-categories',
+            '/admission/settings/lookups/castes',
             '/admission/settings/lookups/accommodation-types',
             '/admission/settings/lookups/data-quality',
           ],
@@ -416,6 +531,18 @@ const config: ModuleNavConfig = {
           matchPaths: ['/admission/settings/sources'],
         },
         {
+          label: 'Statuses',
+          icon: 'Workflow',
+          href: '/admission/settings/statuses',
+          matchPaths: ['/admission/settings/statuses'],
+        },
+        {
+          label: 'Checklists',
+          icon: 'ClipboardCheck',
+          href: '/admission/settings/checklists',
+          matchPaths: ['/admission/settings/checklists'],
+        },
+        {
           label: 'Templates',
           icon: 'FileText',
           href: '/admission/settings/templates',
@@ -431,6 +558,22 @@ const config: ModuleNavConfig = {
           icon: 'MessageSquare',
           href: '/admission/settings/whatsapp-numbers',
           matchPaths: ['/admission/settings/whatsapp-numbers'],
+        },
+        // Telephony config surfaces relocated from /admin/* 2026-06-11
+        // (admin-cluster relocation wave-2). Both pages are super-admin
+        // gated with explicit restriction fallbacks (no silent redirect),
+        // matching the Social group's chip-with-restriction-card pattern.
+        {
+          label: 'Voice Memos',
+          icon: 'Mic',
+          href: '/admission/settings/voice-memo-monitor',
+          matchPaths: ['/admission/settings/voice-memo-monitor'],
+        },
+        {
+          label: 'Exophone Map',
+          icon: 'PhoneIncoming',
+          href: '/admission/settings/exophone-mapping',
+          matchPaths: ['/admission/settings/exophone-mapping'],
         },
         {
           label: 'Workflow Config',

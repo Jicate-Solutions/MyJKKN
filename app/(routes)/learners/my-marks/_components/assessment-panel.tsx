@@ -1,103 +1,100 @@
 'use client';
 
 /**
- * Assessment Panel — main content area when subview === 'assessment'.
+ * Assessment Panel — round-wise CIA marks for the active session.
  *
- * Flow:
- *   1. Resolve the (examination_session_id, program_code) for the chosen
- *      semester. (All registrations within a semester share these values
- *      most of the time; if they differ across courses, the picker uses
- *      the dominant pair and lets the student switch.)
- *   2. Fetch CIA Settings filtered to that pair.
- *   3. Auto-select the most-recently-updated active setting.
- *   4. Show round picker → marks table.
+ * All data comes from the aggregate cia-view payload (session prop) — no
+ * fetching here. Flow:
+ *   1. Pick a CIA setting (session.settings[]) — auto-selects the first.
+ *   2. Pick a round (selectedSetting.rounds[]) — auto-selects the lowest.
+ *   3. Render the marks table (session.courses × the round's components).
  *
- * On every meaningful change (setting, round) the URL updates so the
- * view is shareable / bookmarkable.
+ * Setting/round selections mirror to the URL (?setting / ?round) so the view is
+ * shareable.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Settings2, AlertCircle } from 'lucide-react';
-import { useMyMarksCiaSettings } from '@/hooks/learners/use-my-marks';
-import { MyMarksService } from '@/lib/services/learners/my-marks-service';
-import type { MyMarksCiaSetting, MyMarksSemesterGroup } from '@/types/my-marks';
-import type { CiaRound } from '@/types/internal-marks';
+import { Settings2 } from 'lucide-react';
+import type { CiaViewSession, CiaViewCourse } from '@/types/my-marks';
 import { CiaSettingPicker } from './cia-setting-picker';
 import { RoundPicker } from './round-picker';
 import { MarksTable } from './marks-table';
 
+/**
+ * A course is CIA-applicable when:
+ *   - evaluation_type ∈ {CIA, CIA + ESE}  — i.e. it has a CIA component
+ *     (matched as "contains cia" so "CIA", "CIA + ESE", "CIA+ESE" all pass and
+ *     "ESE"-only is excluded), AND
+ *   - result_type = Mark  (excludes grade/credit-typed courses).
+ * Missing fields are treated as applicable, so the filter is a no-op until COE
+ * includes evaluation_type/result_type on the cia-view course.
+ */
+function isCiaApplicable(c: CiaViewCourse): boolean {
+  const evalType = c.evaluation_type?.trim().toLowerCase();
+  const resultType = c.result_type?.trim().toLowerCase();
+  const evalOk = !evalType || evalType.includes('cia');
+  const resultOk = !resultType || resultType === 'mark';
+  return evalOk && resultOk;
+}
+
 interface Props {
-  semester: MyMarksSemesterGroup;
+  session: CiaViewSession;
   initialSettingId?: string;
   initialRound?: number;
 }
 
-export function AssessmentPanel({ semester, initialSettingId, initialRound }: Props) {
+export function AssessmentPanel({ session, initialSettingId, initialRound }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Pick the dominant (session, program) within the semester. Most students
-  // have one of each; an arrear semester might mix, but rare.
-  const dominantContext = useMemo(() => {
-    const counts = new Map<string, { count: number; session: string; program: string }>();
-    for (const reg of semester.registrations) {
-      const key = `${reg.examination_session_id}::${reg.program_code}`;
-      const slot = counts.get(key);
-      if (slot) slot.count++;
-      else
-        counts.set(key, {
-          count: 1,
-          session: reg.examination_session_id,
-          program: reg.program_code,
-        });
-    }
-    return [...counts.values()].sort((a, b) => b.count - a.count)[0] ?? null;
-  }, [semester]);
+  const settings = session.settings ?? [];
 
-  const examSessionId = dominantContext?.session;
-  const programCode = dominantContext?.program;
-
-  const {
-    data: settings,
-    isLoading: isLoadingSettings,
-    error: settingsError,
-  } = useMyMarksCiaSettings(examSessionId, programCode);
+  // Internal/CIA tab shows:
+  //  - REGULAR papers only (arrears belong to an earlier semester), AND
+  //  - CIA-applicable courses only: evaluation_type ∈ {CIA, CIA + ESE} and
+  //    result_type = Mark (excludes grade/credit-typed courses like extension
+  //    activities that have no CIA marks).
+  // The evaluation/result filters are no-ops until COE includes those fields on
+  // the cia-view course (a course with the field absent is kept).
+  const regularCourses = session.courses.filter((c) => {
+    if (c.is_regular === false) return false;
+    if (!isCiaApplicable(c)) return false;
+    return true;
+  });
 
   const [settingId, setSettingId] = useState<string | undefined>(initialSettingId);
   const [round, setRound] = useState<number | undefined>(initialRound);
 
-  // Auto-pick the latest active setting whenever settings load and nothing is selected.
+  // Auto-pick the first setting when none selected / selection not in this session.
   useEffect(() => {
-    if (!settings) return;
-    if (settingId && settings.some((s) => s.id === settingId)) return;
-    const auto = MyMarksService.autoSelectSetting(settings);
-    if (auto) {
-      setSettingId(auto.id);
-      pushParam('setting', auto.id);
-    }
+    if (settings.length === 0) return;
+    if (settingId && settings.some((s) => s.setting_id === settingId)) return;
+    const auto = settings[0];
+    setSettingId(auto.setting_id);
+    pushParam('setting', auto.setting_id);
   }, [settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selectedSetting = useMemo<MyMarksCiaSetting | undefined>(
-    () => settings?.find((s) => s.id === settingId),
+  const selectedSetting = useMemo(
+    () => settings.find((s) => s.setting_id === settingId) ?? settings[0],
     [settings, settingId]
   );
 
-  // Auto-pick the lowest round on first load.
+  // Auto-pick the lowest round on first load / when the setting changes.
   useEffect(() => {
     if (!selectedSetting) return;
-    if (round && selectedSetting.cia_rounds.some((r) => r.round === round)) return;
-    const auto = MyMarksService.autoSelectRound(selectedSetting.cia_rounds);
-    if (auto !== null) {
-      setRound(auto);
-      pushParam('round', String(auto));
+    if (round && selectedSetting.rounds.some((r) => r.round === round)) return;
+    const auto = [...selectedSetting.rounds].sort((a, b) => a.round - b.round)[0];
+    if (auto) {
+      setRound(auto.round);
+      pushParam('round', String(auto.round));
     }
   }, [selectedSetting]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selectedRound = useMemo<CiaRound | undefined>(
-    () => selectedSetting?.cia_rounds.find((r) => r.round === round),
+  const selectedRound = useMemo(
+    () => selectedSetting?.rounds.find((r) => r.round === round),
     [selectedSetting, round]
   );
 
@@ -120,48 +117,7 @@ export function AssessmentPanel({ semester, initialSettingId, initialRound }: Pr
     pushParam('round', String(r));
   }
 
-  if (!dominantContext) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-muted-foreground" />
-            No registration context
-          </CardTitle>
-          <CardDescription>
-            We couldn&apos;t find an exam session for the courses in this semester. Please contact your institution if this persists.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
-  if (isLoadingSettings) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        <span className="ml-2 text-sm text-muted-foreground">
-          Loading assessment configuration...
-        </span>
-      </div>
-    );
-  }
-
-  if (settingsError) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive">
-            <AlertCircle className="h-5 w-5" />
-            Could not load assessments
-          </CardTitle>
-          <CardDescription>{(settingsError as Error).message}</CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
-  if (!settings || settings.length === 0) {
+  if (settings.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -170,7 +126,8 @@ export function AssessmentPanel({ semester, initialSettingId, initialRound }: Pr
             No assessments configured yet
           </CardTitle>
           <CardDescription>
-            Your faculty hasn&apos;t set up CIA assessments for {semester.semester_label} yet. Marks will appear here once setup is complete.
+            Your faculty hasn&apos;t set up CIA assessments for {session.semester_label} yet.
+            Marks will appear here once setup is complete.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -179,31 +136,28 @@ export function AssessmentPanel({ semester, initialSettingId, initialRound }: Pr
 
   return (
     <div className="space-y-2">
-      <Card>
-        <CardContent className="p-2 sm:p-3">
-          <CiaSettingPicker
-            settings={settings}
-            selectedId={settingId}
-            onChange={handleSettingChange}
-          />
-        </CardContent>
-      </Card>
+      {settings.length > 1 && (
+        <Card>
+          <CardContent className="p-2 sm:p-3">
+            <CiaSettingPicker
+              settings={settings}
+              selectedId={settingId}
+              onChange={handleSettingChange}
+            />
+          </CardContent>
+        </Card>
+      )}
 
-      {selectedSetting && selectedSetting.cia_rounds.length > 0 && (
+      {selectedSetting && selectedSetting.rounds.length > 0 && (
         <RoundPicker
-          rounds={selectedSetting.cia_rounds}
+          rounds={selectedSetting.rounds}
           value={round}
           onChange={handleRoundChange}
         />
       )}
 
-      {selectedRound && examSessionId && programCode && (
-        <MarksTable
-          semester={semester}
-          round={selectedRound}
-          examSessionId={examSessionId}
-          programCode={programCode}
-        />
+      {selectedRound && (
+        <MarksTable courses={regularCourses} round={selectedRound} />
       )}
     </div>
   );

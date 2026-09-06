@@ -1,0 +1,100 @@
+# SCF loop manifest — facts verified by executable audit 2026-07-10 (this is
+# the reference manifest; the sim + walk below were both run live that day).
+loop_key: scf
+name: Session-Feedback Teaching Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: session_feedback
+  action: scf_ai_suggestions
+
+sim:
+  sentinel: ZZAUDIT
+  # session_feedback NOT-NULLs: institution_id, student_id, attendance_date,
+  # timetable_id, period_id, understood. NO FKs on student_id/timetable_id
+  # (gen_random_uuid is safe). UNIQUE (student_id, attendance_date, period_id).
+  # Two-sided 48h window: sessions must be >= ~3 days old to be signal-visible.
+  seed_input: |
+    WITH inst AS (SELECT institution_id FROM public.session_feedback WHERE institution_id IS NOT NULL LIMIT 1)
+    INSERT INTO public.session_feedback
+      (institution_id, student_id, attendance_date, timetable_id, period_id, course_code, faculty_email, understood, source)
+    SELECT inst.institution_id, gen_random_uuid(), d.dt, gen_random_uuid(), 'ZZ-P1', 'ZZAUDIT1', NULL, 2, 'async'
+    FROM inst, (VALUES (current_date-10),(current_date-4)) AS d(dt), generate_series(1,3);
+  seed_action: |
+    INSERT INTO public.scf_ai_suggestions
+      (domain, institution_id, course_code, faculty_email, window_from, window_to,
+       input_avg_understood, suggestion, kind, model, generated_at)
+    SELECT 'session_feedback', institution_id, 'ZZAUDIT1', NULL, current_date-12, current_date-9, 2.0,
+           '{"summary":"ZZAUDIT CYCLE1 MARKER"}'::jsonb, 'improvement', 'moat-audit', now() - interval '5 days'
+    FROM public.session_feedback WHERE course_code='ZZAUDIT1' LIMIT 1;
+  verifier: "public.fn_scf_measure_suggestion_outcomes(0)"
+  asserts:
+    no_change: "0.00"                       # 3x understood=2 both sessions
+    known_delta: { seed: "UPDATE next session understood=4", expect: "2.00" }
+  reset_between_deltas: |
+    UPDATE public.scf_ai_suggestions
+    SET outcome_lift=NULL, outcome_avg_understood=NULL, outcome_responses=NULL, outcome_measured_at=NULL
+    WHERE course_code='ZZAUDIT1';
+  notes:
+    - kind MUST be 'improvement' — success rows are not lift-graded (review #1681).
+    - action row institution MUST match the feedback rows' institution or the
+      measurer's IS NOT DISTINCT FROM join never matches (the #1868 bug class).
+    - verifier measures ALL matured null-lift rows, incl. real ones, when run
+      on committed data — inside ROLLBACK this is harmless.
+    - since migration 20260710160000 the measurer also STAMPS 30-day-stale
+      notes outcome_unmeasurable_at; candidates skip stamped rows.
+    - baseline is RECOMPUTED per-session (>=3/session floor) — generation-time
+      input_avg is a DIFFERENT estimator; never assert against input_avg.
+
+confound:
+  verdict_column: human_verdict
+  query: |
+    SELECT COALESCE(human_verdict,'(none)') AS verdict, count(*) AS n,
+           round(avg(outcome_lift),2) AS avg_lift, round(stddev(outcome_lift),2) AS sd
+    FROM scf_ai_suggestions
+    WHERE domain='session_feedback' AND outcome_lift IS NOT NULL GROUP BY 1;
+  min_rows: 10
+
+feed_forward:
+  reader: fn_scf_prior_suggestion            # returns outcome_responses too (live)
+  trigger:
+    kind: api_post
+    path: /api/academic/session-feedback/ai-suggest-improvement
+    persona: superadmin                      # super profile inst=NULL -> peeks NULL lane
+    body: { course_code: "<sentinel course>" }
+    transport: node-fetch + cookie header    # NOT page.evaluate (nav kills it)
+  pass_criteria: [cites_prior, cites_measured_outcome, changes_approach]
+  notes:
+    - prompt bands are three-zone since PR #1958 (<0 dropped / 0–0.5 about the
+      same / >=0.5 helped) with sample-size tiers (>=5 assert / 3-4 weak / else low-confidence).
+    - super caller lane = faculty_email NULL; seed cycle-1 in that lane.
+    - cron path is rotation-starved for retry until PR #1958 deploys RETRY_SLOTS.
+
+walk:
+  personas:
+    student: test.student@jkkn.ac.in
+    superadmin: test.superadmin@jkkn.ac.in
+    faculty: test.faculty@jkkn.ac.in
+    principal: test.hod@jkkn.ac.in           # verdict-report gate excludes hod post-#1953; use a principal-role test acct if available
+  hops:
+    - { as: student,   do: form_submit, page: /academic/session-feedback,
+        detail: "submit understanding=Low for the sentinel course's open window",
+        assert_db: "1 new session_feedback row, course=<sentinel>" }
+    - { as: superadmin, do: api_post, path: /api/academic/session-feedback/ai-suggest-improvement,
+        body: { course_code: "<sentinel>" }, assert: "http 200 + suggestion json + recorded row" }
+    - { as: faculty,   do: click, page: /academic/session-feedback/faculty,
+        target: "Tried — no change", assert_db: "human_verdict='tried_no_change' on the note" }
+    - { as: principal, do: open_assert, page: /academic/session-feedback/principal,
+        expect: "verdict appears in track record ONLY if outcome_responses>=5 (decision 7)" }
+    - { as: superadmin, do: api_post, path: /api/academic/session-feedback/ai-suggest-improvement,
+        body: { course_code: "<sentinel>" }, assert: "note B cites no-gain + changes approach" }
+  forbidden: [scf escalation digest, learner notes for real students]
+  cleanup: |
+    DELETE FROM scf_ai_suggestions WHERE course_code LIKE 'ZZ%';
+    DELETE FROM session_feedback   WHERE course_code LIKE 'ZZ%';
+    -- verify in a SEPARATE call: sentinel counts = 0; suggestions total restored.
+  notes:
+    - faculty card reads rows via RLS: seeded rows need institution_id set to
+      the persona's institution AND non-NULL (policy excludes NULL institution).
+
+registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"on"}'

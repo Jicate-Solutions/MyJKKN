@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 // for the voice memo monitor when the seed migration
 // (20260513120000_voice_memo_monitor_policies.sql) has not been applied.
 //
-// Director clicks "Initialize with defaults" on /admin/voice-memo-monitor
+// Director clicks "Initialize with defaults" on /admission/settings/voice-memo-monitor
 // when the empty state is rendered (Supabase MCP / CLI seed path unavailable).
 //
 // Idempotency: per-row pre-check via maybeSingle() against

@@ -371,28 +371,58 @@ export class LeaveOndutyApprovalService {
       p_sub_category: application.sub_category,
     });
 
-    if (!flow) {
-      return [];
-    }
+    // The SEEDED APPROVAL ROWS drive this timeline, not the flow.
+    //
+    // 2026-08-07: a learner viewing their own (correctly seeded) application saw
+    // "No approval workflow configured". The timeline was built by mapping over
+    // flow.flow_steps, and get_applicable_approval_flow is SECURITY INVOKER —
+    // leave_onduty_approval_flows' only SELECT policy admits staff roles, never
+    // 'student'. So for the applicant the flow always came back as an all-NULL
+    // row (note: PostgREST yields an OBJECT with null fields for a composite
+    // return, so the `if (!flow) return []` guard below never fired — flow was
+    // truthy and flow_steps was null), the step list was empty, and the whole
+    // chain vanished from the UI even though both approver rows existed and
+    // were readable.
+    //
+    // leave_onduty_approvals IS visible to the applicant, and it is also the
+    // better source: those rows are what actually gates the application, they
+    // record who it really went to, and they survive a later edit to the flow.
+    // The flow is consulted only to enrich (is_required), never to decide
+    // whether there is a timeline at all.
+    const flowSteps: any[] = (flow as any)?.flow_steps || [];
+    const approvals: any[] = application.approvals || [];
 
-    const flowSteps = flow.flow_steps || [];
-    const approvals = application.approvals || [];
+    const stepOrders: number[] =
+      approvals.length > 0
+        ? Array.from(new Set(approvals.map((a: any) => Number(a.step_order))))
+        : flowSteps.map((s: any) => Number(s.step_order));
+    stepOrders.sort((a, b) => a - b);
 
     // Build timeline
-    const timeline: ApprovalTimelineStep[] = flowSteps.map((step: any) => {
-      const approval = approvals.find((a: any) => a.step_order === step.step_order);
+    const timeline: ApprovalTimelineStep[] = stepOrders.map((order) => {
+      const approval = approvals.find((a: any) => Number(a.step_order) === order);
+      const step = flowSteps.find((s: any) => Number(s.step_order) === order);
 
       return {
-        step_order: step.step_order,
-        role: step.role,
-        description: step.description,
+        step_order: order,
+        // The flow step's role lives in `approver_role`; `step.role` never
+        // existed, so the heading (APPROVER_ROLE_LABELS[step.role]) rendered
+        // blank for everyone, staff included. Prefer the approval row — it is
+        // the role the request was actually routed under.
+        role: approval?.approver_role ?? step?.approver_role ?? step?.role,
+        // No flow step has ever carried `description` either. Empty string
+        // rather than `undefined` so the type is honest about it.
+        description: step?.description ?? '',
         approver_name: approval?.approver?.full_name || null,
         approver_email: approval?.approver?.email || null,
         status: approval?.status || 'pending',
         comments: approval?.comments || null,
         action_taken_at: approval?.action_taken_at || null,
-        is_current: application.current_step === step.step_order,
-        is_required: step.is_required,
+        is_current: application.current_step === order,
+        // Steps are required unless the flow says otherwise; when the flow is
+        // invisible (the applicant's own view) assume required rather than
+        // silently downgrading a mandatory approval to optional.
+        is_required: step?.is_required ?? true,
       };
     });
 

@@ -1,8 +1,20 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
-import { cookies } from 'next/headers';
 import { connection } from 'next/server';
 import { Profile } from '@/types/auth';
+
+// 2026-05-20: `cookies` from 'next/headers' was previously imported statically
+// at the top of this file, which forced every consumer of server.ts (including
+// `createServiceRoleClient`, which doesn't use cookies at all) to pull in
+// `next/headers`. Turbopack 16's stricter static analysis correctly flagged
+// this as illegal when the import chain reaches proxy.ts (middleware/edge
+// runtime). Deferring the import inside the functions that actually use it
+// keeps `createServiceRoleClient` callable from any runtime without dragging
+// `next/headers` into bundles that don't support it.
+//
+// `await import('next/headers')` is statically tree-shakable by Turbopack —
+// consumers that never call createClient()/createServerSupabaseClient() get
+// the import dropped from their bundle entirely.
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
@@ -10,6 +22,7 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
 // Note: Database type removed to avoid type errors with incomplete type definitions
 export async function createClient() {
   await connection();
+  const { cookies } = await import('next/headers');
   const cookieStore = await cookies();
 
   return createServerClient(
@@ -25,8 +38,12 @@ export async function createClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
-          } catch (error) {
-            console.error('Error setting cookies:', error);
+          } catch {
+            // Expected when called during a Server Component render: Next.js only
+            // permits cookie mutation in a Server Action or Route Handler, so the
+            // Supabase session-refresh write throws here. Safe to ignore — proxy.ts
+            // (middleware) refreshes the auth session on navigation (per Supabase SSR
+            // docs). Previously console.error'd, which spammed logs with a non-issue.
           }
         }
       }
@@ -37,6 +54,7 @@ export async function createClient() {
 // Alias for backward compatibility
 export async function createServerSupabaseClient() {
   await connection();
+  const { cookies } = await import('next/headers');
   const cookieStore = await cookies();
 
   return createServerClient(
@@ -52,8 +70,12 @@ export async function createServerSupabaseClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
-          } catch (error) {
-            console.error('Error setting cookies:', error);
+          } catch {
+            // Expected when called during a Server Component render: Next.js only
+            // permits cookie mutation in a Server Action or Route Handler, so the
+            // Supabase session-refresh write throws here. Safe to ignore — proxy.ts
+            // (middleware) refreshes the auth session on navigation (per Supabase SSR
+            // docs). Previously console.error'd, which spammed logs with a non-issue.
           }
         }
       }

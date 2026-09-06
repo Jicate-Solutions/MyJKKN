@@ -7,39 +7,83 @@ export class CampusLivingReports {
     try {
       const supabase = createClientSupabaseClient();
 
+      // hostel-rooms-v2 PR 2: hostel_blocks.institution_id dropped — narrow
+      // via junction. hostel_rooms.status + .current_occupancy dropped —
+      // read from v_hostel_room_occupancy.
+      let blockIdFilter: string[] | null = null;
+      if (institutionId) {
+        const { data: blockIds } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        blockIdFilter = (blockIds ?? []).map((r) => r.block_id);
+      }
+
       let blockQ = supabase
         .from('hostel_blocks')
         .select('id, name, code, hostel_type, total_rooms, total_capacity, current_occupancy, status')
         .order('name');
-      if (institutionId) blockQ = blockQ.eq('institution_id', institutionId);
+      if (blockIdFilter !== null) {
+        if (blockIdFilter.length === 0) {
+          blockQ = blockQ.in('id', ['00000000-0000-0000-0000-000000000000']);
+        } else {
+          blockQ = blockQ.in('id', blockIdFilter);
+        }
+      }
       const { data: blocks, error: blockError } = await blockQ;
-
       if (blockError) throw blockError;
 
       let roomQ = supabase
         .from('hostel_rooms')
-        .select('id, block_id, room_number, floor, room_type, ac_status, capacity, current_occupancy, status')
+        .select('id, block_id, room_number, floor, room_type, ac_status, capacity')
         .order('block_id')
         .order('room_number');
-      if (institutionId) roomQ = roomQ.eq('institution_id', institutionId);
+      if (blockIdFilter !== null && blockIdFilter.length > 0) {
+        roomQ = roomQ.in('block_id', blockIdFilter);
+      } else if (blockIdFilter !== null) {
+        roomQ = roomQ.in('block_id', ['00000000-0000-0000-0000-000000000000']);
+      }
       const { data: rooms, error: roomError } = await roomQ;
-
       if (roomError) throw roomError;
+
+      // Pull derived occupancy for the rooms in scope from the view.
+      const roomIds = (rooms ?? []).map((r) => r.id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: occ } = roomIds.length > 0
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? await (supabase as any)
+            .from('v_hostel_room_occupancy')
+            .select('room_id, active_residents, beds_available, derived_status')
+            .in('room_id', roomIds)
+        : { data: [] as Array<{ room_id: string; active_residents: number; beds_available: number; derived_status: string }> };
+
+      const occMap = new Map<string, { active: number; available: number; derivedStatus: string }>();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const o of (occ ?? []) as any[]) {
+        occMap.set(o.room_id, {
+          active: o.active_residents,
+          available: o.beds_available,
+          derivedStatus: o.derived_status,
+        });
+      }
 
       const blockData = blocks ?? [];
       const roomData = rooms ?? [];
 
-      // Summary
-      const totalCapacity = blockData.reduce((s, b) => s + b.total_capacity, 0);
-      const totalOccupancy = blockData.reduce((s, b) => s + b.current_occupancy, 0);
+      // Summary — block-level counters stay on hostel_blocks (legacy).
+      const totalCapacity = blockData.reduce((s, b) => s + (b.total_capacity ?? 0), 0);
+      const totalOccupancy = blockData.reduce((s, b) => s + (b.current_occupancy ?? 0), 0);
 
-      // Room breakdown by type
+      // Room breakdown by type — uses derived_status from view.
       const roomsByType: Record<string, { total: number; occupied: number; available: number }> = {};
       for (const room of roomData) {
-        if (!roomsByType[room.room_type]) roomsByType[room.room_type] = { total: 0, occupied: 0, available: 0 };
+        if (!roomsByType[room.room_type]) {
+          roomsByType[room.room_type] = { total: 0, occupied: 0, available: 0 };
+        }
+        const status = occMap.get(room.id)?.derivedStatus ?? 'unknown';
         roomsByType[room.room_type].total++;
-        if (room.status === 'full') roomsByType[room.room_type].occupied++;
-        else if (room.status === 'available') roomsByType[room.room_type].available++;
+        if (status === 'full') roomsByType[room.room_type].occupied++;
+        else if (status === 'available') roomsByType[room.room_type].available++;
       }
 
       return {
@@ -52,11 +96,21 @@ export class CampusLivingReports {
           total_occupancy: totalOccupancy,
           overall_percentage: totalCapacity > 0 ? Math.round((totalOccupancy / totalCapacity) * 100) : 0,
         },
-        blocks: blockData.map((b) => ({
-          ...b,
-          occupancy_percentage: b.total_capacity > 0 ? Math.round((b.current_occupancy / b.total_capacity) * 100) : 0,
-          rooms: roomData.filter((r) => r.block_id === b.id),
-        })),
+        blocks: blockData.map((b) => {
+          const cap = b.total_capacity ?? 0;
+          const occCount = b.current_occupancy ?? 0;
+          return {
+            ...b,
+            occupancy_percentage: cap > 0 ? Math.round((occCount / cap) * 100) : 0,
+            rooms: roomData
+              .filter((r) => r.block_id === b.id)
+              .map((r) => ({
+                ...r,
+                current_occupancy: occMap.get(r.id)?.active ?? 0,
+                status: occMap.get(r.id)?.derivedStatus ?? 'unknown',
+              })),
+          };
+        }),
         rooms_by_type: roomsByType,
       };
     } catch (error) {

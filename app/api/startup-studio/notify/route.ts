@@ -70,9 +70,12 @@ async function createNotification(
   const { data: notification } = await supabase
     .from('notifications')
     .insert({
-      type: 'startup_studio',
       title,
-      message,
+      body: message,
+      category: 'startup_studio',
+      kind: 'work_item',
+      created_by: userIds[0],
+      targeting: { type: 'user', user_ids: userIds },
       metadata: { source: 'startup_studio_notify', ...metadata },
     })
     .select('id')

@@ -1,7 +1,7 @@
 'use client';
 
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import { BarChart3, Loader2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -27,6 +27,16 @@ import { SubmissionsTab } from './_components/submissions-tab';
 import { EvaluationTab } from './_components/evaluation-tab';
 import { VotingTab } from './_components/voting-tab';
 import { DeclarationsTab } from './_components/declarations-tab';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+const EVENT_DASHBOARD_TABS = [
+  'overview',
+  'attendance',
+  'submissions',
+  'evaluation',
+  'voting',
+  'declarations',
+] as const;
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -47,7 +57,9 @@ export default function EventAnalyticsDashboardPage({ params }: Props) {
         </ContentLayout>
       }
     >
-      <DashboardContent eventId={eventId} />
+      <Suspense fallback={null}>
+        <DashboardContent eventId={eventId} />
+      </Suspense>
     </SuperAdminOnly>
   );
 }
@@ -63,6 +75,8 @@ function DashboardContent({ eventId }: { eventId: string }) {
   const { data: evaluationByDate } = useEventEvaluationByDate(eventId);
   const { data: checklistProgress, isLoading: clLoading } = useEventChecklistProgress(eventId);
   const { data: institutionBreakdown, isLoading: instLoading } = useEventInstitutionBreakdown(eventId);
+
+  const [activeTab, setActiveTab] = useTabParam('overview', EVENT_DASHBOARD_TABS);
 
   const isLoading = eventLoading || kpisLoading;
 
@@ -104,7 +118,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
             <AnalyticsKPICards kpis={kpis} />
 
             {/* Tabs */}
-            <Tabs defaultValue="overview" className="space-y-4">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
               <TabsList className="flex flex-wrap h-auto gap-1">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="attendance">Attendance</TabsTrigger>

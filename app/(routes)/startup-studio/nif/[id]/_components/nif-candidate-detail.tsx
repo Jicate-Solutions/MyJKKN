@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   AlertCircle,
   ArrowLeft,
@@ -51,7 +52,10 @@ const STAGE_CONFIG: Record<string, { label: string; color: string }> = {
 
 const STAGE_ORDER = ['identified', 'screened', 'shortlisted', 'incubating', 'graduated'];
 
+const NIF_TABS = ['overview', 'trl', 'risk', 'competitive', 'mentors', 'graduation', 'details'] as const;
+
 export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
+  const [activeTab, setActiveTab] = useTabParam('overview', NIF_TABS);
   const { data: candidateRaw, isLoading, error } = useNifCandidate(id);
   const { data: historyRaw, isLoading: historyLoading } = useNifStageHistory(id);
   const advanceStage = useAdvanceNifStage();
@@ -175,7 +179,7 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
       </div>
 
       {/* Tabbed content */}
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="trl">TRL</TabsTrigger>

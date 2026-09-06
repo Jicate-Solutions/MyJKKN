@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { HostelRoomService } from '@/lib/services/campus-living/hostel-room-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { hostelAttendanceKeys } from '@/hooks/campus-living/use-hostel-attendance';
 import type {
   HostelRoom,
   CreateHostelRoomDTO,
@@ -38,6 +39,19 @@ export function useRoomsByBlock(blockId: string) {
   });
 }
 
+// hostel-rooms-v2 PR 3 (2026-05-26): occupancy-enriched variants —
+// useRoomsByBlockWithOccupancy + useHostelRoomWithOccupancy zip-merge each
+// room with v_hostel_room_occupancy so status badges + occupancy displays
+// come alive again without rewriting the legacy hooks (callers pick).
+export function useRoomsByBlockWithOccupancy(blockId: string) {
+  return useQuery({
+    queryKey: [...hostelRoomKeys.byBlock(blockId), 'with-occupancy'] as const,
+    queryFn: () => HostelRoomService.getRoomsByBlockWithOccupancy(blockId),
+    enabled: !!blockId,
+    staleTime: 30_000,
+  });
+}
+
 export function useHostelRoom(id: string) {
   return useQuery({
     queryKey: hostelRoomKeys.detail(id),
@@ -46,12 +60,34 @@ export function useHostelRoom(id: string) {
   });
 }
 
+export function useHostelRoomWithOccupancy(id: string) {
+  return useQuery({
+    queryKey: [...hostelRoomKeys.detail(id), 'with-occupancy'] as const,
+    queryFn: () => HostelRoomService.getRoomWithOccupancy(id),
+    enabled: !!id,
+    staleTime: 30_000,
+  });
+}
+
+// Selected room amenity tag IDs (present=true rows in hostel_room_amenity_tags).
+// Powers the room form's amenity picker pre-fill in edit mode.
+export function useRoomAmenityTagIds(roomId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: [...hostelRoomKeys.detail(roomId ?? ''), 'amenity-tags'] as const,
+    queryFn: () => HostelRoomService.getRoomAmenityTagIds(roomId as string),
+    enabled: enabled && !!roomId,
+  });
+}
+
 // --- Mutation hooks ---
 
 export function useCreateHostelRoom() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateHostelRoomDTO) => HostelRoomService.createRoom(payload),
+    mutationFn: (vars: CreateHostelRoomDTO & { amenityTagIds?: string[] }) => {
+      const { amenityTagIds, ...payload } = vars;
+      return HostelRoomService.createRoom(payload, amenityTagIds);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelRoomKeys.all });
       toast.success('Room created');
@@ -65,11 +101,23 @@ export function useCreateHostelRoom() {
 export function useUpdateHostelRoom() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateHostelRoomDTO }) =>
-      HostelRoomService.updateRoom(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+      amenityTagIds,
+    }: {
+      id: string;
+      payload: UpdateHostelRoomDTO;
+      amenityTagIds?: string[];
+    }) => HostelRoomService.updateRoom(id, payload, amenityTagIds),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelRoomKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelRoomKeys.detail(variables.id) });
+      // Attendance's markable-residents list embeds each resident's room
+      // number via a join — a room_number edit here (not a transfer) needs
+      // the same cache refresh, or the Attendance page keeps showing the
+      // pre-edit room number until its 5-minute cache expires.
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
       toast.success('Room updated');
     },
     onError: (error: Error) => {

@@ -122,6 +122,7 @@ function getSourceStyle(source: string): string {
     google: 'bg-red-100 text-red-700',
     youtube_ads: 'bg-rose-100 text-rose-700',
     youtube: 'bg-rose-100 text-rose-700',
+    learner_creator_content: 'bg-fuchsia-100 text-fuchsia-700',
     referral: 'bg-green-100 text-green-700',
     walk_in: 'bg-orange-100 text-orange-700',
     walkin: 'bg-orange-100 text-orange-700',

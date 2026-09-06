@@ -2,12 +2,14 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Package,
   AlertTriangle,
   DollarSign,
   Search,
   Eye,
+  Send,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -32,11 +34,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStockSummary } from '@/hooks/ims/use-ims-stock';
 import { useImsCategoriesForSelect } from '@/hooks/ims/use-ims-inventory';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { getStockStatus } from '@/types/ims/stock';
 import type { ImsStockSummary, ImsStockStatus } from '@/types/ims';
+import { SendToProcurementDialog } from './_components/send-to-procurement-dialog';
 
 const STATUS_BADGE_MAP: Record<
   ImsStockStatus,
@@ -61,11 +66,17 @@ const STATUS_BADGE_MAP: Record<
 };
 
 export default function StockLevelsPage() {
+  const router = useRouter();
   const { storeId, institutionId } = useImsStoreContext();
+  const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canCreateRequest = isSuperAdmin || canAccess('procurement', 'request_create');
 
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState<string>('all');
   const [lowStockOnly, setLowStockOnly] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
 
   const { data: stockData, isLoading } = useImsStockSummary({
     search: search || undefined,
@@ -77,7 +88,31 @@ export default function StockLevelsPage() {
 
   const { data: categories } = useImsCategoriesForSelect(storeId || undefined);
 
-  const items: ImsStockSummary[] = Array.isArray(stockData) ? stockData : [];
+  // getStockSummary returns { data, metadata } (paginated wrapper). Unwrap defensively
+  // so the page works whether the service ever switches to a flat-array contract.
+  const items: ImsStockSummary[] = Array.isArray(stockData?.data)
+    ? stockData.data
+    : Array.isArray(stockData)
+      ? stockData
+      : [];
+
+  // Selection helpers — scoped to currently-loaded rows only.
+  const toggleSelect = (itemId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (prev.size === items.length) return new Set();
+      return new Set(items.map((i) => i.item_id));
+    });
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+  const selectedRows = items.filter((i) => selectedIds.has(i.item_id));
 
   const summaryStats = useMemo(() => {
     const totalItems = items.length;
@@ -167,6 +202,12 @@ export default function StockLevelsPage() {
                   Low Stock Only
                 </Label>
               </div>
+              {canCreateRequest && selectedIds.size > 0 && (
+                <Button size="sm" onClick={() => setSendDialogOpen(true)}>
+                  <Send className="mr-2 h-4 w-4" />
+                  Send to Procurement ({selectedIds.size})
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -186,6 +227,17 @@ export default function StockLevelsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {canCreateRequest && (
+                      <TableHead className="w-[36px]">
+                        <input
+                          type="checkbox"
+                          checked={items.length > 0 && selectedIds.size === items.length}
+                          onChange={toggleSelectAll}
+                          className="h-4 w-4 rounded border-border"
+                          aria-label="Select all visible rows"
+                        />
+                      </TableHead>
+                    )}
                     <TableHead>Item / Code</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead className="text-right">Quantity / Unit</TableHead>
@@ -204,6 +256,17 @@ export default function StockLevelsPage() {
                     const badge = STATUS_BADGE_MAP[status];
                     return (
                       <TableRow key={row.id}>
+                        {canCreateRequest && (
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(row.item_id)}
+                              onChange={() => toggleSelect(row.item_id)}
+                              className="h-4 w-4 rounded border-border"
+                              aria-label={`Select ${row.item?.name ?? 'item'}`}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="font-medium">{row.item?.name ?? '—'}</div>
                           <div className="text-sm text-muted-foreground">
@@ -248,6 +311,21 @@ export default function StockLevelsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <SendToProcurementDialog
+        open={sendDialogOpen}
+        onOpenChange={setSendDialogOpen}
+        selectedRows={selectedRows}
+        onRemove={toggleSelect}
+        institutionId={institutionId}
+        storeId={storeId}
+        userId={profile?.id ?? ''}
+        onSuccess={(request) => {
+          setSendDialogOpen(false);
+          clearSelection();
+          router.push(`/procurement/requests/${request.id}`);
+        }}
+      />
     </ContentLayout>
   );
 }

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { BosCompositionFilters, CreateBosCompositionDto } from '@/types/bos';
 import {
   resolveBosBoardScope,
   compositionScopeFilter,
   guardInstitutionWrite,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/compositions ─────────────────────────────────────────────────
@@ -21,7 +23,13 @@ export async function GET(request: NextRequest) {
     // belong to OR comps they created (bootstrap case — new HOD has no member
     // row yet for the comp they just made).
     const scope = await resolveBosBoardScope(user.id);
-    const scopeFilter = compositionScopeFilter(scope);
+    // Read-only observer: a view-only role (no board membership, not a principal)
+    // holding academic.bos-compositions.view sees every institution's
+    // compositions (view-only). Never gates any write below.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-compositions.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
+    const scopeFilter = compositionScopeFilter(scope, canReadAllBos);
 
     // For compositions specifically we cannot early-return on 'none' because
     // a user with zero memberships might still have created comps that are
@@ -50,7 +58,7 @@ export async function GET(request: NextRequest) {
       const ctx = await resolveInstitutionContextByCode(institutionCode, supabase);
       const ids = ctx?.myjkkn_institution_ids ?? [];
 
-      if (scope.isSuperAdmin) {
+      if (seeAll) {
         if (ids.length > 0) multiInstitutionIds = ids.join(',');
       } else {
         // Non-admin: keep only IDs that belong to the caller's own scope.
@@ -64,7 +72,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!multiInstitutionIds) {
-      if (scope.isSuperAdmin) {
+      if (seeAll) {
         multiInstitutionIds = searchParams.get('institutionIds') ?? undefined;
       } else {
         const clientIds =
@@ -84,7 +92,7 @@ export async function GET(request: NextRequest) {
     }
 
     const filters: BosCompositionFilters = {
-      institutionsId: scope.isSuperAdmin
+      institutionsId: seeAll
         ? (searchParams.get('institutionsId') ?? undefined)
         : (scope.institutionsId ?? undefined),
       boardId: searchParams.get('boardId') ?? undefined,
@@ -103,7 +111,16 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(filters.limit ?? 20, 100);
     const offset = (page - 1) * limit;
 
-    let query = supabase
+    // Service-role for the SELECT: bos_compositions board-scope RLS (20260514)
+    // applies on the user-context client as an AND, independently HIDING rows the
+    // route's own authz intends to show — capping super-admin and hiding members'
+    // own comps. Route-level authz below is the source of truth:
+    //   super-admin → no filter (sees all)
+    //   principal   → institution filter (sees their institution)
+    //   member/chair→ .or(created_by OR id.in(memberOf)) — restricted to OWN board
+    // Same precedent as /api/bos/meetings and /api/bos/meetings/[id]/attendance.
+    const db = createServiceRoleClient();
+    let query = db
       .from('bos_compositions')
       .select(`*, member_count:bos_members(count)`, { count: 'exact' });
 
@@ -122,7 +139,7 @@ export async function GET(request: NextRequest) {
     //                   PostgREST `.or()` accepts a comma-separated condition list;
     //                   we use `id.in.(uuid,uuid,...)` to express the member set
     //                   in a single clause instead of N `id.eq.` clauses.
-    if (!scope.isSuperAdmin && !scope.isPrincipal) {
+    if (!seeAll && !scope.isPrincipal) {
       const memberIds = scope.memberOf.size > 0 ? Array.from(scope.memberOf) : [];
       const orClauses: string[] = [`created_by.eq.${user.id}`];
       if (memberIds.length > 0) {
@@ -160,12 +177,51 @@ export async function GET(request: NextRequest) {
       boardMap[id] = { board_code: b.board_code, board_name: b.board_name, board_type: b.board_type };
     }
 
-    // Flatten member_count from PostgREST aggregate array to a scalar, attach board
-    const normalized = (data ?? []).map((row: any) => ({
-      ...row,
-      member_count: row.member_count?.[0]?.count ?? 0,
-      board: boardMap[row.board_id] ?? null,
-    }));
+    // Multi-board: load each composition's full board set from the junction so
+    // callers (e.g. the syllabus form) can offer a board picker.
+    const compIds = (data ?? []).map((r: any) => r.id);
+    const { data: jbRows } = compIds.length
+      ? await db
+          .from('bos_composition_boards')
+          .select('composition_id, board_id')
+          .in('composition_id', compIds)
+      : { data: [] as { composition_id: string; board_id: string }[] };
+    const boardIdsByComp = new Map<string, string[]>();
+    for (const r of (jbRows ?? []) as { composition_id: string; board_id: string }[]) {
+      const arr = boardIdsByComp.get(r.composition_id) ?? [];
+      arr.push(r.board_id);
+      boardIdsByComp.set(r.composition_id, arr);
+    }
+
+    // Flatten member_count from PostgREST aggregate array to a scalar, attach board(s)
+    const normalized = (data ?? []).map((row: any) => {
+      const bIds = boardIdsByComp.get(row.id) ?? (row.board_id ? [row.board_id] : []);
+      return {
+        ...row,
+        member_count: row.member_count?.[0]?.count ?? 0,
+        board: boardMap[row.board_id] ?? null,
+        board_ids: bIds,
+        boards: bIds
+          .map((bid) => (boardMap[bid] ? { id: bid, ...boardMap[bid] } : null))
+          .filter((b): b is { id: string; board_code: string; board_name: string; board_type?: string | null } => b !== null),
+      };
+    });
+
+    const matched = normalized.filter((r: any) => r.board).length;
+    if (matched < normalized.length) {
+      const sampleMisses = normalized
+        .filter((r: any) => !r.board)
+        .slice(0, 3)
+        .map((r: any) => ({ id: r.id, board_id: r.board_id, institutions_id: r.institutions_id }));
+      console.warn(
+        '[bos/compositions] board enrichment misses: %d/%d rows have null board. institutionIdsInPage=%j, coeBoardMap.size=%d, sample misses=%j',
+        normalized.length - matched,
+        normalized.length,
+        institutionIdsInPage,
+        coeBoardMap.size,
+        sampleMisses,
+      );
+    }
 
     return NextResponse.json({
       data: normalized,
@@ -225,9 +281,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!body.board_id || !body.composition_title) {
+    // Multi-board: board_ids is the source of truth; board_id (primary) falls
+    // back from it for single-board callers.
+    const boardIds: string[] = Array.isArray(body.board_ids) && body.board_ids.length
+      ? body.board_ids.filter(Boolean)
+      : (body.board_id ? [body.board_id] : []);
+    const primaryBoardId = boardIds[0];
+
+    if (boardIds.length === 0 || !body.composition_title) {
       return NextResponse.json(
-        { error: 'board_id and composition_title are required' },
+        { error: 'At least one board and composition_title are required' },
         { status: 400 }
       );
     }
@@ -258,14 +321,35 @@ export async function POST(request: NextRequest) {
     const deny = guardInstitutionWrite(scope, institutionsId);
     if (deny) return NextResponse.json({ error: deny }, { status: 403 });
 
+    // Resolve board_type from the COE boards endpoint. Denormalized onto the
+    // composition row so meeting-create + call-letter PDF render don't each
+    // need their own COE round-trip. Best-effort — if COE is unreachable or
+    // the board isn't in the map, we persist null and downstream callers fall
+    // back to board_name only. The 20260521 migration allows NULL for this
+    // exact reason.
+    let resolvedBoardType: string | null = null;
+    try {
+      const { fetchCoeBoardMap } = await import('@/lib/utils/bos/coe-boards');
+      const boardMap = await fetchCoeBoardMap(institutionsId);
+      resolvedBoardType = boardMap.get(primaryBoardId)?.board_type ?? null;
+    } catch (boardLookupErr) {
+      console.warn('[bos/compositions] board_type lookup failed:', boardLookupErr);
+    }
+
     // Normalize empty strings → null for optional date/text columns so Postgres
     // doesn't reject them with "invalid input syntax for type date: ''"
     // created_by is stamped from the auth user so the GET visibility guard can
     // see this row even before bos_members rows exist for it.
+    // board_ids/boards are not columns on bos_compositions — strip them; the
+    // junction is written separately below. board_id stores the primary.
+    const { board_ids: _omitBoardIds, boards: _omitBoards, ...restBody } = body as
+      CreateBosCompositionDto & { boards?: unknown };
     const payload = {
-      ...body,
+      ...restBody,
+      board_id: primaryBoardId,
       institutions_id: institutionsId,
       created_by: user.id,
+      board_type: resolvedBoardType,
       ratified_date: body.ratified_date || null,
       term_end_date: body.term_end_date || null,
       constituted_by: body.constituted_by || null,
@@ -286,6 +370,15 @@ export async function POST(request: NextRequest) {
       }
       throw error;
     }
+
+    // Multi-board junction: write a row per board (is_primary on the first).
+    // Service-role — same precedent as the SELECT above; route-level chairman/
+    // creator authz already gates this write.
+    const db2 = createServiceRoleClient();
+    const { error: jErr } = await db2.from('bos_composition_boards').insert(
+      boardIds.map((bid, i) => ({ composition_id: data.id, board_id: bid, is_primary: i === 0 })),
+    );
+    if (jErr) console.error('[bos/compositions] junction insert failed:', jErr);
 
     return NextResponse.json(data, { status: 201 });
   } catch (error) {

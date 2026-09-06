@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   useRecordPollResponse,
+  pollIsAcceptingResponses,
   type LivePoll,
 } from '@/lib/services/ai-pulse/live-session-service';
 
@@ -36,9 +37,16 @@ interface PollsPanelProps {
   cycleId: string;
   polls: LivePoll[];
   pollsRespondedCount: number;
+  /** Cycle session end (ISO) — a poll stops accepting responses past it. */
+  endsAt: string | null;
 }
 
-export function PollsPanel({ cycleId, polls, pollsRespondedCount }: PollsPanelProps) {
+export function PollsPanel({
+  cycleId,
+  polls,
+  pollsRespondedCount,
+  endsAt,
+}: PollsPanelProps) {
   const recordResponse = useRecordPollResponse(cycleId);
   // Track which poll IDs we just submitted in this client tab.
   // The server-side count is authoritative; this is just for instant UI feedback.
@@ -99,6 +107,7 @@ export function PollsPanel({ cycleId, polls, pollsRespondedCount }: PollsPanelPr
 
         {orderedPolls.map((poll) => {
           const submitted = submittedIds.has(poll.id);
+          const accepting = pollIsAcceptingResponses(poll, endsAt);
           return (
             <div
               key={poll.id}
@@ -107,15 +116,19 @@ export function PollsPanel({ cycleId, polls, pollsRespondedCount }: PollsPanelPr
             >
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm font-medium leading-tight">{poll.question}</p>
-                {submitted && (
+                {submitted ? (
                   <span className="flex items-center gap-1 text-xs text-green-700 dark:text-green-400">
                     <CheckCircle2 className="h-3 w-3" />
                     Submitted
                   </span>
-                )}
+                ) : !accepting ? (
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    Closed
+                  </span>
+                ) : null}
               </div>
 
-              {!submitted && (
+              {!submitted && accepting && (
                 <>
                   <RadioGroup
                     value={selected[poll.id] ?? ''}
@@ -155,6 +168,12 @@ export function PollsPanel({ cycleId, polls, pollsRespondedCount }: PollsPanelPr
                     )}
                   </Button>
                 </>
+              )}
+
+              {!submitted && !accepting && (
+                <p className="text-xs text-muted-foreground">
+                  This poll is no longer accepting responses.
+                </p>
               )}
             </div>
           );

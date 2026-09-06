@@ -1,7 +1,8 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { SectionsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
@@ -37,12 +38,14 @@ interface SectionsDataTableProps {
 export function SectionsDataTable({ search }: SectionsDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Section[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [refetchKey, setRefetchKey] = useState(0);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.sections', 'create');
@@ -133,6 +136,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
 
       // Refresh the table
       router.refresh();
+      setRefetchKey((prev) => prev + 1);
 
       setShowDeleteDialog(false);
       setSelectedForDelete([]);
@@ -235,7 +239,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <Button
           onClick={() => router.push('/organizations/sections/new')}
@@ -243,7 +247,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
           className='h-8'
         >
           <Plus className='mr-2 h-4 w-4' />
-          Add Section
+          Add {adapt('Section')}
         </Button>
       )}
 
@@ -312,7 +316,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adapt, () => setRefetchKey((prev) => prev + 1)) as any}
         exportConfig={{
           entityName: 'sections',
           columnMapping: {},
@@ -327,6 +331,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
           enableRowSelection: true
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       {/* Delete Confirmation Dialog */}
@@ -335,8 +340,8 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Sections`
-                : `Delete Section: ${selectedForDelete[0]?.section_name}`}
+                ? `Delete ${selectedForDelete.length} ${adapt('Sections')}`
+                : `Delete ${adapt('Section')}: ${selectedForDelete[0]?.section_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
@@ -349,7 +354,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
           {selectedForDelete.length > 0 && (
             <div className='my-4 p-3 bg-muted rounded-lg'>
               <div className='text-sm font-medium mb-2'>
-                Section{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+                {selectedForDelete.length > 1 ? adapt('Sections') : adapt('Section')} to be deleted:
               </div>
               <div className='space-y-1 max-h-32 overflow-y-auto'>
                 {selectedForDelete.map((section) => (
@@ -376,8 +381,8 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Sections`
-                    : 'Section'
+                    ? `${selectedForDelete.length} ${adapt('Sections')}`
+                    : adapt('Section')
                 }`
               )}
             </AlertDialogAction>

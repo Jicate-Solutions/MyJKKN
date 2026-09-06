@@ -32,10 +32,20 @@ export const basicStaffSchema = z.object({
     .or(z.literal('')),
   phone: z.string().min(10, 'Phone number must be at least 10 characters'),
   staff_id: z.string().optional(),
+  // Biometric enrolment (2026-08-06). The code is the Empcode printed by the
+  // attendance machine; it is meaningless without knowing WHICH machine issued
+  // it, because each machine numbers its own enrolments from 1. The pairing is
+  // enforced by staff_biometric_scope_chk in the database and mirrored here so
+  // the user sees it before saving.
+  biometric_id: z.string().optional().nullable(),
+  biometric_institution_id: z.string().optional().nullable(),
   profile_picture: z.string().optional(),
   address: z.string().optional(),
-  state: z.string().optional(),
-  district: z.string().optional(),
+  // Required since 2026-08-28, and chosen from lib/data/locations.ts rather than
+  // typed. Free text had produced nine spellings of "Tamil Nadu" and 50 district
+  // values for ~20 real districts. Enforced on create AND edit.
+  state: z.string().min(1, 'State is required'),
+  district: z.string().min(1, 'District is required'),
   pincode: z.string().optional(),
   date_of_joining: z.date({
     required_error: 'Date of joining is required'
@@ -51,7 +61,10 @@ export const basicStaffSchema = z.object({
   // The form auto-derives this from selected category's allows_login unless
   // the user has manually toggled it. The "email required when login-enabled"
   // refinement lives on fullStaffSchema below (can't .merge() a refined schema).
-  login_enabled: z.boolean().default(true)
+  login_enabled: z.boolean().default(true),
+  // Optional free-form labels for fetching staff subsets via the external API.
+  // Normalized (trim/lowercase/dedupe) by the TagsInput component before submit.
+  tags: z.array(z.string()).default([])
 });
 
 // ─── Repeater item schemas (used inside extendedStaffSchema) ──────────────────
@@ -165,7 +178,67 @@ export const fullStaffSchema = basicStaffSchema
         message: 'Personal email is required for login-enabled staff'
       });
     }
+
+    // The institution email IS the login identity: sync_staff_to_profiles
+    // creates the profile row with `email = NEW.institution_email`, and it
+    // wraps that whole block in a non-empty check. Leave it blank on a
+    // login-enabled staff member and no profile is created at all — the record
+    // saves, claims login_enabled = true, and the person can never sign in.
+    // Five staff were created that way before this rule existed.
+    if (
+      data.login_enabled !== false &&
+      (!data.institution_email || data.institution_email.trim() === '')
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['institution_email'],
+        message:
+          'Institution email is required for login-enabled staff — it becomes their login. Turn off "Login user" for a view-only record.'
+      });
+    }
+
+    // A biometric code without its machine has no namespace — 00002 on the
+    // Main Office machine and 00002 on the Dental machine are different people.
+    // Mirrors staff_biometric_scope_chk so the user is told here, not by a 23514.
+    const hasCode = Boolean(data.biometric_id && data.biometric_id.trim() !== '');
+    if (hasCode && !data.biometric_institution_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['biometric_institution_id'],
+        message: 'Choose which machine issued this code'
+      });
+    }
   });
+
+/**
+ * The schema actually used by the form, which differs between create and edit.
+ *
+ * Biometric enrolment is required when CREATING only. 351 active staff have no
+ * code on file, and the Empcode is printed by the attendance machine — it is not
+ * something an operator can supply from the desk. Requiring it on edit would
+ * block a phone-number correction behind a physical errand, so new staff must be
+ * enrolled while the existing gap is closed at its own pace.
+ */
+export function buildStaffSchema(isCreating: boolean) {
+  if (!isCreating) return fullStaffSchema;
+
+  return fullStaffSchema.superRefine((data, ctx) => {
+    if (!data.biometric_id || data.biometric_id.trim() === '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['biometric_id'],
+        message: 'Biometric code is required for new staff'
+      });
+    }
+    if (!data.biometric_institution_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['biometric_institution_id'],
+        message: 'Biometric machine is required for new staff'
+      });
+    }
+  });
+}
 
 export type BasicFormValues    = z.infer<typeof basicStaffSchema>;
 export type ExtendedFormValues = z.infer<typeof extendedStaffSchema>;

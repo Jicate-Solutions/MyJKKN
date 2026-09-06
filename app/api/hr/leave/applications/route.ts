@@ -41,6 +41,9 @@ export async function GET(request: NextRequest) {
     const result = await LeaveService.listApplications(supabase, {
       hr_organization_id: url.searchParams.get('hr_organization_id') ?? undefined,
       employee_id: url.searchParams.get('employee_id') ?? undefined,
+      // useApprovalInbox has always sent this; the route dropped it on the
+      // floor, so the approver inbox was never scoped. See listApplications.
+      pending_approver_id: url.searchParams.get('pending_approver_id') ?? undefined,
       status: statuses.length > 0 ? statuses : undefined,
       start_from: url.searchParams.get('start_from') ?? undefined,
       start_to: url.searchParams.get('start_to') ?? undefined,
@@ -90,15 +93,35 @@ export async function POST(request: NextRequest) {
         if (firstStep?.approver_user_id) {
           approverUserIds = [firstStep.approver_user_id];
         } else if (firstStep?.approver_role) {
-          const { data: profiles } = await serviceSupabase
-            .from('profiles')
-            .select('id')
-            .eq('role', firstStep.approver_role)
-            .eq('is_active', true);
-          approverUserIds = (profiles ?? []).map((p: { id: string }) => p.id);
+          // BUG-005884: this used to be
+          //   profiles.select('id').eq('role', step.approver_role).eq('is_active', true)
+          // which carried NO tenancy predicate — and on a service-role client
+          // there is no RLS left to supply one. A Dental leave request notified
+          // all 12 principals in the group; 87% of every delivery went to
+          // someone whose own RLS then refused them the deep-link ("Application
+          // not found"). The RPC is the inverse of fn_is_designated_leave_approver,
+          // so recipients equal the set hla_select admits, by construction.
+          // It keys off user_roles, not the legacy profiles.role mirror.
+          const { data: ids, error: rpcErr } = await serviceSupabase.rpc(
+            'hr_leave_step_approver_user_ids',
+            { p_application_id: created.id }
+          );
+          if (rpcErr) {
+            console.error('[hr/leave/applications] approver resolution failed', rpcErr);
+            return;
+          }
+          approverUserIds = (ids as string[] | null) ?? [];
         }
 
-        if (approverUserIds.length === 0) return;
+        if (approverUserIds.length === 0) {
+          // Loud, not silent: an unroutable step is a flow-config bug, and this
+          // module has already shipped the silent-no-recipients failure twice.
+          console.warn('[hr/leave/applications] no approver resolved', {
+            application: created.id,
+            role: firstStep?.approver_role ?? null,
+          });
+          return;
+        }
 
         // Resolve staff name
         const { data: staffRow } = await serviceSupabase
@@ -112,7 +135,7 @@ export async function POST(request: NextRequest) {
 
         // Resolve leave type name
         const { data: leaveType } = await serviceSupabase
-          .from('leave_types')
+          .from('hr_leave_types')
           .select('leave_type_name')
           .eq('id', created.leave_type_id)
           .maybeSingle();

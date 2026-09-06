@@ -35,6 +35,7 @@ import {
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import { CourseMapping } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 
@@ -47,6 +48,7 @@ export function CourseMappingDetailView({
 }: CourseMappingDetailViewProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const [mapping, setMapping] = useState<CourseMapping | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +64,7 @@ export function CourseMappingDetailView({
         setMapping(data);
       } catch (err) {
         console.error('Error fetching course mapping:', err);
-        setError('Failed to load course mapping details');
+        setError(`Failed to load ${adapt('course')} mapping details`);
       } finally {
         setLoading(false);
       }
@@ -85,10 +87,10 @@ export function CourseMappingDetailView({
         <div className='flex flex-col items-center justify-center min-h-[400px] space-y-4'>
           <div className='text-center'>
             <h3 className='text-lg font-semibold'>
-              Error Loading Course Mapping
+              Error Loading {adapt('Course')} Mapping
             </h3>
             <p className='text-sm text-muted-foreground'>
-              {error || 'Course mapping not found'}
+              {error || `${adapt('Course')} mapping not found`}
             </p>
           </div>
           <Button
@@ -121,14 +123,14 @@ export function CourseMappingDetailView({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/courses'>Courses</Link>
+              <Link href='/organizations/courses'>{adapt('Courses')}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
               <Link href='/organizations/courses/mappings'>
-                Course Mappings
+                {adapt('Course')} Mappings
               </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
@@ -170,14 +172,14 @@ export function CourseMappingDetailView({
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
               <BookOpen className='h-5 w-5' />
-              Course Information
+              {adapt('Course')} Information
             </CardTitle>
-            <CardDescription>Details about the mapped course</CardDescription>
+            <CardDescription>Details about the mapped {adapt('course')}</CardDescription>
           </CardHeader>
           <CardContent className='grid gap-4 md:grid-cols-2'>
             <div className='space-y-1'>
               <p className='text-sm font-medium text-muted-foreground'>
-                Course Code
+                {adapt('Course')} Code
               </p>
               <p className='text-lg font-semibold'>
                 {mapping.course?.course_code}
@@ -185,7 +187,7 @@ export function CourseMappingDetailView({
             </div>
             <div className='space-y-1'>
               <p className='text-sm font-medium text-muted-foreground'>
-                Course Name
+                {adapt('Course')} Name
               </p>
               <p className='text-lg font-semibold'>
                 {mapping.course?.course_name}
@@ -221,7 +223,7 @@ export function CourseMappingDetailView({
             <div className='space-y-2'>
               <div className='flex items-center gap-2 text-sm font-medium text-muted-foreground'>
                 <GraduationCap className='h-4 w-4' />
-                Degree
+                {adapt('Degree')}
               </div>
               <p className='text-base font-medium'>
                 {mapping.degree?.degree_name || 'N/A'}
@@ -232,7 +234,7 @@ export function CourseMappingDetailView({
             <div className='space-y-2'>
               <div className='flex items-center gap-2 text-sm font-medium text-muted-foreground'>
                 <Users className='h-4 w-4' />
-                Department
+                {adapt('Department')}
               </div>
               <p className='text-base font-medium'>
                 {mapping.department?.department_name || 'N/A'}
@@ -243,7 +245,7 @@ export function CourseMappingDetailView({
             <div className='space-y-2'>
               <div className='flex items-center gap-2 text-sm font-medium text-muted-foreground'>
                 <ClipboardList className='h-4 w-4' />
-                Program
+                {adapt('Program')}
               </div>
               <p className='text-base font-medium'>
                 {mapping.program?.program_name || 'N/A'}
@@ -254,7 +256,7 @@ export function CourseMappingDetailView({
             <div className='space-y-2'>
               <div className='flex items-center gap-2 text-sm font-medium text-muted-foreground'>
                 <Calendar className='h-4 w-4' />
-                Semester
+                {adapt('Semester')}
               </div>
               <p className='text-base font-medium'>
                 {mapping.semester?.semester_name || 'N/A'}

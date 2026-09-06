@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   BillingCategory,
   CreateBillingCategoryDto,
@@ -57,8 +58,12 @@ export class BillingCategoryService {
             category_name: data.category_name.trim(),
             amount: data.amount ?? null,
             frequency: data.frequency,
+            kind: data.kind,
             description: data.description?.trim() || null,
-            is_active: data.is_active ?? true
+            is_active: data.is_active ?? true,
+            visible_to_learners: data.visible_to_learners ?? true,
+            once_per_learner: data.once_per_learner ?? false,
+            collection_type: data.collection_type
           }
         ])
         .select('*')
@@ -72,6 +77,14 @@ export class BillingCategoryService {
         }
         throw error;
       }
+
+      const template = BillingActivityTemplates.categoryCreated(data.category_name);
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: (category as BillingCategory).id,
+        resourceName: data.category_name,
+        metadata: { sub_type: template.sub_type, amount: data.amount, frequency: data.frequency },
+      });
 
       return category as BillingCategory;
     } catch (error) {
@@ -106,9 +119,15 @@ export class BillingCategoryService {
         updateData.category_name = data.category_name.trim();
       if (data.amount !== undefined) updateData.amount = data.amount;
       if (data.frequency) updateData.frequency = data.frequency;
+      if (data.kind) updateData.kind = data.kind;
       if (data.description !== undefined)
         updateData.description = data.description?.trim() || null;
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
+      if (data.visible_to_learners !== undefined)
+        updateData.visible_to_learners = data.visible_to_learners;
+      if (data.once_per_learner !== undefined)
+        updateData.once_per_learner = data.once_per_learner;
+      if (data.collection_type) updateData.collection_type = data.collection_type;
 
       const { data: category, error } = await (this.supabase
         .from('billing_categories') as any)
@@ -119,11 +138,60 @@ export class BillingCategoryService {
 
       if (error) throw error;
 
+      const changedFields = Object.keys(data).filter(k => k !== 'updated_at' && k !== 'id');
+      const template = BillingActivityTemplates.categoryUpdated(
+        (category as BillingCategory).category_name,
+        changedFields
+      );
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        resourceName: (category as BillingCategory).category_name,
+        metadata: { sub_type: template.sub_type, changed_fields: changedFields },
+      });
+
       return category as BillingCategory;
     } catch (error) {
       console.error('[billing/categories] Error updating category:', error);
       throw error;
     }
+  }
+
+  /**
+   * How many learners already hold more than one live bill for this category.
+   *
+   * Drives the warning shown before turning "Once per learner" on: 9 categories
+   * are currently in violation, and enabling the flag does NOT retroactively
+   * clean them up — it only blocks new bills. Showing the number up front is
+   * what stops that being a silent surprise later.
+   *
+   * Backed by a SECURITY DEFINER RPC because the flag is global to the
+   * category: an RLS-scoped count would under-report for an institution-scoped
+   * user and give false confidence that the category is clean.
+   */
+  static async getDuplicateConflicts(categoryId: string): Promise<{
+    learnersWithDuplicates: number;
+    extraBills: number;
+    extraValue: number;
+  }> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'billing_category_duplicate_conflicts',
+      { p_category_id: categoryId }
+    );
+
+    if (error) {
+      console.error('[billing/categories] Error checking duplicate conflicts:', error);
+      throw error;
+    }
+
+    // RETURNS TABLE gives an array; a category with no bills yields one
+    // all-zero row rather than an empty set, but guard for both.
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      learnersWithDuplicates: Number(row?.learners_with_duplicates ?? 0),
+      extraBills: Number(row?.extra_bills ?? 0),
+      extraValue: Number(row?.extra_value ?? 0)
+    };
   }
 
   /**
@@ -145,12 +213,26 @@ export class BillingCategoryService {
         );
       }
 
+      const { data: cat } = await this.supabase
+        .from('billing_categories')
+        .select('category_name')
+        .eq('id', id)
+        .single();
+
       const { error } = await this.supabase
         .from('billing_categories')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      const template = BillingActivityTemplates.categoryDeleted(cat?.category_name || id);
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        resourceName: cat?.category_name || id,
+        metadata: { sub_type: template.sub_type },
+      });
     } catch (error) {
       console.error('[billing/categories] Error deleting category:', error);
       throw error;
@@ -176,6 +258,14 @@ export class BillingCategoryService {
       }
     }
 
+    if (success.length > 0) {
+      const template = BillingActivityTemplates.categoriesBulkDeleted(success.length);
+      logActivityForCurrentUser({
+        ...template,
+        metadata: { sub_type: template.sub_type, deleted_ids: success, failed_count: failed.length },
+      });
+    }
+
     return { success, failed };
   }
 
@@ -183,7 +273,17 @@ export class BillingCategoryService {
     filters: BillingCategoryFilters = {}
   ): Promise<BillingCategoryListResponse> {
     try {
-      const { search, frequency, isActive, page = 1, limit = 10 } = filters;
+      const {
+        search,
+        frequency,
+        isActive,
+        collectionType,
+        visibleToLearners,
+        page = 1,
+        limit = 10,
+        sortBy,
+        sortOrder
+      } = filters;
 
       let query = (this.supabase as any)
         .from('billing_categories')
@@ -201,9 +301,26 @@ export class BillingCategoryService {
         query = query.eq('is_active', isActive);
       }
 
+      if (collectionType) {
+        query = query.eq('collection_type', collectionType);
+      }
+
+      if (visibleToLearners !== undefined) {
+        query = query.eq('visible_to_learners', visibleToLearners);
+      }
+
+      // Whitelist sortable columns (guards against arbitrary order-by injection from
+      // the DataTable). Default to category_name asc — the prior fixed behaviour.
+      const SORTABLE = new Set([
+        'category_name', 'kind', 'frequency', 'amount', 'is_active', 'created_at',
+        'collection_type', 'visible_to_learners', 'once_per_learner'
+      ]);
+      const orderColumn = sortBy && SORTABLE.has(sortBy) ? sortBy : 'category_name';
+      const ascending = orderColumn === 'category_name' ? sortOrder !== 'desc' : sortOrder === 'asc';
+
       const from = (page - 1) * limit;
       const to = from + limit - 1;
-      query = query.range(from, to).order('category_name', { ascending: true });
+      query = query.range(from, to).order(orderColumn, { ascending });
 
       const { data, count, error } = await query;
 

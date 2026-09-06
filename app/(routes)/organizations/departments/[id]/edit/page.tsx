@@ -21,6 +21,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface EditDepartmentPageProps {
   params: Promise<{ id: string }>;
@@ -33,6 +34,8 @@ export default function EditDepartmentPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [department, setDepartment] = useState<Department | null>(null);
+  const adapt = useAdaptiveLabels();
+  const pageTitle = adapt('Edit Department');
 
   useEffect(() => {
     async function fetchDepartment() {
@@ -56,7 +59,7 @@ export default function EditDepartmentPage({
 
   if (loading) {
     return (
-      <ContentLayout title='Edit Department'>
+      <ContentLayout title={pageTitle}>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin' />
         </div>
@@ -66,13 +69,13 @@ export default function EditDepartmentPage({
 
   if (error || !department) {
     return (
-      <ContentLayout title='Edit Department'>
+      <ContentLayout title={pageTitle}>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Department not found'}
+            {error || `${adapt('Department')} not found`}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/organizations/departments'>Back to Departments</Link>
+            <Link href='/organizations/departments'>Back to {adapt('Departments')}</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -80,7 +83,7 @@ export default function EditDepartmentPage({
   }
 
   return (
-    <ContentLayout title='Edit Department'>
+    <ContentLayout title={pageTitle}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -97,21 +100,21 @@ export default function EditDepartmentPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/departments'>Departments</Link>
+              <Link href='/organizations/departments'>{adapt('Departments')}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Edit Department</BreadcrumbPage>
+            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-2xl font-bold py-1'>Edit Department</h1>
+          <h1 className='text-2xl font-bold py-1'>{pageTitle}</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Update department details
+            Update {adapt('department')} details
           </p>
         </div>
 

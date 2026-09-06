@@ -1,84 +1,40 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { resolveCertificate } from '@/lib/services/certificates/verify-resolver';
 
-// GET /api/pde/certificates/verify/[number] — PUBLIC endpoint (no auth)
-// Lookup certificate by number, join with profiles + vac_courses for display
+/**
+ * GET /api/pde/certificates/verify/[number] — PUBLIC (no auth). LEGACY PATH.
+ *
+ * Delegates to the unified verify resolver (see app/api/certificates/verify).
+ * Kept for backward compatibility with any previously-printed QR codes that
+ * encode this path. Returns the SAME whitelisted public shape as the canonical
+ * endpoint — name + title + issue date + status only. It no longer returns
+ * scores/hours/competencies (that grade-leaking behaviour was removed on
+ * 2026-07-06; it was latent only because the table was empty).
+ */
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ number: string }> }
 ) {
   await connection();
   try {
-    const supabase = await createClient();
-    const { number: certNumber } = await params;
-
-    if (!certNumber) {
+    const { number } = await params;
+    if (!number) {
       return NextResponse.json(
-        { error: 'Certificate number is required' },
+        { valid: false, status: 'not_found', error: 'Certificate number is required' },
         { status: 400 }
       );
     }
 
-    // Lookup certificate
-    const { data: cert, error: certErr } = await (supabase as any)
-      .from('pde_certificates')
-      .select('*')
-      .eq('certificate_number', certNumber)
-      .single();
-
-    if (certErr || !cert) {
-      return NextResponse.json(
-        { error: 'Certificate not found', valid: false },
-        { status: 404 }
-      );
-    }
-
-    // Fetch learner name from profiles
-    let learnerName: string | null = null;
-    try {
-      const { data: profile } = await (supabase as any)
-        .from('profiles')
-        .select('full_name')
-        .eq('id', cert.learner_id)
-        .single();
-      if (profile) learnerName = profile.full_name;
-    } catch {
-      // Profile lookup failed — continue without name
-    }
-
-    // Fetch course name from vac_courses
-    let courseName: string | null = null;
-    try {
-      const { data: course } = await (supabase as any)
-        .from('vac_courses')
-        .select('name')
-        .eq('id', cert.course_id)
-        .single();
-      if (course) courseName = course.name;
-    } catch {
-      // Course lookup failed — continue without name
-    }
-
-    return NextResponse.json({
-      valid: true,
-      data: {
-        certificate_number: cert.certificate_number,
-        certificate_type: cert.certificate_type,
-        issued_at: cert.issued_at,
-        final_score: cert.final_score,
-        completion_hours: cert.completion_hours,
-        finks_profile: cert.finks_profile,
-        capabilities_demonstrated: cert.capabilities_demonstrated,
-        learner_name: learnerName,
-        course_name: courseName,
-      },
+    const result = await resolveCertificate(number);
+    return NextResponse.json(result, {
+      status: result.status === 'not_found' ? 404 : 200,
     });
   } catch (error: any) {
-    console.error('Error verifying certificate:', error);
+    console.error('[pde/certificates/verify] lookup failed:', error);
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { valid: false, status: 'error', error: 'Verification failed' },
       { status: 500 }
     );
   }

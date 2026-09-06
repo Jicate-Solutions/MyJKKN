@@ -8,7 +8,8 @@ const BUCKETS = {
   STUDENT_PHOTOS: 'student-photos',
   STAFF_PHOTOS: 'staff-images', // Corrected to use the existing bucket
   RESOURCES: 'resource-management', // New bucket for resource management assets
-  EXPO_PHOTOS: 'expo-photos'
+  EXPO_PHOTOS: 'expo-photos',
+  IMS_ITEM_IMAGES: 'ims-item-images',
 } as const;
 
 const ALLOWED_FILE_TYPES = [
@@ -644,7 +645,7 @@ export class StorageService {
           staff_id,
           first_name,
           last_name,
-          institution:institutions(name)
+          institution:institutions!staff_institution_id_fkey(name)
         `
         )
         .in('staff_id', validStaffIds);
@@ -1235,6 +1236,49 @@ export class StorageService {
       return { publicUrl: urlData.publicUrl, error: null };
     } catch (error) {
       console.error('[admission/expos] Error uploading photo:', error);
+      return { publicUrl: null, error: error instanceof Error ? error : new Error('Upload failed') };
+    }
+  }
+
+  // =============================================
+  // IMS ITEM IMAGE METHODS
+  // =============================================
+
+  static async uploadImsItemImage(
+    file: File,
+    itemId: string
+  ): Promise<{ publicUrl: string | null; error: Error | null }> {
+    try {
+      await this.validateFile(file);
+
+      const { data: { user }, error: userError } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const filePath = `items/${itemId}/${Date.now()}.${fileExt}`;
+
+      const { data: existing } = await this.supabase.storage
+        .from(BUCKETS.IMS_ITEM_IMAGES)
+        .list(`items/${itemId}`);
+      if (existing && existing.length > 0) {
+        await this.supabase.storage
+          .from(BUCKETS.IMS_ITEM_IMAGES)
+          .remove(existing.map((f) => `items/${itemId}/${f.name}`));
+      }
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.IMS_ITEM_IMAGES)
+        .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.IMS_ITEM_IMAGES)
+        .getPublicUrl(filePath);
+
+      return { publicUrl: urlData.publicUrl, error: null };
+    } catch (error) {
+      console.error('[storage] uploadImsItemImage failed:', error);
       return { publicUrl: null, error: error instanceof Error ? error : new Error('Upload failed') };
     }
   }

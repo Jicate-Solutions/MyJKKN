@@ -57,6 +57,13 @@ export interface FieldSchema {
   step?: number;
   /** For enum / enum-with-hint fields. */
   options?: ReadonlyArray<EnumOption>;
+  /**
+   * For enum / enum-with-hint fields: compute options from the current form
+   * values (cascade dropdowns — e.g. departments filtered by the selected
+   * institution). Evaluated on every render so it reacts to other fields, and
+   * takes precedence over the static `options` when present.
+   */
+  dynamicOptions?: (values: Record<string, unknown>) => ReadonlyArray<EnumOption>;
   /** Conditional visibility — receives current form values, returns true to show. */
   visibleWhen?: (values: Record<string, unknown>) => boolean;
   /** For scope-with-institution: institution dropdown source. Provided at render time. */

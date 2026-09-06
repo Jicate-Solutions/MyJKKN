@@ -1,6 +1,7 @@
 // lib/services/ims/supply-transfer-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { ImsActivityLogService } from './activity-log-service';
 import type {
   ImsSupplyShipment,
   ImsShipmentFilters,
@@ -19,7 +20,7 @@ export class ImsSupplyTransferService {
   private static readonly SHIPMENT_SELECT = `
     *,
     source_store:ims_stores!source_store_id(id,name,code),
-    destination_institution:institutions!destination_institution_id(id,institution_name),
+    destination_institution:institutions!destination_institution_id(id,name),
     destination_store:ims_stores!destination_store_id(id,name,code),
     dispatched_by_profile:profiles!dispatched_by(full_name),
     items:ims_supply_shipment_items(
@@ -149,13 +150,57 @@ export class ImsSupplyTransferService {
   }
 
   /**
+   * Warehouse-initiated ("push") distribution: send stock to an operating store
+   * without waiting for that store to request it.
+   *
+   * All of it happens in one SECURITY DEFINER RPC — request, shipment, FEFO
+   * batch allocation and (by default) dispatch — so there is no window where a
+   * half-built transfer can be left behind by a failed round trip. The RPC
+   * auto-creates an already-approved `intra_institution` request because
+   * `ims_supply_shipments.request_id` is NOT NULL; that keeps every push
+   * traceable and reuses the whole dispatch/receive engine unchanged.
+   *
+   * The receiving store still confirms receipt, which is what credits its stock.
+   */
+  static async createPushTransfer(dto: {
+    warehouse_store_id: string;
+    destination_store_id: string;
+    actor_id: string;
+    purpose?: string;
+    items: { item_id: string; quantity: number }[];
+    dispatch_now?: boolean;
+  }): Promise<{ request_id: string; shipment_id: string }> {
+    try {
+      const { data, error } = await this.supabase.rpc('ims_create_push_transfer', {
+        p_warehouse_store_id: dto.warehouse_store_id,
+        p_dest_store_id: dto.destination_store_id,
+        p_actor: dto.actor_id,
+        p_purpose: dto.purpose ?? 'Warehouse distribution',
+        p_lines: dto.items,
+        p_dispatch_now: dto.dispatch_now ?? true,
+      });
+
+      if (error) throw error;
+
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.shipment_id) {
+        throw new Error('Push transfer did not return a shipment');
+      }
+      return row as { request_id: string; shipment_id: string };
+    } catch (error) {
+      console.error('[ImsSupplyTransferService] createPushTransfer error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Central store: mark shipment as dispatched.
    * DB trigger `trg_ims_apply_shipment_to_stock` fires on this update
    * and deducts stock from central store + sets request.status = 'shipped'.
    */
   static async dispatchShipment(shipmentId: string, dto: DispatchShipmentDto): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const { data: updated, error } = await this.supabase
         .from('ims_supply_shipments')
         .update({
           status: 'dispatched',
@@ -164,9 +209,24 @@ export class ImsSupplyTransferService {
           updated_at: new Date().toISOString(),
         })
         .eq('id', shipmentId)
-        .eq('status', 'preparing');   // guard: only from 'preparing'
+        .eq('status', 'preparing')   // guard: only from 'preparing'
+        .select('id, destination_institution_id, shipment_no')
+        .single();
 
       if (error) throw error;
+
+      // Phase F: log to activity trail. Use destination_institution_id for scoping
+      // (the receiving institution is who needs to see the dispatch event in their feed).
+      if (updated) {
+        await ImsActivityLogService.log({
+          entityType: 'shipment',
+          entityId: shipmentId,
+          institutionId: updated.destination_institution_id,
+          action: 'dispatched',
+          actorId: dto.dispatched_by,
+          metadata: { shipment_no: updated.shipment_no },
+        });
+      }
     } catch (error) {
       console.error('[ImsSupplyTransferService] dispatchShipment error:', error);
       throw error;
@@ -195,6 +255,30 @@ export class ImsSupplyTransferService {
       });
 
       if (error) throw error;
+
+      // Phase F: log to activity trail. Fetch shipment to know institution + status
+      // (status may be 'received' or 'received_with_variance' depending on RPC outcome).
+      const { data: shipment } = await this.supabase
+        .from('ims_supply_shipments')
+        .select('destination_institution_id, shipment_no, status')
+        .eq('id', shipmentId)
+        .single();
+
+      if (shipment) {
+        await ImsActivityLogService.log({
+          entityType: 'shipment',
+          entityId: shipmentId,
+          institutionId: shipment.destination_institution_id,
+          action: 'received',
+          actorId: receivedBy,
+          notes: notes && notes.trim() ? notes : null,
+          metadata: {
+            shipment_no: shipment.shipment_no,
+            status: shipment.status,
+            line_count: lines.length,
+          },
+        });
+      }
     } catch (error) {
       console.error('[ImsSupplyTransferService] confirmReceipt error:', error);
       throw error;

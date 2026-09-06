@@ -6,7 +6,14 @@ import Link from 'next/link';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { Save, ArrowLeft, CalendarIcon, AlertCircle } from 'lucide-react';
+import {
+  Save,
+  ArrowLeft,
+  CalendarIcon,
+  AlertCircle,
+  Check,
+  ChevronsUpDown
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -43,6 +50,15 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
+import { useStaffForSelection } from '@/hooks/staff/use-staff';
 import { useTimetables } from '@/hooks/academic/use-timetables';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -52,6 +68,7 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import Loading from '@/components/Loading/Loading';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
@@ -59,6 +76,7 @@ import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTemplates, useCreateFromTemplate } from '@/hooks/use-templates';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { CycleAnchorPhaseWarningBanner } from '../_components/cycle-anchor-phase-warning';
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -105,7 +123,14 @@ const timetableFormSchema = z
     selected_template_id: z.string().optional(),
     timetable_format: z.enum(['regular', 'batch', 'cycle']).default('regular'),
     // Updated: 2026-03-22 - Required when timetable_format='cycle'
-    num_cycles: z.coerce.number().int().min(1).max(52).optional()
+    num_cycles: z.coerce.number().int().min(1).max(52).optional(),
+    // Updated: 2026-06-10 - School day-wise attendance support.
+    // attendance_mode defaults from entity_type but is editable; class_incharge_id
+    // is required (refine below) when mode = session_wise.
+    attendance_mode: z
+      .enum(['period_wise', 'session_wise'])
+      .default('period_wise'),
+    class_incharge_id: z.string().optional()
   })
   .refine(
     (data) => {
@@ -143,6 +168,18 @@ const timetableFormSchema = z
       message: 'Number of cycles is required for cycle-based timetables (1–52).',
       path: ['num_cycles']
     }
+  )
+  .refine(
+    (data) => {
+      if (data.attendance_mode === 'session_wise' && !data.class_incharge_id) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Please select a class incharge for day-wise attendance.',
+      path: ['class_incharge_id']
+    }
   );
 
 type TimetableFormValues = z.infer<typeof timetableFormSchema>;
@@ -152,6 +189,7 @@ export default function NewTimetablePage() {
   const { createTimetable } = useTimetables();
   const { isSuperAdmin, userProfile } = usePermissions();
   const createFromTemplate = useCreateFromTemplate();
+  const adapt = useAdaptiveLabels();
 
   // Initialize the form first to use its state in hooks
   const form = useForm<TimetableFormValues>({
@@ -171,7 +209,9 @@ export default function NewTimetablePage() {
       template_name: '',
       selected_template_id: 'no-template',
       start_date: undefined,
-      end_date: undefined
+      end_date: undefined,
+      attendance_mode: 'period_wise',
+      class_incharge_id: ''
     }
   });
 
@@ -183,6 +223,7 @@ export default function NewTimetablePage() {
   const watchDepartmentId = form.watch('department_id');
   const watchSemesterId = form.watch('semester_id');
   const watchTimetableType = form.watch('timetable_type'); // New watch
+  const watchAttendanceMode = form.watch('attendance_mode');
   const watchSectionId = form.watch('section_id');
   const watchStartDate = form.watch('start_date');
   const watchEndDate = form.watch('end_date');
@@ -196,11 +237,16 @@ export default function NewTimetablePage() {
     fetchAcademicYears
   } = useAcademicYears();
 
+  // entityType: 'all' — show every entity the user has access to (institutions
+  // AND schools). The underlying access filter still scopes the list to the
+  // user's own accessible institutions, so an HOD only sees their own.
+  // Without this, the hook defaults to entity_type='institution' and silently
+  // excludes school users (entity_type='school') → empty dropdown.
   const {
     institutions,
     loading: loadingInstitutions,
     refetch: fetchInstitutions
-  } = useInstitutionsWithAccess({});
+  } = useInstitutionsWithAccess({ entityType: 'all' });
 
   const degreesQuery = useDegrees({
     institution_id: watchInstitutionId,
@@ -291,6 +337,42 @@ export default function NewTimetablePage() {
       index === self.findIndex((s) => s.section_name === section.section_name)
   );
 
+  // Staff list for the Class Incharge picker (session_wise timetables only).
+  // Scoped to the selected institution; empty/disabled until one is chosen.
+  const { data: inchargeStaff = [], isLoading: loadingInchargeStaff } =
+    useStaffForSelection({
+      institution_id: watchInstitutionId || undefined,
+      isActive: true
+    });
+
+  const [inchargeComboOpen, setInchargeComboOpen] = useState(false);
+
+  // Resolve the selected institution's entity_type to drive the default
+  // attendance mode (school => day-wise/session_wise, otherwise period_wise).
+  const selectedInstitution = institutions.find(
+    (i) => i.id === watchInstitutionId
+  );
+  const isSchool = (selectedInstitution as any)?.entity_type === 'school';
+
+  // Default attendance_mode from entity_type whenever the institution changes.
+  // This is a smart default, not a lock — the user can still switch it below.
+  useEffect(() => {
+    if (!watchInstitutionId) return;
+    form.setValue('attendance_mode', isSchool ? 'session_wise' : 'period_wise');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchInstitutionId, isSchool]);
+
+  // Auto-select the user's own institution for non-super-admins on create.
+  // The institution dropdown is access-scoped (useInstitutionsWithAccess), so a
+  // normal user only has their own institution available — pre-select it so the
+  // cascade (academic year, degree, …) can proceed without an extra click.
+  useEffect(() => {
+    if (!isSuperAdmin && userProfile?.institution_id && !watchInstitutionId) {
+      form.setValue('institution_id', userProfile.institution_id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, userProfile?.institution_id]);
+
   // Fetch academic years when institution is selected
   useEffect(() => {
     if (watchInstitutionId) {
@@ -355,14 +437,10 @@ export default function NewTimetablePage() {
       return;
     }
 
-    // Skip validation if dates are not provided (allow creation without dates)
-    if (!values.start_date || !values.end_date) {
-      setExistingTimetableCheck({ checking: false, exists: false });
-      form.clearErrors('start_date');
-      form.clearErrors('end_date');
-      return;
-    }
-
+    // Deliberately NOT skipped when the dates are blank. The rule is one active
+    // timetable per section per academic year, so the answer is already knowable
+    // the moment a section is picked — and the old dateless skip here is how the
+    // one duplicate in production got in.
     setExistingTimetableCheck({ checking: true, exists: false });
 
     try {
@@ -382,8 +460,14 @@ export default function NewTimetablePage() {
         department_id: values.department_id,
         semester_id: values.semester_id,
         section_id: values.section_id,
-        start_date: formatDateForAPI(values.start_date),
-        end_date: formatDateForAPI(values.end_date)
+        // Passed for the message only — they no longer decide the verdict, and
+        // either may legitimately be absent at this point in the form.
+        start_date: values.start_date
+          ? formatDateForAPI(values.start_date)
+          : undefined,
+        end_date: values.end_date
+          ? formatDateForAPI(values.end_date)
+          : undefined
       });
 
       setExistingTimetableCheck({
@@ -392,24 +476,25 @@ export default function NewTimetablePage() {
         message: result.message
       });
 
-      // Set form error if date overlap exists
+      // The error belongs on the SECTION, not on the dates. It is the section
+      // that is taken; changing the date range no longer clears the conflict, so
+      // pointing the operator at the date fields would send them somewhere the
+      // problem cannot be fixed.
       if (result.exists) {
         toast.error(
-          result.message || 'Date period conflicts with existing timetable'
+          result.message ||
+            'This section already has an active timetable for this academic year'
         );
-        form.setError('start_date', {
+        form.setError('section_id', {
           type: 'manual',
-          message: 'Date period overlaps with existing timetable'
-        });
-        form.setError('end_date', {
-          type: 'manual',
-          message: 'Date period overlaps with existing timetable'
+          message:
+            'This section already has an active timetable for this academic year'
         });
       } else {
-        // Clear date errors if no conflict
-        form.clearErrors('start_date');
-        form.clearErrors('end_date');
+        form.clearErrors('section_id');
       }
+      form.clearErrors('start_date');
+      form.clearErrors('end_date');
     } catch (error) {
       logger.error('academic/timetables', 'Error checking existing timetable', error);
       setExistingTimetableCheck({ checking: false, exists: false });
@@ -464,7 +549,9 @@ export default function NewTimetablePage() {
             timetable_type: formattedValues.timetable_type,
             start_date: formattedValues.start_date,
             end_date: formattedValues.end_date,
-            is_active: formattedValues.is_active
+            is_active: formattedValues.is_active,
+            attendance_mode: formattedValues.attendance_mode,
+            class_incharge_id: formattedValues.class_incharge_id || null
           }
         });
       } else {
@@ -775,7 +862,7 @@ export default function NewTimetablePage() {
                     name='degree_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Degree</FormLabel>
+                        <FormLabel>{adapt('Degree')}</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -787,7 +874,7 @@ export default function NewTimetablePage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select degree' />
+                              <SelectValue placeholder={`Select ${adapt('degree')}`} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -798,7 +885,7 @@ export default function NewTimetablePage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        <FormDescription>The degree program</FormDescription>
+                        <FormDescription>The {adapt('degree')} program</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -809,7 +896,7 @@ export default function NewTimetablePage() {
                     name='department_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Department</FormLabel>
+                        <FormLabel>{adapt('Department')}</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -821,7 +908,7 @@ export default function NewTimetablePage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select department' />
+                              <SelectValue placeholder={`Select ${adapt('department')}`} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -836,7 +923,7 @@ export default function NewTimetablePage() {
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The department this timetable is for
+                          The {adapt('department')} this timetable is for
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -848,7 +935,7 @@ export default function NewTimetablePage() {
                     name='program_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Program</FormLabel>
+                        <FormLabel>{adapt('Program')}</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -860,7 +947,7 @@ export default function NewTimetablePage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select program' />
+                              <SelectValue placeholder={`Select ${adapt('program')}`} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -871,7 +958,7 @@ export default function NewTimetablePage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        <FormDescription>The specific program</FormDescription>
+                        <FormDescription>The specific {adapt('program')}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -882,7 +969,7 @@ export default function NewTimetablePage() {
                     name='semester_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Semester</FormLabel>
+                        <FormLabel>{adapt('Semester')}</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -894,7 +981,7 @@ export default function NewTimetablePage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select semester' />
+                              <SelectValue placeholder={`Select ${adapt('semester')}`} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -909,13 +996,13 @@ export default function NewTimetablePage() {
                               ))
                             ) : (
                               <div className='py-2 px-3 text-sm text-muted-foreground'>
-                                No semesters available
+                                No {adapt('semesters')} available
                               </div>
                             )}
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The semester for this timetable
+                          The {adapt('semester')} for this timetable
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -988,7 +1075,7 @@ export default function NewTimetablePage() {
                       name='section_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Section</FormLabel>
+                          <FormLabel>{adapt('Section')}</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
@@ -1000,7 +1087,7 @@ export default function NewTimetablePage() {
                           >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder='Select section' />
+                                <SelectValue placeholder={`Select ${adapt('section')}`} />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent className='max-h-60 overflow-y-auto'>
@@ -1100,6 +1187,161 @@ export default function NewTimetablePage() {
                   )}
                 </div>
 
+                {/* Attendance Mode + Class Incharge (school day-wise support) */}
+                <div className='grid grid-cols-1 gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='attendance_mode'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Attendance Mode</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select attendance mode' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='period_wise'>
+                              Period-wise (every period)
+                            </SelectItem>
+                            <SelectItem value='session_wise'>
+                              Day-wise (FN &amp; AN sessions)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {watchAttendanceMode === 'session_wise' ? (
+                            <span>
+                              Attendance is collected only at the first forenoon
+                              and first afternoon period; both present = full
+                              day, one = half day. Marked by the class incharge.
+                            </span>
+                          ) : (
+                            <span>
+                              Attendance is marked for every period in the
+                              timetable.
+                            </span>
+                          )}
+                          {isSchool && (
+                            <span className='block text-green-600 dark:text-green-400'>
+                              Defaulted to Day-wise because this is a school.
+                            </span>
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Class Incharge — always shown and required (independent of attendance mode) */}
+                  {(
+                    <FormField
+                      control={form.control}
+                      name='class_incharge_id'
+                      render={({ field }) => (
+                        <FormItem className='flex flex-col'>
+                          <FormLabel>Class Incharge</FormLabel>
+                          <Popover
+                            open={inchargeComboOpen}
+                            onOpenChange={setInchargeComboOpen}
+                          >
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant='outline'
+                                  role='combobox'
+                                  aria-expanded={inchargeComboOpen}
+                                  disabled={
+                                    loadingInchargeStaff || !watchInstitutionId
+                                  }
+                                  className={cn(
+                                    'w-full justify-between font-normal',
+                                    !field.value && 'text-muted-foreground'
+                                  )}
+                                >
+                                  {field.value
+                                    ? (() => {
+                                        const s = inchargeStaff.find(
+                                          (st: any) => st.id === field.value
+                                        );
+                                        return s
+                                          ? `${s.first_name} ${s.last_name}${
+                                              s.staff_id
+                                                ? ` (${s.staff_id})`
+                                                : ''
+                                            }`
+                                          : 'Select staff...';
+                                      })()
+                                    : loadingInchargeStaff
+                                    ? 'Loading staff...'
+                                    : 'Select class incharge'}
+                                  <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              className='w-[--radix-popover-trigger-width] p-0'
+                              align='start'
+                            >
+                              <Command>
+                                <CommandInput placeholder='Search by name or staff ID...' />
+                                <CommandList>
+                                  <CommandEmpty>No staff found.</CommandEmpty>
+                                  <CommandGroup>
+                                    {inchargeStaff.map((s: any) => (
+                                      <CommandItem
+                                        key={s.id}
+                                        value={`${s.first_name} ${s.last_name} ${
+                                          s.staff_id || ''
+                                        } ${s.email || ''}`}
+                                        onSelect={() => {
+                                          field.onChange(
+                                            s.id === field.value ? '' : s.id
+                                          );
+                                          setInchargeComboOpen(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            'mr-2 h-4 w-4',
+                                            field.value === s.id
+                                              ? 'opacity-100'
+                                              : 'opacity-0'
+                                          )}
+                                        />
+                                        <div className='flex flex-col'>
+                                          <span>
+                                            {s.first_name} {s.last_name}
+                                            {s.staff_id ? ` (${s.staff_id})` : ''}
+                                          </span>
+                                          {s.email && (
+                                            <span className='text-xs text-muted-foreground'>
+                                              {s.email}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                          <FormDescription>
+                            The staff responsible for marking this
+                            timetable&apos;s daily attendance.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+
                 {/* Date Fields */}
                 <div className='grid grid-cols-1 gap-6 md:grid-cols-2'>
                   <FormField
@@ -1143,7 +1385,18 @@ export default function NewTimetablePage() {
                         <FormDescription>
                           The start date of the timetable period. Required for
                           date overlap validation.
+                          {form.watch('timetable_format') === 'cycle' &&
+                            ' For a cycle timetable this is also where the rotation is anchored.'}
                         </FormDescription>
+                        {/* Added: 2026-08-17 (BUG-005837) */}
+                        <CycleAnchorPhaseWarningBanner
+                          timetableFormat={form.watch('timetable_format')}
+                          institutionId={watchInstitutionId}
+                          startDate={
+                            field.value ? format(field.value, 'yyyy-MM-dd') : null
+                          }
+                          numCycles={form.watch('num_cycles')}
+                        />
                         <FormMessage />
                       </FormItem>
                     )}

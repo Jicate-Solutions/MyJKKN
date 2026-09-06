@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
+import { resolveInstitutionScope } from '@/lib/auth/institution-scope';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
 
 /**
@@ -29,6 +30,7 @@ import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
  * Query Parameters:
  * - institutionIds: comma-separated list of institution IDs
  * - academicYearId: filter by academic year
+ * - admissionYear: filter by admission cohort, as a calendar year (e.g. 2026)
  * - degreeId: filter by degree
  * - departmentId: filter by department
  * - programId: filter by program
@@ -59,7 +61,7 @@ export async function GET(request: NextRequest) {
     // Check permissions
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, institution_id')
+      .select('role, is_super_admin, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -76,18 +78,35 @@ export async function GET(request: NextRequest) {
     const filters: LearnerDashboardFilters = {};
 
     // Institution IDs
+    // Omitting the param means "all institutions" from the client, so it must
+    // not collapse to the caller's own institution for a super admin — theirs
+    // points at their employer, not a college. See resolveInstitutionScope.
     const institutionIdsParam = searchParams.get('institutionIds');
-    if (institutionIdsParam) {
-      filters.institutionIds = institutionIdsParam.split(',').filter(Boolean);
-    } else if (profile.institution_id) {
-      // If user has institution_id, restrict to that institution
-      filters.institutionIds = [profile.institution_id];
+    const institutionScope = resolveInstitutionScope(
+      profile,
+      institutionIdsParam ? institutionIdsParam.split(',').filter(Boolean) : null
+    );
+    if (institutionScope) {
+      filters.institutionIds = institutionScope;
     }
 
     // Academic Year
     const academicYearId = searchParams.get('academicYearId');
     if (academicYearId) {
       filters.academicYearId = academicYearId;
+    }
+
+    // Admission Year
+    //
+    // A calendar year, not an admission_years row id — the service fans it out
+    // to every institution's row for that year. Parsed strictly: a junk value
+    // must not become NaN and travel into the query as a real predicate.
+    const admissionYearParam = searchParams.get('admissionYear');
+    if (admissionYearParam) {
+      const admissionYear = Number(admissionYearParam);
+      if (Number.isFinite(admissionYear)) {
+        filters.admissionYear = admissionYear;
+      }
     }
 
     // Degree
@@ -133,8 +152,19 @@ export async function GET(request: NextRequest) {
     }
 
     // Gender
-    const gender = searchParams.get('gender');
-    if (gender && (gender === 'male' || gender === 'female' || gender === 'other')) {
+    //
+    // Normalised to the stored canon (Title Case) rather than allow-listed
+    // verbatim: the previous check only accepted lower case, which is exactly
+    // what the dashboard used to send and what then matched zero rows. Taking
+    // the value case-insensitively keeps any bookmarked `?gender=male` working
+    // now that the filter panel emits 'Male'.
+    const genderParam = searchParams.get('gender');
+    const gender = genderParam
+      ? (['Male', 'Female', 'Other'] as const).find(
+          (g) => g.toLowerCase() === genderParam.trim().toLowerCase()
+        )
+      : undefined;
+    if (gender) {
       filters.gender = gender;
     }
 

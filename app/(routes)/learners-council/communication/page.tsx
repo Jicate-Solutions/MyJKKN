@@ -5,14 +5,9 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { AnnouncementsClient } from './announcements-client';
-import { getLCRole, canCreateAnnouncements } from '@/lib/learners-council/lc-roles';
-import Link from 'next/link';
+import { getLCAccess, canDraftAnnouncements, canPublishAnnouncements } from '@/lib/learners-council/lc-roles';
 
-export default async function AnnouncementsPage({
-  searchParams
-}: {
-  searchParams?: Promise<{ scope?: string }>;
-}) {
+export default async function AnnouncementsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
@@ -20,7 +15,7 @@ export default async function AnnouncementsPage({
   }
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, role, institution_id, full_name, avatar_url, email')
+    .select('id, role, institution_id, is_super_admin, full_name, avatar_url, email')
     .eq('id', user.id)
     .single();
   if (!profile) {
@@ -38,17 +33,16 @@ export default async function AnnouncementsPage({
   const membershipInfo = lcMembership
     ? { position_category: (lcMembership.position as any)?.category, tier: (lcMembership.position as any)?.tier }
     : null;
-  const lcRole = getLCRole(profile.role || null, membershipInfo);
-  const canCreate = canCreateAnnouncements(lcRole);
-  const isMD = lcRole === 'md';
+  const access = getLCAccess(profile, membershipInfo);
+  const canDraft = canDraftAnnouncements(access);
+  const canPublish = canPublishAnnouncements(access);
 
-  // Resolve scope
-  const params = searchParams ? await searchParams : {};
-  const scopeParam = params.scope;
-  const scopeAll = isMD ? (scopeParam !== 'institution') : (scopeParam === 'lc_wide');
-
-  // Fetch initial announcements server-side (institution-scoped by default)
-  let query = supabase
+  // The Council is one body across every JKKN institution, so members see all of its
+  // announcements. (The previous "My Institution" scope filtered on
+  // lc_announcements.institution_id -- a column that does not exist on this table -- so
+  // it errored and returned nothing on every default page load. The audience of an
+  // announcement is carried on scope/scope_id, and is used for notification targeting.)
+  const { data: announcements, error: announcementsError } = await supabase
     .from('lc_announcements')
     .select(
       `
@@ -61,44 +55,17 @@ export default async function AnnouncementsPage({
     .order('created_at', { ascending: false })
     .limit(20);
 
-  if (!scopeAll) {
-    if (profile.institution_id) {
-      query = query.eq('institution_id', profile.institution_id);
-    } else {
-      // If no institution_id, only show LC-wide announcements to prevent data leak
-      query = query.eq('scope', 'lc_wide');
-    }
+  if (announcementsError) {
+    console.error('[lc/communication] Error fetching announcements:', announcementsError);
   }
-
-  const { data: announcements } = await query;
 
   return (
     <div className="space-y-4">
-      {/* Scope Toggle */}
-      <div className="flex justify-end">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Viewing:</span>
-          <div className="flex rounded-md border overflow-hidden">
-            <Link
-              href="/learners-council/communication?scope=institution"
-              className={`px-3 py-1.5 text-sm ${!scopeAll ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'}`}
-            >
-              My Institution
-            </Link>
-            <Link
-              href="/learners-council/communication?scope=lc_wide"
-              className={`px-3 py-1.5 text-sm border-l ${scopeAll ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'}`}
-            >
-              LC-Wide
-            </Link>
-          </div>
-        </div>
-      </div>
-
       <AnnouncementsClient
         initialAnnouncements={announcements || []}
         userId={profile.id}
-        canCreate={canCreate}
+        canDraft={canDraft}
+        canPublish={canPublish}
       />
     </div>
   );

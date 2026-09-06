@@ -12,18 +12,18 @@
 // memory/feedback_strict_counselor_override_list_traps_senior_leadership.md):
 // a literal ['super_admin','consultant'] silently traps senior staff whose
 // role-mix isn't in the array. Here we read the allowlist from a config
-// table that super_admin edits via /admin/consultants/portal-access.
+// table that super_admin edits via /admission/consultants/admin/portal-access.
 //
 // This service backs:
 //   1. Engine PR's /consultant-portal middleware gate (canAccessConsultantPortal)
 //   2. Engine PR's see-as-user role allowlist (canPreviewAsConsultant)
-//   3. Admin CRUD UI at /admin/consultants/portal-access
+//   3. Admin CRUD UI at /admission/consultants/admin/portal-access
 //
 // The actual engine wiring lands in the follow-up PR. This file is the
 // substrate consumed by both that engine and the admin UI's data table.
 //
 // Companion migration: supabase/migrations/20260513150002_create_consultant_portal_access_policy.sql
-// Companion admin UI:  app/(routes)/admin/consultants/portal-access/page.tsx
+// Companion admin UI:  app/(routes)/admission/consultants/admin/portal-access/page.tsx
 //
 // Cache: in-memory 60s TTL per (profileId|rule_type) key for the gate
 // checks and per-rule_type for listAccessRules. Director changes access

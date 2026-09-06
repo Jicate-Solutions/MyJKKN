@@ -42,6 +42,8 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { istBusinessDate, istRangeBounds } from '@/lib/utils/date-format';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -75,6 +77,14 @@ const CUSTOMER_TYPE_LABELS: Record<ImsCustomerType, string> = {
 };
 
 export default function SalesHistoryPage() {
+  return (
+    <ImsPageGuard module="ims.sales" action="view">
+      <SalesHistoryPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function SalesHistoryPageInner() {
   const router = useRouter();
   const { storeId, institutionId } = useImsStoreContext();
 
@@ -87,9 +97,18 @@ export default function SalesHistoryPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const today = useMemo(() => new Date().toISOString().split('T')[0], []);
+  // IST, not UTC: toISOString() rolls the date over at 05:30 IST, so before that
+  // the "today" summary card showed the previous business day.
+  const today = useMemo(() => istBusinessDate(), []);
 
-  // Build filters
+  // Build filters. The date pickers hand us IST calendar dates, so the range has
+  // to be closed at IST midnight — a `Z` suffix cut the day off at 05:30 IST and
+  // silently hid the whole evening's bills from the history list.
+  const dateBounds = useMemo(
+    () => (dateFrom || dateTo ? istRangeBounds(dateFrom || dateTo, dateTo || dateFrom) : null),
+    [dateFrom, dateTo]
+  );
+
   const filters: ImsSaleFilters = {
     institution_id: institutionId,
     store_id: storeId || undefined,
@@ -97,8 +116,8 @@ export default function SalesHistoryPage() {
     status: statusFilter !== 'all' ? (statusFilter as ImsSaleStatus) : undefined,
     payment_method:
       paymentFilter !== 'all' ? (paymentFilter as ImsPaymentMethod) : undefined,
-    date_from: dateFrom || undefined,
-    date_to: dateTo ? `${dateTo}T23:59:59.999Z` : undefined,
+    date_from: dateFrom ? dateBounds?.from : undefined,
+    date_to: dateTo ? dateBounds?.to : undefined,
     page,
     limit,
   };
@@ -244,7 +263,7 @@ export default function SalesHistoryPage() {
               </div>
               <div className="flex flex-col sm:flex-row gap-4 items-end">
                 <div className="flex items-center gap-2 flex-1">
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex-1 min-w-0 sm:flex-none">
                     <label className="text-xs text-muted-foreground">From</label>
                     <Input
                       type="date"
@@ -253,10 +272,10 @@ export default function SalesHistoryPage() {
                         setDateFrom(e.target.value);
                         setPage(1);
                       }}
-                      className="w-40"
+                      className="w-full sm:w-40"
                     />
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex-1 min-w-0 sm:flex-none">
                     <label className="text-xs text-muted-foreground">To</label>
                     <Input
                       type="date"
@@ -265,7 +284,7 @@ export default function SalesHistoryPage() {
                         setDateTo(e.target.value);
                         setPage(1);
                       }}
-                      className="w-40"
+                      className="w-full sm:w-40"
                     />
                   </div>
                 </div>

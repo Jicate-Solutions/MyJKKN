@@ -12,7 +12,7 @@ import { StaffService } from '@/lib/services/staff/staff-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { StaffAvatar } from '@/components/staff/staff-avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -218,10 +218,6 @@ const StaffListComponent = ({
     }
   };
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-  };
-
   // Copy email to clipboard
   const copyToClipboard = useCallback(
     async (email: string, type: 'personal' | 'institution') => {
@@ -312,12 +308,12 @@ const StaffListComponent = ({
               href={`/staff/list/${staff.id}`}
               className='flex items-center gap-2 hover:text-primary min-w-0'
             >
-              <Avatar className='h-10 w-10 flex-shrink-0'>
-                <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback className='text-xs'>
-                  {getInitials(staff.first_name, staff.last_name)}
-                </AvatarFallback>
-              </Avatar>
+              <StaffAvatar
+                src={staff.profile_picture}
+                firstName={staff.first_name}
+                lastName={staff.last_name}
+                className='h-10 w-10 flex-shrink-0'
+              />
               <div className='flex flex-col min-w-0 flex-1'>
                 <span className='font-medium truncate'>
                   {staff.first_name} {staff.last_name}
@@ -329,12 +325,12 @@ const StaffListComponent = ({
             </Link>
           ) : (
             <div className='flex items-center gap-2 min-w-0'>
-              <Avatar className='h-8 w-8 flex-shrink-0'>
-                <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback className='text-xs'>
-                  {getInitials(staff.first_name, staff.last_name)}
-                </AvatarFallback>
-              </Avatar>
+              <StaffAvatar
+                src={staff.profile_picture}
+                firstName={staff.first_name}
+                lastName={staff.last_name}
+                className='h-8 w-8 flex-shrink-0'
+              />
               <div className='flex flex-col min-w-0 flex-1'>
                 <span className='font-medium truncate'>
                   {staff.first_name} {staff.last_name}
@@ -384,7 +380,9 @@ const StaffListComponent = ({
       },
       {
         id: 'institution',
-        header: 'Institution',
+        // institution_id means WHERE SOMEONE WORKS (2026-07-31). The paying
+        // organisation is a separate HR-only record and is not shown here.
+        header: 'Works at',
         cell: ({ row }) => {
           const staff = row.original;
           return staff.institution?.name || '-';

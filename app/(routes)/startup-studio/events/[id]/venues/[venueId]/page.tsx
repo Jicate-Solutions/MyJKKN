@@ -160,17 +160,15 @@ export default function VenueDetailPage({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params
+  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params.
+  //
+  // THE EARLY RETURN FOR THIS LIVES BELOW THE HOOKS. Returning here first meant
+  // useState/useEvent/useVenue/useAuth were called conditionally, which trips
+  // React's "Expected static flag was missing" once a render that bailed is
+  // followed by one that does not. useEvent and useVenue both gate `enabled` on
+  // isValidUUID, so running them with a placeholder fetches nothing.
   const isValidId = (v: string) => !!v && !v.includes('%%drp:') && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-  if (!isValidId(eventId) || !isValidId(venueId)) {
-    return (
-      <ContentLayout title="Venue Details">
-        <div className="flex items-center justify-center min-h-[40vh]">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      </ContentLayout>
-    );
-  }
+  const hasValidRouteParams = isValidId(eventId) && isValidId(venueId);
 
   const dayParam = searchParams.get('day') as DayType | null;
   const tabParam = searchParams.get('tab');
@@ -183,6 +181,17 @@ export default function VenueDetailPage({
   const { data: event } = useEvent(eventId);
   const { data: venue, isLoading } = useVenue(venueId);
   const { profile, isLoading: authLoading } = useAuth();
+
+  // All hooks have run; the placeholder-id bail-out is safe from here down.
+  if (!hasValidRouteParams) {
+    return (
+      <ContentLayout title="Venue Details">
+        <div className="flex items-center justify-center min-h-[40vh]">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   const isAdmin =
     profile?.is_super_admin === true ||
@@ -242,7 +251,7 @@ export default function VenueDetailPage({
               {(['build_day', 'demo_day'] as DayType[]).map((day) => (
                 <TabsContent key={day} value={day}>
                   <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
-                    <TabsList>
+                    <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
                       <TabsTrigger value="staff" className="gap-1.5">
                         <UserPlus className="h-3.5 w-3.5" />
                         In-Charge Orchestrators

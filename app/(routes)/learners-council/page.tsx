@@ -6,7 +6,12 @@
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { getLCRole, isStaffRole } from '@/lib/learners-council/lc-roles';
+import {
+  canReviewEventProposals,
+  getLCAccess,
+  getLCRole,
+  isStaffRole,
+} from '@/lib/learners-council/lc-roles';
 import {
   Crown,
   Users,
@@ -63,7 +68,38 @@ async function getDashboardStats(userId: string, institutionId: string | null, s
   };
 }
 
-async function getLiveData(userId: string, _role: string) {
+/**
+ * How many proposals are waiting for THIS viewer to review. Mirrors the query
+ * behind the Pending review tab, including the is.null arm — institution_id IS
+ * NULL means institution-WIDE, and a bare .eq() would undercount by hiding
+ * exactly the proposals the queue exists to surface.
+ */
+async function pendingReviewCountFor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  institutionId: string | null,
+  isSuperAdmin: boolean,
+) {
+  let q = supabase
+    .from('lc_events')
+    .select('*', { count: 'exact', head: true })
+    .eq('status', 'pending_review');
+
+  if (!isSuperAdmin) {
+    q = institutionId
+      ? q.or(`institution_id.eq.${institutionId},institution_id.is.null`)
+      : q.is('institution_id', null);
+  }
+
+  return q;
+}
+
+async function getLiveData(
+  userId: string,
+  _role: string,
+  canReviewEvents: boolean,
+  institutionId: string | null,
+  isSuperAdmin: boolean,
+) {
   const supabase = await createClient();
   const now = new Date().toISOString();
 
@@ -116,12 +152,18 @@ async function getLiveData(userId: string, _role: string) {
       .select('*', { count: 'exact', head: true })
       .eq('approver_id', userId)
       .is('acted_at', null),
-    // Awaiting my event approval (for staff)
-    supabase
-      .from('lc_event_approvals')
-      .select('*', { count: 'exact', head: true })
-      .eq('approver_id', userId)
-      .is('acted_at', null)
+    // Awaiting my event review.
+    //
+    // This used to count lc_event_approvals rows with acted_at IS NULL — a count
+    // that can never be anything but zero, because approveEvent and rejectEvent
+    // both INSERT the approval row with acted_at already set to now(). No row is
+    // ever created in an un-acted state, so this card never rendered and two real
+    // proposals sat unseen from 13-14 July. It now counts the proposals actually
+    // waiting, under exactly the rule the Pending review tab uses — so the number
+    // on the card and the rows behind the link cannot disagree.
+    canReviewEvents
+      ? pendingReviewCountFor(supabase, institutionId, isSuperAdmin)
+      : Promise.resolve({ count: 0 })
   ]);
 
   return {
@@ -194,12 +236,20 @@ export default async function LearnersCouncilDashboard({
   const lcRole = getLCRole(profile.role || null, membershipInfo);
   const isLCMember = !!lcMembership;
   const isStaffOrAdmin = isStaffRole(lcRole);
+  // The events tile is gated on the SAME rule as the review tab, not on
+  // isStaffRole(lcRole): getLCAccess also admits profiles.is_super_admin = true
+  // whose role string is not itself a staff role, and such a viewer would
+  // otherwise get a non-zero count with no card to show it in.
+  const access = getLCAccess(profile, membershipInfo);
+  const canReviewEvents = canReviewEventProposals(access);
   const isMD = lcRole === 'md';
 
-  // Resolve scope: MD/super_admin defaults to lc_wide, others default to institution
+  // The Learners Council is one body across every JKKN institution, so everyone opens on
+  // the full Council view; "My Institution" narrows it. (This used to default to the
+  // viewer's own college, which hid the rest of the Council behind a toggle few found.)
   const params = searchParams ? await searchParams : {};
   const scopeParam = params.scope;
-  const scopeAll = isMD ? (scopeParam !== 'institution') : (scopeParam === 'lc_wide');
+  const scopeAll = scopeParam !== 'institution';
 
   let stats = {
     lcMemberCount: 0,
@@ -227,7 +277,13 @@ export default async function LearnersCouncilDashboard({
   }
 
   try {
-    liveData = await getLiveData(profile.id, profile.role || '');
+    liveData = await getLiveData(
+      profile.id,
+      profile.role || '',
+      canReviewEvents,
+      profile.institution_id || null,
+      access.isSuperAdmin,
+    );
   } catch (error) {
     console.error('[learners-council] Error fetching live data:', error);
   }
@@ -297,7 +353,7 @@ export default async function LearnersCouncilDashboard({
                   {new Date(stats.activeTerm.start_date).toLocaleDateString()} — {new Date(stats.activeTerm.end_date).toLocaleDateString()}
                 </p>
               </div>
-              <Badge variant="default" className="ml-auto bg-amber-600">Active Term</Badge>
+              <Badge variant="default" className="ml-auto bg-amber-600 whitespace-nowrap">Active Term</Badge>
             </div>
           </div>
         )}
@@ -340,7 +396,8 @@ export default async function LearnersCouncilDashboard({
       </div>
 
       {/* Role-Specific Pending Items */}
-      {isStaffOrAdmin && (liveData.awaitingApprovalOD > 0 || liveData.awaitingApprovalEvents > 0) && (
+      {(isStaffOrAdmin || canReviewEvents) &&
+        (liveData.awaitingApprovalOD > 0 || liveData.awaitingApprovalEvents > 0) && (
         <Card className="border-orange-200 bg-orange-50/30">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-orange-700">
@@ -364,8 +421,11 @@ export default async function LearnersCouncilDashboard({
                   </div>
                 </Link>
               )}
+              {/* ?tab=review lands the reviewer on the pending-review queue.
+                  Without it the link opened the proposer's own list — a dead end
+                  for someone told they have approvals waiting. */}
               {liveData.awaitingApprovalEvents > 0 && (
-                <Link href="/learners-council/events/proposals">
+                <Link href="/learners-council/events/proposals?tab=review">
                   <div className="flex items-center justify-between p-3 rounded-lg border bg-white hover:bg-orange-50 transition-colors">
                     <div className="flex items-center gap-2">
                       <CalendarCheck className="h-4 w-4 text-orange-600" />

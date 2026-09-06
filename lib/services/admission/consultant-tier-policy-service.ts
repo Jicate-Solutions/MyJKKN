@@ -14,7 +14,7 @@
 // migration and admin UI.
 //
 // Companion migration: supabase/migrations/20260513150001_create_consultant_tier_policy.sql
-// Companion admin UI:  app/(routes)/admin/consultants/tier-policy/page.tsx
+// Companion admin UI:  app/(routes)/admission/consultants/admin/tier-policy/page.tsx
 //
 // Cache: in-memory 60s TTL per (institutionId|null) scope. Director changes
 // tier ladders rarely (minutes-to-hours, not sub-second). Per-process cache —

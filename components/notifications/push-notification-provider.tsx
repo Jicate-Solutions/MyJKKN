@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import {
   PushNotificationsContext,
   PushNotificationState,
@@ -69,6 +70,22 @@ export function PushNotificationProvider({
   // Track whether we've already done a mobile force-resubscribe this session
   // to prevent the init→auto-resubscribe→init infinite loop
   const hasForceResubscribedRef = useRef(false);
+  // Latches once the server has answered an auto-subscribe with
+  // skipped: 'user_opted_out'. Without it the auto-subscribe effect would spin:
+  // the skip leaves isSubscribed false and flips isLoading, which is one of the
+  // effect's own dependencies, so it would re-fire roughly once a second for
+  // exactly the people who asked for silence. Only a deliberate click clears it.
+  const hasOptedOutRef = useRef(false);
+
+  // This provider is mounted in the ROOT layout, so it also runs on /parent/*
+  // pages. The Parent Portal has its OWN service worker (/parent-sw.js, scope
+  // "/parent") and its own push flow (use-parent-push). If this faculty flow
+  // ran here it would grab the parent-scoped registration via .ready and either
+  // 401 (pure parent) or, worse for a dual-role user, save the PARENT endpoint
+  // into the faculty push_subscriptions table — cross-contaminating the two
+  // apps' notifications. So stand fully down on the parent surface.
+  const pathname = usePathname();
+  const isParentRoute = !!pathname && pathname.startsWith('/parent');
 
   // ─── 1. Check browser support ────────────────────────────────
   useEffect(() => {
@@ -88,6 +105,11 @@ export function PushNotificationProvider({
   // ─── 2. Register SW and check existing subscription ──────────
   useEffect(() => {
     if (!state.isSupported) return;
+    // Parent surface owns its own SW + push flow — don't touch it here.
+    if (isParentRoute) {
+      setState((prev) => ({ ...prev, isLoading: false }));
+      return;
+    }
 
     // Serwist only generates a valid /sw.js in production builds. In dev
     // the file is either missing or a stale artifact from a past prod build
@@ -173,19 +195,26 @@ export function PushNotificationProvider({
     };
 
     init();
-  }, [state.isSupported]);
+  }, [state.isSupported, isParentRoute]);
 
   // ─── 3. Auto-subscribe when permission is already granted ────
   //     This handles mobile re-opens where the subscription expired
   //     but the user previously granted permission.
   useEffect(() => {
     if (!state.isSupported || state.isLoading) return;
+    // Parent surface owns its own SW + push flow — never auto-subscribe here.
+    if (isParentRoute) return;
 
     // Match the init effect above: push testing only happens in prod/preview.
     // In dev there is no registered SW for /sw.js, so subscribe() would loop
     // forever with AbortError / storage-error spam whenever a user previously
     // granted notification permission in a prod build.
     if (process.env.NODE_ENV !== 'production') return;
+
+    // The server already told us this person opted out. Retrying would post the
+    // same request on a ~1s cycle for the rest of the session and get the same
+    // answer; switching push back on is a deliberate click, not a retry.
+    if (hasOptedOutRef.current) return;
 
     // Permission granted but no active subscription → re-subscribe silently
     if (state.permission === 'granted' && !state.isSubscribed) {
@@ -205,7 +234,7 @@ export function PushNotificationProvider({
       }, 1000); // SW is already activated by init, short delay is sufficient
       return () => clearTimeout(timer);
     }
-  }, [state.isSupported, state.isLoading, state.permission, state.isSubscribed]);
+  }, [state.isSupported, state.isLoading, state.permission, state.isSubscribed, isParentRoute]);
 
   // ─── 4. Show error toast (only for user-initiated actions) ───
   useEffect(() => {
@@ -278,33 +307,54 @@ export function PushNotificationProvider({
       const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!vapidPublicKey) throw new Error('VAPID public key not found');
 
-      // Unsubscribe any existing stale subscription first to avoid conflicts
-      const existingSub = await registration.pushManager.getSubscription();
-      if (existingSub) {
-        try {
-          await existingSub.unsubscribe();
-        } catch {
-          // Ignore — stale sub cleanup is best-effort
-        }
+      // Reuse the existing browser subscription if there is one; only create a
+      // new one when none exists. The previous code unsubscribed-first, which on
+      // this shared origin (faculty "/" + parent "/parent") destroyed whichever
+      // app subscribed last — the root cause of dual-role users losing push.
+      // Stale server rows are pruned on the next failed send (404/410) instead.
+      const subscription =
+        (await registration.pushManager.getSubscription()) ??
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(
+            vapidPublicKey
+          ) as BufferSource
+        }));
+
+      // Save to server.
+      //
+      // `deliberate` tells the server whether a PERSON asked for this. It is
+      // true only when this call did not come from the auto-subscribe effect
+      // below — that effect sets isAutoResubscribeRef before calling in, and
+      // it fires on any page load where permission is still 'granted' and the
+      // browser holds no subscription, which is precisely the state that
+      // unsubscribing leaves behind. Sending `deliberate` from there would
+      // re-enable everybody who asked to be left alone, on their next visit.
+      const isDeliberate = !isAutoResubscribeRef.current;
+      if (isDeliberate) {
+        // The person is asking for it again — the server clears the opt-out, so
+        // the client-side latch has to clear with it.
+        hasOptedOutRef.current = false;
       }
 
-      // Create new push subscription
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(
-          vapidPublicKey
-        ) as BufferSource
-      });
-
-      // Save to server
       const response = await fetch('/api/notifications/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription })
+        body: JSON.stringify({ subscription, deliberate: isDeliberate })
       });
 
       if (!response.ok) {
         throw new Error('Failed to save subscription to server');
+      }
+
+      // An opted-out person's auto-subscribe is answered with 200 + skipped, so
+      // nothing was stored. Reporting "subscribed" would make the UI claim a
+      // state the server refused to create.
+      const saved = await response.json().catch(() => null);
+      if (saved?.skipped === 'user_opted_out') {
+        hasOptedOutRef.current = true;
+        setState((prev) => ({ ...prev, isLoading: false, error: null }));
+        return false;
       }
 
       // Update shared state — all consumers (banner, settings, etc.) see this

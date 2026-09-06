@@ -246,61 +246,6 @@ export class MessBillingService {
     }
   }
 
-  // ── Calculate rebate for a learner ────────────────────────────────
-  static async calculateRebate(
-    learnerId: string,
-    billingPeriodId: string,
-    baseRatePerDay: number,
-    minAbsentDaysForRebate = 3
-  ) {
-    try {
-      const supabase = createClientSupabaseClient();
-
-      // Get billing period dates
-      const { data: period, error: periodError } = await supabase
-        .from('mess_billing_periods')
-        .select('start_date, end_date, total_days')
-        .eq('id', billingPeriodId)
-        .maybeSingle();
-
-      if (periodError) throw periodError;
-      if (!period) {
-        throw new Error(`Billing period ${billingPeriodId} not found.`);
-      }
-
-      // Count meal records for the learner in the period
-      const { count: mealCount, error: mealError } = await supabase
-        .from('mess_meal_records')
-        .select('*', { count: 'exact', head: true })
-        .eq('learner_id', learnerId)
-        .gte('date', period.start_date)
-        .lte('date', period.end_date)
-        .eq('consumed', true);
-
-      if (mealError) throw mealError;
-
-      const presentDays = mealCount ?? 0;
-      const absentDays = period.total_days - presentDays;
-      const rebateEligibleDays = Math.max(0, absentDays - minAbsentDaysForRebate);
-      const grossAmount = period.total_days * baseRatePerDay;
-      const rebateAmount = rebateEligibleDays * baseRatePerDay;
-      const netAmount = grossAmount - rebateAmount;
-
-      return {
-        total_days: period.total_days,
-        present_days: presentDays,
-        absent_days: absentDays,
-        rebate_eligible_days: rebateEligibleDays,
-        gross_amount: grossAmount,
-        rebate_amount: rebateAmount,
-        net_amount: netAmount,
-      };
-    } catch (error) {
-      logger.error('campus-living/mess-billing', 'Unexpected error in calculateRebate', error);
-      throw error;
-    }
-  }
-
   // ── Billing summary for a period ──────────────────────────────────
   static async getBillingSummary(billingPeriodId: string) {
     try {

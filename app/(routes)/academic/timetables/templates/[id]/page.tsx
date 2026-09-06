@@ -22,6 +22,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useTemplate } from '@/hooks/use-templates';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { format } from 'date-fns';
 import type { DayOfWeek } from '@/types/academics';
 import {
@@ -48,6 +49,7 @@ export default function TemplatePage() {
   const params = useParams();
   const templateId = params.id as string;
   const { isSuperAdmin, canAccess } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const [showPreviewModal, setShowPreviewModal] = useState(false);
 
   const { data: template, isLoading, error } = useTemplate(templateId);
@@ -252,7 +254,7 @@ export default function TemplatePage() {
 
                       <div className='flex items-center gap-2'>
                         <GraduationCap className='h-4 w-4 text-muted-foreground' />
-                        <span className='text-sm font-medium'>Program:</span>
+                        <span className='text-sm font-medium'>{adapt('Program')}:</span>
                         <span className='text-sm'>
                           {template.program?.program_name || 'N/A'}
                         </span>
@@ -260,7 +262,7 @@ export default function TemplatePage() {
 
                       <div className='flex items-center gap-2'>
                         <BookOpen className='h-4 w-4 text-muted-foreground' />
-                        <span className='text-sm font-medium'>Department:</span>
+                        <span className='text-sm font-medium'>{adapt('Department')}:</span>
                         <span className='text-sm'>
                           {template.department?.department_name || 'N/A'}
                         </span>
@@ -270,7 +272,7 @@ export default function TemplatePage() {
                     <div className='space-y-3'>
                       <div className='flex items-center gap-2'>
                         <Hash className='h-4 w-4 text-muted-foreground' />
-                        <span className='text-sm font-medium'>Semester:</span>
+                        <span className='text-sm font-medium'>{adapt('Semester')}:</span>
                         <Badge variant='secondary'>
                           Sem {template.semester_id}
                           {template.section_id && ` - ${template.section_id}`}

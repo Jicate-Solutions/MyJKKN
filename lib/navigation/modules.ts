@@ -74,25 +74,47 @@ export const MODULES: Module[] = [
   // ── Admission CRM ─────────────────────────────────────────────────────
   { slug: 'admission', label: 'Admission CRM', icon: 'UserPlus', section: 'Admission CRM', hasNavConfig: true },
 
-  // ── Employee Management ───────────────────────────────────────────────
-  // Combined section housing both /staff (Staff) and /hr (HR) modules.
-  // Renamed from 'Facilitators Management' / 'Human Resources' on
-  // 2026-05-09 per product decision to unify under "Employee Management".
-  { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Employee Management', hasNavConfig: false },
-  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'Employee Management', hasNavConfig: true },
+  // ── HR Management ────────────────────────────────────────────────────
+  // 2026-05-09: /staff + /hr unified under "Employee Management".
+  // 2026-07-03: /hr split back out into its own "HR Management" section.
+  // 2026-07-20: re-merged — /staff folded into the "Employee" MenuItem row
+  // inside the HR Management sidebar group (HR · Employee · Recruitment ·
+  // Admin), so both slugs now share one section.
+  //
+  // `hr` MUST stay ABOVE `staff`: getSectionIcon() in
+  // components/BottomNav/bottom-navbar.tsx does MODULES.find(m => m.section
+  // === section) and takes the FIRST match, so swapping these two silently
+  // changes the section's mobile icon from UsersRound to Briefcase.
+  //
+  // Section strings MUST match the sidebar groupLabels in
+  // lib/sidebarMenuLink.ts (bottom-nav matches by exact string).
+  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'HR Management', hasNavConfig: true },
+  { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'HR Management', hasNavConfig: false },
 
   // ── Learners ──────────────────────────────────────────────────────────
   { slug: 'learners', label: 'Learners', icon: 'GraduationCap', section: 'Learners', hasNavConfig: false },
+  // Family Moments — campaign-based parent engagement (Father's Day 2026).
+  { slug: 'moments', label: 'Family Moments', icon: 'Heart', section: 'Learners', hasNavConfig: false },
 
   // ── Billing & Accounts ────────────────────────────────────────────────
-  { slug: 'billing', label: 'Billing', icon: 'Wallet', section: 'Billing & Accounts', hasNavConfig: false },
+  { slug: 'billing', label: 'Billing', icon: 'Wallet', section: 'Billing & Accounts', hasNavConfig: true },
 
   // ── Resources ─────────────────────────────────────────────────────────
   { slug: 'resource-management', label: 'Resources', icon: 'Package', section: 'Resources', hasNavConfig: false },
 
   // ── Inventory (IMS) ───────────────────────────────────────────────────
   // Sister to Resources — distinct top-level /ims/* tree.
-  { slug: 'ims', label: 'Inventory Management', icon: 'Package', section: 'Inventory (IMS)', hasNavConfig: false },
+  // section MUST equal the sidebar groupLabel ('IMS' in sidebarMenuLink.ts) —
+  // the mobile bottom-nav joins MODULES sections to sidebar groups by exact
+  // string equality (bottom-navbar.tsx:295). A mismatch drops IMS to the
+  // trailing safety-net (More-only, no section icon/gradient).
+  { slug: 'ims', label: 'Inventory Management', icon: 'Package', section: 'IMS', hasNavConfig: false },
+
+  // ── Procurement ───────────────────────────────────────────────────────
+  // Centralized purchasing spine (PR → RFQ → PO → GRN). Module-agnostic;
+  // IMS is the first registered inventory domain. See
+  // docs/centralized-store/PLAN-procurement-v1.md.
+  { slug: 'procurement', label: 'Procurement', icon: 'ShoppingCart', section: 'Procurement', hasNavConfig: false },
 
   // ── Service Requests ──────────────────────────────────────────────────
   { slug: 'service-requests', label: 'Service Requests', icon: 'Wrench', section: 'Service Requests', hasNavConfig: false },
@@ -101,8 +123,12 @@ export const MODULES: Module[] = [
   { slug: 'admin', label: 'Administration', icon: 'Shield', section: 'Administration', hasNavConfig: false },
   { slug: 'audit-trail', label: 'Audit Trail', icon: 'ScrollText', section: 'Administration', hasNavConfig: false },
 
-  // ── OKR ───────────────────────────────────────────────────────────────
-  { slug: 'okr', label: 'OKR & Performance', icon: 'Target', section: 'OKR', hasNavConfig: true },
+  // ── Projects (unified work-management — supersedes OKR) ───────────────
+  // OKR menu retired 2026-06-01: Projects is the single work-management surface
+  // (objectives→projects, key-results→tasks). The /okr routes + okr_metric_* tables
+  // remain live (direct-URL accessible) but are removed from the sidebar; OKR's data
+  // tables were dropped in PR #1114 so its dashboard only renders empty/errored.
+  { slug: 'projects', label: 'Projects', icon: 'FolderKanban', section: 'Projects', hasNavConfig: true },
 
   // ── AI Pulse ──────────────────────────────────────────────────────────
   // Productivity / activity insights tool — sits next to OKR & Work Pulse.
@@ -117,6 +143,9 @@ export const MODULES: Module[] = [
 
   // ── Events ────────────────────────────────────────────────────────────
   { slug: 'events', label: 'Events', icon: 'Calendar', section: 'Events', hasNavConfig: false },
+
+  // ── Courses ───────────────────────────────────────────────────────────
+  { slug: 'courses', label: 'Courses', icon: 'Presentation', section: 'Courses', hasNavConfig: false },
 
   // ── Meetings ──────────────────────────────────────────────────────────
   // Scheduling / coordination tool — paired with Events.

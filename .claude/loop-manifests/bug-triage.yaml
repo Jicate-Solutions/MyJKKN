@@ -1,0 +1,66 @@
+# Bug-Triage & Duplicate-Cluster loop manifest — INTAKE loop (not yet self-improving).
+# Registered 2026-07-17 (PR 3 of the bug-triage epic). Gates: g=on a=on m=off f=off.
+#
+# HONESTY NOTE (moat-loop discipline), updated 2026-08-13: the note below dated
+# from 2026-07-17; the measure SHIPPED the next day (20260718190000 — the
+# bug_fix_outcomes ledger + fn_bug_fix_outcome_record deriving
+# reporter_confirmed/pos/neg from reporter 👍/👎 answers), and the 2026-07-26
+# charter cites it as the loop's outcome metric. The sim block below encodes
+# the known-delta regress recipe now carried by fn_loops_regress_bug_triage
+# (20260813113000, on the weekly /api/cron/loops-regress run). Any m-gate flip
+# in loop_registry remains a separate, Director-gated DB change.
+loop_key: bug-triage
+name: Bug Triage & Duplicate-Cluster Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: bug_reports       # user-filed reports; open pool = status in (new,seen,in_progress) AND duplicate_of IS NULL
+  action: bug_clusters     # trigram-scan duplicate proposals; status proposed|confirmed|dismissed
+
+mechanism:
+  scan: fn_bug_cluster_scan()      # deterministic pg_trgm clustering (0.55 sim, 14-day pair window, 2..40 members); nightly cron /api/cron/bug-cluster-scan (21:19 UTC) + Groups-tab "Scan now"
+  surface: fn_bug_cluster_list()   # Groups tab on /admin/bug-reports
+  act: POST /api/bug-reports/clusters/[id] {action confirm|dismiss}   # human-gated; confirm parks members (status=duplicate, duplicate_of=seed)
+  downstream: PR-1 duplicate machinery  # resolving the canonical cascades resolution + emails every duplicate's reporter; reopen of any copy reopens the canonical
+  ai_briefing: bug.triage ai_job_type   # per-bug ₹0 briefing (PR 2), on-demand from the detail page
+
+measure:
+  fn: fn_bug_fix_outcome_record(p_cluster_id uuid)   # 20260718190000; RETURNS jsonb {success, category, reporter_confirmed, pos, neg}
+  ledger: bug_fix_outcomes                           # one row per fixed cluster; reporter_confirmed derives ONLY from reporter 👍/👎 (never the AI verify tally)
+  ground_truth: bug_fix_feedback_requests            # status='answered', answer in ('fixed','not_fixed'); D5 any 👎 = negative; E2 silence = none
+  feed_forward: fn_bug_fix_outcomes_match(category)  # retrieval arm — measured outcomes only; NOT the measure, never asserted as one
+
+sim:
+  sentinel: ZZREGRESS
+  runner: fn_loops_regress_bug_triage                # 20260813113000; weekly via /api/cron/loops-regress LOOP_FNS
+  # Seeds (all inside the runner's rolled-back subtransaction; catalog facts
+  # verified read-only against prod 2026-08-13):
+  #   anchor bug   — oldest bug_reports row NOT already a cluster seed
+  #                  (bug_clusters.seed_bug_id is NOT NULL + UNIQUE, FK bug_reports)
+  #   reporters    — two oldest profiles rows (bug_fix_feedback_requests has
+  #                  UNIQUE(cluster_id, reporter_user_id) + FK profiles)
+  #   cluster      — sentinel row carrying metadata.fixability.verdict (required
+  #                  by the measurer) with a sentinel file path ⇒ sentinel category
+  verifier: "public.fn_bug_fix_outcome_record('<sentinel cluster id>'::uuid)"
+  asserts:
+    no_change: "pos = 0, reporter_confirmed = 'none' (zero answered thumbs)"
+    known_delta: { seed: "2 answered 'fixed' requests from 2 distinct reporters", expect: "pos = 2, reporter_confirmed = 'positive'" }
+  notes:
+    - scoping is by the sentinel cluster_id itself (the measurer counts only
+      that cluster's answered requests) — no far-past-date guard needed.
+    - no reset between deltas — pos/neg re-derive from the request rows on
+      every call (the ledger upsert is ON CONFLICT UPDATE).
+    - the measurer has no auth gate (SECURITY DEFINER, body verified) — no
+      impersonation GUC needed.
+
+walk:
+  hops:
+    - persona: superadmin
+      action: open /admin/bug-reports Groups tab; run Scan now; confirm ONE small sentinel-only group
+      forbidden: [confirming clusters containing real learner reports during a walk]
+  cleanup: reset sentinel bugs' duplicate_of/status; delete sentinel cluster rows
+
+notes:
+  - Cluster identity = seed_bug_id (oldest member). Dismissed seeds are never re-proposed; confirmed members leave the open pool (self-cleaning).
+  - The 14-day pair window is load-bearing: without it, months of similar complaints transitively chain into a 140-member mega-cluster (observed in pre-apply validation 2026-07-17).
+  - similarity() lives in the `extensions` schema on Supabase — fn search_path includes it.

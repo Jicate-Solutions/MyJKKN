@@ -43,6 +43,19 @@ export type MonthlySalaryBand =
   | '50k_to_1L'
   | 'over_1L';
 
+export type JobType = 'full_time' | 'part_time' | 'contract' | 'internship' | 'freelance';
+export type EmployerType = 'government' | 'private' | 'public_sector' | 'non_profit' | 'educational';
+export type EducationLevel = 'high_school' | 'diploma' | 'bachelors' | 'masters' | 'phd' | 'any';
+export type SalaryDuration = 'per_hour' | 'per_day' | 'per_month' | 'per_year';
+export type SkillProficiency = 'basic' | 'intermediate' | 'pro' | 'expert';
+export type SkillType = 'required' | 'nice_to_have';
+
+export interface JobSkill {
+  name: string;
+  type: SkillType;
+  proficiency: SkillProficiency;
+}
+
 export type CandidateSource =
   | 'hr_submission'
   | 'principal_submission'
@@ -165,7 +178,7 @@ export interface HRRecruitmentCandidatePackage {
   hr_organization_id: string | null;
 
   proposed_by: string;
-  proposed_monthly_salary: number;
+  proposed_monthly_salary: number | null;   // optional — package may be proposed without a figure
   proposed_monthly_salary_breakdown: MonthlySalaryBreakdown | null;
   currency: string;
 
@@ -184,7 +197,7 @@ export interface HRRecruitmentCandidatePackageInsert {
   candidate_id: string;
   hr_organization_id?: string | null;
   proposed_by: string;
-  proposed_monthly_salary: number;
+  proposed_monthly_salary?: number | null;
   proposed_monthly_salary_breakdown?: MonthlySalaryBreakdown | null;
   currency?: string;
   is_counter_offer?: boolean;
@@ -247,7 +260,7 @@ export const CANDIDATE_STATUS_LABELS: Record<CandidateStatus, string> = {
 };
 
 export const ROLE_CATEGORY_LABELS: Record<RoleCategory, string> = {
-  teaching_faculty: 'Senior Learner (Teaching Faculty)',
+  teaching_faculty: 'Learning Facilitator (Teaching Faculty)',
   medical: 'Medical / Clinical',
   non_teaching: 'Non-Teaching Staff',
   senior_leadership: 'Senior Leadership',
@@ -311,8 +324,8 @@ export type ScorecardRecommendation =
 
 export interface JobRequirements {
   qualifications?: string[];
+  skills?: JobSkill[];
   experience?: string;
-  skills?: string[];
   [key: string]: unknown;
 }
 
@@ -334,6 +347,22 @@ export interface HRRecruitmentJob {
 
   department_id: string | null;
 
+  // Extended fields (added 2026-06-27)
+  job_code: string | null;
+  job_type: JobType | null;
+  industry: string | null;
+  employer_type: EmployerType | null;
+  country: string | null;
+  state: string | null;
+  city: string | null;
+  zip_code: string | null;
+  education_level: EducationLevel | null;
+  min_experience_years: number | null;
+  max_experience_years: number | null;
+  salary_currency: string;
+  salary_duration: SalaryDuration;
+  display_salary: boolean;
+
   status: JobStatus;
   is_public: boolean;
 
@@ -346,7 +375,11 @@ export interface HRRecruitmentJob {
 }
 
 export interface HRRecruitmentJobInsert {
-  hr_organization_id: string;
+  /**
+   * Optional: when omitted, a DB trigger (hr_recruitment_jobs_fill_org)
+   * derives it from institution_id (1:1 via hr_organizations.institution_id).
+   */
+  hr_organization_id?: string | null;
   institution_id?: string | null;
   title: string;
   role_category: RoleCategory;
@@ -357,6 +390,21 @@ export interface HRRecruitmentJobInsert {
   positions_open?: number;
   positions_filled?: number;
   department_id?: string | null;
+  // Extended fields
+  job_code?: string | null;
+  job_type?: JobType | null;
+  industry?: string | null;
+  employer_type?: EmployerType | null;
+  country?: string | null;
+  state?: string | null;
+  city?: string | null;
+  zip_code?: string | null;
+  education_level?: EducationLevel | null;
+  min_experience_years?: number | null;
+  max_experience_years?: number | null;
+  salary_currency?: string;
+  salary_duration?: SalaryDuration;
+  display_salary?: boolean;
   status?: JobStatus;
   is_public?: boolean;
   posted_at?: string | null;
@@ -376,6 +424,20 @@ export type HRRecruitmentJobUpdate = Partial<
     | 'positions_open'
     | 'positions_filled'
     | 'department_id'
+    | 'job_code'
+    | 'job_type'
+    | 'industry'
+    | 'employer_type'
+    | 'country'
+    | 'state'
+    | 'city'
+    | 'zip_code'
+    | 'education_level'
+    | 'min_experience_years'
+    | 'max_experience_years'
+    | 'salary_currency'
+    | 'salary_duration'
+    | 'display_salary'
     | 'status'
     | 'is_public'
     | 'posted_at'
@@ -393,6 +455,9 @@ export interface JobFilters {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** Whitelisted column name; falls back to created_at. */
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface JobListResponse {
@@ -533,6 +598,39 @@ export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   filled: 'Filled',
 };
 
+export const JOB_TYPE_LABELS: Record<JobType, string> = {
+  full_time: 'Full Time',
+  part_time: 'Part Time',
+  contract: 'Contract',
+  internship: 'Internship',
+  freelance: 'Freelance',
+};
+
+export const EMPLOYER_TYPE_LABELS: Record<EmployerType, string> = {
+  government: 'Government',
+  private: 'Private',
+  public_sector: 'Public Sector',
+  non_profit: 'Non-Profit / Trust',
+  educational: 'Educational Institution',
+};
+
+export const EDUCATION_LEVEL_LABELS: Record<EducationLevel, string> = {
+  high_school: 'High School',
+  diploma: 'Diploma',
+  bachelors: "Bachelor's",
+  masters: "Master's",
+  phd: 'Ph.D.',
+  any: 'Any',
+};
+
+export const SALARY_DURATION_LABELS: Record<SalaryDuration, string> = {
+  per_hour: 'Per Hour',
+  per_day: 'Per Day',
+  per_month: 'Per Month',
+  per_year: 'Per Year',
+};
+
+
 export const INTERVIEW_STATUS_LABELS: Record<InterviewStatus, string> = {
   scheduled: 'Scheduled',
   completed: 'Completed',
@@ -547,6 +645,221 @@ export const INTERVIEW_MODE_LABELS: Record<InterviewMode, string> = {
   video: 'Video Call',
   walk_in: 'Walk-In',
 };
+
+// =====================================================================================
+// Job Applications — self-service candidate applications linked to a job posting
+// Added: 2026-06-27 (replaces CVViz-URL-based submit flow)
+// =====================================================================================
+
+export type JobApplicationStatus = 'pending' | 'reviewed' | 'shortlisted' | 'rejected' | 'promoted';
+
+export const JOB_APPLICATION_STATUS_LABELS: Record<JobApplicationStatus, string> = {
+  pending: 'Pending Review',
+  reviewed: 'Reviewed',
+  shortlisted: 'Shortlisted',
+  rejected: 'Rejected',
+  promoted: 'In Approval Pipeline',
+};
+
+export interface HRJobApplication {
+  id: string;
+  job_id: string;
+  institution_id: string | null;
+
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+
+  current_job_title: string | null;
+  current_company: string | null;
+  current_job_duration_months: number | null;
+  experience_months: number;
+  qualification: string;
+  worked_cities: string[];
+
+  resume_url: string;
+  resume_filename: string;
+  resume_size_bytes: number | null;
+  drive_file_id: string | null;
+
+  status: JobApplicationStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+
+  applicant_user_id: string | null;
+  /** Set when a shortlisted application is promoted into the approval pipeline. */
+  promoted_candidate_id: string | null;
+  submitted_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Free-form discussion thread on a recruitment candidate (hr_recruitment_candidate_comments). */
+export interface HRRecruitmentCandidateComment {
+  id: string;
+  candidate_id: string;
+  hr_organization_id: string;
+  commenter_id: string;
+  comment: string;
+  parent_comment_id: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Joined commenter display info (profiles embed). */
+  commenter?: { full_name: string | null; email: string | null } | null;
+}
+
+export interface HRJobApplicationInsert {
+  job_id: string;
+  institution_id?: string | null;
+
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+
+  current_job_title?: string | null;
+  current_company?: string | null;
+  current_job_duration_months?: number | null;
+  experience_months: number;
+  qualification: string;
+  worked_cities?: string[];
+
+  resume_url: string;
+  resume_filename: string;
+  resume_size_bytes?: number | null;
+  drive_file_id?: string | null;
+}
+
+// -------------------------------------------------------------------------------------
+// Purging a rejected applicant (super-admin only, 2026-08-05)
+// -------------------------------------------------------------------------------------
+
+/** Which rejection the purged record was sitting in when it was erased. */
+export type PurgeStage = 'screening_rejected' | 'pipeline_rejected';
+
+/**
+ * Result of fn_purge_rejected_recruitment_applicant. `drive_files` lists the resumes
+ * the API route still has to delete from Google Drive; each carries the
+ * hr_recruitment_purge_log row to clear once the file is confirmed gone.
+ */
+export interface PurgeRejectedApplicantResult {
+  applications_deleted: number;
+  candidate_deleted: boolean;
+  candidate_id: string | null;
+  drive_files: Array<{ log_id: string; drive_file_id: string }>;
+  stage: PurgeStage;
+}
+
+/** What the DELETE routes report back to the UI after a purge. */
+export interface PurgeRejectedApplicantResponse extends PurgeRejectedApplicantResult {
+  /** Resume files confirmed deleted from Drive. */
+  resumes_deleted: number;
+  /** Resume files Drive refused to delete — logged for a later sweep. */
+  resumes_failed: number;
+}
+
+// =====================================================================================
+// Approvals workspace (job-centric approvals module, 2026-07-06)
+// =====================================================================================
+
+/** Free-form job-level discussion thread (hr_recruitment_job_notes). */
+export interface HRRecruitmentJobNote {
+  id: string;
+  job_id: string;
+  hr_organization_id: string;
+  author_id: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  /** Joined author display info (profiles embed). */
+  author?: { full_name: string | null; email: string | null } | null;
+}
+
+/**
+ * One row of the job-first approvals overview: a job plus its pipeline counts.
+ * Application counts come from hr_job_applications (FK link); candidate counts
+ * come from hr_recruitment_candidates via the soft role_specific_details->>job_id
+ * link stamped at promote-time.
+ */
+export interface ApprovalsJobOverviewRow {
+  job: HRRecruitmentJob;
+  applications_total: number;
+  applications_pending: number;
+  applications_reviewed: number;
+  applications_shortlisted: number;
+  applications_rejected: number;
+  applications_promoted: number;
+  /** Linked candidates currently in the approval chain (submitted | pending_approval). */
+  in_approval: number;
+  /** Linked candidates past approval (approved | package_fixed | offer_issued). */
+  approved: number;
+  joined: number;
+  /** Candidates whose CURRENT approval step is routed to the viewing user. */
+  awaiting_me: number;
+}
+
+// =====================================================================================
+// Dynamic approval flows (2026-07-06)
+// =====================================================================================
+
+export type ApprovalStepType = 'review' | 'final';
+
+/** One step template inside hr_approval_flows.steps (recruitment_approval flows). */
+export interface ApprovalFlowStepTemplate {
+  chain_order: number;
+  /** custom_roles.role_key the step routes to (matched case-insensitively). */
+  approver_role: string;
+  /** Pinned specific approver — takes precedence over role matching when set. */
+  approver_user_id?: string | null;
+  /** Display name snapshot for the pinned user (avoids per-render lookups). */
+  approver_name?: string | null;
+  step_type?: ApprovalStepType;
+  interview_required?: boolean;
+  escalate_after_hours?: number;
+}
+
+/** hr_approval_flows row as used by the recruitment flow builder. */
+export interface HRApprovalFlow {
+  id: string;
+  flow_name: string;
+  flow_for: string;
+  conditions: Record<string, string> | null;
+  steps: ApprovalFlowStepTemplate[];
+  is_active: boolean;
+  hr_organization_id: string;
+}
+
+/** Payload for the final-approval → staff onboarding form. */
+export interface OnboardToStaffPayload {
+  first_name: string;
+  last_name: string;
+  gender: string;
+  date_of_birth: string;      // yyyy-mm-dd
+  marital_status: string;
+  email: string;
+  phone: string;
+  date_of_joining: string;    // yyyy-mm-dd
+  designation: string;
+  category_id: string;        // staff category FK
+  institution_id: string;
+  department_id?: string | null;
+  institution_email?: string | null;
+}
+
+/** Aggregates for the per-job Analytics tab. */
+export interface JobAnalytics {
+  applications_total: number;
+  by_application_status: Record<JobApplicationStatus, number>;
+  by_candidate_status: Partial<Record<CandidateStatus, number>>;
+  /** Applications submitted by a logged-in account vs anonymous careers-page. */
+  source_split: { with_account: number; anonymous: number };
+  /** Mean days from application submit to first screening decision. */
+  avg_days_to_screen: number | null;
+  /** Mean days a promoted candidate spent (or has spent) in the approval chain. */
+  avg_days_in_approval: number | null;
+}
 
 export const SCORECARD_RECOMMENDATION_LABELS: Record<ScorecardRecommendation, string> = {
   strong_hire: 'Strong Hire',

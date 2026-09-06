@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useCallback, useRef } from 'react';
+import { use, useState, useCallback, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -19,7 +19,6 @@ import {
   useLearnerCapabilities,
   useLearnerQuestSubmissions,
 } from '@/hooks/pde/use-pde';
-import { useLearnerReputation } from '@/hooks/pde/use-pde-phase2';
 import { useAuth } from '@/hooks/use-auth';
 import { BeatLoader } from 'react-spinners';
 import {
@@ -415,10 +414,10 @@ function BuildWorkspace({
 // ============================================
 
 function CoachPanel({
-  reputation,
+  agencyIndex,
   sessionStats,
 }: {
-  reputation: { agency_index?: number } | null;
+  agencyIndex: number | null;
   sessionStats: { timeSpent: number; aiInteractions: number; artifactCount: number };
 }) {
   return (
@@ -456,12 +455,12 @@ function CoachPanel({
             <div className="flex-1">
               <p className="text-xs text-muted-foreground">Agency Index</p>
               <p className="text-2xl font-bold">
-                {reputation?.agency_index ?? '--'}
+                {agencyIndex ?? '--'}
               </p>
             </div>
           </div>
           <Progress
-            value={reputation?.agency_index ?? 0}
+            value={agencyIndex ?? 0}
             className="h-1.5 mt-2"
           />
           <p className="text-[10px] text-muted-foreground mt-1">
@@ -519,7 +518,30 @@ export default function BuildArenaPage({
   const { data: sessions = [] } = useBuildSessions(learnerId, questId);
   const { data: submissions = [] } = useLearnerQuestSubmissions(learnerId, questId);
   const { data: learnerCaps = [] } = useLearnerCapabilities(learnerId);
-  const { data: reputation } = useLearnerReputation(learnerId);
+  // Live Agency Index — recomputed server-side from the learner's scored
+  // demonstrations (GET /api/pde/agency). The old pde_reputation.agency_index
+  // field this card used to read is never populated, so it always showed '--'.
+  const [agencyIndex, setAgencyIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (!learnerId) return;
+    let alive = true;
+    fetch(`/api/pde/agency?learnerId=${encodeURIComponent(learnerId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (alive) {
+          // Only show a number when the API says this learner actually has
+          // measurable data. has_data === false means the live recompute found
+          // nothing and fell back to an empty snapshot, so `overall` is 0 by
+          // absence, not by achievement — render '--', not a demoralising 0.
+          const overall = j?.data?.overall;
+          setAgencyIndex(
+            j?.has_data === true && typeof overall === 'number' ? Math.round(overall) : null,
+          );
+        }
+      })
+      .catch(() => { /* leave as null → card shows '--' */ });
+    return () => { alive = false; };
+  }, [learnerId]);
 
   // Mutations
   const startSession = useStartBuildSession();
@@ -666,7 +688,7 @@ export default function BuildArenaPage({
         <div className="lg:col-span-1">
           <div className="sticky top-4">
             <CoachPanel
-              reputation={reputation as { agency_index?: number } | null}
+              agencyIndex={agencyIndex}
               sessionStats={{
                 timeSpent: totalTime,
                 aiInteractions: totalAI,

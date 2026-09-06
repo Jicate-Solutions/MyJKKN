@@ -37,6 +37,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { calculateGstLine, summariseGstLines } from '@/lib/utils/ims-gst-calculator';
 import type { GstLineBreakdown } from '@/lib/utils/ims-gst-calculator';
 import type { CreateImsGRNDto } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 interface GRNLineItem {
   item_id: string;
@@ -59,6 +60,14 @@ const emptyLine: GRNLineItem = {
 };
 
 export default function NewGRNPage() {
+  return (
+    <ImsPageGuard module="ims.stock.grn" action="create">
+      <NewGRNPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function NewGRNPageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();

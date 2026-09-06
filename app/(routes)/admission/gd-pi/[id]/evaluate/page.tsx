@@ -172,9 +172,9 @@ function EvaluateContent({ params }: { params: Promise<{ id: string }> }) {
           {/* Candidate Info */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>{currentCandidate.lead?.full_name || 'Unknown Candidate'}</span>
-                <Badge variant="outline">Lead Score: {currentCandidate.lead?.score || 0}</Badge>
+              <CardTitle className="flex items-center justify-between gap-2">
+                <span className="truncate min-w-0">{currentCandidate.lead?.full_name || 'Unknown Candidate'}</span>
+                <Badge variant="outline" className="shrink-0">Lead Score: {currentCandidate.lead?.score || 0}</Badge>
               </CardTitle>
               <CardDescription>
                 {currentCandidate.lead?.phone} • {currentCandidate.lead?.email || 'No email'} •

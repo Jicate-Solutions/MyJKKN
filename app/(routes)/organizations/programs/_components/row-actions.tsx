@@ -26,6 +26,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { toast } from 'react-hot-toast';
 import { Program } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -42,6 +43,7 @@ export function DataTableRowActions<TData>({
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const program = row.original as Program;
 
   const canView = isSuperAdmin || canAccess('organizations.programs', 'view');
@@ -53,14 +55,14 @@ export function DataTableRowActions<TData>({
     setIsDeleting(true);
     try {
       await ProgramService.deleteProgram(program.id);
-      toast.success('Program deleted successfully');
+      toast.success(`${adapt('Program')} deleted successfully`);
       router.refresh();
       if (onDelete) {
         onDelete(program.id);
       }
     } catch (error) {
       console.error('Error deleting program:', error);
-      toast.error('Failed to delete program');
+      toast.error(`Failed to delete ${adapt('program')}`);
     } finally {
       setIsDeleting(false);
       setShowDeleteAlert(false);
@@ -127,7 +129,7 @@ export function DataTableRowActions<TData>({
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              program &quot;{program.program_name}&quot;.
+              {adapt('program')} &quot;{program.program_name}&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

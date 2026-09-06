@@ -1,28 +1,91 @@
 export const dynamic = 'force-dynamic';
+// Long-poll the ai_jobs Max lane (the generic seat/Windows drain claims ~every
+// minute). Kept at 300 so the poll window below can finish before a hard-kill.
+export const maxDuration = 300;
 
-import { NextRequest, NextResponse } from 'next/server';
-import { connection } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { WP_CATEGORIES } from '@/types/work-pulse';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MAX-LANE CONVERSION (2026-07-13): work_pulse.analyze moved onto the #1998
+// generic AI-jobs registry — the SAME pattern as the proven reference
+// app/api/work-pulse/translate/route.ts. Instead of calling anthropic.messages
+// .create directly, this route assembles the exact same four data sets it always
+// gathered, hands them to the AI as the payload variables the seeded prompt
+// expects ({{entries}} {{activities}} {{existing_patterns}} {{interviews}}),
+// enqueues an `work_pulse.analyze` job (fn_ai_enqueue) whose prompt_template +
+// tool_set live in ai_job_types, then long-polls fn_ai_job_status for the
+// drain's result. The seat drain runs on the Claude Max subscription (₹0 API);
+// no Anthropic key, no model resolution, no usage recording on this side.
+//
+// PRESERVED: the dual auth gate (x-api-key OR super_admin session), the exact
+// data assembly, the pattern upsert + training-win notifications, and the
+// response shape the caller already consumes.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const VALID_API_KEY = process.env.WORK_PULSE_API_KEY;
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+
+// Poll cadence — mirrors app/api/work-pulse/translate/route.ts (the proven
+// ai_jobs consumer). Analysis is heavier (expected ~45s) so we keep the full
+// long-poll window; the drain claims roughly once a minute.
+const POLL_MS = 2_500;
+const UNCLAIMED_DEADLINE_MS = 120_000; // give up if never claimed (drain offline)
+const TOTAL_DEADLINE_MS = 285_000; // kept < maxDuration (300s) so we respond first
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Pull the JSON pattern array out of the drain's result jsonb. The generic
+ *  runner returns { answer } (same contract translate/ai-query read); we tolerate
+ *  a few plausible shapes and always extract the `[ ... ]` array so a completed
+ *  result never falls silently to null. */
+function extractPatternArray(result: unknown): Array<Record<string, unknown>> | null {
+  const parseArray = (s: string): Array<Record<string, unknown>> | null => {
+    const match = s.match(/\[[\s\S]*\]/);
+    if (!match) return null;
+    try {
+      const parsed = JSON.parse(match[0]);
+      return Array.isArray(parsed) ? (parsed as Array<Record<string, unknown>>) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  if (typeof result === 'string') return parseArray(result);
+  if (Array.isArray(result)) return result as Array<Record<string, unknown>>;
+  if (result && typeof result === 'object') {
+    const o = result as Record<string, unknown>;
+    for (const key of ['answer', 'patterns', 'result', 'text']) {
+      const v = o[key];
+      if (Array.isArray(v)) return v as Array<Record<string, unknown>>;
+      if (typeof v === 'string') {
+        const parsed = parseArray(v);
+        if (parsed) return parsed;
+      }
+    }
+  }
+  return null;
+}
 
 /** Weekly AI analysis — discover patterns from pulse entries + behavioral signals */
 export async function POST(request: NextRequest) {
   await connection();
 
-  // Auth: x-api-key header or super_admin session
+  // Auth (unchanged contract): x-api-key header OR super_admin session.
+  // The session client is also what enqueues — fn_ai_enqueue / fn_ai_job_status
+  // are auth.uid()-gated to the SAME user, so we keep it in hand throughout.
+  const session = await createClient();
+  const {
+    data: { user },
+  } = await session.auth.getUser();
+
   const apiKey = request.headers.get('x-api-key');
-  if (apiKey !== VALID_API_KEY) {
-    // Fallback: check super_admin session
-    const { createClient } = await import('@/lib/supabase/server');
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+  const viaApiKey = !!VALID_API_KEY && apiKey === VALID_API_KEY;
+
+  if (!viaApiKey) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: profile } = await supabase
+    const { data: profile } = await session
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -33,9 +96,16 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (!ANTHROPIC_KEY) {
+  // The Max lane is enqueued as the requesting user (auth.uid()). A pure
+  // x-api-key call carries no session, so it cannot run on the subscription
+  // lane. Surface this explicitly (rule: no silent failures) — the interactive
+  // super-admin "Run analysis" button always has a session and works.
+  if (!user) {
     return NextResponse.json(
-      { error: 'ANTHROPIC_API_KEY not configured' },
+      {
+        error:
+          'Weekly analysis now runs on the Claude Max lane, which requires an interactive super-admin session. Trigger it from the Agent Board.',
+      },
       { status: 503 }
     );
   }
@@ -48,7 +118,8 @@ export async function POST(request: NextRequest) {
     weekAgo.setDate(weekAgo.getDate() - 7);
     const weekAgoStr = weekAgo.toISOString();
 
-    // Fetch all data in parallel
+    // Fetch all data in parallel (unchanged — this is the assembly the seeded
+    // prompt's four placeholders are fed from).
     const [entriesResult, activityResult, patternsResult, interviewsResult] =
       await Promise.all([
         // 1. Pulse entries from past week
@@ -92,63 +163,111 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Build Claude prompt
-    const prompt = buildAnalysisPrompt(entries, activities, existingPatterns, interviewResponses);
+    // Build the payload variables the seeded prompt expects. Keys MUST match the
+    // {{placeholders}} in ai_job_types.prompt_template for 'work_pulse.analyze'
+    // EXACTLY: entries, activities, existing_patterns, interviews. We pre-stringify
+    // (same JSON.stringify the previous inline prompt used) so the drain drops the
+    // exact text into each placeholder. Categories are enforced below on upsert.
+    const payload = {
+      entries: JSON.stringify(entries, null, 2),
+      activities: JSON.stringify(activities.slice(0, 100), null, 2),
+      existing_patterns: JSON.stringify(existingPatterns, null, 2),
+      interviews: JSON.stringify(interviewResponses, null, 2),
+    };
 
-    // Call Claude with 60s timeout
-    const anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY });
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
-
-    let analysisResult;
-    try {
-      const message = await anthropic.messages.create(
-        {
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          messages: [{ role: 'user', content: prompt }],
-        },
-        { signal: controller.signal }
-      );
-      clearTimeout(timeout);
-
-      const content = message.content[0];
-      const text = content.type === 'text' ? content.text : '';
-
-      // Extract JSON from response
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
+    // Enqueue on the registry Max lane. fn_ai_enqueue resolves the job spec
+    // (prompt_template + tool_set) from ai_job_types and gates on allow_rule;
+    // the generic seat/Windows drain executes it at ₹0 API cost.
+    const { data: enq, error: enqError } = await session.rpc('fn_ai_enqueue', {
+      p_job_type: 'work_pulse.analyze',
+      p_payload: payload,
+    });
+    if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+      const errText = typeof enq?.error === 'string' ? enq.error : '';
+      if (errText === 'unknown or disabled job_type') {
         return NextResponse.json(
-          { error: 'Failed to parse AI response', raw: text.slice(0, 500) },
-          { status: 500 }
+          { error: 'Analysis is not available right now. Please try again later.' },
+          { status: 503 }
         );
       }
-      analysisResult = JSON.parse(jsonMatch[0]);
-    } catch (err) {
-      clearTimeout(timeout);
-      if ((err as Error).name === 'AbortError') {
-        return NextResponse.json({ error: 'Analysis timed out (60s)' }, { status: 504 });
+      if (errText === 'too many in-flight jobs of this type') {
+        return NextResponse.json(
+          { error: 'An analysis is already in progress. Please wait for it to finish.' },
+          { status: 429 }
+        );
       }
-      throw err;
+      if (errText === 'not allowed for this job_type' || errText === 'UNAUTHORIZED') {
+        return NextResponse.json(
+          { error: 'You do not have access to run the weekly analysis.' },
+          { status: 403 }
+        );
+      }
+      return NextResponse.json(
+        { error: 'Could not start analysis. Please try again.' },
+        { status: 500 }
+      );
     }
 
-    // Upsert patterns
+    // Long-poll the job status (as the same user who enqueued).
+    const jobId = enq.job_id;
+    const startedAt = Date.now();
+    let analysisResult: Array<Record<string, unknown>> | null = null;
+    let jobFailed = false;
+    while (Date.now() - startedAt < TOTAL_DEADLINE_MS) {
+      await sleep(POLL_MS);
+      const { data: st, error: stError } = await session.rpc('fn_ai_job_status', {
+        p_job_id: jobId,
+      });
+      if (stError || !st || typeof st.status !== 'string') continue;
+      if (st.status === 'done') {
+        analysisResult = extractPatternArray((st as { result?: unknown }).result);
+        break;
+      }
+      if (st.status === 'error' || st.status === 'canceled' || st.status === 'not_found') {
+        jobFailed = true;
+        break;
+      }
+      // Never claimed within the unclaimed window → the drain is offline.
+      if (st.status === 'pending' && Date.now() - startedAt > UNCLAIMED_DEADLINE_MS) {
+        break;
+      }
+    }
+
+    if (jobFailed) {
+      return NextResponse.json(
+        { error: 'Analysis failed on the Max lane. Please try again.' },
+        { status: 502 }
+      );
+    }
+    if (analysisResult === null) {
+      // The job may still complete on the drain and can be re-run; the board is
+      // the durable sink for its output. Tell the caller it's still running.
+      return NextResponse.json(
+        {
+          error:
+            'Analysis did not finish in time. It may still be running — refresh the board in a minute.',
+        },
+        { status: 503 }
+      );
+    }
+
+    // Upsert patterns (unchanged)
     let patternsUpdated = 0;
     const notifications: Array<{ type: string; user_ids: string[]; message: string }> = [];
 
     for (const pattern of analysisResult) {
       // Validate category
-      if (!WP_CATEGORIES.includes(pattern.category)) {
+      if (!WP_CATEGORIES.includes(pattern.category as (typeof WP_CATEGORIES)[number])) {
         pattern.category = 'General Administration';
       }
 
       // Calculate tier from impact score
-      const score = pattern.impact_score || 0;
+      const score = (pattern.impact_score as number) || 0;
       const tier = score >= 100 ? 'S' : score >= 50 ? 'A' : score >= 20 ? 'B' : 'C';
 
       // Check if pattern already exists (match by name)
       const existing = existingPatterns.find(
-        (p) => p.name.toLowerCase() === pattern.name.toLowerCase()
+        (p) => p.name.toLowerCase() === String(pattern.name).toLowerCase()
       );
 
       if (existing) {
@@ -197,7 +316,7 @@ export async function POST(request: NextRequest) {
       if (pattern.solution_type === 'training') {
         notifications.push({
           type: 'training_win',
-          user_ids: pattern.affected_user_ids || [],
+          user_ids: (pattern.affected_user_ids as string[]) || [],
           message: `Training opportunity identified: "${pattern.name}" — ${pattern.description}`,
         });
       }
@@ -207,12 +326,21 @@ export async function POST(request: NextRequest) {
     for (const notif of notifications) {
       if (notif.user_ids.length === 0) continue;
 
+      // notifications real columns: body/created_by/targeting/kind are NOT NULL
+      // and there is NO type/message column. The prior insert used {type,
+      // message} so it threw at runtime and no training-win notification was
+      // delivered. Mirror the already-fixed sibling app/api/work-pulse/notify:
+      // body carries the message, created_by anchors to the first recipient,
+      // targeting + the fan-out below deliver it to every affected user.
       const { data: notification } = await supabase
         .from('notifications')
         .insert({
-          type: 'work_pulse',
           title: 'Training Opportunity',
-          message: notif.message,
+          body: notif.message,
+          created_by: notif.user_ids[0],
+          targeting: { type: 'user', user_ids: notif.user_ids },
+          category: 'work_pulse',
+          kind: 'work_item',
           metadata: { source: 'work_pulse_analysis' },
         })
         .select('id')
@@ -240,61 +368,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-function buildAnalysisPrompt(
-  entries: unknown[],
-  activities: unknown[],
-  existingPatterns: unknown[],
-  interviews: unknown[]
-): string {
-  return `You are an organizational efficiency analyst for JKKN educational institutions.
-
-Analyze the following data and identify automation/improvement patterns.
-
-## This Week's Pulse Entries (${(entries as Array<Record<string, unknown>>).length} responses)
-${JSON.stringify(entries, null, 2)}
-
-## Behavioral Activity Signals (${(activities as Array<Record<string, unknown>>).length} events)
-${JSON.stringify((activities as Array<Record<string, unknown>>).slice(0, 100), null, 2)}
-
-## Existing Patterns (for trend comparison)
-${JSON.stringify(existingPatterns, null, 2)}
-
-## Micro-Interview Responses
-${JSON.stringify(interviews, null, 2)}
-
-## Valid Categories
-${WP_CATEGORIES.join(', ')}
-
-## Instructions
-1. Cluster similar complaints into patterns
-2. For each pattern, calculate:
-   - people_affected: unique reporter count
-   - hours_wasted_weekly: estimated institution-wide hours
-   - feasibility_score: 1-10 (how easy to automate)
-   - impact_score: people × hours × feasibility / build_effort_estimate
-3. Classify solution_type: new_module, standalone_agent, process_change, or training
-4. Flag week-over-week trends (growing/shrinking problems)
-5. Identify entries that are actually platform bugs (not workflow issues)
-
-## Output Format
-Return a JSON array of pattern objects:
-[
-  {
-    "name": "Pattern Name",
-    "description": "What the repetitive work is",
-    "category": "One of the valid categories",
-    "people_affected": 5,
-    "roles_affected": ["faculty", "hod"],
-    "hours_wasted_weekly": 12.5,
-    "feasibility_score": 7,
-    "impact_score": 43.75,
-    "solution_type": "standalone_agent",
-    "metadata": { "trend": "growing", "confidence": 0.85 },
-    "affected_user_ids": []
-  }
-]
-
-Return ONLY the JSON array, no other text.`;
 }

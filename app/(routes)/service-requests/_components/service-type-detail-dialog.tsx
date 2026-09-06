@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useServiceType } from '@/hooks/service-requests/use-service-types';
 import { useScopeLookups, resolveScopeNames } from '@/hooks/service-requests/use-scope-lookups';
-import { SERVICE_TYPE_SCOPE_CONFIG } from '@/types/service-request';
+import { SERVICE_TYPE_SCOPE_CONFIG, ALL_ROLES_WILDCARD } from '@/types/service-request';
 import { SCOPE_ICONS } from './scope-icons';
 import { cn } from '@/lib/utils';
 
@@ -170,8 +170,10 @@ export function ServiceTypeDetailDialog({
               </Section>
 
               {/* Allowed Roles */}
-              <Section title={`Allowed Roles (${serviceType.allowed_roles?.length ?? 0})`}>
-                {serviceType.allowed_roles && serviceType.allowed_roles.length > 0 ? (
+              <Section title="Allowed Roles">
+                {serviceType.allowed_roles?.includes(ALL_ROLES_WILDCARD) ? (
+                  <Badge variant="outline">All roles — every logged-in user</Badge>
+                ) : serviceType.allowed_roles && serviceType.allowed_roles.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {serviceType.allowed_roles.map((role) => (
                       <Badge key={role} variant="outline" className="capitalize">

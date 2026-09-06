@@ -58,7 +58,7 @@ export interface UpdateInstitutionDto extends Partial<CreateInstitutionDto> {}
 export interface InstitutionFilters {
   search?: string;
   isActive?: boolean;
-  entityType?: EntityType | 'all'; // Filter by entity type; defaults to 'all' in getInstitutions, 'institution' in getInstitutionNames
+  entityType?: EntityType | 'all' | EntityType[]; // Filter by entity type; single value, 'all' (no filter), or an array (matched with IN). Defaults to 'all' in getInstitutions, 'institution' in getInstitutionNames
   page?: number;
   limit?: number;
   userId?: string; // For applying user-based institution filtering
@@ -214,6 +214,9 @@ export interface Program {
   program_duration_yrs?: number | null;
   pattern_type?: PatternType | null;
   is_part_time?: boolean | null;
+  // Read-only in the Programs module — owned by Admission → Settings → Seat Config
+  sanctioned_intake?: number | null;
+  actual_intake?: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

@@ -45,6 +45,7 @@ import {
   ChevronDown,
   ChevronRight
 } from 'lucide-react';
+import { PersonPicker } from '@/app/(routes)/learners-council/structure/members/person-picker';
 import {
   useCreateChapter,
   useVerticalMembers,
@@ -201,18 +202,18 @@ function ChapterCard({
         className="p-4 flex items-center justify-between cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={onToggle}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="h-10 w-10 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
             <Building2 className="h-5 w-5 text-blue-600" />
           </div>
-          <div>
-            <h3 className="font-semibold">{chapter.name}</h3>
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0">
+            <h3 className="font-semibold truncate">{chapter.name}</h3>
+            <p className="text-sm text-muted-foreground truncate">
               {chapter.institution?.name || 'Unknown Institution'}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Badge variant="outline" className="text-xs">{chapter.academic_year}</Badge>
           {chapter.is_active && (
             <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Active</Badge>
@@ -595,14 +596,15 @@ function AssignVerticalMemberDialog({
             </Select>
           </div>
           <div>
-            <Label>Learner User ID</Label>
-            <Input
-              placeholder="Enter the learner's user ID"
+            <Label htmlFor="yuva-assign-learner">Learner</Label>
+            <PersonPicker
+              id="yuva-assign-learner"
               value={userId}
-              onChange={(e) => setUserId(e.target.value)}
+              onChange={setUserId}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              The UUID of the learner from the profiles table
+              Search by name or email. Only learners from institutions you can
+              access are listed.
             </p>
           </div>
         </div>

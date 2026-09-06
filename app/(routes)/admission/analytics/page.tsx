@@ -2,7 +2,8 @@
 
 export const navMeta = { label: 'Funnel Analytics', icon: 'TrendingUp' } as const;
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -438,6 +439,16 @@ function StuckLeadsTable({
   );
 }
 
+const ADMISSION_ANALYTICS_TABS = [
+  'funnel',
+  'stuck',
+  'dropoff',
+  'programs',
+  'counselors',
+  'sources',
+  'source-coverage',
+] as const;
+
 function AdmissionAnalyticsPageContent() {
   const { profile } = useAuth();
   const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
@@ -451,6 +462,7 @@ function AdmissionAnalyticsPageContent() {
     || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId)
     || undefined;
   const [dateRange, setDateRange] = useState('30');
+  const [activeTab, setActiveTab] = useTabParam('funnel', ADMISSION_ANALYTICS_TABS);
 
   // Phase 1 hooks
   const { summary, isLoading: dashboardLoading, refetchAll: refetchDashboard } = useAdmissionDashboard(institutionId);
@@ -597,7 +609,7 @@ function AdmissionAnalyticsPageContent() {
           )}
 
           {/* Main Content */}
-          <Tabs defaultValue="funnel" className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
               <TabsList className="w-max">
                 <TabsTrigger value="funnel">Conversion Funnel</TabsTrigger>
@@ -680,9 +692,12 @@ function AdmissionAnalyticsPageContent() {
 }
 
 export default function AdmissionAnalyticsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <AdmissionErrorBoundary>
-      <AdmissionAnalyticsPageContent />
+      <Suspense fallback={null}>
+        <AdmissionAnalyticsPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

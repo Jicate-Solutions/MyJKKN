@@ -149,13 +149,13 @@ function VoiceBroadcastPageContent() {
           {/* Campaign List */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Broadcast Campaigns</CardTitle>
                   <CardDescription>{total} campaigns total</CardDescription>
                 </div>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[150px]">
+                  <SelectTrigger className="w-[150px] shrink-0">
                     <SelectValue placeholder="All statuses" />
                   </SelectTrigger>
                   <SelectContent>
@@ -191,14 +191,14 @@ function VoiceBroadcastPageContent() {
                     const isDraft = campaign.status === 'draft' || campaign.status === 'scheduled';
 
                     return (
-                      <div key={campaign.id} className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/30 transition-colors">
+                      <div key={campaign.id} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg border hover:bg-muted/30 transition-colors">
                         <div className="flex items-start gap-3">
                           <div className="p-1.5 rounded bg-primary/10 mt-0.5">
                             <StatusIcon className="h-4 w-4 text-primary" />
                           </div>
                           <div>
                             <p className="font-medium">{campaign.campaign_name}</p>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
                               <Badge className={`text-xs ${statusStyle.color}`}>
                                 {campaign.status.replace(/_/g, ' ')}
                               </Badge>
@@ -213,7 +213,7 @@ function VoiceBroadcastPageContent() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-4 flex-wrap">
                           {/* Progress stats */}
                           <div className="flex items-center gap-4 text-sm">
                             {campaign.total_calls != null && (

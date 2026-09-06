@@ -38,6 +38,13 @@ export const DRILLDOWN_METRICS = [
   'seat_balance',
   'chart_bar',
   'comparison_row',
+  // 2026-05-20 lifecycle-status workflow KPIs
+  'enquiry',
+  'enquiry_submitted',
+  'account',
+  'reserved',
+  'admitted_active',     // sums admitted + active
+  'rejected_lifecycle',
 ] as const;
 
 export type DrilldownMetric = (typeof DRILLDOWN_METRICS)[number];
@@ -167,6 +174,78 @@ export const DRILLDOWN_DEFAULTS: Record<DrilldownPolicyKey, string | number | bo
   'dashboard.drilldown.comparison_row.action_buttons.principal': ['edit_intake'],
   'dashboard.drilldown.comparison_row.empty_state_copy': 'No admission data for this institution in the selected year.',
   'dashboard.drilldown.comparison_row.enabled': true,
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Lifecycle-status workflow KPIs (added 2026-05-20). Drill-downs point to
+  // /learners/enquiries with the matching lifecycle stage tab pre-selected.
+  // 2026-06-17: the enquiries page selects the stage via the `?tab=` param
+  // (page.tsx reads `params.tab`, defaulting to 'enquiry'). The earlier
+  // `?lifecycle_status=` form was silently ignored, so every card except
+  // Enquiry landed on the default Enquiry tab. Use `?tab=` here.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ---- enquiry ----
+  'dashboard.drilldown.enquiry.destination': '/learners/enquiries?tab=enquiry',
+  'dashboard.drilldown.enquiry.columns': ['name', 'date', 'institution', 'program'],
+  'dashboard.drilldown.enquiry.action_buttons.director': [],
+  'dashboard.drilldown.enquiry.action_buttons.counselor': ['call', 'whatsapp'],
+  'dashboard.drilldown.enquiry.action_buttons.principal': [],
+  'dashboard.drilldown.enquiry.empty_state_copy': 'No enquiries in this admission year.',
+  'dashboard.drilldown.enquiry.enabled': true,
+
+  // ---- enquiry_submitted ----
+  'dashboard.drilldown.enquiry_submitted.destination': '/learners/enquiries?tab=enquiry_submitted',
+  'dashboard.drilldown.enquiry_submitted.columns': ['name', 'date', 'institution', 'program'],
+  'dashboard.drilldown.enquiry_submitted.action_buttons.director': [],
+  'dashboard.drilldown.enquiry_submitted.action_buttons.counselor': ['call', 'whatsapp', 'update_status'],
+  'dashboard.drilldown.enquiry_submitted.action_buttons.principal': [],
+  'dashboard.drilldown.enquiry_submitted.empty_state_copy': 'No submitted enquiries awaiting verification.',
+  'dashboard.drilldown.enquiry_submitted.enabled': true,
+
+  // ---- account ----
+  'dashboard.drilldown.account.destination': '/learners/enquiries?tab=account',
+  'dashboard.drilldown.account.columns': ['name', 'date', 'institution', 'program'],
+  'dashboard.drilldown.account.action_buttons.director': [],
+  'dashboard.drilldown.account.action_buttons.counselor': [],
+  'dashboard.drilldown.account.action_buttons.principal': [],
+  'dashboard.drilldown.account.empty_state_copy': 'No learners in the accounts queue.',
+  'dashboard.drilldown.account.enabled': true,
+
+  // ---- reserved ----
+  'dashboard.drilldown.reserved.destination': '/learners/enquiries?tab=reserved',
+  'dashboard.drilldown.reserved.columns': ['name', 'date', 'institution', 'program'],
+  'dashboard.drilldown.reserved.action_buttons.director': [],
+  'dashboard.drilldown.reserved.action_buttons.counselor': [],
+  'dashboard.drilldown.reserved.action_buttons.principal': [],
+  'dashboard.drilldown.reserved.empty_state_copy': 'No learners at reserved status (universal fees not yet cleared).',
+  'dashboard.drilldown.reserved.enabled': true,
+
+  // ---- admitted_active (Admitted KPI = admitted + active per workflow spec) ----
+  // 2026-08-13: repointed from /learners/enquiries?tab=admitted to the
+  // purpose-built source drill-down, which answers "which source did each of
+  // these admitted learners come from?". It is profile-anchored, so its total
+  // equals this KPI exactly — including the direct admissions that have no
+  // lead row and therefore no source (964 of 1,515 for AY 2026).
+  // Lands on the Source Analytics tab, whose "Admitted by Source" panel is
+  // profile-anchored — its total equals this KPI exactly, direct admissions
+  // (964 of 1,515 for AY 2026) included. appendDashboardScope() adds
+  // admission_year + institution_ids, which the dashboard reads alongside ?ay=.
+  'dashboard.drilldown.admitted_active.destination': '/admission/group-dashboard?tab=sources',
+  'dashboard.drilldown.admitted_active.columns': ['name', 'date', 'institution', 'program', 'source'],
+  'dashboard.drilldown.admitted_active.action_buttons.director': [],
+  'dashboard.drilldown.admitted_active.action_buttons.counselor': [],
+  'dashboard.drilldown.admitted_active.action_buttons.principal': [],
+  'dashboard.drilldown.admitted_active.empty_state_copy': 'No admitted learners in this admission year.',
+  'dashboard.drilldown.admitted_active.enabled': true,
+
+  // ---- rejected_lifecycle ----
+  'dashboard.drilldown.rejected_lifecycle.destination': '/learners/enquiries?tab=rejected',
+  'dashboard.drilldown.rejected_lifecycle.columns': ['name', 'date', 'institution', 'program'],
+  'dashboard.drilldown.rejected_lifecycle.action_buttons.director': [],
+  'dashboard.drilldown.rejected_lifecycle.action_buttons.counselor': [],
+  'dashboard.drilldown.rejected_lifecycle.action_buttons.principal': [],
+  'dashboard.drilldown.rejected_lifecycle.empty_state_copy': 'No rejected learners in this admission year.',
+  'dashboard.drilldown.rejected_lifecycle.enabled': true,
 
   // ---- global ----
   'dashboard.drilldown.performance_budget_ms': 2000,

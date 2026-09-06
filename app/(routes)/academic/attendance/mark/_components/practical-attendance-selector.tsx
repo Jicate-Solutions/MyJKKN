@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { PracticalConfig, PracticalConflictCheck } from '@/types/academics';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface PracticalAttendanceSelectorProps {
   practicalConfig: PracticalConfig;
@@ -40,6 +41,8 @@ interface PracticalAttendanceSelectorProps {
     course_name: string;
     course_code?: string;
     section_ids: string[];
+    /** Added: 2026-08-17 (BUG-005826) - learners named by the batch itself. */
+    student_ids?: string[];
     staff?: { id: string; first_name: string; last_name: string; email?: string }[];
   }) => void;
   onConflictCheck?: (params: {
@@ -65,6 +68,7 @@ export function PracticalAttendanceSelector({
   onSelectionComplete,
   onConflictCheck
 }: PracticalAttendanceSelectorProps) {
+  const label = useAdaptiveLabels();
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [conflictCheck, setConflictCheck] = useState<{
     checking: boolean;
@@ -229,6 +233,7 @@ export function PracticalAttendanceSelector({
       course_name: resolvedCourse.course_name,
       course_code: resolvedCourse.course_code,
       section_ids: selectedBatch.section_ids || [],
+      student_ids: selectedBatch.student_ids || [],
       staff: resolvedStaff
     });
   };
@@ -310,7 +315,16 @@ export function PracticalAttendanceSelector({
                     {selectedBatch.batch_name}
                   </Badge>
                   <span className='text-xs text-muted-foreground'>
-                    ~{selectedBatch.estimated_count} students
+                    {/* Updated: 2026-08-17 (BUG-005826) - a batch that names its
+                        learners knows exactly how many it has, so show that
+                        instead of the hand-typed estimate. The estimate is what
+                        the faculty had to compare the on-screen count against
+                        while the roster was silently wrong. */}
+                    {selectedBatch.student_ids && selectedBatch.student_ids.length > 0 ? (
+                      <>{selectedBatch.student_ids.length} assigned learners</>
+                    ) : (
+                      <>~{selectedBatch.estimated_count} learners</>
+                    )}
                     {selectedBatch.section_ids && selectedBatch.section_ids.length > 0 && (
                       <> &middot; {selectedBatch.section_ids.length} section{selectedBatch.section_ids.length !== 1 ? 's' : ''}</>
                     )}
@@ -322,7 +336,7 @@ export function PracticalAttendanceSelector({
                   <div className='bg-white dark:bg-gray-800 rounded-lg border p-3 space-y-2'>
                     <div className='flex items-center gap-2'>
                       <BookOpen className='h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0' />
-                      <span className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>Course</span>
+                      <span className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>{label('Course')}</span>
                     </div>
                     <div className='pl-6'>
                       <p className='font-semibold text-sm'>

@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { B2AEndpointTesterDialog } from './b2a-endpoint-tester';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 // ─── Code snippets ──────────────────────────────────────────────────────────
 
@@ -538,8 +539,11 @@ async function buildAgentContext(apiKey: string): Promise<string> {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+const B2A_DOC_TABS = ['overview', 'endpoints', 'examples', 'usecases'] as const;
+
 export default function B2AApiDocs() {
   const [testEndpointId, setTestEndpointId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useTabParam('overview', B2A_DOC_TABS);
 
   return (
     <div className='space-y-6'>
@@ -553,7 +557,7 @@ export default function B2AApiDocs() {
         </AlertDescription>
       </Alert>
 
-      <Tabs defaultValue='overview'>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className='flex w-full justify-around flex-wrap gap-1 h-auto'>
           <TabsTrigger value='overview'>
             <BookOpen className='h-4 w-4 mr-1' />

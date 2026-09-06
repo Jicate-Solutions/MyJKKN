@@ -137,7 +137,7 @@ export function OrganizationalTab({ data, filters }: OrganizationalTabProps) {
       {/* Header with controls */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Building2 className="h-5 w-5" />
@@ -145,9 +145,10 @@ export function OrganizationalTab({ data, filters }: OrganizationalTabProps) {
               </CardTitle>
               <CardDescription className="mt-2">
                 Complete institution hierarchy: Institution → Degree → Department → Program → Semester → Section
+                <span className="block mt-1 text-xs">Counts reflect active learners only, regardless of the status filter above.</span>
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 shrink-0">
               <Button variant="outline" size="sm" onClick={expandAll}>
                 Expand All
               </Button>
@@ -158,7 +159,7 @@ export function OrganizationalTab({ data, filters }: OrganizationalTabProps) {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
               <Building2 className="h-4 w-4" />
               <span>{data.hierarchicalInstitutions.length} Institutions</span>

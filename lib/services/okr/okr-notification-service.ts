@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import type {
   OKRObjective,
   OKRKeyResult,
@@ -123,42 +124,28 @@ export class OKRNotificationService {
    */
   static async sendNotification(payload: OKRNotificationPayload): Promise<void> {
     try {
-      // Create notification in notifications table
-      const { data: notification, error: notificationError } = await (this.supabase as any)
-        .from('notifications')
-        .insert({
-          title: payload.title,
-          body: payload.body,
-          url: payload.url || '/okr',
-          priority: payload.priority,
-          category: 'okr',
-          icon: 'target',
-          metadata: {
-            okr_notification_type: payload.type,
-            ...payload.metadata
-          },
-          sent_at: new Date().toISOString()
-        })
-        .select()
-        .single();
+      // created_by must be a valid, NOT-NULL profiles.id. On the browser client
+      // that is the authenticated user; fall back to the recipient.
+      const { data: { user: authUser } } = await this.supabase.auth.getUser();
+      const createdBy = authUser?.id ?? payload.user_id;
 
-      if (notificationError) {
-        console.error('[OKR Notification] Failed to create notification:', notificationError?.message || notificationError?.code || notificationError?.details || JSON.stringify(notificationError));
-        throw notificationError;
-      }
-
-      // Link notification to user
-      const { error: userNotificationError } = await (this.supabase as any)
-        .from('user_notifications')
-        .insert({
-          user_id: payload.user_id,
-          notification_id: notification.id
-        });
-
-      if (userNotificationError) {
-        console.error('[OKR Notification] Failed to link notification to user:', userNotificationError?.message || userNotificationError?.code || userNotificationError?.details || JSON.stringify(userNotificationError));
-        throw userNotificationError;
-      }
+      // One notifications row + user_notifications fan-out (canonical helper).
+      await fanoutNotification(this.supabase as any, {
+        title: payload.title,
+        body: payload.body,
+        url: payload.url || '/okr',
+        priority: payload.priority,
+        category: 'okr',
+        icon: 'target',
+        userIds: [payload.user_id],
+        createdBy,
+        targeting: { type: 'user', user_ids: [payload.user_id] },
+        metadata: {
+          okr_notification_type: payload.type,
+          ...payload.metadata,
+        },
+        source: 'okr-notification-service',
+      });
 
     } catch (error: any) {
       console.error('[OKR Notification] Error sending notification:', error?.message || error?.code || error?.details || JSON.stringify(error));
@@ -247,39 +234,27 @@ export class OKRNotificationService {
 
       for (const user of usersToNotify) {
         try {
-          // Create notification directly with admin client
-          const { data: notification, error: notifError } = await supabaseAdmin
-            .from('notifications')
-            .insert({
-              title: 'Time for your weekly OKR check-in!',
-              body: `Hey ${user.full_name || 'there'}, it's Friday! Take a few minutes to update your OKR progress for Week ${weekNumber}.`,
-              url: '/okr/check-in',
-              priority: 'normal',
-              category: 'okr',
-              icon: 'target',
-              metadata: {
-                okr_notification_type: 'weekly_reminder',
-                week_number: weekNumber,
-                year: year
-              },
-              sent_at: new Date().toISOString()
-            })
-            .select()
-            .single();
+          // One notifications row + user_notifications fan-out. created_by is
+          // the recipient (cron has no acting user) — a valid, NOT-NULL profiles.id.
+          const result = await fanoutNotification(supabaseAdmin, {
+            title: 'Time for your weekly OKR check-in!',
+            body: `Hey ${user.full_name || 'there'}, it's Friday! Take a few minutes to update your OKR progress for Week ${weekNumber}.`,
+            url: '/okr/check-in',
+            priority: 'normal',
+            category: 'okr',
+            icon: 'target',
+            userIds: [user.id],
+            createdBy: user.id,
+            targeting: { type: 'user', user_ids: [user.id] },
+            metadata: {
+              okr_notification_type: 'weekly_reminder',
+              week_number: weekNumber,
+              year: year,
+            },
+            source: 'okr-notification-service',
+          });
 
-          if (notifError) {
-            console.error(`[OKR] Failed to create notification for ${user.email}:`, notifError?.message || notifError?.code || notifError?.details || JSON.stringify(notifError));
-            continue;
-          }
-
-          await supabaseAdmin
-            .from('user_notifications')
-            .insert({
-              user_id: user.id,
-              notification_id: notification.id
-            });
-
-          sentCount++;
+          if (result.notified > 0) sentCount++;
         } catch (e: any) {
           console.error(`[OKR] Error notifying user ${user.email}:`, e?.message || e?.code || e?.details || JSON.stringify(e));
         }
@@ -324,34 +299,25 @@ export class OKRNotificationService {
 
       for (const user of usersToNotify) {
         try {
-          const { data: notification } = await supabaseAdmin
-            .from('notifications')
-            .insert({
-              title: 'Only 2 hours left to complete your check-in!',
-              body: `${user.full_name || 'Hey'}, your weekly check-in is due at 5 PM today. Don't let your streak break!`,
-              url: '/okr/check-in',
-              priority: 'high',
-              category: 'okr',
-              icon: 'alert-triangle',
-              metadata: {
-                okr_notification_type: 'deadline_warning',
-                week_number: weekNumber,
-                year: year
-              },
-              sent_at: new Date().toISOString()
-            })
-            .select()
-            .single();
+          const result = await fanoutNotification(supabaseAdmin, {
+            title: 'Only 2 hours left to complete your check-in!',
+            body: `${user.full_name || 'Hey'}, your weekly check-in is due at 5 PM today. Don't let your streak break!`,
+            url: '/okr/check-in',
+            priority: 'high',
+            category: 'okr',
+            icon: 'alert-triangle',
+            userIds: [user.id],
+            createdBy: user.id,
+            targeting: { type: 'user', user_ids: [user.id] },
+            metadata: {
+              okr_notification_type: 'deadline_warning',
+              week_number: weekNumber,
+              year: year,
+            },
+            source: 'okr-notification-service',
+          });
 
-          if (notification) {
-            await supabaseAdmin
-              .from('user_notifications')
-              .insert({
-                user_id: user.id,
-                notification_id: notification.id
-              });
-            sentCount++;
-          }
+          if (result.notified > 0) sentCount++;
         } catch (e: any) {
           console.error(`[OKR] Error sending deadline warning to ${user.email}:`, e?.message || e?.code || e?.details || JSON.stringify(e));
         }
@@ -413,36 +379,27 @@ export class OKRNotificationService {
         const consecutiveMissed = (status?.consecutive_missed_weeks ?? 0) + 1;
 
         try {
-          // Send overdue alert to user
-          const { data: notification } = await supabaseAdmin
-            .from('notifications')
-            .insert({
-              title: 'Your OKR check-in is overdue',
-              body: `${user.full_name || 'Hey'}, you missed your check-in for Week ${weekNumber}. ${consecutiveMissed >= 3 ? 'You are now BLOCKED from certain features.' : 'Complete it now to avoid being blocked.'}`,
-              url: '/okr/check-in',
-              priority: 'urgent',
-              category: 'okr',
-              icon: 'x-circle',
-              metadata: {
-                okr_notification_type: 'overdue_alert',
-                week_number: weekNumber,
-                year: year,
-                consecutive_missed: consecutiveMissed
-              },
-              sent_at: new Date().toISOString()
-            })
-            .select()
-            .single();
+          // Send overdue alert to user (created_by = recipient; valid NOT-NULL profiles.id)
+          const overdueResult = await fanoutNotification(supabaseAdmin, {
+            title: 'Your OKR check-in is overdue',
+            body: `${user.full_name || 'Hey'}, you missed your check-in for Week ${weekNumber}. ${consecutiveMissed >= 3 ? 'You are now BLOCKED from certain features.' : 'Complete it now to avoid being blocked.'}`,
+            url: '/okr/check-in',
+            priority: 'urgent',
+            category: 'okr',
+            icon: 'x-circle',
+            userIds: [user.id],
+            createdBy: user.id,
+            targeting: { type: 'user', user_ids: [user.id] },
+            metadata: {
+              okr_notification_type: 'overdue_alert',
+              week_number: weekNumber,
+              year: year,
+              consecutive_missed: consecutiveMissed,
+            },
+            source: 'okr-notification-service',
+          });
 
-          if (notification) {
-            await supabaseAdmin
-              .from('user_notifications')
-              .insert({
-                user_id: user.id,
-                notification_id: notification.id
-              });
-            overdueAlerts++;
-          }
+          if (overdueResult.notified > 0) overdueAlerts++;
 
           // Update user status
           await supabaseAdmin
@@ -484,34 +441,30 @@ export class OKRNotificationService {
             if (managers && managers.length > 0) {
               const manager = managers[0];
 
-              const { data: escNotification } = await supabaseAdmin
-                .from('notifications')
-                .insert({
+              // Recipient is the manager; created_by is the blocked user
+              // (a guaranteed valid, NOT-NULL profiles.id). Skip when the manager
+              // has no linked profile — there is nothing to deliver to.
+              if (manager.profile_id) {
+                const escResult = await fanoutNotification(supabaseAdmin, {
                   title: 'Team Member OKR Non-Compliance',
                   body: `${user.full_name || user.email} has been blocked for OKR non-compliance (${consecutiveMissed} consecutive missed check-ins). Please review and take action.`,
                   url: `/okr/team?user=${user.id}`,
                   priority: 'high',
                   category: 'okr',
                   icon: 'alert-octagon',
+                  userIds: [manager.profile_id],
+                  createdBy: user.id,
+                  targeting: { type: 'user', user_ids: [manager.profile_id] },
                   metadata: {
                     okr_notification_type: 'manager_escalation',
                     blocked_user_id: user.id,
                     blocked_user_name: user.full_name,
-                    consecutive_missed: consecutiveMissed
+                    consecutive_missed: consecutiveMissed,
                   },
-                  sent_at: new Date().toISOString()
-                })
-                .select()
-                .single();
+                  source: 'okr-notification-service',
+                });
 
-              if (escNotification && manager.profile_id) {
-                await supabaseAdmin
-                  .from('user_notifications')
-                  .insert({
-                    user_id: manager.profile_id,
-                    notification_id: escNotification.id
-                  });
-                escalations++;
+                if (escResult.notified > 0) escalations++;
               }
             }
           }

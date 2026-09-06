@@ -5,7 +5,7 @@
  *
  * Creates email/password auth users for each custom role with:
  * - Email: test.{role}@jkkn.ac.in
- * - Password: Test@1234
+ * - Password: from PERSONA_PASSWORD
  * - Profile with correct role and institution
  * - user_roles assignment
  */
@@ -25,7 +25,7 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
-const DEFAULT_PASSWORD = 'Test@1234';
+const DEFAULT_PASSWORD = process.env.PERSONA_PASSWORD ?? '';
 
 // Test institution to assign (first non-null institution)
 async function getDefaultInstitution(): Promise<string | null> {
@@ -48,6 +48,7 @@ const TEST_ACCOUNTS = [
   { roleKey: 'faculty', email: 'test.faculty@jkkn.ac.in', name: 'Test Faculty', isSuperAdmin: false, needsInstitution: true },
   { roleKey: 'student', email: 'test.student@jkkn.ac.in', name: 'Test Student', isSuperAdmin: false, needsInstitution: true },
   { roleKey: 'accounts', email: 'test.accounts@jkkn.ac.in', name: 'Test Accountant', isSuperAdmin: false, needsInstitution: true },
+  { roleKey: 'registrar', email: 'test.registrar@jkkn.ac.in', name: 'Test Registrar', isSuperAdmin: false, needsInstitution: false },
   { roleKey: 'staff', email: 'test.staff@jkkn.ac.in', name: 'Test Staff', isSuperAdmin: false, needsInstitution: true },
   { roleKey: 'digital_coordinator', email: 'test.digital@jkkn.ac.in', name: 'Test Digital Coordinator', isSuperAdmin: false, needsInstitution: true },
   { roleKey: 'principal', email: 'test.principal@jkkn.ac.in', name: 'Test Principal', isSuperAdmin: false, needsInstitution: true },

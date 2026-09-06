@@ -1,0 +1,1798 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
+import * as z from 'zod';
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Bell, Send, Users, Paperclip, X, FileText, FileSpreadsheet, FileImage, Film, Music, Zap, ListChecks, Link2, Plus, Trash2 } from 'lucide-react';
+import {
+  RichTextEditor,
+  RichTextDisplay
+} from '@/components/ui/rich-text-editor';
+import toast from 'react-hot-toast';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { usePrograms } from '@/hooks/organization/use-programs';
+import { useSemesters } from '@/hooks/organization/use-semesters';
+import { useSections } from '@/hooks/organization/use-sections';
+import { useRoles } from '@/hooks/organization/use-roles';
+import { useIsLcOfficeBearer } from '@/hooks/learners-council/use-is-lc-office-bearer';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { StorageUtils } from '@/lib/supabase/storage-utils';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { NOTIFICATION_CATEGORIES } from '@/lib/constants/notification-categories';
+import { parseYouTubeId } from '@/lib/media/youtube';
+import {
+  YouTubePreviewCard,
+  type YouTubeLinkPreview
+} from '@/components/notifications/youtube-preview-card';
+
+// Use shared canonical list so the filter tabs on /notifications/admin
+// always stay in sync with the options in this dropdown.
+const notificationCategories = NOTIFICATION_CATEGORIES;
+
+const notificationSchema = z.object({
+  title: z
+    .string()
+    .min(1, 'Title is required')
+    .max(100, 'Title must be less than 100 characters'),
+  body: z
+    .string()
+    .min(1, 'Message is required'),
+  url: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  icon: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  priority: z.enum(['low', 'normal', 'high', 'urgent']),
+  category: z.string().min(1, 'Category is required'),
+  expires_at: z.string().optional(),
+  // Targeting fields
+  // Multi-select (2026-08-04): one send can target several institutions, e.g.
+  // Dental + Pharmacy learners. `institution_id` is kept only as the DERIVED
+  // single value that the Department→Program→Semester→Section hierarchy needs
+  // (those levels belong to exactly one institution).
+  institution_ids: z.array(z.string()).optional(),
+  institution_id: z.string().optional(),
+  department_id: z.string().optional(),
+  program_id: z.string().optional(),
+  semester_id: z.string().optional(),
+  section_id: z.string().optional(),
+  target_roles: z.array(z.string()).optional(),
+  audience_ids: z.array(z.string()).optional(),
+  // Mandatory acknowledgment fields
+  requires_acknowledgment: z.boolean().optional(),
+  acknowledgment_deadline_hours: z.number().min(1).max(168).optional(),
+  // Action Required fields
+  action_type: z.enum(['urgent', 'tracked']).optional(),
+  action_response_type: z.enum(['text', 'file', 'form', 'link']).optional(),
+  action_form_items: z.array(z.object({
+    id: z.string(),
+    title: z.string().min(1),
+    description: z.string().optional()
+  })).optional(),
+  action_link_url: z.string().url().optional().or(z.literal(''))
+});
+
+type NotificationFormData = z.infer<typeof notificationSchema>;
+
+// Allowed file types for notification attachments
+const ALLOWED_FILE_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'video/mp4',
+  'audio/mpeg',
+  'audio/mp3',
+  // Images (added 2026-08-04): the picker previously greyed images out and the
+  // validator rejected them, so an announcement could never carry a poster,
+  // circular scan, or screenshot. The storage bucket's allowed_mime_types was
+  // missing them too — both layers had to change (see the companion migration
+  // 20260804170000_notification_attachments_allow_images.sql).
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+];
+
+const ALLOWED_EXTENSIONS =
+  '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mp3,.png,.jpg,.jpeg,.gif,.webp';
+const MAX_FILE_SIZE_MB = 25;
+const MAX_ATTACHMENTS = 5;
+
+interface AttachmentFile {
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+}
+
+function getFileIcon(type: string) {
+  // Checked first: 'image/*' must not fall through to the generic document icon.
+  if (type.startsWith('image/')) return <FileImage className='h-4 w-4 text-sky-500' />;
+  if (type.includes('pdf')) return <FileText className='h-4 w-4 text-red-500' />;
+  if (type.includes('word') || type.includes('document')) return <FileText className='h-4 w-4 text-blue-500' />;
+  if (type.includes('excel') || type.includes('spreadsheet')) return <FileSpreadsheet className='h-4 w-4 text-green-500' />;
+  if (type.includes('powerpoint') || type.includes('presentation')) return <FileImage className='h-4 w-4 text-orange-500' />;
+  if (type.includes('video')) return <Film className='h-4 w-4 text-purple-500' />;
+  if (type.includes('audio') || type.includes('mp3')) return <Music className='h-4 w-4 text-pink-500' />;
+  return <FileText className='h-4 w-4' />;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function NotificationForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  // Resolved YouTube card for the Action URL, shown to the sender and stored on
+  // metadata.link_preview so recipients see the same thing.
+  const [linkPreview, setLinkPreview] = useState<YouTubeLinkPreview | null>(null);
+  const [resolvingLinkPreview, setResolvingLinkPreview] = useState(false);
+
+  // Check if this is a reuse (pre-fill from query params)
+  const isReuse = searchParams.get('reuse') === 'true';
+
+  // Check permissions
+  const { permissions, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
+  const canSendToAll =
+    isSuperAdmin ||
+    permissions['notifications.send.all'] ||
+    permissions['notifications.send'];
+  const canSendToInstitution =
+    isSuperAdmin ||
+    permissions['notifications.send'] ||
+    permissions['notifications.view.all'];
+
+  const form = useForm<NotificationFormData>({
+    resolver: zodResolver(notificationSchema),
+    defaultValues: {
+      title: searchParams.get('title') || '',
+      body: searchParams.get('body') || '',
+      url: '',
+      icon: '',
+      priority: (searchParams.get('priority') as any) || 'normal',
+      category: searchParams.get('category') || undefined,
+      expires_at: '',
+      institution_ids: [],
+      institution_id: undefined,
+      department_id: undefined,
+      program_id: undefined,
+      semester_id: undefined,
+      section_id: undefined,
+      target_roles: [],
+      audience_ids: [],
+      requires_acknowledgment: false,
+      acknowledgment_deadline_hours: 4,
+      action_type: undefined,
+      action_response_type: undefined,
+      action_form_items: [],
+      action_link_url: ''
+    }
+  });
+
+  // Watch form values for hierarchical dependencies
+  const watchedValues = form.watch();
+  const selectedInstitutionIds = watchedValues.institution_ids || [];
+  // The Department→Program→Semester→Section chain is only meaningful inside ONE
+  // institution, so it stays enabled for a single selection and is disabled
+  // (with an explanation in the UI) when 0 or 2+ institutions are picked.
+  const selectedInstitutionId =
+    selectedInstitutionIds.length === 1 ? selectedInstitutionIds[0] : undefined;
+  const selectedDepartmentId = watchedValues.department_id;
+  const selectedProgramId = watchedValues.program_id;
+  const selectedSemesterId = watchedValues.semester_id;
+
+  // Action URL → YouTube preview. Depending on the parsed id (not the raw
+  // string) means typing `&t=30` or `&list=…` onto a resolved link does not
+  // re-fetch, and a non-YouTube URL never fires a request at all.
+  const youTubeVideoId = parseYouTubeId(watchedValues.url);
+
+  useEffect(() => {
+    if (!youTubeVideoId) {
+      setLinkPreview(null);
+      return;
+    }
+
+    let cancelled = false;
+    // The id alone is enough to render a card (the poster URL is derived from
+    // it), so show that immediately and let the lookup enrich it.
+    setLinkPreview({ videoId: youTubeVideoId });
+    setResolvingLinkPreview(true);
+
+    (async () => {
+      try {
+        const response = await fetch('/api/notifications/link-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: watchedValues.url })
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled || data?.videoId !== youTubeVideoId) return;
+        setLinkPreview({
+          videoId: data.videoId,
+          title: data.title ?? null,
+          author: data.author ?? null,
+          thumbnailUrl: data.thumbnailUrl ?? null
+        });
+      } catch {
+        // Non-blocking by design: the id-only card stays, sending is unaffected.
+      } finally {
+        if (!cancelled) setResolvingLinkPreview(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [youTubeVideoId]);
+
+  /**
+   * notifications.metadata payload. Keeps the existing `attachments` shape and
+   * adds `link_preview` when the Action URL is a YouTube link. If the lookup
+   * never resolved (offline, oEmbed down, sender hit Send immediately) we still
+   * store the id — the card renders from that alone — so a failed preview can
+   * never block or degrade sending.
+   */
+  const buildMetadata = (
+    attachmentUrls: Array<{ name: string; url: string; type: string; size: number }>,
+    submittedUrl?: string
+  ): Record<string, unknown> | undefined => {
+    const metadata: Record<string, unknown> = {};
+
+    if (attachmentUrls.length > 0) {
+      metadata.attachments = attachmentUrls;
+    }
+
+    const videoId = parseYouTubeId(submittedUrl);
+    if (videoId) {
+      metadata.link_preview =
+        linkPreview && linkPreview.videoId === videoId
+          ? {
+              videoId,
+              title: linkPreview.title ?? null,
+              author: linkPreview.author ?? null,
+              thumbnailUrl: linkPreview.thumbnailUrl ?? null
+            }
+          : { videoId };
+    }
+
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
+  };
+
+  // Fetch data with hierarchical dependencies
+  const { institutions: institutionsData } = useInstitutionsWithAccess({});
+
+  const { data: departmentsResponse } = useDepartments({
+    bypassInstitutionFilter: true,
+    institution_id: selectedInstitutionId,
+    isActive: true,
+    page: 1,
+    limit: 100
+  });
+
+  const { data: programsResponse } = usePrograms({
+    bypassInstitutionFilter: true,
+    institution_id: selectedInstitutionId,
+    department_id: selectedDepartmentId,
+    isActive: true,
+    page: 1,
+    limit: 100
+  });
+
+  const { data: semestersResponse } = useSemesters({
+    bypassInstitutionFilter: true,
+    institution_id: selectedInstitutionId,
+    department_id: selectedDepartmentId,
+    program_id: selectedProgramId,
+    isActive: true,
+    page: 1,
+    limit: 100
+  });
+
+  const { data: sectionsResponse } = useSections({
+    bypassInstitutionFilter: true,
+    institution_id: selectedInstitutionId,
+    department_id: selectedDepartmentId,
+    program_id: selectedProgramId,
+    semester_id: selectedSemesterId,
+    isActive: true,
+    page: 1,
+    limit: 1000 // Fixed: 2025-01-30 - Increased from 100 to fetch all sections for notifications
+  });
+
+  // An elected Learners Council office bearer is a learner, so the composer
+  // must not offer them staff, HODs or principals as targets. Administrators
+  // are untouched — including an administrator who also holds a council seat.
+  //
+  // This narrows what the picker DRAWS. It is not the guard: the send path and
+  // RLS decide who can actually be reached, independently of this.
+  const { isOfficeBearer: isLcOfficeBearer, isAdmin: isLcAdmin } =
+    useIsLcOfficeBearer();
+  const restrictToLearners = isLcOfficeBearer && !isLcAdmin;
+
+  // Council office bearers hold college seats, so the two JKKN schools (which
+  // enrol children) are dropped from their picker. useInstitutionsWithAccess
+  // already defaults to entity_type='institution' for non-super-admins; this
+  // is the explicit second guard so a future change to that default cannot
+  // silently put schools back in front of a council office bearer.
+  const allInstitutions = institutionsData || [];
+  const institutions = restrictToLearners
+    ? allInstitutions.filter((i) => i.entity_type !== 'school')
+    : allInstitutions;
+
+  const departments = departmentsResponse?.data || [];
+  const programs = programsResponse?.data || [];
+  const semesters = semestersResponse?.data || [];
+  const sections = sectionsResponse?.data || [];
+
+  // Fetch roles dynamically from database
+  const { data: rolesResponse, isLoading: rolesLoading } = useRoles({
+    includeSystemRoles: true
+  });
+
+  // 'student' is the role key every learner carries. It is a stored value, not
+  // wording shown to anyone — the picker renders role_name ("Student") from the
+  // database, and the copy below says "learners".
+  const LEARNER_ROLE_KEY = 'student';
+
+  const allRoles =
+    rolesResponse?.map((role) => ({
+      value: role.role_key,
+      label: role.role_name,
+      description: role.description
+    })) || [];
+
+  // Narrowing here covers every consumer at once — the checkbox grid, the
+  // "Select All Roles" toggle, the n/N counter and the target summary all read
+  // availableRoles.
+  const availableRoles = restrictToLearners
+    ? allRoles.filter((role) => role.value === LEARNER_ROLE_KEY)
+    : allRoles;
+
+  // Fetch saved audiences
+  const { data: audiences } = useQuery({
+    queryKey: ['notification-audiences'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/notifications/audiences', { cache: 'no-store' });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.audiences || data || [];
+    }
+  });
+
+  // Get degree_id from selected department (after departments are fetched)
+  const selectedDepartment = departments.find(
+    (d: any) => d.id === selectedDepartmentId
+  );
+  const selectedDegreeId = selectedDepartment?.degree_id;
+
+  // Reset child fields when parent changes.
+  // Toggling ANY institution invalidates the deeper hierarchy (a department id
+  // belongs to one institution), so the child levels are always cleared.
+  // Unchecking every institution returns targeting to "All institutions" —
+  // before 2026-08-04 this was a dead end: the dropdown listed only
+  // institutions, so once one was picked the only way back was "Clear All",
+  // which also wiped roles and audiences.
+  const handleInstitutionToggle = (institutionId: string, checked: boolean) => {
+    const current = form.getValues('institution_ids') || [];
+    const next = checked
+      ? [...current, institutionId]
+      : current.filter((id: string) => id !== institutionId);
+    form.setValue('institution_ids', next, { shouldValidate: true });
+    form.setValue('department_id', undefined);
+    form.setValue('program_id', undefined);
+    form.setValue('semester_id', undefined);
+    form.setValue('section_id', undefined);
+  };
+
+  const handleDepartmentChange = (value: string) => {
+    form.setValue('department_id', value);
+    // Reset child fields
+    form.setValue('program_id', undefined);
+    form.setValue('semester_id', undefined);
+    form.setValue('section_id', undefined);
+  };
+
+  const handleProgramChange = (value: string) => {
+    form.setValue('program_id', value);
+    // Reset child fields
+    form.setValue('semester_id', undefined);
+    form.setValue('section_id', undefined);
+  };
+
+  const handleSemesterChange = (value: string) => {
+    form.setValue('semester_id', value);
+    // Reset section only
+    form.setValue('section_id', undefined);
+  };
+
+  const handleSectionChange = (value: string) => {
+    form.setValue('section_id', value);
+  };
+
+  const clearAllTargeting = () => {
+    form.setValue('institution_ids', []);
+    form.setValue('institution_id', undefined);
+    form.setValue('department_id', undefined);
+    form.setValue('program_id', undefined);
+    form.setValue('semester_id', undefined);
+    form.setValue('section_id', undefined);
+    form.setValue('target_roles', []);
+    form.setValue('audience_ids', []);
+  };
+
+  const onSubmit = async (data: NotificationFormData) => {
+    try {
+      setIsSubmitting(true);
+
+      // Check if trying to send to all users without permission
+      const isTargetingAll =
+        !(data.institution_ids && data.institution_ids.length > 0) &&
+        !data.department_id &&
+        !data.program_id &&
+        !data.semester_id &&
+        !data.section_id &&
+        (!data.target_roles || data.target_roles.length === 0) &&
+        (!data.audience_ids || data.audience_ids.length === 0);
+
+      if (isTargetingAll && !canSendToAll) {
+        toast.error(
+          "You don't have permission to send notifications to all users. Please select specific targeting criteria."
+        );
+        return;
+      }
+
+      // Upload attachments to Supabase storage if any
+      let attachmentUrls: Array<{ name: string; url: string; type: string; size: number }> = [];
+      if (attachments.length > 0) {
+        setUploadingFiles(true);
+        try {
+          const uploadPromises = attachments.map(async (att) => {
+            const url = await StorageUtils.uploadFile(
+              'notification-attachments',
+              att.file,
+              `notifications/${new Date().toISOString().slice(0, 10)}`
+            );
+            return { name: att.name, url, type: att.type, size: att.size };
+          });
+          attachmentUrls = await Promise.all(uploadPromises);
+        } catch (uploadError) {
+          toast.error('Failed to upload attachments. Please try again.');
+          setUploadingFiles(false);
+          return;
+        }
+        setUploadingFiles(false);
+      }
+
+      // Prepare the notification data
+      const notificationData = {
+        title: data.title,
+        body: data.body,
+        url: data.url || undefined,
+        icon: data.icon || undefined,
+        priority: data.priority,
+        category: data.category,
+        expires_at: data.expires_at || undefined,
+        metadata: buildMetadata(attachmentUrls, data.url),
+        targeting: {
+          institution_ids:
+            data.institution_ids && data.institution_ids.length > 0
+              ? data.institution_ids
+              : undefined,
+          // Kept for backward compatibility: older consumers (and the deeper
+          // hierarchy branches) still read the single id. Only set when exactly
+          // one institution is selected, so it can never disagree with the list.
+          institution_id:
+            data.institution_ids && data.institution_ids.length === 1
+              ? data.institution_ids[0]
+              : undefined,
+          department_id: data.department_id || undefined,
+          program_id: data.program_id || undefined,
+          semester_id: data.semester_id || undefined,
+          section_id: data.section_id || undefined,
+          target_roles:
+            data.target_roles && data.target_roles.length > 0
+              ? data.target_roles
+              : undefined,
+          audience_ids:
+            data.audience_ids && data.audience_ids.length > 0
+              ? data.audience_ids
+              : undefined
+        },
+        requires_acknowledgment: data.requires_acknowledgment || false,
+        acknowledgment_deadline_hours: data.requires_acknowledgment
+          ? (data.acknowledgment_deadline_hours || 4)
+          : undefined,
+        action_type: data.action_type || undefined,
+        action_config: data.action_type ? {
+          response_type: data.action_response_type || 'text',
+          form_items: data.action_response_type === 'form' ? data.action_form_items : undefined,
+          link_url: data.action_response_type === 'link' ? data.action_link_url : undefined,
+          min_text_length: 10,
+          max_file_size_mb: 25,
+          escalation_chain: ['hod', 'principal', 'super_admin']
+        } : undefined
+      };
+
+      const response = await fetch('/api/notifications/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(notificationData)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to send notification');
+      }
+
+      const result = await response.json();
+
+      // Show detailed push delivery results
+      if (result.push_delivery_details && result.push_delivery_details.length > 0) {
+        const delivered = result.push_delivery_details.filter((d: any) => d.status === 'delivered');
+        const failed = result.push_delivery_details.filter((d: any) => d.status === 'failed');
+        const stale = result.push_delivery_details.filter((d: any) => d.status === 'stale_removed');
+
+        // Show success toast with summary
+        toast.success(
+          `Notification sent to ${result.target_users_count} users! Push: ${delivered.length}/${result.push_total_subscriptions} delivered`,
+          { duration: 6000 }
+        );
+
+        // Show individual delivery details
+        if (delivered.length > 0) {
+          toast.success(
+            `Push delivered to: ${delivered.map((d: any) => `${d.email} (${d.role})`).join(', ')}`,
+            { duration: 8000 }
+          );
+        }
+        if (failed.length > 0) {
+          toast.error(
+            `Push failed for: ${failed.map((d: any) => `${d.email} — ${d.error}`).join(', ')}`,
+            { duration: 10000 }
+          );
+        }
+        if (stale.length > 0) {
+          toast(
+            `Stale subscriptions removed: ${stale.map((d: any) => d.email).join(', ')}`,
+            { icon: '🧹', duration: 8000 }
+          );
+        }
+      } else {
+        const pushInfo =
+          result.push_sent > 0
+            ? ` (${result.push_sent} push delivered)`
+            : result.push_total_subscriptions === 0
+              ? ' (no push subscriptions found)'
+              : '';
+        toast.success(
+          `Notification sent to ${result.target_users_count} users!${pushInfo}`,
+          { duration: 5000 }
+        );
+      }
+
+      // Delay redirect so user can read the delivery details
+      setTimeout(() => router.push('/notifications/admin'), 3000);
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to send notification'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const getTargetSummary = () => {
+    const targets: string[] = [];
+
+    if (selectedInstitutionIds.length > 0) {
+      const names = selectedInstitutionIds.map((id: string) => {
+        const institution = institutions.find((i: any) => i.id === id);
+        return institution?.name || 'Selected';
+      });
+      targets.push(
+        `${names.length === 1 ? 'Institution' : `Institutions (${names.length})`}: ${names.join(', ')}`
+      );
+    }
+
+    if (watchedValues.department_id) {
+      const department = departments.find(
+        (d: any) => d.id === watchedValues.department_id
+      );
+      targets.push(`Department: ${(department as any)?.name || 'Selected'}`);
+    }
+
+    if (watchedValues.program_id) {
+      const program = programs.find(
+        (p: any) => p.id === watchedValues.program_id
+      );
+      targets.push(
+        `Program: ${
+          (program as any)?.program_name || (program as any)?.name || 'Selected'
+        }`
+      );
+    }
+
+    if (watchedValues.semester_id) {
+      const semester = semesters.find(
+        (s: any) => s.id === watchedValues.semester_id
+      );
+      targets.push(`Semester: ${semester?.semester_name || 'Selected'}`);
+    }
+
+    if (watchedValues.section_id) {
+      const section = sections.find(
+        (s: any) => s.id === watchedValues.section_id
+      );
+      targets.push(`Section: ${section?.section_name || 'Selected'}`);
+    }
+
+    if (watchedValues.target_roles && watchedValues.target_roles.length > 0) {
+      const roleLabels = watchedValues.target_roles.map((roleValue: string) => {
+        const role = availableRoles.find((r) => r.value === roleValue);
+        return role?.label || roleValue;
+      });
+      targets.push(`Roles: ${roleLabels.join(', ')}`);
+    }
+
+    if (watchedValues.audience_ids && watchedValues.audience_ids.length > 0) {
+      const audienceLabels = watchedValues.audience_ids.map((audienceId: string) => {
+        const audience = (audiences || []).find((a: any) => a.id === audienceId);
+        return audience?.name || audienceId;
+      });
+      targets.push(`Audiences: ${audienceLabels.join(', ')}`);
+    }
+
+    if (targets.length > 0) {
+      return targets;
+    }
+
+    // Show "All Users" only if user has permission, otherwise show guidance
+    return canSendToAll ? ['All Users'] : ['Select targeting criteria'];
+  };
+
+  // Auto-enable requires_acknowledgment when category is 'Action Required'
+  useEffect(() => {
+    if (watchedValues.category === 'Action Required' && !watchedValues.requires_acknowledgment) {
+      form.setValue('requires_acknowledgment', true);
+    }
+  }, [watchedValues.category, watchedValues.requires_acknowledgment, form]);
+
+  return (
+    <div className='space-y-6'>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+          {/* Basic Information */}
+          <div className='grid gap-4'>
+            <FormField
+              control={form.control}
+              name='title'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Title *</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder='Enter notification title'
+                      {...field}
+                      maxLength={100}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    A short, descriptive title for the notification
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='body'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Message *</FormLabel>
+                  <FormControl>
+                    <RichTextEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      placeholder='Enter notification message...'
+                      maxLength={2000}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Use the toolbar to format your message with bold, lists, and
+                    links
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+              <FormField
+                control={form.control}
+                name='priority'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Priority</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select priority' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='low'>Low</SelectItem>
+                        <SelectItem value='normal'>Normal</SelectItem>
+                        <SelectItem value='high'>High</SelectItem>
+                        <SelectItem value='urgent'>Urgent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='category'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select a category' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {notificationCategories.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+              <FormField
+                control={form.control}
+                name='url'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Action URL (Optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='https://example.com/page'
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      URL to open when notification is clicked. A YouTube link
+                      also shows recipients a preview card.
+                    </FormDescription>
+                    <FormMessage />
+                    {linkPreview && (
+                      <div className='mt-3 space-y-1.5'>
+                        <p className='text-xs font-medium text-muted-foreground'>
+                          {resolvingLinkPreview
+                            ? 'Loading video details…'
+                            : 'Recipients will see this card:'}
+                        </p>
+                        <YouTubePreviewCard
+                          preview={linkPreview}
+                          className='max-w-sm'
+                        />
+                      </div>
+                    )}
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='icon'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Icon URL (Optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='https://example.com/icon.png'
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Custom icon for the notification
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Targeting Options */}
+          <div>
+            <div className='mb-4'>
+              <h3 className='text-lg font-medium'>Target Audience</h3>
+              <p className='text-sm text-muted-foreground mt-1'>
+                {canSendToAll
+                  ? 'Leave all fields empty to send to ALL USERS, or select specific targeting criteria: Institution → Department → Program → Semester → Section'
+                  : 'Select targeting criteria in hierarchy: Institution → Department → Program → Semester → Section'}
+              </p>
+              {!canSendToAll && (
+                <div className='mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800'>
+                  <strong>Note:</strong> You don&apos;t have permission to send
+                  notifications to all users. Please select specific targeting
+                  criteria.
+                </div>
+              )}
+              {restrictToLearners && (
+                <p className='mt-2 text-xs text-muted-foreground'>
+                  As a council office bearer you can send to learners in your
+                  colleges.
+                </p>
+              )}
+            </div>
+            <div className='grid gap-4'>
+              <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                <FormField
+                  control={form.control}
+                  name='institution_ids'
+                  render={({ field }) => (
+                    <FormItem className='md:col-span-2'>
+                      <div className='flex items-center justify-between'>
+                        <FormLabel>Institutions</FormLabel>
+                        {selectedInstitutionIds.length > 0 && (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='h-auto py-0 text-xs'
+                            onClick={() => {
+                              form.setValue('institution_ids', []);
+                              form.setValue('department_id', undefined);
+                              form.setValue('program_id', undefined);
+                              form.setValue('semester_id', undefined);
+                              form.setValue('section_id', undefined);
+                            }}
+                          >
+                            Clear ({selectedInstitutionIds.length})
+                          </Button>
+                        )}
+                      </div>
+                      <p className='text-xs text-muted-foreground mb-2'>
+                        {selectedInstitutionIds.length === 0
+                          ? 'None selected = all institutions. Tick one or more to narrow (e.g. Dental + Pharmacy).'
+                          : selectedInstitutionIds.length === 1
+                            ? 'One institution selected — you can narrow further by department below.'
+                            : `${selectedInstitutionIds.length} institutions selected. Department and below are unavailable across multiple institutions — combine with Role targeting instead (e.g. Learner).`}
+                      </p>
+                      <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1'>
+                        {institutions.map((institution: any) => (
+                          <div
+                            key={institution.id}
+                            className='flex items-start gap-2 p-2 border rounded-lg hover:bg-muted/50'
+                          >
+                            <Checkbox
+                              id={`inst-${institution.id}`}
+                              checked={
+                                field.value?.includes(institution.id) || false
+                              }
+                              onCheckedChange={(checked) =>
+                                handleInstitutionToggle(
+                                  institution.id,
+                                  checked === true
+                                )
+                              }
+                            />
+                            <label
+                              htmlFor={`inst-${institution.id}`}
+                              className='text-sm font-medium cursor-pointer leading-tight'
+                            >
+                              {institution.name}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='department_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{adapt('Department')}</FormLabel>
+                      <Select
+                        onValueChange={handleDepartmentChange}
+                        value={field.value || ''}
+                        disabled={!selectedInstitutionId}
+                        key={`dept-${selectedInstitutionId}`}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                selectedInstitutionId
+                                  ? `All ${adapt('departments')}`
+                                  : 'Select institution first'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {departments.length > 0 ? (
+                            departments.map((department: any) => (
+                              <SelectItem
+                                key={department.id}
+                                value={department.id}
+                              >
+                                {(department as any).department_name ||
+                                  (department as any).name}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value='no-departments' disabled>
+                              {selectedInstitutionId
+                                ? `No ${adapt('departments')} found`
+                                : 'Select institution first'}
+                            </SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+                <FormField
+                  control={form.control}
+                  name='program_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{adapt('Program')}</FormLabel>
+                      <Select
+                        onValueChange={handleProgramChange}
+                        value={field.value || ''}
+                        disabled={!selectedDepartmentId}
+                        key={`prog-${selectedDepartmentId}`}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                selectedDepartmentId
+                                  ? `All ${adapt('programs')}`
+                                  : 'Select department first'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {programs.length > 0 ? (
+                            programs.map((program: any) => (
+                              <SelectItem key={program.id} value={program.id}>
+                                {(program as any).program_name ||
+                                  (program as any).name}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value='no-programs' disabled>
+                              {selectedDepartmentId
+                                ? `No ${adapt('programs')} found`
+                                : 'Select department first'}
+                            </SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='semester_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{adapt('Semester')}</FormLabel>
+                      <Select
+                        onValueChange={handleSemesterChange}
+                        value={field.value || ''}
+                        disabled={!selectedProgramId}
+                        key={`sem-${selectedProgramId}`}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                selectedProgramId
+                                  ? `All ${adapt('semesters')}`
+                                  : 'Select program first'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {semesters.length > 0 ? (
+                            semesters.map((semester: any) => (
+                              <SelectItem key={semester.id} value={semester.id}>
+                                {semester.semester_name ||
+                                  `Semester ${semester.semester_code}`}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value='no-semesters' disabled>
+                              {selectedProgramId
+                                ? 'No semesters found'
+                                : 'Select program first'}
+                            </SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='section_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Section</FormLabel>
+                      <Select
+                        onValueChange={handleSectionChange}
+                        value={field.value || ''}
+                        disabled={!selectedSemesterId}
+                        key={`sec-${selectedSemesterId}`}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                selectedSemesterId
+                                  ? 'All sections'
+                                  : 'Select semester first'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {sections.length > 0 ? (
+                            sections.map((section: any) => (
+                              <SelectItem key={section.id} value={section.id}>
+                                {section.section_name}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value='no-sections' disabled>
+                              {selectedSemesterId
+                                ? 'No sections found'
+                                : 'Select semester first'}
+                            </SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Saved Audiences */}
+              <div>
+                <h4 className='text-md font-medium mb-3 flex items-center gap-2'>
+                  <Users className='h-4 w-4' />
+                  Saved Audiences (Optional)
+                </h4>
+                <p className='text-sm text-muted-foreground mb-3'>
+                  Target predefined groups like &quot;Hostel Residents&quot;, &quot;Work Pulse Laggards&quot;, etc.
+                  <Link href='/notifications/admin/audiences' className='ml-2 text-primary hover:underline'>
+                    Manage audiences →
+                  </Link>
+                </p>
+                <FormField
+                  control={form.control}
+                  name='audience_ids'
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
+                        {(audiences || []).map((audience: any) => (
+                          <div key={audience.id} className='flex items-start gap-2 p-3 border rounded-lg hover:bg-muted/50'>
+                            <Checkbox
+                              id={audience.id}
+                              checked={field.value?.includes(audience.id) || false}
+                              onCheckedChange={(checked) => {
+                                const current = field.value || [];
+                                field.onChange(
+                                  checked ? [...current, audience.id] : current.filter((id: string) => id !== audience.id)
+                                );
+                              }}
+                            />
+                            <div className='flex-1 min-w-0'>
+                              <label htmlFor={audience.id} className='text-sm font-medium cursor-pointer'>
+                                {audience.name}
+                              </label>
+                              {audience.description && (
+                                <p className='text-xs text-muted-foreground truncate'>{audience.description}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Role-based Targeting */}
+              <div>
+                <h4 className='text-md font-medium mb-3'>
+                  Role-based Targeting (Optional)
+                </h4>
+                <p className='text-sm text-muted-foreground mb-3'>
+                  Select specific user roles to target. If no roles are
+                  selected, all roles will receive the notification.
+                </p>
+                <FormField
+                  control={form.control}
+                  name='target_roles'
+                  render={({ field }) => (
+                    <FormItem>
+                      {rolesLoading ? (
+                        <div className='flex items-center justify-center py-8'>
+                          <div className='text-sm text-muted-foreground'>
+                            Loading roles...
+                          </div>
+                        </div>
+                      ) : (
+                        <div className='space-y-3'>
+                          {/* Select All / Deselect All */}
+                          <div className='flex items-center justify-between px-2 pb-2 border-b'>
+                            <div className='flex items-center space-x-2'>
+                              <Checkbox
+                                id='role-select-all'
+                                checked={
+                                  availableRoles.length > 0 &&
+                                  availableRoles.every((r) => field.value?.includes(r.value))
+                                }
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    field.onChange(availableRoles.map((r) => r.value));
+                                  } else {
+                                    field.onChange([]);
+                                  }
+                                }}
+                              />
+                              <Label htmlFor='role-select-all' className='text-sm font-medium cursor-pointer'>
+                                Select All Roles
+                              </Label>
+                            </div>
+                            <span className='text-xs text-muted-foreground'>
+                              {field.value?.length || 0}/{availableRoles.length} selected
+                            </span>
+                          </div>
+                        <div className='grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3'>
+                          {availableRoles.map((role) => (
+                            <div
+                              key={role.value}
+                              className='flex items-center justify-center space-x-2 p-2 sm:p-3 border rounded-lg hover:bg-muted/50 transition-colors'
+                            >
+                              <Checkbox
+                                id={role.value}
+                                checked={
+                                  field.value?.includes(role.value) || false
+                                }
+                                onCheckedChange={(checked) => {
+                                  const currentRoles = field.value || [];
+                                  if (checked) {
+                                    field.onChange([
+                                      ...currentRoles,
+                                      role.value
+                                    ]);
+                                  } else {
+                                    field.onChange(
+                                      currentRoles.filter(
+                                        (r: string) => r !== role.value
+                                      )
+                                    );
+                                  }
+                                }}
+                                className='mt-0.5'
+                              />
+                              <div className='flex-1'>
+                                <label
+                                  htmlFor={role.value}
+                                  className='text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer'
+                                >
+                                  {role.label}
+                                </label>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        </div>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Target Summary */}
+              <Card>
+                <CardHeader className='pb-3'>
+                  <CardTitle className='text-sm flex items-center justify-between'>
+                    <div className='flex items-center gap-2'>
+                      <Users className='h-4 w-4' />
+                      Target Summary
+                    </div>
+                    {(watchedValues.institution_id ||
+                      watchedValues.department_id ||
+                      watchedValues.program_id ||
+                      watchedValues.semester_id ||
+                      watchedValues.section_id ||
+                      (watchedValues.target_roles &&
+                        watchedValues.target_roles.length > 0) ||
+                      (watchedValues.audience_ids &&
+                        watchedValues.audience_ids.length > 0)) && (
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        onClick={clearAllTargeting}
+                        className='text-xs'
+                      >
+                        Clear All
+                      </Button>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='pt-0'>
+                  <div className='flex flex-wrap gap-2'>
+                    {getTargetSummary().map((target, index) => (
+                      <Badge key={index} variant='secondary'>
+                        {target}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Mandatory Acknowledgment */}
+          <div>
+            <div className='mb-4'>
+              <h3 className='text-lg font-medium'>Mandatory Acknowledgment</h3>
+              <p className='text-sm text-muted-foreground mt-1'>
+                When enabled, recipients must explicitly acknowledge this
+                notification. They cannot use MyJKKN until they do.
+              </p>
+            </div>
+            <div className='space-y-4'>
+              <FormField
+                control={form.control}
+                name='requires_acknowledgment'
+                render={({ field }) => (
+                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-base font-medium'>
+                        Require Acknowledgment
+                      </FormLabel>
+                      <FormDescription>
+                        Recipients will see a blocking modal and must tap
+                        &quot;I Acknowledge&quot; before using the app.
+                        Permanently recorded.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value || false}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              {watchedValues.requires_acknowledgment && (
+                <FormField
+                  control={form.control}
+                  name='acknowledgment_deadline_hours'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Acknowledgment Deadline</FormLabel>
+                      <Select
+                        onValueChange={(v) => field.onChange(Number(v))}
+                        value={String(field.value || 4)}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select deadline' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='1'>1 hour</SelectItem>
+                          <SelectItem value='2'>2 hours</SelectItem>
+                          <SelectItem value='4'>
+                            4 hours (JKKN SOP default)
+                          </SelectItem>
+                          <SelectItem value='8'>8 hours</SelectItem>
+                          <SelectItem value='24'>24 hours</SelectItem>
+                          <SelectItem value='48'>48 hours</SelectItem>
+                          <SelectItem value='72'>72 hours</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        After this deadline, non-compliance is escalated to
+                        supervisors
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Action Configuration - shown only when category is 'Action Required' */}
+          {watchedValues.category === 'Action Required' && (
+            <>
+              <Separator />
+              <div>
+                <div className='mb-4'>
+                  <h3 className='text-lg font-medium flex items-center gap-2'>
+                    <Zap className='h-5 w-5' />
+                    Action Configuration
+                  </h3>
+                  <p className='text-sm text-muted-foreground mt-1'>
+                    Configure what response the recipient must provide.
+                  </p>
+                </div>
+                <div className='space-y-4'>
+                  {/* Action Urgency */}
+                  <FormField
+                    control={form.control}
+                    name='action_type'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Action Urgency</FormLabel>
+                        <FormControl>
+                          <RadioGroup
+                            onValueChange={field.onChange}
+                            value={field.value || ''}
+                            className='grid grid-cols-2 gap-3'
+                          >
+                            <div className='flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'>
+                              <RadioGroupItem value='urgent' id='action-urgent' />
+                              <label htmlFor='action-urgent' className='cursor-pointer flex-1'>
+                                <div className='text-sm font-medium'>Urgent</div>
+                                <div className='text-xs text-muted-foreground'>
+                                  Blocks app usage until responded
+                                </div>
+                              </label>
+                            </div>
+                            <div className='flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'>
+                              <RadioGroupItem value='tracked' id='action-tracked' />
+                              <label htmlFor='action-tracked' className='cursor-pointer flex-1'>
+                                <div className='text-sm font-medium'>Tracked</div>
+                                <div className='text-xs text-muted-foreground'>
+                                  Non-blocking, deadline enforced
+                                </div>
+                              </label>
+                            </div>
+                          </RadioGroup>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Response Type */}
+                  <FormField
+                    control={form.control}
+                    name='action_response_type'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Response Type</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value || ''}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select what the recipient must submit' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='text'>Text Response</SelectItem>
+                            <SelectItem value='file'>File Upload</SelectItem>
+                            <SelectItem value='form'>Checklist / Form</SelectItem>
+                            <SelectItem value='link'>Confirm Link Visited</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {field.value === 'text' && 'Recipient writes a free-text response (min 10 characters).'}
+                          {field.value === 'file' && 'Recipient uploads a file (max 25MB).'}
+                          {field.value === 'form' && 'Recipient completes a checklist you define below.'}
+                          {field.value === 'link' && 'Recipient must visit a link and confirm they read it.'}
+                          {!field.value && 'Choose the type of response required from recipients.'}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Form Items Builder - shown when response type is 'form' */}
+                  {watchedValues.action_response_type === 'form' && (
+                    <div className='space-y-3'>
+                      <div className='flex items-center justify-between'>
+                        <Label className='text-sm font-medium flex items-center gap-2'>
+                          <ListChecks className='h-4 w-4' />
+                          Checklist Items
+                        </Label>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={() => {
+                            const current = form.getValues('action_form_items') || [];
+                            form.setValue('action_form_items', [
+                              ...current,
+                              { id: crypto.randomUUID(), title: '', description: '' }
+                            ]);
+                          }}
+                        >
+                          <Plus className='h-3.5 w-3.5 mr-1' />
+                          Add Item
+                        </Button>
+                      </div>
+                      <p className='text-xs text-muted-foreground'>
+                        Define the checklist items recipients must complete.
+                      </p>
+                      {(watchedValues.action_form_items || []).length === 0 && (
+                        <div className='p-4 border border-dashed rounded-lg text-center text-sm text-muted-foreground'>
+                          No checklist items yet. Click &quot;Add Item&quot; to create one.
+                        </div>
+                      )}
+                      {(watchedValues.action_form_items || []).map((item: any, index: number) => (
+                        <div key={item.id} className='flex items-start gap-2 p-3 border rounded-lg'>
+                          <div className='flex-1 space-y-2'>
+                            <Input
+                              placeholder={`Item ${index + 1} title (required)`}
+                              value={item.title}
+                              onChange={(e) => {
+                                const items = [...(form.getValues('action_form_items') || [])];
+                                items[index] = { ...items[index], title: e.target.value };
+                                form.setValue('action_form_items', items);
+                              }}
+                            />
+                            <Input
+                              placeholder='Description (optional)'
+                              value={item.description || ''}
+                              onChange={(e) => {
+                                const items = [...(form.getValues('action_form_items') || [])];
+                                items[index] = { ...items[index], description: e.target.value };
+                                form.setValue('action_form_items', items);
+                              }}
+                              className='text-sm'
+                            />
+                          </div>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            className='h-8 w-8 shrink-0 text-destructive hover:text-destructive'
+                            onClick={() => {
+                              const items = (form.getValues('action_form_items') || []).filter(
+                                (_: any, i: number) => i !== index
+                              );
+                              form.setValue('action_form_items', items);
+                            }}
+                          >
+                            <Trash2 className='h-4 w-4' />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Link URL - shown when response type is 'link' */}
+                  {watchedValues.action_response_type === 'link' && (
+                    <FormField
+                      control={form.control}
+                      name='action_link_url'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className='flex items-center gap-2'>
+                            <Link2 className='h-4 w-4' />
+                            Link URL
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='https://...'
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            The URL the recipient must visit and confirm they have read.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          <Separator />
+
+          {/* Attachments */}
+          <div>
+            <div className='mb-4'>
+              <h3 className='text-lg font-medium flex items-center gap-2'>
+                <Paperclip className='h-5 w-5' />
+                Attachments (Optional)
+              </h3>
+              <p className='text-sm text-muted-foreground mt-1'>
+                Attach files to send with this notification. Supported: PDF, Word, Excel, PowerPoint, images (PNG, JPG, GIF, WebP), MP4 video, MP3 audio (max {MAX_FILE_SIZE_MB}MB each, up to {MAX_ATTACHMENTS} files)
+              </p>
+            </div>
+
+            {/* File upload input */}
+            <div className='space-y-3'>
+              <div className='flex items-center gap-3'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={attachments.length >= MAX_ATTACHMENTS || uploadingFiles}
+                  onClick={() => document.getElementById('notification-file-input')?.click()}
+                >
+                  <Paperclip className='mr-2 h-4 w-4' />
+                  Add Files
+                </Button>
+                <input
+                  id='notification-file-input'
+                  type='file'
+                  accept={ALLOWED_EXTENSIONS}
+                  multiple
+                  className='hidden'
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    const validFiles: AttachmentFile[] = [];
+
+                    for (const file of files) {
+                      if (attachments.length + validFiles.length >= MAX_ATTACHMENTS) {
+                        toast.error(`Maximum ${MAX_ATTACHMENTS} attachments allowed`);
+                        break;
+                      }
+                      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+                        toast.error(`"${file.name}" exceeds ${MAX_FILE_SIZE_MB}MB limit`);
+                        continue;
+                      }
+                      // Browsers do not always populate file.type (empty string or
+                      // application/octet-stream) for legacy/Office docs, so fall back
+                      // to the extension the picker's `accept` list already permits.
+                      const fileExt = '.' + (file.name.split('.').pop() || '').toLowerCase();
+                      const isAllowedType =
+                        ALLOWED_FILE_TYPES.includes(file.type) ||
+                        ALLOWED_EXTENSIONS.split(',').includes(fileExt);
+                      if (!isAllowedType) {
+                        toast.error(`"${file.name}" is not a supported file type`);
+                        continue;
+                      }
+                      validFiles.push({
+                        file,
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                      });
+                    }
+
+                    if (validFiles.length > 0) {
+                      setAttachments((prev) => [...prev, ...validFiles]);
+                    }
+                    // Reset input so the same file can be re-added if removed
+                    e.target.value = '';
+                  }}
+                />
+                {attachments.length > 0 && (
+                  <span className='text-xs text-muted-foreground'>
+                    {attachments.length}/{MAX_ATTACHMENTS} files attached
+                  </span>
+                )}
+              </div>
+
+              {/* Attached files list */}
+              {attachments.length > 0 && (
+                <div className='space-y-2'>
+                  {attachments.map((att, index) => (
+                    <div
+                      key={`${att.name}-${index}`}
+                      className='flex items-center justify-between p-2 rounded-lg border bg-muted/30'
+                    >
+                      <div className='flex items-center gap-2 min-w-0'>
+                        {getFileIcon(att.type)}
+                        <span className='text-sm truncate'>{att.name}</span>
+                        <span className='text-xs text-muted-foreground shrink-0'>
+                          ({formatFileSize(att.size)})
+                        </span>
+                      </div>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='icon'
+                        className='h-7 w-7 shrink-0'
+                        onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== index))}
+                      >
+                        <X className='h-3.5 w-3.5' />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Preview */}
+          {previewMode && (
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-sm flex items-center gap-2'>
+                  <Bell className='h-4 w-4' />
+                  Notification Preview
+                </CardTitle>
+                <CardDescription>
+                  This is how your notification will appear to users
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className='border rounded-lg p-4 bg-muted/50'>
+                  <div className='flex items-start gap-3'>
+                    <div className='w-8 h-8 bg-primary rounded-lg flex items-center justify-center'>
+                      <Bell className='h-4 w-4 text-primary-foreground' />
+                    </div>
+                    <div className='flex-1'>
+                      <h4 className='font-medium'>
+                        {watchedValues.title || 'Notification Title'}
+                      </h4>
+                      <div className='text-sm text-muted-foreground mt-1'>
+                        {watchedValues.body ? (
+                          <RichTextDisplay content={watchedValues.body} />
+                        ) : (
+                          <p>Notification message body...</p>
+                        )}
+                      </div>
+                      <div className='flex items-center gap-2 mt-2'>
+                        <Badge variant='outline' className='text-xs'>
+                          {watchedValues.priority}
+                        </Badge>
+                        <span className='text-xs text-muted-foreground'>
+                          just now
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Actions */}
+          <div className='flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2'>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setPreviewMode(!previewMode)}
+              className='w-full sm:w-auto'
+            >
+              {previewMode ? 'Hide Preview' : 'Show Preview'}
+            </Button>
+
+            <div className='flex items-center gap-2'>
+              <Button
+                type='button'
+                variant='outline'
+                onClick={() => router.back()}
+                className='flex-1 sm:flex-none'
+              >
+                Cancel
+              </Button>
+              <Button type='submit' disabled={isSubmitting || uploadingFiles} className='flex-1 sm:flex-none'>
+                {uploadingFiles ? (
+                  'Uploading files...'
+                ) : isSubmitting ? (
+                  'Sending...'
+                ) : (
+                  <>
+                    <Send className='mr-2 h-4 w-4' />
+                    Send
+                    <span className='hidden sm:inline'>&nbsp;Notification</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </Form>
+    </div>
+  );
+}

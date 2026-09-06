@@ -27,6 +27,44 @@ import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useRouter } from 'next/navigation';
 
+type FailedDelete = { id: string; error: string };
+
+function showDeleteFailureToasts(failed: FailedDelete[]) {
+  const billingBlocked: FailedDelete[] = [];
+  const placementBlocked: FailedDelete[] = [];
+  const other: FailedDelete[] = [];
+
+  for (const f of failed) {
+    const msg = (f.error || '').toLowerCase();
+    if (msg.includes('fk_billing_') || msg.includes('billing_invoices') || msg.includes('billing_receipts') || msg.includes('billing_student_bills')) {
+      billingBlocked.push(f);
+    } else if (msg.includes('cdc_placements')) {
+      placementBlocked.push(f);
+    } else {
+      other.push(f);
+    }
+  }
+
+  if (billingBlocked.length > 0) {
+    toast.error(
+      `${billingBlocked.length} record${billingBlocked.length > 1 ? 's' : ''} could not be deleted — they have billing records (invoices, receipts, or bills). Cancel or reassign those first.`,
+      { duration: 7000 }
+    );
+  }
+  if (placementBlocked.length > 0) {
+    toast.error(
+      `${placementBlocked.length} record${placementBlocked.length > 1 ? 's' : ''} could not be deleted — they have CDC placement records attached.`,
+      { duration: 7000 }
+    );
+  }
+  if (other.length > 0) {
+    toast.error(
+      `Failed to delete ${other.length} record${other.length > 1 ? 's' : ''}.`,
+      { duration: 5000 }
+    );
+  }
+}
+
 interface EnquiriesTableServerProps {
   initialData: LearnerProfile[];
   metadata: {
@@ -35,7 +73,20 @@ interface EnquiriesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted' | 'fees_setup_pending';
+  // 2026-05-20: Extended for the new workflow tabs.
+  // 2026-05-23: Added 'all' for global cross-status search.
+  statusFilter?:
+    | 'all'
+    | 'enquiry'
+    | 'enquiry_submitted'
+    | 'admitted'
+    | 'pending'
+    | 'approved'
+    | 'account'
+    | 'reserved'
+    | 'rejected'
+    | 'waitlisted'
+    | 'fees_setup_pending';
 }
 
 /**
@@ -147,19 +198,13 @@ export function EnquiriesTableServer({
           `${success.length} enquiry record${success.length > 1 ? 's' : ''} deleted successfully`,
           { duration: 4000 }
         );
-        toast.error(
-          `Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`,
-          { duration: 5000 }
-        );
+        showDeleteFailureToasts(failed);
         // Refresh to get accurate state
         setTimeout(() => {
           window.location.reload();
         }, 2000);
       } else if (failed.length > 0) {
-        toast.error(
-          `Failed to delete ${failed.length} record${failed.length > 1 ? 's' : ''}`,
-          { duration: 5000 }
-        );
+        showDeleteFailureToasts(failed);
       }
     } catch (error) {
       console.error('[learners/enquiries] Error deleting records:', error);

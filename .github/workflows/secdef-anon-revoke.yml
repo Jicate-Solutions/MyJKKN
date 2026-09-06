@@ -1,0 +1,78 @@
+name: SECURITY DEFINER anon-lock
+
+# Every NEW SECURITY DEFINER function added in a migration must explicitly lock
+# anon access (REVOKE EXECUTE ... FROM anon, or an explicit GRANT ... TO anon for
+# intentionally-public RPCs). Enforces the CLAUDE.md rule "Lock new RPCs from anon".
+#
+# WHY this is a CI guard and not a database default: on hosted Supabase the
+# built-in PUBLIC EXECUTE grant on functions cannot be reliably suppressed via
+# ALTER DEFAULT PRIVILEGES (the supabase_admin owner default can't be altered,
+# and the PUBLIC grant persists). The deterministic fix is this per-PR check.
+# See scripts/ci/check-secdef-anon-revoke.mjs header + the 2026-06-16 sweep.
+#
+# SECOND ASSERTION (2026-08-19): a SECURITY DEFINER function that every SIGNED-IN
+# user can reach — via a GRANT to `authenticated`, a GRANT to PUBLIC, or the
+# Postgres PUBLIC default left un-revoked — must also show an authorization check
+# in its body, or carry `-- ci:allow-secdef-authenticated <reason>`. PR #3130
+# shipped three functions that locked anon correctly, granted `authenticated`, and
+# checked nothing: any of 7,317 signed-in users could arm a platform-wide meeting
+# lockout, and all 28 CI checks were green. Fixed in 20260901140000 (PR #3132).
+#
+# PR-scoped: inspects only migration files ADDED relative to the PR base, so the
+# large backlog of pre-existing unlocked functions does not fail every PR.
+# Static SQL-text scan (like the Radix empty-value gate) — see script for limits.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      # The gate and its tests, so editing the gate runs the gate's own tests.
+      - 'scripts/ci/check-secdef-anon-revoke.mjs'
+      - '__tests__/ci/check-secdef-authenticated-guard.test.ts'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: New SECURITY DEFINER functions lock anon
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run guard
+        run: node scripts/ci/check-secdef-anon-revoke.mjs --base "origin/${{ github.base_ref }}"
+
+  self-test:
+    name: The gate's own tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # A gate that is not itself tested is a gate that quietly stops gating —
+      # and this one already did it once, in the only way that matters: it was
+      # green on the leak. Every trap has a fixture, including the two that broke
+      # earlier attempts (auth.uid() used to RECORD rather than CHECK, and
+      # authenticated reaching a function through PUBLIC after being revoked).
+      - name: Test the gate
+        run: npx vitest run __tests__/ci/check-secdef-authenticated-guard.test.ts

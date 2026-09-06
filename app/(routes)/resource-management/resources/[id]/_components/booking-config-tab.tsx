@@ -98,7 +98,7 @@ export function BookingConfigTab({ resource }: BookingConfigTabProps) {
             <CardContent className='space-y-6'>
               {/* Availability Mode */}
               <div className='space-y-2'>
-                <div className='flex items-center justify-between'>
+                <div className='flex flex-wrap items-center justify-between gap-2'>
                   <span className='text-sm font-medium'>Availability Mode</span>
                   <Badge variant='outline' className='text-sm'>
                     {getAvailabilityModeLabel(dateAvailability.mode)}
@@ -257,7 +257,7 @@ export function BookingConfigTab({ resource }: BookingConfigTabProps) {
 
               {/* Slot Generation Method */}
               <div className='space-y-2'>
-                <div className='flex items-center justify-between'>
+                <div className='flex flex-wrap items-center justify-between gap-2'>
                   <span className='text-sm font-medium'>Slot Generation Method</span>
                   <Badge variant='outline' className='text-sm'>
                     {timeSlotConfig.slot_generation === 'automatic'

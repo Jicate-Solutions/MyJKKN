@@ -16,8 +16,15 @@ export default function VenuesPage({ params }: { params: Promise<{ id: string }>
   const { id } = use(params);
   const router = useRouter();
 
-  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params
+  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params.
+  // The early return lives below the hooks — above them it made useEvent and
+  // useAuth conditional, tripping "Expected static flag was missing". useEvent
+  // gates `enabled` on isValidUUID, so a placeholder fetches nothing.
   const isValidId = !!id && !id.includes('%%drp:') && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+  const { data: event } = useEvent(id);
+  const { profile, isLoading: authLoading } = useAuth();
+
   if (!isValidId) {
     return (
       <ContentLayout title="Venues & Mentors">
@@ -27,9 +34,6 @@ export default function VenuesPage({ params }: { params: Promise<{ id: string }>
       </ContentLayout>
     );
   }
-
-  const { data: event } = useEvent(id);
-  const { profile, isLoading: authLoading } = useAuth();
 
   // Role detection — same logic as events/[id]/page.tsx and my-assignment page
   const isAdmin =

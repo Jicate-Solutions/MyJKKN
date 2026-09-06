@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
+import { resolveBosBoardScope, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/scope ───────────────────────────────────────────────────────
 // Returns the current user's board-level access scope so the client UI can
@@ -16,9 +16,17 @@ export async function GET() {
 
   const scope = await resolveBosBoardScope(user.id);
 
+  // Read-only observer signal: holds the compositions view grant but sits on
+  // no board — the client badges these callers as view-only. VIEW ONLY.
+  const canReadAllBos = isBosReadAllObserver(
+    scope,
+    await hasBosPermission(user.id, 'academic.bos-compositions.view')
+  );
+
   return NextResponse.json(
     {
       isSuperAdmin: scope.isSuperAdmin,
+      canReadAllBos,
       isPrincipal: scope.isPrincipal,
       role: scope.role,
       institutionsId: scope.institutionsId,
@@ -29,6 +37,7 @@ export async function GET() {
       isChairmanIn: Array.from(scope.isChairmanIn),
       boardsOf: Array.from(scope.boardsOf),
       chairmanForBoards: Array.from(scope.chairmanForBoards),
+      institutionsOf: Array.from(scope.institutionsOf),
     },
     {
       headers: { 'Cache-Control': 'no-store' },

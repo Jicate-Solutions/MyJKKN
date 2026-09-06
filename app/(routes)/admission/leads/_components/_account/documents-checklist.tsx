@@ -83,7 +83,7 @@ export function DocumentsChecklist({
       {requiredDocTypes.map((dt) => {
         const e = entries[dt] ?? { checked: false };
         return (
-          <div key={dt} className="flex items-center gap-3">
+          <div key={dt} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             <Checkbox
               checked={e.checked}
               onCheckedChange={(checked) =>
@@ -93,7 +93,7 @@ export function DocumentsChecklist({
                 }))
               }
             />
-            <span className="w-40 text-sm font-medium capitalize">
+            <span className="w-full sm:w-40 text-sm font-medium capitalize">
               {dt.replace(/_/g, ' ')}
             </span>
             {e.checked && (
@@ -107,7 +107,7 @@ export function DocumentsChecklist({
                     }))
                   }
                 >
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="w-full sm:w-32">
                     <SelectValue placeholder="Via…" />
                   </SelectTrigger>
                   <SelectContent>

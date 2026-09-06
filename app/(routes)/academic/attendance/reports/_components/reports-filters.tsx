@@ -29,6 +29,7 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface ReportsFiltersProps {
   searchParams: AttendanceReportsSearchParams;
@@ -41,9 +42,13 @@ export function ReportsFilters({
   onFilterChange,
   onClearFilters
 }: ReportsFiltersProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  // Open by default. The reports below cannot run until Institution, Academic
+  // Year and Semester are chosen, so opening collapsed hid the only controls
+  // that make the page do anything.
+  const [isOpen, setIsOpen] = useState(true);
   const { isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
+  const label = useAdaptiveLabels();
 
   // Organization data hooks with refetch capabilities (matching attendance filter pattern)
   const { institutions: institutionsData, refetch: fetchInstitutions } =
@@ -360,7 +365,7 @@ export function ReportsFilters({
 
               {/* Degree */}
               <div className='space-y-2'>
-                <Label htmlFor='degree'>Degree</Label>
+                <Label htmlFor='degree'>{label('Degree')}</Label>
                 <Select
                   value={searchParams.degree_id || 'all'}
                   onValueChange={(value) =>
@@ -369,10 +374,10 @@ export function ReportsFilters({
                   disabled={!searchParams.institution_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select degree' />
+                    <SelectValue placeholder={`Select ${label('degree')}`} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='all'>All Degrees</SelectItem>
+                    <SelectItem value='all'>{label('All Degrees')}</SelectItem>
                     {degrees.map((degree: any) => (
                       <SelectItem key={degree.id} value={degree.id}>
                         {degree.degree_name}
@@ -384,7 +389,7 @@ export function ReportsFilters({
 
               {/* Department */}
               <div className='space-y-2'>
-                <Label htmlFor='department'>Department</Label>
+                <Label htmlFor='department'>{label('Department')}</Label>
                 <Select
                   value={searchParams.department_id || 'all'}
                   onValueChange={(value) =>
@@ -393,10 +398,10 @@ export function ReportsFilters({
                   disabled={!searchParams.degree_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select department' />
+                    <SelectValue placeholder={`Select ${label('department')}`} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='all'>All Departments</SelectItem>
+                    <SelectItem value='all'>{label('All Departments')}</SelectItem>
                     {departments.map((department: any) => (
                       <SelectItem key={department.id} value={department.id}>
                         {department.department_name}
@@ -408,7 +413,7 @@ export function ReportsFilters({
 
               {/* Program */}
               <div className='space-y-2'>
-                <Label htmlFor='program'>Program</Label>
+                <Label htmlFor='program'>{label('Program')}</Label>
                 <Select
                   value={searchParams.program_id || 'all'}
                   onValueChange={(value) =>
@@ -417,10 +422,10 @@ export function ReportsFilters({
                   disabled={!searchParams.department_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select program' />
+                    <SelectValue placeholder={`Select ${label('program')}`} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='all'>All Programs</SelectItem>
+                    <SelectItem value='all'>{label('All Programs')}</SelectItem>
                     {programs.map((program: any) => (
                       <SelectItem key={program.id} value={program.id}>
                         {program.program_name}
@@ -432,7 +437,7 @@ export function ReportsFilters({
 
               {/* Semester */}
               <div className='space-y-2'>
-                <Label htmlFor='semester'>Semester</Label>
+                <Label htmlFor='semester'>{label('Semester')}</Label>
                 <Select
                   value={searchParams.semester_id || 'all'}
                   onValueChange={(value) =>
@@ -441,10 +446,10 @@ export function ReportsFilters({
                   disabled={!searchParams.program_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select semester' />
+                    <SelectValue placeholder={`Select ${label('semester')}`} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='all'>All Semesters</SelectItem>
+                    <SelectItem value='all'>{label('All Semesters')}</SelectItem>
                     {semesters.map((semester: any) => (
                       <SelectItem key={semester.id} value={semester.id}>
                         {semester.semester_name}
@@ -456,7 +461,7 @@ export function ReportsFilters({
 
               {/* Section */}
               <div className='space-y-2'>
-                <Label htmlFor='section'>Section</Label>
+                <Label htmlFor='section'>{label('Section')}</Label>
                 <Select
                   value={searchParams.section_id || 'all'}
                   onValueChange={(value) =>
@@ -465,13 +470,13 @@ export function ReportsFilters({
                   disabled={!searchParams.semester_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select section' />
+                    <SelectValue placeholder={`Select ${label('section')}`} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='all'>All Sections</SelectItem>
+                    <SelectItem value='all'>{label('All Sections')}</SelectItem>
                     {sections.map((section: any) => (
                       <SelectItem key={section.id} value={section.id}>
-                        Section {section.section_name}
+                        {label('Section')} {section.section_name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -499,6 +504,34 @@ export function ReportsFilters({
                     <SelectItem value='pending'>Pending</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* From Date */}
+              <div className='space-y-2'>
+                <Label htmlFor='date_from'>From Date</Label>
+                <Input
+                  id='date_from'
+                  type='date'
+                  max={searchParams.date_to || undefined}
+                  value={searchParams.date_from || ''}
+                  onChange={(e) =>
+                    onFilterChange('date_from', e.target.value || undefined)
+                  }
+                />
+              </div>
+
+              {/* To Date */}
+              <div className='space-y-2'>
+                <Label htmlFor='date_to'>To Date</Label>
+                <Input
+                  id='date_to'
+                  type='date'
+                  min={searchParams.date_from || undefined}
+                  value={searchParams.date_to || ''}
+                  onChange={(e) =>
+                    onFilterChange('date_to', e.target.value || undefined)
+                  }
+                />
               </div>
 
               {/* Attendance Threshold */}

@@ -150,7 +150,7 @@ export default async function LCStructurePage() {
                 {new Date(activeTerm.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
               </p>
             </div>
-            <Badge className="ml-auto bg-amber-600 text-white">Active Term</Badge>
+            <Badge className="ml-auto bg-amber-600 text-white whitespace-nowrap">Active Term</Badge>
           </div>
         </div>
       ) : (

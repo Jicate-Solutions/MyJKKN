@@ -29,11 +29,13 @@ export async function POST(
       lead_name: body.lead_name ?? null,
       member_ids: body.member_ids ?? [],
       member_names: body.member_names ?? [],
+      external_members: body.external_members ?? [],
       status: 'active',
     };
 
     const { data, error } = await supabase
-      .from('marathon_committees')
+      // Events Platform Promotion PR3: marathon_committees → event_committees
+      .from('event_committees')
       .insert([insertPayload])
       .select('*')
       .single();
@@ -82,7 +84,8 @@ export async function PUT(
     const { tasks, ...cleanPayload } = updateFields;
 
     const { data, error } = await supabase
-      .from('marathon_committees')
+      // Events Platform Promotion PR3: marathon_committees → event_committees
+      .from('event_committees')
       .update(cleanPayload)
       .eq('id', id)
       .eq('event_id', eventId)

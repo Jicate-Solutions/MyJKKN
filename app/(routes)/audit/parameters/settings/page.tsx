@@ -13,14 +13,6 @@ import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ColumnDef } from '@tanstack/react-table';
 import { ContentLayout } from '@/components/layout/content-layout';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +33,8 @@ const GROUP_LABELS: Record<number, string> = {
   1: 'G1',
   2: 'G2',
   3: 'G3',
-  4: 'G4'
+  4: 'G4',
+  5: 'G5'
 };
 
 export default function AuditParameterSettingsPage() {
@@ -51,26 +44,6 @@ export default function AuditParameterSettingsPage() {
     <PermissionGuard module='audit' action='parameter.manage'>
       <ContentLayout title='Parameter Settings'>
         <div className='space-y-6'>
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/'>Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/audit'>Audit</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/audit/parameters'>Parameters</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Settings</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-
           <Card>
             <CardContent className='p-6'>
               <div className='space-y-6'>
@@ -231,7 +204,9 @@ function ParameterSettingsTable() {
       items={data}
       loading={isLoading}
       error={isError ? 'Failed to load parameters.' : null}
-      onRefresh={refetch}
+      onRefresh={() => {
+        refetch();
+      }}
       onBulkDelete={async (ids) => {
         const rowsToDelete = data.filter(
           (r) => ids.includes(r.id) && !r.is_system && r.institution_id

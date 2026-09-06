@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -37,7 +38,10 @@ interface Board { id: string; board_code: string; board_name: string; }
 
 const compositionFormSchema = z.object({
   institutions_id: z.string().min(1, 'Institution is required'),
-  board_id:        z.string().min(1, 'Board is required'),
+  // Multi-board: board_ids is the source of truth; board_id is the primary
+  // (= board_ids[0]), auto-derived for back-compat with single-board consumers.
+  board_id:        z.string().optional(),
+  board_ids:       z.array(z.string()).min(1, 'Select at least one board'),
   composition_title: z.string().min(1, 'Title is required').max(500),
   term_start_date: z.string().min(1, 'Start date is required'),
   term_end_date:   z.string().min(1, 'End date is required'),
@@ -101,6 +105,9 @@ export function CompositionForm({
       ? {
           institutions_id: composition.institutions_id,
           board_id:        composition.board_id,
+          board_ids:       composition.board_ids?.length
+            ? composition.board_ids
+            : (composition.board_id ? [composition.board_id] : []),
           composition_title: composition.composition_title,
           term_start_date: composition.term_start_date,
           term_end_date:   composition.term_end_date,
@@ -114,6 +121,7 @@ export function CompositionForm({
       : {
           institutions_id: '',
           board_id: '',
+          board_ids: [],
           composition_title: '',
           term_start_date: '',
           term_end_date: '',
@@ -136,18 +144,33 @@ export function CompositionForm({
     }
   }, [ownCtx?.myjkkn_id, isSuperAdmin, composition, form]);
 
-  // Reset board when institution changes (create mode only); skip initial mount.
+  // Reset board(s) when institution changes (create mode only); skip initial mount.
   const institutionInitialized = useRef(false);
   useEffect(() => {
     if (!institutionInitialized.current) { institutionInitialized.current = true; return; }
-    if (!composition) form.setValue('board_id', '');
+    if (!composition) {
+      form.setValue('board_id', '');
+      form.setValue('board_ids', []);
+    }
   }, [institutionsId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the primary board_id in sync = first of board_ids (multi-board).
+  const selectedBoardIds = form.watch('board_ids');
+  useEffect(() => {
+    form.setValue('board_id', selectedBoardIds?.[0] ?? '');
+  }, [selectedBoardIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Boards ──────────────────────────────────────────────────────────────────
   // Pass the MyJKKN institution UUID to the boards route.  The server resolves
   // CAS siblings (Aided+SF) via counselling_code lookup, so a single UUID is
   // sufficient for both CAS and non-CAS institutions.
-  const boardInstitutionId = isSuperAdmin ? institutionsId || null : ownCtx?.myjkkn_id ?? null;
+  // Fall back to the composition's own institution on EDIT so the board list
+  // loads even before the watched institution field settles (super-admin edit).
+  const boardInstitutionId =
+    (isSuperAdmin ? institutionsId : ownCtx?.myjkkn_id) || composition?.institutions_id || null;
+
+  // Client-side board search (filter the multi-select list by code/name).
+  const [boardSearch, setBoardSearch] = useState('');
 
   const { data: boardsRaw = [], isLoading: loadingBoards } = useQuery<Board[]>({
     queryKey: ['bos', 'boards', boardInstitutionId],
@@ -220,6 +243,7 @@ export function CompositionForm({
                         onValueChange={(val) => {
                           field.onChange(val);
                           form.setValue('board_id', '');
+                          form.setValue('board_ids', []);
                         }}
                         options={allInstitutions.map((i) => ({ value: i.id, label: i.name }))}
                         placeholder='Select institution'
@@ -234,29 +258,89 @@ export function CompositionForm({
                 <input type='hidden' {...form.register('institutions_id')} />
               )}
 
-              {/* Board */}
+              {/* Board(s) — multi-select. First selected = primary board. */}
               <FormField
                 control={form.control}
-                name='board_id'
-                render={({ field }) => (
-                  <FormItem className={isSuperAdmin ? '' : 'md:col-span-2'}>
-                    <FormLabel>Board <span className='text-destructive'>*</span></FormLabel>
-                    <SearchableSelect
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      options={boardsRaw.map((b) => ({
-                        value: b.id,
-                        label: `${b.board_name} (${b.board_code})`,
-                      }))}
-                      placeholder={!institutionsId ? 'Select institution first' : 'Select board'}
-                      searchPlaceholder='Search board…'
-                      loading={loadingBoards}
-                      disabled={!institutionsId}
-                      className='w-full'
-                    />
-                    <FormMessage />
-                  </FormItem>
-                )}
+                name='board_ids'
+                render={({ field }) => {
+                  const selected = field.value ?? [];
+                  const toggle = (boardId: string) => {
+                    field.onChange(
+                      selected.includes(boardId)
+                        ? selected.filter((b) => b !== boardId)
+                        : [...selected, boardId],
+                    );
+                  };
+                  const q = boardSearch.trim().toLowerCase();
+                  // Guard against a malformed/non-array payload (e.g. COE
+                  // envelope drift) so rendering can never throw on .filter/.map.
+                  const boards = Array.isArray(boardsRaw) ? boardsRaw : [];
+                  const filtered = q
+                    ? boards.filter((b) =>
+                        `${b.board_name} ${b.board_code}`.toLowerCase().includes(q))
+                    : boards;
+                  return (
+                    <FormItem className={isSuperAdmin ? '' : 'md:col-span-2'}>
+                      <FormLabel>
+                        Board(s) <span className='text-destructive'>*</span>
+                        <span className='ml-2 text-xs font-normal text-muted-foreground'>
+                          (first selected = primary)
+                        </span>
+                        {selected.length > 0 && (
+                          <span className='ml-2 text-xs font-normal text-primary'>
+                            {selected.length} selected
+                          </span>
+                        )}
+                      </FormLabel>
+                      <div className='rounded-md border'>
+                        {!!boardInstitutionId && boards.length > 0 && (
+                          <div className='border-b p-2'>
+                            <Input
+                              value={boardSearch}
+                              onChange={(e) => setBoardSearch(e.target.value)}
+                              placeholder='Search board by name or code…'
+                              className='h-8'
+                            />
+                          </div>
+                        )}
+                        <div className='max-h-48 overflow-y-auto divide-y'>
+                          {!boardInstitutionId ? (
+                            <p className='p-3 text-sm text-muted-foreground'>Select institution first</p>
+                          ) : loadingBoards ? (
+                            <p className='p-3 text-sm text-muted-foreground'>Loading boards…</p>
+                          ) : boards.length === 0 ? (
+                            <p className='p-3 text-sm text-muted-foreground'>No boards for this institution.</p>
+                          ) : filtered.length === 0 ? (
+                            <p className='p-3 text-sm text-muted-foreground'>No boards match “{boardSearch}”.</p>
+                          ) : (
+                            filtered.map((b) => {
+                              const checked = selected.includes(b.id);
+                              const isPrimary = selected[0] === b.id;
+                              return (
+                                <label
+                                  key={b.id}
+                                  className='flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted/40'
+                                >
+                                  <Checkbox checked={checked} onCheckedChange={() => toggle(b.id)} />
+                                  <span className='flex-1'>
+                                    {b.board_name}{' '}
+                                    <span className='text-muted-foreground'>({b.board_code})</span>
+                                  </span>
+                                  {isPrimary && (
+                                    <span className='rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary'>
+                                      Primary
+                                    </span>
+                                  )}
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
             </div>
           </CardContent>

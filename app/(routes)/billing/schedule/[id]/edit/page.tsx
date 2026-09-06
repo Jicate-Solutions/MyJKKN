@@ -82,7 +82,10 @@ export default function EditStudentBillPage() {
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Bill Details', href: `/billing/schedule/${billId}` },
+          {
+            label: 'Student Bills',
+            href: `/billing/schedule/students/${bill.student_id}?tab=bills`
+          },
           { label: 'Edit', href: `/billing/schedule/${billId}/edit` }
         ]}
       />
@@ -97,7 +100,9 @@ export default function EditStudentBillPage() {
 
         <StudentBillForm
           bill={bill}
-          onSuccess={() => router.push(`/billing/schedule/${billId}`)}
+          onSuccess={() =>
+            router.push(`/billing/schedule/students/${bill.student_id}?tab=bills`)
+          }
         />
       </div>
     </ContentLayout>

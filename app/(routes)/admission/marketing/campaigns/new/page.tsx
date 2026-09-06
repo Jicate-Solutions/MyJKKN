@@ -130,12 +130,11 @@ export default function NewCampaignWizard() {
   });
   const programs = programsData?.data ?? [];
 
-  // Admission years cascade off (institution, program). The hook returns
-  // an empty array when either input is missing, so we can render the
-  // <Select> in a disabled placeholder state without conditional logic.
+  // Admission years are institution-scoped. The hook returns an empty array
+  // when the institution is missing, so we can render the <Select> in a
+  // disabled placeholder state without conditional logic.
   const { admissionYears, loading: yearsLoading } = useAdmissionYears(
     !isGlobal && institutionId ? institutionId : null,
-    programId || null,
   );
 
   // When the user changes category away from admission, zero out the
@@ -149,18 +148,13 @@ export default function NewCampaignWizard() {
     }
   }, [category]);
 
-  // When institution changes, the program list is now a different set —
-  // a previously-selected program may not belong to the new institution.
-  // Reset to avoid stale FKs at insert time.
+  // When institution changes, both the program list and the institution-scoped
+  // admission-year list are now a different set — a previously-selected value
+  // may not belong to the new institution. Reset to avoid stale FKs at insert.
   useEffect(() => {
     setProgramId('');
     setAdmissionYearId('');
   }, [institutionId]);
-
-  // Same cascade — when the program changes, the year list invalidates.
-  useEffect(() => {
-    setAdmissionYearId('');
-  }, [programId]);
 
   const { data: forms } = useCampaignableForms(source);
   const createCampaign = useCreateCampaign();
@@ -424,15 +418,15 @@ export default function NewCampaignWizard() {
                     <Select
                       value={admissionYearId}
                       onValueChange={setAdmissionYearId}
-                      disabled={isGlobal || !programId || yearsLoading}
+                      disabled={isGlobal || !institutionId || yearsLoading}
                     >
                       <SelectTrigger>
                         <SelectValue
                           placeholder={
                             yearsLoading
                               ? 'Loading…'
-                              : !programId
-                                ? 'Pick a program first'
+                              : !institutionId
+                                ? 'Pick an institution first'
                                 : admissionYears.length === 0
                                   ? 'No active years'
                                   : 'Pick an admission year (optional)'
@@ -451,7 +445,7 @@ export default function NewCampaignWizard() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Start date</Label>
                   <Input
@@ -487,7 +481,7 @@ export default function NewCampaignWizard() {
                   onChange={(e) => setBudget(e.target.value)}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Target leads</Label>
                   <Input

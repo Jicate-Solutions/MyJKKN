@@ -13,7 +13,25 @@ const upsertTemplateSchema = z.object({
   subject: z.string().min(1).max(500),
   body_html: z.string().min(10).max(100000),
   is_active: z.boolean().default(true),
+  // ── Per-committee / versioning fields (20260724140000) ─────────────────────
+  body_type_code: z.string().min(1).max(32).default('BOS'),
+  // ISO date (YYYY-MM-DD); defaults to today when omitted. Distinct dates create
+  // distinct versions; re-saving the same date updates that version in place.
+  effective_from: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'effective_from must be YYYY-MM-DD')
+    .optional(),
+  pdf_heading: z.string().max(4000).optional().nullable(),
+  pdf_intro_html: z.string().max(100000).optional().nullable(),
+  pdf_closing_html: z.string().max(100000).optional().nullable(),
+  reply_to_email: z.string().max(255).optional().nullable(),
+  signoff_html: z.string().max(100000).optional().nullable(),
 });
+
+// Empty strings from the form become NULL in the DB (keeps the "no override"
+// state clean and lets the renderer fall back to computed defaults).
+const emptyToNull = (v: string | null | undefined): string | null =>
+  v == null || v.trim() === '' ? null : v;
 
 // ── Permission gate ──────────────────────────────────────────────────────────
 // Only super-admin OR users with chairman/principal/HOD role can edit templates.
@@ -43,6 +61,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const institutionsId = searchParams.get('institutionsId');
     const templateCode = searchParams.get('templateCode');
+    const bodyTypeCode = searchParams.get('bodyTypeCode');
 
     let query = supabase
       .from('bos_email_templates')
@@ -50,6 +69,7 @@ export async function GET(request: NextRequest) {
       .eq('is_active', true);
 
     if (templateCode) query = query.eq('template_code', templateCode);
+    if (bodyTypeCode) query = query.eq('body_type_code', bodyTypeCode);
 
     // Institution-scoped lookup: return both the per-institution row (if any)
     // and the system default (institutions_id IS NULL). UI picks the more
@@ -60,7 +80,10 @@ export async function GET(request: NextRequest) {
       query = query.is('institutions_id', null);
     }
 
-    const { data, error } = await query.order('template_code', { ascending: true });
+    const { data, error } = await query
+      .order('template_code', { ascending: true })
+      .order('body_type_code', { ascending: true })
+      .order('effective_from', { ascending: false });
     if (error) throw error;
 
     return NextResponse.json({ data: data ?? [] });
@@ -102,12 +125,28 @@ export async function POST(request: NextRequest) {
       );
     }
     const payload = parsed.data;
+    // Default the effective date to today when the client didn't send one.
+    const effectiveFrom =
+      payload.effective_from ?? new Date().toISOString().slice(0, 10);
 
-    // Find existing active row with the same (institutions_id, template_code).
+    // The per-body PDF/signoff/reply fields shared by both insert & update.
+    const formatFields = {
+      pdf_heading: emptyToNull(payload.pdf_heading),
+      pdf_intro_html: emptyToNull(payload.pdf_intro_html),
+      pdf_closing_html: emptyToNull(payload.pdf_closing_html),
+      reply_to_email: emptyToNull(payload.reply_to_email),
+      signoff_html: emptyToNull(payload.signoff_html),
+    };
+
+    // A version is keyed by (institutions_id, template_code, body_type_code,
+    // effective_from). Re-saving the same tuple updates that version in place;
+    // a new effective_from inserts a new version and leaves history intact.
     let existingQuery = supabase
       .from('bos_email_templates')
       .select('id')
       .eq('template_code', payload.template_code)
+      .eq('body_type_code', payload.body_type_code)
+      .eq('effective_from', effectiveFrom)
       .eq('is_active', true);
     existingQuery = payload.institutions_id
       ? existingQuery.eq('institutions_id', payload.institutions_id)
@@ -116,7 +155,7 @@ export async function POST(request: NextRequest) {
     const { data: existing } = await existingQuery.maybeSingle();
 
     if (existing?.id) {
-      // Update in place — preserves history relative to created_by.
+      // Update this version in place.
       const { data, error } = await supabase
         .from('bos_email_templates')
         .update({
@@ -124,6 +163,7 @@ export async function POST(request: NextRequest) {
           description: payload.description ?? null,
           subject: payload.subject,
           body_html: payload.body_html,
+          ...formatFields,
           updated_by: user.id,
         })
         .eq('id', existing.id)
@@ -134,7 +174,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data });
     }
 
-    // Otherwise insert a fresh row.
+    // Otherwise insert a fresh version.
     const { data, error } = await supabase
       .from('bos_email_templates')
       .insert({
@@ -144,6 +184,9 @@ export async function POST(request: NextRequest) {
         description: payload.description ?? null,
         subject: payload.subject,
         body_html: payload.body_html,
+        body_type_code: payload.body_type_code,
+        effective_from: effectiveFrom,
+        ...formatFields,
         is_active: payload.is_active,
         created_by: user.id,
         updated_by: user.id,

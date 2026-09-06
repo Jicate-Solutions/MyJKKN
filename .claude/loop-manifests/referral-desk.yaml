@@ -1,0 +1,156 @@
+# Referral-desk loop manifest — DISCOVERY PASS 2026-07-13.
+# Every table/column/function/route below verified against prod (Mgmt API:
+# information_schema, pg_proc, live counts) and jicate/main (git show) on
+# 2026-07-13. The walk block is a DESIGNED circuit from the verified code
+# (migration 20260708123000_induction_referral_desk_wiring.sql, PR #1887,
+# plus the #1912 anti-self-referral hardening now live in
+# fn_induction_submit_referral) — it has NOT yet been executed. First
+# /loops walk run should confirm the hops, then promote this comment.
+# ADVERSARIAL VERIFY 2026-07-13: all tables/columns/functions/routes/personas/
+# gates/fuel counts re-confirmed against prod + jicate/main. 3 in-place fixes:
+# (1) fn_get_policy_text needs 2 args, (2) desk owner NOT visible in the leads
+# list Assigned To column for referral rows, (3) stage selector lives on the
+# lead DETAIL page. No structural fictions found.
+loop_key: referral-desk
+name: Induction Referral → Working Desk Loop
+prod_ref: kvizhngldtiuufknvehv
+
+# Loop shape (class=accountability — routing + ownership, not self-improvement):
+#   fresher (enrolled in an induction) submits "Refer a friend" on
+#   /learners/my-induction (referral-section.tsx)
+#   -> fn_induction_submit_referral (SECURITY DEFINER; enrollment-gated;
+#      anti-self-referral guards from #1912)
+#   -> admission_leads row: source='referral', referral_type='student',
+#      referred_by_id=learner, assigned_counselor_id = the configured DESK
+#      (platform_policies key 'admission.referral_desk.owner_id' — live value
+#      1b84aed1-253d-4021-8aad-1723ab5aa0a7 = coo@jkkn.ac.in, verified active+published),
+#      counselor_id left NULL ON PURPOSE (FKs admission_counselors; referral
+#      source has no subscribed counselor — verified 31/31 induction referral
+#      leads have counselor_id IS NULL, so fn_auto_assign_counselor_v3 no-ops)
+#   -> desk works the lead on /admission/leads (funnel_stage transitions,
+#      logged to admission_lead_stage_history by log_admission_lead_stage_change)
+#   -> referrer SEES the stage live on their referral card
+#      (fn_induction_my_referrals; joined = funnel_stage IN
+#      ('token_paid','confirmed','enrolled'))
+#   -> joins feed the L4 cohort measurer downstream (see sim note).
+# Edge in loop_edges: induction-session -> referral-desk (what_flows=fuel).
+
+tables:
+  input: admission_leads            # source='referral' + referred_by_id IN induction_enrollment = THIS loop's rows
+  action: admission_leads           # same table — the "action" is funnel_stage moved by the desk;
+                                    # working trail in admission_lead_stage_history (verified table via trigger body)
+  # supporting (all verified in information_schema / pg_proc):
+  #   platform_policies              — desk pointer row 'admission.referral_desk.owner_id' (re-point w/o code change)
+  #   induction_completion           — submit fn upserts referrals_submitted (counts funnel_stage <> 'lost'),
+  #                                    outcome_complete = count>=1; also has referrals_joined column
+  #   induction_enrollment           — gate: referrer must be enrolled in the event (event_id, learner_id, institution_id NOT NULL)
+  #   admission_lead_stage_history   — (lead_id, from_stage, to_stage, changed_by) on every stage change
+
+# sim: OMITTED — honest gap. No referral-desk-specific measure function exists.
+# pg_proc sweep (proname ~* 'measure|outcome|lift|desk', 2026-07-13) shows the only
+# induction measurers are fn_induction_measure_loop_outcomes and
+# fn_induction_measure_session_effectiveness — BOTH owned by the induction-playbook /
+# induction-session manifests (they score scf_ai_suggestions cohort/topic rows, not
+# desk behavior). Registry gates.m='on' is satisfied by that DOWNSTREAM shared
+# measurer (it counts joined referrals — funnel_stage IN token_paid/confirmed/enrolled
+# — into the cohort score at ~300d), NOT by a desk measurer. For a real sim this loop
+# would need e.g. fn_referral_desk_measure(): time-to-first-touch / stage-progression
+# per desk-assigned lead with assertable known-delta outputs. A ROUTING-mechanic
+# rolled-back assert IS possible today (seed enrollment + impersonated submit ->
+# assert assigned_counselor_id = policy value) but it is not a known-delta measure
+# sim, so it does not qualify for /loops regress; run it inside `test` Tier A instead.
+
+# confound: OMITTED — admission_leads has the outcome (funnel_stage) but NO verdict
+# column (verified column list 2026-07-13). The induction-domain human_verdict +
+# fn_induction_loop_confound_check pair lives on scf_ai_suggestions and belongs to
+# the induction-playbook manifest, not this loop.
+
+# feed_forward: OMITTED — registry gates.f='half' and that is accurate: the referrer
+# gets stage visibility (STAGE_LABEL on referral-section.tsx) and joins feed the L4
+# cohort measurer, but NOTHING machine-reads desk outcomes back into desk behavior
+# (no reader fn, no prompt, routine_id IS NULL in loop_registry). Closing 'f' would
+# need a desk-facing outcome reader (e.g. weekly digest of stale 'new' referral leads).
+
+walk:
+  # Personas (verified against custom_roles.permissions 2026-07-13):
+  #   student      — role 'student': admission.leads.view=false (correct; uses own
+  #                  induction page, which is UNGATED for learners: /learners/my-induction
+  #                  has NO MENU_PERMISSIONS entry and sits in INDUCTION_ONLY_NAV_HREFS,
+  #                  lib/sidebarMenuLink.ts:2074+2897 on jicate/main)
+  #   superadmin   — bypasses permission + institution scope; the safe desk-side assert
+  #   (test.faculty = staff_counselor HAS admission.leads.view+edit=true, but its
+  #   institution 183847c5… differs from the induction's b0b8a724… — institution scope
+  #   may hide the lead; prefer superadmin for desk-side hops.)
+  # The REAL desk (coo@jkkn.ac.in) is a real person's account — NEVER walk as it.
+  personas:
+    student: test.student@jkkn.ac.in       # learner_id ef63c330-6611-4176-a595-2ed5339d7e38 (verified)
+    superadmin: test.superadmin@jkkn.ac.in
+  hops:
+    # Hop 0 — precondition seed (COMMITTED, sentinel-scoped, deleted in cleanup):
+    # test.student is NOT enrolled in any induction (verified 2026-07-13 — empty join),
+    # and fn_induction_submit_referral hard-fails without enrollment. Only one induction
+    # event exists: d0d995a9-8ab4-4ee8-a90b-e63f42a29d46 "Fresher Induction 2026"
+    # (institution b0b8a724-7c65-4f07-8047-2a38e8100ad5, 435 enrolled). Seeding puts
+    # test.student on that event's roster (coverage banners/rosters see it) — keep the
+    # window short. Re-verify the event id at run time; do NOT hardcode-trust this comment.
+    - { as: postgres, do: sql_seed,
+        detail: "INSERT INTO induction_enrollment (event_id, learner_id, institution_id) = (live induction event, test.student learner, event's institution)",
+        assert_db: "1 enrollment row for the test learner" }
+    # Prospect identity rules (from the live fn body — violating any one 400s the hop):
+    #   phone: 10+ digits, NOT test.student's own, NOT any learners_profiles.student_mobile
+    #          (verify count=0 at run time before submitting)
+    #   first name: must NOT share test.student's first name; use 'Zzrefaudit'
+    #   email: leave BLANK (any existing profiles email or @jkkn.ac|an.in address is rejected)
+    - { as: student, do: form_submit, page: /learners/my-induction,
+        detail: "Refer a friend card: first_name=Zzrefaudit, phone=<sentinel 10-digit>, email blank",
+        assert_db: "new admission_leads row: source='referral', referral_type='student', referred_by_id=<learner>, assigned_counselor_id=fn_get_policy_text('admission.referral_desk.owner_id', NULL)::uuid (fn has NO 1-arg form: pronargs=3, only p_scope_id defaults), assigned_at NOT NULL, counselor_id IS NULL, funnel_stage='new', institution_id=<induction's institution>; induction_completion.outcome_complete=true" }
+    - { as: superadmin, do: open_assert, page: /admission/leads,
+        expect: "sentinel lead 'Zzrefaudit' visible with stage New. Do NOT expect the desk/COO in the Assigned To column — verified 2026-07-13: columns.tsx renders that cell for source='referral' rows from CONSULTANT attribution only ('No consultant' for learner referrals; assigned_counselor_id is never displayed there). Desk ownership is proven by the previous hop's assert_db." }
+    # Desk-side working: prove a stage move lands in the audit trail. Superadmin stands
+    # in for the desk (same UI path; the real COO account is off-limits to walks).
+    - { as: superadmin, do: click, page: /admission/leads,
+        target: "sentinel lead row → open lead detail /admission/leads/[id] → stage selector dropdown (options come from admission_statuses; 'contacted' verified present 2026-07-13) new → contacted",
+        assert_db: "admission_leads.funnel_stage='contacted' AND 1 admission_lead_stage_history row (from_stage='new', to_stage='contacted')" }
+    # Close the visibility half: the referrer sees the desk's action.
+    - { as: student, do: open_assert, page: /learners/my-induction,
+        expect: "referral card shows the sentinel referral with stage label 'Contacted' (STAGE_LABEL map in referral-section.tsx)" }
+  # Trigger inventory on admission_leads (verified 2026-07-13): 9 triggers, NONE send
+  # messages (counters/sync/log only; sync_lead_referral_to_attribution fires only for
+  # education_consultants referrers — a learner referrer no-ops it). The forbidden list
+  # below is about HUMAN-reachable surfaces, not triggers.
+  forbidden:
+    - contacting the sentinel prospect phone (calls tab / communication tab / WhatsApp)
+    - leaving the sentinel lead in the real COO's working queue after the walk
+    - counselor team-assign / delegate actions (they touch real counselors)
+    - any admission nudge or digest send
+  cleanup: |
+    DELETE FROM admission_lead_stage_history WHERE lead_id IN
+      (SELECT id FROM admission_leads WHERE first_name = 'Zzrefaudit');
+    DELETE FROM admission_leads WHERE first_name = 'Zzrefaudit' AND source = 'referral'::lead_source;
+    DELETE FROM induction_completion WHERE learner_id = 'ef63c330-6611-4176-a595-2ed5339d7e38'
+      AND event_id = '<the seeded event>';
+    DELETE FROM induction_enrollment WHERE learner_id = 'ef63c330-6611-4176-a595-2ed5339d7e38'
+      AND event_id = '<the seeded event>';
+    -- verify in a SEPARATE call (same-statement DELETE+SELECT sees pre-delete
+    -- snapshot): sentinel lead count = 0, enrollment count restored, and the
+    -- induction referral fuel counts match pre-walk (13 new on desk / 18 lost
+    -- as of 2026-07-13 — re-read before the walk, organic growth allowed).
+  notes:
+    - test.faculty (staff_counselor) profile has learner_id NULL — it can NEVER
+      submit a referral (get_my_learner_id() gate); only the student persona can.
+    - dedupe is (referrer, phone) — re-submitting the same sentinel phone returns
+      action='duplicate' with the EXISTING lead id, not an error.
+    - induction_completion recompute counts only funnel_stage <> 'lost' — moving
+      the sentinel lead to 'lost' instead of deleting would silently flip the
+      test learner's outcome_complete on the next submit; delete outright.
+
+# Fuel snapshot (2026-07-13, receipts in discovery): induction-scoped referral
+# leads = 31 total — 13 'new' ALL on the desk (0 unowned — the #1887 weld holds
+# live) + 18 'lost' (the #1912 self-referral quarantine). 0 joined yet
+# (nothing in token_paid/confirmed/enrolled), so the downstream L4 join score
+# is still all-zero fuel. The ~750 OTHER source='referral' leads (mostly
+# unowned) have referred_by_id NULL or non-induction referrers — consultant /
+# general referral flows, OUT OF SCOPE for this loop's accountability promise.
+# No loop_audits rows exist for referral-desk yet (checked 2026-07-13).
+
+registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"half"}'  # matches live loop_registry row; see sim/feed_forward comments for what m/f actually rest on

@@ -1,5 +1,5 @@
 // ============================================================================
-// Premium Stay Phase 1 — usePremiumAllocation hooks
+// Premium Room Phase 1 — usePremiumAllocation hooks
 // ============================================================================
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
 // Service: lib/services/campus-living/hostel-premium-allocation-service.ts
@@ -21,6 +21,9 @@ import {
   reserveBed,
   inviteRoommate,
   confirmRoommate,
+  declineRoommate,
+  listInvitesForLearner,
+  listInviteCandidates,
   countAllocationsByTier,
   type ReserveBedInput,
   type ReserveBedResult,
@@ -31,6 +34,7 @@ import {
 import type {
   PremiumEligibilityResult,
   RoommateInviteState,
+  PremiumInviteCandidate,
 } from '@/types/campus-living/premium';
 
 // ---------------------------------------------------------------------------
@@ -45,6 +49,10 @@ export const premiumAllocationKeys = {
     ['premium-allocation', 'available-rooms', institutionId ?? 'all'] as const,
   counts: (institutionId: string | null | undefined) =>
     ['premium-allocation', 'counts', institutionId ?? 'all'] as const,
+  invitesForLearner: (learnerId: string | null | undefined) =>
+    ['premium-allocation', 'invites', 'learner', learnerId ?? 'none'] as const,
+  inviteCandidates: (allocationId: string | null | undefined) =>
+    ['premium-allocation', 'invite-candidates', allocationId ?? 'none'] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -124,11 +132,12 @@ export function useReservePremiumBed() {
 }
 
 export function useInviteRoommate() {
+  const qc = useQueryClient();
   return useMutation<RoommateInviteState | null, Error, InviteRoommateInput>({
     mutationFn: (input) => inviteRoommate(input),
     onSuccess: (state) => {
+      qc.invalidateQueries({ queryKey: premiumAllocationKeys.all });
       if (state) toast.success('Roommate invite sent');
-      else toast.error('Roommate invite is a Phase 2 feature');
     },
     onError: (err) => {
       toast.error(err.message || 'Could not send roommate invite');
@@ -136,15 +145,76 @@ export function useInviteRoommate() {
   });
 }
 
+export interface ConfirmRoommateInput {
+  inviteToken: string;
+  actingLearnerId: string;
+}
+
 export function useConfirmRoommate() {
-  return useMutation<RoommateInviteState | null, Error, string>({
-    mutationFn: (token) => confirmRoommate(token),
+  const qc = useQueryClient();
+  return useMutation<RoommateInviteState | null, Error, ConfirmRoommateInput>({
+    mutationFn: ({ inviteToken, actingLearnerId }) =>
+      confirmRoommate(inviteToken, actingLearnerId),
     onSuccess: (state) => {
+      qc.invalidateQueries({ queryKey: premiumAllocationKeys.all });
       if (state) toast.success('Roommate confirmed');
-      else toast.error('Roommate confirmation is a Phase 2 feature');
     },
     onError: (err) => {
       toast.error(err.message || 'Could not confirm roommate');
     },
+  });
+}
+
+export interface DeclineRoommateInput {
+  inviteToken: string;
+  actingLearnerId: string;
+}
+
+export function useDeclineRoommate() {
+  const qc = useQueryClient();
+  return useMutation<RoommateInviteState | null, Error, DeclineRoommateInput>({
+    mutationFn: ({ inviteToken, actingLearnerId }) =>
+      declineRoommate(inviteToken, actingLearnerId),
+    onSuccess: (state) => {
+      qc.invalidateQueries({ queryKey: premiumAllocationKeys.all });
+      if (state) toast.success('Invite declined');
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Could not decline invite');
+    },
+  });
+}
+
+export function useLearnerPremiumInvites(learnerId: string | null | undefined) {
+  return useQuery<RoommateInviteState[], Error>({
+    queryKey: premiumAllocationKeys.invitesForLearner(learnerId),
+    queryFn: () => {
+      if (!learnerId) return Promise.resolve<RoommateInviteState[]>([]);
+      return listInvitesForLearner(learnerId);
+    },
+    enabled: Boolean(learnerId),
+  });
+}
+
+/**
+ * Everyone the caller may invite into her room, ordered with her own room
+ * category first.
+ *
+ * `enabled` is deliberate: the page renders this list only for a resident whose
+ * category is opted into room sharing, and the RPC raises for an allocation
+ * that is not hers. Gating here keeps a non-eligible visitor from firing a
+ * request that can only fail.
+ */
+export function usePremiumInviteCandidates(
+  allocationId: string | null | undefined,
+  enabled = true,
+) {
+  return useQuery<PremiumInviteCandidate[], Error>({
+    queryKey: premiumAllocationKeys.inviteCandidates(allocationId),
+    queryFn: () => listInviteCandidates(allocationId!),
+    enabled: !!allocationId && enabled,
+    // The roll of a whole institution changes slowly; re-fetching it on every
+    // focus would be a large query for no new information.
+    staleTime: 5 * 60_000,
   });
 }

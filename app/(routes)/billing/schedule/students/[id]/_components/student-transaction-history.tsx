@@ -3,13 +3,16 @@
 import { useState, useMemo } from 'react';
 import {
   FileText,
-  Receipt,
+  ReceiptIndianRupee,
   Percent,
   RefreshCw,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
+  Ban,
+  User,
+  Settings,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,16 +25,32 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import type { StudentBillingSummary } from '@/types/billing-schedule';
+import { useStudentBillCancellations } from '@/hooks/billing/use-bill-cancellation';
+import { BILL_CANCEL_REASON_LABELS } from '@/types/billing-bill-cancellation';
+import type { BillCancelReasonCode } from '@/types/billing-bill-cancellation';
 
 interface StudentTransactionHistoryProps {
   summary: StudentBillingSummary;
   onRefresh: () => void;
 }
 
+/**
+ * Who performed an event. A single row can carry more than one — a receipt
+ * keyed in by one user on behalf of the cashier who took the cash names both.
+ * `system` marks an actor that is not a person (the payment gateway), so it
+ * renders differently from a named staff member.
+ */
+interface TransactionActor {
+  label: string;
+  name: string;
+  system?: boolean;
+}
+
 interface TransactionEvent {
   id: string;
   type:
     | 'bill_created'
+    | 'bill_cancelled'
     | 'payment_received'
     | 'discount_applied'
     | 'refund_processed';
@@ -40,7 +59,53 @@ interface TransactionEvent {
   description: string;
   status: string;
   reference?: string;
+  actors: TransactionActor[];
   details?: any;
+}
+
+/**
+ * Attribution for a receipt. The two identities are NOT interchangeable:
+ *
+ *   created_by    - the signed-in session that keyed the receipt in.
+ *   accountant_id - the cashier credited with collecting the money.
+ *
+ * Half of all receipts (4,159 of 8,318 on 2026-09-03) have created_by NULL,
+ * because /api/billing/receipts/bulk-import runs on a service-role client —
+ * auth.getUser() returns nothing there, so the RPC writes NULL. That route
+ * compensates by putting the importing user in accountant_id, which is why
+ * 4,084 of those 4,159 still name a real person. Reading created_by alone
+ * left every one of them blank.
+ *
+ * The remaining 74 are Razorpay captures finalized by the webhook, which has
+ * no user at all — they are labelled as the gateway rather than left empty,
+ * so a blank chip always means genuinely lost attribution, never "system".
+ */
+function getReceiptActors(receipt: any): TransactionActor[] {
+  const actors: TransactionActor[] = [];
+
+  if (receipt.creator?.full_name) {
+    actors.push({ label: 'Recorded by', name: receipt.creator.full_name });
+  }
+
+  // Only a second chip when it is genuinely a second person. On the manual
+  // form the operator usually picks themselves as the accountant, and
+  // "Recorded by X / Collected by X" is noise.
+  if (
+    receipt.accountant?.full_name &&
+    receipt.accountant.full_name !== receipt.creator?.full_name
+  ) {
+    actors.push({ label: 'Collected by', name: receipt.accountant.full_name });
+  }
+
+  if (actors.length === 0 && receipt.payment_mode === 'online') {
+    actors.push({
+      label: 'Captured by',
+      name: 'Online payment gateway',
+      system: true
+    });
+  }
+
+  return actors;
 }
 
 export function StudentTransactionHistory({
@@ -49,6 +114,10 @@ export function StudentTransactionHistory({
 }: StudentTransactionHistoryProps) {
   const [timeFilter, setTimeFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+
+  // The timeline is assembled client-side from the summary, which carries no
+  // cancellation record — so the cancellations are fetched alongside it.
+  const { data: cancellations } = useStudentBillCancellations(summary.student?.id);
 
   // Combine all transactions into a timeline
   const allTransactions = useMemo(() => {
@@ -67,6 +136,12 @@ export function StudentTransactionHistory({
         amount: bill.final_amount,
         description: description,
         status: bill.status,
+        // 1,079 of 20,960 bills carry no created_by (generator//import runs).
+        // Bills have no second identity column to fall back on, so those are
+        // named as a system action rather than shown blank.
+        actors: bill.creator?.full_name
+          ? [{ label: 'Created by', name: bill.creator.full_name }]
+          : [{ label: 'Created by', name: 'System / bulk generation', system: true }],
         details: bill
       });
     });
@@ -76,11 +151,12 @@ export function StudentTransactionHistory({
       transactions.push({
         id: `receipt-${receipt.id}`,
         type: 'payment_received',
-        date: receipt.receipt_date,
+        date: receipt.created_at || receipt.receipt_date,
         amount: receipt.payment_amount,
         description: `Payment via ${receipt.payment_mode}`,
         status: 'completed',
         reference: receipt.receipt_number,
+        actors: getReceiptActors(receipt),
         details: receipt
       });
     });
@@ -94,6 +170,9 @@ export function StudentTransactionHistory({
         amount: discount.discount_amount,
         description: `${discount.discount_category} discount`,
         status: discount.approval_status,
+        actors: discount.creator?.full_name
+          ? [{ label: 'Applied by', name: discount.creator.full_name }]
+          : [],
         details: discount
       });
     });
@@ -107,7 +186,31 @@ export function StudentTransactionHistory({
         amount: refund.net_refund_amount,
         description: `${refund.refund_category} refund`,
         status: refund.approval_status,
+        actors: refund.creator?.full_name
+          ? [{ label: 'Processed by', name: refund.creator.full_name }]
+          : [],
         details: refund
+      });
+    });
+
+    // Add bill cancellations. Dated by cancelled_at, NOT by the bill's
+    // created_at — a bill raised in June and cancelled in August belongs at
+    // August in a timeline, otherwise the void is invisible where it happened.
+    cancellations?.forEach((c) => {
+      transactions.push({
+        id: `bill-cancel-${c.id}`,
+        type: 'bill_cancelled',
+        date: c.cancelled_at,
+        amount: c.amount_cancelled,
+        description: `Bill cancelled — ${
+          BILL_CANCEL_REASON_LABELS[c.reason_code as BillCancelReasonCode] ??
+          c.reason_code
+        }: ${c.reason}`,
+        status: 'cancelled',
+        actors: c.cancelled_by_name
+          ? [{ label: 'Cancelled by', name: c.cancelled_by_name }]
+          : [],
+        details: c
       });
     });
 
@@ -115,7 +218,7 @@ export function StudentTransactionHistory({
     return transactions.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [summary]);
+  }, [summary, cancellations]);
 
   // Filter transactions
   const filteredTransactions = useMemo(() => {
@@ -181,8 +284,10 @@ export function StudentTransactionHistory({
     switch (type) {
       case 'bill_created':
         return <FileText className='h-4 w-4' />;
+      case 'bill_cancelled':
+        return <Ban className='h-4 w-4' />;
       case 'payment_received':
-        return <Receipt className='h-4 w-4' />;
+        return <ReceiptIndianRupee className='h-4 w-4' />;
       case 'discount_applied':
         return <Percent className='h-4 w-4' />;
       case 'refund_processed':
@@ -291,6 +396,7 @@ export function StudentTransactionHistory({
           <SelectContent>
             <SelectItem value='all'>All Types</SelectItem>
             <SelectItem value='bill_created'>Bills Created</SelectItem>
+            <SelectItem value='bill_cancelled'>Bills Cancelled</SelectItem>
             <SelectItem value='payment_received'>Payments</SelectItem>
             <SelectItem value='discount_applied'>Discounts</SelectItem>
             <SelectItem value='refund_processed'>Refunds</SelectItem>
@@ -339,8 +445,36 @@ export function StudentTransactionHistory({
                           </h4>
                           {getStatusIcon(transaction.status)}
                         </div>
-                        <div className='text-xs text-muted-foreground'>
-                          {formatDateTime(transaction.date)}
+                        <div className='flex items-center gap-2 flex-wrap'>
+                          <span className='text-xs text-muted-foreground'>
+                            {formatDateTime(transaction.date)}
+                          </span>
+                          {transaction.actors.length > 0 ? (
+                            transaction.actors.map((actor) => (
+                              <span
+                                key={`${actor.label}-${actor.name}`}
+                                className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded ${
+                                  actor.system
+                                    ? 'bg-muted/60 text-muted-foreground italic'
+                                    : 'bg-muted'
+                                }`}
+                              >
+                                {actor.system ? (
+                                  <Settings className='h-3 w-3' />
+                                ) : (
+                                  <User className='h-3 w-3' />
+                                )}
+                                <span className='text-muted-foreground'>
+                                  {actor.label}
+                                </span>
+                                <span className='font-medium'>{actor.name}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className='text-xs px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground italic'>
+                              User not recorded
+                            </span>
+                          )}
                         </div>
                         {transaction.reference && (
                           <div className='text-xs font-mono text-muted-foreground'>

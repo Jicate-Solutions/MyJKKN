@@ -8,6 +8,10 @@ export async function OPTIONS() {
 }
 
 export const GET = withAuth(async (request, auth) => {
+  // Cohort-core repoint (Phase 2.3): NO data-layer change here. sf100_roster_changes.status
+  // ('pending') is a CHANGE-REQUEST workflow status, not a cohort lifecycle status — it must
+  // NOT be folded/repointed. The embedded enrollment → registration → team_name join stays on
+  // the sf100_enrollments extension (which owns registration_id). Left intentionally unchanged.
   const { data, error } = await auth.supabase
     .from('sf100_roster_changes')
     .select('*, enrollment:sf100_enrollments(id, registration:event_registrations(team_name))')

@@ -1,6 +1,11 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
+import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { SchoolDefaultsService } from '@/lib/services/school-defaults-service';
+import { buildLearnerSearchConditions } from '@/lib/utils/learner-search';
+import { resolveAdmissionYearIds } from '@/lib/utils/admission-year-filter';
 import type {
   LearnerProfile,
   CreateLearnerProfileDto,
@@ -71,7 +76,10 @@ export class LearnerProfileService {
    * Called after every update
    * Updated: 2025-01-21 - Added user creation status return
    *
-   * Auto-activation: Only from 'approved' → 'active'
+   * Auto-activation: From 'approved' or 'admitted' (post-threshold) → 'active'
+   *                   (2026-05-20: 'admitted' added as part of the workflow
+   *                   realignment — onboarding fills the remaining academic
+   *                   fields, this method then auto-flips the row to active)
    * User creation: Any 'active' status with complete profile
    */
   private static async checkAndAutoActivate(
@@ -82,22 +90,35 @@ export class LearnerProfileService {
     const hasValidEmail = this.isValidCollegeEmail(updatedProfile.college_email);
 
     // ============================================
-    // PART 1: Auto-activation (ONLY from 'approved' status)
+    // PART 1: Auto-activation (from 'approved' or 'admitted' → 'active')
     // ============================================
+    //
+    // 'account' and 'reserved' learners are gated on payment progress —
+    // evaluate_learner_status_after_payment promotes them to 'admitted' once
+    // the configured threshold clears. This method then takes over once an
+    // onboarding officer fills the remaining academic fields (academic_year_id,
+    // semester_id, section_id, college_email).
 
-    // Skip auto-activation for 'account' status - accounts team must explicitly approve after payment
-    if (updatedProfile.lifecycle_status === 'account') {
+    // Skip: payment-gated stages (account team controls these transitions).
+    if (
+      updatedProfile.lifecycle_status === 'account' ||
+      updatedProfile.lifecycle_status === 'reserved'
+    ) {
       return { profile: updatedProfile };
     }
 
-    if (updatedProfile.lifecycle_status === 'approved') {
+    if (
+      updatedProfile.lifecycle_status === 'approved' ||
+      updatedProfile.lifecycle_status === 'admitted'
+    ) {
       // Check if profile is ready for auto-activation
       if (!isComplete || !hasValidEmail) {
         console.log(`[learner-profile-service] Profile not ready for auto-activation: ${id}`);
         return { profile: updatedProfile };
       }
 
-      console.log(`[learner-profile-service] Auto-activating learner from approved: ${id}`);
+      const sourceStatus = updatedProfile.lifecycle_status;
+      console.log(`[learner-profile-service] Auto-activating learner from ${sourceStatus}: ${id}`);
 
       // Auto-transition to 'active'
       const supabase = createClientSupabaseClient();
@@ -392,6 +413,7 @@ export class LearnerProfileService {
         academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
         regulation:regulations(id, regulation_code, regulation_year),
         batch:batches(id, batch_name, batch_code),
+        accommodation_ref:accommodation_types!accommodation_type_id(code, name),
         created_by_user:profiles!created_by(id, email, full_name),
         updated_by_user:profiles!updated_by(id, email, full_name)
       `
@@ -404,8 +426,19 @@ export class LearnerProfileService {
       throw error;
     }
 
+    // accommodation_type TEXT column is retired — derive the legacy 'HOSTEL'/
+    // 'DAY SCHOLAR' value from the FK so display + form-load + conditional
+    // checks keep working off learner.accommodation_type.
+    const row = data as Record<string, unknown> | null;
+    if (row) {
+      row.accommodation_type = accommodationLegacyFromCode(
+        (row.accommodation_ref as { code?: string } | null)?.code,
+      );
+      delete row.accommodation_ref;
+    }
+
     // Type assertion: migration_source is stored as string but should be typed as MigrationSource
-    return data as LearnerProfile;
+    return row as LearnerProfile;
   }
 
   /**
@@ -438,6 +471,9 @@ export class LearnerProfileService {
     const supabase = createClientSupabaseClient();
     const {
       search,
+      search_case_sensitive,
+      search_exact_match,
+      search_fields,
       ids,
       lifecycle_status,
       institution_id,
@@ -447,15 +483,21 @@ export class LearnerProfileService {
       semester_id,
       section_id,
       academic_year_id,
+      admission_year,
       gender,
       entry_type,
       is_profile_complete,
+      accommodation_type_id,
       page = 1,
       limit = 50,
       sortBy = 'created_at',
       sortOrder = 'desc',
     } = filters;
 
+    // `admission_year_obj` is aliased to the shape formatAdmissionYear() reads
+    // (the same alias the list page's select uses). Before it was embedded the
+    // export dialog had no name to resolve and wrote the raw admission_year_id
+    // UUID into its "Admission Year" column.
     let query = supabase
       .from('learners_profiles')
       .select(
@@ -467,7 +509,12 @@ export class LearnerProfileService {
         program:programs(id, program_name),
         semester:semesters(id, semester_name, semester_code),
         section:sections(id, section_name),
-        academic_year:academic_years(id, academic_year_name, is_active)
+        academic_year:academic_years(id, academic_year_name, is_active),
+        admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year),
+        quota_ref:quotas!quota_id(name),
+        community_ref:community_categories!community_category_id(code),
+        caste_ref:castes!caste_id(name),
+        accommodation_ref:accommodation_types!accommodation_type_id(code, name)
       `,
         { count: 'exact' }
       );
@@ -478,9 +525,21 @@ export class LearnerProfileService {
     }
 
     if (search) {
-      query = query.or(
-        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,student_mobile.ilike.%${search}%,student_email.ilike.%${search}%`
-      );
+      // Shared parser: handles "field:value" prefixes, multi-word full names
+      // (first_name + last_name spanning), and sanitizes PostgREST syntax chars.
+      //
+      // The modifiers must be passed through, not defaulted: this method backs
+      // the export dialog while the list page calls the same parser from
+      // _data/get-learner-profiles.ts. Dropping them here made the export run a
+      // broader (case-insensitive, partial, all-fields) search than the table.
+      const searchConditions = buildLearnerSearchConditions(search, {
+        caseSensitive: search_case_sensitive,
+        exactMatch: search_exact_match,
+        searchFields: search_fields,
+      });
+      if (searchConditions.length > 0) {
+        query = query.or(searchConditions.join(','));
+      }
     }
 
     if (lifecycle_status) {
@@ -498,8 +557,37 @@ export class LearnerProfileService {
     if (semester_id) query = query.eq('semester_id', semester_id);
     if (section_id) query = query.eq('section_id', section_id);
     if (academic_year_id) query = query.eq('academic_year_id', academic_year_id);
-    if (gender) query = query.eq('gender', gender);
+
+    // Admission year (cohort), matched the same way the list page matches it:
+    // the integer year fanned out to every visible admission_years row id, so
+    // the export spans institutions instead of silently picking one. Same
+    // resolver as _data/get-learner-profiles.ts — this method and that file are
+    // the two copies of this predicate set, and Export disagreeing with the
+    // table is exactly what happens when only one of them learns a new filter.
+    if (admission_year) {
+      const admissionYearIds = await resolveAdmissionYearIds(
+        supabase,
+        admission_year
+      );
+      query = query.in('admission_year_id', admissionYearIds);
+    }
+
+    // Case-insensitive: gender is stored upper-case ('MALE' / 'FEMALE') while
+    // older forms wrote mixed case. An eq() here silently returned zero rows.
+    if (gender) query = query.ilike('gender', gender);
     if (entry_type) query = query.eq('entry_type', entry_type);
+
+    // Matches the Learners Profiles filter bar predicate exactly. The export
+    // dialog reuses THIS function while the list page uses its own
+    // _data/get-learner-profiles.ts, so a filter added to one and not the other
+    // makes "Export" quietly return more rows than the table on screen.
+    //
+    // On the FK, never on the sibling `accommodation_type` field in this same
+    // filter type: that one names the RETIRED TEXT column, is not destructured
+    // anywhere in this method, and has therefore never filtered anything.
+    if (accommodation_type_id) {
+      query = query.eq('accommodation_type_id', accommodation_type_id);
+    }
 
     if (typeof is_profile_complete === 'boolean') {
       if (is_profile_complete === false) {
@@ -538,7 +626,55 @@ export class LearnerProfileService {
 
   /**
    * Create new learner profile
+   * Updated: 2026-05-26 - Enforce school defaults for K-12 auto-fill
    */
+  // ── Retired-column defense ──────────────────────────────────────────────
+  // community / caste / quota / accommodation_type TEXT and admission_year INT
+  // columns on learners_profiles are dropped (FK-only). create/update do a
+  // pass-through .insert/.update({ ...dto }), so a caller still sending a retired
+  // key would 400 on a non-existent column. Resolve each present value to its FK
+  // (when the FK isn't already set) and strip the dead key. For partial UPDATEs
+  // the payload may lack institution_id/program_id; the caller passes the current
+  // learner's values via `ctx` so the institution-scoped resolvers still work.
+  private static async normalizeRetiredColumns(
+    supabase: any,
+    dto: Record<string, any>,
+    ctx?: { institution_id?: string | null; program_id?: string | null },
+  ): Promise<void> {
+    const institutionId = dto.institution_id ?? ctx?.institution_id ?? null;
+    const programId = dto.program_id ?? ctx?.program_id ?? null;
+
+    if (dto.community != null && dto.community !== '' && !dto.community_category_id) {
+      const { buildCommunityResolver } = await import('@/lib/utils/community-name-resolver');
+      dto.community_category_id = (await buildCommunityResolver(supabase))(dto.community) ?? null;
+    }
+    if (dto.caste != null && dto.caste !== '' && !dto.caste_id) {
+      const { buildCasteResolver } = await import('@/lib/utils/caste-name-resolver');
+      dto.caste_id = (await buildCasteResolver(supabase))(dto.caste, dto.community_category_id) ?? null;
+    }
+    if (dto.quota != null && dto.quota !== '' && !dto.quota_id) {
+      const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
+      dto.quota_id = (await buildQuotaResolver(supabase))(dto.quota) ?? null;
+    }
+    if (dto.accommodation_type != null && dto.accommodation_type !== '' && !dto.accommodation_type_id) {
+      const { buildAccommodationTypeResolver } = await import('@/lib/utils/accommodation-type-resolver');
+      dto.accommodation_type_id =
+        (await buildAccommodationTypeResolver(supabase))(dto.accommodation_type) ?? null;
+    }
+    if (dto.admission_year != null && dto.admission_year !== '' && !dto.admission_year_id && institutionId && programId) {
+      const { resolveAdmissionYearId } = await import('@/lib/services/admission/resolve-admission-year');
+      dto.admission_year_id = await resolveAdmissionYearId(supabase, {
+        year: Number(dto.admission_year),
+        institutionId,
+      });
+    }
+    delete dto.community;
+    delete dto.caste;
+    delete dto.quota;
+    delete dto.accommodation_type;
+    delete dto.admission_year;
+  }
+
   static async createLearnerProfile(dto: CreateLearnerProfileDto): Promise<LearnerProfile> {
     const supabase = createClientSupabaseClient();
 
@@ -546,14 +682,60 @@ export class LearnerProfileService {
     const { data: userData } = await supabase.auth.getUser();
     const currentUserId = userData.user?.id;
 
+    // Fetch institution to check entity_type and enforce school defaults
+    const { data: institution, error: instError } = await supabase
+      .from('institutions')
+      .select('id, entity_type')
+      .eq('id', dto.institution_id)
+      .single();
+
+    if (instError) {
+      console.warn('[learner-profile-service] Could not fetch institution entity_type for defaults enforcement:', instError);
+      // Continue without enforcement — institution may not exist yet or permission denied
+    }
+
+    // Enforce school defaults (auto-fill degree/department for schools)
+    const enforcedDto = await SchoolDefaultsService.enforceSchoolDefaults(
+      dto.institution_id,
+      institution?.entity_type,
+      dto as Record<string, any>
+    );
+
     // Calculate is_profile_complete from the actual data instead of relying on the DTO flag
-    const isComplete = this.calculateProfileCompleteness(dto);
+    const isComplete = this.calculateProfileCompleteness(enforcedDto);
+
+    // Retired-column defense: resolve any legacy community/caste/quota/
+    // accommodation_type TEXT or admission_year INT still on the payload to its
+    // FK and strip the dead key (this method is a pass-through insert). dto
+    // carries institution_id/program_id for the scoped resolvers.
+    await this.normalizeRetiredColumns(supabase, enforcedDto as Record<string, any>);
+
+    // Validate college_email uniqueness before insert, the same way
+    // updateLearnerProfile does. Without it the learners_profiles_college_email_unique
+    // index rejects the INSERT and the caller gets a raw postgrest object whose
+    // message is "duplicate key value violates unique constraint ..." — which
+    // names no learner and tells the admission officer nothing actionable.
+    if (enforcedDto.college_email) {
+      const { data: existingLearner } = await supabase
+        .from('learners_profiles')
+        .select('id, first_name, last_name')
+        .eq('college_email', enforcedDto.college_email)
+        .maybeSingle() as { data: any; error: any };
+
+      if (existingLearner) {
+        throw new Error(
+          `Email "${enforcedDto.college_email}" is already assigned to another learner: ${existingLearner.first_name} ${existingLearner.last_name || ''}`.trim()
+        );
+      }
+    }
 
     const insertQuery: any = supabase.from('learners_profiles');
     const { data, error } = await insertQuery
       .insert({
-        ...dto,
-        lifecycle_status: (dto.lifecycle_status || 'admitted') as LifecycleStatus,
+        ...enforcedDto,
+        // 2026-05-20: Default entry-point status is now 'enquiry' (was 'admitted').
+        // 'admitted' now means post-fees-threshold; never assign it on initial INSERT.
+        lifecycle_status: (enforcedDto.lifecycle_status || 'enquiry') as LifecycleStatus,
         is_profile_complete: isComplete,
         migration_source: 'direct' as const, // Mark as directly created (not migrated)
         created_by: currentUserId,
@@ -562,7 +744,14 @@ export class LearnerProfileService {
       .single() as { data: LearnerProfile | null; error: any };
 
     if (error) {
-      console.error('[learner-profile-service] Error creating learner profile:', error);
+      // Bake the Postgrest error's own fields into the LOG STRING itself
+      // (not just a second console.error arg) — the Next.js dev overlay was
+      // rendering the raw error object as an empty "{}", hiding the real
+      // message/code/details/hint from view.
+      console.error(
+        `[learner-profile-service] Error creating learner profile: ${error.message ?? 'unknown'} ` +
+          `(code: ${error.code ?? 'n/a'}, details: ${error.details ?? 'n/a'}, hint: ${error.hint ?? 'n/a'})`,
+      );
       throw error;
     }
 
@@ -594,6 +783,14 @@ export class LearnerProfileService {
   /**
    * Update learner profile
    * Updated: 2025-01-21 - Calculate is_profile_complete before auto-activation check
+   * Updated: 2026-05-26 - Add school defaults enforcement to prevent override on edit
+   *
+   * Test scenarios:
+   * 1. Edit college learner: degree_id/department_id can be changed freely
+   * 2. Edit school learner: degree_id/department_id are reset to school defaults
+   * 3. Edit school learner (no degree_id in DTO): degree_id set to school default
+   * 4. Edit school learner changing institution to college: degree_id now required/editable
+   * 5. Edit college learner changing institution to school: degree_id reset to school default
    */
   static async updateLearnerProfile(
     id: string,
@@ -674,11 +871,55 @@ export class LearnerProfileService {
       }
     }
 
-    // First update with provided DTO
+    // Fetch institution entity_type to determine if school defaults should be enforced
+    const institutionId = dto.institution_id || (await supabase
+      .from('learners_profiles')
+      .select('institution_id')
+      .eq('id', id)
+      .single()
+      .then(r => r.data?.institution_id));
+
+    let institution = null;
+    if (institutionId) {
+      const { data: inst } = await supabase
+        .from('institutions')
+        .select('id, entity_type')
+        .eq('id', institutionId)
+        .single();
+      institution = inst;
+    }
+
+    // Enforce school defaults (prevent manual override for schools)
+    const enforcedDto = await SchoolDefaultsService.enforceSchoolDefaults(
+      institutionId,
+      institution?.entity_type,
+      dto as Record<string, any>
+    );
+
+    // Retired-column defense (see normalizeRetiredColumns). Partial updates may
+    // omit institution_id/program_id, so fetch the learner's current values to
+    // scope the accommodation/admission-year resolvers when a retired key is set.
+    const retiredKeys = ['community', 'caste', 'quota', 'accommodation_type', 'admission_year'];
+    const hasRetired = retiredKeys.some(
+      (k) => (enforcedDto as Record<string, any>)[k] != null && (enforcedDto as Record<string, any>)[k] !== '',
+    );
+    if (hasRetired) {
+      const { data: cur } = await supabase
+        .from('learners_profiles')
+        .select('institution_id, program_id')
+        .eq('id', id)
+        .maybeSingle() as { data: { institution_id?: string; program_id?: string } | null; error: any };
+      await this.normalizeRetiredColumns(supabase, enforcedDto as Record<string, any>, {
+        institution_id: cur?.institution_id,
+        program_id: cur?.program_id,
+      });
+    }
+
+    // First update with provided DTO (using enforcedDto for schools)
     const updateQuery: any = supabase.from('learners_profiles');
     const { data: updatedData, error: updateError } = await updateQuery
       .update({
-        ...dto,
+        ...enforcedDto,
         updated_at: new Date().toISOString(),
         updated_by: currentUserId,
       })
@@ -885,6 +1126,19 @@ export class LearnerProfileService {
         }
       }
 
+      // Delete orphaned consultant_lead_attributions where admission_id is NULL
+      // (ON DELETE SET NULL on learner_profile_id would violate the check constraint
+      //  requiring at least one of learner_profile_id/admission_id to be non-null)
+      const { error: attrError } = await supabase
+        .from('consultant_lead_attributions')
+        .delete()
+        .eq('learner_profile_id', id)
+        .is('admission_id', null);
+
+      if (attrError) {
+        console.warn(`[learner-profile-service] Failed to clean up orphaned attributions for ${id}:`, attrError);
+      }
+
       // Delete the learner record
       const { error } = await supabase
         .from('learners_profiles')
@@ -978,10 +1232,138 @@ export class LearnerProfileService {
       );
     }
 
+    // NEW (Task D3): if target is a threshold-gated status (e.g. 'active' with a
+    // fee_paid_threshold_percent), delegate to the SECURITY DEFINER RPC instead
+    // of doing a direct UPDATE. This prevents the bulk-status-update dialog and
+    // any other call site from bypassing the payment threshold gate.
+    // Cast to `any` — generated Supabase types lag the new RPC
+    // `evaluate_learner_status_after_payment` (Task D1, 2026-05-17).
+    const supabase = createClientSupabaseClient() as any;
+    const { data: target, error: targetErr } = await supabase
+      .from('admission_statuses')
+      .select('fee_paid_threshold_percent')
+      .eq('scope', 'learner')
+      .eq('code', transition.new_status)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (targetErr) throw new Error(getErrorMessage(targetErr));
+
+    if (target?.fee_paid_threshold_percent != null) {
+      const { data: rpcResult, error: rpcErr } = await supabase
+        .rpc('evaluate_learner_status_after_payment', { p_learner_id: id });
+      if (rpcErr) throw new Error(getErrorMessage(rpcErr));
+      const r = rpcResult as { updated: boolean; reason?: string; paid_pct?: number };
+      if (!r.updated) {
+        throw new Error(
+          `Cannot move to ${transition.new_status}: paid ${r.paid_pct ?? 0}% does not meet threshold (${target.fee_paid_threshold_percent}%).`
+        );
+      }
+      // RPC performed the UPDATE + audit row; fetch the fresh profile to match the
+      // (non-void) return contract of this method.
+      const updated = await this.getLearnerProfile(id);
+      if (!updated) {
+        throw new Error(`Learner profile ${id} not found after status update`);
+      }
+      return updated;
+    }
+
     // Update status
     return this.updateLearnerProfile(id, {
       lifecycle_status: transition.new_status,
     });
+  }
+
+  /**
+   * Activate an ONBOARDED learner: admitted → active, then provision their login.
+   *
+   * Exists because the last lifecycle hop is split across two runtimes and
+   * neither can complete it alone:
+   *
+   *   - Postgres owns everything up to 'admitted'. Triggers on
+   *     billing_receipt_items / billing_student_bills call
+   *     evaluate_learner_status_after_payment. No TypeScript is involved.
+   *   - Only the app can create the login (POST /api/learners/complete-onboarding).
+   *     The sync_learner_status_to_profile trigger merely flips is_active on an
+   *     EXISTING profiles row — it cannot create an auth user.
+   *
+   * So a payment that promoted an already-complete profile to 'admitted' left
+   * the learner stranded: eligible for activation, but nothing ran to activate
+   * them, and the onboarding page hid them because it listed only INCOMPLETE
+   * profiles. This method is the bridge, surfaced as the "Ready to Activate"
+   * tier.
+   *
+   * Every guard (permission, admitted-only, four fields, email domain) lives in
+   * the SECURITY DEFINER RPC rather than here, so no other call site can bypass
+   * them — and the RPC is the only thing that can write the audit row, since
+   * learners_profile_status_history has RLS with no INSERT policy.
+   *
+   * `activated: true` with `loginCreated: false` is a real, reportable outcome:
+   * the status change committed in Postgres but account provisioning failed.
+   * Callers MUST surface that rather than treating it as success.
+   */
+  static async activateIfReady(id: string): Promise<{
+    activated: boolean;
+    loginCreated: boolean;
+    reason?: string;
+    message: string;
+    paidPct?: number;
+    metConfiguredThreshold?: boolean;
+  }> {
+    // Cast to `any` — generated Supabase types lag this RPC (2026-08-10).
+    const supabase = createClientSupabaseClient() as any;
+
+    const { data, error } = await supabase.rpc('fn_activate_learner_from_onboarding', {
+      p_learner_id: id,
+    });
+
+    // RLS denials and constraint violations arrive in `error`, never as a throw.
+    if (error) {
+      console.error('[learner-profile-service] activateIfReady RPC failed:', error);
+      return {
+        activated: false,
+        loginCreated: false,
+        reason: 'rpc_error',
+        message: getErrorMessage(error),
+      };
+    }
+
+    const result = (data ?? {}) as {
+      activated?: boolean;
+      reason?: string;
+      message?: string;
+      paid_pct?: number;
+      met_configured_threshold?: boolean;
+    };
+
+    if (!result.activated) {
+      return {
+        activated: false,
+        loginCreated: false,
+        reason: result.reason,
+        message: result.message || 'Learner could not be activated.',
+      };
+    }
+
+    // Status is committed at this point. A login failure below must NOT be
+    // reported as an overall failure — that would tell the operator to retry
+    // something that already happened.
+    const profile = await this.getLearnerProfile(id);
+    let loginCreated = false;
+    let loginMessage = 'Activated, but the login could not be created.';
+
+    if (profile) {
+      const userCreation = await this.triggerUserCreation(id, profile);
+      loginCreated = userCreation.success;
+      loginMessage = userCreation.message;
+    }
+
+    return {
+      activated: true,
+      loginCreated,
+      message: loginCreated ? loginMessage : `Activated — ${loginMessage}`,
+      paidPct: result.paid_pct,
+      metConfiguredThreshold: result.met_configured_threshold,
+    };
   }
 
   /**
@@ -1166,6 +1548,8 @@ export class LearnerProfileService {
     semesterId: string,
     sectionId: string,
     academicYearId?: string,
+    departmentId?: string,
+    programId?: string,
     onProgress?: (
       current: number,
       total: number,
@@ -1188,6 +1572,14 @@ export class LearnerProfileService {
 
         if (academicYearId) {
           updateData.academic_year_id = academicYearId;
+        }
+
+        // Optional department/program retargeting (blank = leave unchanged)
+        if (departmentId) {
+          updateData.department_id = departmentId;
+        }
+        if (programId) {
+          updateData.program_id = programId;
         }
 
         await this.updateLearnerProfile(learnerId, updateData);
@@ -1329,6 +1721,66 @@ export class LearnerProfileService {
   }
 
   /**
+   * Apply every dashboard filter to a query builder.
+   *
+   * Shared by the headline count AND by each profile-completion / missing-field
+   * count ON PURPOSE. Those were six hand-written copies that applied only
+   * `institutionIds`, so choosing a department, programme, gender or date range
+   * shrank the denominator (`totalCount`) while every numerator stayed
+   * institution-wide — `completionRate` could exceed 100% and the "missing
+   * field" tiles reported learners the rest of the dashboard had filtered out.
+   *
+   * `lifecycleStatuses` is deliberately NOT applied here. The headline count
+   * leaves it to get_learners_count_by_status (see the call site), so applying
+   * it in only some of these callers would reintroduce the same skew in the
+   * other direction. Keeping the omission in one place makes it reviewable.
+   */
+  private static applyDashboardFilters<T>(
+    query: T,
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters
+  ): T {
+    let q = query as any;
+
+    if (filters.institutionIds && filters.institutionIds.length > 0) {
+      q = q.in('institution_id', filters.institutionIds);
+    }
+    if (filters.academicYearId) q = q.eq('academic_year_id', filters.academicYearId);
+    if (filters.degreeId) q = q.eq('degree_id', filters.degreeId);
+    if (filters.departmentId) q = q.eq('department_id', filters.departmentId);
+    if (filters.programId) q = q.eq('program_id', filters.programId);
+    if (filters.semesterId) q = q.eq('semester_id', filters.semesterId);
+    if (filters.sectionId) q = q.eq('section_id', filters.sectionId);
+
+    // Resolved upstream in getDashboardStats — one lookup per request, fanned
+    // out across every institution's row for the chosen year. An empty array is
+    // a real answer ("no visible admission_years row"), so it must still be
+    // applied: `.in(col, [])` correctly returns nothing rather than everything.
+    if (filters.admissionYearIds) q = q.in('admission_year_id', filters.admissionYearIds);
+
+    // Case-insensitive, matching the Learners Profiles list. gender is stored
+    // Title Case ('Male' / 'Female' / 'Other') and enforced that way by
+    // learners_profiles_gender_check, so the .eq() that used to be here matched
+    // ZERO rows for every selection the dashboard's radio group could make.
+    if (filters.gender) q = q.ilike('gender', filters.gender);
+
+    if (filters.isProfileComplete !== undefined) {
+      if (filters.isProfileComplete === false) {
+        q = q.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+      } else {
+        q = q.eq('is_profile_complete', true);
+      }
+    }
+
+    if (filters.dateRange) {
+      q = q
+        .gte('created_at', filters.dateRange.from.toISOString())
+        .lte('created_at', filters.dateRange.to.toISOString());
+    }
+
+    return q as T;
+  }
+
+  /**
    * Get comprehensive dashboard statistics
    * All queries run in parallel for performance
    *
@@ -1342,65 +1794,29 @@ export class LearnerProfileService {
     const supabase = supabaseClient || createClientSupabaseClient();
 
     try {
-      // Build base query filters
-      // NOTE: Supabase default limit is 1000 rows. For analytics, we need all records.
-      let baseQuery = supabase
-        .from('learners_profiles')
-        .select('*', { count: 'exact' });
-
-      // Apply filters
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        baseQuery = baseQuery.in('institution_id', filters.institutionIds);
+      // Resolve the admission cohort ONCE, before anything fans out. Roughly
+      // thirty queries below read `filters`; rebinding the parameter here is
+      // what guarantees every one of them — including the RPCs — describes the
+      // same population. resolveAdmissionYearIds THROWS on a failed lookup and
+      // returns [] only for a year with no visible row, which is what keeps
+      // "query failed" distinguishable from "empty cohort".
+      if (filters.admissionYear) {
+        filters = {
+          ...filters,
+          admissionYearIds: await resolveAdmissionYearIds(supabase, filters.admissionYear),
+        };
       }
 
-      if (filters.academicYearId) {
-        baseQuery = baseQuery.eq('academic_year_id', filters.academicYearId);
-      }
+      // `head: true` asks PostgREST for the count header and NO rows. Without
+      // it, `select('*', { count: 'exact' })` still serialises a page of full
+      // learners_profiles records that this destructure throws away.
+      const baseQuery = this.applyDashboardFilters(
+        supabase
+          .from('learners_profiles')
+          .select('*', { count: 'exact', head: true }),
+        filters
+      );
 
-      if (filters.degreeId) {
-        baseQuery = baseQuery.eq('degree_id', filters.degreeId);
-      }
-
-      if (filters.departmentId) {
-        baseQuery = baseQuery.eq('department_id', filters.departmentId);
-      }
-
-      if (filters.programId) {
-        baseQuery = baseQuery.eq('program_id', filters.programId);
-      }
-
-      if (filters.semesterId) {
-        baseQuery = baseQuery.eq('semester_id', filters.semesterId);
-      }
-
-      if (filters.sectionId) {
-        baseQuery = baseQuery.eq('section_id', filters.sectionId);
-      }
-
-      // REMOVED: lifecycle_status filter from base COUNT query
-      // This is now handled by the optimized RPC function get_learners_count_by_status
-      // Keeping this here was causing enum type errors
-
-      if (filters.isProfileComplete !== undefined) {
-        if (filters.isProfileComplete === false) {
-          baseQuery = baseQuery.or('is_profile_complete.eq.false,is_profile_complete.is.null');
-        } else {
-          baseQuery = baseQuery.eq('is_profile_complete', true);
-        }
-      }
-
-      if (filters.gender) {
-        baseQuery = baseQuery.eq('gender', filters.gender);
-      }
-
-      if (filters.dateRange) {
-        baseQuery = baseQuery
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      // OPTIMIZED: Use COUNT query instead of fetching all records
-      // This prevents timeout errors when there are thousands of records
       const { count: totalCount, error: countError } = await baseQuery;
 
       if (countError) throw countError;
@@ -1499,56 +1915,44 @@ export class LearnerProfileService {
         totalFromCounts: enquiriesCount + pendingCount + approvedCount + activeCount + inactiveCount + graduatedCount + exitedCount
       });
 
-      // Profile completion stats - Use server-side counts to avoid 1000-row limit
-      // Get complete profiles count
-      let completeQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        completeQuery = completeQuery.in('institution_id', filters.institutionIds);
-      }
-      completeQuery = completeQuery.eq('is_profile_complete', true);
-      const { count: completeProfilesCount } = await completeQuery;
+      // Profile completion + missing-field counts.
+      //
+      // Every one of these runs through applyDashboardFilters so it describes
+      // the SAME population as `totalCount` above. They previously applied only
+      // `institutionIds`, which is what let completionRate exceed 100% whenever
+      // any narrower filter was active.
+      const scopedCount = (build: (q: any) => any) =>
+        build(
+          this.applyDashboardFilters(
+            supabase
+              .from('learners_profiles')
+              .select('*', { count: 'exact', head: true }),
+            filters
+          )
+        );
 
-      // Get incomplete profiles count
-      let incompleteQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        incompleteQuery = incompleteQuery.in('institution_id', filters.institutionIds);
-      }
-      incompleteQuery = incompleteQuery.or('is_profile_complete.eq.false,is_profile_complete.is.null');
-      const { count: incompleteProfilesCount } = await incompleteQuery;
+      const [
+        { count: completeProfilesCount },
+        { count: incompleteProfilesCount },
+        { count: missingCollegeEmail },
+        { count: missingAcademicYear },
+        { count: missingSemester },
+        { count: missingSection },
+      ] = await Promise.all([
+        scopedCount((q) => q.eq('is_profile_complete', true)),
+        scopedCount((q) =>
+          q.or('is_profile_complete.eq.false,is_profile_complete.is.null')
+        ),
+        scopedCount((q) => q.or('college_email.is.null,college_email.eq.')),
+        scopedCount((q) => q.is('academic_year_id', null)),
+        scopedCount((q) => q.is('semester_id', null)),
+        scopedCount((q) => q.is('section_id', null)),
+      ]);
 
       const completionRate = totalCount > 0 ? ((completeProfilesCount || 0) / totalCount) * 100 : 0;
 
       // Awaiting activation - show approved count (learners approved and ready to be activated)
       const awaitingActivation = approvedCount;
-
-      // Missing fields breakdown - Use server-side counts
-      let missingEmailQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        missingEmailQuery = missingEmailQuery.in('institution_id', filters.institutionIds);
-      }
-      missingEmailQuery = missingEmailQuery.or('college_email.is.null,college_email.eq.');
-      const { count: missingCollegeEmail } = await missingEmailQuery;
-
-      let missingYearQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        missingYearQuery = missingYearQuery.in('institution_id', filters.institutionIds);
-      }
-      missingYearQuery = missingYearQuery.is('academic_year_id', null);
-      const { count: missingAcademicYear } = await missingYearQuery;
-
-      let missingSemQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        missingSemQuery = missingSemQuery.in('institution_id', filters.institutionIds);
-      }
-      missingSemQuery = missingSemQuery.is('semester_id', null);
-      const { count: missingSemester } = await missingSemQuery;
-
-      let missingSectionQuery = supabase.from('learners_profiles').select('*', { count: 'exact', head: true });
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        missingSectionQuery = missingSectionQuery.in('institution_id', filters.institutionIds);
-      }
-      missingSectionQuery = missingSectionQuery.is('section_id', null);
-      const { count: missingSection } = await missingSectionQuery;
 
       // DEBUG: Log profile completion counts
       console.log('[learners/analytics] Profile completion stats:', {
@@ -1620,6 +2024,9 @@ export class LearnerProfileService {
       }
       if (filters.sectionId) {
         avgTimeToActivationQuery = avgTimeToActivationQuery.eq('section_id', filters.sectionId);
+      }
+      if (filters.admissionYearIds) {
+        avgTimeToActivationQuery = avgTimeToActivationQuery.in('admission_year_id', filters.admissionYearIds);
       }
 
       // Fetch sample of active profiles (limit to 1000 for performance)
@@ -1812,6 +2219,11 @@ export class LearnerProfileService {
       query = query.eq('section_id', filters.sectionId);
     }
 
+    // Resolved by getDashboardStats before this helper is reached.
+    if (filters.admissionYearIds) {
+      query = query.in('admission_year_id', filters.admissionYearIds);
+    }
+
     if (status) {
       query = query.eq('lifecycle_status', status);
     }
@@ -1854,60 +2266,17 @@ export class LearnerProfileService {
     let hasMore = true;
 
     while (hasMore) {
-      let query = supabase
-        .from(tableName)
-        .select(selectClause);
-
-      // Apply all common filters
-      if (filters.institutionIds && filters.institutionIds.length > 0) {
-        query = query.in('institution_id', filters.institutionIds);
-      }
-
-      if (filters.academicYearId) {
-        query = query.eq('academic_year_id', filters.academicYearId);
-      }
-
-      if (filters.degreeId) {
-        query = query.eq('degree_id', filters.degreeId);
-      }
-
-      if (filters.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-
-      if (filters.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-
-      if (filters.semesterId) {
-        query = query.eq('semester_id', filters.semesterId);
-      }
-
-      if (filters.sectionId) {
-        query = query.eq('section_id', filters.sectionId);
-      }
-
-      // REMOVED: lifecycle_status filter from chunked queries
-      // Methods that need status filtering should use optimized RPC functions instead
-      // Keeping this here was causing enum type errors with text array comparison
-
-      if (filters.isProfileComplete !== undefined) {
-        if (filters.isProfileComplete === false) {
-          query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
-        } else {
-          query = query.eq('is_profile_complete', true);
-        }
-      }
-
-      if (filters.gender) {
-        query = query.eq('gender', filters.gender);
-      }
-
-      if (filters.dateRange) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
+      // Same predicate set as the headline count — see applyDashboardFilters.
+      // This used to be a third hand-written copy, and it carried the same
+      // case-sensitive `.eq('gender', …)` bug as the other two.
+      //
+      // lifecycle_status stays out of it here too: methods that need status
+      // filtering call the optimized RPCs instead (applying a text[] against
+      // the enum column from here raised a cast error).
+      let query = this.applyDashboardFilters(
+        supabase.from(tableName).select(selectClause),
+        filters
+      );
 
       // Fetch in chunks
       query = query.range(offset, offset + limit - 1);
@@ -1959,7 +2328,10 @@ export class LearnerProfileService {
         filter_gender: filters.gender || null,
         filter_is_profile_complete: filters.isProfileComplete ?? null,
         filter_date_from: filters.dateRange?.from?.toISOString() || null,
-        filter_date_to: filters.dateRange?.to?.toISOString() || null
+        filter_date_to: filters.dateRange?.to?.toISOString() || null,
+        // `??`, not `||`: an empty array is a meaningful filter (a year with no
+        // visible rows) and `||` would turn it back into "no filter at all".
+        filter_admission_year_ids: filters.admissionYearIds ?? null
       });
 
       if (error) {
@@ -2022,7 +2394,10 @@ export class LearnerProfileService {
       filter_gender: filters.gender || null,
       filter_is_profile_complete: filters.isProfileComplete ?? null,
       filter_date_from: filters.dateRange?.from?.toISOString() || null,
-      filter_date_to: filters.dateRange?.to?.toISOString() || null
+      filter_date_to: filters.dateRange?.to?.toISOString() || null,
+      // `??`, not `||`: an empty array is a meaningful filter (a year with no
+      // visible rows) and `||` would turn it back into "no filter at all".
+      filter_admission_year_ids: filters.admissionYearIds ?? null
     });
 
     if (error) {
@@ -2055,7 +2430,10 @@ export class LearnerProfileService {
       filter_gender: filters.gender || null,
       filter_is_profile_complete: filters.isProfileComplete ?? null,
       filter_date_from: filters.dateRange?.from?.toISOString() || null,
-      filter_date_to: filters.dateRange?.to?.toISOString() || null
+      filter_date_to: filters.dateRange?.to?.toISOString() || null,
+      // `??`, not `||`: an empty array is a meaningful filter (a year with no
+      // visible rows) and `||` would turn it back into "no filter at all".
+      filter_admission_year_ids: filters.admissionYearIds ?? null
     });
 
     if (error) {
@@ -2087,7 +2465,10 @@ export class LearnerProfileService {
       filter_gender: filters.gender || null,
       filter_is_profile_complete: filters.isProfileComplete ?? null,
       filter_date_from: filters.dateRange?.from?.toISOString() || null,
-      filter_date_to: filters.dateRange?.to?.toISOString() || null
+      filter_date_to: filters.dateRange?.to?.toISOString() || null,
+      // `??`, not `||`: an empty array is a meaningful filter (a year with no
+      // visible rows) and `||` would turn it back into "no filter at all".
+      filter_admission_year_ids: filters.admissionYearIds ?? null
     });
 
     if (error) {
@@ -2106,13 +2487,16 @@ export class LearnerProfileService {
   private static async getDistributionBySemester(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     const supabase = supabaseClient || createClientSupabaseClient();
 
-    let query = supabase
-      .from('learners_profiles')
-      .select('semester_id, semesters(semester_name)');
-
-    if (filters.semesterId) {
-      query = query.eq('semester_id', filters.semesterId);
-    }
+    // applyDashboardFilters covers semesterId along with every other predicate.
+    // This chart used to apply ONLY semesterId, so it ignored the institution,
+    // programme, gender, completion and date filters the rest of the dashboard
+    // was honouring — an all-institutions breakdown sitting next to filtered cards.
+    let query = this.applyDashboardFilters(
+      supabase
+        .from('learners_profiles')
+        .select('semester_id, semesters(semester_name)'),
+      filters
+    );
 
     // Apply range to fetch up to 10,000 records
     query = query.range(0, 9999);
@@ -2150,13 +2534,14 @@ export class LearnerProfileService {
   private static async getDistributionBySection(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     const supabase = supabaseClient || createClientSupabaseClient();
 
-    let query = supabase
-      .from('learners_profiles')
-      .select('section_id, sections(section_name)');
-
-    if (filters.sectionId) {
-      query = query.eq('section_id', filters.sectionId);
-    }
+    // See getDistributionBySemester — this applied only sectionId and ignored
+    // every other active filter.
+    let query = this.applyDashboardFilters(
+      supabase
+        .from('learners_profiles')
+        .select('section_id, sections(section_name)'),
+      filters
+    );
 
     // Apply range to fetch up to 10,000 records
     query = query.range(0, 9999);
@@ -2207,7 +2592,10 @@ export class LearnerProfileService {
       filter_gender: filters.gender || null,
       filter_is_profile_complete: filters.isProfileComplete ?? null,
       filter_date_from: filters.dateRange?.from?.toISOString() || null,
-      filter_date_to: filters.dateRange?.to?.toISOString() || null
+      filter_date_to: filters.dateRange?.to?.toISOString() || null,
+      // `??`, not `||`: an empty array is a meaningful filter (a year with no
+      // visible rows) and `||` would turn it back into "no filter at all".
+      filter_admission_year_ids: filters.admissionYearIds ?? null
     });
 
     if (error) {
@@ -2226,13 +2614,18 @@ export class LearnerProfileService {
   private static async getDistributionByAcademicYear(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
     const supabase = supabaseClient || createClientSupabaseClient();
 
-    let query = supabase
-      .from('learners_profiles')
-      .select('academic_year_id, academic_years(academic_year_name)');
-
-    if (filters.academicYearId) {
-      query = query.eq('academic_year_id', filters.academicYearId);
-    }
+    // See getDistributionBySemester — this applied only academicYearId.
+    //
+    // It also had NO .range() where its two siblings have one, so PostgREST's
+    // silent 1,000-row default capped it: the breakdown was computed from an
+    // arbitrary 1,000 of the 7,361 learners and the percentages were wrong with
+    // no error anywhere.
+    const query = this.applyDashboardFilters(
+      supabase
+        .from('learners_profiles')
+        .select('academic_year_id, academic_years(academic_year_name)'),
+      filters
+    ).range(0, 9999);
 
     const { data, error } = (await query) as { data: any[] | null; error: any };
     if (error) throw error;
@@ -2266,8 +2659,9 @@ export class LearnerProfileService {
 
   private static async getEnquiriesTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    // Note: Apply lifecycle_status='admitted' as an additional filter
-    const enquiryFilters = { ...filters, lifecycleStatuses: ['admitted'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
+    // 2026-05-20: Filter realigned admitted -> enquiry (+ enquiry_submitted)
+    // so the enquiries-trend chart still tracks the entry funnel.
+    const enquiryFilters = { ...filters, lifecycleStatuses: ['enquiry', 'enquiry_submitted'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
     const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'created_at', enquiryFilters, supabaseClient);
 
     // Group by date
@@ -2496,13 +2890,18 @@ export class LearnerProfileService {
     filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
     supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'community', filters, supabaseClient);
+    // community TEXT retired — read the FK's code via embed and group on it.
+    const profiles = await this.fetchAllRecordsChunked(
+      'learners_profiles',
+      'community_ref:community_categories!community_category_id(code)',
+      filters,
+      supabaseClient,
+    );
     const total = profiles.length;
 
     // Group by community
     const groups = profiles.reduce((acc, p) => {
-      const community = p.community;
+      const community = p.community_ref?.code;
       if (community) {
         if (!acc[community]) {
           acc[community] = {
@@ -2564,13 +2963,18 @@ export class LearnerProfileService {
     filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
     supabaseClient?: any
   ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
-    // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'accommodation_type', filters, supabaseClient);
+    // accommodation_type TEXT retired — read the FK's name via embed and group on it.
+    const profiles = await this.fetchAllRecordsChunked(
+      'learners_profiles',
+      'accommodation_ref:accommodation_types!accommodation_type_id(name)',
+      filters,
+      supabaseClient,
+    );
     const total = profiles.length;
 
     // Group by accommodation type
     const groups = profiles.reduce((acc, p) => {
-      const accType = p.accommodation_type;
+      const accType = p.accommodation_ref?.name;
       if (accType) {
         if (!acc[accType]) {
           acc[accType] = {
@@ -2675,6 +3079,8 @@ export class LearnerProfileService {
    * Helper: Get hierarchical institution data
    * Returns institution → degree → department → program → semester → section hierarchy
    * Fetches all learner records to build accurate hierarchy
+   * Always scoped to active learners (lifecycle_status = 'active'), independent of
+   * the dashboard's status filter — the Organizational tab represents current org headcount.
    */
   private static async getHierarchicalInstitutions(
     filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
@@ -2709,7 +3115,8 @@ export class LearnerProfileService {
           section_id,
           sections(id, section_name)
         `)
-        .not('institution_id', 'is', null);
+        .not('institution_id', 'is', null)
+        .eq('lifecycle_status', 'active');
 
       // Apply institution filter if provided
       if (filters.institutionIds && filters.institutionIds.length > 0) {

@@ -2,7 +2,7 @@
 // app/(routes)/staff/list/page.tsx
 
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,12 +19,15 @@ import { BeatLoader } from 'react-spinners';
 import { useStaff } from '@/hooks/staff/use-staff';
 import { StaffFilters } from './_components/staff-filters';
 import { StaffList } from './_components/staff-list';
-import { AdvancedSearch, SearchOptions } from './_components/advanced-search';
+import { StaffSearchInput } from './_components/staff-search-input';
 import DownloadStaffTemplateButton from './_components/download-staff-template';
 import BulkUploadStaff from './_components/bulk-upload-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
+import { BulkEditStaffDialog } from './_components/bulk-edit-staff-dialog';
 import { StaffFilters as StaffFiltersType, Staff } from '@/types/staff';
+import { StaffProfileCompletionCard } from './_components/staff-profile-completion-card';
+import { calculateStaffProfileCompletion } from '@/lib/utils/staff-profile-completion';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Users, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -61,6 +64,10 @@ export default function StaffPage() {
     limit: 20 // Optimized limit to balance performance and user experience (reduced from 50)
   });
 
+  // Raw text in the search box. Kept separate from filters.search, which only
+  // receives it after the debounce — so typing does not refetch on every key.
+  const [searchText, setSearchText] = useState('');
+
   // Use the simplified staff hook
   const {
     data: staffData,
@@ -74,9 +81,23 @@ export default function StaffPage() {
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
   const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+  // Mirrors the bulk-edit routes' server-side gate exactly. All three
+  // (template/preview/apply) use withAuth(..., { requirePermission: 'staff.manage_imports' }),
+  // so gating the button on anything looser — e.g. staff.edit, held by 72 of 88 roles —
+  // would show a button that 403s.
+  const canManageStaffImports = isSuperAdmin || canAccess('staff', 'manage_imports');
   // const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
   const staffList = staffData?.data || [];
+
+  // For `own_records` users (faculty, librarians, etc.) the list is a single
+  // row — their own staff record. Compute its completion so they get the same
+  // profile-completion bar learners see on /learners/my-profile.
+  const ownRecord = isOwnRecordsScope ? staffList[0] : undefined;
+  const ownRecordCompletion = useMemo(
+    () => (ownRecord ? calculateStaffProfileCompletion(ownRecord) : null),
+    [ownRecord]
+  );
 
   // Memoized filter change handler to prevent unnecessary re-renders
   const handleFilterChange = useCallback(
@@ -105,36 +126,21 @@ export default function StaffPage() {
     await refetch();
   }, [refetch]);
 
-  // Handle search input - using inline function to avoid dependency issues
-  const handleSearch = useCallback((query: string, options: SearchOptions) => {
-    const activeFields = Object.entries(options.searchFields)
-      .filter(([, enabled]) => enabled)
-      .map(([field]) => {
-        if (field === 'institutionEmail') return 'institution_email';
-        if (field === 'staffId') return 'staff_id';
-        return field;
-      });
-
+  // One term, matched against every searchable column. The per-field toggles
+  // and case/exact modifiers are gone: they defaulted to excluding staff ID and
+  // designation, so the most common searches silently returned nothing.
+  const handleSearch = useCallback((query: string) => {
     setFilters((prev) => ({
       ...prev,
       search: query || undefined,
-      search_case_sensitive: options.caseSensitive || undefined,
-      search_exact_match: options.exactMatch || undefined,
-      search_fields: activeFields.length ? activeFields : undefined,
       page: 1
     }));
   }, []);
 
-  // Handle search clear
+  // The page owns the text so the "Clear Search" button in the empty state can
+  // reset the input as well as the filter; the debounce lives in the input.
   const handleSearchClear = useCallback(() => {
-    setFilters((prev) => ({
-      ...prev,
-      search: undefined,
-      search_case_sensitive: undefined,
-      search_exact_match: undefined,
-      search_fields: undefined,
-      page: 1
-    }));
+    setSearchText('');
   }, []);
 
   // Show loading while permissions are loading
@@ -214,21 +220,33 @@ export default function StaffPage() {
             {/* Header */}
             <div className='flex items-center justify-between mb-6'>
               <div className='flex items-center gap-3'>
-                <div className='p-2 bg-primary/10 rounded-lg'>
+                <div className='p-2 bg-primary/10 rounded-lg shrink-0'>
                   <Users className='h-6 w-6 text-primary' />
                 </div>
-                <div>
+                <div className='min-w-0'>
                   <h1 className='text-2xl font-semibold'>
-                    Employee Management
+                    Employee List
                   </h1>
                   <p className='text-muted-foreground'>
                     Full-time JKKN staff — teaching, facilitators, and
-                    non-teaching. Guests, vendors, TAs, and volunteers live
-                    in the <Link href='/hr/employees' className='underline'>HR Non-Staff Workforce</Link> page.
+                    non-teaching. The HR module&apos;s read-only{' '}
+                    <Link href='/hr/employees' className='underline'>HR Directory</Link>{' '}
+                    shows all staff with HR context.
                   </p>
                 </div>
               </div>
             </div>
+
+            {/* Profile completion bar — own_records users (faculty et al.) see
+                a personal completion summary for their single staff record,
+                mirroring the learner /learners/my-profile experience. */}
+            {!isLoading && isOwnRecordsScope && ownRecord && ownRecordCompletion && (
+              <StaffProfileCompletionCard
+                completion={ownRecordCompletion}
+                canEdit={canEditStaff}
+                editHref={`/staff/list/${ownRecord.id}/edit`}
+              />
+            )}
 
             {/* Action Buttons — gated by permissions:
                   - Download Template / Bulk Upload Images: read-only or edit-level
@@ -241,19 +259,20 @@ export default function StaffPage() {
               <div className='flex flex-wrap items-center gap-2 mb-6'>
                 {canViewStaff && <DownloadStaffTemplateButton />}
                 {canCreateStaff && <BulkUploadStaff />}
+                {canManageStaffImports && <BulkEditStaffDialog />}
                 {isSuperAdmin && <CreateMissingProfilesButton />}
                 {canEditStaff && <BulkUploadStaffImages />}
               </div>
             )}
 
-            {/* Advanced Search — meaningless for a one-row table, so we
-                hide it for `own_records` scope. */}
+            {/* Search — meaningless for a one-row table, so we hide it for
+                `own_records` scope. */}
             {!isLoading && !isOwnRecordsScope && (
               <div className='mb-6'>
-                <AdvancedSearch
+                <StaffSearchInput
+                  value={searchText}
+                  onValueChange={setSearchText}
                   onSearch={handleSearch}
-                  onClear={handleSearchClear}
-                  placeholder='Search employees by name, email, institution email...'
                 />
               </div>
             )}
@@ -343,7 +362,8 @@ export default function StaffPage() {
                   No employees found
                 </h3>
                 <p className='text-muted-foreground mb-4'>
-                  Try adjusting your search terms or search options
+                  Every word has to match something. Try fewer words, or part of
+                  a name, staff ID, email or phone number.
                 </p>
                 <Button variant='outline' onClick={handleSearchClear}>
                   Clear Search

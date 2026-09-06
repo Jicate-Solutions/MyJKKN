@@ -116,7 +116,7 @@ export function Solve100HubClient({ eventId, eventStartDate }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <div className="flex gap-2 sm:ml-auto">
+        <div className="flex flex-wrap gap-2 sm:ml-auto">
           <Link href={`/startup-studio/events/${eventId}/solve-for-100/weekly`}>
             <Button size="sm" variant="outline" className="gap-1.5">
               <FileText className="h-4 w-4" /> Weekly Check-in

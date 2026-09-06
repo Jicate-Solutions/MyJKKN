@@ -25,6 +25,8 @@ import {
   formValuesToCreatePayload,
   type SiteFormValues,
 } from '../../_components/sites/site-form';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../../_components/no-access-alert';
 
 export const navMeta = {
   invokedFrom: '/internships/sites',
@@ -50,6 +52,7 @@ export default function NewInternshipSitePage() {
   };
 
   return (
+    <PermissionGuard module="internship.sites" action="create" fallback={<NoAccessAlert />}>
     <ContentLayout title="Internships — New Site">
       <Breadcrumb>
         <BreadcrumbList>
@@ -95,5 +98,6 @@ export default function NewInternshipSitePage() {
         />
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

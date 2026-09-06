@@ -3,7 +3,8 @@
 // AI Pulse → NAAC Evidence Export (Wave C.1, spec §7).
 //
 // IQAC-facing page that previews Gold Standard AI Pulse publications and
-// exports them as NAAC Criterion 3.3.1 (Research / Innovation Outputs) CSV.
+// exports them as NAAC Attribute 9 (Research & Innovation Outcomes, Binary
+// framework — formerly Criterion 3.3.1) CSV.
 //
 // Permission gate (page-level):
 //   - super_admin (always allowed)
@@ -52,14 +53,14 @@ export default function NaacEvidenceExportPage() {
                   <ShieldCheck className="h-7 w-7 text-indigo-600" />
                   NAAC Evidence Export
                   <Badge variant="outline" className="ml-2 font-mono text-[10px]">
-                    Criterion 3.3.1
+                    Attribute 9
                   </Badge>
                 </CardTitle>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Export Gold Standard publications from AI Pulse cycles as
-                  NAAC Criterion 3.3.1 (Research / Innovation Outputs) evidence
-                  rows. CSV columns match the AQAR / SSR workbook format —
-                  paste-ready for IQAC submission.
+                  NAAC Attribute 9 — Research &amp; Innovation Outcomes
+                  (Binary framework) evidence rows. CSV columns match the
+                  AQAR / SSR workbook format — paste-ready for IQAC submission.
                 </p>
               </div>
               <Link href="/accreditation/naac">

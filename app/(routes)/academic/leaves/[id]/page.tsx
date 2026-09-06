@@ -86,11 +86,11 @@ export default function LeaveDetailPage() {
           </Breadcrumb>
 
           {/* Header */}
-          <div className='flex items-start justify-between'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
             <div className='space-y-1'>
-              <div className='flex items-center gap-3'>
+              <div className='flex items-center gap-3 flex-wrap'>
                 <span
-                  className='w-4 h-4 rounded-full'
+                  className='w-4 h-4 rounded-full shrink-0'
                   style={{
                     backgroundColor: leave.leave_type?.color_code || '#6B7280'
                   }}
@@ -110,7 +110,7 @@ export default function LeaveDetailPage() {
               )}
             </div>
             {leave.status === 'pending' && (
-              <Button asChild>
+              <Button asChild className='shrink-0'>
                 <Link href={`/academic/leaves/${leave.id}/edit`}>
                   <Pencil className='h-4 w-4 mr-2' />
                   Edit

@@ -50,6 +50,7 @@ import { BeatLoader } from 'react-spinners';
 
 import { StaffSearchSelector } from './staff-search-selector';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 const staffPlanSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -94,6 +95,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [loading, setLoading] = useState(isEditing);
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
   const { userProfile, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
 
   // Track if initial data load has completed to prevent re-initialization
   // when userProfile reference changes (e.g., tab switch triggers re-fetch)
@@ -198,6 +200,11 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   useEffect(() => {
     async function loadInitialEditData() {
       if (staffPlan) {
+        // Skip re-initialization once already loaded for this plan — otherwise a
+        // re-render that changes the userProfile reference (e.g. a background
+        // profile refetch) re-runs this effect and calls form.reset(), silently
+        // discarding any in-progress edits and making Save appear to do nothing.
+        if (hasInitializedRef.current) return;
         try {
           // Load all dependent data in parallel
           // Scope institution list to the current user's accessible institutions.
@@ -215,7 +222,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             academicYearsData,
             coursesData
           ] = await Promise.all([
-            OrganizationService.getInstitutionNames(true, institutionUserId),
+            // entityType:'all' → include schools (entity_type='school'); the
+            // userId scoping still restricts to the user's accessible institutions.
+            OrganizationService.getInstitutionNames(true, institutionUserId, 'all'),
             DegreeService.getDegreesByInstitution(staffPlan.institution_id),
             DepartmentService.getDepartmentsByDegree(staffPlan.degree_id),
             ProgramService.getProgramsByDepartment(staffPlan.department_id),
@@ -304,6 +313,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           if (isEditing) {
             setLoading(false);
           }
+          hasInitializedRef.current = true;
         }
       } else {
         // Load only institutions for new form
@@ -316,8 +326,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             // HODs and other scoped roles pass their userId so only their accessible
             // institutions are returned via UserInstitutionAccessService. [BUG-002452]
             const institutionUserId = isSuperAdmin ? undefined : (userProfile?.id ?? undefined);
+            // entityType:'all' → include schools; userId scoping still applies.
             const institutionsData =
-              await OrganizationService.getInstitutionNames(true, institutionUserId);
+              await OrganizationService.getInstitutionNames(true, institutionUserId, 'all');
             logger.dev(
               'academic/staff-planning',
               'Loaded institution dropdown',
@@ -705,7 +716,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 name='degree_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree</FormLabel>
+                    <FormLabel>{adapt('Degree')}</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={(value) => {
@@ -718,13 +729,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select degree' />
+                          <SelectValue placeholder={`Select ${adapt('degree')}`} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {degrees.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No degrees available
+                            No {adapt('degrees')} available
                           </div>
                         ) : (
                           degrees.map((degree) => (
@@ -745,7 +756,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 name='department_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department</FormLabel>
+                    <FormLabel>{adapt('Department')}</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={(value) => {
@@ -757,13 +768,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select department' />
+                          <SelectValue placeholder={`Select ${adapt('department')}`} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {departments.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No departments available
+                            No {adapt('departments')} available
                           </div>
                         ) : (
                           departments.map((dept) => (
@@ -784,7 +795,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 name='program_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program</FormLabel>
+                    <FormLabel>{adapt('Program')}</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={(value) => {
@@ -795,13 +806,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select program' />
+                          <SelectValue placeholder={`Select ${adapt('program')}`} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {programs.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No programs available
+                            No {adapt('programs')} available
                           </div>
                         ) : (
                           programs.map((program) => (
@@ -822,7 +833,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 name='semester_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Semester</FormLabel>
+                    <FormLabel>{adapt('Semester')}</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={field.onChange}
@@ -830,13 +841,13 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select semester' />
+                          <SelectValue placeholder={`Select ${adapt('semester')}`} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {semesters.length === 0 ? (
                           <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No semesters available
+                            No {adapt('semesters')} available
                           </div>
                         ) : (
                           semesters.map((semester) => (
@@ -925,7 +936,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             {/* Course Assignments */}
             <div className='space-y-4'>
               <div className='flex justify-between items-center'>
-                <h3 className='text-lg font-semibold'>Course Assignments</h3>
+                <h3 className='text-lg font-semibold'>{adapt('Course')} Assignments</h3>
                 <Button
                   type='button'
                   onClick={() => {
@@ -937,7 +948,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                   }}
                 >
                   <Plus className='mr-2 h-4 w-4' />
-                  Add Course
+                  Add {adapt('Course')}
                 </Button>
               </div>
 
@@ -962,21 +973,21 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                             name={`courses.${index}.course_id`}
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Course</FormLabel>
+                                <FormLabel>{adapt('Course')}</FormLabel>
                                 <Select
                                   value={field.value}
                                   onValueChange={field.onChange}
                                 >
                                   <FormControl>
                                     <SelectTrigger>
-                                      <SelectValue placeholder='Select course' />
+                                      <SelectValue placeholder={`Select ${adapt('course')}`} />
                                     </SelectTrigger>
                                   </FormControl>
                                   <SelectContent className='max-h-60 overflow-y-auto'>
                                     {courses.length === 0 ? (
                                       <div className='p-2 text-center text-sm text-muted-foreground'>
-                                        No courses available for this
-                                        program/semester
+                                        No {adapt('courses')} available for this
+                                        {adapt('program')}/{adapt('semester')}
                                       </div>
                                     ) : (
                                       courses.map((course) => (
@@ -1034,7 +1045,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
                       {!courseAssignment?.course_id && (
                         <div className='text-center py-8 text-muted-foreground'>
-                          Select a course to assign staff members
+                          Select a {adapt('course')} to assign staff members
                         </div>
                       )}
                     </div>
@@ -1044,7 +1055,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
               {fields.length === 0 && (
                 <div className='text-center py-8 text-muted-foreground border border-dashed border-border rounded-lg'>
-                  No courses added yet. Click &quot;Add Course&quot; to get
+                  No {adapt('courses')} added yet. Click &quot;Add {adapt('Course')}&quot; to get
                   started.
                 </div>
               )}
@@ -1107,7 +1118,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             <AlertDialogTitle>Staff Plan Already Exists</AlertDialogTitle>
             <AlertDialogDescription className='space-y-3'>
               <p>
-                A staff plan already exists for this semester
+                A staff plan already exists for this {adapt('semester')}
                 {duplicateDialog.existingPlan && (
                   <span className='font-medium'>
                     {' '}({duplicateDialog.existingPlan.institution?.name} -{' '}

@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Plus, Pencil, Trash2, IndianRupee, Download } from 'lucide-react';
+import { Pencil, IndianRupee, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -29,15 +28,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 
-import { BosTaDaClaim, BosClaimStatus, BosMeetingAttendee } from '@/types/bos';
+import { BosTaDaClaim, BosClaimStatus } from '@/types/bos';
 import {
   useBosTaDaClaims,
-  useCreateBosTaDaClaim,
   useUpdateBosTaDaClaim,
-  useDeleteBosTaDaClaim,
 } from '@/hooks/bos/use-bos-ta-da';
 import { useBosMeetings } from '@/hooks/bos/use-bos-meetings';
+import { useBosBoards } from '@/hooks/bos/use-bos-boards';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
+import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
+import { RateSettingsDialog } from './_components/rate-settings-dialog';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
@@ -47,6 +49,7 @@ import {
   type BosClaimPDFData,
 } from '@/lib/utils/internal-marks/internal-marks-pdf';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { InstitutionPicker } from '../_components/institution-picker';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -85,292 +88,98 @@ const CLAIM_STATUS_VARIANTS: Record<
   paid: 'default',
 };
 
-// ── TA/DA Claim Form Dialog ───────────────────────────────────────────────────
+// ── Edit Claim Dialog ─────────────────────────────────────────────────────────
+//
+// Slim post-create editor. Auto-generated claims have honorarium + travel
+// already computed from the SOP rates; this dialog only lets staff capture
+// payout metadata (NEFT details, status transitions, bill / payment refs).
+// Amount columns are intentionally not editable here — overrides go through
+// PUT /api/bos/ta-da/[id] directly if absolutely needed.
 
-interface TaDaFormDialogProps {
+interface EditClaimDialogProps {
   open: boolean;
   onClose: () => void;
-  institutionsId: string;
-  claim?: BosTaDaClaim;
+  claim: BosTaDaClaim;
 }
 
-function TaDaFormDialog({ open, onClose, institutionsId, claim }: TaDaFormDialogProps) {
-  const isEdit = !!claim;
-  const createClaim = useCreateBosTaDaClaim();
+function EditClaimDialog({ open, onClose, claim }: EditClaimDialogProps) {
   const updateClaim = useUpdateBosTaDaClaim();
 
-  // Parse stored extra fields from notes JSON
-  const extra = useMemo(() => parseExtraNotes(claim?.notes), [claim?.notes]);
+  // NEFT/bank details are still stored as JSON in `notes` — pre-rollout
+  // convention from before there were dedicated payout columns. Keeping the
+  // JSON shape here to avoid a further schema change; if/when bank columns
+  // are added, swap the parse/serialize for direct field reads.
+  const extra = useMemo(() => parseExtraNotes(claim.notes), [claim.notes]);
 
-  // Form state
-  const [meetingId, setMeetingId] = useState(claim?.meeting_id ?? '');
-  const [memberId, setMemberId] = useState(claim?.member_id ?? '');
-  const [expertId, setExpertId] = useState(claim?.expert_id ?? '');
-  const [travelMode, setTravelMode] = useState(claim?.travel_mode ?? '');
-  const [travelFrom, setTravelFrom] = useState(claim?.travel_from ?? '');
-  const [travelTo, setTravelTo] = useState(claim?.travel_to ?? '');
-  const [travelAmount, setTravelAmount] = useState(String(claim?.travel_amount ?? 0));
-  const [daDays, setDaDays] = useState(String(claim?.da_days ?? 1));
-  const [daRate, setDaRate] = useState(String(claim?.da_rate ?? 0));
-  const [otherAmount, setOtherAmount] = useState(String(claim?.other_amount ?? 0));
-  const [otherDescription, setOtherDescription] = useState(claim?.other_description ?? '');
-  const [remuneration, setRemuneration] = useState(String(extra.remuneration ?? 0));
   const [bankName, setBankName] = useState(String(extra.bank_name ?? ''));
   const [branchName, setBranchName] = useState(String(extra.branch_name ?? ''));
   const [accountNumber, setAccountNumber] = useState(String(extra.account_number ?? ''));
   const [ifscCode, setIfscCode] = useState(String(extra.ifsc_code ?? ''));
   const [panNumber, setPanNumber] = useState(String(extra.pan_number ?? ''));
-  const [claimStatus, setClaimStatus] = useState<BosClaimStatus>(claim?.claim_status ?? 'draft');
-  const [billNumber, setBillNumber] = useState(claim?.bill_number ?? '');
-
-  // Meetings dropdown
-  const { data: meetingsData } = useBosMeetings({ limit: 100, sortOrder: 'desc' });
-  const meetings = meetingsData?.data ?? [];
-
-  // Attendees cascade — only fires when a meeting is selected
-  const { data: attendeesRaw = [], isLoading: attendeesLoading } = useQuery<BosMeetingAttendee[]>({
-    queryKey: ['bos-ta-da-attendees', meetingId],
-    queryFn: async () => {
-      const res = await fetch(`/api/bos/meetings/${meetingId}/attendance`);
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!meetingId,
-    staleTime: 60_000,
-  });
-
-  // Show all meeting attendees (external experts get TA+DA; internal members get DA only)
-  const allAttendees = attendeesRaw;
-
-  const INTERNAL_MEMBER_TYPES = new Set([
-    'chairman', 'internal_member', 'hod', 'facilitator', 'principal',
-  ]);
-
-  const selectedAttendee = allAttendees.find((a) => a.member_id === memberId);
-  const selectedMemberType = (selectedAttendee?.member as any)?.member_type as string | undefined;
-  const isInternalMember = !!memberId && INTERNAL_MEMBER_TYPES.has(selectedMemberType ?? '');
-
-  // Derived totals
-  const daAmount = parseFloat(daDays || '0') * parseFloat(daRate || '0');
-  const taAmount = parseFloat(travelAmount || '0') + daAmount + parseFloat(otherAmount || '0');
-  const total = parseFloat(remuneration || '0') + taAmount;
-
-  const isPending = createClaim.isPending || updateClaim.isPending;
-
-  const handleMeetingChange = (id: string) => {
-    setMeetingId(id);
-    setMemberId('');
-    setExpertId('');
-  };
-
-  const handleAttendeeChange = (attendeeMemberId: string) => {
-    const attendee = allAttendees.find((a) => a.member_id === attendeeMemberId);
-    if (attendee) {
-      setMemberId(attendee.member_id);
-      setExpertId((attendee.member as any)?.expert_id ?? '');
-    }
-  };
+  const [claimStatus, setClaimStatus] = useState<BosClaimStatus>(claim.claim_status);
+  const [billNumber, setBillNumber] = useState(claim.bill_number ?? '');
+  const [paymentDate, setPaymentDate] = useState(claim.payment_date ?? '');
+  const [paymentReference, setPaymentReference] = useState(claim.payment_reference ?? '');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!meetingId || !memberId) {
-      toast.error('Meeting and member are required');
-      return;
-    }
     try {
       const notesPayload = JSON.stringify({
-        remuneration: parseFloat(remuneration) || 0,
         bank_name: bankName || null,
         branch_name: branchName || null,
         account_number: accountNumber || null,
         ifsc_code: ifscCode || null,
         pan_number: panNumber || null,
       });
-      const payload = {
-        institutions_id: institutionsId,
-        meeting_id: meetingId,
-        member_id: memberId,
-        expert_id: expertId || undefined,
-        travel_mode: travelMode || undefined,
-        travel_from: travelFrom || undefined,
-        travel_to: travelTo || undefined,
-        travel_amount: parseFloat(travelAmount) || 0,
-        da_days: parseFloat(daDays) || 1,
-        da_rate: parseFloat(daRate) || 0,
-        da_amount: daAmount,
-        other_amount: parseFloat(otherAmount) || 0,
-        other_description: otherDescription || undefined,
-        claim_status: claimStatus,
-        bill_number: billNumber || undefined,
-        notes: notesPayload,
-      };
-      if (isEdit) {
-        await updateClaim.mutateAsync({ id: claim.id, data: payload });
-        toast.success('TA/DA claim updated');
-      } else {
-        await createClaim.mutateAsync(payload);
-        toast.success('TA/DA claim created');
-      }
+      await updateClaim.mutateAsync({
+        id: claim.id,
+        data: {
+          claim_status: claimStatus,
+          bill_number: billNumber || undefined,
+          payment_date: paymentDate || undefined,
+          payment_reference: paymentReference || undefined,
+          notes: notesPayload,
+        },
+      });
+      toast.success('Claim updated');
       onClose();
     } catch (err) {
-      logger.error('academic/bos', 'Failed to save TA/DA claim', err);
-      toast.error((err as Error).message || 'Failed to save claim');
+      logger.error('academic/bos', 'Failed to update TA/DA claim', err);
+      toast.error((err as Error).message || 'Failed to update claim');
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className='max-w-xl'>
+      <DialogContent className='max-w-lg'>
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit TA/DA Claim' : 'New TA/DA Claim'}</DialogTitle>
+          <DialogTitle>Edit TA/DA Claim</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className='space-y-4 max-h-[72vh] overflow-y-auto pr-1'>
 
-          {/* ── Meeting dropdown ── */}
-          <div className='space-y-2'>
-            <Label>Meeting <span className='text-destructive'>*</span></Label>
-            <Select value={meetingId} onValueChange={handleMeetingChange}>
-              <SelectTrigger>
-                <SelectValue placeholder='Select a meeting…' />
-              </SelectTrigger>
-              <SelectContent>
-                {meetings.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.meeting_title ?? `Meeting #${m.meeting_number}`}
-                    {m.scheduled_date && ` — ${format(new Date(m.scheduled_date), 'dd MMM yyyy')}`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* ── Member dropdown (cascaded from meeting — all attendees) ── */}
-          <div className='space-y-2'>
-            <Label>Member <span className='text-destructive'>*</span></Label>
-            {attendeesLoading ? (
-              <Skeleton className='h-9 w-full' />
-            ) : (
-              <Select
-                value={memberId}
-                onValueChange={handleAttendeeChange}
-                disabled={!meetingId}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={meetingId ? 'Select a member…' : 'Select a meeting first'}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {allAttendees.length === 0 ? (
-                    <div className='px-3 py-2 text-xs text-muted-foreground'>
-                      No attendees recorded for this meeting
-                    </div>
-                  ) : (
-                    allAttendees.map((a) => (
-                      <SelectItem key={a.member_id} value={a.member_id}>
-                        {(a.member as any)?.display_name ?? a.member_id}
-                        {(a.member as any)?.display_designation
-                          ? ` — ${(a.member as any).display_designation}`
-                          : ''}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          <Separator />
-
-          {/* ── Travel details — external experts only ── */}
-          {!isInternalMember && (
-            <>
-              <div className='grid grid-cols-3 gap-3'>
-                <div className='space-y-2'>
-                  <Label>Travel Mode</Label>
-                  <Input placeholder='Bus / Train / Air' value={travelMode} onChange={(e) => setTravelMode(e.target.value)} />
-                </div>
-                <div className='space-y-2'>
-                  <Label>From</Label>
-                  <Input value={travelFrom} onChange={(e) => setTravelFrom(e.target.value)} />
-                </div>
-                <div className='space-y-2'>
-                  <Label>To</Label>
-                  <Input value={travelTo} onChange={(e) => setTravelTo(e.target.value)} />
-                </div>
-              </div>
-
-              <div className='grid grid-cols-3 gap-3'>
-                <div className='space-y-2'>
-                  <Label>Travel ₹</Label>
-                  <Input type='number' min={0} value={travelAmount} onChange={(e) => setTravelAmount(e.target.value)} />
-                </div>
-                <div className='space-y-2'>
-                  <Label>DA Days</Label>
-                  <Input type='number' min={0} step={0.5} value={daDays} onChange={(e) => setDaDays(e.target.value)} />
-                </div>
-                <div className='space-y-2'>
-                  <Label>DA Rate ₹/day</Label>
-                  <Input type='number' min={0} value={daRate} onChange={(e) => setDaRate(e.target.value)} />
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ── DA only — internal members (chairman, HoD, etc.) ── */}
-          {isInternalMember && (
-            <div className='grid grid-cols-2 gap-3'>
-              <div className='space-y-2'>
-                <Label>DA Days</Label>
-                <Input type='number' min={0} step={0.5} value={daDays} onChange={(e) => setDaDays(e.target.value)} />
-              </div>
-              <div className='space-y-2'>
-                <Label>DA Rate ₹/day</Label>
-                <Input type='number' min={0} value={daRate} onChange={(e) => setDaRate(e.target.value)} />
-              </div>
-            </div>
-          )}
-
-          <div className='grid grid-cols-2 gap-3'>
-            <div className='space-y-2'>
-              <Label>Other ₹</Label>
-              <Input type='number' min={0} value={otherAmount} onChange={(e) => setOtherAmount(e.target.value)} />
-            </div>
-            <div className='space-y-2'>
-              <Label>Other Description</Label>
-              <Input value={otherDescription} onChange={(e) => setOtherDescription(e.target.value)} />
-            </div>
-          </div>
-
-          {/* ── Remuneration ── */}
-          <div className='space-y-2'>
-            <Label>Remuneration ₹</Label>
-            <Input
-              type='number'
-              min={0}
-              value={remuneration}
-              onChange={(e) => setRemuneration(e.target.value)}
-              placeholder='0'
-            />
-          </div>
-
-          {/* ── Amount summary ── */}
+          {/* ── Computed amounts (read-only) ── */}
           <div className='rounded-md bg-muted/50 px-3 py-2.5 text-sm space-y-1'>
             <div className='flex justify-between text-xs text-muted-foreground'>
-              <span>Remuneration</span>
-              <span>₹ {(parseFloat(remuneration) || 0).toFixed(2)}</span>
+              <span>Honorarium</span>
+              <span>₹ {(claim.honorarium_amount ?? 0).toFixed(2)}</span>
             </div>
             <div className='flex justify-between text-xs text-muted-foreground'>
-              <span>TA (Travel + DA + Other)</span>
-              <span>₹ {taAmount.toFixed(2)}</span>
+              <span>TA (round-trip)</span>
+              <span>₹ {(claim.travel_amount ?? 0).toFixed(2)}</span>
             </div>
+            {(claim.other_amount ?? 0) > 0 && (
+              <div className='flex justify-between text-xs text-muted-foreground'>
+                <span>Other</span>
+                <span>₹ {(claim.other_amount ?? 0).toFixed(2)}</span>
+              </div>
+            )}
             <div className='flex justify-between text-sm font-semibold border-t pt-1 mt-1'>
               <span>Total</span>
-              <span>₹ {total.toFixed(2)}</span>
+              <span>₹ {(claim.total_amount ?? 0).toFixed(2)}</span>
             </div>
             <p className='text-xs text-muted-foreground italic pt-0.5'>
-              {amountToWords(total)}
+              {amountToWords(claim.total_amount ?? 0)}
             </p>
           </div>
 
@@ -419,7 +228,7 @@ function TaDaFormDialog({ open, onClose, institutionsId, claim }: TaDaFormDialog
 
           <Separator />
 
-          {/* ── Status & bill ── */}
+          {/* ── Payment / status ── */}
           <div className='grid grid-cols-2 gap-3'>
             <div className='space-y-2'>
               <Label>Status</Label>
@@ -437,13 +246,31 @@ function TaDaFormDialog({ open, onClose, institutionsId, claim }: TaDaFormDialog
               <Input value={billNumber} onChange={(e) => setBillNumber(e.target.value)} />
             </div>
           </div>
+          <div className='grid grid-cols-2 gap-3'>
+            <div className='space-y-2'>
+              <Label>Payment Date</Label>
+              <Input
+                type='date'
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+              />
+            </div>
+            <div className='space-y-2'>
+              <Label>Payment Reference</Label>
+              <Input
+                value={paymentReference}
+                onChange={(e) => setPaymentReference(e.target.value)}
+                placeholder='UTR / NEFT ref'
+              />
+            </div>
+          </div>
 
           <DialogFooter>
-            <Button type='button' variant='outline' onClick={onClose} disabled={isPending}>
+            <Button type='button' variant='outline' onClick={onClose} disabled={updateClaim.isPending}>
               Cancel
             </Button>
-            <Button type='submit' disabled={isPending || !meetingId || !memberId}>
-              {isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Claim'}
+            <Button type='submit' disabled={updateClaim.isPending}>
+              {updateClaim.isPending ? 'Saving…' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </form>
@@ -457,28 +284,31 @@ function TaDaFormDialog({ open, onClose, institutionsId, claim }: TaDaFormDialog
 function ClaimRow({
   claim,
   canEdit,
-  institutionsId,
-  meetingTitle,
+  boardLabel,
+  meetingDate,
+  councilName,
 }: {
   claim: BosTaDaClaim;
   canEdit: boolean;
-  institutionsId: string;
-  meetingTitle?: string;
+  boardLabel?: string;
+  /**
+   * ISO date string (YYYY-MM-DD) of when the meeting actually occurred,
+   * preferring actual_date over scheduled_date. Falls back to the claim's
+   * created_at if the meeting has neither — that's a degenerate case (the
+   * meeting status flow normally guarantees actual_date by the time
+   * attendance is taken).
+   */
+  meetingDate?: string;
+  /**
+   * Convening council/committee of the claim's meeting (e.g. 'Academic
+   * Council'). Drives the claim form's "Claim Form for <council> of" title
+   * and "Position in <council>" row; the PDF falls back to 'BOS'.
+   */
+  councilName?: string;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
-  const deleteClaim = useDeleteBosTaDaClaim();
   const { data: institutionCtx } = useInstitutionContext();
-
-  const handleDelete = async () => {
-    if (!confirm('Delete this TA/DA claim?')) return;
-    try {
-      await deleteClaim.mutateAsync({ id: claim.id, meetingId: claim.meeting_id });
-      toast.success('Claim deleted');
-    } catch {
-      toast.error('Failed to delete claim');
-    }
-  };
 
   const handleDownloadPDF = async () => {
     setPdfLoading(true);
@@ -490,13 +320,26 @@ function ClaimRow({
       ]);
 
       const extra = parseExtraNotes(claim.notes);
-      const remuneration = Number(extra.remuneration ?? 0);
-      const taAmount =
-        (claim.travel_amount ?? 0) + (claim.da_amount ?? 0) + (claim.other_amount ?? 0);
-      const total = remuneration + taAmount;
+      const honorarium = claim.honorarium_amount ?? 0;
+      const taAmount = claim.travel_amount ?? 0;
+      const total = claim.total_amount ?? honorarium + taAmount + (claim.other_amount ?? 0);
 
-      const expert = claim.expert as any;
-      const member = claim.member as any;
+      const expert = claim.expert as
+        | { title?: string; name: string; designation?: string; institution_name?: string; contact_no?: string; email?: string }
+        | null
+        | undefined;
+      const member = claim.member as
+        | {
+            display_name?: string;
+            display_designation?: string;
+            display_institution?: string;
+            member_type?: string;
+            contact_no?: string;
+            email?: string;
+            staff?: { phone?: string };
+          }
+        | null
+        | undefined;
 
       const pdfData: BosClaimPDFData = {
         institution_name: header.institution_name,
@@ -504,17 +347,24 @@ function ClaimRow({
         institution_accreditation: header.institution_accreditation,
         logoImage,
         rightLogoImage,
-        bos_subject: meetingTitle ?? '',
-        claim_date: format(new Date(claim.created_at), 'dd/MM/yyyy'),
-        member_name: expert?.name ?? member?.display_name ?? '—',
+        bos_subject: boardLabel ?? '',
+        council_name: councilName,
+        // Prefer the meeting's own date over the claim row's created_at.
+        // claim.created_at is when the auto-generation ran (typically the day
+        // attendance was taken — useful for audit, but not what the printed
+        // claim form should display).
+        claim_date: format(new Date(meetingDate ?? claim.created_at), 'dd/MM/yyyy'),
+        member_name: expert
+          ? `${expert.title ? `${expert.title} ` : ''}${expert.name}`
+          : member?.display_name ?? '—',
         designation: expert?.designation ?? member?.display_designation,
         college_address: expert?.institution_name ?? member?.display_institution,
         position_in_bos: member?.member_type
           ? member.member_type.replace(/_/g, ' ')
           : undefined,
-        mobile: expert?.contact_no ?? member?.contact_no ?? (member?.staff as any)?.phone,
+        mobile: expert?.contact_no ?? member?.contact_no ?? member?.staff?.phone,
         email: expert?.email ?? member?.email,
-        remuneration,
+        honorarium,
         ta_amount: taAmount,
         total,
         bank_name: String(extra.bank_name ?? ''),
@@ -535,30 +385,34 @@ function ClaimRow({
     }
   };
 
-  const expertName = (claim.expert as any)?.name ?? '—';
-  const memberName = (claim.member as any)?.display_name ?? '—';
-  const extra = parseExtraNotes(claim.notes);
-  const remuneration = Number(extra.remuneration ?? 0);
-  const displayTotal = remuneration + (claim.total_amount ?? 0);
+  const expert = claim.expert as { title?: string; name?: string } | null | undefined;
+  const expertName = expert?.name
+    ? `${expert.title ? `${expert.title} ` : ''}${expert.name}`
+    : null;
+  const memberName = (claim.member as { display_name?: string } | null | undefined)?.display_name ?? '—';
+  const displayName = expertName ?? memberName;
 
   return (
     <>
       <div className='flex items-center gap-3 rounded-lg border p-3'>
         <div className='flex-1 min-w-0'>
           <div className='flex items-center gap-2 flex-wrap'>
-            <p className='text-sm font-medium'>{expertName}</p>
-            <span className='text-xs text-muted-foreground'>({memberName})</span>
+            <p className='text-sm font-medium'>{displayName}</p>
+            {expertName && (
+              <span className='text-xs text-muted-foreground'>({memberName})</span>
+            )}
             <Badge variant={CLAIM_STATUS_VARIANTS[claim.claim_status]} className='text-xs'>
               {CLAIM_STATUS_LABELS[claim.claim_status]}
             </Badge>
           </div>
           <div className='flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap'>
-            {claim.travel_mode && (
-              <span>{claim.travel_mode}: {claim.travel_from} → {claim.travel_to}</span>
+            <span>Honorarium ₹{(claim.honorarium_amount ?? 0).toFixed(2)}</span>
+            {(claim.travel_amount ?? 0) > 0 && (
+              <span>TA ₹{(claim.travel_amount ?? 0).toFixed(2)}</span>
             )}
-            <span className='flex items-center gap-0.5'>
+            <span className='flex items-center gap-0.5 font-medium text-foreground'>
               <IndianRupee className='h-3 w-3' />
-              {displayTotal.toFixed(2)}
+              {(claim.total_amount ?? 0).toFixed(2)}
             </span>
             {claim.bill_number && <span>Bill: {claim.bill_number}</span>}
           </div>
@@ -575,28 +429,20 @@ function ClaimRow({
             <Download className='h-3.5 w-3.5' />
           </Button>
           {canEdit && (
-            <>
-              <Button
-                variant='ghost' size='icon' className='h-7 w-7'
-                onClick={() => setEditOpen(true)}
-              >
-                <Pencil className='h-3.5 w-3.5' />
-              </Button>
-              <Button
-                variant='ghost' size='icon' className='h-7 w-7 hover:text-destructive'
-                onClick={handleDelete} disabled={deleteClaim.isPending}
-              >
-                <Trash2 className='h-3.5 w-3.5' />
-              </Button>
-            </>
+            <Button
+              variant='ghost' size='icon' className='h-7 w-7'
+              onClick={() => setEditOpen(true)}
+              title='Edit payment details'
+            >
+              <Pencil className='h-3.5 w-3.5' />
+            </Button>
           )}
         </div>
       </div>
       {editOpen && (
-        <TaDaFormDialog
+        <EditClaimDialog
           open={editOpen}
           onClose={() => setEditOpen(false)}
-          institutionsId={institutionsId}
           claim={claim}
         />
       )}
@@ -608,46 +454,203 @@ function ClaimRow({
 
 export default function TaDaPage() {
   const { profile } = useAuth();
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canEdit = isSuperAdmin || canAccess('bos.ta_da', 'create');
-  const [addOpen, setAddOpen] = useState(false);
+  const { isSuperAdmin } = usePermissions();
+  const boardScope = useBosBoardScope();
+
+  // Membership-driven edit gate. Memory `BoS Membership Is Authorization` —
+  // role-perm grants for `bos.ta_da.edit` drift out of sync with composition
+  // membership; gate on memberOf instead. Server enforces via
+  // guardCompositionWrite on the PUT.
+  const isBoardMember = !boardScope.isLoading && boardScope.memberOf.size > 0;
+  const canEdit = isSuperAdmin || boardScope.isPrincipal || isBoardMember;
+
   const [filterStatus, setFilterStatus] = useState<BosClaimStatus | 'all'>('all');
 
+  // Institution → board → meeting → search filter chain. Mirrors /bos/courses
+  // pattern but with an extra meeting hop for the TA/DA page since claims are
+  // meeting-scoped (one claim per member per meeting).
+  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  const [boardId, setBoardId] = useState<string>('');
+  const [meetingId, setMeetingId] = useState<string>('');
+  const [search, setSearch] = useState('');
+
+  // Auto-select for non-super-admin once profile resolves.
+  useEffect(() => {
+    if (isSuperAdmin) return;
+    if (institutionId) return;
+    if (!profile?.institution_id) return;
+    setInstitutionId(profile.institution_id);
+  }, [isSuperAdmin, profile?.institution_id, institutionId]);
+
+  // Reset board + meeting filters when institution changes — board IDs are
+  // institution-scoped so a stale boardId would produce an empty list, and
+  // meeting cascades from board so it must reset too.
+  useEffect(() => {
+    setBoardId('');
+    setMeetingId('');
+  }, [institutionId]);
+
+  // Filter order is Institution → Meeting → Board: the meeting picker works
+  // straight off the institution, and Board is an optional narrower. When a
+  // board is chosen it must stay consistent with an already-picked meeting —
+  // that reconciliation happens in the board Select's onValueChange (clearing
+  // the meeting only when it belongs to a different board), not here, so
+  // picking a board never wipes a matching meeting selection.
+
+  const { data: boards = [], isLoading: boardsLoading } = useBosBoards(
+    isSuperAdmin ? institutionId : undefined,
+  );
+
+  const instScope = useBosInstitutionScope(institutionId);
+  const institutionsIds = useMemo(
+    () => (instScope.ids.length > 0 ? instScope.ids : undefined),
+    [instScope.ids],
+  );
+
   const { data: claims = [], isLoading } = useBosTaDaClaims({
-    institutionsId: profile?.institution_id,
+    institutionsIds,
+    boardId: boardId || undefined,
+    meetingId: meetingId || undefined,
     claimStatus: filterStatus === 'all' ? undefined : filterStatus,
+    enabled: institutionId
+      ? !instScope.isLoading && !!institutionsIds
+      : isSuperAdmin,
   });
 
-  // Meetings map — used to resolve meeting titles for the PDF subject line
+  const filteredClaims = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return claims;
+    return claims.filter((c) => {
+      const memberName = ((c.member as { display_name?: string } | null | undefined)?.display_name ?? '').toLowerCase();
+      const e = c.expert as { title?: string; name?: string } | null | undefined;
+      const expertName = e
+        ? `${e.title ?? ''} ${e.name ?? ''}`.toLowerCase()
+        : '';
+      return memberName.includes(q) || expertName.includes(q);
+    });
+  }, [claims, search]);
+
+  // Meetings map — used to resolve {board_type} - {board_name} for the PDF subject line
   const { data: meetingsData } = useBosMeetings({ limit: 100, sortOrder: 'desc' });
   const meetingsMap = useMemo(
     () => Object.fromEntries((meetingsData?.data ?? []).map((m) => [m.id, m])),
     [meetingsData],
   );
 
-  const institutionsId = profile?.institution_id ?? '';
+  // Meetings visible in the cascading dropdown — narrowed by the selected
+  // board AND (when scoped) the selected institution. Filtering client-side
+  // because useBosMeetings already pre-fetches the user's accessible
+  // meetings; spinning up a new server query per board change would just
+  // re-fetch the same dataset.
+  const boardMeetings = useMemo(() => {
+    const all = meetingsData?.data ?? [];
+    return all.filter((m) => {
+      if (boardId && m.board_id !== boardId) return false;
+      if (institutionsIds && !institutionsIds.includes(m.institutions_id)) return false;
+      return true;
+    });
+  }, [meetingsData, boardId, institutionsIds]);
 
-  const totalPending = claims
+  const totalPending = filteredClaims
     .filter((c) => c.claim_status === 'submitted' || c.claim_status === 'approved')
     .reduce((sum, c) => sum + (c.total_amount ?? 0), 0);
 
   return (
     <div className='space-y-6'>
-      <PageHeader
-        title='TA/DA Claims'
-        description='Travel allowance and daily allowance reimbursements for external experts.'
-      >
-        {canEdit && (
-          <Button size='sm' onClick={() => setAddOpen(true)}>
-            <Plus className='mr-2 h-4 w-4' />New Claim
-          </Button>
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        <PageHeader
+          title='TA/DA Claims'
+          description='Auto-generated when an attendee is marked present. Honorarium and TA come from the convening council&apos;s rate settings (per member type), falling back to the institution-wide BoS SOP — edit only payment details and status.'
+        />
+        {isSuperAdmin && (
+          <RateSettingsDialog
+            institutionsIdsCsv={institutionsIds ? institutionsIds.join(',') : null}
+            institutionId={institutionId}
+          />
         )}
-      </PageHeader>
+      </div>
+
+      {/* Filter row — institution → meeting → board → search.
+          Meeting works straight off the institution (labels carry the board
+          code); Board is an optional narrower that also prunes the meeting
+          dropdown, clearing a picked meeting only on a board mismatch. */}
+      <div
+        className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${
+          isSuperAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
+        }`}
+      >
+        {isSuperAdmin && (
+          <InstitutionPicker
+            value={institutionId}
+            onChange={setInstitutionId}
+            showAllOption
+            hideLabel
+            className='w-full'
+          />
+        )}
+        <SearchableSelect
+          value={meetingId}
+          onValueChange={setMeetingId}
+          options={[
+            { value: '', label: 'All meetings' },
+            ...boardMeetings.map((m) => {
+              const dateStr = m.actual_date ?? m.scheduled_date;
+              const formatted = dateStr ? format(new Date(dateStr), 'dd MMM yyyy') : null;
+              const title = m.meeting_title ?? `Meeting ${m.meeting_number}`;
+              // Board code prefixes the label so meetings are tellable apart
+              // even before a board filter is applied.
+              const label = [m.board?.board_code, title, m.academic_year, formatted]
+                .filter(Boolean)
+                .join(' · ');
+              return { value: m.id, label };
+            }),
+          ]}
+          disabled={isSuperAdmin && !institutionId}
+          placeholder={
+            isSuperAdmin && !institutionId ? 'Select an institution first' : 'All meetings'
+          }
+          searchPlaceholder='Search meeting…'
+          className='w-full'
+        />
+        <SearchableSelect
+          value={boardId}
+          onValueChange={(v) => {
+            setBoardId(v);
+            // Keep the picked meeting only if it belongs to the picked board.
+            if (v && meetingId && meetingsMap[meetingId]?.board_id !== v) {
+              setMeetingId('');
+            }
+          }}
+          options={[
+            { value: '', label: 'All boards' },
+            ...boards.map((b) => ({
+              value: b.id,
+              label: b.display_name
+                ? `${b.board_code} — ${b.display_name}`
+                : `${b.board_code} — ${b.board_name}`,
+            })),
+          ]}
+          loading={boardsLoading}
+          disabled={isSuperAdmin && !institutionId}
+          placeholder='All boards'
+          searchPlaceholder='Search board…'
+          className='w-full'
+        />
+        <Input
+          placeholder='Search expert or member name…'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='w-full'
+        />
+      </div>
 
       {/* Summary cards */}
       <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
         {(['all', 'draft', 'submitted', 'approved'] as const).map((s) => {
-          const count = s === 'all' ? claims.length : claims.filter((c) => c.claim_status === s).length;
+          const count =
+            s === 'all'
+              ? filteredClaims.length
+              : filteredClaims.filter((c) => c.claim_status === s).length;
           return (
             <button
               key={s}
@@ -678,7 +681,7 @@ export default function TaDaPage() {
           <CardTitle className='text-base'>
             Claims
             <span className='ml-2 text-sm font-normal text-muted-foreground'>
-              ({claims.length})
+              ({filteredClaims.length})
             </span>
           </CardTitle>
         </CardHeader>
@@ -687,38 +690,53 @@ export default function TaDaPage() {
             <div className='space-y-2'>
               {[1, 2, 3].map((i) => <Skeleton key={i} className='h-16 w-full' />)}
             </div>
-          ) : claims.length === 0 ? (
+          ) : filteredClaims.length === 0 ? (
             <div className='text-center py-8 text-sm text-muted-foreground'>
-              No TA/DA claims found.
-              {canEdit && (
-                <Button variant='link' size='sm' className='mt-1 block mx-auto' onClick={() => setAddOpen(true)}>
-                  Add the first claim →
-                </Button>
-              )}
+              No TA/DA claims found. Claims are generated automatically when an
+              attendee is marked present on a meeting.
             </div>
           ) : (
             <div className='space-y-2'>
-              {claims.map((claim) => (
-                <ClaimRow
-                  key={claim.id}
-                  claim={claim}
-                  canEdit={canEdit}
-                  institutionsId={institutionsId}
-                  meetingTitle={meetingsMap[claim.meeting_id]?.meeting_title}
-                />
-              ))}
+              {filteredClaims.map((claim) => {
+                const m = meetingsMap[claim.meeting_id];
+                const boardName = m?.board?.board_name?.trim();
+                const boardType = m?.board_type?.trim();
+                const boardLabel =
+                  boardType && boardName
+                    ? `${boardType} - ${boardName}`
+                    : boardName ?? m?.meeting_title;
+                // Prefer actual_date (when meeting was completed) over
+                // scheduled_date (when it was planned). Both are ISO yyyy-mm-dd.
+                const meetingDate = m?.actual_date ?? m?.scheduled_date;
+                // Convening council for the claim form. The claim's own
+                // embedded meeting is authoritative (covers AC meetings,
+                // which the meetings-list hook excludes); meetingsMap is the
+                // fallback for stale caches predating the embed.
+                const claimMeeting = claim.meeting;
+                const councilMeetingType = claimMeeting?.meeting_type ?? m?.meeting_type;
+                const councilName =
+                  claimMeeting?.committee?.name ??
+                  m?.committee?.name ??
+                  (councilMeetingType === 'academic_council'
+                    ? 'Academic Council'
+                    : councilMeetingType === 'governing_body'
+                      ? 'Governing Body'
+                      : undefined);
+                return (
+                  <ClaimRow
+                    key={claim.id}
+                    claim={claim}
+                    canEdit={canEdit}
+                    boardLabel={boardLabel}
+                    meetingDate={meetingDate}
+                    councilName={councilName}
+                  />
+                );
+              })}
             </div>
           )}
         </CardContent>
       </Card>
-
-      {addOpen && (
-        <TaDaFormDialog
-          open={addOpen}
-          onClose={() => setAddOpen(false)}
-          institutionsId={institutionsId}
-        />
-      )}
     </div>
   );
 }

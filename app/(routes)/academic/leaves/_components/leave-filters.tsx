@@ -72,7 +72,7 @@ export function LeaveFiltersComponent({
           }
           disabled={instLoading}
         >
-          <SelectTrigger className='w-[200px]'>
+          <SelectTrigger className='w-full sm:w-[200px]'>
             <SelectValue placeholder='Institution' />
           </SelectTrigger>
           <SelectContent>
@@ -93,7 +93,7 @@ export function LeaveFiltersComponent({
           onFilterChange('status', value === '_all' ? undefined : value)
         }
       >
-        <SelectTrigger className='w-[150px]'>
+        <SelectTrigger className='w-full sm:w-[150px]'>
           <SelectValue placeholder='Status' />
         </SelectTrigger>
         <SelectContent>
@@ -113,7 +113,7 @@ export function LeaveFiltersComponent({
           onFilterChange('scope_level', value === '_all' ? undefined : value)
         }
       >
-        <SelectTrigger className='w-[150px]'>
+        <SelectTrigger className='w-full sm:w-[150px]'>
           <SelectValue placeholder='Scope' />
         </SelectTrigger>
         <SelectContent>
@@ -133,7 +133,7 @@ export function LeaveFiltersComponent({
           onFilterChange('leave_type_id', value === '_all' ? undefined : value)
         }
       >
-        <SelectTrigger className='w-[180px]'>
+        <SelectTrigger className='w-full sm:w-[180px]'>
           <SelectValue placeholder='Leave Type' />
         </SelectTrigger>
         <SelectContent>

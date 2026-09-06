@@ -41,14 +41,21 @@ export function QuickActionsCard({
 
   const actions: ActionDef[] = [
     {
+      // Page renders a friendly no-team / no-cycle state, so we only gate on
+      // the permission + an active cycle (not hasTeam) — rule #27 spirit:
+      // explain, don't dead-end.
       href: `/ai-pulse/submit/domain-sync?cycle=${cycleSegment}`,
       icon: Send,
       label: 'Submit Domain-Sync',
-      hint: 'Upload your team\'s artifact for this cycle',
-      enabled: canSubmitDomainSync && hasTeam && !!cycleId,
+      hint: hasTeam
+        ? 'Upload your team\'s artifact for this cycle'
+        : 'Open to see this cycle\'s artifact deadline (you\'ll need a team to submit)',
+      enabled: canSubmitDomainSync && !!cycleId,
     },
     {
-      href: `/ai-pulse/quiz/${cycleSegment}`,
+      // The quiz panel lives on the live session page — /ai-pulse/quiz/[cycle]
+      // was never built and 404'd.
+      href: `/ai-pulse/live/${cycleSegment}`,
       icon: ClipboardCheck,
       label: 'Take Quiz',
       hint: 'Complete the post-session quiz to earn engagement',
@@ -59,8 +66,10 @@ export function QuickActionsCard({
       href: `/ai-pulse/submit/publication?cycle=${cycleSegment}`,
       icon: Megaphone,
       label: 'Submit Publication',
-      hint: 'IG / GitHub Top-2 publication entry',
-      enabled: canSubmitPublication && hasTeam && !!cycleId,
+      hint: hasTeam
+        ? 'IG post on your department account + GitHub — reach is verified automatically'
+        : 'Open to see this cycle\'s publication deadline (you\'ll need a team to submit)',
+      enabled: canSubmitPublication && !!cycleId,
       variant: 'secondary',
     },
   ];

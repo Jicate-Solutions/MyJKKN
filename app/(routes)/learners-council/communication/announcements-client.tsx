@@ -30,6 +30,8 @@ import {
   useAnnouncements,
   useCreateAnnouncement,
   usePublishAnnouncement,
+  useReturnAnnouncement,
+  useUpdateAnnouncement,
   useMarkAnnouncementRead,
   useExportAnnouncements
 } from '@/hooks/learners-council/use-lc-communication';
@@ -66,13 +68,17 @@ const typeLabels: Record<string, string> = {
 interface AnnouncementsClientProps {
   initialAnnouncements: LCAnnouncement[];
   userId: string;
-  canCreate: boolean;
+  /** Any Council member (plus staff/super admin) may write a draft. */
+  canDraft: boolean;
+  /** LC office bearers (or a super admin) only. Mirrors fn_lc_announcement_guard_publish(). */
+  canPublish: boolean;
 }
 
 export function AnnouncementsClient({
   initialAnnouncements,
   userId,
-  canCreate
+  canDraft,
+  canPublish
 }: AnnouncementsClientProps) {
   const [scopeFilter, setScopeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('published');
@@ -96,6 +102,11 @@ export function AnnouncementsClient({
   const { data: announcementsData, isLoading } = useAnnouncements(filters);
   const createMutation = useCreateAnnouncement();
   const publishMutation = usePublishAnnouncement();
+  const returnMutation = useReturnAnnouncement();
+  const updateMutation = useUpdateAnnouncement();
+  // The draft an officer is sending back, and their note. Non-null = the reason dialog is open.
+  const [returnTarget, setReturnTarget] = useState<LCAnnouncement | null>(null);
+  const [returnReason, setReturnReason] = useState('');
   const markReadMutation = useMarkAnnouncementRead();
   const exportMutation = useExportAnnouncements();
 
@@ -138,7 +149,7 @@ export function AnnouncementsClient({
 
   const announcements = announcementsData?.data || initialAnnouncements;
 
-  const handleCreate = () => {
+  const handleCreate = (publish: boolean) => {
     if (!formTitle.trim() || !formContent.trim()) return;
 
     const dto: CreateAnnouncementDto = {
@@ -146,7 +157,8 @@ export function AnnouncementsClient({
       content: formContent.trim(),
       type: formType,
       urgency: formUrgency,
-      scope: formScope
+      scope: formScope,
+      publish
     };
 
     createMutation.mutate(
@@ -159,6 +171,9 @@ export function AnnouncementsClient({
           setFormType('general');
           setFormUrgency('normal');
           setFormScope('lc_wide');
+          // A draft would otherwise vanish behind the default "Published" filter the
+          // instant it was saved, which read as "nothing happened".
+          setStatusFilter(publish ? 'published' : 'draft');
         }
       }
     );
@@ -170,7 +185,25 @@ export function AnnouncementsClient({
   };
 
   const handlePublish = (announcementId: string) => {
-    publishMutation.mutate({ id: announcementId, reviewerId: userId });
+    publishMutation.mutate({ id: announcementId });
+  };
+
+  const handleReturn = () => {
+    if (!returnTarget || !returnReason.trim()) return;
+    returnMutation.mutate(
+      { id: returnTarget.id, reason: returnReason.trim() },
+      {
+        onSuccess: () => {
+          setReturnTarget(null);
+          setReturnReason('');
+        },
+      }
+    );
+  };
+
+  // Author puts a returned draft back in the queue after fixing it.
+  const handleResubmit = (announcementId: string) => {
+    updateMutation.mutate({ id: announcementId, data: { status: 'draft' } });
   };
 
   return (
@@ -196,7 +229,7 @@ export function AnnouncementsClient({
             <Download className="h-4 w-4 mr-2" />
             {exportMutation.isPending ? 'Exporting...' : 'Export CSV'}
           </Button>
-          {canCreate && (
+          {canDraft && (
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button className="gap-2">
@@ -206,7 +239,9 @@ export function AnnouncementsClient({
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>Create Announcement</DialogTitle>
+                <DialogTitle>
+                  {canPublish ? 'Create Announcement' : 'Write a Draft'}
+                </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div>
@@ -226,7 +261,7 @@ export function AnnouncementsClient({
                     onChange={(e) => setFormContent(e.target.value)}
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="text-sm font-medium mb-1 block">Type</label>
                     <Select value={formType} onValueChange={(v) => setFormType(v as AnnouncementType)}>
@@ -265,16 +300,31 @@ export function AnnouncementsClient({
                   </div>
                 </div>
               </div>
+              {!canPublish && (
+                <p className="text-xs text-muted-foreground">
+                  Your draft is saved for an LC office bearer (President, Vice President,
+                  Secretary or Treasurer) to submit. Only they can send it to the Council.
+                </p>
+              )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
                   Cancel
                 </Button>
                 <Button
-                  onClick={handleCreate}
+                  variant={canPublish ? 'outline' : 'default'}
+                  onClick={() => handleCreate(false)}
                   disabled={createMutation.isPending || !formTitle.trim() || !formContent.trim()}
                 >
-                  {createMutation.isPending ? 'Creating...' : 'Create Draft'}
+                  {createMutation.isPending ? 'Saving...' : 'Save as Draft'}
                 </Button>
+                {canPublish && (
+                  <Button
+                    onClick={() => handleCreate(true)}
+                    disabled={createMutation.isPending || !formTitle.trim() || !formContent.trim()}
+                  >
+                    {createMutation.isPending ? 'Submitting...' : 'Submit Now'}
+                  </Button>
+                )}
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -295,12 +345,13 @@ export function AnnouncementsClient({
             <SelectItem value="vertical">Vertical</SelectItem>
           </SelectContent>
         </Select>
-        {canCreate && (
+        {canDraft && (
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="draft">Drafts</SelectItem>
+              <SelectItem value="returned">Sent back</SelectItem>
               <SelectItem value="pending_review">Pending Review</SelectItem>
               <SelectItem value="published">Published</SelectItem>
               <SelectItem value="archived">Archived</SelectItem>
@@ -348,11 +399,21 @@ export function AnnouncementsClient({
                             Draft
                           </Badge>
                         )}
+                        {announcement.status === 'returned' && (
+                          <Badge variant="outline" className="text-orange-600 border-orange-300 bg-orange-50">
+                            Sent back
+                          </Badge>
+                        )}
                       </div>
                       <h3 className="font-semibold text-lg mb-1 truncate">{announcement.title}</h3>
                       <p className="text-muted-foreground text-sm line-clamp-2">
                         {announcement.content}
                       </p>
+                      {announcement.status === 'returned' && announcement.return_reason && (
+                        <p className="mt-2 text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded-md px-3 py-2">
+                          <span className="font-medium">Sent back:</span> {announcement.return_reason}
+                        </p>
+                      )}
                       <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1">
                           <Avatar className="h-5 w-5">
@@ -377,6 +438,48 @@ export function AnnouncementsClient({
                           <span>{announcement.read_count} reads</span>
                         </div>
                       </div>
+                      {/* Submit or send back straight from the list -- an office bearer
+                          clearing a queue of drafts should not have to open each one. */}
+                      {canPublish && announcement.status === 'draft' && (
+                        <div className="mt-3 flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePublish(announcement.id);
+                            }}
+                            disabled={publishMutation.isPending}
+                          >
+                            Submit Now
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReturnReason('');
+                              setReturnTarget(announcement);
+                            }}
+                          >
+                            Send back
+                          </Button>
+                        </div>
+                      )}
+                      {/* Author's own returned draft: fix it, put it back in the queue. */}
+                      {announcement.status === 'returned' && announcement.created_by === userId && (
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleResubmit(announcement.id);
+                            }}
+                            disabled={updateMutation.isPending}
+                          >
+                            Resubmit for review
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -452,7 +555,7 @@ export function AnnouncementsClient({
                   </div>
                 )}
               </div>
-              {canCreate && selectedAnnouncement.status === 'draft' && (
+              {canPublish && selectedAnnouncement.status === 'draft' && (
                 <DialogFooter>
                   <Button
                     onClick={() => {
@@ -461,12 +564,47 @@ export function AnnouncementsClient({
                     }}
                     disabled={publishMutation.isPending}
                   >
-                    {publishMutation.isPending ? 'Publishing...' : 'Publish Now'}
+                    {publishMutation.isPending ? 'Submitting...' : 'Submit Now'}
                   </Button>
                 </DialogFooter>
               )}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Send-back reason dialog (office bearers). A reason is required so the author knows
+          what to fix -- the return action is meaningless without it. */}
+      <Dialog open={!!returnTarget} onOpenChange={(open) => { if (!open) setReturnTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send back to author</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              {returnTarget ? `"${returnTarget.title}" will go back to ${returnTarget.creator?.full_name || 'its author'} as a draft.` : ''}
+            </p>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Reason</label>
+              <Textarea
+                placeholder="What should the author change before this can be submitted?"
+                rows={4}
+                value={returnReason}
+                onChange={(e) => setReturnReason(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReturnTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleReturn}
+              disabled={returnMutation.isPending || !returnReason.trim()}
+            >
+              {returnMutation.isPending ? 'Sending back...' : 'Send back'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -29,7 +29,19 @@ import {
 
 interface EnquiriesFiltersProps {
   searchParams: EnquiriesSearchParams;
-  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted';
+  // 2026-05-20: Extended status union to cover the new workflow tabs.
+  statusFilter?:
+    | 'all'
+    | 'enquiry'
+    | 'enquiry_submitted'
+    | 'admitted'
+    | 'pending'
+    | 'approved'
+    | 'account'
+    | 'reserved'
+    | 'rejected'
+    | 'waitlisted'
+    | 'fees_setup_pending';
 }
 
 export function EnquiriesFilters({
@@ -94,16 +106,26 @@ export function EnquiriesFilters({
         }
       });
 
-      // Preserve current tab/status filter
-      const currentTab = currentSearchParams.get('lifecycle_status') || statusFilter;
+      // Preserve the active tab. The page (page.tsx) reads `?tab=` since
+      // the 2026-05-20 URL-driven tabs refactor — writing `lifecycle_status`
+      // would silently drop the user back to the default 'Enquiry' tab.
+      const currentTab = currentSearchParams.get('tab') || statusFilter;
       if (currentTab) {
-        params.set('lifecycle_status', currentTab);
+        params.set('tab', currentTab);
       }
 
       // Preserve page size if it exists
       const currentPageSize = currentSearchParams.get('pageSize');
       if (currentPageSize) {
         params.set('pageSize', currentPageSize);
+      }
+
+      // Preserve free-text search across filter changes — otherwise hitting
+      // "Search" inside the advanced-filters drawer wipes the name/email/roll
+      // search the user already typed in the search wrapper above.
+      const currentSearch = currentSearchParams.get('search');
+      if (currentSearch) {
+        params.set('search', currentSearch);
       }
 
       // Reset to page 1
@@ -134,10 +156,10 @@ export function EnquiriesFilters({
     const params = new URLSearchParams();
     params.set('page', '1');
 
-    // Preserve current tab/status filter
-    const currentTab = currentSearchParams.get('lifecycle_status') || statusFilter;
+    // Preserve the active tab (see handleSearch above).
+    const currentTab = currentSearchParams.get('tab') || statusFilter;
     if (currentTab) {
-      params.set('lifecycle_status', currentTab);
+      params.set('tab', currentTab);
     }
 
     // Preserve page size if it exists
@@ -657,7 +679,7 @@ export function EnquiriesFilters({
             </div>
 
             {/* Search and Clear Filters Buttons */}
-            <div className='flex justify-between pt-2'>
+            <div className='flex flex-wrap gap-2 justify-between pt-2'>
               <Button variant='outline' onClick={handleClear}>
                 <RotateCcw className='mr-2 h-4 w-4' />
                 Clear All Filters

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { HealthSportsService } from '@/lib/services/health/health-sports-service';
 import type {
   HealthTrainingLog,
@@ -799,7 +800,9 @@ function InjuryHistory({ injuries }: { injuries: HealthSportsInjury[] }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function TrainingPage() {
+const TRAINING_TABS = ['training', 'injuries'] as const;
+
+function TrainingPageInner() {
   const { profile } = useAuth();
   const learnerId = profile?.learner_id ?? undefined;
 
@@ -812,6 +815,8 @@ export default function TrainingPage() {
   const [injuries, setInjuries] = useState<HealthSportsInjury[]>([]);
   const [loadingTraining, setLoadingTraining] = useState(true);
   const [loadingInjuries, setLoadingInjuries] = useState(true);
+
+  const [activeTab, setActiveTab] = useTabParam('training', TRAINING_TABS);
 
   async function loadTraining() {
     if (!learnerId) return;
@@ -863,7 +868,7 @@ export default function TrainingPage() {
   return (
     <ContentLayout title="Training Log">
       <div className="max-w-2xl mx-auto px-4 pb-10 space-y-6">
-        <Tabs defaultValue="training">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full grid grid-cols-2 mb-2">
             <TabsTrigger value="training" className="flex items-center gap-1.5">
               <Dumbbell className="h-4 w-4" />
@@ -1004,5 +1009,14 @@ export default function TrainingPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function TrainingPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <TrainingPageInner />
+    </Suspense>
   );
 }

@@ -1,0 +1,210 @@
+# IQAC Meeting Loop manifest — DISCOVERY PASS 2026-07-13 (read-only; no sim or
+# walk has been EXECUTED yet — every fact below carries its receipt, but the
+# sim template itself is unrun; first /loops regress must treat a mismatch as
+# template-debug before blaming a migration).
+#
+# Registry receipt (loop_registry, read 2026-07-13): class=accountability,
+# domain=accreditation, tier 3, gates {"a":"on","f":"half","g":"on","m":"on"},
+# is_active=true, routine_id NULL, "IQAC committee meetings review the loops;
+# minutes → evidence rollup."
+# Edges receipt (loop_edges, re-read 2026-07-13): ONE LIVE edge iqac-meeting →
+# institutional-audit (what_flows='measured_outcomes', is_draft=false).
+#
+# The loop (substrate migration 20260710060000_iqac_meeting_loop_substrate.sql
+# + service lib/services/accreditation/committee-meeting-service.ts, both on
+# jicate/main):
+#   Act:          a meeting passes resolutions (owner + due date).
+#   Measure:      HUMAN — the NEXT meeting reviews each open item as
+#                 done / carried / dropped against its deadline.
+#   Decide:       carried_count++ per carry; >=2 renders the "Escalate to
+#                 Director" badge (meetings-section.tsx:599,640 — UI-only,
+#                 no notification is sent; grep receipt below).
+#   Feed-forward: items left 'open' re-enter the next meeting's review queue
+#                 (listOpenResolutions); minuted meetings are rolled into
+#                 NAAC 7.3.e evidence nightly.
+#
+# FUEL STATE 2026-07-13 (prod counts): accreditation_committees=1 (the real
+# "Internal Quality Assurance Cell (IQAC)", NAAC, inst b0b8a724…),
+# meetings=2 (meeting_no 1 'scheduled', meeting_no 2 'held'), minuted=0,
+# resolutions=0, 7.3.e evidence rows=0. The loop is LIVE but FUEL-DARK — no
+# full cycle has completed on prod yet.
+
+loop_key: iqac-meeting
+name: IQAC Meeting Loop (Loop Review)
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: accreditation_committee_meetings        # the loop tick: a convened meeting (11 cols on prod, verified information_schema 2026-07-13)
+  action: accreditation_committee_resolutions    # the unit of work: act (passed) + outcome (status/carried_count/outcome_note/reviewed_in_meeting_id); 16 cols on prod
+  # evidence sink: quality_evidence_mappings (body_code='NAAC', metric_code='7.3.e'),
+  # written by fn_accreditation_rollup_loop_evidence() section (e)
+  # (migration 20260710070000_rollup_iqac_meeting_and_audit_loops.sql; verified
+  # present on prod: pg_get_functiondef contains the iqac_meeting section).
+
+sim:
+  # HONESTY: this loop's Measure gate is HUMAN (next-meeting review clicks) —
+  # there is NO per-resolution lift-measurer fn (pg_proc swept 2026-07-13 for
+  # %iqac%/%committee%/%resolution%: only fn_is_event_committee_member and the
+  # scf fns exist). The ONLY executable metric math is the 7.3.e evidence
+  # emitter's aggregation — closure_rate = round(done/(done+carried+dropped),2)
+  # plus the passed/done/carried/dropped counts inside
+  # fn_accreditation_rollup_loop_evidence() (verified in pg_proc). That math is
+  # exactly known-delta assertable from seeded rows, so THIS sim guards the
+  # emitter against the fabricated-metric bug class. It does NOT prove the
+  # human review happened — walk does that.
+  sentinel: ZZAUDIT
+  # Constraint receipts (prod pg_constraint + migration 20260710060000):
+  # - committees: body_code CHECK (NAAC|NIRF|NBA|QS|DCI|PCI|INC|AICTE|NCTE|UGC),
+  #   committee_type CHECK (main|icc|anti_ragging|grievance|coordinator|inspection|statutory),
+  #   NOT NULLs: institution_id, body_code, committee_name, committee_type, formed_at.
+  # - meetings: UNIQUE(committee_id, meeting_no); status CHECK
+  #   (scheduled|held|minuted|cancelled); composite FK acm_committee_institution_fk
+  #   pins meeting.institution_id = committee's.
+  # - resolutions: acr_owner_required (owner_user_id OR non-blank owner_label);
+  #   acr_review_in_distinct_meeting (reviewed_in_meeting_id <> meeting_id);
+  #   composite FKs pin institution + both meeting refs to the same committee.
+  # - emitter filter: status='minuted' AND held_at IS NOT NULL AND
+  #   institution_id IS NOT NULL AND (updated_at within 45d OR never emitted).
+  seed_input: |
+    WITH inst AS (SELECT id FROM public.institutions LIMIT 1),
+    c AS (
+      INSERT INTO public.accreditation_committees
+        (institution_id, body_code, committee_name, committee_type, formed_at)
+      SELECT id, 'NAAC', 'ZZAUDIT IQAC (sim)', 'main', current_date - 120 FROM inst
+      RETURNING id, institution_id
+    ),
+    m1 AS (
+      INSERT INTO public.accreditation_committee_meetings
+        (committee_id, institution_id, meeting_no, held_at, status, minutes_summary)
+      SELECT id, institution_id, 1, now() - interval '30 days', 'minuted', 'ZZAUDIT m1 ATR' FROM c
+      RETURNING committee_id, institution_id
+    )
+    INSERT INTO public.accreditation_committee_meetings
+      (committee_id, institution_id, meeting_no, held_at, status, minutes_summary)
+    SELECT committee_id, institution_id, 2, now() - interval '1 day', 'minuted', 'ZZAUDIT m2 ATR' FROM m1;
+  seed_action: |
+    -- 3 resolutions passed in meeting 1, ALL reviewed-carried in meeting 2
+    -- (carried semantics: status STAYS 'open', carried_count++, reviewed_in_
+    -- meeting_id = m2 — service reviewResolution contract).
+    INSERT INTO public.accreditation_committee_resolutions
+      (committee_id, meeting_id, institution_id, resolution_text, owner_label,
+       due_date, status, carried_count, reviewed_in_meeting_id)
+    SELECT c.id, m1.id, c.institution_id, 'ZZAUDIT resolution ' || g,
+           'ZZAUDIT owner', current_date - 10, 'open', 1, m2.id
+    FROM public.accreditation_committees c
+    JOIN public.accreditation_committee_meetings m1 ON m1.committee_id = c.id AND m1.meeting_no = 1
+    JOIN public.accreditation_committee_meetings m2 ON m2.committee_id = c.id AND m2.meeting_no = 2
+    CROSS JOIN generate_series(1,3) g
+    WHERE c.committee_name = 'ZZAUDIT IQAC (sim)';
+  verifier: "public.fn_accreditation_rollup_loop_evidence()"   # no args; returns jsonb incl. 'iqac_meeting' count
+  # assert read (run after verifier, still inside the txn):
+  #   SELECT qem.metadata->'outcome'->>'closure_rate'
+  #   FROM public.quality_evidence_mappings qem
+  #   JOIN public.accreditation_committee_meetings m ON m.id = qem.source_id
+  #   WHERE qem.source_table='accreditation_committee_meetings'
+  #     AND qem.body_code='NAAC' AND qem.metric_code='7.3.e' AND m.meeting_no=2
+  #     AND m.committee_id IN (SELECT id FROM public.accreditation_committees
+  #                            WHERE committee_name LIKE 'ZZAUDIT%');
+  asserts:
+    no_change: "0.00"          # all 3 reviewed-carried => round(0/3, 2)
+    known_delta: { seed: "UPDATE 2 of the 3 sentinel resolutions to status='done', closed_at=now()", expect: "0.67" }   # round(2/3, 2)
+  reset_between_deltas: |
+    -- no outcome-nulling needed: the emitter upserts (ON CONFLICT ... WHERE
+    -- is_auto), so re-running the verifier after the known-delta UPDATE
+    -- refreshes the SAME evidence row. The known-delta seed IS the reset step:
+    UPDATE public.accreditation_committee_resolutions
+    SET status = 'done', closed_at = now()
+    WHERE resolution_text IN ('ZZAUDIT resolution 1', 'ZZAUDIT resolution 2');
+  notes:
+    - TEMPLATE UNEXECUTED as of 2026-07-13 — discovery pass was read-only; validate the template on the first regress run before trusting a failure.
+    - fn is REVOKEd from anon/authenticated (GRANT service_role, migration 20260709023000) — run via Mgmt API (postgres owns it) inside BEGIN…ROLLBACK; never from a client session.
+    - the fn also emits/refreshes evidence for OTHER loops' matured rows (scf/induction/mess/audit sections) in the same call — inside ROLLBACK this is harmless; last nightly run was healthy ("HTTP 200 · count 3", ai_routine_schedules.last_status 2026-07-12).
+    - first-cycle path — a minuted meeting with 0 reviewed items gets closure_rate NULL and delta_summary 'first review cycle — N resolution(s) passed (baseline)' (meeting 1 above; assertable as a bonus).
+    - counts are as-of-run snapshots — reviewed_in_meeting_id moves if an item is reviewed again later; a within-45d refresh may recount (documented in the migration header).
+    - overdue_open compares due_date < held_at::date in Asia/Kolkata — date-boundary asserts near midnight IST will flap; keep seed due_dates well clear.
+
+# confound: OMITTED — no independent measured-outcome column exists. The human
+# decision (resolutions.status done/carried/dropped) IS the loop's measurement;
+# outcome_note is free text. A not_tried-vs-tried falsification needs an
+# outcome measured independently of the verdict (as scf's outcome_lift vs
+# human_verdict), which this accountability-class loop does not have.
+# What WOULD need to exist: an objective per-resolution completion signal
+# (e.g. linked artifact/metric moved) stored separately from the review click.
+
+feed_forward:
+  # Mechanical, not AI: the next meeting's review queue is a live DB query.
+  reader: CommitteeMeetingService.listOpenResolutions   # lib/services/accreditation/committee-meeting-service.ts (jicate/main)
+  trigger:
+    kind: page_open
+    path: /accreditation/naac/committees/<sentinel-committee-id>
+    persona: superadmin
+  pass_criteria:
+    - item passed in meeting N appears in meeting N+1's open-resolution review panel
+    - carried item reappears at the following meeting with carried_count incremented
+    - carried_count >= 2 renders the 'Escalate to Director' badge (meetings-section.tsx:599)
+  notes:
+    - downstream lane (the loop_edges LIVE edge, is_draft=false) = minuted meetings → NAAC 7.3.e quality_evidence_mappings rows (nightly 'accreditation-loop-evidence' dispatcher routine, minute_of_day=263 = 04:23 IST, enabled=true — ai_routine_schedules receipt 2026-07-13) → institutional-audit loop.
+    - the 7.3.e tiles surface on /accreditation/naac (quality-loops-section.tsx groups quality_evidence_mappings by metadata->>'loop_key'; 'iqac_meeting' key).
+
+walk:
+  # PERMISSION REALITY (verified 2026-07-13 against custom_roles + page code):
+  # route perm '/accreditation/naac/committees[ /[id] ]' =
+  # 'accreditation.naac.committees.view' (lib/sidebarMenuLink.ts:884-885).
+  # ONLY role 'ceo' holds committees.view=true (and
+  # accreditation.naac.committees.meetings.manage=false — read-only; note the
+  # full key nests under committees.*); NO test.ceo account exists. Writes therefore work ONLY via the
+  # super-admin/admin RLS bypass. => the walk is effectively single-persona
+  # (test.superadmin, is_super_admin=true, profile verified) + one negative hop.
+  personas:
+    superadmin: test.superadmin@jkkn.ac.in    # is_super_admin=true, institution NULL — bypasses page gate + RLS
+    hod: test.hod@jkkn.ac.in                  # role 'hod' has NO accreditation perms — negative hop only
+  hops:
+    - { as: superadmin, do: form_submit, page: /accreditation/naac/committees,
+        detail: "New committee dialog: name 'ZZAUDIT IQAC (walk)', body NAAC, type main, any real institution",
+        assert_db: "1 accreditation_committees row, committee_name LIKE 'ZZAUDIT%'" }
+    - { as: superadmin, do: click, page: /accreditation/naac/committees/<sentinel-id>,
+        target: "Convene now", assert_db: "meeting_no=1 status='held', held_at set" }
+    - { as: superadmin, do: form_submit, page: /accreditation/naac/committees/<sentinel-id>,
+        detail: "Pass resolution x2: text 'ZZAUDIT …', owner_label 'ZZAUDIT owner' (leave owner_user_id EMPTY), due date yesterday",
+        assert_db: "2 resolutions status='open' on meeting 1" }
+    - { as: superadmin, do: form_submit, page: /accreditation/naac/committees/<sentinel-id>,
+        detail: "Close meeting 1 with minutes (ATR prefill)", assert_db: "meeting 1 status='minuted'" }
+    - { as: superadmin, do: click, page: /accreditation/naac/committees/<sentinel-id>,
+        target: "Convene now (meeting 2)",
+        assert: "review panel lists BOTH open resolutions, overdue-flagged (feed-forward proof)" }
+    - { as: superadmin, do: click, page: /accreditation/naac/committees/<sentinel-id>,
+        target: "Mark done (resolution 1) + Carried (resolution 2)",
+        assert_db: "r1 status='done' closed_at set reviewed_in_meeting_id=m2; r2 status='open' carried_count=1" }
+    - { as: superadmin, do: form_submit, page: /accreditation/naac/committees/<sentinel-id>,
+        detail: "Close meeting 2 with minutes", assert_db: "meeting 2 status='minuted'" }
+    - { as: superadmin, do: api_post, path: "Mgmt API: SELECT public.fn_accreditation_rollup_loop_evidence();",
+        detail: "COMMITTED run of the nightly emitter (or wait for 04:23 IST dispatcher)",
+        assert_db: "2 quality_evidence_mappings rows metric_code='7.3.e' for the sentinel meetings; meeting-2 closure_rate='0.50'" }
+    - { as: superadmin, do: open_assert, page: /accreditation/naac,
+        expect_text: "Quality Loops tile for the iqac_meeting loop_key showing the new cycle" }
+    - { as: hod, do: open_assert, page: /accreditation/naac/committees,
+        expect_text: "You do not have permission to view IQAC committees." }   # page.tsx:153 — permission gate is explicit, not a silent redirect
+  forbidden:
+    - touching the REAL 'Internal Quality Assurance Cell (IQAC)' committee or its 2 existing meetings (prod rows verified 2026-07-13) — the walk creates its own sentinel committee
+    - setting owner_user_id to any real profile — use owner_label free text (a resolution is a governance record)
+    - firing the ai-routine dispatcher route (pollutes run history / Control Tower last-run state) — call the fn directly via Mgmt API instead
+    # No nudges/digests/notifications exist anywhere in this loop's code path —
+    # grep of lib/services/accreditation + hooks/accreditation on jicate/main
+    # (2026-07-13) found zero notification writes; the Director-escalation flag
+    # is a UI badge only.
+  cleanup: |
+    DELETE FROM public.quality_evidence_mappings
+    WHERE source_table = 'accreditation_committee_meetings'
+      AND source_id IN (SELECT m.id FROM public.accreditation_committee_meetings m
+                        JOIN public.accreditation_committees c ON c.id = m.committee_id
+                        WHERE c.committee_name LIKE 'ZZAUDIT%');
+    DELETE FROM public.accreditation_committee_resolutions
+    WHERE committee_id IN (SELECT id FROM public.accreditation_committees WHERE committee_name LIKE 'ZZAUDIT%');
+    DELETE FROM public.accreditation_committee_meetings
+    WHERE committee_id IN (SELECT id FROM public.accreditation_committees WHERE committee_name LIKE 'ZZAUDIT%');
+    DELETE FROM public.accreditation_committees WHERE committee_name LIKE 'ZZAUDIT%';
+    -- verify in a SEPARATE call: ZZAUDIT counts = 0 across all 4 tables AND
+    -- committees total back to pre-walk count (1 as of 2026-07-13);
+    -- resolutions FK to meetings is NO ACTION — delete order above is binding.
+
+registry_gates_hint: '{"a":"on","f":"half","g":"on","m":"on"}'   # as read from loop_registry 2026-07-13; f=half — feed-forward is mechanical re-queue + evidence rollup, no outcome-conditioned generation

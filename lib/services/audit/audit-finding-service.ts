@@ -28,18 +28,21 @@ export class AuditFindingService {
   }
 
   /**
-   * Severity → priority mapping (service_requests.priority is a DB enum)
+   * Severity → priority mapping. service_requests.priority is the DB enum
+   * `service_request_priority` = (low, normal, high, urgent) — there is NO
+   * 'medium', so mapping yellow→'medium' made every default finding insert fail
+   * with an invalid-enum error. yellow maps to 'normal'.
    */
-  private static severityToPriority(sev: FindingSeverity): 'urgent' | 'high' | 'medium' | 'low' {
+  private static severityToPriority(sev: FindingSeverity): 'urgent' | 'high' | 'normal' | 'low' {
     switch (sev) {
       case 'red':
         return 'high';
       case 'yellow':
-        return 'medium';
+        return 'normal';
       case 'green':
         return 'low';
       default:
-        return 'medium';
+        return 'normal';
     }
   }
 
@@ -77,6 +80,17 @@ export class AuditFindingService {
     input: LogAuditFindingDto,
     opts: { requesterId: string }
   ): Promise<AuditFindingView> {
+    // service_requests RLS enforces `WITH CHECK (requester_id = auth.uid())`.
+    // Derive the requester from the live session so a stale profile or an
+    // impersonated session can't make the id drift from auth.uid() (which RLS
+    // rejects as a 400). Use getSession() — it reads the stored JWT locally with
+    // no auth-server round-trip, avoiding the getUser() auth-lock stall.
+    const { data: sessionData } = await this.supabase.auth.getSession();
+    const requesterId = sessionData?.session?.user?.id ?? opts.requesterId;
+    if (!requesterId) {
+      throw new Error('You must be signed in to log a finding.');
+    }
+
     const serviceTypeId = await this.getAuditFindingServiceTypeId();
     const owner = await this.resolveDefaultOwner(input.parameter_code, input.institution_id);
 
@@ -103,11 +117,30 @@ export class AuditFindingService {
 
     const priority = input.priority ?? this.severityToPriority(input.severity);
 
+    // service_requests.request_number is NOT NULL with no DB default — it is
+    // minted per-request by the same RPC the generic service-request path uses.
+    // Omitting it (as this service did) made every insert fail the not-null
+    // constraint. Fall back to a client-side ticket number if the RPC is absent.
+    let requestNumber: string;
+    try {
+      const { data: rpcResult, error: rpcError } = await (this.supabase as any).rpc(
+        'generate_service_request_number',
+        { p_service_type_slug: this.SERVICE_TYPE_SLUG },
+      );
+      requestNumber =
+        !rpcError && rpcResult
+          ? (rpcResult as string)
+          : `SR-AUD-${Date.now().toString(36).toUpperCase()}`;
+    } catch {
+      requestNumber = `SR-AUD-${Date.now().toString(36).toUpperCase()}`;
+    }
+
     const { data, error } = await (this.supabase as any)
       .from('service_requests')
       .insert({
+        request_number: requestNumber,
         service_type_id: serviceTypeId,
-        requester_id: opts.requesterId,
+        requester_id: requesterId,
         institution_id: input.institution_id,
         form_data: formData,
         priority,

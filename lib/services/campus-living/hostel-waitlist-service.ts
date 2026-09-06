@@ -7,6 +7,23 @@ import type {
   AcStatus,
 } from '@/types/campus-living';
 
+// hostel_waitlist.learner_id is a FK to profiles(id) (NOT learners_profiles).
+// The list view enriches each row with the learner's display name (profiles.
+// full_name) + roll number (learners_profiles.roll_number, via the
+// profiles.learner_id bridge) so the UI shows a name instead of the raw UUID.
+export interface HostelWaitlistRow extends HostelWaitlist {
+  learner_name: string;
+  roll_number: string | null;
+  // Enriched display fields (resolved by getWaitlist):
+  target_category_name: string | null;   // the category the entry is waiting/upgrading to
+  target_category_type: string | null;    // boys | girls
+  held_room_number: string | null;        // the bed-held room (room-reservation upgrades)
+  held_room_floor: number | null;
+  held_block_name: string | null;
+  institution_name: string | null;
+  semester_name: string | null;
+}
+
 export class HostelWaitlistService {
   // ── List waitlist entries ──────────────────────────────────────────
   static async getWaitlist(
@@ -22,9 +39,14 @@ export class HostelWaitlistService {
   ) {
     try {
       const supabase = createClientSupabaseClient();
+      // Left embed (no !inner) so a row whose profile is missing still shows
+      // (degrades to '—') instead of being silently dropped.
       let query = supabase
         .from('hostel_waitlist')
-        .select('*', { count: 'exact' });
+        .select(
+          '*, learner:profiles!hostel_waitlist_learner_id_fkey(full_name, email, learner_profile:learners_profiles!profiles_learner_id_fkey(roll_number, semester_id))',
+          { count: 'exact' }
+        );
 
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
@@ -40,7 +62,68 @@ export class HostelWaitlistService {
         logger.error('campus-living/waitlist', 'Failed to fetch waitlist', error);
         throw error;
       }
-      return { data: data as HostelWaitlist[], count: count ?? 0 };
+      const raw = (data ?? []) as Record<string, unknown>[];
+
+      // Resolve the FK display names in batch lookups (robust to missing PostgREST FK
+      // metadata): target category, the bed-held room + its block, institution, semester.
+      const catIds = new Set<string>(), roomIds = new Set<string>(),
+        instIds = new Set<string>(), semIds = new Set<string>();
+      for (const r of raw) {
+        if (r.target_hostel_category_id) catIds.add(r.target_hostel_category_id as string);
+        if (r.held_room_id) roomIds.add(r.held_room_id as string);
+        if (r.institution_id) instIds.add(r.institution_id as string);
+        const sem = (r.learner as { learner_profile?: { semester_id?: string } | null } | null)?.learner_profile?.semester_id;
+        if (sem) semIds.add(sem);
+      }
+      const catMap = new Map<string, { name: string; type: string | null }>();
+      if (catIds.size) {
+        const { data: c } = await supabase.from('hostel_categories').select('id, name, type').in('id', [...catIds]);
+        (c ?? []).forEach((x: Record<string, unknown>) => catMap.set(x.id as string, { name: x.name as string, type: (x.type as string) ?? null }));
+      }
+      const roomMap = new Map<string, { room_number: string; floor: number | null; block_name: string | null }>();
+      if (roomIds.size) {
+        const { data: rm } = await supabase.from('hostel_rooms').select('id, room_number, floor, block:hostel_blocks(name)').in('id', [...roomIds]);
+        (rm ?? []).forEach((x: Record<string, unknown>) => roomMap.set(x.id as string, {
+          room_number: x.room_number as string,
+          floor: (x.floor as number) ?? null,
+          block_name: ((x.block as { name?: string } | null)?.name) ?? null,
+        }));
+      }
+      const instMap = new Map<string, string>();
+      if (instIds.size) {
+        const { data: it } = await supabase.from('institutions').select('id, name').in('id', [...instIds]);
+        (it ?? []).forEach((x: Record<string, unknown>) => instMap.set(x.id as string, x.name as string));
+      }
+      const semMap = new Map<string, string>();
+      if (semIds.size) {
+        const { data: sm } = await supabase.from('semesters').select('id, semester_name').in('id', [...semIds]);
+        (sm ?? []).forEach((x: Record<string, unknown>) => semMap.set(x.id as string, x.semester_name as string));
+      }
+
+      const rows: HostelWaitlistRow[] = raw.map((r) => {
+        const learner = r.learner as {
+          full_name?: string;
+          email?: string;
+          learner_profile?: { roll_number?: string; semester_id?: string } | null;
+        } | null;
+        const { learner: _learner, ...rest } = r;
+        const cat = r.target_hostel_category_id ? catMap.get(r.target_hostel_category_id as string) : undefined;
+        const room = r.held_room_id ? roomMap.get(r.held_room_id as string) : undefined;
+        const semId = learner?.learner_profile?.semester_id;
+        return {
+          ...(rest as HostelWaitlist),
+          learner_name: learner?.full_name || learner?.email || '—',
+          roll_number: learner?.learner_profile?.roll_number ?? null,
+          target_category_name: cat?.name ?? null,
+          target_category_type: cat?.type ?? null,
+          held_room_number: room?.room_number ?? null,
+          held_room_floor: room?.floor ?? null,
+          held_block_name: room?.block_name ?? null,
+          institution_name: r.institution_id ? instMap.get(r.institution_id as string) ?? null : null,
+          semester_name: semId ? semMap.get(semId) ?? null : null,
+        };
+      });
+      return { data: rows, count: count ?? 0 };
     } catch (error) {
       logger.error('campus-living/waitlist', 'Unexpected error in getWaitlist', error);
       throw error;
@@ -152,6 +235,25 @@ export class HostelWaitlistService {
       }
     } catch (error) {
       logger.error('campus-living/waitlist', 'Unexpected error in deleteWaitlistEntry', error);
+      throw error;
+    }
+  }
+
+  // ── Admin: cancel a waiting/offered upgrade request (full revert) ──
+  static async cancelUpgrade(waitlistId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_cl_admin_cancel_upgrade', {
+        p_waitlist_id: waitlistId,
+      });
+      if (error) {
+        logger.error('campus-living/waitlist', 'Failed to cancel upgrade', error);
+        throw error;
+      }
+      return data as { success: boolean; waitlist_id: string; category_reverted: boolean };
+    } catch (error) {
+      logger.error('campus-living/waitlist', 'Unexpected error in cancelUpgrade', error);
       throw error;
     }
   }

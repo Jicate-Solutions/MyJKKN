@@ -7,7 +7,7 @@
  * read-only view at /hr/onboarding (which lists checklist templates by
  * cadre so HR can see WHAT onboarding looks like for each role).
  *
- * The admin policy-shell page (/admin/hr/onboarding-checklists) calls the
+ * The admin policy-shell page (/hr/admin/onboarding-checklists) calls the
  * service directly inside onLoad/onSave handlers, mirroring the
  * shift-templates page pattern. These hooks exist so non-policy-shell
  * surfaces can subscribe to checklist data without re-implementing the

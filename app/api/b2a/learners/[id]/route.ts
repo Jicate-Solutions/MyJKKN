@@ -93,8 +93,9 @@ export async function GET(
     permanent_address_pin_code: string;
     permanent_address_state: string;
     accommodation_type: string;
-    hostel_type: string | null;
-    food_type: string | null;
+    bus_required: boolean | null;
+    transport_route_id: string | null;
+    transport_stop_id: string | null;
     institution_id: string | null;
     degree_id: string | null;
     department_id: string | null;
@@ -130,18 +131,19 @@ export async function GET(
       .from('learners_profiles')
       .select(
         'id, application_id, lifecycle_status, first_name, last_name, date_of_birth, gender, ' +
-        'religion, community, caste, father_name, father_occupation, father_mobile, ' +
+        'religion, father_name, father_occupation, father_mobile, ' +
         'mother_name, mother_occupation, mother_mobile, annual_income, ' +
         'last_school, board_of_study, tenth_marks, twelfth_marks, ' +
         'student_mobile, student_email, ' +
         'permanent_address_street, permanent_address_taluk, permanent_address_district, ' +
         'permanent_address_pin_code, permanent_address_state, ' +
-        'accommodation_type, hostel_type, food_type, ' +
+        'accommodation_type_id, bus_required, transport_route_id, transport_stop_id, ' +
         'institution_id, degree_id, department_id, program_id, semester_id, section_id, ' +
         'academic_year_id, regulation_id, batch_id, roll_number, register_number, ' +
         'college_email, student_photo_url, is_profile_complete, ' +
-        'admission_year_id, ' +
-        'admission_year_obj:admission_years!admission_year_id(program_start_year), ' +
+        'admission_year_id, community_category_id, caste_id, ' +
+        'admission_year_obj:admission_years!admission_year_id(year), ' +
+        'community_obj:community_categories!community_category_id(code), caste_obj:castes!caste_id(name), accommodation_obj:accommodation_types!accommodation_type_id(name), ' +
         'blood_group, scholarship_type, industry_readiness_score, portfolio_url, ' +
         'created_at, updated_at'
       )
@@ -171,11 +173,20 @@ export async function GET(
     } else {
       // Derive legacy admission_year integer from FK join for back-compat.
       const raw = data as unknown as Record<string, any>;
-      const ayObj = raw.admission_year_obj as { program_start_year?: number } | null;
+      const ayObj = raw.admission_year_obj as { year?: number } | null;
+      const communityObj = raw.community_obj as { code?: string } | null;
+      const casteObj = raw.caste_obj as { name?: string } | null;
+      const accommodationObj = raw.accommodation_obj as { name?: string } | null;
       delete raw.admission_year_obj;
+      delete raw.community_obj;
+      delete raw.caste_obj;
+      delete raw.accommodation_obj;
       record = {
         ...raw,
-        admission_year: ayObj?.program_start_year ?? null,
+        admission_year: ayObj?.year ?? null,
+        community: communityObj?.code ?? null,
+        caste: casteObj?.name ?? null,
+        accommodation_type: accommodationObj?.name ?? null,
       } as LearnerDetail;
     }
   } catch {

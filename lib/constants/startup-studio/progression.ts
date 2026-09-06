@@ -2,6 +2,15 @@ import type { ProgressionLevelNumber } from '@/types/startup-studio'
 
 export const PROGRESSION_LEVELS = [
   {
+    level: 0 as ProgressionLevelNumber,
+    name: 'Explorer',
+    test: 'Completed the Foundations (Level 0) worksheets — founder mindset, ideation, evaluation, and a first value proposition',
+    auto_criteria: { foundations_completed: true },
+    stage: 'Foundations (Pre-Appathon)',
+    identity: 'I understand how founders think, and I am ready to build my first app.',
+    color: 'slate' as const,
+  },
+  {
     level: 1 as ProgressionLevelNumber,
     name: 'App Builder',
     test: 'Working app deployed and presented at Demo Day',

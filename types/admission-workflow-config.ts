@@ -77,7 +77,8 @@ export interface SeatPivotRow {
   group_label: string;          // e.g. "UG ENGINEERING - I YEAR"
   group_sort_key: string;
   intake: number;
-  filled: number;
+  filled: number;               // admitted-or-beyond (admitted/active/graduated/account)
+  reserved: number;             // point-in-time count of reserved learners
   balance: number;
   fill_percentage: number;
   daily_counts: Record<string, number>; // { "2026-03-25": 2, "2026-03-28": 1, ... }
@@ -93,23 +94,62 @@ export interface SeatPivotRow {
 export interface InstitutionAdmissionSummary {
   institution_id: string;
   institution_name: string;
+  /**
+   * Organisation entity type from institutions.entity_type
+   * (e.g. 'institution' | 'school' | 'company' | 'admin_office').
+   * Added 2026-06-17 so the Group Dashboard overview can split the
+   * breakdown into per-entity-type sections. The service only returns
+   * 'institution' + 'school' rows for the overview.
+   */
+  entity_type: string;
   total_leads: number;
   active_crm_leads: number;
   lost_leads: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use admitted_count below. */
   applied: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use admitted_count below. */
   enrolled: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use rejected_lifecycle_count below. */
   rejected: number;
   total_seats: number;
   filled_seats: number;
+  /**
+   * Lead-space "filled" — admission_leads.funnel_stage = 'enrolled'.
+   * Added 2026-05-17 (E4 of dynamic-admission-statuses). Equal to filled_seats
+   * during the rollout window; kept as a distinct field so consumers can
+   * migrate off the legacy name.
+   */
+  enrolled_leads: number;
+  /**
+   * Learner-space "filled" — learners_profiles.lifecycle_status matches an
+   * admission_statuses row with scope='learner' AND is_seat_filled=true.
+   * Added 2026-05-17 (E4). Gap vs enrolled_leads = drop-off pursuit list.
+   */
+  seat_filled_learners: number;
   fill_percentage: number;
+  // ─────────────────────────────────────────────────────────────────────────
+  // Lifecycle-status-based counts (added 2026-05-20 with workflow realignment).
+  // Sourced from learners_profiles.lifecycle_status, scoped by the same
+  // admission_year / program_start_year filter the leads side uses.
+  // ─────────────────────────────────────────────────────────────────────────
+  enquiry_count: number;
+  enquiry_submitted_count: number;
+  account_count: number;
+  reserved_count: number;
+  /** Admitted KPI = lifecycle_status IN ('admitted', 'active') per workflow spec. */
+  admitted_count: number;
+  rejected_lifecycle_count: number;
 }
 
 export interface GroupDashboardData {
   institutions: InstitutionAdmissionSummary[];
   totals: {
     total_leads: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_admitted below. */
     total_applied: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_admitted below. */
     total_enrolled: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_rejected_lifecycle below. */
     total_rejected: number;
     total_seats: number;
     /**
@@ -118,7 +158,22 @@ export interface GroupDashboardData {
      * Use this for Fill Rate, not total_enrolled (which is just 'active').
      */
     total_filled: number;
+    /** Sum of enrolled_leads across institutions (lead-space). */
+    total_enrolled_leads: number;
+    /** Sum of seat_filled_learners across institutions (learner-space). */
+    total_seat_filled_learners: number;
     overall_fill_percentage: number;
+    // ───────────────────────────────────────────────────────────────────────
+    // Lifecycle-status-based totals (added 2026-05-20). PRIMARY source for
+    // the dashboard's top KPI strip going forward.
+    // ───────────────────────────────────────────────────────────────────────
+    total_enquiry: number;
+    total_enquiry_submitted: number;
+    total_account: number;
+    total_reserved: number;
+    /** Admitted KPI = sum of lifecycle_status IN ('admitted', 'active'). */
+    total_admitted: number;
+    total_rejected_lifecycle: number;
   };
 }
 
@@ -137,7 +192,8 @@ export interface SeatAnalyticsRow {
   program_start_year: number;
   program_end_year: number;
   total_seats: number;
-  filled_seats: number;
+  filled_seats: number;          // admitted-or-beyond (admitted/active/graduated/account)
+  reserved_seats: number;        // point-in-time count of reserved learners
   balance_seats: number;
   fill_percentage: number;
   last_filled_at: string | null;
@@ -155,6 +211,66 @@ export interface SourceAnalyticsRow {
   enrolled_count: number;
   conversion_rate: number;
   last_enrolled_at: string | null;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Admitted-by-source drill-down — from fn_admitted_source_breakdown /
+// fn_admitted_source_counts (2026-08-13).
+//
+// These are PROFILE-anchored, unlike SourceAnalyticsRow above which is
+// LEAD-anchored. That difference is the whole point: the drill-down total
+// equals the "Admitted" KPI by construction, so clicking a KPI of 1,515 can
+// never land on a list of 551. Learners with no lead row carry source === null
+// and are bucketed under DIRECT_SOURCE_KEY.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sentinel for "admitted learner with no lead row" — i.e. a direct admission
+ * that never entered the leads pipeline, and therefore has no source.
+ * Used as a URL query value, so it must stay URL-safe and never collide with a
+ * real `admission_leads.source` enum value.
+ */
+export const DIRECT_SOURCE_KEY = '__direct__' as const;
+
+export interface AdmittedSourceRow {
+  learner_id: string;
+  full_name: string | null;
+  application_id: string | null;
+  roll_number: string | null;
+  /**
+   * Learner's own mobile, falling back to the originating lead's phone when the
+   * profile column is blank. Populated for every admitted/active learner today.
+   */
+  student_mobile: string | null;
+  father_mobile: string | null;
+  mother_mobile: string | null;
+  institution_id: string;
+  institution_name: string;
+  program_name: string | null;
+  /** null => direct admission (no lead row). */
+  source: string | null;
+  referral_type: string | null;
+  referred_by_name: string | null;
+  /**
+   * Best-effort admission timestamp: COALESCE(status-history 'admitted' event,
+   * activated_at). NULL for ~65% of learners because neither is recorded —
+   * deliberately NOT backfilled from created_at, which would present a
+   * profile-creation date as an admission date. Render as '—' when null.
+   */
+  admitted_at: string | null;
+  created_at: string | null;
+}
+
+export interface AdmittedSourceCount {
+  /** A real source value, or DIRECT_SOURCE_KEY for the no-lead bucket. */
+  source: string;
+  admits: number;
+}
+
+export interface AdmittedSourcePage {
+  rows: AdmittedSourceRow[];
+  /** Total matching the current filter, before pagination. */
+  totalCount: number;
 }
 
 // Geography analytics — from get_geography_analytics RPC

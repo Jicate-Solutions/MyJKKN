@@ -1,0 +1,67 @@
+name: Guide E2E nav (manual)
+
+# Workflow 2 of guide-driven-testing. Drives each guided deep-link as a real
+# authed browser nav (Playwright) — catching the runtime/nav breakage the static
+# smoke gate (guide-smoke.yml) cannot see: a route that resolves on the
+# filesystem but 500s, hangs, or bounces a valid persona to login.
+#
+# This is workflow_dispatch (MANUAL) on purpose — NOT a per-PR blocking gate:
+# E2E is slow, needs a running/deployed app, and needs real per-persona auth.
+# Keep the fast static smoke (guide-smoke.yml) as the PR gate; run this on
+# demand against a preview/staging deploy.
+#
+# ── ADAPT PER APP ──────────────────────────────────────────────────────────
+#   • the generate step — match the npm script you wired
+#     ("gen:guide-e2e": "tsx scripts/e2e-nav.ts").
+#   • node-version — match the app's.
+#   • AUTH: the login-bounce assertion only runs when GUIDE_E2E_AUTHED=1 and a
+#     per-persona storageState exists. Provide those via secrets / a login step
+#     (see the workflow-test and /browser skills) before relying on that check;
+#     without auth the run still catches 404/5xx.
+#   • base_url MUST be a reachable deploy (preview/staging). For a LOCAL target
+#     you would add a step to start the dev server first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Target app URL — a preview or staging deploy. NOT production."
+        required: true
+        default: "http://localhost:3104"
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-nav:
+    name: Guide E2E navigation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Generate the nav skeleton from the guide
+        run: npm run gen:guide-e2e
+
+      - name: Run guide navigation
+        run: npx playwright test e2e/guide-nav.generated.spec.ts
+        env:
+          GUIDE_E2E_BASE: ${{ inputs.base_url }}
+          # Set GUIDE_E2E_AUTHED=1 and wire per-persona storageState to enable the
+          # login-bounce (gate-match) assertion. Left off here so the skeleton runs
+          # green out of the box and still catches 404/5xx.
+          # GUIDE_E2E_AUTHED: '1'
+          # GUIDE_E2E_AUTH_DIR: .auth

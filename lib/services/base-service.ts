@@ -171,7 +171,7 @@ export abstract class BaseService {
         throw new Error(`Failed to fetch ${tableName}: ${error.message}`);
       }
 
-      logSlowQuery(`${tableName}.list`, startTime, PERFORMANCE_THRESHOLDS.LIST);
+      logSlowQuery(`${tableName}.list`, performance.now() - startTime, PERFORMANCE_THRESHOLDS.LIST);
 
       return {
         data: (data || []) as T[],
@@ -231,7 +231,7 @@ export abstract class BaseService {
         throw new Error(`${tableName} not found`);
       }
 
-      logSlowQuery(`${tableName}.single`, startTime, PERFORMANCE_THRESHOLDS.SINGLE);
+      logSlowQuery(`${tableName}.single`, performance.now() - startTime, PERFORMANCE_THRESHOLDS.SINGLE);
 
       return data as T;
     } catch (error) {
@@ -273,7 +273,7 @@ export abstract class BaseService {
         throw new Error(`Dashboard function failed: ${error.message}`);
       }
 
-      logSlowQuery(`${functionName}.rpc`, startTime, PERFORMANCE_THRESHOLDS.DASHBOARD);
+      logSlowQuery(`${functionName}.rpc`, performance.now() - startTime, PERFORMANCE_THRESHOLDS.DASHBOARD);
 
       return data as T;
     } catch (error) {

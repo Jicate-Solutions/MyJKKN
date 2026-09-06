@@ -6,8 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { InstitutionPicker } from '@/app/(routes)/bos/_components/institution-picker';
+import { TaxonomyBadge } from './taxonomy-badge';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -61,10 +61,12 @@ export function TaxonomyList() {
   const assignmentsQuery = useQuery<TaxonomyAssignment[]>({
     queryKey: ['bos', 'taxonomy-assignments', institutionId],
     queryFn: async () => {
-      const url = institutionId
-        ? `/api/bos/taxonomy?institutionsId=${institutionId}`
-        : '/api/bos/taxonomy';
-      const res = await fetch(url);
+      const params = new URLSearchParams();
+      if (institutionId) params.set('institutionsId', institutionId);
+      // Show the regulation-wide default (board_id NULL) per regulation. Per-board
+      // overrides are configured on the regulation's detail page (child table).
+      params.set('boardId', 'null');
+      const res = await fetch(`/api/bos/taxonomy?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to load taxonomy assignments');
       const json = await res.json();
       return json.data ?? [];
@@ -82,7 +84,7 @@ export function TaxonomyList() {
   return (
     <div className='space-y-4'>
       {isSuperAdmin && (
-        <div className='flex items-end gap-3'>
+        <div className='flex flex-wrap items-end gap-3'>
           <InstitutionPicker
             value={selectedInstitutionId}
             onChange={setSelectedInstitutionId}
@@ -131,9 +133,7 @@ export function TaxonomyList() {
                   <TableCell className='font-medium'>{reg.title}</TableCell>
                   <TableCell>
                     {taxonomyType ? (
-                      <Badge variant='secondary' className='capitalize'>
-                        {taxonomyType}
-                      </Badge>
+                      <TaxonomyBadge type={taxonomyType} />
                     ) : (
                       <span className='text-sm text-muted-foreground'>Not configured</span>
                     )}

@@ -18,6 +18,7 @@ import { CourseService } from './course-service';
 interface BulkCreateResult {
   successCount: number;
   errorCount: number;
+  errors: string[];
 }
 
 export class CourseMappingService {
@@ -40,27 +41,6 @@ export class CourseMappingService {
     } catch (error) {
       console.error('Error getting user accessible institution IDs:', error);
       return [];
-    }
-  }
-
-  /**
-   * Helper method to get user's department ID for filtering
-   */
-  private static async getUserDepartmentId(
-    userId: string
-  ): Promise<string | null> {
-    try {
-      const { data, error } = await this.supabase
-        .from('profiles')
-        .select('department_id')
-        .eq('id', userId)
-        .single();
-
-      if (error) throw error;
-      return (data as any)?.department_id || null;
-    } catch (error) {
-      console.error('Error getting user department ID:', error);
-      return null;
     }
   }
 
@@ -101,11 +81,12 @@ export class CourseMappingService {
   ): Promise<BulkCreateResult> {
     let successCount = 0;
     let errorCount = 0;
+    const errors: string[] = [];
 
     // Use Promise.allSettled to handle individual errors without stopping the whole process
     const results = await Promise.allSettled(
-      mappings.map((mapping) =>
-        (this.supabase.from('course_mappings') as any).insert([
+      mappings.map(async (mapping) => {
+        const { error } = await (this.supabase.from('course_mappings') as any).insert([
           {
             institution_id: mapping.institution_id,
             degree_id: mapping.degree_id,
@@ -115,8 +96,9 @@ export class CourseMappingService {
             course_id: mapping.course_id,
             is_active: mapping.is_active
           }
-        ])
-      )
+        ]);
+        if (error) throw error;
+      })
     );
 
     results.forEach((result) => {
@@ -124,11 +106,17 @@ export class CourseMappingService {
         successCount++;
       } else {
         errorCount++;
+        const reason: any = result.reason;
+        errors.push(
+          reason?.code === '23505'
+            ? 'This course is already mapped to this combination'
+            : reason?.message || 'Failed to create mapping'
+        );
         console.error('Error in bulk insert:', result.reason);
       }
     });
 
-    return { successCount, errorCount };
+    return { successCount, errorCount, errors };
   }
 
   static async createCourseMapping(
@@ -312,15 +300,6 @@ export class CourseMappingService {
               totalPages: 0
             }
           };
-        }
-      }
-
-      // Apply department filtering based on user's department if userId is provided
-      if (filters.userId && !filters.bypassDepartmentFilter) {
-        const userDepartmentId = await this.getUserDepartmentId(filters.userId);
-        // Only apply department filter if user has a department_id (HOD, department-specific roles)
-        if (userDepartmentId) {
-          query = query.eq('department_id', userDepartmentId);
         }
       }
 

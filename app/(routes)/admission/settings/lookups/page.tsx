@@ -123,6 +123,12 @@ function LookupsLandingContent() {
               description="OC, BC, MBC, SC, ST and other community classifications (global)."
             />
             <LookupCard
+              href="/admission/settings/lookups/castes"
+              icon={<Users2 className="h-5 w-5" />}
+              title="Castes"
+              description="Sub-castes under each community (BC/MBC/SC/…). Manage the full taxonomy."
+            />
+            <LookupCard
               href="/admission/settings/lookups/accommodation-types"
               icon={<Building2 className="h-5 w-5" />}
               title="Accommodation Types"

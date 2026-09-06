@@ -10,6 +10,7 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { toast } from 'react-hot-toast';
 import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -49,6 +50,15 @@ export default function ResetDriverPasswordsPage() {
   };
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Reset Driver Passwords">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title='Reset Driver Passwords'>
       <div className='max-w-4xl mx-auto space-y-6'>
         <Card>
@@ -131,5 +141,6 @@ export default function ResetDriverPasswordsPage() {
         </Card>
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }

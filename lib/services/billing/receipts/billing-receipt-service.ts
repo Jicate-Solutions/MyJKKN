@@ -10,6 +10,7 @@ import type {
 } from '@/types/billing-schedule';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
@@ -17,44 +18,6 @@ export class BillingReceiptService {
   // Get the appropriate Supabase client (passed or default)
   private static getClient(providedClient?: SupabaseClient): any {
     return providedClient || this.supabase;
-  }
-
-  // Generate a unique receipt number using database function
-  private static async generateReceiptNumber(supabaseClient?: SupabaseClient): Promise<string> {
-    const client = this.getClient(supabaseClient);
-    try {
-      // Use the database function for generating receipt numbers
-      const { data, error } = await client.rpc(
-        'generate_receipt_number'
-      );
-
-      if (error) {
-        logger.error('billing/receipts', 'Error calling generate_receipt_number function', error);
-        throw error;
-      }
-
-      if (!data) {
-        throw new Error('Database function returned null receipt number');
-      }
-
-      logger.info('billing/receipts', 'Generated receipt number from database', { receiptNumber: data });
-      return data;
-    } catch (error) {
-      logger.error('billing/receipts', 'Error in generateReceiptNumber', error);
-      // Fallback to timestamp-based approach if database function fails
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = (now.getMonth() + 1).toString().padStart(2, '0');
-      const day = now.getDate().toString().padStart(2, '0');
-      const hours = now.getHours().toString().padStart(2, '0');
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-      const seconds = now.getSeconds().toString().padStart(2, '0');
-
-      // Format: RCP-YYYY-MMDD-HHMMSS
-      const fallbackNumber = `RCP-${year}-${month}${day}-${hours}${minutes}${seconds}`;
-      logger.warn('billing/receipts', 'Using fallback receipt number', { fallbackNumber });
-      return fallbackNumber;
-    }
   }
 
   /**
@@ -82,79 +45,64 @@ export class BillingReceiptService {
         logger.dev('billing/receipts', 'No user context available (likely server-side execution)');
       }
 
-      // Generate receipt number
-      const receiptNumber = await this.generateReceiptNumber(client);
-
-      if (!receiptNumber) {
-        throw new Error('Failed to generate receipt number');
-      }
-
-      logger.info('billing/receipts', 'Creating receipt', { receiptNumber });
-
-      // Start a transaction to create receipt and receipt items
-      const { data: receipt, error: receiptError } = await client
-        .from('billing_receipts')
-        .insert({
-          receipt_number: receiptNumber,
-          receipt_date: new Date().toISOString().split('T')[0], // Current date for receipt generation
-          student_id: receiptData.student_id,
-          institution_id: receiptData.institution_id,
-          payment_mode: receiptData.payment_mode,
-          payment_reference_number: receiptData.payment_reference_number,
-          payment_amount: receiptData.payment_amount,
-          payment_paid_date: receiptData.payment_paid_date,
-          payer_name: receiptData.payer_name,
-          payer_contact: receiptData.payer_contact,
-          accountant_id: receiptData.accountant_id,
-          payment_remarks: receiptData.payment_remarks,
-          created_by: currentUserId
-        })
-        .select(
-          `
-          *,
-          student:learners_profiles (
-            id,
-            first_name,
-            last_name,
-            roll_number,
-            college_email
-          ),
-          institution:institutions (
-            id,
-            name,
-            counselling_code
-          )
-        `
-        )
-        .single();
-
-      if (receiptError) {
-        logger.error('billing/receipts', 'Receipt creation error', receiptError);
-        throw receiptError;
-      }
-
-      logger.info('billing/receipts', 'Receipt created successfully', { receiptId: receipt.id });
-
-      // Create receipt items
-      if (receiptData.receipt_items && receiptData.receipt_items.length > 0) {
-        const receiptItems = receiptData.receipt_items.map((item) => ({
-          receipt_id: receipt.id,
-          bill_id: item.bill_id,
-          amount_paid: item.amount_paid
-        }));
-
-        const { error: itemsError } = await client
-          .from('billing_receipt_items')
-          .insert(receiptItems);
-
-        if (itemsError) {
-          logger.error('billing/receipts', 'Receipt items creation error', itemsError);
-          throw itemsError;
+      // Header + items are written by fn_create_billing_receipt, which puts both
+      // INSERTs in one transaction.
+      //
+      // This used to be: insert the header, insert the items, and if the items
+      // failed, issue a compensating delete() on the header. PostgREST gives
+      // each of those statements its own transaction, so that "rollback" was
+      // application code — and it was itself gated by billing.receipts.delete.
+      // A role holding create-but-not-delete got a silent no-op DELETE (an
+      // RLS-filtered write affects zero rows without raising) and the header
+      // stayed behind, settling nothing. There were 8 such orphans in
+      // production, spanning 2026-05-28 to 2026-08-08.
+      //
+      // The RPC is SECURITY INVOKER, so RLS still decides who may write and no
+      // role gains anything; only durability changed. It also generates the
+      // receipt number inside the same transaction.
+      const { data: created, error: rpcError } = await client.rpc(
+        'fn_create_billing_receipt',
+        {
+          p_receipt: {
+            receipt_date: new Date().toISOString().split('T')[0], // Current date for receipt generation
+            student_id: receiptData.student_id,
+            institution_id: receiptData.institution_id,
+            payment_mode: receiptData.payment_mode,
+            payment_reference_number: receiptData.payment_reference_number,
+            payment_amount: receiptData.payment_amount,
+            payment_paid_date: receiptData.payment_paid_date,
+            payer_name: receiptData.payer_name,
+            payer_contact: receiptData.payer_contact,
+            accountant_id: receiptData.accountant_id,
+            payment_remarks: receiptData.payment_remarks,
+            created_by: currentUserId ?? null
+          },
+          p_items: (receiptData.receipt_items || []).map((item) => ({
+            bill_id: item.bill_id,
+            amount_paid: item.amount_paid
+          }))
         }
+      );
 
-        logger.info('billing/receipts', 'Receipt items created successfully');
+      if (rpcError) {
+        logger.error('billing/receipts', 'Receipt creation error', rpcError);
+        throw rpcError;
+      }
+      if (!created?.id) {
+        throw new Error('Receipt creation returned no receipt');
+      }
 
-        // Manual validation and update as fallback in case trigger fails
+      const receiptNumber: string = created.receipt_number;
+
+      logger.info('billing/receipts', 'Receipt created successfully', {
+        receiptId: created.id,
+        receiptNumber
+      });
+
+      // The bill-status trigger on billing_receipt_items has already run inside
+      // that transaction; these remain as the belt-and-braces fallback and to
+      // raise an invoice once a bill is fully settled.
+      if (receiptData.receipt_items && receiptData.receipt_items.length > 0) {
         for (const item of receiptData.receipt_items) {
           await this.validateAndUpdateBillStatus(item.bill_id, client);
 
@@ -163,7 +111,57 @@ export class BillingReceiptService {
         }
       }
 
+      // Callers use id and receipt_number; the rest is echoed from the input so
+      // the shape stays familiar. The header is deliberately NOT read back:
+      // billing_receipts SELECT is gated on billing.receipts.view, so a
+      // read-back would fail for exactly the collection-only roles this path
+      // now supports.
+      const receipt = {
+        id: created.id,
+        receipt_number: receiptNumber,
+        receipt_date: created.receipt_date,
+        student_id: receiptData.student_id,
+        institution_id: receiptData.institution_id,
+        payment_mode: receiptData.payment_mode,
+        payment_reference_number: receiptData.payment_reference_number,
+        payment_amount: receiptData.payment_amount,
+        payment_paid_date: receiptData.payment_paid_date,
+        payer_name: receiptData.payer_name,
+        payer_contact: receiptData.payer_contact,
+        accountant_id: receiptData.accountant_id,
+        payment_remarks: receiptData.payment_remarks,
+        created_by: currentUserId,
+        student: created.student_first_name
+          ? {
+              id: receiptData.student_id,
+              first_name: created.student_first_name,
+              last_name: created.student_last_name
+            }
+          : undefined
+      } as unknown as BillingReceipt;
+
       trackUsage({ module: 'billing/receipts', feature: 'create_receipt', eventType: 'create' });
+
+      const studentNameReceipt = `${receipt.student?.first_name || ''} ${receipt.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReceipt = BillingActivityTemplates.receiptCreated(
+        receiptNumber,
+        studentNameReceipt,
+        receiptData.payment_amount
+      );
+      logActivityForCurrentUser({
+        ...templateReceipt,
+        resourceId: receipt.id,
+        resourceName: receiptNumber,
+        institutionId: receiptData.institution_id,
+        metadata: {
+          sub_type: templateReceipt.sub_type,
+          student_id: receiptData.student_id,
+          payment_mode: receiptData.payment_mode,
+          payment_amount: receiptData.payment_amount,
+          bill_count: receiptData.receipt_items?.length || 0,
+        },
+      });
+
       return receipt;
     } catch (error) {
       logger.error('billing/receipts', 'Error creating receipt', error);
@@ -202,6 +200,15 @@ export class BillingReceiptService {
         .single();
 
       if (error) throw error;
+
+      const templateUpdate = BillingActivityTemplates.receiptUpdated((data as any)?.receipt_number || id);
+      logActivityForCurrentUser({
+        ...templateUpdate,
+        resourceId: id,
+        resourceName: (data as any)?.receipt_number,
+        metadata: { sub_type: templateUpdate.sub_type, updated_fields: Object.keys(receiptData) },
+      });
+
       return data;
     } catch (error) {
       console.error('Error updating receipt:', error);
@@ -219,6 +226,13 @@ export class BillingReceiptService {
         .eq('id', id);
 
       if (error) throw error;
+
+      const templateDelete = BillingActivityTemplates.receiptDeleted(id);
+      logActivityForCurrentUser({
+        ...templateDelete,
+        resourceId: id,
+        metadata: { sub_type: templateDelete.sub_type },
+      });
     } catch (error) {
       console.error('Error deleting receipt:', error);
       throw new Error(
@@ -227,10 +241,72 @@ export class BillingReceiptService {
     }
   }
 
+  /**
+   * Void a mistakenly-issued receipt. Prefer this over deleteBillingReceipt:
+   * the row is archived to billing_receipts_voided (with its receipt_items
+   * snapshotted and a reason recorded) rather than destroyed, so the receipt
+   * number stays accounted for and an auditor can still see what happened.
+   *
+   * The bill is reverted by the SAME path a delete uses — removing the receipt
+   * cascades to billing_receipt_items, whose AFTER DELETE trigger recomputes
+   * status and balance_amount — so there is one definition of "paid".
+   *
+   * The RPC refuses to void a receipt that has refunds, is attached to an
+   * invoice, or settles a captured online payment (that last one would simply
+   * be re-created by the next webhook or late-auth sweep — refund it instead).
+   */
+  static async voidBillingReceipt(
+    id: string,
+    reason: string
+  ): Promise<{ receiptNumber: string; billIds: string[] }> {
+    const { data, error } = await (this.supabase as any).rpc('fn_void_billing_receipt', {
+      p_receipt_id: id,
+      p_reason: reason,
+    });
+
+    if (error) {
+      logger.error('billing/receipts', 'Failed to void receipt', { id, error });
+      // Supabase errors are plain objects, not Error instances — reading
+      // `.message` directly is what surfaces the RPC's RAISE EXCEPTION text
+      // (e.g. "Cannot void: this receipt has refunds…") to the operator.
+      throw new Error(error.message || 'Failed to void receipt');
+    }
+
+    const row = (data as Array<Record<string, any>> | null)?.[0];
+
+    const template = BillingActivityTemplates.receiptDeleted(id);
+    logActivityForCurrentUser({
+      ...template,
+      resourceId: id,
+      metadata: { sub_type: template.sub_type, action: 'void', reason },
+    });
+
+    return {
+      receiptNumber: row?.receipt_number ?? '',
+      billIds: (row?.bill_ids ?? []) as string[],
+    };
+  }
+
   static async getBillingReceipts(
     filters: ReceiptFilters = {}
   ): Promise<ReceiptListResponse> {
     try {
+      // Ownership filter. billing_receipts has no category of its own, so this
+      // walks receipt_items -> bill -> category via chained !inner embeds, which
+      // makes it "receipts containing AT LEAST ONE line of this ownership" — a
+      // single payment can settle both, and a mixed receipt shows under either.
+      // Only added when the filter is on, so the default list keeps its existing
+      // (cheaper) query shape. Verified against PostgREST: the nested dotted
+      // filter path resolves and count=exact is NOT inflated by the join.
+      const ownershipEmbed = filters.collection_type
+        ? `,
+          collection_lines:billing_receipt_items!inner(
+            bill:billing_student_bills!inner(
+              category:billing_categories!inner(collection_type)
+            )
+          )`
+        : '';
+
       let query = (this.supabase as any).from('billing_receipts').select(
         `
           *,
@@ -250,10 +326,17 @@ export class BillingReceiptService {
             id,
             refund_amount,
             approval_status
-          )
+          )${ownershipEmbed}
         `,
         { count: 'exact' }
       );
+
+      if (filters.collection_type) {
+        query = query.eq(
+          'collection_lines.bill.category.collection_type',
+          filters.collection_type
+        );
+      }
 
       // Apply filters
       if (filters.search) {
@@ -410,32 +493,16 @@ export class BillingReceiptService {
 
   static async downloadReceiptPDF(id: string): Promise<void> {
     try {
-      // Get receipt data
+      // Fetch the full receipt (items + refunds) so the PDF is complete
+      // regardless of which surface initiated the download.
       const receipt = await this.getBillingReceipt(id);
 
-      // Generate PDF content (this would typically use a PDF library like jsPDF or Puppeteer)
-      // For now, we'll create a simple HTML representation and trigger download
-      const pdfContent = this.generateReceiptHTML(receipt);
-
-      // Create a blob and download it
-      const blob = new Blob([pdfContent], { type: 'text/html' });
-      const url = window.URL.createObjectURL(blob);
-
-      // Create a temporary link and trigger download
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `receipt-${receipt.receipt_number}.html`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // Clean up the URL
-      window.URL.revokeObjectURL(url);
-
-      console.log(
-        'Receipt PDF download initiated for:',
-        receipt.receipt_number
+      // jsPDF is browser-only and heavy — load it lazily so it stays out of
+      // the initial bundle (matches lib/utils/ims-receipt-pdf.ts).
+      const { downloadReceiptPdf } = await import(
+        '@/lib/utils/billing/receipt-pdf'
       );
+      downloadReceiptPdf(receipt);
     } catch (error) {
       console.error('Error downloading receipt PDF:', error);
       throw new Error(
@@ -444,294 +511,6 @@ export class BillingReceiptService {
           : 'Failed to download receipt PDF'
       );
     }
-  }
-
-  private static generateReceiptHTML(receipt: BillingReceipt): string {
-    const formatCurrency = (amount: number) => {
-      return new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-      }).format(amount);
-    };
-
-    const formatDate = (date: string) => {
-      return new Date(date).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric'
-      });
-    };
-
-    // Calculate refund totals
-    const processedRefunds =
-      receipt.refunds?.filter((r) => r.approval_status === 'processed') || [];
-    const totalProcessedRefunds = processedRefunds.reduce(
-      (sum, r) => sum + r.refund_amount,
-      0
-    );
-    const hasProcessedRefunds = processedRefunds.length > 0;
-    const netReceiptAmount = receipt.payment_amount - totalProcessedRefunds;
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Receipt ${receipt.receipt_number}</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .receipt-info { margin-bottom: 20px; }
-        .section { margin-bottom: 20px; }
-        .section h3 { border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-        .info-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-        .amount { font-size: 18px; font-weight: bold; color: #2563eb; }
-        .refunded-amount { color: #dc2626; text-decoration: line-through; }
-        .net-amount { color: #16a34a; font-weight: bold; }
-        .refund-summary { background-color: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 5px; margin: 15px 0; }
-        .refund-positive { background-color: #f0fdf4; border-color: #bbf7d0; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f5f5f5; }
-        .total-row { font-weight: bold; background-color: #f9f9f9; }
-        .refund-row { background-color: #fef2f2; color: #dc2626; }
-        .net-row { background-color: #f0fdf4; color: #16a34a; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Payment Receipt</h1>
-        <h2>${receipt.institution?.name || 'Institution'}</h2>
-        <p>Receipt #${receipt.receipt_number}</p>
-    </div>
-
-    <div class="section">
-        <h3>Receipt Information</h3>
-        <div class="info-row">
-            <span>Receipt Date:</span>
-            <span>${formatDate(receipt.receipt_date)}</span>
-        </div>
-        <div class="info-row">
-            <span>Payment Date:</span>
-            <span>${formatDate(receipt.payment_paid_date)}</span>
-        </div>
-        <div class="info-row">
-            <span>Payment Mode:</span>
-            <span>${receipt.payment_mode.toUpperCase()}</span>
-        </div>
-        ${
-          receipt.payment_reference_number
-            ? `
-        <div class="info-row">
-            <span>Reference Number:</span>
-            <span>${receipt.payment_reference_number}</span>
-        </div>
-        `
-            : ''
-        }
-        <div class="info-row">
-            <span>Original Amount:</span>
-            <span class="amount ${
-              hasProcessedRefunds ? 'refunded-amount' : ''
-            }">${formatCurrency(receipt.payment_amount)}</span>
-        </div>
-        ${
-          hasProcessedRefunds
-            ? `
-        <div class="info-row">
-            <span>Total Refunded:</span>
-            <span style="color: #dc2626;">-${formatCurrency(
-              totalProcessedRefunds
-            )}</span>
-        </div>
-        <div class="info-row">
-            <span>Net Amount:</span>
-            <span class="net-amount">${formatCurrency(netReceiptAmount)}</span>
-        </div>
-        `
-            : ''
-        }
-    </div>
-
-    <div class="section">
-        <h3>Student Information</h3>
-        <div class="info-row">
-            <span>Name:</span>
-            <span>${receipt.student?.first_name || 'N/A'} ${receipt.student?.last_name || ''}</span>
-        </div>
-        ${
-          receipt.student?.roll_number
-            ? `
-        <div class="info-row">
-            <span>Roll Number:</span>
-            <span>${receipt.student.roll_number}</span>
-        </div>
-        `
-            : ''
-        }
-        <div class="info-row">
-            <span>Email:</span>
-            <span>${receipt.student?.college_email || 'N/A'}</span>
-        </div>
-    </div>
-
-    <div class="section">
-        <h3>Payer Information</h3>
-        <div class="info-row">
-            <span>Payer Name:</span>
-            <span>${receipt.payer_name}</span>
-        </div>
-        ${
-          receipt.payer_contact
-            ? `
-        <div class="info-row">
-            <span>Contact:</span>
-            <span>${receipt.payer_contact}</span>
-        </div>
-        `
-            : ''
-        }
-    </div>
-
-    ${
-      receipt.receipt_items && receipt.receipt_items.length > 0
-        ? `
-    <div class="section">
-        <h3>Payment Details</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Description</th>
-                    <th>Due Date</th>
-                    <th>Bill Amount</th>
-                    <th>Amount Paid</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${receipt.receipt_items
-                  .map(
-                    (item) => `
-                <tr>
-                    <td>${
-                      item.bill?.bill_description ||
-                      item.bill?.category?.category_name ||
-                      'N/A'
-                    }</td>
-                    <td>${
-                      item.bill?.due_date
-                        ? formatDate(item.bill.due_date)
-                        : 'N/A'
-                    }</td>
-                    <td>${
-                      item.bill?.final_amount
-                        ? formatCurrency(item.bill.final_amount)
-                        : 'N/A'
-                    }</td>
-                    <td>${formatCurrency(item.amount_paid)}</td>
-                </tr>
-                `
-                  )
-                  .join('')}
-                <tr class="total-row">
-                    <td colspan="3">Total Paid</td>
-                    <td>${formatCurrency(receipt.payment_amount)}</td>
-                </tr>
-                ${
-                  hasProcessedRefunds
-                    ? `
-                <tr class="refund-row">
-                    <td colspan="3">Total Refunded</td>
-                    <td>-${formatCurrency(totalProcessedRefunds)}</td>
-                </tr>
-                <tr class="net-row">
-                    <td colspan="3">Net Amount</td>
-                    <td>${formatCurrency(netReceiptAmount)}</td>
-                </tr>
-                `
-                    : ''
-                }
-            </tbody>
-        </table>
-    </div>
-    `
-        : ''
-    }
-
-    ${
-      hasProcessedRefunds && receipt.refunds
-        ? `
-    <div class="section">
-        <h3>Refund Details</h3>
-        <div class="refund-summary">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Refund Date</th>
-                        <th>Category</th>
-                        <th>Method</th>
-                        <th>Amount</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${receipt.refunds
-                      .filter((r) => r.approval_status === 'processed')
-                      .map(
-                        (refund) => `
-                    <tr>
-                        <td>${formatDate(refund.refund_date)}</td>
-                        <td>${refund.refund_category
-                          .replace('_', ' ')
-                          .toUpperCase()}</td>
-                        <td>${refund.refund_method
-                          .replace('_', ' ')
-                          .toUpperCase()}</td>
-                        <td>₹${refund.refund_amount.toLocaleString()}</td>
-                        <td>PROCESSED</td>
-                    </tr>
-                    `
-                      )
-                      .join('')}
-                </tbody>
-            </table>
-            <div style="margin-top: 10px; text-align: center;">
-                <p><strong>Total Refunded: ${formatCurrency(
-                  totalProcessedRefunds
-                )}</strong></p>
-                <p style="color: #16a34a;"><strong>Net Receipt Amount: ${formatCurrency(
-                  netReceiptAmount
-                )}</strong></p>
-            </div>
-        </div>
-    </div>
-    `
-        : ''
-    }
-
-    ${
-      receipt.payment_remarks
-        ? `
-    <div class="section">
-        <h3>Remarks</h3>
-        <p>${receipt.payment_remarks}</p>
-    </div>
-    `
-        : ''
-    }
-
-    <div class="section" style="margin-top: 40px; text-align: center; font-size: 12px; color: #666;">
-        <p>This is a computer-generated receipt.</p>
-        <p>Generated on: ${new Date().toLocaleString('en-IN')}</p>
-        ${
-          hasProcessedRefunds
-            ? '<p style="color: #dc2626; font-weight: bold;">Note: This receipt has been partially or fully refunded.</p>'
-            : ''
-        }
-    </div>
-</body>
-</html>
-    `;
   }
 
   static async bulkGenerateReceipts(
@@ -796,6 +575,15 @@ export class BillingReceiptService {
   }
 
   // Method to get multiple bills by their IDs for receipt generation
+  /**
+   * The `institution:institutions(...)` embed is what keeps the receipt form's
+   * locked Institution field populated. That field is derived from the bill and
+   * cannot be edited, but it used to resolve its LABEL by looking the bill's
+   * institution_id up in a separately-fetched dropdown list — so any gap in
+   * that list (fetch failure, `is_active = false`, RLS) rendered the locked
+   * field as a bare "Select institution" placeholder the operator had no way to
+   * correct. Carrying the name on the bill removes that second dependency.
+   */
   static async getBillsByIds(billIds: string[]): Promise<any[]> {
     try {
       const { data, error } = await this.supabase
@@ -815,7 +603,15 @@ export class BillingReceiptService {
             last_name,
             roll_number,
             college_email,
-            institution_id
+            institution_id,
+            student_mobile,
+            father_mobile,
+            mother_mobile
+          ),
+          institution:institutions (
+            id,
+            name,
+            counselling_code
           )
         `
         )
@@ -1072,6 +868,13 @@ export class BillingReceiptService {
   static async getOutstandingBillsForBulk(
     filters: {
       institution_id?: string;
+      /**
+       * Tenant boundary for callers that reach this method through the
+       * service-role client (the bulk-template API routes), where RLS is not
+       * in the path. Restricts the result to these institutions regardless of
+       * `institution_id`. Omit ONLY for super admins.
+       */
+      institution_ids?: string[];
       item_category_id?: string;
       degree_id?: string;
       department_id?: string;
@@ -1133,6 +936,12 @@ export class BillingReceiptService {
       )
       .in('status', ['unpaid', 'partially_paid']);
 
+    // Applied BEFORE the caller's own institution filter and independently of
+    // it: institution_id narrows what the user asked for, institution_ids
+    // bounds what they are allowed to see. Both may be present.
+    if (filters.institution_ids && filters.institution_ids.length > 0) {
+      query = query.in('institution_id', filters.institution_ids);
+    }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -1161,8 +970,18 @@ export class BillingReceiptService {
     if (filters.section_id) {
       query = query.eq('student.section_id', filters.section_id);
     }
-    if (filters.academic_year_id) {
-      query = query.eq('student.academic_year_id', filters.academic_year_id);
+    // Academic year lives ON the bill, not on the learner — bills are created
+    // per academic year, and a learner's current year runs ahead of the years
+    // their older unpaid bills belong to. Measured 2026-07-31: 1,774 of 6,598
+    // outstanding bills (26.9%) carry a bill-year that differs from their
+    // learner's current year, so binding this to student.academic_year_id
+    // silently returned the wrong set. Matches student-bill-service.ts, where
+    // the same-named schedule-page filter already targets the bill's column.
+    // 'unspecified' is the schedule page's magic value for "no year set".
+    if (filters.academic_year_id === 'unspecified') {
+      query = query.is('academic_year_id', null);
+    } else if (filters.academic_year_id) {
+      query = query.eq('academic_year_id', filters.academic_year_id);
     }
 
     // Cap result size — a single Excel sheet over 5000 rows becomes unwieldy
@@ -1213,6 +1032,8 @@ export class BillingReceiptService {
   static async countOutstandingBillsForBulk(
     filters: {
       institution_id?: string;
+      /** See getOutstandingBillsForBulk — same tenant boundary, kept in lock-step. */
+      institution_ids?: string[];
       item_category_id?: string;
       degree_id?: string;
       department_id?: string;
@@ -1232,13 +1053,15 @@ export class BillingReceiptService {
     // even for "give me the system-wide total" requests, which can blow
     // past the 15s client deadline on a large bills table for no reason —
     // every bill has a learner, so the join doesn't filter anything.
+    // academic_year_id is deliberately NOT in this list — it filters the
+    // bill's own column (see getOutstandingBillsForBulk), so it needs no
+    // learner join.
     const needsLearnerJoin = !!(
       filters.degree_id ||
       filters.department_id ||
       filters.program_id ||
       filters.semester_id ||
-      filters.section_id ||
-      filters.academic_year_id
+      filters.section_id
     );
 
     let query = needsLearnerJoin
@@ -1254,6 +1077,12 @@ export class BillingReceiptService {
 
     query = query.in('status', ['unpaid', 'partially_paid']);
 
+    // Mirrors getOutstandingBillsForBulk — the live preview count must reflect
+    // the same tenant boundary as the file the user will actually download,
+    // otherwise a scoped user sees "1,200 bills match" and receives 40.
+    if (filters.institution_ids && filters.institution_ids.length > 0) {
+      query = query.in('institution_id', filters.institution_ids);
+    }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -1265,6 +1094,12 @@ export class BillingReceiptService {
     }
     if (filters.due_date_to) {
       query = query.lte('due_date', filters.due_date_to);
+    }
+    // Bill-level column — applies with or without the learner join.
+    if (filters.academic_year_id === 'unspecified') {
+      query = query.is('academic_year_id', null);
+    } else if (filters.academic_year_id) {
+      query = query.eq('academic_year_id', filters.academic_year_id);
     }
     // Hierarchy filters only apply when the join is part of the SELECT.
     // The `needsLearnerJoin` flag above guarantees that branch.
@@ -1283,9 +1118,6 @@ export class BillingReceiptService {
       }
       if (filters.section_id) {
         query = query.eq('student.section_id', filters.section_id);
-      }
-      if (filters.academic_year_id) {
-        query = query.eq('student.academic_year_id', filters.academic_year_id);
       }
     }
 

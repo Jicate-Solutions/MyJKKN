@@ -39,6 +39,16 @@ export default function CurlDocumentationContent() {
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
+      profilesAllStatuses: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles?lifecycle_status=all&limit=50" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Accept: application/json" \\
+  -H "Content-Type: application/json"`,
+
+      profilesByStatus: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles?lifecycle_status=admitted,graduated&limit=50" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Accept: application/json" \\
+  -H "Content-Type: application/json"`,
+
       profilesWithExpand: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles?expand=program,semester,section&limit=10" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
@@ -115,19 +125,19 @@ export default function CurlDocumentationContent() {
     },
 
     testing: {
-      validity: `curl -X GET "https://jkkn.ai/api/api-management/students?limit=1" \\
+      validity: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles?limit=1" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json" \\
   -w "\\nHTTP Status: %{http_code}\\nTotal Time: %{time_total}s\\n"`,
 
-      invalidKey: `curl -X GET "https://jkkn.ai/api/api-management/students?limit=1" \\
+      invalidKey: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles?limit=1" \\
   -H "Authorization: Bearer invalid_api_key" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json" \\
   -w "\\nHTTP Status: %{http_code}\\n"`,
 
-      verbose: `curl -v -X GET "https://jkkn.ai/api/api-management/students?limit=1" \\
+      verbose: `curl -v -X GET "https://jkkn.ai/api/api-management/learners/profiles?limit=1" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json"`
     }
@@ -176,9 +186,9 @@ test_endpoint() {
 echo "Starting API Tests..."
 echo "========================================"
 
-# Students API
-test_endpoint "/api-management/students?limit=2" "Students List (Limited)"
-test_endpoint "/api-management/students?search=test&limit=1" "Students Search"
+# Learners API
+test_endpoint "/api-management/learners/profiles?limit=2" "Learners List (Limited)"
+test_endpoint "/api-management/learners/profiles?lifecycle_status=all&limit=1" "Learners — All Lifecycle Statuses"
 
 # Staff API
 test_endpoint "/api-management/staff?limit=2" "Staff List (Limited)"
@@ -195,7 +205,7 @@ test_endpoint "/api-management/organizations/courses?limit=2" "Courses List"
 echo "API Tests Completed!"`;
 
   return (
-    <div className='py-4 space-y-6'>
+    <div className='py-4 space-y-6 [&_code]:break-all'>
       <div className='space-y-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4'>
         <div>
           <h1 className='text-2xl font-bold'>CURL Documentation</h1>
@@ -253,7 +263,9 @@ echo "API Tests Completed!"`;
                 </AccordionTrigger>
                 <AccordionContent className='px-4 pb-4 space-y-4'>
                   <p className='text-muted-foreground'>
-                    Retrieve active learner profiles with default pagination.
+                    Retrieve learner profiles with default pagination. Returns
+                    only active learners unless a lifecycle_status filter is
+                    provided.
                   </p>
                   <div className='flex justify-between items-start'>
                     <div className='flex-1'>
@@ -275,6 +287,97 @@ echo "API Tests Completed!"`;
                     >
                       <CopyIcon className='h-4 w-4' />
                       {copied['learners-profiles'] ? 'Copied!' : 'Copy'}
+                    </Button>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem
+                value='profiles-all-statuses'
+                className='border rounded-lg'
+              >
+                <AccordionTrigger className='px-4 hover:no-underline'>
+                  <div className='flex items-center gap-2'>
+                    <span className='font-semibold'>
+                      All Learners (Every Lifecycle Status)
+                    </span>
+                    <Badge variant='secondary'>GET</Badge>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className='px-4 pb-4 space-y-4'>
+                  <p className='text-muted-foreground'>
+                    Pass lifecycle_status=all to retrieve learners across every
+                    lifecycle status (enquiry, pending, admitted, active,
+                    graduated, alumni, etc.) instead of only active learners.
+                  </p>
+                  <div className='flex justify-between items-start'>
+                    <div className='flex-1'>
+                      <CodeBlock
+                        language='bash'
+                        code={curlExamples.learners.profilesAllStatuses}
+                      />
+                    </div>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() =>
+                        copyToClipboard(
+                          curlExamples.learners.profilesAllStatuses,
+                          'learners-profiles-all-statuses'
+                        )
+                      }
+                      className='ml-2'
+                    >
+                      <CopyIcon className='h-4 w-4' />
+                      {copied['learners-profiles-all-statuses']
+                        ? 'Copied!'
+                        : 'Copy'}
+                    </Button>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem
+                value='profiles-by-status'
+                className='border rounded-lg'
+              >
+                <AccordionTrigger className='px-4 hover:no-underline'>
+                  <div className='flex items-center gap-2'>
+                    <span className='font-semibold'>
+                      Filter by Lifecycle Status
+                    </span>
+                    <Badge variant='secondary'>GET</Badge>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className='px-4 pb-4 space-y-4'>
+                  <p className='text-muted-foreground'>
+                    Pass one or more comma-separated statuses: enquiry,
+                    enquiry_submitted, pending, approved, account, reserved,
+                    admitted, rejected, waitlisted, active, inactive, exited,
+                    graduated, alumni.
+                  </p>
+                  <div className='flex justify-between items-start'>
+                    <div className='flex-1'>
+                      <CodeBlock
+                        language='bash'
+                        code={curlExamples.learners.profilesByStatus}
+                      />
+                    </div>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() =>
+                        copyToClipboard(
+                          curlExamples.learners.profilesByStatus,
+                          'learners-profiles-by-status'
+                        )
+                      }
+                      className='ml-2'
+                    >
+                      <CopyIcon className='h-4 w-4' />
+                      {copied['learners-profiles-by-status']
+                        ? 'Copied!'
+                        : 'Copy'}
                     </Button>
                   </div>
                 </AccordionContent>

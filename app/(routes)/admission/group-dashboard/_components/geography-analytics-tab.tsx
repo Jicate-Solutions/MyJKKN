@@ -78,7 +78,7 @@ export function GeographyAnalyticsTab({ institutionIds, programStartYear }: Geog
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          No address data for the selected admission year. Ensure learner profiles have permanent_address_district filled.
+          No lead address data for the selected admission year. Ensure leads have a district filled.
         </CardContent>
       </Card>
     );
@@ -94,7 +94,7 @@ export function GeographyAnalyticsTab({ institutionIds, programStartYear }: Geog
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
-          { label: 'Active Learners', value: totalActive.toLocaleString() },
+          { label: 'Leads', value: totalActive.toLocaleString() },
           { label: 'Districts', value: districts.length.toString() },
           {
             label: 'Top District',
@@ -115,7 +115,7 @@ export function GeographyAnalyticsTab({ institutionIds, programStartYear }: Geog
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-1">
             <MapPin className="h-4 w-4" />
-            Top Districts by Active Learners
+            Top Districts by Leads
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -124,8 +124,8 @@ export function GeographyAnalyticsTab({ institutionIds, programStartYear }: Geog
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
               <XAxis type="number" tick={{ fontSize: 11 }} />
               <YAxis type="category" dataKey="district" width={90} tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v) => [v, 'Learners']} />
-              <Bar dataKey="count" name="Learners" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+              <Tooltip formatter={(v) => [v, 'Leads']} />
+              <Bar dataKey="count" name="Leads" fill="#3b82f6" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -134,7 +134,7 @@ export function GeographyAnalyticsTab({ institutionIds, programStartYear }: Geog
       {/* District × Taluk detail table */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">District & Taluk Breakdown</CardTitle>
+          <CardTitle className="text-sm font-medium">District & City Breakdown</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-auto max-h-[400px]">
@@ -143,8 +143,8 @@ export function GeographyAnalyticsTab({ institutionIds, programStartYear }: Geog
                 <TableRow>
                   <TableHead>State</TableHead>
                   <TableHead>District</TableHead>
-                  <TableHead>Top Taluks</TableHead>
-                  <TableHead className="text-right">Learners</TableHead>
+                  <TableHead>Top Cities</TableHead>
+                  <TableHead className="text-right">Leads</TableHead>
                   <TableHead className="text-right">%</TableHead>
                 </TableRow>
               </TableHeader>

@@ -91,6 +91,11 @@ export class ResourceService {
         );
       }
 
+      // Procurement intake drafts awaiting room/caretaker setup.
+      if (filters.needs_setup) {
+        query = query.contains('tags', ['needs-setup']);
+      }
+
       // Filter by availability date if provided
       if (filters.available_on) {
         // This will need to check against reservations - implement later
@@ -460,18 +465,50 @@ export class ResourceService {
         throw new Error('Resource not found');
       }
 
-      // Check if new name conflicts with existing resources
+      // Check if new name conflicts with existing resources at the same location.
+      // Must mirror the CREATE check (institution + department + building + block + room)
+      // so that two resources with the same name in different locations can coexist.
+      // For each location field, fall back to the existing resource value when the field
+      // is absent from the update payload (i.e. not being changed this edit).
       if (resourceData.name) {
-        const { data: conflictResource, error: conflictCheckError } = await this.supabase
+        const effInstitution = resourceData.institution_id ?? existingResource.institution_id;
+        const effDepartment  = resourceData.department_id  !== undefined ? resourceData.department_id  : existingResource.department_id;
+        const effBuilding    = resourceData.building_number !== undefined ? resourceData.building_number : existingResource.building_number;
+        const effBlock       = resourceData.block_number    !== undefined ? resourceData.block_number    : existingResource.block_number;
+        const effRoom        = resourceData.room_number     !== undefined ? resourceData.room_number     : existingResource.room_number;
+
+        let conflictCheckQuery = this.supabase
           .from('resources')
           .select('id')
           .eq('name', resourceData.name.trim())
-          .eq(
-            'institution_id',
-            resourceData.institution_id || existingResource.institution_id
-          )
-          .neq('id', id)
-          .maybeSingle();
+          .eq('institution_id', effInstitution)
+          .neq('id', id);
+
+        if (effDepartment) {
+          conflictCheckQuery = conflictCheckQuery.eq('department_id', effDepartment);
+        } else {
+          conflictCheckQuery = conflictCheckQuery.is('department_id', null);
+        }
+
+        if (effBuilding) {
+          conflictCheckQuery = conflictCheckQuery.eq('building_number', effBuilding);
+        } else {
+          conflictCheckQuery = conflictCheckQuery.is('building_number', null);
+        }
+
+        if (effBlock) {
+          conflictCheckQuery = conflictCheckQuery.eq('block_number', effBlock);
+        } else {
+          conflictCheckQuery = conflictCheckQuery.is('block_number', null);
+        }
+
+        if (effRoom) {
+          conflictCheckQuery = conflictCheckQuery.eq('room_number', effRoom);
+        } else {
+          conflictCheckQuery = conflictCheckQuery.is('room_number', null);
+        }
+
+        const { data: conflictResource, error: conflictCheckError } = await conflictCheckQuery.maybeSingle();
 
         if (conflictCheckError) {
           console.error('Error checking resource name conflict:', conflictCheckError);
@@ -765,14 +802,34 @@ export class ResourceService {
   /**
    * Get resources for select/dropdown
    */
+  /**
+   * Count of procurement-intake drafts awaiting setup (tags contains 'needs-setup').
+   * Institution-scoped TOTAL — deliberately ignores the list's secondary filters
+   * (search/status/category); the badge click clears those so the click-through
+   * shows exactly this set. RLS prevents cross-tenant reads for own-scope roles;
+   * the institution filter aligns the number for scope-'all' users too.
+   */
+  static async getNeedsSetupCount(institutionId?: string): Promise<number> {
+    let query = (this.supabase as any)
+      .from('resources')
+      .select('id', { count: 'exact', head: true })
+      .contains('tags', ['needs-setup']);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { count, error } = await query;
+    if (error) throw error;
+    return count ?? 0;
+  }
+
   static async getResourcesForSelect(
     institutionId?: string,
     departmentId?: string
-  ): Promise<Array<{ id: string; name: string; status: string }>> {
+  ): Promise<Array<{ id: string; name: string; status: string; parent_category_id?: string }>> {
     try {
       let query = this.supabase
         .from('resources')
-        .select('id, name, status')
+        .select('id, name, status, parent_category_id')
         .eq('status', 'available')
         .order('name');
 

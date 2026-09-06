@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import {
@@ -106,7 +108,19 @@ function getTransactionTypeBadge(type: ImsTransactionType) {
 }
 
 export default function FinancialOverviewPage() {
-  const [activeTab, setActiveTab] = useState('transactions');
+  return (
+    <ImsPageGuard module="ims.financial" action="view">
+      <Suspense fallback={null}>
+        <FinancialOverviewPageInner />
+      </Suspense>
+    </ImsPageGuard>
+  );
+}
+
+const FINANCIAL_TABS = ['transactions', 'department-costs', 'item-profit'] as const;
+
+function FinancialOverviewPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('transactions', FINANCIAL_TABS);
   const [activePreset, setActivePreset] = useState('month');
   const [dateFrom, setDateFrom] = useState(() => getDateRange('month').from);
   const [dateTo, setDateTo] = useState(() => getDateRange('month').to);
@@ -347,7 +361,7 @@ export default function FinancialOverviewPage() {
                   {preset.label}
                 </Button>
               ))}
-              <div className='flex items-center gap-2 ml-auto'>
+              <div className='flex w-full items-center gap-2 sm:ml-auto sm:w-auto'>
                 <Input
                   type='date'
                   value={dateFrom}
@@ -355,7 +369,7 @@ export default function FinancialOverviewPage() {
                     setDateFrom(e.target.value);
                     handleCustomDate();
                   }}
-                  className='w-40'
+                  className='w-full sm:w-40'
                 />
                 <span className='text-muted-foreground'>to</span>
                 <Input
@@ -365,7 +379,7 @@ export default function FinancialOverviewPage() {
                     setDateTo(e.target.value);
                     handleCustomDate();
                   }}
-                  className='w-40'
+                  className='w-full sm:w-40'
                 />
               </div>
             </div>
@@ -526,7 +540,7 @@ export default function FinancialOverviewPage() {
           onValueChange={setActiveTab}
           className='space-y-4'
         >
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='transactions'>Transactions</TabsTrigger>
             <TabsTrigger value='department-costs'>Department Costs</TabsTrigger>
             <TabsTrigger value='item-profit'>Item Profit</TabsTrigger>

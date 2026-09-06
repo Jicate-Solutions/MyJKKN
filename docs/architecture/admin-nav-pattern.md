@@ -39,7 +39,7 @@ Tier 1 — Sidebar
 Tier 2 — Category tabs (rendered inside /admin layout)
 ├── /admin/notifications               (auto-discovered from app/(routes)/admin/notifications/)
 ├── /admin/lti
-├── /admin/pde
+├── /pde/admin
 ├── /admin/counselors
 ├── /admin/bug-reports
 ├── /admin/landing-pages

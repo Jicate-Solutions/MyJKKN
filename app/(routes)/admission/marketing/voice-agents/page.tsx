@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -44,10 +45,12 @@ const STATUS_COLORS: Record<string, string> = {
   scheduled: 'bg-purple-100 text-purple-800',
 };
 
+const VOICE_AGENTS_TABS = ['agents', 'calls'] as const;
+
 function VoiceAgentsPageContent() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
-  const [activeTab, setActiveTab] = useState('agents');
+  const [activeTab, setActiveTab] = useTabParam('agents', VOICE_AGENTS_TABS);
   const [callStatusFilter, setCallStatusFilter] = useState<string>('all');
 
   const { configs, isLoading: configsLoading, refetch } = useVoiceAgentConfigs(institutionId);
@@ -86,7 +89,7 @@ function VoiceAgentsPageContent() {
       <ContentLayout title="AI Voice Agents">
         <div className="space-y-6">
           {/* Breadcrumb */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem><BreadcrumbLink href="/">Dashboard</BreadcrumbLink></BreadcrumbItem>
@@ -96,7 +99,7 @@ function VoiceAgentsPageContent() {
                 <BreadcrumbItem><BreadcrumbPage>AI Voice Agents</BreadcrumbPage></BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap shrink-0">
               <Button variant="outline" size="sm" onClick={() => refetch()}>
                 <RefreshCw className="h-4 w-4 mr-2" />Refresh
               </Button>
@@ -167,7 +170,7 @@ function VoiceAgentsPageContent() {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="agents">Agent Configs</TabsTrigger>
               <TabsTrigger value="calls">Call Logs ({callsTotal})</TabsTrigger>
             </TabsList>
@@ -208,7 +211,7 @@ function VoiceAgentsPageContent() {
                                 <p className="text-sm text-muted-foreground mt-0.5">
                                   {typeInfo?.description || 'Voice agent configuration'}
                                 </p>
-                                <div className="flex items-center gap-3 mt-2">
+                                <div className="flex items-center gap-3 mt-2 flex-wrap">
                                   <Badge variant="outline" className="text-xs">
                                     Max {config.max_retries} retries
                                   </Badge>
@@ -279,7 +282,7 @@ function VoiceAgentsPageContent() {
                 <div className="space-y-2">
                   {calls.map((call: any) => (
                     <Card key={call.id}>
-                      <CardContent className="flex items-center justify-between py-3">
+                      <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between py-3">
                         <div className="flex items-center gap-3">
                           <div className="p-1.5 rounded bg-primary/10">
                             {call.call_status === 'completed' ? (
@@ -315,7 +318,7 @@ function VoiceAgentsPageContent() {
                               <summary className="cursor-pointer">
                                 <FileText className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                               </summary>
-                              <div className="absolute right-0 top-6 z-10 w-80 p-3 bg-popover border rounded-lg shadow-lg text-xs">
+                              <div className="absolute right-0 top-6 z-10 w-[calc(100vw-2rem)] max-w-80 sm:w-80 p-3 bg-popover border rounded-lg shadow-lg text-xs">
                                 <p className="font-medium mb-1">Summary</p>
                                 <p className="text-muted-foreground">{call.transcript_summary}</p>
                               </div>
@@ -338,7 +341,9 @@ function VoiceAgentsPageContent() {
 export default function VoiceAgentsPage() {
   return (
     <AdmissionErrorBoundary>
-      <VoiceAgentsPageContent />
+      <Suspense fallback={null}>
+        <VoiceAgentsPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

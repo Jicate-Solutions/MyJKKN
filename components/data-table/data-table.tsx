@@ -34,7 +34,8 @@ import { useTableConfig, type TableConfig } from './utils/table-config';
 import type { CaseFormatConfig } from './utils/case-utils';
 import type {
   DataTransformFunction,
-  ExportableData
+  ExportableData,
+  PdfExportOptions
 } from './utils/export-utils';
 import { useTableColumnResize } from './hooks/use-table-column-resize';
 import { DataTableResizer } from './data-table-resizer';
@@ -102,6 +103,11 @@ interface DataTableProps<TData extends ExportableData, TValue> {
     handleRowDeselection: ((rowId: string) => void) | null | undefined
   ) => ColumnDef<TData, TValue>[];
 
+  // Optional mobile card renderer — when provided, renders a card list on
+  // screens narrower than md (768 px) and hides the table. The table is still
+  // rendered (but hidden) so TanStack Table's pagination state is shared.
+  renderMobileRow?: (item: TData) => React.ReactNode;
+
   // Data fetching function
   fetchDataFn:
     | ((params: DataFetchParams) => Promise<DataFetchResult<TData>>)
@@ -118,6 +124,14 @@ interface DataTableProps<TData extends ExportableData, TValue> {
   // Function to fetch specific items by their IDs
   fetchByIdsFn?: (ids: number[] | string[]) => Promise<TData[]>;
 
+  // Optional: fetch ALL items matching the current server-side filters (every
+  // page, not just the visible one). Powers the "Select all N across pages"
+  // banner + cross-page selection. When omitted, selection stays page-scoped
+  // and the banner never renders — so existing tables are unaffected. The
+  // `page`/`limit` on the passed params are advisory; the implementation is
+  // expected to return the full matching set (optionally capped).
+  fetchAllItemsFn?: (params: DataFetchParams) => Promise<TData[]>;
+
   // Export configuration (optional)
   exportConfig?: {
     entityName: string;
@@ -126,6 +140,10 @@ interface DataTableProps<TData extends ExportableData, TValue> {
     headers: string[];
     caseConfig?: CaseFormatConfig;
     transformFunction?: DataTransformFunction<TData>;
+    // Opt in to PDF export. Omit and the Export menu keeps only CSV/XLS.
+    // A PDF page fits far fewer columns than a spreadsheet, so tables with a
+    // wide export schema should pass `pdf.headers` with a printable subset.
+    pdf?: PdfExportOptions;
   };
 
   // ID field in TData for tracking selected items
@@ -151,10 +169,12 @@ export function DataTable<TData extends ExportableData, TValue>({
   getColumns,
   fetchDataFn,
   fetchByIdsFn,
+  fetchAllItemsFn,
   exportConfig,
   idField = 'id' as keyof TData,
   pageSizeOptions,
   renderToolbarContent,
+  renderMobileRow,
   refetchKey = 0
 }: DataTableProps<TData, TValue>) {
   // Load table configuration with any overrides
@@ -214,6 +234,16 @@ export function DataTable<TData extends ExportableData, TValue>({
     Record<string | number, boolean>
   >({});
 
+  // Full-row cache for items selected via "select all across pages" — rows that
+  // may live on other pages and so aren't in `dataItems`. `selectedItemIds`
+  // stays the source of truth for WHAT is selected; this only supplies row DATA
+  // for off-page selections to the toolbar/bulk actions. Empty for any table
+  // that doesn't use select-all, so it changes nothing for them.
+  const [selectedItemsCache, setSelectedItemsCache] = useState<
+    Record<string, TData>
+  >({});
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+
   // Convert the sorting from URL to the format TanStack Table expects
   const sorting = useMemo(
     () => createSortingState(sortBy, sortOrder),
@@ -246,6 +276,25 @@ export function DataTable<TData extends ExportableData, TValue>({
     [selectedItemIds]
   );
 
+  // All selected rows WITH their data: current-page selected rows (in page
+  // order), then any off-page rows selected via "select all" (from the cache).
+  // When nothing was selected across pages the cache is empty, so this is
+  // byte-identical to the old current-page-only `selectedRows` — no behaviour
+  // change for tables that don't opt into fetchAllItemsFn.
+  const selectedFullRows = useMemo(() => {
+    const onPage = dataItems.filter(
+      (item) => selectedItemIds[String(item[idField])]
+    );
+    const onPageIds = new Set(onPage.map((i) => String(i[idField])));
+    const offPage: TData[] = [];
+    for (const id of Object.keys(selectedItemIds)) {
+      if (!onPageIds.has(id) && selectedItemsCache[id]) {
+        offPage.push(selectedItemsCache[id]);
+      }
+    }
+    return [...onPage, ...offPage];
+  }, [dataItems, selectedItemIds, selectedItemsCache, idField]);
+
   // PERFORMANCE FIX: Optimized row deselection handler
   const handleRowDeselection = useCallback(
     (rowId: string) => {
@@ -270,7 +319,49 @@ export function DataTable<TData extends ExportableData, TValue>({
   // Clear all selections
   const clearAllSelections = useCallback(() => {
     setSelectedItemIds({});
+    setSelectedItemsCache({});
   }, []);
+
+  // Select EVERY row matching the current server-side filters (all pages), not
+  // just the visible page. Fetches the full matching set via fetchAllItemsFn,
+  // marks them all selected, and caches their data so bulk actions/modals have
+  // the off-page rows to work with.
+  const selectAllMatching = useCallback(async () => {
+    if (!fetchAllItemsFn) return;
+    setIsSelectingAll(true);
+    try {
+      const allItems = await fetchAllItemsFn({
+        page: 1,
+        limit: 0,
+        search: preprocessSearch(search),
+        from_date: dateRange.from_date,
+        to_date: dateRange.to_date,
+        sort_by: sortBy,
+        sort_order: sortOrder
+      });
+      const ids: Record<string, boolean> = {};
+      const cache: Record<string, TData> = {};
+      for (const item of allItems) {
+        const id = String(item[idField]);
+        ids[id] = true;
+        cache[id] = item;
+      }
+      setSelectedItemIds(ids);
+      setSelectedItemsCache(cache);
+    } catch (err) {
+      console.error('Error selecting all matching items:', err);
+    } finally {
+      setIsSelectingAll(false);
+    }
+  }, [
+    fetchAllItemsFn,
+    search,
+    dateRange.from_date,
+    dateRange.to_date,
+    sortBy,
+    sortOrder,
+    idField
+  ]);
 
   // PERFORMANCE FIX: Optimized row selection handler
   const handleRowSelectionChange = useCallback(
@@ -320,55 +411,103 @@ export function DataTable<TData extends ExportableData, TValue>({
     [dataItems, rowSelection, idField]
   );
 
-  // Get selected items data
+  // Get selected items data (used by the export-selected path). Resolves each
+  // selected id from the current page first, then the select-all cache; only
+  // genuinely-missing ids (selected on another page with no cache) fall back to
+  // fetchByIdsFn. NOTE: ids are kept as strings — the previous version did
+  // Number.parseInt() on them, which produced NaN for UUID-keyed tables.
   const getSelectedItems = useCallback(async () => {
-    // If nothing is selected, return empty array
     if (totalSelectedItems === 0) {
       return [];
     }
 
-    // Get IDs of selected items
-    const selectedIdsArray = Object.keys(selectedItemIds).map((id) =>
-      typeof id === 'string' ? Number.parseInt(id, 10) : (id as number)
-    );
+    // Data we already have: current page + cross-page select-all cache.
+    const byId = new Map<string, TData>();
+    for (const item of dataItems) {
+      byId.set(String(item[idField]), item);
+    }
+    for (const [id, item] of Object.entries(selectedItemsCache)) {
+      byId.set(id, item);
+    }
 
-    // Find items from current page that are selected
-    const itemsInCurrentPage = dataItems.filter(
-      (item) => selectedItemIds[String(item[idField])]
-    );
+    const resolved: TData[] = [];
+    const missingIds: string[] = [];
+    for (const id of Object.keys(selectedItemIds)) {
+      const row = byId.get(id);
+      if (row) {
+        resolved.push(row);
+      } else {
+        missingIds.push(id);
+      }
+    }
 
-    // Get IDs of items on current page
-    const idsInCurrentPage = itemsInCurrentPage.map(
-      (item) => item[idField] as unknown as number
-    );
-
-    // Find IDs that need to be fetched (not on current page)
-    const idsToFetch = selectedIdsArray.filter(
-      (id) => !idsInCurrentPage.includes(id)
-    );
-
-    // If all selected items are on current page or we can't fetch by IDs
-    if (idsToFetch.length === 0 || !fetchByIdsFn) {
-      return itemsInCurrentPage;
+    // If everything is resolved, or we have no way to fetch the stragglers.
+    if (missingIds.length === 0 || !fetchByIdsFn) {
+      return resolved;
     }
 
     try {
-      // Fetch missing items in a single batch
-      const fetchedItems = await fetchByIdsFn(idsToFetch);
-
-      // Combine current page items with fetched items
-      return [...itemsInCurrentPage, ...fetchedItems];
+      const fetchedItems = await fetchByIdsFn(missingIds);
+      return [...resolved, ...fetchedItems];
     } catch (error) {
       console.error('Error fetching selected items:', error);
-      return itemsInCurrentPage;
+      return resolved;
     }
-  }, [dataItems, selectedItemIds, totalSelectedItems, fetchByIdsFn, idField]);
+  }, [
+    dataItems,
+    selectedItemsCache,
+    selectedItemIds,
+    totalSelectedItems,
+    fetchByIdsFn,
+    idField
+  ]);
 
-  // Get all items on current page
-  const getAllItems = useCallback((): TData[] => {
-    // Return current page data
-    return dataItems;
-  }, [dataItems]);
+  // Fetch EVERY row matching the current filters (all pages) — used by the
+  // "Export All Pages" action. Prefers fetchAllItemsFn (a single capped query,
+  // same path as select-all); otherwise pages through fetchDataFn until the
+  // full set is collected. Query-hook tables can't be driven imperatively from
+  // here, so they fall back to the visible page (unchanged behaviour).
+  const getAllItems = useCallback(async (): Promise<TData[]> => {
+    const baseParams = {
+      search: preprocessSearch(search),
+      from_date: dateRange.from_date,
+      to_date: dateRange.to_date,
+      sort_by: sortBy,
+      sort_order: sortOrder
+    };
+
+    if (fetchAllItemsFn) {
+      return await fetchAllItemsFn({ page: 1, limit: 0, ...baseParams });
+    }
+
+    const isQueryHook =
+      (fetchDataFn as { isQueryHook?: boolean }).isQueryHook === true;
+    if (isQueryHook) {
+      return dataItems;
+    }
+
+    const fn = fetchDataFn as (
+      params: DataFetchParams
+    ) => Promise<DataFetchResult<TData>>;
+    const first = await fn({ page: 1, limit: pageSize, ...baseParams });
+    const all: TData[] = [...(first.data ?? [])];
+    const totalPages = first.pagination?.total_pages ?? 1;
+    for (let p = 2; p <= totalPages; p++) {
+      const next = await fn({ page: p, limit: pageSize, ...baseParams });
+      all.push(...(next.data ?? []));
+    }
+    return all;
+  }, [
+    fetchAllItemsFn,
+    fetchDataFn,
+    search,
+    dateRange.from_date,
+    dateRange.to_date,
+    sortBy,
+    sortOrder,
+    pageSize,
+    dataItems
+  ]);
 
   // Fetch data
   useEffect(() => {
@@ -854,10 +993,9 @@ export function DataTable<TData extends ExportableData, TValue>({
           columnWidths={exportConfig?.columnWidths || []}
           headers={exportConfig?.headers || []}
           transformFunction={exportConfig?.transformFunction}
+          pdfOptions={exportConfig?.pdf}
           customToolbarComponent={renderToolbarContent?.({
-            selectedRows: dataItems.filter(
-              (item) => selectedItemIds[String(item[idField])]
-            ),
+            selectedRows: selectedFullRows,
             allSelectedIds: Object.keys(selectedItemIds),
             totalSelectedCount: totalSelectedItems,
             resetSelection: clearAllSelections
@@ -865,9 +1003,101 @@ export function DataTable<TData extends ExportableData, TValue>({
         />
       )}
 
+      {/* Mobile card list — visible on < md screens when renderMobileRow is provided */}
+      {renderMobileRow && (
+        <div className='md:hidden space-y-3'>
+          {isLoading ? (
+            Array.from({ length: Math.min(pageSize, 5) }).map((_, i) => (
+              <div key={i} className='rounded-lg border bg-card p-4 space-y-2.5'>
+                <div className='flex items-start justify-between gap-2'>
+                  <Skeleton className='h-4 w-1/2' />
+                  <Skeleton className='h-5 w-16 rounded-full' />
+                </div>
+                <Skeleton className='h-3.5 w-1/3' />
+                <Skeleton className='h-3.5 w-2/3' />
+                <div className='flex gap-1.5 pt-0.5'>
+                  <Skeleton className='h-5 w-20 rounded-full' />
+                  <Skeleton className='h-5 w-16 rounded-full' />
+                </div>
+                <div className='flex justify-between pt-1 border-t'>
+                  <Skeleton className='h-3.5 w-24' />
+                  <Skeleton className='h-3.5 w-20' />
+                </div>
+              </div>
+            ))
+          ) : dataItems.length > 0 ? (
+            dataItems.map((item) => (
+              <div key={String(item[idField])}>
+                {renderMobileRow(item)}
+              </div>
+            ))
+          ) : (
+            <div className='rounded-md border py-8 text-center text-sm text-muted-foreground'>
+              No results.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cross-page "select all" banner. Only rendered when the table opts in
+          by providing fetchAllItemsFn. Appears once the current page is fully
+          selected (or select-all is active) and more matching rows exist on
+          other pages — mirrors the Gmail "Select all N" pattern. */}
+      {tableConfig.enableRowSelection &&
+        fetchAllItemsFn &&
+        (() => {
+          const total = data?.pagination.total_items ?? 0;
+          const pageRowCount = table.getRowModel().rows.length;
+          const allMatchingSelected =
+            total > 0 && totalSelectedItems >= total;
+          const allPageSelected =
+            pageRowCount > 0 && table.getIsAllPageRowsSelected();
+          // Nothing extra to offer when everything fits on one page, or the
+          // page isn't fully selected yet (and we're not already in all-mode).
+          if (total <= pageRowCount) return null;
+          if (!allPageSelected && !allMatchingSelected) return null;
+          const entity = exportConfig?.entityName || 'items';
+          return (
+            <div className='flex flex-wrap items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800'>
+              {allMatchingSelected ? (
+                <>
+                  <span>
+                    All <strong>{total.toLocaleString()}</strong> {entity}{' '}
+                    matching the current filters are selected.
+                  </span>
+                  <button
+                    type='button'
+                    onClick={clearAllSelections}
+                    className='font-medium underline underline-offset-2 hover:text-blue-900'
+                  >
+                    Clear selection
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>
+                    All <strong>{totalSelectedItems}</strong> on this page are
+                    selected.
+                  </span>
+                  <button
+                    type='button'
+                    onClick={selectAllMatching}
+                    disabled={isSelectingAll}
+                    className='font-medium underline underline-offset-2 hover:text-blue-900 disabled:opacity-60'
+                  >
+                    {isSelectingAll
+                      ? 'Selecting…'
+                      : `Select all ${total.toLocaleString()}`}
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })()}
+
       <div
         ref={tableContainerRef}
-        className='overflow-y-auto rounded-md border table-container'
+        className={`overflow-x-auto overflow-y-auto rounded-md border table-container${renderMobileRow ? ' hidden md:block' : ''}`}
         aria-label='Data table'
         onKeyDown={
           tableConfig.enableKeyboardNavigation ? handleKeyDown : undefined

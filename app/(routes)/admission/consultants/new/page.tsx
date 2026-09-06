@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -62,9 +63,12 @@ const CONSULTANT_TYPES: { value: ConsultantType; label: string }[] = [
   { value: 'student', label: 'Student Referrer' }
 ];
 
+const NEW_CONSULTANT_TABS = ['basic', 'business', 'contract', 'bank'] as const;
+
 function NewConsultantForm() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useTabParam('basic', NEW_CONSULTANT_TABS);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -178,8 +182,8 @@ function NewConsultantForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="basic" className="flex items-center gap-2">
               <User className="h-4 w-4" />
               Basic Info
@@ -664,7 +668,9 @@ export default function NewConsultantPage() {
               </p>
             </div>
           </div>
-          <NewConsultantForm />
+          <Suspense fallback={null}>
+            <NewConsultantForm />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>

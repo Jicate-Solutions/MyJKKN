@@ -3,7 +3,6 @@ import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import {
   Serwist,
   NetworkOnly,
-  NetworkFirst,
   CacheFirst,
   StaleWhileRevalidate,
   ExpirationPlugin,
@@ -21,7 +20,18 @@ declare const self: ServiceWorkerGlobalScope & WorkerGlobalScope;
 // and handler instances (not string names).
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  skipWaiting: true,
+  // PERF (2026-08-02): skipWaiting must stay FALSE. With `true`, every deploy
+  // activated the new SW instantly; clients.claim() then fired
+  // `controllerchange` in every open tab, which an unconditional reload
+  // listener in update-prompt.tsx turned into a forced full reload — every
+  // tab, on every deploy, with no user action — and a guaranteed double
+  // bootstrap on every fresh visit (the first activation's claim). It also
+  // meant `registration.waiting` was never truthy, so the "Update Available"
+  // prompt was dead code. With `false`, a new SW WAITS until the user clicks
+  // "Update Now" (the prompt posts {type:'SKIP_WAITING'}, which Serwist
+  // handles natively) — one visit = one bootstrap; the update reload happens
+  // once, only on explicit user action.
+  skipWaiting: false,
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: [
@@ -30,17 +40,19 @@ const serwist = new Serwist({
       handler: new NetworkOnly(),
     },
     {
+      // SECURITY (2026-06-03): every /api/* response is per-user and
+      // RLS/identity-scoped. This used to be a NetworkFirst "api-cache" keyed by
+      // URL only (no auth/Vary) with a 10s network timeout — when a slow endpoint
+      // (e.g. the admission leads list) tripped the timeout, the SW served a
+      // STALE/FOREIGN cached body, so one counselor saw another counselor's leads
+      // on hard refresh. NetworkOnly means /api/* is never written to Cache
+      // Storage, closing that cross-user leak across every module (not just
+      // admission). /api/auth/* is already NetworkOnly above; this generalises it.
+      // Trade-off: no offline read of live API data — acceptable, tenant data must
+      // never be served stale. Responses also send Cache-Control: private,no-store
+      // (lib/api-helpers/no-store-response.ts) as defense-in-depth.
       matcher: /\/api\/.*/,
-      handler: new NetworkFirst({
-        cacheName: "api-cache",
-        plugins: [
-          new ExpirationPlugin({
-            maxEntries: 32,
-            maxAgeSeconds: 60,
-          }),
-        ],
-        networkTimeoutSeconds: 10,
-      }),
+      handler: new NetworkOnly(),
     },
     {
       matcher: /\/auth\/.*/,
@@ -140,6 +152,29 @@ self.addEventListener("push", (event: PushEvent) => {
       },
     ],
   };
+
+  // Badging API: reflect new activity on the installed app icon while the app is
+  // closed or backgrounded. If a sender includes a numeric `unread_count` in
+  // payload.data, show that exact number; otherwise show a non-specific flag —
+  // the client's AppBadgeSync corrects it to the exact count on next focus.
+  // Fully guarded and swallowed so badging can NEVER block the notification.
+  try {
+    const swNav = (self as unknown as {
+      navigator?: { setAppBadge?: (n?: number) => Promise<void> };
+    }).navigator;
+    if (swNav && typeof swNav.setAppBadge === "function") {
+      const raw = (payload.data as { unread_count?: unknown } | undefined)?.unread_count;
+      const count =
+        typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+          ? Math.floor(raw)
+          : undefined;
+      void (count !== undefined ? swNav.setAppBadge(count) : swNav.setAppBadge())?.catch?.(
+        () => {}
+      );
+    }
+  } catch {
+    // badging unsupported or threw — ignore; the notification still shows.
+  }
 
   event.waitUntil(self.registration.showNotification(title, options));
 });

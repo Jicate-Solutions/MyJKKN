@@ -7,7 +7,7 @@
  * Wraps the `notification_recipient_policies` config table that drives the
  * fan-out functions `fn_generate_super_admin_daily_digest` and
  * `fn_generate_hr_command_center_brief_items`. Director rebuilds recipient
- * lists via the /admin/notifications/recipients UI — no PR, no deploy.
+ * lists via the /notifications/admin/recipients UI — no PR, no deploy.
  *
  * Only super_admins can mutate; admins/super_admins can read (RLS enforced).
  */

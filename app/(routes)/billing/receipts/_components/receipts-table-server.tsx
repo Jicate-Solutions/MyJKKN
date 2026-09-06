@@ -78,9 +78,18 @@ export function ReceiptsTableServer({
                 </Badge>
               </TableCell>
               <TableCell>
-                {receipt.receipt_date
-                  ? format(new Date(receipt.receipt_date), 'PP')
-                  : '-'}
+                <div className="flex flex-col">
+                  <span>
+                    {receipt.receipt_date
+                      ? format(new Date(receipt.receipt_date), 'PP')
+                      : '-'}
+                  </span>
+                  {receipt.created_at && (
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(receipt.created_at), 'hh:mm a')}
+                    </span>
+                  )}
+                </div>
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex justify-end gap-2">

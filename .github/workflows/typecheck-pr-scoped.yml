@@ -11,11 +11,47 @@ name: TypeCheck (PR-scoped)
 # but legacy reset sites still pass empty string. The local `setCounterBreakdown('')`
 # at line 579 was visible to tsc but masked by ignoreBuildErrors. This gate
 # would have caught it pre-merge.
+#
+# 2026-08-16 — IT DID NOT, AND NEVER HAD. From the day it shipped until this
+# commit the filter was structurally incapable of matching a single error, so the
+# job reported success on every pull request ever opened. Receipt, re-measured
+# against main today: PR #2891 (merged 2026-08-13, 8169b59d91) changed exactly one
+# file, app/api/cron/aipulse-domain-starter-notify/route.ts, and left NINE type
+# errors in it — six `TS2304: Cannot find name`, two TS18004, one TS2552 — while
+# `TypeCheck (PR-scoped)` reported conclusion=success on head bed455df36. The PR
+# head blob and main's blob are the same object (0aab25de8d), so this was not a
+# bad merge. Read scripts/ci/filter-tsc-scoped-errors.sh for the two independent
+# reasons, and treat every green run of this gate before 2026-08-16 as meaningless.
+#
+# AND THE COMPILER WAS NEVER FINISHING EITHER. The crash guard added in the same
+# commit fired on its first run: tsc OOMs at the default ~2 GB heap after ~27 s,
+# and does NOT complete at 8 GB either (~35 min, then "Ineffective mark-compacts
+# near heap limit"). Two independent causes, either one on its own enough to make
+# every run of this gate meaningless.
+#
+# BOTH ARE NOW FIXED. The filter no longer depends on tsc's output formatting, and
+# the compiler is no longer asked to do the impossible: instead of the whole
+# project, it compiles a program rooted at the files THIS PR touched (their
+# transitive imports come along, so the checking is real — only the roots narrow).
+# That is what this gate always meant, since it only ever fails on errors in
+# PR-touched files; compiling the other ~14,000 files bought no part of the verdict.
+#
+# Whole project: 115 min at 16 GB off-runner, OOM at 8 GB on one. Scoped to the one
+# file PR #2891 broke: 2 seconds at 4 GB, reporting exactly its nine errors. Three
+# App Router pages that are clean in the whole-project baseline stay clean when
+# scoped, so the narrowing does not manufacture false failures. Measurements and
+# the one glob that undoes all of it are in the step env below.
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+  # Merge queue (2026-07-11): tsc re-runs on the queue's merged tree (latest
+  # main + this PR), catching the "two green PRs break when combined" class —
+  # e.g. a sibling PR renames a function this PR still calls. Inert until the
+  # merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -24,7 +60,14 @@ jobs:
   typecheck:
     name: TypeCheck (PR-scoped)
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # 15 was never enough and nobody could tell, because the job had been dying of
+    # an OOM at ~27 s long before the clock was ever the binding constraint. With a
+    # heap it can finish in, tsc was still compiling when the 15-minute limit
+    # killed it as an orphan process (run 31921510185). A full `tsc --noEmit` over
+    # this codebase is a long job; 45 is set so that a timeout cannot masquerade as
+    # a verdict — a timeout reports `cancelled`, which is neither pass nor fail and
+    # reads as neither.
+    timeout-minutes: 45
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
@@ -33,20 +76,14 @@ jobs:
         with:
           fetch-depth: 0  # full history for base...head diff
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install deps
-        run: npm ci --no-audit --no-fund
-
       - name: Compute changed TS files (PR scope)
         id: changed
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Exactly one context exists per event: pull_request → PR base/head;
+          # merge_group → the queue group's parent/head (this PR's slice only —
+          # groups chain, so base_sha already contains PRs ahead in the queue).
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
           # Files added/modified by this PR (excluding deletions — no point checking removed files)
           git diff --name-only --diff-filter=AM "$BASE_SHA"..."$HEAD_SHA" > /tmp/changed-files.txt
@@ -61,44 +98,147 @@ jobs:
 
       - name: Skip if no TS changes
         if: steps.changed.outputs.count == '0'
-        run: echo "::notice::No .ts/.tsx files changed in this PR. Skipping."
+        run: echo "::notice::No .ts/.tsx files changed in this PR. Install + typecheck skipped (Actions minutes saved)."
 
+      # Setup/install moved BELOW the changed-files computation (2026-06-12)
+      # so docs/sql/config-only PRs never pay the ~1min npm ci cost.
+      - name: Setup Node
+        if: steps.changed.outputs.count != '0'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          # npm download cache intentionally NOT used: the node_modules cache
+          # (seeded from main) makes it dead weight on hits; lockfile-change
+          # misses pay a one-off cold install instead (rare, acceptable).
+
+      # node_modules cache: keyed on the lockfile — a hit skips npm ci.
+      - name: Cache node_modules
+        if: steps.changed.outputs.count != '0'
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install deps
+        if: steps.changed.outputs.count != '0' && steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      # The filtering lives in scripts/ci/filter-tsc-scoped-errors.sh rather than
+      # inline here, because inline shell in a workflow cannot be run against a
+      # fixture — and this gate's failure mode is "goes green". It shipped with a
+      # grep that could never match (tsc --pretty writes ANSI colour codes even
+      # into a file, so the `^path:` anchor never landed) and stayed that way
+      # until PR #2891 merged nine type errors past a successful run of it.
+      # See the script header, and __tests__/ci/filter-tsc-scoped-errors.test.ts.
       - name: Run tsc + filter to PR-touched files
         if: steps.changed.outputs.count != '0'
+        env:
+          # WHY THIS DOES NOT RUN `npm run typecheck` (whole-project tsc).
+          #
+          # It cannot finish inside a CI job. Measured on this PR:
+          #
+          #   default (~2 GB)          OOM at 27 s                 run 31921352286
+          #   12288                    no OOM, hit 15 min limit    run 31921510185
+          #   12288 + semi-space 128   no OOM, past 31 min, killed run 31922158016
+          #   8192                     OOM at ~35 min, "Ineffective mark-compacts
+          #                            near heap limit", mark-compact pauses of
+          #                            193 s and 228 s, average mu = 0.044 — i.e.
+          #                            ~96% of the run was garbage collection.
+          #
+          # It is not infinite, though, and that distinction decided the design:
+          # the same compiler DOES complete off-runner at --max-old-space-size=16384,
+          # in 115 minutes, reporting 1,402 baseline errors (measured 2026-08-14).
+          # So whole-project tsc is not impossible — it is unaffordable per PR, and
+          # no heap value fixes that. A bigger runner would only buy a slower pass.
+          #
+          # SCOPING THE PROGRAM is what makes it affordable, and it is also what the
+          # gate actually wants: this job only ever fails on errors in PR-touched
+          # files, so compiling the other ~14,000 files was never buying a verdict.
+          # A tsconfig whose `include` is just the changed files still pulls their
+          # transitive imports into the program — the type checking is real, only the
+          # roots are narrowed.
+          #
+          # Measured on the same machine, same compiler, against the file PR #2891
+          # broke (app/api/cron/aipulse-domain-starter-notify/route.ts):
+          #
+          #   whole project   115 min at 16 GB   1,402 errors (9 of them in that file)
+          #   scoped to it      2 s   at  4 GB       9 errors, exactly those nine
+          #                                          (6× TS2304, 2× TS18004, 1× TS2552)
+          #
+          # And checked for the failure that would matter more — false positives, a
+          # gate that blocks correct PRs: three App Router pages that are CLEAN in
+          # the 1,402-error whole-project baseline, including a dynamic [id] route,
+          # report zero errors under the scoped config. Narrowing the roots did not
+          # invent diagnostics.
+          #
+          # ⚠️ DO NOT add ".next/types/**/*.ts" (or .next/dev/types) to the generated
+          # include. tsconfig.json lists them, but `.next` does not exist in CI (this
+          # job never builds), and where it DOES exist — any developer's checkout — it
+          # is ~1 GB of generated .ts and it OOMs the scoped run in 34 s at the default
+          # heap. That is the whole-project failure reintroduced through a glob.
+          #
+          # 8192 is kept purely as headroom for a very large PR; the scoped run fits
+          # in 4 GB with room to spare.
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set +e
-          npm run typecheck > /tmp/tsc-output.txt 2>&1
+
+          # Build the scoped program from the changed-files list. `exclude` here
+          # deliberately DROPS tsconfig.json's "scripts" and "__tests__" entries:
+          # the base config excludes both, which made this gate structurally blind
+          # to every change under them — including its own test file.
+          node -e '
+            const fs = require("fs");
+            const files = fs.readFileSync("/tmp/changed-ts.txt", "utf8")
+              .split("\n").map((s) => s.trim()).filter(Boolean);
+            fs.writeFileSync("tsconfig.pr-scoped.json", JSON.stringify({
+              extends: "./tsconfig.json",
+              include: files,
+              exclude: ["node_modules", "public/sw.js", "whatsapp-service"],
+            }, null, 2));
+          '
+          echo "::group::Scoped tsconfig"
+          cat tsconfig.pr-scoped.json
+          echo "::endgroup::"
+
+          npx tsc --noEmit --pretty -p tsconfig.pr-scoped.json > /tmp/tsc-output.txt 2>&1
           tsc_exit=$?
           set -e
 
-          # Build the regex of changed file paths (escaped for grep -E)
-          escaped=$(sed 's/[][\.*^$(){}?+|/]/\\&/g' /tmp/changed-ts.txt | tr '\n' '|' | sed 's/|$//')
+          scripts/ci/filter-tsc-scoped-errors.sh \
+            --tsc-output /tmp/tsc-output.txt \
+            --changed /tmp/changed-ts.txt \
+            --tsc-exit "$tsc_exit"
 
-          if [ -z "$escaped" ]; then
-            echo "::notice::No changed files to filter against. Pass."
-            exit 0
-          fi
+  # A separate job rather than a step inside `typecheck` (which is how
+  # ai-estate-guard and anon-exposure-live do it) because that job is skipped
+  # entirely when a PR changes no .ts/.tsx files — and a PR that edits ONLY the
+  # filter script is exactly that shape. The tests have to run then most of all.
+  #
+  # The job name is the status-check identity and must be unique across the repo:
+  # `ungrantable-permissions.yml` already owns the bare "The gate's own tests",
+  # and two check runs sharing a name cannot be told apart by branch protection.
+  self-test:
+    name: The typecheck gate's own tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    if: ${{ !github.event.pull_request.draft }}
 
-          # tsc errors look like:  path/file.tsx:LINE:COL - error TSnnn: message
-          grep -E "^($escaped):" /tmp/tsc-output.txt > /tmp/scoped-errors.txt || true
-          scoped_count=$(wc -l < /tmp/scoped-errors.txt | tr -d ' ')
+    steps:
+      - uses: actions/checkout@v4
 
-          if [ "$scoped_count" -eq 0 ]; then
-            echo "::notice::tsc found errors elsewhere (legacy baseline, ignored) but none in PR-touched files. Pass."
-            echo "(tsc exited $tsc_exit — baseline state, not failing this PR.)"
-            exit 0
-          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
 
-          echo "::error::tsc found $scoped_count type error(s) in files this PR modified:"
-          echo ""
-          head -50 /tmp/scoped-errors.txt | while IFS= read -r line; do
-            # Convert "path:LINE:COL - error TSnnn: msg" to GH-annotation
-            file=$(echo "$line" | cut -d':' -f1)
-            ln=$(echo "$line" | cut -d':' -f2)
-            msg=$(echo "$line" | cut -d':' -f3-)
-            echo "::error file=$file,line=$ln::$msg"
-          done
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
 
-          echo ""
-          echo "Note: next.config.ts has \`typescript.ignoreBuildErrors: true\` so the Vercel build will not fail on these. This gate exists BECAUSE of that mask. Fix or downgrade the type before merge."
-          exit 1
+      # A gate that is not itself tested is a gate that quietly stops gating, and
+      # this one already did it once for its whole life. Every fixture here is a
+      # shape that made the old filter report zero: ANSI-coloured paths, the
+      # indented "Errors  Files" summary, a tsc that crashed instead of running.
+      - name: Test the gate
+        run: npx vitest run __tests__/ci/filter-tsc-scoped-errors.test.ts

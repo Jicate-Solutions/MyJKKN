@@ -18,15 +18,49 @@ export interface ExcelParseResult {
   errors: string[];
 }
 
+const isDocSheet = (name: string) =>
+  ['instruction', 'reference', 'info'].some(word => name.toLowerCase().includes(word));
+
+/**
+ * Pick the data sheet: prefer one whose header row carries an expected column,
+ * else the first sheet that isn't a doc-only sheet ("📖 Instructions",
+ * "Reference", "Info"), else sheet one. Position alone is not enough — staff
+ * bulk upload silently read the prose "Instructions" sheet for months because
+ * it happened to be SheetNames[0].
+ */
+function pickDataSheet(workbook: XLSX.WorkBook, anchorColumns?: string[]): string {
+  if (anchorColumns?.length) {
+    const anchored = workbook.SheetNames.find(name => {
+      const header = XLSX.utils.sheet_to_json<any[]>(workbook.Sheets[name], {
+        header: 1,
+        range: 0
+      })[0];
+      return Array.isArray(header) && header.some(cell => anchorColumns.includes(String(cell).trim()));
+    });
+    if (anchored) return anchored;
+  }
+
+  return workbook.SheetNames.find(name => !isDocSheet(name)) || workbook.SheetNames[0];
+}
+
 /**
  * Parse Excel file and return rows
  * @param file - Excel file to parse
- * @param sheetName - Optional sheet name (uses first sheet if not provided)
+ * @param sheetName - Preferred sheet name. Falls back to the first data sheet
+ *   when absent: a sheet NAME is not proof of file identity. Excel "Save As
+ *   CSV" round-trips, Google Sheets re-saves and copy-paste into a new
+ *   workbook all rename the tab to "Sheet1", and SheetJS names EVERY parsed
+ *   CSV "Sheet1" — so requiring the name rejected files whose data was
+ *   perfectly valid. Callers must validate the COLUMNS they need instead.
+ * @param anchorColumns - Header names that identify the data sheet (e.g. the
+ *   ID aliases). Used only when `sheetName` is missing from the workbook, so a
+ *   user file with a summary/pivot tab in front still resolves correctly.
  * @returns Parsed data with row numbers
  */
 export async function parseExcelFile(
   file: File,
-  sheetName?: string
+  sheetName?: string,
+  anchorColumns?: string[]
 ): Promise<ExcelParseResult> {
   try {
     const data = await file.arrayBuffer();
@@ -53,28 +87,17 @@ export async function parseExcelFile(
           worksheet = workbook.Sheets[matchingSheet];
           console.log(`[excel-parser] Using sheet "${matchingSheet}" (case-insensitive match for "${sheetName}")`);
         } else {
-          // Sheet not found - provide helpful error with available sheets
-          const availableSheets = workbook.SheetNames.join(', ');
-          return {
-            rows: [],
-            totalRows: 0,
-            errors: [
-              `Sheet "${sheetName}" not found in file. Available sheets: ${availableSheets}. ` +
-              `Please ensure you're uploading the correct file with the "Active Learners" sheet.`
-            ]
-          };
+          selectedSheetName = pickDataSheet(workbook, anchorColumns);
+          worksheet = workbook.Sheets[selectedSheetName];
+          console.log(
+            `[excel-parser] Sheet "${sheetName}" not found (have: ${workbook.SheetNames.join(', ')}) - ` +
+            `falling back to "${selectedSheetName}"`
+          );
         }
       }
     } else {
-      // Use first non-reference sheet (skip sheets like "Instructions", "Reference", etc.)
-      const mainSheetName = workbook.SheetNames.find(name =>
-        !name.toLowerCase().includes('instruction') &&
-        !name.toLowerCase().includes('reference') &&
-        !name.toLowerCase().includes('info')
-      ) || workbook.SheetNames[0];
-
-      selectedSheetName = mainSheetName;
-      worksheet = workbook.Sheets[mainSheetName];
+      selectedSheetName = pickDataSheet(workbook, anchorColumns);
+      worksheet = workbook.Sheets[selectedSheetName];
     }
 
     // Parse to JSON
@@ -108,6 +131,30 @@ export async function parseExcelFile(
       errors: [error instanceof Error ? error.message : 'Failed to parse Excel file']
     };
   }
+}
+
+/**
+ * True when at least one parsed row carries one of the given column aliases.
+ * Use this to verify an upload is the right FILE — the sheet name can't, since
+ * every CSV and every re-saved workbook arrives named "Sheet1".
+ */
+export function hasColumn(rows: ParsedRow[], aliases: string[]): boolean {
+  return rows.some(row => aliases.some(alias => row.data[alias] !== undefined));
+}
+
+/**
+ * Column headers actually present in the upload, for error messages.
+ */
+export function listColumns(rows: ParsedRow[], limit = 10): string {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row.data)) seen.add(key);
+    if (seen.size > limit) break;
+  }
+  const names = [...seen];
+  return names.length > limit
+    ? `${names.slice(0, limit).join(', ')} … (+${names.length - limit} more)`
+    : names.join(', ');
 }
 
 /**

@@ -26,13 +26,16 @@ import {
 import type { AdmissionLead, FunnelStage } from '@/types/admission';
 import { useLeadMutations } from '@/hooks/admission';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
 import { Eye, Flame, Star, Trash2, AlertTriangle, ArrowRightCircle } from 'lucide-react';
 import { AccountTransitionDialog } from './_account/account-transition-dialog';
 
-// Pre-account funnel stages eligible for the "Move to Account" transition.
-// These mirror the late-funnel states where the learner has been admitted
-// but billing onboarding hasn't run yet.
-const ACCOUNT_TRANSITION_ELIGIBLE_STAGES: FunnelStage[] = [
+// Static fallback for account-transition eligibility. Used only when the
+// admission_statuses hook hasn't resolved yet. Dynamic source of truth is
+// admission_statuses.is_seat_filled (scope='lead'). These codes mirror the
+// late-funnel states where the learner has been admitted but billing
+// onboarding hasn't run yet.
+const ACCOUNT_TRANSITION_ELIGIBLE_STAGES_FALLBACK: FunnelStage[] = [
   'documents_verified',
   'offer_accepted',
   'token_paid',
@@ -55,6 +58,16 @@ export function DataTableRowActions<TData>({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showAccountDialog, setShowAccountDialog] = useState(false);
 
+  // Dynamic account-transition eligibility: stages with is_seat_filled=true in
+  // admission_statuses (scope='lead'). Falls back to the static list while the
+  // query is loading so the "Move to Account" button is never permanently hidden.
+  const { data: leadStatuses } = useAdmissionStatuses('lead', { activeOnly: true });
+  const accountEligibleStages: FunnelStage[] = leadStatuses?.length
+    ? (leadStatuses
+        .filter((s) => s.is_seat_filled)
+        .map((s) => s.code) as FunnelStage[])
+    : ACCOUNT_TRANSITION_ELIGIBLE_STAGES_FALLBACK;
+
   const canView = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.view');
   const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.edit');
   // 2026-05-11 fix: dropped the `isAdmissionGlobalUser` bypass from canDelete.
@@ -76,7 +89,7 @@ export function DataTableRowActions<TData>({
     canPerformAll('admission_documents', ['manage']);
   const isEligibleForAccountTransition =
     !!lead.learner_profile_id &&
-    ACCOUNT_TRANSITION_ELIGIBLE_STAGES.includes(lead.funnel_stage);
+    accountEligibleStages.includes(lead.funnel_stage);
 
   // Mark-as-lost is a stage transition (soft-delete). Kept on canEdit so counselors
   // can follow the CRM workflow; permanent delete below requires canDelete.

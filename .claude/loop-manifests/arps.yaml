@@ -1,0 +1,163 @@
+# ARPS loop manifest — discovery pass 2026-07-13 (read-only; every fact below
+# carries its receipt: jicate/main path or prod-DB query). No sim/walk has been
+# EXECUTED from this manifest yet — asserts are derived from function bodies,
+# not from a live run (unlike scf.yaml which is post-run).
+# INDEPENDENTLY RE-AUDITED 2026-07-13 (second agent, all receipts re-pulled):
+#   capture-fn body, log-fn body, action-log columns/NOT-NULLs/numeric(5,2),
+#   pace-fn signature+live call (6/8 gaps incl. Pharmacy +31.84 / Engg −14.76),
+#   fill-rates (1 row / 0 captured / id 9203c184), routes+tab lines, sidebar:597,
+#   7-role permission list, sole updated_at trigger, pivot 2,462 rows
+#   (date col = admission_date) — all confirmed exact.
+#
+# ⚠️ HEADLINE FINDING (measure gate is starved, not broken):
+#   fn_arps_capture_outcomes EXISTS and is deterministic, but has ZERO callers —
+#   no cron route (git grep "arps" jicate/main app/api = no hits), no UI button
+#   (only a code comment "cron-callable" in actions/page.tsx:10). Living proof:
+#   the single real admission_action_log row (triggered 2026-06-09) matured
+#   14d on 2026-06-23 and is STILL outcome_captured_at NULL on 2026-07-13.
+#   Registry gates.m='on' overstates production reality: the measurer is
+#   built-but-unwired. Expect /loops test verdict "measure fn sim-verifiable,
+#   loop outcome-starved" until a cron/button invokes capture.
+loop_key: arps
+name: Accountability & pace (ARPS / YoY grid)
+prod_ref: kvizhngldtiuufknvehv
+
+# Registry row verified 2026-07-13: loop_class=accountability, domain=governance,
+# gates={"g":"on","a":"on","m":"on","f":"half"}, routine_id=null, is_active=true.
+# loop_edges: arps -> decisions (what_flows='escalations',
+# note "YoY grid feeds decisions-verdict-check"); no inbound edges.
+
+tables:
+  # There is NO arps_* table (information_schema checked — zero matches).
+  # Input signal is COMPUTED live, not stored:
+  #   fn_arps_pace_status(uuid) reads learners_profiles + admission_years +
+  #   programs.sanctioned_intake + admission_historical_pivot (2,462 rows,
+  #   2023-12-30..2026-04-10 — the 2024/2025 same-day baselines).
+  #   (migration 20260607143000_arps_pace_status_rpc.sql; fn body verified in pg_proc.)
+  input: admission_historical_pivot   # + live learners_profiles; pace = actual vs avg(2024,2025) same-day
+  action: admission_action_log        # Director lever pulls; trigger snapshot + outcome_* cols (phase2a migration 20260607153000)
+  # setup substrate (read by dashboard, not by the measure path):
+  #   admission_cycle_revenue_target, admission_cycle_cost_baseline (same migration).
+
+sim:
+  sentinel: ZZAUDIT                   # carried in decision_reasoning (no course_code-like key on this table)
+  # admission_action_log NOT-NULLs: cycle_year, trigger_day_n (>=0), triggered_at.
+  # institution_id FK -> institutions (must be REAL). trigger_gap_pp numeric(5,2) => |x| <= 999.99.
+  # Measure fn gates on auth.uid() IS NOT NULL — set request.jwt.claims first.
+  # Institution MUST pass fn_arps_pace_status's family filter (name ILIKE 'JKKN%'
+  # minus Main Office/Testing/Nattraja/Matric/Jicate) AND have non-NULL out_gap_pp,
+  # else v_pace_row.gap_pp is NULL and pace_closed is forced false (breaks the TRUE-side
+  # assert). Live 2026-07-13: 6 of 8 family institutions have non-NULL gap
+  # (e.g. Pharmacy +31.84, Engineering −14.76).
+  seed_input: |
+    -- 1) authenticate the definer-fn gate (any real profile works; identity is not checked)
+    SELECT set_config('request.jwt.claims',
+      json_build_object('sub', (SELECT id FROM public.profiles WHERE email='test.superadmin@jkkn.ac.in'))::text, true);
+  seed_action: |
+    -- 2) two matured sentinel lever-pulls at the comparator's extremes, on an
+    --    institution whose live gap is measurable
+    WITH inst AS (
+      SELECT out_institution_id AS id FROM public.fn_arps_pace_status(NULL)
+      WHERE out_gap_pp IS NOT NULL LIMIT 1
+    )
+    INSERT INTO public.admission_action_log
+      (triggered_at, institution_id, cycle_year, trigger_day_n, trigger_gap_pp,
+       lever_tier, lever_type, decision_reasoning, auto_detected, director_confirmed)
+    SELECT now() - interval '15 days', inst.id,
+           (SELECT MAX(year) FROM public.admission_years WHERE is_active),
+           30, g.gap, 1, 'counselor_reallocation', 'ZZAUDIT ' || g.tag, false, true
+    FROM inst, (VALUES ('-999.99'::numeric,'LOW'), ('999.99'::numeric,'HIGH')) AS g(gap, tag);
+  verifier: "public.fn_arps_capture_outcomes()"   # returns count of rows stamped
+  asserts:
+    # This measurer's "delta" is a comparator, not a lift: outcome_pace_closed :=
+    # (live_gap_pp > trigger_gap_pp), both non-NULL. Seeded extremes make it two-sided
+    # deterministic regardless of live pace. (fn body verified in pg_proc 2026-07-13.)
+    no_change: "outcome_gap_pp_at_outcome == fn_arps_pace_status(inst).out_gap_pp exactly (stamp mirrors live fn)"
+    known_delta:
+      seed: "trigger_gap_pp=-999.99 vs +999.99 (numeric(5,2) bounds)"
+      expect: "pace_closed = TRUE for the -999.99 row AND FALSE for the +999.99 row; outcome_captured_at NOT NULL on both"
+  reset_between_deltas: |
+    -- only needed if re-running capture in the same txn; scope by sentinel ONLY
+    UPDATE public.admission_action_log
+    SET outcome_captured_at=NULL, outcome_day_n=NULL, outcome_fill_pct=NULL,
+        outcome_gap_pp_at_outcome=NULL, outcome_admits_between_trigger_and_outcome=NULL,
+        outcome_pace_closed=NULL
+    WHERE decision_reasoning LIKE 'ZZAUDIT%';
+  notes:
+    - capture fn processes EVERY matured uncaptured row, including the 1 REAL
+      Director row of 2026-06-09 — inside ROLLBACK harmless; a COMMITTED run
+      would stamp the real row (the loop doing its job — announce, don't panic).
+    - auth gate is auth.uid() IS NOT NULL only — no role/identity check on either
+      fn_arps_capture_outcomes or fn_arps_log_director_action (phase2c migration).
+    - outcome_admits_between_trigger_and_outcome counts REAL learners created in
+      the last 14d — live-data dependent; do NOT assert a value on it.
+    - trigger_gap_pp/outcome cols are numeric(5,2); seeds beyond ±999.99 overflow.
+    - fn_arps_pace_status is STABLE SECURITY DEFINER with NO auth gate — callable
+      as postgres directly for the mirror assert.
+
+confound:
+  # Columns exist (verified in information_schema): outcome = outcome_pace_closed,
+  # verdict-analogue = director_confirmed (+ auto_detected for the future
+  # suggested-vs-confirmed split; the human-verdict trichotomy of scf does NOT
+  # exist here). FUEL 2026-07-13: total=1, outcomes_captured=0, auto_detected=0
+  # => below min_rows; report "insufficient fuel", don't conclude.
+  verdict_column: director_confirmed
+  query: |
+    SELECT lever_tier, director_confirmed, count(*) AS n,
+           round(avg(outcome_gap_pp_at_outcome - trigger_gap_pp),2) AS avg_gap_delta,
+           count(*) FILTER (WHERE outcome_pace_closed) AS closed_n
+    FROM admission_action_log
+    WHERE outcome_captured_at IS NOT NULL
+    GROUP BY 1,2 ORDER BY 1,2;
+  min_rows: 10
+
+# feed_forward: OMITTED — honestly none exists in machine form (registry f='half').
+#   What exists: fn_arps_list_action_log returns outcome_* per lever pull and the
+#   actions page renders "gap narrowed / gap widened / pending +14d" badges
+#   (actions/page.tsx outcomeBadge) that the Director reads before the NEXT lever
+#   choice. No fn conditions generation on prior outcomes (nothing like
+#   fn_scf_prior_suggestion; pg_proc swept for arps/yoy/pace 2026-07-13).
+#   To flip f to 'on' something must (a) call capture on a schedule and
+#   (b) surface prior-outcome context at decision time (e.g. in log-action-dialog).
+
+walk:
+  personas:
+    # Route permission '/admission/group-dashboard': 'admission.group_dashboard.view'
+    # (jicate/main lib/sidebarMenuLink.ts:597). Roles holding it (custom_roles,
+    # 2026-07-13): admission, admission_staff, seo, ceo, coo, registrar,
+    # executive_admin_officer — NONE has a usable complete-profile test account.
+    # Only superadmin (bypass) is walkable. test.admission@jkkn.ac.in: profile
+    # row verified 2026-07-13 (role=admission, institution_id set, full_name
+    # set) — LOGIN-FLOW completeness (no /auth/complete-profile bounce) still
+    # untested; promote to a persona only after one successful test-login.
+    superadmin: test.superadmin@jkkn.ac.in
+  hops:
+    - { as: superadmin, do: open_assert, page: /admission/group-dashboard,
+        detail: "click the 'Pace' tab (Tabs value='pace' — page.tsx:566)",
+        expect: "ArpsPaceOverview table: JKKN family institutions with fill %, expected %, gap chips and stage alerts (10/15/20pp thresholds)" }
+    - { as: superadmin, do: click, page: /admission/group-dashboard/actions,
+        target: "Log Action",
+        detail: "LogActionDialog: pick a family institution, tier 1 'counselor_reallocation', reasoning 'ZZAUDIT walk'",
+        assert_db: "1 new admission_action_log row: decision_reasoning LIKE 'ZZAUDIT%', director_confirmed=true, decided_by=superadmin profile, trigger_fill_pct/trigger_expected_pct/trigger_gap_pp auto-snapshotted (non-NULL for sanctioned>0 institutions)" }
+    - { as: superadmin, do: open_assert, page: /admission/group-dashboard/actions,
+        expect: "sentinel row renders with outcome badge 'pending +14d' (outcome_captured_at NULL — capture is 14d-gated, so a walk can never see it stamped)" }
+    - { as: superadmin, do: open_assert, page: /admission/group-dashboard,
+        detail: "click the 'Seat Analytics' tab — YoYTrajectoryChart renders inside SeatAnalyticsDashboard and hosts YoYCounselorGrid (seat-analytics-dashboard.tsx:20, yoy-trajectory-chart.tsx:20)",
+        expect: "YoY trajectory + counselor accountability grid (fn_yoy_counselor_accountability_grid: stale reserved/admitted leads >10d idle per counselor; read-only)" }
+  # No notifications/nudges/digests are wired to this loop: the log RPC only
+  # INSERTs, the table's sole trigger is updated_at (pg_trigger checked), and no
+  # cron exists — nothing to forbid today. Re-check when auto-detect (phase2c
+  # deferred half) or a capture cron ships.
+  forbidden: []
+  cleanup: |
+    DELETE FROM public.admission_action_log WHERE decision_reasoning LIKE 'ZZAUDIT%';
+    -- verify in a SEPARATE call: sentinel count = 0 AND total row count restored
+    -- to pre-walk value (baseline 2026-07-13: 1 real row, id 9203c184).
+  notes:
+    - actions/ and setup/ sub-pages have NO own MENU_PERMISSIONS entry — only the
+      parent route is mapped; they render under PermissionGuard in-page. Verify
+      guard behavior at run rather than assuming prefix inheritance.
+    - the walk CANNOT exercise the measure hop (14-day maturation gate) — measure
+      coverage belongs to the sim layer only.
+
+registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"half"}'

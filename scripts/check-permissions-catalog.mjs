@@ -75,6 +75,20 @@ function extractCatalogKeys(src) {
   return keys;
 }
 
+// ─── Extract category-level keys (the `key:` that follows each `name:`) ────
+// Category keys MUST be unique: role-management "select all" and the audit
+// tabs look categories up with .find(cat => cat.key === k), so a duplicate
+// silently drops every permission in the second block (and breaks React keys).
+function extractCategoryKeys(src) {
+  const catalogMatch = src.match(/export const PERMISSION_CATEGORIES\s*=\s*\[([\s\S]*?)^\];\s*$/m);
+  if (!catalogMatch) return [];
+  const keys = [];
+  const catRegex = /name:\s*['"][^'"]*['"],\s*key:\s*['"]([^'"]+)['"]/g;
+  let m;
+  while ((m = catRegex.exec(catalogMatch[1]))) keys.push(m[1]);
+  return keys;
+}
+
 // ─── Derive catalogued module keys from the permission keys themselves ─────
 // A module `X` is considered catalogued if ANY catalog permission-key starts
 // with `X.` (e.g. `X.view`). This is more robust than parsing block structure
@@ -110,6 +124,15 @@ function main() {
   const menuKeys = extractMenuKeys(menuSrc);
   const catalogKeys = extractCatalogKeys(catalogSrc);
   const catalogModules = deriveCatalogModules(catalogKeys);
+
+  // Duplicate category keys — hard failure (see extractCategoryKeys comment).
+  const categoryKeys = extractCategoryKeys(catalogSrc);
+  const seenCategoryKeys = new Set();
+  const duplicateCategoryKeys = new Set();
+  for (const k of categoryKeys) {
+    if (seenCategoryKeys.has(k)) duplicateCategoryKeys.add(k);
+    seenCategoryKeys.add(k);
+  }
 
   // A MENU key `X.Y.Z` is considered catalogued if:
   //   (a) It's in EXEMPT_KEYS, OR
@@ -177,6 +200,13 @@ function main() {
       console.log(`\n${DIM}INFO — catalogued keys not referenced in MENU_PERMISSIONS (first 10):${RESET}`);
       for (const k of deadCatalog.slice(0, 10)) console.log(`  ${DIM}• ${k}${RESET}`);
     }
+  }
+
+  if (duplicateCategoryKeys.size > 0) {
+    console.log(`\n${RED}FAIL${RESET}: duplicate category key(s) in PERMISSION_CATEGORIES: ${[...duplicateCategoryKeys].join(', ')}`);
+    console.log(`Merge the duplicate blocks into one — consumers look categories up by key`);
+    console.log(`(.find) and silently ignore every block after the first.`);
+    process.exit(1);
   }
 
   if (errorCount > 0) {

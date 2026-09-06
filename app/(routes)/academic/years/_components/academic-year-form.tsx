@@ -2,7 +2,7 @@
 // app/(routes)/academic/years/_components/academic-year-form.tsx
 
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -41,6 +41,26 @@ import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/utils/enhanced-logger';
+
+// Academic years run June 1 -> March 31 group-wide. The dates follow the NAME,
+// never the creation date: an admin filling in '2027-2028' during July 2026 has
+// to get 2027-06-01 / 2028-03-31, not a window around today.
+const ACADEMIC_YEAR_NAME_RE = /^\s*(\d{4})\s*-\s*(\d{4})/;
+
+function academicYearDates(name: string) {
+  const match = ACADEMIC_YEAR_NAME_RE.exec(name);
+  if (!match) return null;
+  return { start_date: `${match[1]}-06-01`, end_date: `${match[2]}-03-31` };
+}
+
+// The year a new row most likely belongs to: on or after June 1 the current
+// academic year has already begun, otherwise we are still inside the one that
+// started last June.
+function currentAcademicYearDates() {
+  const now = new Date();
+  const first = now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1;
+  return { start_date: `${first}-06-01`, end_date: `${first + 1}-03-31` };
+}
 
 const academicYearSchema = z
   .object({
@@ -81,21 +101,41 @@ export function AcademicYearForm({
   const [loadingInstitutions, setLoadingInstitutions] = useState(true);
 
   const { isSuperAdmin, userProfile } = usePermissions();
+  const hasInitializedRef = useRef(false);
+
+  const defaultDates = currentAcademicYearDates();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(academicYearSchema),
     defaultValues: {
       institution_id: '',
       academic_year_name: academicYear?.academic_year_name || '',
-      start_date: academicYear?.start_date || '',
-      end_date: academicYear?.end_date || '',
+      start_date: academicYear?.start_date || defaultDates.start_date,
+      end_date: academicYear?.end_date || defaultDates.end_date,
       is_active: academicYear?.is_active ?? true
     }
   });
 
+  // Keep the dates in step with the year being named. Create only -- editing an
+  // existing row must not silently overwrite dates an admin set by hand.
+  const nameValue = form.watch('academic_year_name');
+  useEffect(() => {
+    if (isEditing) return;
+    const derived = academicYearDates(nameValue || '');
+    if (!derived) return;
+    form.setValue('start_date', derived.start_date);
+    form.setValue('end_date', derived.end_date);
+  }, [nameValue, isEditing, form]);
+
   // Set initial values when data is available
   useEffect(() => {
     if (isEditing && academicYear) {
+      // Skip re-initialization once already loaded for this year — otherwise a
+      // re-render that changes the userProfile reference (e.g. a background
+      // profile refetch) re-runs this effect and calls form.reset(), silently
+      // discarding any in-progress edits and making Save appear to do nothing.
+      if (hasInitializedRef.current) return;
+
       // Ensure dates are in proper YYYY-MM-DD format to avoid timezone issues
       const formatDateForForm = (dateString: string) => {
         if (!dateString) return '';
@@ -121,6 +161,7 @@ export function AcademicYearForm({
       };
 
       form.reset(formData);
+      hasInitializedRef.current = true;
     } else if (!isEditing) {
       // For new academic years, set institution from user profile
       const institutionId = userProfile?.institution_id || '';
@@ -131,11 +172,25 @@ export function AcademicYearForm({
   }, [academicYear, userProfile, form, isEditing]);
 
   // Fetch institutions for dropdown
+  // - entityType:'all' → include schools (entity_type='school') and every other
+  //   type, not just entity_type='institution'. The Schools migration broke the
+  //   previous default which silently excluded school entities.
+  // - Super admins: no userId → all institutions of every type.
+  // - Normal users: pass userId → only their own accessible institutions.
   useEffect(() => {
+    // Wait until permission state resolves so we fetch the correct scope.
+    if (isSuperAdmin === undefined) return;
+    // Non-super-admins need their profile id to scope the access query.
+    if (!isSuperAdmin && !userProfile?.id) return;
+
     async function loadInstitutions() {
       try {
         setLoadingInstitutions(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          isSuperAdmin ? undefined : userProfile?.id,
+          'all'
+        );
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/academic-years', 'Error loading institutions', error);
@@ -145,7 +200,7 @@ export function AcademicYearForm({
       }
     }
     loadInstitutions();
-  }, []);
+  }, [isSuperAdmin, userProfile?.id]);
 
   // Auto-set institution for faculty users
   useEffect(() => {
@@ -293,6 +348,12 @@ export function AcademicYearForm({
                       <Input placeholder='e.g. 2024-2025' {...field} />
                     </FormControl>
                     <FormMessage />
+                    {!isEditing && (
+                      <p className='text-xs text-muted-foreground'>
+                        Start and end dates default to June 1 – March 31 of the
+                        year you name here
+                      </p>
+                    )}
                   </FormItem>
                 )}
               />
@@ -307,6 +368,7 @@ export function AcademicYearForm({
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
+                            type='button'
                             variant={'outline'}
                             className={cn(
                               'w-full pl-3 text-left font-normal',
@@ -383,6 +445,7 @@ export function AcademicYearForm({
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
+                            type='button'
                             variant={'outline'}
                             className={cn(
                               'w-full pl-3 text-left font-normal',
@@ -473,7 +536,7 @@ export function AcademicYearForm({
           </CardContent>
         </Card>
 
-        <div className='flex justify-end gap-4'>
+        <div className='flex flex-wrap justify-end gap-4'>
           <Button
             type='button'
             variant='outline'

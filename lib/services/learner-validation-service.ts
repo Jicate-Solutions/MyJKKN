@@ -16,8 +16,7 @@ import {
   COMMUNITY_VALUES,
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
-  ACCOMMODATION_VALUES,
-  FOOD_TYPE_VALUES
+  ACCOMMODATION_VALUES
 } from '@/lib/constants/learner-dropdown-values';
 
 // Create admin client for server-side validation
@@ -41,6 +40,25 @@ export interface ValidationResult {
   isValid: boolean;
   errors: ValidationError[];
   warnings: string[];
+}
+
+/**
+ * A learner photo value is optional. When BLANK it means "no photo" and is
+ * always allowed (the profile UI shows a fallback avatar). When PRESENT it must
+ * be a real http(s) URL — bare filenames or hyperlink sentinels like 'VIEW'
+ * (both seen in past spreadsheet imports) render as a broken image and, when the
+ * same string lands on many rows, produce the wrong-person-photo bug
+ * (BUG-004438/004437). Callers treat a `false` here as a per-row validation error.
+ */
+export function isPhotoUrlValueValid(raw: unknown): boolean {
+  const v = (raw ?? '').toString().trim();
+  if (!v) return true; // blank = no photo, allowed
+  try {
+    const u = new URL(v);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -155,7 +173,6 @@ export class LearnerValidationService {
       { value: data.blood_group, values: BLOOD_GROUP_VALUES, name: 'Blood Group', required: false },
       { value: data.entry_type, values: ENTRY_TYPE_VALUES, name: 'Entry Type', required: false },
       { value: data.accommodation_type, values: ACCOMMODATION_VALUES, name: 'Accommodation Type', required: false },
-      { value: data.food_type, values: FOOD_TYPE_VALUES, name: 'Food Type', required: false },
     ];
 
     dropdownChecks.forEach(({ value, values, name, required }) => {
@@ -167,6 +184,17 @@ export class LearnerValidationService {
         });
       }
     });
+
+    // PHOTO URL: optional, but a PRESENT value must be a real http(s) link.
+    // Blocks junk imports ('VIEW', bare filenames) that break the image or get
+    // reused across learners. See BUG-004438/004437.
+    if (!isPhotoUrlValueValid(data.student_photo_url)) {
+      const shown = (data.student_photo_url ?? '').toString().trim().slice(0, 40);
+      errors.push({
+        field: 'student_photo_url',
+        message: `Invalid photo URL "${shown}" — must be a full http(s) link, or leave it blank if there is no photo.`
+      });
+    }
 
     // Optional validations with warnings
     if (!data.last_name?.trim()) {
@@ -291,6 +319,79 @@ export class LearnerValidationService {
   }
 
   /**
+   * Find student_photo_url values that appear on MORE THAN ONE row in a batch.
+   * Mirrors findDuplicateEmails. A photo URL is inherently per-person, so any
+   * value shared by two distinct learners is a collision (root cause of the
+   * wrong-person-photo incident, BUG-004438/004437). Blank photos are ignored.
+   * Returns Map<normalizedUrl, rowIndices[]>.
+   */
+  static findDuplicatePhotoUrls(profiles: any[]): Map<string, number[]> {
+    const urlMap = new Map<string, number[]>();
+    const duplicates = new Map<string, number[]>();
+
+    profiles.forEach((profile, index) => {
+      const url = (profile?.student_photo_url ?? '').toString().trim();
+      if (!url) return; // blank photo is never a collision
+
+      if (!urlMap.has(url)) {
+        urlMap.set(url, []);
+      }
+      urlMap.get(url)!.push(index);
+    });
+
+    urlMap.forEach((indices, url) => {
+      if (indices.length > 1) {
+        duplicates.set(url, indices);
+      }
+    });
+
+    return duplicates;
+  }
+
+  /**
+   * For a set of photo URLs, find which are ALREADY stored on a learner in the
+   * DB and return Map<url, existingOwnerEmails[]>. Lets the caller reject a row
+   * whose photo already belongs to a DIFFERENT learner (the same corruption
+   * class arriving one upload at a time). Fail-open on DB error (mirrors
+   * checkEmailExists) — the intra-batch + format guards still apply.
+   */
+  static async findExistingPhotoOwners(urls: string[]): Promise<Map<string, string[]>> {
+    const owners = new Map<string, string[]>();
+    const clean = Array.from(
+      new Set(urls.map(u => (u ?? '').toString().trim()).filter(Boolean))
+    );
+    if (clean.length === 0) return owners;
+
+    // Chunk the IN() list: photo URLs are long, and a single filter over a large
+    // batch can blow past PostgREST's query-string limit.
+    const CHUNK = 50;
+    for (let i = 0; i < clean.length; i += CHUNK) {
+      const chunk = clean.slice(i, i + CHUNK);
+      const { data, error } = await supabaseAdmin
+        .from('learners_profiles')
+        .select('college_email, student_photo_url')
+        .in('student_photo_url', chunk);
+
+      if (error) {
+        console.error('[learner-validation] Error checking existing photo owners:', error);
+        return owners; // fail-open; intra-batch + format guards still apply
+      }
+
+      data?.forEach(row => {
+        const url = (row.student_photo_url ?? '').toString().trim();
+        if (!url) return;
+        const email = (row.college_email ?? '').toString().toLowerCase();
+        if (!owners.has(url)) owners.set(url, []);
+        if (email && !owners.get(url)!.includes(email)) {
+          owners.get(url)!.push(email);
+        }
+      });
+    }
+
+    return owners;
+  }
+
+  /**
    * Check if email already exists in database
    * Uses admin client for server-side validation
    */
@@ -322,7 +423,17 @@ export class LearnerValidationService {
     // Use admin client for server-side validation
     const { data: learner, error } = await supabaseAdmin
       .from('learners_profiles')
-      .select('id, lifecycle_status, institution_id')
+      // community_category_id is carried so bulk-edit can scope caste
+      // resolution to the learner's existing community (caste names repeat
+      // across communities) when the upload doesn't set a new one.
+      // The six reference columns are carried for the same reason: bulk-edit
+      // needs the stored referral_type when the sheet's Type cell is blank, and
+      // needs the stored values to tell a real edit from a re-uploaded template
+      // (writing them back unchanged would bump updated_at on every row).
+      // Must stay ONE string literal: Supabase parses the selection at the type
+      // level, and a concatenated string degrades the row type to
+      // GenericStringError (TS2339 on every field below).
+      .select('id, lifecycle_status, institution_id, community_category_id, referral_type, referred_by_id, referred_by_name, reference_type, reference_name, reference_contact')
       .eq('id', learnerId)
       .maybeSingle();
 

@@ -27,10 +27,11 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-  BreadcrumbEllipsis,
 } from '@/components/ui/breadcrumb';
 import { cn } from '@/lib/utils';
 import { deriveBreadcrumbs } from '@/lib/navigation/derive-breadcrumbs';
+import { useInstitutionType } from '@/hooks/use-institution-type';
+import { adaptLabel } from '@/lib/utils/school-label-adapter';
 
 interface AutoBreadcrumbsProps {
   className?: string;
@@ -38,20 +39,34 @@ interface AutoBreadcrumbsProps {
 
 export function AutoBreadcrumbs({ className }: AutoBreadcrumbsProps) {
   const pathname = usePathname() ?? '/';
-  const items = deriveBreadcrumbs(pathname);
+  const { institutionType } = useInstitutionType();
+  // Crumb labels are derived from the raw route manifest, so adapt each one to
+  // the institution type (e.g. "Degrees" → "Streams" for schools) to stay in
+  // sync with the navbar title, sidebar, and page body.
+  const items = deriveBreadcrumbs(pathname).map((item) => ({
+    ...item,
+    label: adaptLabel(item.label, institutionType),
+  }));
 
   // Skip root, /auth/*, /api/*, and any pathname with no crumbs.
   // Also skip 1-item trails (just "Home") — adds no value.
   if (items.length < 2) return null;
 
   const lastIndex = items.length - 1;
-  // Mobile collapse threshold: same pattern as PageBreadcrumb.
-  const shouldCollapse = items.length > 3;
+  // Narrow screens show the parent and the current page only. Everything
+  // earlier in the trail is hidden below md. The previous mobile treatment
+  // kept "Home" plus an ellipsis and dropped the middle, which spent the
+  // available width on the two crumbs that say the least about where you are.
+  const firstShownOnMobile = lastIndex - 1;
 
-  const renderLeaf = (item: { href: string; label: string }, index: number) => {
+  const renderLeaf = (
+    item: { href: string; label: string },
+    index: number,
+    itemClassName?: string
+  ) => {
     const isCurrent = index === lastIndex;
     return (
-      <BreadcrumbItem key={`${item.href}-${index}`}>
+      <BreadcrumbItem key={`${item.href}-${index}`} className={itemClassName}>
         {isCurrent ? (
           <BreadcrumbPage className='max-w-[160px] sm:max-w-[250px] md:max-w-none truncate'>
             {item.label}
@@ -73,55 +88,25 @@ export function AutoBreadcrumbs({ className }: AutoBreadcrumbsProps) {
   return (
     <Breadcrumb className={className}>
       <BreadcrumbList className='text-xs sm:text-sm'>
-        {shouldCollapse ? (
-          <>
-            {/* First (Home) — always visible */}
-            {renderLeaf(items[0]!, 0)}
-            <BreadcrumbSeparator />
-
-            {/* Middle items — hidden on mobile, visible on desktop */}
-            {items.slice(1, -2).map((item, idx) => {
-              const absoluteIdx = idx + 1;
-              return (
-                <React.Fragment key={`mid-${item.href}-${idx}`}>
-                  <BreadcrumbItem className='hidden md:inline-flex'>
-                    <BreadcrumbLink asChild>
-                      <Link
-                        href={item.href}
-                        className='max-w-[200px] truncate inline-block'
-                      >
-                        {item.label}
-                      </Link>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator className='hidden md:block' />
-                  {/* Keep absoluteIdx used for key correctness if labels repeat */}
-                  <span className='hidden' aria-hidden data-idx={absoluteIdx} />
-                </React.Fragment>
-              );
-            })}
-
-            {/* Ellipsis — visible only on mobile */}
-            <BreadcrumbItem className='md:hidden'>
-              <BreadcrumbEllipsis className='h-4 w-4' />
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className='md:hidden' />
-
-            {/* Second-to-last */}
-            {renderLeaf(items[items.length - 2]!, items.length - 2)}
-            <BreadcrumbSeparator />
-
-            {/* Last (current page) */}
-            {renderLeaf(items[lastIndex]!, lastIndex)}
-          </>
-        ) : (
-          items.map((item, index) => (
+        {items.map((item, index) => {
+          // Below md only the last two crumbs are shown, so a crumb earlier
+          // than the parent — and the separator that follows it — is hidden.
+          const hiddenOnMobile = index < firstShownOnMobile;
+          return (
             <React.Fragment key={`${item.href}-${index}`}>
-              {renderLeaf(item, index)}
-              {index < lastIndex && <BreadcrumbSeparator />}
+              {renderLeaf(
+                item,
+                index,
+                hiddenOnMobile ? 'hidden md:inline-flex' : undefined
+              )}
+              {index < lastIndex && (
+                <BreadcrumbSeparator
+                  className={hiddenOnMobile ? 'hidden md:block' : undefined}
+                />
+              )}
             </React.Fragment>
-          ))
-        )}
+          );
+        })}
       </BreadcrumbList>
     </Breadcrumb>
   );

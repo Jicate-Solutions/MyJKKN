@@ -5,17 +5,8 @@
 // to the canonical /service-requests/[id] view (decision #1).
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -39,10 +30,16 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Inbox, Search, Download } from 'lucide-react';
 import { useAuditCycles } from '@/hooks/audit/use-audit-cycles';
 import { useFindingsByCycle } from '@/hooks/audit/use-audit-findings';
+import { useSystemParameters } from '@/hooks/audit/use-audit-parameters';
 import { SeverityBadge } from '../_components/findings/severity-badge';
 import { SlaChip } from '../_components/findings/sla-chip';
 import { LogFindingDialog } from '../_components/findings/log-finding-dialog';
-import type { FindingSeverity, AuditFindingView } from '@/lib/types/audit';
+import { OwnerChip } from '../_components/redesign/kit';
+import type {
+  FindingSeverity,
+  AuditFindingView,
+  AuditParameterCatalogRow,
+} from '@/lib/types/audit';
 
 const STATUS_OPTIONS = [
   { value: 'submitted', label: 'Submitted' },
@@ -72,19 +69,27 @@ export default function AuditFindingsPage() {
   const { data: cycles = [], isLoading: cyclesLoading } = useAuditCycles({
     includeClosed: true,
   });
+  const { data: systemParams = [] } = useSystemParameters();
 
   const [selectedCycleId, setSelectedCycleId] = useState<string>('');
   const [severity, setSeverity] = useState<FindingSeverity | 'all'>('all');
   const [status, setStatus] = useState<string>('all');
-  const [ownerSearch, setOwnerSearch] = useState<string>('');
+  const [search, setSearch] = useState<string>('');
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  // Default cycle: first non-closed cycle, or first cycle overall
+  // Default cycle: newest open per-college cycle. The standing "Whole
+  // Institution" audit is excluded from the default — it never closes and sorts
+  // first, so it would always win and land the auditor on an empty list while
+  // the dashboard points at real findings elsewhere. It stays selectable below.
   const effectiveCycleId = useMemo(() => {
     if (selectedCycleId) return selectedCycleId;
-    const active = cycles.find((c) => c.phase !== 'closed');
-    return active?.id ?? cycles[0]?.id ?? '';
+    const openCollegeCycles = cycles
+      .filter((c) => c.phase !== 'closed' && !c.is_standing)
+      .sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    return openCollegeCycles[0]?.id ?? cycles[0]?.id ?? '';
   }, [cycles, selectedCycleId]);
 
   const { data: findings = [], isLoading: findingsLoading } = useFindingsByCycle(
@@ -95,22 +100,32 @@ export default function AuditFindingsPage() {
     }
   );
 
+  // Owner shown on a finding is the parameter's default owner role — the same
+  // thing the dashboard shows. Findings themselves carry only uuids.
+  const paramByCode = useMemo(() => {
+    const m = new Map<string, AuditParameterCatalogRow>();
+    for (const p of systemParams) if (!m.has(p.code)) m.set(p.code, p);
+    return m;
+  }, [systemParams]);
+
+  // Matches the same three fields the CSV export's `q` filter matches
+  // (request_number / parameter_code / notes), so the exported rows are always
+  // the rows on screen.
   const filteredFindings = useMemo(() => {
-    if (!ownerSearch.trim()) return findings;
-    const q = ownerSearch.trim().toLowerCase();
+    if (!search.trim()) return findings;
+    const q = search.trim().toLowerCase();
     return findings.filter(
       (f) =>
-        f.requester_id.toLowerCase().includes(q) ||
-        (f.assigned_to ?? '').toLowerCase().includes(q)
+        (f.request_number ?? '').toLowerCase().includes(q) ||
+        f.parameter_code.toLowerCase().includes(q) ||
+        (f.form_data?.notes ?? '').toLowerCase().includes(q)
     );
-  }, [findings, ownerSearch]);
+  }, [findings, search]);
 
   const activeCycle = cycles.find((c) => c.id === effectiveCycleId);
 
-  // Export current-filter view to CSV via the server endpoint. We pass
-  // filters through as query params (not the free-text owner search — that
-  // is a client-only filter on uuid/email substrings and isn't a server
-  // filter today) so the server returns the same rows the user sees.
+  // Export the current-filter view to CSV via the server endpoint. Every filter
+  // on screen is forwarded, so the CSV is exactly the visible rows.
   const handleExportCsv = async () => {
     if (exporting) return;
     setExporting(true);
@@ -119,20 +134,8 @@ export default function AuditFindingsPage() {
       if (effectiveCycleId) params.set('cycle_id', effectiveCycleId);
       if (severity !== 'all') params.set('severity', severity);
       if (status !== 'all') params.set('status', status);
-      // ownerSearch is a free-text substring (client-side filter). Only forward
-      // it as owner_id when it looks like a UUID; otherwise the server filter
-      // would reject the value. A separate `q` param covers the fuzzy case.
-      const trimmedOwner = ownerSearch.trim();
-      if (trimmedOwner) {
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          trimmedOwner
-        );
-        if (isUuid) {
-          params.set('owner_id', trimmedOwner);
-        } else {
-          params.set('q', trimmedOwner);
-        }
-      }
+      const trimmedSearch = search.trim();
+      if (trimmedSearch) params.set('q', trimmedSearch);
 
       const res = await fetch(`/api/audit/findings/export?${params.toString()}`, {
         method: 'GET',
@@ -160,27 +163,7 @@ export default function AuditFindingsPage() {
 
   return (
     <ContentLayout title="Audit Findings">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/">Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/audit">Audit</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Findings</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className="space-y-6 mt-4">
+      <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
@@ -273,14 +256,14 @@ export default function AuditFindingsPage() {
                 </Select>
               </div>
               <div>
-                <Label htmlFor="filter-owner">Owner (user-id search)</Label>
+                <Label htmlFor="filter-search">Search</Label>
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input
-                    id="filter-owner"
-                    value={ownerSearch}
-                    onChange={(e) => setOwnerSearch(e.target.value)}
-                    placeholder="requester or assignee id"
+                    id="filter-search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Request #, parameter, or notes"
                     className="pl-7"
                   />
                 </div>
@@ -340,6 +323,9 @@ export default function AuditFindingsPage() {
                       <FindingRow
                         key={f.finding_id}
                         finding={f}
+                        ownerRole={
+                          paramByCode.get(f.parameter_code)?.default_owner_role ?? null
+                        }
                         onClick={() => router.push(`/service-requests/${f.finding_id}`)}
                       />
                     ))}
@@ -362,9 +348,11 @@ export default function AuditFindingsPage() {
 
 function FindingRow({
   finding,
+  ownerRole,
   onClick,
 }: {
   finding: AuditFindingView;
+  ownerRole: string | null;
   onClick: () => void;
 }) {
   const age = ageInDays(finding.submitted_at);
@@ -408,8 +396,8 @@ function FindingRow({
           expectedResolutionDays={fallbackSla}
         />
       </TableCell>
-      <TableCell className="text-xs font-mono text-muted-foreground truncate max-w-[220px]">
-        {finding.assigned_to ?? finding.requester_id.slice(0, 8) + '…'}
+      <TableCell className="max-w-[220px]">
+        <OwnerChip role={ownerRole} />
       </TableCell>
     </TableRow>
   );

@@ -233,7 +233,7 @@ export default function NBADashboardPage() {
               </div>
 
               {/* Program switcher (not a college switcher — NBA is per-program) */}
-              <div className="min-w-[280px]">
+              <div className="min-w-0 sm:min-w-[280px]">
                 <Select
                   value={selectedProgram}
                   onValueChange={setSelectedProgram}

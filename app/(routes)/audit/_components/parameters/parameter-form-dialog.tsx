@@ -81,7 +81,9 @@ const formSchema = z.object({
     .max(80, 'Code must be at most 80 characters'),
   name: z.string().min(3, 'Name must be at least 3 characters').max(200),
   description: z.string().max(1000).optional().nullable(),
-  parameter_group: z.coerce.number().int().min(1).max(4) as z.ZodType<ParameterGroup>,
+  // max 5 — group 5 (CARRE Empowerment) is a valid catalog group since
+  // CARRE v2.0; max(4) here rejected every CARRE-E row on save.
+  parameter_group: z.coerce.number().int().min(1).max(5) as z.ZodType<ParameterGroup>,
   default_owner_role: z
     .string()
     .min(1, 'Default owner role is required')
@@ -290,8 +292,9 @@ export function ParameterFormDialog({
                         <SelectContent>
                           <SelectItem value='1'>Group 1 — Academic</SelectItem>
                           <SelectItem value='2'>Group 2 — Research</SelectItem>
-                          <SelectItem value='3'>Group 3 — Governance</SelectItem>
-                          <SelectItem value='4'>Group 4 — Infrastructure</SelectItem>
+                          <SelectItem value='3'>Group 3 — Infrastructure</SelectItem>
+                          <SelectItem value='4'>Group 4 — Governance</SelectItem>
+                          <SelectItem value='5'>Group 5 — Empowerment</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

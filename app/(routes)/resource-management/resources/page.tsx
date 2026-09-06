@@ -2,7 +2,7 @@
 // app/(routes)/resource-management/resources/page.tsx
 
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Eye, Package, ImageIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -23,6 +23,7 @@ import {
   useResources,
   useResourceOperations
 } from '@/hooks/resource-management/use-resources';
+import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { ResourceEmptyState } from './_components/resource-empty-state';
 import { ResourceFiltersComponent } from './_components/resource-filters';
 import DownloadResourceTemplate from './_components/download-resource-template';
@@ -57,6 +58,28 @@ export default function ResourcesPage() {
 
   const { bulkDeleteResources } = useResourceOperations();
 
+  // Procurement-intake drafts awaiting room/caretaker ("needs-setup" tag) —
+  // Director decision 2026-07-11: visible counter + one-click filter.
+  // Scoped to the list's institution filter so count and click-through agree;
+  // the sequence ref drops out-of-order responses when refetches overlap.
+  const [needsSetupCount, setNeedsSetupCount] = useState<number | null>(null);
+  const needsSetupReqSeq = useRef(0);
+  useEffect(() => {
+    const seq = ++needsSetupReqSeq.current;
+    ResourceService.getNeedsSetupCount(filters.institution_id)
+      .then((count) => {
+        if (seq === needsSetupReqSeq.current) setNeedsSetupCount(count);
+      })
+      .catch(() => {
+        if (seq === needsSetupReqSeq.current) setNeedsSetupCount(null);
+      });
+    // Deliberately keyed on the array IDENTITY: every list refetch (including
+    // after completing a draft's setup, which changes tags but not length)
+    // refreshes the badge. Reviewed both ways — identity refetches a cheap
+    // head-only count more often; length went stale on same-length mutations
+    // (review r3, MEDIUM). Freshness wins; the seq ref handles overlap.
+  }, [resources, filters.institution_id]);
+
   const canViewResources =
     isSuperAdmin || canAccess('resources.resources', 'view');
   const canCreateResources =
@@ -66,10 +89,6 @@ export default function ResourcesPage() {
   const canDeleteResources =
     isSuperAdmin || canAccess('resources.resources', 'delete');
 
-  useEffect(() => {
-    fetchResources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Handle search
   const handleSearch = useCallback(
@@ -119,7 +138,8 @@ export default function ResourcesPage() {
       available: 'bg-green-100 text-green-800',
       occupied: 'bg-blue-100 text-blue-800',
       maintenance: 'bg-yellow-100 text-yellow-800',
-      retired: 'bg-gray-100 text-gray-800'
+      retired: 'bg-gray-100 text-gray-800',
+      inactive: 'bg-slate-200 text-slate-600'
     };
     return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800';
   };
@@ -359,6 +379,49 @@ export default function ResourcesPage() {
             <p className='text-sm sm:text-base text-muted-foreground'>
               Manage and track all your institutional resources
             </p>
+            {((needsSetupCount ?? 0) > 0 || filters.needs_setup) && (
+              <button
+                type='button'
+                className='mt-2'
+                onClick={() =>
+                  // Turning the badge ON clears the secondary filters (search /
+                  // status / category / department / assignment) so the list
+                  // shows exactly what the count counted — the badge total is
+                  // institution-scoped only (review r2: count vs click-through).
+                  handleFilterChange(
+                    filters.needs_setup
+                      ? { needs_setup: undefined, page: 1 }
+                      : {
+                          needs_setup: true,
+                          search: undefined,
+                          status: undefined,
+                          parent_category_id: undefined,
+                          subcategory_id: undefined,
+                          department_id: undefined,
+                          booking_type: undefined,
+                          caretaker_user_ids: undefined,
+                          available_on: undefined,
+                          assignee_type: undefined,
+                          assignee_id: undefined,
+                          page: 1
+                        }
+                  )
+                }
+                title='Resources received via procurement that still need a room and caretaker. Click to filter.'
+              >
+                <Badge
+                  className={
+                    filters.needs_setup
+                      ? 'bg-amber-500 text-white hover:bg-amber-600'
+                      : 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                  }
+                >
+                  {/* null = count unavailable (fetch failed) — show a neutral
+                      dash rather than a misleading 0 while the filter is on */}
+                  Needs setup: {needsSetupCount ?? '—'}
+                </Badge>
+              </button>
+            )}
           </div>
         </div>
 

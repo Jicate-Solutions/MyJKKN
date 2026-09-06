@@ -40,10 +40,28 @@ const config: ModuleNavConfig = {
       matchPaths: ['/bos/experts'],
     },
     {
+      label: 'Committees',
+      icon: 'UsersRound',
+      href: '/bos/committees',
+      matchPaths: ['/bos/committees'],
+    },
+    {
+      label: 'Member Types',
+      icon: 'UserCog',
+      href: '/bos/member-types',
+      matchPaths: ['/bos/member-types'],
+    },
+    {
       label: 'Compositions',
       icon: 'ClipboardList',
       href: '/bos/compositions',
       matchPaths: ['/bos/compositions'],
+    },
+    {
+      label: 'PO & PSO',
+      icon: 'Target',
+      href: '/bos/po-pso',
+      matchPaths: ['/bos/po-pso'],
     },
     {
       label: 'Syllabus',
@@ -56,6 +74,18 @@ const config: ModuleNavConfig = {
       icon: 'CalendarDays',
       href: '/bos/meetings',
       matchPaths: ['/bos/meetings'],
+    },
+    {
+      label: 'Academic Council',
+      icon: 'Landmark',
+      href: '/bos/academic-council',
+      matchPaths: ['/bos/academic-council'],
+    },
+    {
+      label: 'Governing Body',
+      icon: 'Building2',
+      href: '/bos/governing-body',
+      matchPaths: ['/bos/governing-body'],
     },
     {
       label: 'TA/DA Claims',

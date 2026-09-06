@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { RichTextEditor, RichTextDisplay, stripHtml } from '@/components/ui/rich-text-editor';
 
 import { BosAgendaItem, BosResolutionStatus, BosMeetingStatus } from '@/types/bos';
 import {
@@ -99,13 +100,20 @@ function AgendaItemFormDialog({ open, onClose, meetingId, meetingStatus, item }:
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) { toast.error('Title is required'); return; }
+    const hasDescription = !!stripHtml(description).trim();
+    if (!title.trim() && !hasDescription) {
+      toast.error('Add a title or description');
+      return;
+    }
     try {
       // When resolution fields are hidden, never overwrite any prior values —
       // pass through what was already on the item (or leave undefined on create).
       const payload = {
+        // Title is optional — description-only agenda items are allowed.
         item_title: title.trim(),
-        item_description: description.trim() || undefined,
+        // Rich-text (HTML). An "empty" editor still emits '<p></p>', so test the
+        // stripped text before deciding whether to store anything.
+        item_description: hasDescription ? description : undefined,
         resolution_text: showResolutionFields
           ? (resolutionText.trim() || undefined)
           : (item?.resolution_text ?? undefined),
@@ -129,13 +137,13 @@ function AgendaItemFormDialog({ open, onClose, meetingId, meetingStatus, item }:
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className='max-w-lg'>
+      <DialogContent className='!max-w-[1080px] w-[calc(100vw-2rem)] max-h-[85vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Agenda Item' : 'Add Agenda Item'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className='space-y-4'>
           <div className='space-y-2'>
-            <Label>Title <span className='text-destructive'>*</span></Label>
+            <Label>Title</Label>
             <Input
               placeholder='e.g. Review of Curriculum for CS301'
               value={title}
@@ -144,12 +152,11 @@ function AgendaItemFormDialog({ open, onClose, meetingId, meetingStatus, item }:
           </div>
           <div className='space-y-2'>
             <Label>Description</Label>
-            <textarea
-              className='w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none'
-              rows={3}
-              placeholder='Background, supporting documents, context...'
+            <RichTextEditor
+              extended
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
+              placeholder='Background, supporting documents, context…'
             />
           </div>
           {showResolutionFields ? (
@@ -245,7 +252,12 @@ function AgendaItemRow({
 
         <div className='flex-1 min-w-0'>
           <div className='flex items-center gap-2 flex-wrap'>
-            <p className='font-medium text-sm'>{item.item_title}</p>
+            <p className={`font-medium text-sm ${item.item_title?.trim() ? '' : 'text-muted-foreground italic'}`}>
+              {item.item_title?.trim()
+                || (item.item_description
+                  ? stripHtml(item.item_description).trim().slice(0, 80) || 'Untitled'
+                  : 'Untitled')}
+            </p>
             {/* Suppress the resolution badge in pre-meeting stages — the
                 "Pending" default is noise before the meeting has happened. */}
             {!preMeeting && item.resolution_status && (
@@ -263,9 +275,10 @@ function AgendaItemRow({
           {expanded && (
             <div className='mt-2 space-y-2'>
               {item.item_description && (
-                <p className='text-xs text-muted-foreground whitespace-pre-line'>
-                  {item.item_description}
-                </p>
+                <RichTextDisplay
+                  content={item.item_description}
+                  className='text-xs text-muted-foreground'
+                />
               )}
               {!preMeeting && item.resolution_text && (
                 <div className='rounded bg-muted/50 p-2'>

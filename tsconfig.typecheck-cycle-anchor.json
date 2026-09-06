@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "lib/utils/academic/cycle-anchor-phase.ts",
+    "lib/services/academic/cycle-calculation-service.ts",
+    "app/(routes)/academic/timetables/_components/cycle-anchor-phase-warning.tsx",
+    "app/(routes)/academic/timetables/new/page.tsx",
+    "app/(routes)/academic/timetables/[id]/edit/page.tsx"
+  ]
+}

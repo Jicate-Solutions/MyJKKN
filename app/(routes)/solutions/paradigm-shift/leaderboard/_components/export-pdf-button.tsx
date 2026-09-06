@@ -23,7 +23,7 @@ export function ExportPDFButton() {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleExport} className="no-print">
+    <Button variant="outline" size="sm" onClick={handleExport} className="no-print shrink-0">
       <Download className="h-4 w-4 mr-2" />
       Export PDF
     </Button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -13,6 +13,7 @@ import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { useCapabilities, useLearnerCapabilities } from '@/hooks/pde/use-pde';
 import { useAuth } from '@/hooks/use-auth';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Lock,
   Circle,
@@ -53,6 +54,17 @@ const CATEGORY_CONFIG: Record<CapabilityCategory, { label: string; icon: typeof 
   technical: { label: 'Technical', icon: Wrench, color: 'text-slate-600 bg-slate-50 dark:bg-slate-950/30' },
   professional: { label: 'Professional', icon: Briefcase, color: 'text-teal-600 bg-teal-50 dark:bg-teal-950/30' },
 };
+
+// Fallback guard: capability rows can carry a `category` value absent from
+// CATEGORY_CONFIG (the column is unconstrained text). Resolve via this helper so
+// an unknown category renders a neutral tab instead of crashing the skill tree.
+const FALLBACK_CATEGORY = {
+  label: 'Other',
+  icon: Circle,
+  color: 'text-gray-600 bg-gray-50 dark:bg-gray-800/30',
+};
+const getCategoryConfig = (cat: CapabilityCategory) =>
+  CATEGORY_CONFIG[cat] ?? FALLBACK_CATEGORY;
 
 const STATUS_CONFIG: Record<CapabilityStatus, { label: string; icon: typeof Lock; color: string; bgColor: string }> = {
   locked: {
@@ -216,6 +228,20 @@ function CapabilityTreeNode({
             >
               L{node.capability.level}
             </Badge>
+
+            {/* Tier 2 Item 5: version tag when capability has been re-versioned.
+                Rendered for any version > 1; visibility policy.show_version_tag
+                gates whether legacy badges appear in detail views (see
+                PDECapabilityVersioningService.resolveDisplayFor). */}
+            {node.capability.version && node.capability.version > 1 && (
+              <Badge
+                variant="outline"
+                className="text-[10px] h-5 px-1.5 shrink-0 border-blue-300 text-blue-700 dark:text-blue-300 dark:border-blue-800"
+                title={`Version ${node.capability.version}`}
+              >
+                v{node.capability.version}
+              </Badge>
+            )}
 
             {/* Fink's dimension */}
             {node.capability.finks_dimension && (
@@ -392,9 +418,14 @@ function TreeLegend() {
 // Main Page
 // ============================================
 
-export default function CapabilityTreePage() {
+const CAPABILITY_TABS = [
+  'ai_fluency', 'domain_ai', 'cross_functional', 'production',
+  'human_presence', 'principal', 'technical', 'professional',
+] as const;
+
+function CapabilityTreePageInner() {
   const { profile: user } = useAuth();
-  const [activeCategory, setActiveCategory] = useState<CapabilityCategory>('ai_fluency');
+  const [activeCategory, setActiveCategory] = useTabParam<CapabilityCategory>('ai_fluency', CAPABILITY_TABS);
 
   const { data: allCapabilities, isLoading: capsLoading } = useCapabilities();
   const { data: learnerCapabilities, isLoading: learnerCapsLoading } = useLearnerCapabilities(user?.id);
@@ -515,7 +546,7 @@ export default function CapabilityTreePage() {
               <div className="overflow-x-auto -mx-4 px-4 pb-2">
                 <TabsList className="inline-flex h-auto p-1 gap-1">
                   {availableCategories.map((cat) => {
-                    const config = CATEGORY_CONFIG[cat];
+                    const config = getCategoryConfig(cat);
                     const Icon = config.icon;
                     const count = categoryCounts[cat];
                     return (
@@ -546,16 +577,16 @@ export default function CapabilityTreePage() {
                 <TabsContent key={cat} value={cat} className="mt-4">
                   <Card>
                     <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-base flex items-center gap-2 min-w-0">
                           {(() => {
-                            const Icon = CATEGORY_CONFIG[cat].icon;
-                            return <Icon className="h-4 w-4" />;
+                            const Icon = getCategoryConfig(cat).icon;
+                            return <Icon className="h-4 w-4 shrink-0" />;
                           })()}
-                          {CATEGORY_CONFIG[cat].label} Capabilities
+                          {getCategoryConfig(cat).label} Capabilities
                         </CardTitle>
                         {categoryCounts[cat] && (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-muted-foreground shrink-0">
                             {categoryCounts[cat]!.demonstrated} of {categoryCounts[cat]!.total} demonstrated
                           </span>
                         )}
@@ -588,5 +619,14 @@ export default function CapabilityTreePage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function CapabilityTreePage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <CapabilityTreePageInner />
+    </Suspense>
   );
 }

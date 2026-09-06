@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, Home, Receipt, Loader2, Download, ArrowRight, CheckCheck, Sparkles } from 'lucide-react';
+import { CheckCircle2, Home, ReceiptIndianRupee, Loader2, Download, ArrowRight, CheckCheck, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -99,6 +99,10 @@ export default function PaymentSuccessPage() {
   const hdfcStatus = searchParams.get('hdfc_status');
   const hdfcOrderId = searchParams.get('hdfc_order_id');
   const amount = searchParams.get('amount'); // HDFC Requirement: Display amount on success page
+  // Razorpay callback params (set by /api/billing/payment/callback for the Razorpay flow).
+  const provider = searchParams.get('provider');
+  const razorpayOrderId = searchParams.get('razorpay_order_id');
+  const razorpayPaymentId = searchParams.get('razorpay_payment_id');
   const [isLoading, setIsLoading] = useState(true);
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'pending' | 'failed'>('pending');
   const [showContent, setShowContent] = useState(false);
@@ -113,6 +117,13 @@ export default function PaymentSuccessPage() {
   const formattedAmount = amount
     ? `₹${parseFloat(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : null;
+
+  // Provider-aware display (Razorpay vs legacy HDFC SmartGateway).
+  const isRazorpay = provider === 'razorpay' || !!razorpayOrderId;
+  const gatewayLabel = isRazorpay ? 'Razorpay' : 'HDFC SmartGateway';
+  const displayOrderId = razorpayOrderId || hdfcOrderId;
+  // Real payment timestamp from the verified DB row; fall back to now only if absent.
+  const paidAt = verifiedStatus?.payment_date ? new Date(verifiedStatus.payment_date) : new Date();
 
   // Redirect to failed page if database status shows non-success payment
   useEffect(() => {
@@ -273,7 +284,7 @@ export default function PaymentSuccessPage() {
                     : 'Your payment has been processed successfully. Receipt will be available shortly.'
                   : paymentStatus === 'failed'
                   ? 'Your payment could not be processed. Please try again.'
-                  : 'Your payment has been sent to HDFC gateway. Please wait for confirmation.'}
+                  : `Your payment has been sent to ${gatewayLabel}. Please wait for confirmation.`}
               </motion.p>
             </motion.div>
 
@@ -315,14 +326,23 @@ export default function PaymentSuccessPage() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                         <span className="text-sm text-gray-600 dark:text-gray-400">Payment Gateway</span>
-                        <span className="font-semibold text-gray-900 dark:text-white">HDFC SmartGateway</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{gatewayLabel}</span>
                       </div>
 
-                      {hdfcOrderId && (
+                      {displayOrderId && (
                         <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                           <span className="text-sm text-gray-600 dark:text-gray-400">Order ID</span>
                           <span className="font-mono text-xs font-medium text-gray-900 dark:text-white">
-                            {hdfcOrderId}
+                            {displayOrderId}
+                          </span>
+                        </div>
+                      )}
+
+                      {razorpayPaymentId && (
+                        <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                          <span className="text-sm text-gray-600 dark:text-gray-400">Payment ID</span>
+                          <span className="font-mono text-xs font-medium text-gray-900 dark:text-white">
+                            {razorpayPaymentId}
                           </span>
                         </div>
                       )}
@@ -332,14 +352,14 @@ export default function PaymentSuccessPage() {
                       <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                         <span className="text-sm text-gray-600 dark:text-gray-400">Payment Date</span>
                         <span className="font-semibold text-gray-900 dark:text-white">
-                          {format(new Date(), 'dd MMM yyyy')}
+                          {format(paidAt, 'dd MMM yyyy')}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                         <span className="text-sm text-gray-600 dark:text-gray-400">Payment Time</span>
                         <span className="font-semibold text-gray-900 dark:text-white">
-                          {format(new Date(), 'hh:mm a')}
+                          {format(paidAt, 'hh:mm a')}
                         </span>
                       </div>
                     </div>
@@ -427,7 +447,7 @@ export default function PaymentSuccessPage() {
                         className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-lg"
                         onClick={() => router.push(`/billing/receipts/${receiptId}`)}
                       >
-                        <Receipt className="mr-2 h-5 w-5" />
+                        <ReceiptIndianRupee className="mr-2 h-5 w-5" />
                         View Receipt
                       </Button>
                     )}
@@ -445,7 +465,7 @@ export default function PaymentSuccessPage() {
                         }
                       }}
                     >
-                      <Receipt className="mr-2 h-5 w-5" />
+                      <ReceiptIndianRupee className="mr-2 h-5 w-5" />
                       View My Bills
                     </Button>
                     <Button

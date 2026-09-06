@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { OKRErrorBoundary } from '../_components';
@@ -68,9 +69,11 @@ const trackingStatusConfig: Record<TrackingStatus, { label: string; icon: typeof
   completed: { label: 'Completed', icon: CheckCircle2, className: 'text-blue-500 bg-blue-500/10 border-blue-500/20' }
 };
 
-export default function DepartmentAdminPage() {
+const DEPARTMENT_TABS = ['overview', 'tier2', 'staff', 'students'] as const;
+
+function DepartmentAdminPageInner() {
   const { profile } = useAuth();
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useTabParam('overview', DEPARTMENT_TABS);
 
   // Extract department from user profile
   const departmentId = profile?.department_id;
@@ -340,7 +343,7 @@ export default function DepartmentAdminPage() {
 
         {/* Tabs Section */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4 lg:w-[600px]">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 lg:w-[600px] sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="tier2">TIER 2 OKRs</TabsTrigger>
             <TabsTrigger value="staff">Staff</TabsTrigger>
@@ -650,5 +653,14 @@ export default function DepartmentAdminPage() {
       </div>
       </OKRErrorBoundary>
     </ContentLayout>
+  );
+}
+
+export default function DepartmentAdminPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <DepartmentAdminPageInner />
+    </Suspense>
   );
 }

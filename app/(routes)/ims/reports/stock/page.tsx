@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ImsStockValuation } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 function getStockStatusBadge(quantity: number, reorderLevel: number, maxLevel?: number) {
   if (quantity <= 0) {
@@ -62,7 +64,19 @@ const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 
 export default function StockReportPage() {
-  const [activeTab, setActiveTab] = useState('levels');
+  return (
+    <ImsPageGuard module="ims.reports" action="view">
+      <Suspense fallback={null}>
+        <StockReportPageInner />
+      </Suspense>
+    </ImsPageGuard>
+  );
+}
+
+const STOCK_TABS = ['levels', 'expiring', 'valuation'] as const;
+
+function StockReportPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('levels', STOCK_TABS);
   const [expiryDays, setExpiryDays] = useState(60);
 
   const { isLoading: permissionsLoading } = usePermissions();
@@ -180,7 +194,7 @@ export default function StockReportPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='levels'>Stock Levels</TabsTrigger>
             <TabsTrigger value='expiring'>Expiring Items</TabsTrigger>
             <TabsTrigger value='valuation'>Valuation</TabsTrigger>
@@ -250,9 +264,9 @@ export default function StockReportPage() {
           <TabsContent value='expiring'>
             <Card>
               <CardHeader>
-                <div className='flex items-center justify-between'>
+                <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
                   <CardTitle>Expiring Items</CardTitle>
-                  <div className='flex gap-2'>
+                  <div className='flex flex-wrap gap-2'>
                     {[30, 60, 90].map((days) => (
                       <Button
                         key={days}

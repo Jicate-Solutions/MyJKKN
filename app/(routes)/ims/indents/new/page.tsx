@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
+import { useImsDeptScope } from '@/hooks/ims/use-ims-dept-scope';
 import { useCreateImsIndent } from '@/hooks/ims/use-ims-indents';
 import { useImsItemsForSelect } from '@/hooks/ims/use-ims-inventory';
-import { useImsUnitsForSelect } from '@/hooks/ims/use-ims-settings';
 import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
 import type { ImsIndentUrgency } from '@/types/ims/indents';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,9 +31,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 interface IndentItemRow {
   item_id: string;
@@ -43,9 +45,20 @@ interface IndentItemRow {
 }
 
 export default function NewIndentPage() {
+  return (
+    <ImsPageGuard module="ims.indents" action="create">
+      <NewIndentPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function NewIndentPageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
+  // Department scope resolved by the SAME RLS helper the DB insert is gated on,
+  // so the form can never offer a department the server will reject.
+  const { data: deptScope } = useImsDeptScope();
 
   const [departmentId, setDepartmentId] = useState('');
   const [requiredDate, setRequiredDate] = useState('');
@@ -63,9 +76,22 @@ export default function NewIndentPage() {
   } = useImsDepartmentsForSelect(institutionId);
   const { data: itemsForSelect, isLoading: itemsLoading } =
     useImsItemsForSelect(storeId ?? '', institutionId);
-  const { data: unitsForSelect, isLoading: unitsLoading } =
-    useImsUnitsForSelect();
   const createIndent = useCreateImsIndent();
+
+  // For department-scoped users (e.g. lab_assistant), the RLS insert policy
+  // only accepts an indent whose department_id equals their OWN department.
+  // Pin the field to that department so a wrong pick — and the resulting
+  // opaque "row violates row-level security policy" error — is impossible.
+  const isDeptLocked = !!deptScope?.isScoped;
+  const noDeptAssigned = !!deptScope?.scopedNoDept;
+
+  // Derive the department actually submitted: scoped users are pinned to their
+  // own department (mirrors the RLS insert check); everyone else uses the
+  // dropdown selection. Derived during render — no effect, no cascading renders.
+  const effectiveDepartmentId =
+    isDeptLocked && deptScope?.departmentId
+      ? deptScope.departmentId
+      : departmentId;
 
   const handleAddItem = () => {
     setItems((prev) => [
@@ -98,11 +124,20 @@ export default function NewIndentPage() {
       toast.error('User session not ready. Please refresh and try again.');
       return;
     }
+    // Fail-closed: a department-scoped user with no department on their profile
+    // can never satisfy the insert policy. Block here with a clear message
+    // instead of letting the DB throw an opaque RLS violation.
+    if (noDeptAssigned) {
+      toast.error(
+        'No department is assigned to your profile. Please contact an administrator before raising an indent.'
+      );
+      return;
+    }
 
     // Collect ALL field errors at once so every problem is visible simultaneously
     const errors: Record<string, string> = {};
 
-    if (!departmentId) errors.department = 'Please select a department';
+    if (!effectiveDepartmentId) errors.department = 'Please select a department';
     if (!purpose.trim()) errors.purpose = 'Please enter the purpose';
     if (items.length === 0) {
       errors.items = 'Please add at least one item';
@@ -126,7 +161,7 @@ export default function NewIndentPage() {
     try {
       await createIndent.mutateAsync({
         data: {
-          department_id: departmentId,
+          department_id: effectiveDepartmentId,
           required_date: requiredDate || undefined,
           purpose,
           urgency,
@@ -142,8 +177,17 @@ export default function NewIndentPage() {
           })),
         },
         userId: profile.id,
+        // Phase D: department-scoped requesters (lab assistants) must be
+        // approved by their HOD before the store admin sees the request.
+        // Reuses the same server-side scope the RLS policies enforce, so the
+        // routing rule can never drift from the data-access rule.
+        requiresHodApproval: isDeptLocked,
       });
-      toast.success('Indent request created successfully');
+      toast.success(
+        isDeptLocked
+          ? 'Indent submitted for HOD approval'
+          : 'Indent request created successfully'
+      );
       router.push('/ims/indents');
     } catch (error) {
       const errMsg = (error as any)?.message ?? 'Unknown error. Check console for details.';
@@ -181,12 +225,17 @@ export default function NewIndentPage() {
               <div className="space-y-2">
                 <Label htmlFor="department">Department *</Label>
                 <Select
-                  value={departmentId}
+                  value={effectiveDepartmentId}
                   onValueChange={(val) => {
                     setDepartmentId(val);
                     setFieldErrors((e) => ({ ...e, department: '' }));
                   }}
-                  disabled={departmentsLoading || departmentsError}
+                  disabled={
+                    departmentsLoading ||
+                    departmentsError ||
+                    isDeptLocked ||
+                    noDeptAssigned
+                  }
                 >
                   <SelectTrigger
                     id="department"
@@ -215,6 +264,18 @@ export default function NewIndentPage() {
                 {departmentsError && (
                   <p className="text-sm text-destructive">
                     Could not load departments. Check your connection or contact an admin.
+                  </p>
+                )}
+                {isDeptLocked && (
+                  <p className="text-sm text-muted-foreground">
+                    You can only raise indents for your own department, so this is
+                    locked to it.
+                  </p>
+                )}
+                {noDeptAssigned && (
+                  <p className="text-sm text-destructive">
+                    No department is assigned to your profile. Please contact an
+                    administrator before raising an indent.
                   </p>
                 )}
                 {!departmentsError && fieldErrors.department && (
@@ -319,7 +380,7 @@ export default function NewIndentPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {itemsLoading || unitsLoading ? (
+            {itemsLoading ? (
               <div className="flex items-center justify-center py-8">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
@@ -344,9 +405,30 @@ export default function NewIndentPage() {
                       <TableCell>
                         <Select
                           value={item.item_id}
-                          onValueChange={(val) =>
-                            handleItemChange(index, 'item_id', val)
-                          }
+                          onValueChange={(val) => {
+                            const selectedItem = (itemsForSelect || []).find(
+                              (i: { id: string }) => i.id === val
+                            ) as {
+                              id: string;
+                              name: string;
+                              code: string;
+                              indent_unit_id?: string | null;
+                              base_unit_id?: string | null;
+                              indent_unit?: { id: string; name: string; abbreviation: string } | null;
+                              base_unit?: { id: string; name: string; abbreviation: string } | null;
+                            } | undefined;
+                            const autoUnitId =
+                              selectedItem?.indent_unit_id ||
+                              selectedItem?.base_unit_id ||
+                              '';
+                            setItems((prev) =>
+                              prev.map((row, i) =>
+                                i === index
+                                  ? { ...row, item_id: val, unit_id: autoUnitId }
+                                  : row
+                              )
+                            );
+                          }}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select item" />
@@ -377,25 +459,33 @@ export default function NewIndentPage() {
                         />
                       </TableCell>
                       <TableCell>
-                        <Select
-                          value={item.unit_id}
-                          onValueChange={(val) =>
-                            handleItemChange(index, 'unit_id', val)
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select unit" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(unitsForSelect || []).map(
-                              (unit: { id: string; name: string; abbreviation: string }) => (
-                                <SelectItem key={unit.id} value={unit.id}>
-                                  {unit.name} ({unit.abbreviation})
-                                </SelectItem>
-                              )
-                            )}
-                          </SelectContent>
-                        </Select>
+                        {(() => {
+                          const selectedItem = (itemsForSelect || []).find(
+                            (i: { id: string }) => i.id === item.item_id
+                          ) as {
+                            id: string;
+                            indent_unit?: { id: string; name: string; abbreviation: string } | null;
+                            base_unit?: { id: string; name: string; abbreviation: string } | null;
+                          } | undefined;
+                          const unitAbbr =
+                            selectedItem?.indent_unit?.abbreviation ||
+                            selectedItem?.base_unit?.abbreviation;
+                          if (!item.item_id)
+                            return (
+                              <span className="text-muted-foreground text-sm">—</span>
+                            );
+                          if (!unitAbbr)
+                            return (
+                              <span className="text-destructive text-sm">
+                                No unit defined
+                              </span>
+                            );
+                          return (
+                            <Badge variant="outline" className="font-mono">
+                              {unitAbbr}
+                            </Badge>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Input
@@ -432,7 +522,7 @@ export default function NewIndentPage() {
           >
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+          <Button onClick={handleSubmit} disabled={isSubmitting || noDeptAssigned}>
             {isSubmitting ? (
               <BeatLoader color="white" size={8} />
             ) : (

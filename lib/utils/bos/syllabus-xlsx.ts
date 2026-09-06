@@ -7,18 +7,24 @@
  */
 
 import XLSX from '@/lib/utils/excel-compat';
-import type { BosCourseSyllabus } from '@/types/bos';
+import type { BosCourseSyllabus, BosExamScheme, BosInternshipPostings } from '@/types/bos';
+import { isPharmacyModel } from '@/lib/services/bos/academic-model';
 
 export const SHEET_NAMES = {
   objectives: 'Objectives',
   clos: 'COs',
   units: 'Units',
+  practicalTopics: 'Practical Topics',
   textbooks: 'Textbooks',
   references: 'References',
   webResources: 'WebResources',
   pedagogy: 'Pedagogy',
   poMapping: 'PO_Mapping',
   referenceCodes: 'Reference Codes',
+  // Pharmacy (COP) models — no CO/PO/Bloom; these replace them.
+  scope: 'Scope',
+  examScheme: 'Exam Scheme',
+  internship: 'Internship',
 } as const;
 
 const PEDAGOGY_METHODS = [
@@ -113,6 +119,56 @@ function addReferenceCodesSheet(wb: ReturnType<typeof XLSX.utils.book_new>) {
   XLSX.utils.book_append_sheet(wb, ws, SHEET_NAMES.referenceCodes);
 }
 
+// ── Pharmacy (COP) sheets — replace the CO/PO/Bloom/Pedagogy sheets ────
+
+function addScopeSheet(wb: ReturnType<typeof XLSX.utils.book_new>, scope?: string) {
+  addSheet(wb, SHEET_NAMES.scope, {
+    headers: ['Scope'],
+    rows: scope ? [[scope]] : [],
+    colWidths: [100],
+  });
+}
+
+function addExamSchemeSheet(wb: ReturnType<typeof XLSX.utils.book_new>, scheme?: BosExamScheme) {
+  const rows: (string | number)[][] = [];
+  // Components (name, max, min, duration)
+  (scheme?.components ?? []).forEach((c) => {
+    rows.push([c.name ?? '', c.max ?? '', c.min ?? '', c.duration_hours ?? '']);
+    (c.sub ?? []).forEach((s) => rows.push([`  • ${s.name ?? ''}`, s.max ?? '', '', '']));
+  });
+  // Totals / pass rule
+  const totalsBits: string[] = [];
+  if (scheme?.total_marks != null) totalsBits.push(`Total: ${scheme.total_marks}`);
+  if (scheme?.pass_pct != null) totalsBits.push(`Pass: ${scheme.pass_pct}%`);
+  if (scheme?.distinction_pct != null) totalsBits.push(`Distinction: ${scheme.distinction_pct}%`);
+  if (totalsBits.length) { rows.push(['', '', '', '']); rows.push([totalsBits.join('  ·  '), '', '', '']); }
+  // Question-paper pattern (B.Pharm)
+  const qp = scheme?.question_pattern;
+  if (qp?.sections?.length) {
+    rows.push(['', '', '', '']);
+    rows.push([`Question-paper pattern${qp.variant ? ` (${qp.variant} marks)` : ''}`, 'Marks', '', '']);
+    qp.sections.forEach((s) => rows.push([s.name ?? '', s.marks ?? '', '', '']));
+  }
+  if (scheme?.notes) { rows.push(['', '', '', '']); rows.push([`Notes: ${scheme.notes}`, '', '', '']); }
+  addSheet(wb, SHEET_NAMES.examScheme, {
+    headers: ['Component / Section', 'Max / Marks', 'Min', 'Duration (h)'],
+    rows,
+    colWidths: [48, 14, 8, 12],
+  });
+}
+
+function addInternshipSheet(wb: ReturnType<typeof XLSX.utils.book_new>, data?: BosInternshipPostings) {
+  const rows: (string | number)[][] = [];
+  if (data?.total_duration) rows.push([`Total duration: ${data.total_duration}`, '', '']);
+  (data?.postings ?? []).forEach((p) => rows.push([p.area ?? '', p.duration ?? '', p.repeat ?? '']));
+  if (data?.notes) rows.push([`Notes: ${data.notes}`, '', '']);
+  addSheet(wb, SHEET_NAMES.internship, {
+    headers: ['Area / Department', 'Duration', 'Repeat ×'],
+    rows,
+    colWidths: [48, 16, 10],
+  });
+}
+
 export async function buildSyllabusTemplate(): Promise<ArrayBuffer> {
   const wb = XLSX.utils.book_new();
 
@@ -145,40 +201,66 @@ export async function buildSyllabusTemplate(): Promise<ArrayBuffer> {
     ],
   });
 
+  // Units sheet shape mirrors buildSyllabusWorkbook so template + export are
+  // visually identical. 'Sections' (e.g. "6.1, 6.2, 6.3") is a chapter-level
+  // detail field, separate from the chapter 'title'.
+  //
+  // 'Hours' is the per-unit period marker (BosUnit.hours) — read only from a
+  // unit's FIRST row, like Title and Remarks. Accepts an Anna-University
+  // "9 + 3" theory+tutorial split or a plain "9"; printed by the CET/
+  // Engineering PDF renderer. Appended last so sheets authored before it
+  // shipped still import (the parser matches on header name, not position).
   addSheet(wb, SHEET_NAMES.units, {
-    headers: ['Unit *', 'Title', 'Chapter', 'Sub-topic', 'Remarks'],
+    headers: ['Unit *', 'Title', 'Chapter', 'Sections', 'Sub-topic', 'Remarks', 'Hours'],
     rows: [
-      ['I', 'Reciprocal Equations', 'Reciprocal Equations - Standard form', '', 'Book 1 - Chapter 6'],
-      ['I', '', '', 'Definition and properties of reciprocal equations', ''],
-      ['I', '', '', 'Roots of standard reciprocal equations', ''],
-      ['I', 'Reciprocal Equations', "Horner's method for roots of polynomials", '', ''],
-      ['II', 'Series', 'Summation of Series: Binomial-Exponential-Logarithmic', '', 'Book 1 - Chapter 3'],
-      ['II', '', '', 'Binomial series expansion', ''],
-      ['II', '', '', 'Exponential and logarithmic series', ''],
-      ['III', 'Matrices', 'Inverse of a square matrix, Characteristic equation', '', 'Book 2 - Chapter 2'],
-      ['IV', 'Trigonometry', 'Expansions of sinθ, cosθ in powers of sinθ, cosθ', '', 'Book 3 - Chapter 3'],
-      ['V', 'Hyperbolic Functions', 'Relation between circular and hyperbolic functions', '', 'Book 3 - Chapter 4'],
+      ['I', 'Reciprocal Equations', 'Reciprocal Equations - Standard form', '1.1, 1.2', '', 'Book 1 - Chapter 6', '9'],
+      ['I', '', '', '', 'Definition and properties of reciprocal equations', '', ''],
+      ['I', '', '', '', 'Roots of standard reciprocal equations', '', ''],
+      ['I', 'Reciprocal Equations', "Horner's method for roots of polynomials", '1.3', '', '', ''],
+      ['II', 'Series', 'Summation of Series: Binomial-Exponential-Logarithmic', '2.1, 2.2', '', 'Book 1 - Chapter 3', '9'],
+      ['II', '', '', '', 'Binomial series expansion', '', ''],
+      ['II', '', '', '', 'Exponential and logarithmic series', '', ''],
+      ['III', 'Matrices', 'Inverse of a square matrix, Characteristic equation', '3.1', '', 'Book 2 - Chapter 2', '9'],
+      ['IV', 'Trigonometry', 'Expansions of sinθ, cosθ in powers of sinθ, cosθ', '4.1', '', 'Book 3 - Chapter 3', '9'],
+      ['V', 'Hyperbolic Functions', 'Relation between circular and hyperbolic functions', '5.1', '', 'Book 3 - Chapter 4', '9'],
     ],
-    colWidths: [10, 28, 50, 40, 30],
+    colWidths: [10, 28, 50, 22, 40, 30, 10],
     validations: [{ sqref: 'A2:A60', values: ROMAN_NUMERALS, errorTitle: 'Invalid unit', error: 'Pick a Roman numeral I-X.' }],
   });
 
-  addSheet(wb, SHEET_NAMES.textbooks, {
-    headers: ['Title', 'Author'],
+  // Practical Topics sheet — only consumed when the syllabus is_practical=true.
+  // Present in the template (with example rows) so the shape matches the
+  // export side; harmless for regular-mode papers that just leave it empty.
+  addSheet(wb, SHEET_NAMES.practicalTopics, {
+    headers: ['S.No', 'Experiment / Topic'],
     rows: [
-      ['Algebra Vol-I, Viswanathan Publishers, 2008', 'Manickavasagam Pillai, T.K.'],
-      ['Algebra Vol-II, Viswanathan Publishers, 2008', 'Manickavasagam Pillai, T.K.'],
+      [1, 'Introduction to the laboratory and safety protocols'],
+      [2, 'Experiment 1: Basic measurements and observations'],
+      [3, 'Experiment 2: Data collection and analysis'],
     ],
-    colWidths: [60, 35],
+    colWidths: [8, 80],
+  });
+
+  const bookHeaders = ['Title', 'Author', 'Publication Year', 'Publisher'];
+  // 18 wch fits the 16-char 'Publication Year' header with breathing room.
+  const bookColWidths = [60, 35, 18, 30];
+
+  addSheet(wb, SHEET_NAMES.textbooks, {
+    headers: bookHeaders,
+    rows: [
+      ['Algebra Vol-I', 'Manickavasagam Pillai, T.K.', 2008, 'Viswanathan Publishers'],
+      ['Algebra Vol-II', 'Manickavasagam Pillai, T.K.', 2008, 'Viswanathan Publishers'],
+    ],
+    colWidths: bookColWidths,
   });
 
   addSheet(wb, SHEET_NAMES.references, {
-    headers: ['Title', 'Author'],
+    headers: bookHeaders,
     rows: [
-      ['Theory of Equations', 'W.S. Burnstine and A.W. Panton'],
-      ['Linear Algebra and its Applications, 3rd Ed., Pearson, 2007', 'David C. Lay'],
+      ['Theory of Equations', 'W.S. Burnstine and A.W. Panton', '', ''],
+      ['Linear Algebra and its Applications, 3rd Ed.', 'David C. Lay', 2007, 'Pearson'],
     ],
-    colWidths: [60, 35],
+    colWidths: bookColWidths,
   });
 
   addSheet(wb, SHEET_NAMES.webResources, {
@@ -220,6 +302,12 @@ export async function buildSyllabusTemplate(): Promise<ArrayBuffer> {
 export async function buildSyllabusWorkbook(syllabus: BosCourseSyllabus): Promise<ArrayBuffer> {
   const wb = XLSX.utils.book_new();
 
+  // Pharmacy (COP) models carry no CO/PO/PSO/Bloom or pedagogy — those sheets
+  // are skipped below and replaced by Scope / Exam Scheme / Internship.
+  const pharmacy = isPharmacyModel(syllabus.academic_model);
+  const isBPharm = syllabus.academic_model === 'pci_pharm';
+  if (pharmacy && isBPharm) addScopeSheet(wb, syllabus.scope);
+
   const objectives = (syllabus.course_objectives as any)?.objectives ?? [];
   const objRowCount = Math.max(objectives.length + 5, 30);
   addSheet(wb, SHEET_NAMES.objectives, {
@@ -229,67 +317,110 @@ export async function buildSyllabusWorkbook(syllabus: BosCourseSyllabus): Promis
     validations: [{ sqref: `A2:A${objRowCount}`, values: NUMBER_LIST_1_10 }],
   });
 
-  const clos = (syllabus.course_learning_outcomes as any)?.clos ?? [];
-  const cloRowCount = Math.max(clos.length + 5, 30);
-  addSheet(wb, SHEET_NAMES.clos, {
-    headers: ['CO *', 'Description *', ...CO_K_HEADERS],
-    rows: clos.map((c: any) => {
-      const ks = new Set<string>((c.k_values ?? []).map((k: string) => k.toUpperCase()));
-      return [
-        c.clo_number ?? '',
-        c.description ?? '',
-        ...CO_K_HEADERS.map((k) => (ks.has(k) ? '✓' : '')),
-      ];
-    }),
-    colWidths: [8, 60, 6, 6, 6, 6, 6, 6],
-    validations: [
-      { sqref: `A2:A${cloRowCount}`, values: NUMBER_LIST_1_10 },
-      ...CO_K_HEADERS.map((_, i) => ({
-        sqref: `${String.fromCharCode(67 + i)}2:${String.fromCharCode(67 + i)}${cloRowCount}`,
-        values: ['✓'],
-      })),
-    ],
-  });
+  // Course Outcomes (CO/Bloom) — Anna models only; pharmacy has none.
+  if (!pharmacy) {
+    const clos = (syllabus.course_learning_outcomes as any)?.clos ?? [];
+    const cloRowCount = Math.max(clos.length + 5, 30);
+    addSheet(wb, SHEET_NAMES.clos, {
+      headers: ['CO *', 'Description *', ...CO_K_HEADERS],
+      rows: clos.map((c: any) => {
+        const ks = new Set<string>((c.k_values ?? []).map((k: string) => k.toUpperCase()));
+        return [
+          c.clo_number ?? '',
+          c.description ?? '',
+          ...CO_K_HEADERS.map((k) => (ks.has(k) ? '✓' : '')),
+        ];
+      }),
+      colWidths: [8, 60, 6, 6, 6, 6, 6, 6],
+      validations: [
+        { sqref: `A2:A${cloRowCount}`, values: NUMBER_LIST_1_10 },
+        ...CO_K_HEADERS.map((_, i) => ({
+          sqref: `${String.fromCharCode(67 + i)}2:${String.fromCharCode(67 + i)}${cloRowCount}`,
+          values: ['✓'],
+        })),
+      ],
+    });
+  }
 
-  const units = (syllabus.course_content as any)?.units ?? [];
+  // course_content has two mutually exclusive shapes (see types/bos.ts):
+  //   • units[]  — regular papers
+  //   • topics[] with is_practical=true — lab/practical papers
+  // Earlier versions of this exporter only handled the units[] shape, silently
+  // dropping the body of every practical paper. See memory:
+  // project_bos_practical_topics_shape.
+  const content = syllabus.course_content as any;
+  const units = content?.units ?? [];
+  const isPractical = !!content?.is_practical;
+  const practicalTopics: Array<{ number?: number; title?: string }> = content?.topics ?? [];
+
   const unitRows: (string | number)[][] = [];
   for (const u of units) {
     const chapters = u.chapters ?? [];
+    // Per-unit period marker. Written on the unit's FIRST row only — the same
+    // convention Title and Remarks already follow, and what parseUnitsSheet
+    // reads back. Without this column the hours authored in the form were lost
+    // on every export → edit → re-import cycle.
+    const hours = u.hours ?? '';
     if (chapters.length === 0) {
-      unitRows.push([u.unit_id ?? '', u.unit_title ?? '', '', '', u.remarks ?? '']);
+      unitRows.push([u.unit_id ?? '', u.unit_title ?? '', '', '', '', u.remarks ?? '', hours]);
     } else {
       chapters.forEach((ch: any, idx: number) => {
+        // 'Sections' (e.g. "6.1, 6.2, 6.3") is a separate field from 'title' —
+        // form writes both, PDF reads both, but this exporter used to drop it.
         unitRows.push([
-          u.unit_id ?? '', u.unit_title ?? '', ch.title ?? '', '',
+          u.unit_id ?? '', u.unit_title ?? '', ch.title ?? '', ch.sections ?? '', '',
           idx === 0 ? (u.remarks ?? '') : '',
+          idx === 0 ? hours : '',
         ]);
         const subtopics = ch.subtopics ?? [];
         for (const st of subtopics) {
-          unitRows.push([u.unit_id ?? '', '', '', st.title ?? '', '']);
+          unitRows.push([u.unit_id ?? '', '', '', '', st.title ?? '', '', '']);
         }
       });
     }
   }
   const unitRowCount = Math.max(unitRows.length + 5, 60);
   addSheet(wb, SHEET_NAMES.units, {
-    headers: ['Unit *', 'Title', 'Chapter', 'Sub-topic', 'Remarks'],
+    headers: ['Unit *', 'Title', 'Chapter', 'Sections', 'Sub-topic', 'Remarks', 'Hours'],
     rows: unitRows,
-    colWidths: [10, 28, 50, 40, 30],
+    colWidths: [10, 28, 50, 22, 40, 30, 10],
     validations: [{ sqref: `A2:A${unitRowCount}`, values: ROMAN_NUMERALS }],
   });
 
+  if (isPractical && practicalTopics.length > 0) {
+    addSheet(wb, SHEET_NAMES.practicalTopics, {
+      headers: ['S.No', 'Experiment / Topic'],
+      rows: practicalTopics.map((t, i) => [t.number ?? i + 1, t.title ?? '']),
+      colWidths: [8, 80],
+    });
+  }
+
+  // BosTextbook has 4 fields (title, author, publication_year, publisher) —
+  // exporter used to write only the first two, silently dropping year/publisher.
+  // The importer only reads title+author back, so year/publisher are
+  // export-only (not round-trip-safe) until the parser is extended.
+  const bookRow = (b: any) => [
+    b.title ?? '',
+    b.author ?? '',
+    b.publication_year ?? '',
+    b.publisher ?? '',
+  ];
+  const bookHeaders = ['Title', 'Author', 'Publication Year', 'Publisher'];
+  // 18 wch fits the 16-char 'Publication Year' header with breathing room.
+  const bookColWidths = [60, 35, 18, 30];
+
   const primary = (syllabus.textbooks as any)?.primary ?? [];
   addSheet(wb, SHEET_NAMES.textbooks, {
-    headers: ['Title', 'Author'],
-    rows: primary.map((b: any) => [b.title ?? '', b.author ?? '']),
-    colWidths: [60, 35],
+    headers: bookHeaders,
+    rows: primary.map(bookRow),
+    colWidths: bookColWidths,
   });
 
   const refs = (syllabus.textbooks as any)?.references ?? [];
   addSheet(wb, SHEET_NAMES.references, {
-    headers: ['Title', 'Author'],
-    rows: refs.map((b: any) => [b.title ?? '', b.author ?? '']),
-    colWidths: [60, 35],
+    headers: bookHeaders,
+    rows: refs.map(bookRow),
+    colWidths: bookColWidths,
   });
 
   const webRes = (syllabus.web_resources as any)?.resources ?? [];
@@ -299,14 +430,26 @@ export async function buildSyllabusWorkbook(syllabus: BosCourseSyllabus): Promis
     colWidths: [22, 50],
   });
 
-  const methods = (syllabus.pedagogy as any)?.methods ?? [];
-  const methodRowCount = Math.max(methods.length + 5, 40);
-  addSheet(wb, SHEET_NAMES.pedagogy, {
-    headers: ['Method'],
-    rows: methods.map((m: string) => [m]),
-    colWidths: [40],
-    validations: [{ sqref: `A2:A${methodRowCount}`, values: PEDAGOGY_METHODS }],
-  });
+  // Pedagogy — Anna models only.
+  if (!pharmacy) {
+    const methods = (syllabus.pedagogy as any)?.methods ?? [];
+    const methodRowCount = Math.max(methods.length + 5, 40);
+    addSheet(wb, SHEET_NAMES.pedagogy, {
+      headers: ['Method'],
+      rows: methods.map((m: string) => [m]),
+      colWidths: [40],
+      validations: [{ sqref: `A2:A${methodRowCount}`, values: PEDAGOGY_METHODS }],
+    });
+  }
+
+  // ── Pharmacy: Exam Scheme + Internship replace PO Mapping + Reference Codes ──
+  if (pharmacy) {
+    addExamSchemeSheet(wb, syllabus.exam_scheme);
+    if (syllabus.academic_model === 'mgr_pharmd') {
+      addInternshipSheet(wb, syllabus.internship_postings);
+    }
+    return XLSX.writeBuffer(wb);
+  }
 
   const mappings = (syllabus.po_mappings as any)?.mappings ?? [];
   const psoCodes = new Set<string>();

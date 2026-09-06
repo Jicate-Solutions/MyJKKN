@@ -26,6 +26,7 @@ import { CourseService } from '@/lib/services/organization/course-service';
 import { toast } from 'react-hot-toast';
 import { Course } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -42,6 +43,7 @@ export function DataTableRowActions<TData>({
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const course = row.original as Course;
 
   const canView = isSuperAdmin || canAccess('organizations.courses', 'view');
@@ -53,14 +55,14 @@ export function DataTableRowActions<TData>({
     setIsDeleting(true);
     try {
       await CourseService.deleteCourse(course.id);
-      toast.success('Course deleted successfully');
+      toast.success(`${adapt('Course')} deleted successfully`);
       router.refresh();
       if (onDelete) {
         onDelete(course.id);
       }
     } catch (error) {
       console.error('Error deleting course:', error);
-      toast.error('Failed to delete course');
+      toast.error(`Failed to delete ${adapt('course')}`);
     } finally {
       setIsDeleting(false);
       setShowDeleteAlert(false);
@@ -117,8 +119,8 @@ export function DataTableRowActions<TData>({
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the
-              course &quot;{course.course_name}&quot;.
+              This action cannot be undone. This will permanently delete the{' '}
+              {adapt('course')} &quot;{course.course_name}&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

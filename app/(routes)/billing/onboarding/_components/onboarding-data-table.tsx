@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
-import { Receipt, X, Loader2 } from 'lucide-react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ReceiptIndianRupee, X, Loader2 } from 'lucide-react';
 import {
   useOnboardingLearners,
   useBulkGenerateBills,
@@ -23,6 +24,7 @@ import type {
 } from '@/lib/services/billing/onboarding/onboarding-service';
 
 const DEFAULT_PAGE_SIZE = 20;
+const FILTER_STORAGE_KEY = 'billing-onboarding-filters';
 
 type TabValue = 'all' | PaymentStatus;
 
@@ -33,14 +35,84 @@ const TABS: { value: TabValue; label: string }[] = [
   { value: 'fully_paid', label: 'Fully Paid' },
 ];
 
+const HIERARCHY_KEYS: OnboardingFilterKey[] = [
+  'institution_id',
+  'degree_id',
+  'department_id',
+  'program_id',
+  'bill_status',
+  'lifecycle_status',
+];
+
+
 export function OnboardingDataTable() {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<TabValue>('all');
-  const [hierarchyFilters, setHierarchyFilters] = useState<OnboardingHierarchyFilters>({});
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Derive state from URL search params so filters survive navigation
+  const page = parseInt(searchParams.get('page') || '1', 10);
+  const pageSize = parseInt(searchParams.get('pageSize') || String(DEFAULT_PAGE_SIZE), 10);
+  const search = searchParams.get('search') || '';
+  const activeTab = (searchParams.get('payment_status') || 'all') as TabValue;
+
+  const hierarchyFilters = useMemo<OnboardingHierarchyFilters>(() => {
+    const f: OnboardingHierarchyFilters = {};
+    for (const key of HIERARCHY_KEYS) {
+      const v = searchParams.get(key);
+      if (v) (f as any)[key] = v;
+    }
+    return f;
+  }, [searchParams]);
+
+  // Selection state is intentionally local — should not survive navigation
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions();
+
+  // Helper: update URL params (preserving unrelated ones)
+  const updateParams = useCallback(
+    (updates: Record<string, string | undefined>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === undefined || value === '') {
+          params.delete(key);
+        } else {
+          params.set(key, value);
+        }
+      }
+      const qs = params.toString();
+      router.replace(`/billing/onboarding${qs ? `?${qs}` : ''}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  // Persist filter params to sessionStorage so they survive sidebar navigation.
+  // Page/pageSize are intentionally excluded — always start fresh at page 1.
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('page');
+    params.delete('pageSize');
+    const qs = params.toString();
+    if (qs) {
+      sessionStorage.setItem(FILTER_STORAGE_KEY, qs);
+    } else {
+      sessionStorage.removeItem(FILTER_STORAGE_KEY);
+    }
+  }, [searchParams]);
+
+  // On mount: if the URL has no filter params (e.g. user arrived via sidebar),
+  // restore the last-used filters from sessionStorage.
+  const didRestoreRef = useRef(false);
+  useEffect(() => {
+    if (didRestoreRef.current) return;
+    didRestoreRef.current = true;
+    if (!searchParams.toString()) {
+      const saved = sessionStorage.getItem(FILTER_STORAGE_KEY);
+      if (saved) {
+        router.replace(`/billing/onboarding?${saved}`, { scroll: false });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally mount-only
 
   const filters: OnboardingFilters = {
     page,
@@ -50,25 +122,18 @@ export function OnboardingDataTable() {
     ...hierarchyFilters,
   };
 
-  // Filter mutations always reset pagination — staying on page 7 of a list
-  // that just shrunk to 2 pages would show a confusing empty page.
   const handleFilterChange = useCallback(
-    (key: OnboardingFilterKey, value: string | undefined) => {
-      setHierarchyFilters((prev) => {
-        const next = { ...prev };
-        if (value === undefined) delete next[key];
-        else (next as any)[key] = value;
-        return next;
-      });
-      setPage(1);
+    (updates: Partial<Record<OnboardingFilterKey, string | undefined>>) => {
+      updateParams({ ...updates, page: '1' });
     },
-    []
+    [updateParams]
   );
 
   const handleClearFilters = useCallback(() => {
-    setHierarchyFilters({});
-    setPage(1);
-  }, []);
+    const clear: Record<string, undefined> = { page: undefined };
+    for (const key of HIERARCHY_KEYS) clear[key] = undefined;
+    updateParams(clear);
+  }, [updateParams]);
 
   const { data: response, isLoading, isFetching } = useOnboardingLearners(filters);
   const bulkGenerate = useBulkGenerateBills();
@@ -104,6 +169,11 @@ export function OnboardingDataTable() {
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
+  // Build the URL the user is currently on (with all active filters) so that
+  // any navigation away from this page (View Bills, student name click) can
+  // carry a returnTo param — enabling a redirect back here after billing.
+  const returnToUrl = `/billing/onboarding${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+
   const columns = useMemo(
     () =>
       getOnboardingColumns({
@@ -112,47 +182,49 @@ export function OnboardingDataTable() {
         toggleAllOnPage,
         pageRowIds,
         generatingIds,
+        returnToUrl,
       }),
-    [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds]
+    [selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds, returnToUrl]
   );
 
-  // IMPORTANT: only reset page when the search term ACTUALLY changes.
-  // The DataTable's debounce fires onSearch(globalFilter) on mount even when
-  // globalFilter is unchanged — without this guard, that spurious mount-time
-  // call resets the user's page navigation back to 1.
+  // Ref to guard against the DataTable's spurious mount-time onSearch call
+  const searchRef = useRef(search);
+  searchRef.current = search;
+
   const handleSearch = useCallback((query: string) => {
-    setSearch((prev) => {
-      if (prev !== query) setPage(1);
-      return query;
-    });
-  }, []);
+    if (query !== searchRef.current) {
+      updateParams({ search: query || undefined, page: '1' });
+    }
+  }, [updateParams]);
 
   const handleTabChange = useCallback((value: string) => {
-    setActiveTab(value as TabValue);
-    setPage(1);
-  }, []);
+    updateParams({
+      payment_status: value === 'all' ? undefined : value,
+      page: '1',
+    });
+  }, [updateParams]);
 
   const handlePageChange = useCallback((newPage: number) => {
-    setPage(newPage);
-  }, []);
+    updateParams({ page: String(newPage) });
+  }, [updateParams]);
 
-  // Page size change resets to page 1 — staying on page 7 of a list that
-  // suddenly has 50% as many pages (because rows/page just doubled) would
-  // show a confusing empty page. Mirrors the filter/search reset behavior.
   const handlePageSizeChange = useCallback((newSize: number) => {
-    setPageSize(newSize);
-    setPage(1);
-  }, []);
+    updateParams({ pageSize: String(newSize), page: '1' });
+  }, [updateParams]);
 
   // Permission for the bulk-generate action — reuses billing.schedule.create
   // (the same permission needed to manually create a bill in /billing/schedule).
   const canGenerateBills =
     !permsLoading && (isSuperAdmin || canAccess('billing.schedule', 'create'));
 
-  // Filter selected to those that don't already have bills, so the count
-  // accurately reflects what would actually be created.
+  // Filter selected to those that don't already have bills AND are in 'account'
+  // status. Admitted/reserved learners are visible for tracking but must go
+  // through account transition before bills can be generated.
   const selectedLearners = learners.filter((l) => selectedIds.has(l.id));
-  const selectedWithoutBills = selectedLearners.filter((l) => l.bills.length === 0);
+  const selectedEligible = selectedLearners.filter(
+    (l) => l.bills.length === 0 && l.lifecycle_status === 'account'
+  );
+  const selectedWithoutBills = selectedEligible;
   const selectedAlreadyBilled = selectedLearners.length - selectedWithoutBills.length;
 
   const handleBulkGenerate = async () => {
@@ -184,7 +256,7 @@ export function OnboardingDataTable() {
   return (
     <div className="space-y-4">
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList>
+        <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
           {TABS.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
               {tab.label}
@@ -202,8 +274,8 @@ export function OnboardingDataTable() {
 
       {/* Bulk action toolbar — visible only when ≥1 row selected */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-4 py-3">
-          <div className="flex flex-col text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/40 px-4 py-3">
+          <div className="flex flex-col text-sm min-w-0">
             <span className="font-medium">
               {selectedIds.size} learner{selectedIds.size === 1 ? '' : 's'} selected
             </span>
@@ -237,7 +309,7 @@ export function OnboardingDataTable() {
                   </>
                 ) : (
                   <>
-                    <Receipt className="h-4 w-4 mr-1" />
+                    <ReceiptIndianRupee className="h-4 w-4 mr-1" />
                     Generate Bills
                     {selectedWithoutBills.length > 0 && ` (${selectedWithoutBills.length})`}
                   </>
@@ -253,6 +325,7 @@ export function OnboardingDataTable() {
         data={learners}
         searchPlaceholder="Search by name, email, or phone..."
         onSearch={handleSearch}
+        initialSearch={search}
         serverSidePagination={
           metadata
             ? {

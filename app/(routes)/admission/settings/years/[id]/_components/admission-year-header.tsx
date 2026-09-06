@@ -19,7 +19,7 @@ export function AdmissionYearHeader({
     isSuperAdmin || canAccess('admission.settings.years', 'edit');
 
   return (
-    <div className='flex justify-between items-center'>
+    <div className='flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center'>
       <div>
         <h1 className='text-2xl font-bold py-1'>
           {admissionYear.admission_year_name}
@@ -29,7 +29,7 @@ export function AdmissionYearHeader({
         </p>
       </div>
       {canEdit && (
-        <Button asChild>
+        <Button asChild className='shrink-0'>
           <Link href={`/admission/settings/years/${admissionYear.id}/edit`}>
             <PenSquare className='mr-2 h-4 w-4' />
             Edit Admission Year

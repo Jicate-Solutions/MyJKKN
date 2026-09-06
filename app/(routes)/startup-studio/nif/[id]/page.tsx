@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { Metadata } from 'next';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -25,7 +26,9 @@ export default async function NifCandidateDetailPage({
         ]}
       />
       <div className="space-y-6 mt-4">
-        <NifCandidateDetail id={id} />
+        <Suspense fallback={null}>
+          <NifCandidateDetail id={id} />
+        </Suspense>
       </div>
     </ContentLayout>
   );

@@ -5,6 +5,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import type { SentListResult } from '@/lib/services/notification/sent-service';
+import {
+  getTargetRoleKeys,
+  getTargetedUserIds
+} from '@/lib/notifications/target-audience';
 import { stripHtml } from '@/components/ui/rich-text-editor';
 
 /**
@@ -35,20 +39,36 @@ function describeAudience(targeting: Record<string, unknown> | null): string {
   const t = targeting as any;
   const parts: string[] = [];
   if (t.broadcast === true || t.broadcast === 'true') parts.push('Broadcast');
-  if (Array.isArray(t.target_roles) && t.target_roles.length > 0) {
+  // Hierarchy scalar keys — the primary path persisted by the admin create form
+  // (notification-form.tsx onSubmit: institution_id/department_id/program_id/
+  // semester_id/section_id). IDs aren't name-resolvable client-side (sent-service
+  // selects only the targeting column, no joins), so scope labels are the honest
+  // minimum. Without these branches a hierarchy-scoped notification fell through
+  // every check and showed the placeholder 'targeting set'.
+  if (t.institution_id) parts.push('Institution');
+  if (t.department_id) parts.push('Department');
+  if (t.program_id) parts.push('Program');
+  if (t.semester_id) parts.push('Semester');
+  if (t.section_id) parts.push('Section');
+  // Role and person targeting are read through the shared rule
+  // (lib/notifications/target-audience.ts, PR #3128) rather than a local
+  // `t.target_roles` / `t.user_ids` check. Senders emit five different keys for
+  // "these people": reading only two of them sent 3,491 person-targeted rows
+  // through every branch below and out the bottom as the placeholder
+  // 'targeting set', which says nothing about blast radius at all.
+  const roleKeys = getTargetRoleKeys(t);
+  if (roleKeys.length > 0) {
     parts.push(
-      t.target_roles.length === 1
-        ? `Role: ${t.target_roles[0]}`
-        : `${t.target_roles.length} roles`
+      roleKeys.length === 1 ? `Role: ${roleKeys[0]}` : `${roleKeys.length} roles`
     );
   }
-  if (Array.isArray(t.user_ids) && t.user_ids.length > 0) {
+  // KEEP: BYOW single-user notifications persist targeting: { user_ids: [...] }
+  // (lib/services/notification/byow-notification-service.ts:92) — this branch is live.
+  const recipientIds = getTargetedUserIds(t);
+  if (recipientIds.length > 0) {
     parts.push(
-      t.user_ids.length === 1 ? '1 user' : `${t.user_ids.length} users`
+      recipientIds.length === 1 ? '1 person' : `${recipientIds.length} people`
     );
-  }
-  if (Array.isArray(t.institution_ids) && t.institution_ids.length > 0) {
-    parts.push(`${t.institution_ids.length} institutions`);
   }
   if (Array.isArray(t.audience_ids) && t.audience_ids.length > 0) {
     parts.push(`${t.audience_ids.length} audiences`);
@@ -254,7 +274,7 @@ export function SentOutbox() {
             return (
               <Link
                 key={row.id}
-                href={`/admin/notifications/${row.id}`}
+                href={`/notifications/admin/${row.id}`}
                 className="group grid gap-3 px-6 py-4 border-b last:border-b-0 transition-colors hover:bg-stone-100/40 dark:hover:bg-stone-900/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
                 style={{
                   borderBottomColor: 'rgba(13,13,13,0.08)',

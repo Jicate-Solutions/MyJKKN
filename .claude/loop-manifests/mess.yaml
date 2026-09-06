@@ -1,0 +1,203 @@
+# Mess "Choose Your Menu" loop manifest — DISCOVERY PASS 2026-07-13.
+# Every fact below was verified read-only against jicate/main (git show) and the
+# prod DB (Mgmt API, ref kvizhngldtiuufknvehv) on 2026-07-13. The sim/walk have
+# NOT yet been executed live (unlike scf.yaml); receipts are cited per block.
+#
+# FUEL STATE re-verified 2026-07-13 (counts, prod): mess_dish_votes=203,
+# mess_meal_ratings=0, mess_meal_choices=0, mess_waste_log=0, mess_menus=112
+# (56 classic + 56 premium, 2 caterers), mess_menu_recommendations=16.
+# FIRST GENERATE HAS FIRED: ai_routine_schedules 'mess-menu-loop' last_fired_at
+# 2026-07-13 02:30 UTC, last_status "HTTP 200 · generated 16, measured 0"
+# (Mondays, minute_of_day=480, enabled). The 16 recs = 2 caterers × 2 tiers ×
+# 4 meals, all status='proposed' for week 2026-07-20, all with items, and ALL
+# with baseline_avg_rating NULL (0 ratings existed at generation) — so cycle 1
+# can never produce a non-NULL rating_lift (see sim.notes). Measure/verdict/
+# confound fuel is still 0.
+loop_key: mess
+name: Mess "Choose Your Menu" Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: mess_dish_votes            # demand signal (learner thumbs, UNIQUE(learner_id,item_id), vote in {1,-1})
+  action: mess_menu_recommendations # proposals + baselines + outcomes + verdict all on one row
+  # outcome signal lives in mess_meal_ratings (per-item 1..5, UNIQUE(profile_id,menu_id,item_text))
+  # joined via mess_menus(menu_id); waste leg in mess_waste_log.waste_percentage.
+  # mess_feedback is a DIFFERENT surface (meal-level dimensions → feedback-spine
+  # adapter /api/cron/feedback-adapter-mess); it is NOT read by this loop's measurer.
+
+# Driver: app/api/cron/mess-menu-loop/route.ts (jicate/main) — weekly two-pass:
+#   GENERATE fn_mess_recommend_next_menu(caterer,tier,meal,next Monday) per active
+#   slot (mess_menus rows w/ caterer_id+tier_key, tier ∈ mess.choose.voting.enabled_tiers),
+#   then MEASURE fn_mess_measure_menu_lift(id) for past unmeasured recs.
+# Gate: platform_policies mess.choose.loop.master_enabled = true (verified 2026-07-13).
+# Policies (verified): baseline_window_weeks=4, recommend_count=6, noise_band=0.2,
+#   min_ratings_k=3, voting.enabled_tiers=["classic","premium","premium_plus"].
+# NOT in vercel.json crons — scheduled via ai-routine-dispatcher
+#   (lib/ai-routines/feedback-adapters.ts id "mess-menu-loop" → triggerPath).
+
+sim:
+  sentinel: ZZAUDIT
+  # Verified schema facts the seed relies on:
+  # - mess_meal_ratings: NOT NULLs institution_id, profile_id, menu_id, item_text,
+  #   rating; FK ONLY on menu_id→mess_menus (profile_id/institution_id have NO FK
+  #   → gen_random_uuid() safe); CHECK rating 1..5; UNIQUE(profile_id,menu_id,item_text).
+  # - mess_menus: NOT NULLs institution_id(FK institutions), caterer_id(FK mess_caterers),
+  #   week_start_date, day_of_week, meal_type(enum breakfast|lunch|snacks|dinner|tea),
+  #   items(array), status(enum planned|confirmed|served|cancelled, default planned).
+  # - mess_menu_recommendations: UNIQUE(caterer_id,tier_key,meal_type,week_start_date);
+  #   status CHECK proposed|accepted|rejected|edited; caterer_id FK mess_caterers.
+  # - Strategy: use a REAL caterer id with a sentinel tier_key ('ZZAUDIT_TIER') and a
+  #   far-past week — avoids seeding mess_caterers (NOT NULL billing_model enum etc.)
+  #   while keeping the measurer's caterer+tier+meal+week join scoped to seeded rows only.
+  seed_input: |
+    -- (rolled-back txn) cycle-1 menu + k=3 ratings at 3 stars; week = far-past Monday
+    WITH cat AS (SELECT id, institution_id FROM public.mess_caterers LIMIT 1),
+         wk  AS (SELECT date_trunc('week', current_date - 400)::date AS w)
+    INSERT INTO public.mess_menus
+      (institution_id, caterer_id, week_start_date, day_of_week, meal_type, items, status, tier_key)
+    SELECT cat.institution_id, cat.id, wk.w, 1, 'lunch', ARRAY['ZZAUDIT item'], 'served', 'ZZAUDIT_TIER'
+    FROM cat, wk;
+    -- then, separate statement (needs the menu id):
+    INSERT INTO public.mess_meal_ratings (institution_id, profile_id, menu_id, item_text, rating)
+    SELECT m.institution_id, gen_random_uuid(), m.id, 'ZZAUDIT item', 3
+    FROM public.mess_menus m, generate_series(1,3)
+    WHERE m.tier_key = 'ZZAUDIT_TIER';
+  seed_action: |
+    -- cycle-1 recommendation with a known baseline (3.00); waste leg left NULL on purpose
+    INSERT INTO public.mess_menu_recommendations
+      (institution_id, caterer_id, tier_key, meal_type, week_start_date,
+       baseline_window_weeks, baseline_avg_rating, baseline_rating_n,
+       recommended_item_ids, rationale, status)
+    SELECT m.institution_id, m.caterer_id, 'ZZAUDIT_TIER', 'lunch', m.week_start_date,
+           4, 3.00, 3, ARRAY[gen_random_uuid()], '{"seed":"ZZAUDIT CYCLE1"}'::jsonb, 'proposed'
+    FROM public.mess_menus m WHERE m.tier_key = 'ZZAUDIT_TIER' LIMIT 1;
+  verifier: "public.fn_mess_measure_menu_lift(<rec_id>)"   # per-ROW measurer (verified in pg_proc)
+  asserts:
+    # derived from THIS fn: rating_lift = round(avg(rating) - baseline_avg_rating, 2),
+    # NULL unless outcome_rating_n >= min_ratings_k(3) AND baseline_avg_rating NOT NULL.
+    no_change: "0.00"                                       # 3x rating=3 vs baseline 3.00
+    known_delta: { seed: "UPDATE seeded ratings SET rating=5", expect: "2.00" }
+  reset_between_deltas: |
+    UPDATE public.mess_menu_recommendations
+    SET outcome_avg_rating=NULL, outcome_waste_pct=NULL, outcome_rating_n=NULL,
+        rating_lift=NULL, waste_lift=NULL, measured_at=NULL
+    WHERE tier_key = 'ZZAUDIT_TIER';
+  notes:
+    - measurer is per-recommendation-id (NOT a sweep like scf) — sim never touches
+      real rows even outside ROLLBACK, but still run inside BEGIN…ROLLBACK.
+    - waste leg has NO tier filter (caterer+meal+date only, fn body verified) — a
+      real caterer's waste rows in the sim week would contaminate waste_lift; use a
+      far-past week AND assert rating_lift only (baseline_waste_pct NULL ⇒ waste_lift NULL).
+    - waste_lift sign is INVERTED vs rating_lift — baseline − outcome (waste DOWN = positive).
+    - rating_lift is NULL (not 0) when outcome_rating_n < 3 — a 2-rating seed
+      silently yields NULL; always seed exactly k=3+.
+    - recommendations UNIQUE(caterer,tier,meal,week) — re-running seed_action in the
+      same txn conflicts; fn_mess_recommend_next_menu upserts on it (ON CONFLICT DO UPDATE).
+    - mess_menus.meal_type is enum, recommendation.meal_type is text — the fn joins
+      via m.meal_type::text; seed both as 'lunch'.
+    - fn_mess_measure_menu_lift + fn_mess_recommend_next_menu + set_verdict are all
+      EXECUTE-granted to `authenticated` (proacl verified; anon absent) — the
+      measurer/generator are callable by ANY logged-in user, and
+      fn_mess_recommendation_set_verdict has NO internal permission check (only
+      stamps reviewed_by=auth.uid()). UI-layer gating only. Flag for hardening.
+      (Re-confirmed 2026-07-13 by full body read — set_verdict's only gate is the
+      status whitelist accepted|rejected|edited.)
+    - CYCLE-1 NULL-BASELINE TRAP (added 2026-07-13, live rows verified) — all 16
+      real cycle-1 recs carry baseline_avg_rating NULL because zero ratings
+      existed at generation. rating_lift's CASE requires baseline NOT NULL, so
+      next Monday's MEASURE pass will stamp measured_at with rating_lift NULL on
+      all of them — expected, not a bug, but it means the loop cannot certify
+      lift before cycle 2, and a naive "measured>0 ⇒ loop works" read is wrong.
+
+confound:
+  verdict_column: status      # terminal review states accepted|rejected|edited ('proposed' = unreviewed)
+  query: |
+    SELECT status, count(*) AS n, round(avg(rating_lift),2) AS avg_lift,
+           round(stddev(rating_lift),2) AS sd
+    FROM mess_menu_recommendations
+    WHERE rating_lift IS NOT NULL GROUP BY 1;
+  min_rows: 10
+  # As of 2026-07-13: 0 measured rows, 0 verdicts — confound check = "insufficient fuel".
+  # The board's own guard computes the same aggregation client-side
+  # (mess-menu-loop-service.ts getCausalGuard — PostgREST has no GROUP BY).
+
+feed_forward:
+  reader: fn_mess_recommend_next_menu   # pure-SQL feed-forward — no LLM, no API needed
+  trigger:
+    kind: sql_rpc                       # runnable inside the same rolled-back txn
+    call: "SELECT public.fn_mess_recommend_next_menu(<real_caterer>, 'ZZAUDIT_TIER', 'lunch', <sentinel_week + 7>)"
+    precondition: cycle-1 rec measured with |rating_lift| <= noise_band(0.2) OR status='rejected'
+  pass_criteria: [cites_prior, cites_measured_outcome, changes_approach]
+  # Verified fn body: cycle-2 row gets prior_recommendation_id = cycle-1 id;
+  # rationale.feed_forward = {prior_id, prior_status, prior_rating_lift};
+  # change_approach=true excludes prior recommended_item_ids from scoring and
+  # copies them into demoted_item_ids. Assert all three on the returned row.
+  notes:
+    - scoring reads mess_dish_votes + mess_meal_choices JOINed to learners_profiles
+      gender vs caterer.gender_served — without sentinel votes the cycle-2
+      recommended_item_ids is legitimately EMPTY; assert the rationale/demotion
+      fields, not item counts.
+    - generation-time baseline is recomputed from the trailing 4w window — do not
+      assert cycle-2 baseline against cycle-1's stored value.
+
+walk:
+  personas:
+    student: test.student@jkkn.ac.in       # has learner_id (verified) — see BLOCKER below
+    superadmin: test.superadmin@jkkn.ac.in # is_super_admin bypass for board + RLS
+  hops:
+    - as: student
+      do: click
+      page: /campus-living/my-hostel/my-meals   # route verified on jicate/main; student campus_living.my_hostel.view=true (custom_roles verified)
+      target: "thumbs-up a dish on the Rate Dishes board (fn_mess_choose_cast_vote)"
+      assert_db: "mess_dish_votes row for the persona's learner_id, vote=1"
+    - as: superadmin
+      do: api_get
+      path: /api/cron/mess-menu-loop?secret=$CRON_SECRET   # CRON_SECRET auth, not persona
+      assert: "http 200 + generated>0 for enabled tiers (classic/premium slots exist: 112 menus, 2 caterers)"
+    - as: superadmin
+      do: click
+      page: /campus-living/mess/menu-loop
+      target: "Accept (or Reject) on a proposed recommendation"
+      assert_db: "mess_menu_recommendations.status='accepted', reviewed_by=<superadmin profile id>, reviewed_at set"
+    - as: superadmin
+      do: open_assert
+      page: /campus-living/mess/insights
+      expect: "dish-demand card reflects the sentinel vote (fn_mess_choose_live_counts/votable aggregates)"
+  # BLOCKER (verified 2026-07-13): test.student's learners_profiles.mess_category_id
+  # is NULL ⇒ fn_mess_choose_caller_context returns plan_key NULL ⇒ cast_vote returns
+  # 'plan_not_enabled'. Hop 1 needs the test learner assigned a mess_categories row
+  # whose menu_tier_key ∈ voting.enabled_tiers (a WRITE — needs explicit approval),
+  # or see-as-user impersonation of a real resident.
+  # Rating hop intentionally omitted from the default circuit — TWO verified
+  # reasons (2026-07-13): (1) mess-rating-gate enforces mess.rating.window_hours=2
+  # after the meal (premium_plus_only=false, policies verified) — only walkable
+  # within 2h of a real served meal; (2) STRONGER: RateMealDialog
+  # (app/(routes)/campus-living/mess/menu/_components/rate-meal-dialog.tsx) is
+  # defined but imported NOWHERE on jicate/main (grep verified) — there is
+  # currently NO reachable UI that writes mess_meal_ratings at all (0 rows live).
+  # This is the loop's #1 fuel gap: the measurer's outcome table has no wired
+  # intake. RLS would allow an authed direct insert (profile_id=auth.uid()).
+  # Board page gate: campus_living.settings.view (page.tsx verified) — chief_warden=true,
+  # warden=false, student/staff/hod=false. BUT the recommendations list rides RLS
+  # mmr_select = admin OR campus_living.mess.menu.manage + institution scope, and NO
+  # active role has menu.manage (custom_roles verified) ⇒ only admins/superadmins see rows.
+  forbidden:
+    - fn_mess_choose_recognize_voted_dish   # fans a 'vote_landed' recognition out to REAL residents who voted the dish (fn body verified; mess.choose.feedback.recognition=true)
+    - creating mess_feedback rows           # daily 01:15 UTC (ai_routine_schedules slot 405 = 06:45 IST) feedback-adapter-mess would ingest them into feedback_events (spine lane)
+    - verdicts on REAL 'proposed' recs      # they are the loop's control labels — verdict sentinel rows only, or revert (status='proposed', reviewed_* NULL)
+    # NOTE (corrected 2026-07-13): NO mess nudge lane exists — last_nudged_at
+    # lives only on school_visit_assignments (information_schema verified); no
+    # mess_* table carries it and no mess nudge cron exists on jicate/main.
+  cleanup: |
+    DELETE FROM mess_dish_votes WHERE learner_id = (SELECT learner_id FROM profiles WHERE email='test.student@jkkn.ac.in');
+    DELETE FROM mess_meal_ratings WHERE item_text LIKE 'ZZAUDIT%';
+    DELETE FROM mess_menu_recommendations WHERE tier_key LIKE 'ZZAUDIT%';
+    DELETE FROM mess_menus WHERE tier_key LIKE 'ZZAUDIT%';
+    -- verify in a SEPARATE call: sentinel counts = 0; real recs/votes counts restored.
+    -- Walk-generated REAL recommendations (from the cron hop) for real tiers: leave
+    -- 'proposed' rows in place ONLY if the chairperson wants them; otherwise delete
+    -- by week_start_date = the walk's Monday and status='proposed'.
+
+registry_gates_hint: '{"a":"on","f":"on","g":"on","m":"on"}'  # loop_registry verified 2026-07-13
+# loop_edges (verified): feedback-spine → mess (fuel, "Mess ratings intake adapter");
+#                        mess → metaloop (measured_outcomes, "Menu → rating deltas").

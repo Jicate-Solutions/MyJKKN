@@ -1,0 +1,54 @@
+{
+  "agent": "gamma",
+  "feature": "meta-lead-ads",
+  "branch": "feat/meta-lead-ads",
+  "route_prefixes": ["/admin/social/lead-ads"],
+  "module_key": "social_lead_ads",
+  "tables": [
+    "meta_lead_forms",
+    "meta_leadgen_events",
+    "meta_lead_field_mappings"
+  ],
+  "permission_keys": [
+    "social.lead_ads.view",
+    "social.lead_ads.manage"
+  ],
+  "api_routes": [
+    "GET  /api/admin/social/lead-ads/forms",
+    "POST /api/admin/social/lead-ads/forms",
+    "GET  /api/admin/social/lead-ads/forms/[id]/mappings",
+    "PUT  /api/admin/social/lead-ads/forms/[id]/mappings",
+    "POST /api/admin/social/lead-ads/forms/[id]/test",
+    "GET  /api/admin/social/lead-ads/events",
+    "GET  /api/cron/meta-leadgen-backfill",
+    "GET  /api/webhooks/meta/leadgen",
+    "POST /api/webhooks/meta/leadgen"
+  ],
+  "policies": [
+    "meta.leadgen.verify_token",
+    "meta.leadgen.signing_secret_key",
+    "meta.leadgen.is_enabled",
+    "meta.leadgen.default_institution_id (optional, read by importer if no form-level institution)",
+    "meta.leadgen.backfill_lookback_days (optional, default 7)"
+  ],
+  "env_vars": [
+    "META_LEAD_ADS_PAGE_ACCESS_TOKEN  — Page access token with leads_retrieval + pages_show_list",
+    "META_APP_SECRET                  — used for X-Hub-Signature-256 HMAC (per signing_secret_key policy)",
+    "CRON_SECRET                      — already in use; reused for /api/cron/meta-leadgen-backfill",
+    "SUPABASE_SERVICE_ROLE_KEY        — webhook + cron + admin test endpoint",
+    "NEXT_PUBLIC_SUPABASE_URL"
+  ],
+  "webhook": {
+    "object": "page",
+    "field": "leadgen",
+    "url": "https://www.jkkn.ai/api/webhooks/meta/leadgen",
+    "verify_token_source": "platform_policies row meta.leadgen.verify_token"
+  },
+  "meta_app_scopes_required": [
+    "leads_retrieval",
+    "pages_manage_metadata",
+    "pages_show_list",
+    "business_management"
+  ],
+  "permissions_audit_followup": "register module_key social_lead_ads in lib/permissions-audit/module-mappings.ts and the three meta_lead_* tables in lib/constants/table-module-map.ts in a follow-up PR (out of scope for gamma per negative permissions)."
+}

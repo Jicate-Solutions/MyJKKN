@@ -166,9 +166,13 @@ export default function BatchesPage() {
   const { data: expiringData, isLoading: expiringLoading } =
     useImsExpiringBatches(30, storeId || '', institutionId);
 
-  const allBatches: ImsStockBatch[] = Array.isArray(allBatchData)
-    ? allBatchData
-    : [];
+  // getStockBatches returns { data, metadata } (paginated wrapper); getExpiringBatches returns a flat array.
+  // Unwrap each according to its actual shape.
+  const allBatches: ImsStockBatch[] = Array.isArray(allBatchData?.data)
+    ? allBatchData.data
+    : Array.isArray(allBatchData)
+      ? allBatchData
+      : [];
   const expiringBatches: ImsStockBatch[] = Array.isArray(expiringData)
     ? expiringData
     : [];
@@ -236,9 +240,9 @@ export default function BatchesPage() {
         </div>
 
         {/* Location Filter */}
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <Select value={locationFilter} onValueChange={setLocationFilter}>
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-full sm:w-[200px]">
               <SelectValue placeholder="All Locations" />
             </SelectTrigger>
             <SelectContent>

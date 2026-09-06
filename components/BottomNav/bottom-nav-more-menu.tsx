@@ -10,6 +10,7 @@ import { BottomNavItem } from './bottom-nav-item';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   Sheet,
   SheetContent,
@@ -50,7 +51,13 @@ export const GROUP_TILE_GRADIENTS: Record<string, string> = {
   'Learners Council':        'bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-700',
 
   // People / HR — warm rose
-  'Human Resources':         'bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700',
+  // 'Employee Management' key removed 2026-07-20: that groupLabel was retired
+  // when /staff merged into the HR Management group as the "Employee" row.
+  'HR Management':           'bg-gradient-to-br from-rose-500 via-red-500 to-rose-800',
+  // 'Employee Self Service' key removed 2026-07-21 (same day it was added):
+  // that groupLabel was retired when self-service became a "Self Service" row
+  // INSIDE HR Management rather than its own section. A row inherits the
+  // group's tile, so it needs no gradient of its own.
 
   // Living / Wellness — amber / orange
   'Campus Living':           'bg-gradient-to-br from-amber-400 via-orange-500 to-amber-700',
@@ -66,6 +73,8 @@ export const GROUP_TILE_GRADIENTS: Record<string, string> = {
   // Finance / Resources — emerald / teal / sky
   'Billing & Accounts':      'bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-700',
   'Resources':               'bg-gradient-to-br from-teal-400 via-cyan-500 to-teal-700',
+  // IMS is sister to Resources — green/emerald blend, distinct from both
+  'IMS':                     'bg-gradient-to-br from-green-400 via-emerald-500 to-teal-700',
   'Service Requests':        'bg-gradient-to-br from-sky-400 via-blue-500 to-sky-700',
 
   // Performance / Compliance — cyan / sky
@@ -88,6 +97,9 @@ export function BottomNavMoreMenu({
 }: BottomNavMoreMenuProps) {
   const pathname = usePathname();
   const { favorites, isLoading: favoritesLoading } = usePageFavorites();
+  // Favorites store canonical titles; adapt on display so a school user sees
+  // "Streams" not "Degrees" (matches the sidebar Favorites section).
+  const adapt = useAdaptiveLabels();
 
   const { open: openCommandPalette } = useCommandPalette();
 
@@ -125,21 +137,29 @@ export function BottomNavMoreMenu({
   // multi-peer without changing this code — the criterion is data-driven.
   const groupTiles = groups
     .filter((g) => g.menus.length > 0)
-    .map((group) => ({
-      key: group.id,
-      label: group.groupLabel,
-      icon: group.icon,
-      href: group.topLevelPeers[0]?.href ?? group.menus[0].href,
-      hasMultipleModules: group.topLevelPeers.length > 1,
-      // Drill-down content: top-level peers only (Decision C from
-      // /assumption-thrash 2026-04-26). User goes peer → module root →
-      // in-page tabs handle the rest.
-      drillItems: group.topLevelPeers,
-      isActive: group.menus.some(
-        (m) => pathname === m.href || pathname.startsWith(m.href + '/')
-      ),
-      tileGradient: GROUP_TILE_GRADIENTS[group.groupLabel] ?? undefined
-    }));
+    .map((group) => {
+      // Drill-down content. Default (Decision C, /assumption-thrash 2026-04-26):
+      // show top-level peers only — user goes peer → module root → in-page tabs
+      // handle the rest. But a single-parent module (IMS, Billing) has ONE peer
+      // wrapping many submenus and NO in-page tabs to reach them on mobile, so
+      // its peers list would be a dead single row that just navigates away. For
+      // those, drill into the flattened submenus instead so every sub-page is
+      // reachable. Criterion is data-driven: >1 peer → peers; else → submenus.
+      const drillItems =
+        group.topLevelPeers.length > 1 ? group.topLevelPeers : group.menus;
+      return {
+        key: group.id,
+        label: group.groupLabel,
+        icon: group.icon,
+        href: group.topLevelPeers[0]?.href ?? group.menus[0].href,
+        hasMultipleModules: drillItems.length > 1,
+        drillItems,
+        isActive: group.menus.some(
+          (m) => pathname === m.href || pathname.startsWith(m.href + '/')
+        ),
+        tileGradient: GROUP_TILE_GRADIENTS[group.groupLabel] ?? undefined
+      };
+    });
 
   const drillGroup = drillIntoGroupId
     ? groupTiles.find((t) => t.key === drillIntoGroupId) ?? null
@@ -164,6 +184,18 @@ export function BottomNavMoreMenu({
       <SheetContent
         side="bottom"
         className="h-[88vh] rounded-t-3xl flex flex-col z-[90] p-0 [&>button]:hidden"
+        // The drawer is menu chrome, not readable content: a slow drag over
+        // the header, the tiles or the favourites strip used to start an iOS
+        // text selection and raise the Copy / Proofread menu instead of
+        // scrolling the list. The drawer renders in a portal, so it cannot
+        // inherit this from the nav and has to set it itself. Written as
+        // inline style because this project has no autoprefixer and older iOS
+        // Safari only honours the -webkit- form.
+        style={{
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          WebkitTouchCallout: 'none'
+        }}
       >
         <SheetHeader className="px-4 pt-3 pb-2 flex-shrink-0 flex flex-row items-center justify-between space-y-0">
           {drillGroup ? (
@@ -315,7 +347,7 @@ export function BottomNavMoreMenu({
                       )}
                     >
                       <Icon className="h-4 w-4" strokeWidth={2} />
-                      <span className="whitespace-nowrap">{fav.title}</span>
+                      <span className="whitespace-nowrap">{adapt(fav.title)}</span>
                     </button>
                   );
                 })}

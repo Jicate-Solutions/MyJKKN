@@ -2,19 +2,20 @@
  * MyJKKN Dashboard v2 — Service Worker
  * Handles Web Push notifications for Decision Queue alerts.
  *
- * Registered by components/dashboard/push-subscribe-button.tsx.
+ * Registered by components/dashboard/push-subscribe-button.tsx at the
+ * DEDICATED scope '/sw-dashboard-scope/' (no page lives under it), so this
+ * worker never controls any client and never contends with the main PWA
+ * worker (/sw.js) for scope '/'.
  * Receives push events from /api/dashboard/push-send (backend sender uses web-push lib).
+ *
+ * NOTE: intentionally NO install/activate handlers. This is a push-only
+ * worker — skipWaiting()/clients.claim() only matter for page control, and a
+ * root-scoped copy of this file calling skipWaiting() is exactly what used to
+ * steal control from /sw.js and fire phantom update prompts. Push delivery
+ * does not need page control: pushManager operates on the registration.
  *
  * Spec: specs/myjkkn-dashboard-v2-spec.md §4.4 (Web push alerts)
  */
-
-self.addEventListener('install', () => {
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
-});
 
 self.addEventListener('push', (event) => {
   if (!event.data) return;

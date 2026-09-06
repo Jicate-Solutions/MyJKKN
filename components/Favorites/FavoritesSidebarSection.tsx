@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Star, ChevronDown, Pin, X, GripVertical } from 'lucide-react';
@@ -23,6 +23,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { FavoritePage } from '@/lib/navigation/types';
@@ -35,8 +36,25 @@ interface FavoritesSidebarSectionProps {
  * Collapsible "Favorites" section at the top of the sidebar.
  * Supports drag-and-drop reordering via @dnd-kit.
  */
+// Remembered rendered height of this section, so a reload can reserve the space
+// before the favourites query resolves. Without it the section is 0px during
+// load and then snaps to its real height (595px for 16 favourites), shoving the
+// whole nav below it down — measured CLS 0.58 on /dashboard, well past Google's
+// 0.25 "poor" threshold, and it lands ~400ms in, right when the menu is first
+// clickable.
+const FAV_HEIGHT_KEY = 'sidebar:favorites-height';
+
 export function FavoritesSidebarSection({ isOpen }: FavoritesSidebarSectionProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+  const sectionRef = useRef<HTMLDivElement>(null);
+  // Starts at 0 and is filled on mount, never during render: reading
+  // localStorage while rendering would desync server and client HTML.
+  const [reservedHeight, setReservedHeight] = useState(0);
+
+  useEffect(() => {
+    const stored = Number(window.localStorage.getItem(FAV_HEIGHT_KEY));
+    if (Number.isFinite(stored) && stored > 0) setReservedHeight(stored);
+  }, []);
   const {
     favorites,
     pinnedFavorites,
@@ -70,8 +88,26 @@ export function FavoritesSidebarSection({ isOpen }: FavoritesSidebarSectionProps
     [pinnedFavorites, unpinnedFavorites, reorderFavorites]
   );
 
+  // Record the real rendered height so the NEXT load can reserve it. Only when
+  // fully expanded and open — a collapsed section would cache a height too small
+  // to prevent the shift.
+  useEffect(() => {
+    if (isLoading || favorites.length === 0 || isOpen === false || !isExpanded) return;
+    const h = sectionRef.current?.offsetHeight;
+    if (h && h > 0) window.localStorage.setItem(FAV_HEIGHT_KEY, String(h));
+  }, [isLoading, favorites.length, isOpen, isExpanded]);
+
+  // While the query is in flight, hold the space open instead of collapsing to
+  // nothing. On a first-ever visit there is no remembered height (0) and this
+  // renders nothing, exactly as before — every later visit is stable.
+  if (isLoading) {
+    return reservedHeight > 0 ? (
+      <div style={{ height: reservedHeight }} aria-hidden='true' />
+    ) : null;
+  }
+
   // Don't show if no favorites or sidebar collapsed
-  if (isLoading || favorites.length === 0) return null;
+  if (favorites.length === 0) return null;
 
   // In collapsed sidebar mode, show a star icon
   if (isOpen === false) {
@@ -87,7 +123,7 @@ export function FavoritesSidebarSection({ isOpen }: FavoritesSidebarSectionProps
   const allSortableItems = [...pinnedFavorites, ...unpinnedFavorites];
 
   return (
-    <div className="px-2 pt-1 pb-2">
+    <div ref={sectionRef} className="px-2 pt-1 pb-2">
       {/* Section Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
@@ -162,6 +198,7 @@ function SortableFavoriteItem({
   onTogglePin: () => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const adapt = useAdaptiveLabels();
   const IconComponent = ICON_MAP[favorite.iconName] || Star;
 
   const {
@@ -213,7 +250,7 @@ function SortableFavoriteItem({
         >
           <Link href={favorite.path}>
             <IconComponent className="h-3.5 w-3.5 mr-2 shrink-0" />
-            <span className="truncate flex-1">{favorite.title}</span>
+            <span className="truncate flex-1">{adapt(favorite.title)}</span>
             {favorite.isPinned && !isHovered && (
               <Pin className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
             )}

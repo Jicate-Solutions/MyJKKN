@@ -27,8 +27,10 @@
 
 import { UseFormReturn, useWatch } from 'react-hook-form';
 import { useEffect, useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, RefreshCw, Loader2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { LookupService } from '@/lib/services/admission/lookup-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -80,7 +82,6 @@ function isFullDims(d: Partial<FeeStructureMatrixDimensions>): boolean {
     d.programme_id &&
     d.quota_id &&
     d.community_category_id &&
-    d.accommodation_type_id &&
     d.admission_year_id
   );
 }
@@ -104,15 +105,16 @@ export function FinanceDetailsSection({
     name: 'admission_year_id',
   });
 
-  // Form fields for the 3 demographic dims are TEXT (legacy schema):
-  // `quota`, `community`, `accommodation_type`. The matrix lookup needs FK
-  // IDs from quotas / community_categories / accommodation_types. We resolve
-  // TEXT → FK on the fly so net-new enquiries (pre-save) can hit the matrix.
-  // For loaded learners (edit mode), the parent `extraDims` prop carries the
-  // already-saved FK IDs and takes priority — avoids a redundant lookup.
-  const quotaText = useWatch({ control: form.control, name: 'quota' }) as string | null | undefined;
+  // Community + accommodation are still TEXT form fields (legacy schema); the
+  // matrix needs FK IDs, so we resolve TEXT → FK on the fly. Quota is now the
+  // FK directly on the form (quota_id). For loaded learners (edit mode) the
+  // parent `extraDims` prop carries already-saved FK IDs and takes priority.
+  // The lookup arrays below are still loaded for id→name display labels in the
+  // NoMatchEmptyState.
+  const quotaIdValue = useWatch({ control: form.control, name: 'quota_id' }) as string | null | undefined;
   const communityText = useWatch({ control: form.control, name: 'community' }) as string | null | undefined;
   const accommodationText = useWatch({ control: form.control, name: 'accommodation_type' }) as string | null | undefined;
+  const genderValue = useWatch({ control: form.control, name: 'gender' }) as string | null | undefined;
 
   const [quotaLookup, setQuotaLookup] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [communityLookup, setCommunityLookup] = useState<Array<{ id: string; code: string; name: string }>>([]);
@@ -128,14 +130,10 @@ export function FinanceDetailsSection({
   }, []);
 
   useEffect(() => {
-    if (!institutionId) {
-      setAccommodationLookup([]);
-      return;
-    }
-    LookupService.listAccommodationTypes(institutionId, true).then((rows) =>
+    LookupService.listAccommodationTypes(true).then((rows) =>
       setAccommodationLookup(rows.map((r) => ({ id: r.id, code: r.code, name: r.name }))),
     );
-  }, [institutionId]);
+  }, []);
 
   // Resolve a TEXT value (e.g. "Government Quota" or "government" or "GQ")
   // to its FK id by checking against code OR name (case-insensitive trim).
@@ -154,20 +152,25 @@ export function FinanceDetailsSection({
     return match?.id;
   };
 
-  const resolvedQuotaId = useMemo(
-    () => extraDims?.quota_id ?? resolveLookupId(quotaText, quotaLookup),
-    [extraDims?.quota_id, quotaText, quotaLookup],
-  );
-  const resolvedCommunityId = useMemo(
-    () => extraDims?.community_category_id ?? resolveLookupId(communityText, communityLookup),
-    [extraDims?.community_category_id, communityText, communityLookup],
-  );
-  const resolvedAccommodationId = useMemo(
-    () =>
-      extraDims?.accommodation_type_id ??
-      resolveLookupId(accommodationText, accommodationLookup),
-    [extraDims?.accommodation_type_id, accommodationText, accommodationLookup],
-  );
+  // 2026-05-21: priority INVERTED. Previously `extraDims.X ?? resolveText()`
+  // — which made the saved FK win over live form-state. Result: changing
+  // accommodation/quota/community in the form and clicking Sync Fees did
+  // nothing because the panel still queried the matrix against the SAVED
+  // FK. Now we prefer the freshly-resolved text id; the saved FK is only
+  // a fallback for the case where the form text is empty (new enquiry
+  // pre-fill, or edit-mode hydration before the lookup arrays load).
+  const resolvedQuotaId = useMemo(() => {
+    // Quota is now the FK on the form (quota_id); use it directly.
+    return quotaIdValue || extraDims?.quota_id;
+  }, [extraDims?.quota_id, quotaIdValue]);
+  const resolvedCommunityId = useMemo(() => {
+    const fromText = resolveLookupId(communityText, communityLookup);
+    return fromText ?? extraDims?.community_category_id;
+  }, [extraDims?.community_category_id, communityText, communityLookup]);
+  const resolvedAccommodationId = useMemo(() => {
+    const fromText = resolveLookupId(accommodationText, accommodationLookup);
+    return fromText ?? extraDims?.accommodation_type_id;
+  }, [extraDims?.accommodation_type_id, accommodationText, accommodationLookup]);
 
   const dims: Partial<FeeStructureMatrixDimensions> = {
     institution_id: institutionId,
@@ -178,12 +181,137 @@ export function FinanceDetailsSection({
     community_category_id: resolvedCommunityId,
     accommodation_type_id: resolvedAccommodationId,
     admission_year_id: admissionYearIdValue,
+    gender: genderValue?.toUpperCase() || undefined,
   };
+
+  // ----- Org-side label resolution for NoMatchEmptyState -----
+  // The empty-state component shows the failed dim combination back to the
+  // user; without labels it falls back to raw UUIDs (e.g. "5de4fba1-... /
+  // b50b42af-..."). The 3 demographic dims already have lookup arrays loaded
+  // above (quotaLookup/communityLookup/accommodationLookup); resolve the
+  // remaining 5 org-side dims here from their source tables so the empty
+  // state reads as "JKKN College of Engineering and Technology / Undergraduate
+  // / Science and Humanities / B.E. CSE / ...".
+  const [orgLabels, setOrgLabels] = useState<{
+    institution_id?: string;
+    degree_id?: string;
+    department_id?: string;
+    programme_id?: string;
+    admission_year_id?: string;
+  }>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClientSupabaseClient();
+    (async () => {
+      const next: typeof orgLabels = {};
+      const tasks: Array<Promise<void>> = [];
+
+      if (institutionId) {
+        tasks.push(
+          (supabase as any)
+            .from('institutions')
+            .select('name')
+            .eq('id', institutionId)
+            .maybeSingle()
+            .then(({ data }: { data: { name?: string } | null }) => {
+              if (data?.name) next.institution_id = data.name;
+            }),
+        );
+      }
+      if (degreeId) {
+        tasks.push(
+          (supabase as any)
+            .from('degrees')
+            .select('degree_name')
+            .eq('id', degreeId)
+            .maybeSingle()
+            .then(({ data }: { data: { degree_name?: string } | null }) => {
+              if (data?.degree_name) next.degree_id = data.degree_name;
+            }),
+        );
+      }
+      if (departmentId) {
+        tasks.push(
+          (supabase as any)
+            .from('departments')
+            .select('department_name')
+            .eq('id', departmentId)
+            .maybeSingle()
+            .then(({ data }: { data: { department_name?: string } | null }) => {
+              if (data?.department_name) next.department_id = data.department_name;
+            }),
+        );
+      }
+      if (programIdValue) {
+        tasks.push(
+          (supabase as any)
+            .from('programs')
+            .select('program_name')
+            .eq('id', programIdValue)
+            .maybeSingle()
+            .then(({ data }: { data: { program_name?: string } | null }) => {
+              if (data?.program_name) next.programme_id = data.program_name;
+            }),
+        );
+      }
+      if (admissionYearIdValue) {
+        tasks.push(
+          (supabase as any)
+            .from('admission_years')
+            .select('admission_year_name')
+            .eq('id', admissionYearIdValue)
+            .maybeSingle()
+            .then(({ data }: { data: { admission_year_name?: string } | null }) => {
+              if (data?.admission_year_name) next.admission_year_id = data.admission_year_name;
+            }),
+        );
+      }
+
+      await Promise.all(tasks);
+      if (!cancelled) setOrgLabels(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [institutionId, degreeId, departmentId, programIdValue, admissionYearIdValue]);
+
+  // Combine org-side labels with the 3 demographic-dim lookup arrays we
+  // already loaded above. Any unresolved label stays undefined; the empty
+  // state falls back to the raw UUID for that dim — which is also a useful
+  // diagnostic (a UUID in the message means that specific dim references a
+  // row that no longer exists or was never created, e.g. an orphan quota_id).
+  const dimLabels = useMemo(() => {
+    return {
+      institution_id: orgLabels.institution_id,
+      degree_id: orgLabels.degree_id,
+      department_id: orgLabels.department_id,
+      programme_id: orgLabels.programme_id,
+      quota_id: quotaLookup.find((q) => q.id === resolvedQuotaId)?.name,
+      community_category_id: communityLookup.find((c) => c.id === resolvedCommunityId)?.name,
+      accommodation_type_id: accommodationLookup.find((a) => a.id === resolvedAccommodationId)?.name,
+      admission_year_id: orgLabels.admission_year_id,
+    };
+  }, [
+    orgLabels,
+    quotaLookup,
+    communityLookup,
+    accommodationLookup,
+    resolvedQuotaId,
+    resolvedCommunityId,
+    resolvedAccommodationId,
+  ]);
 
   // ----- Component state -----
   const [matchedStructure, setMatchedStructure] =
     useState<AdmissionFeeStructureWithItems | null>(null);
-  const [, setRefreshTick] = useState(0);
+  // Capture the tick value (not just the setter) so it can be forwarded into
+  // FeeStructureReadonlyPanel's effect deps — bumping it manually via the
+  // "Sync Fees" button or after an Adopt / Adjustment write triggers a refetch
+  // even when `dims` is unchanged. Previously only the setter was kept; the
+  // value was discarded, so refresh bumps never actually re-fetched the panel.
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   // ----- Legacy fee fields (only rendered when legacyFeeMode=true) -----
   const legacyFields: Array<{ name: string; label: string }> = [
@@ -194,8 +322,7 @@ export function FinanceDetailsSection({
     { name: 'dayscholar_fee', label: 'Dayscholar Fee' },
     { name: 'uniform_fee', label: 'Uniform Fee' },
     { name: 'hospital_training_fee', label: 'Hospital Training Fee' },
-    { name: 'placement_fee', label: 'Placement Fee' },
-    { name: 'transport_fee', label: 'Transport Fee' }
+    { name: 'placement_fee', label: 'Placement Fee' }
   ];
   const legacyValues = useWatch({
     control: form.control,
@@ -235,13 +362,60 @@ export function FinanceDetailsSection({
 
       {/* Fee Structure (read-only, matrix-derived) */}
       <section className='space-y-2'>
-        <h3 className='text-sm font-medium'>Fee Structure</h3>
+        <div className='flex items-center justify-between gap-3'>
+          <h3 className='text-sm font-medium'>Fee Structure</h3>
+          {/* Sync Fees — manual refresh of the matrix lookup. The panel
+           *  already re-fetches automatically when `dims` changes, but the
+           *  user-facing form sometimes lags (React Query stale cache, slow
+           *  TEXT→FK resolveLookupId, or simply needing a visible "I'm doing
+           *  something" affordance after filling the last field). This
+           *  button bumps `refreshTick` which is wired into the panel's
+           *  effect deps. Disabled until all 8 dims are filled so users
+           *  understand why nothing happens before then. */}
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={!isFullDims(dims) || syncing || readOnly}
+            onClick={() => {
+              setSyncing(true);
+              setRefreshTick((t) => t + 1);
+              toast.success('Syncing fee structure…');
+              // Release the button after a short delay — long enough for
+              // the panel's fetch to land in the typical case, short enough
+              // that a misclick doesn't feel stuck. The panel's own loading
+              // state covers the actual fetch indicator.
+              setTimeout(() => setSyncing(false), 800);
+            }}
+            title={
+              !isFullDims(dims)
+                ? 'Fill all 8 matrix dimensions (institution, degree, department, programme, quota, community, accommodation, admission year) to enable sync'
+                : 'Refresh the fee structure matrix lookup'
+            }
+          >
+            {syncing ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : (
+              <RefreshCw className='mr-2 h-4 w-4' />
+            )}
+            {syncing ? 'Syncing…' : 'Sync Fees'}
+          </Button>
+        </div>
         <FeeStructureReadonlyPanel
           dims={dims}
           onMatchChange={(m) => setMatchedStructure(m)}
+          refreshTick={refreshTick}
         />
-        {!matchedStructure && isFullDims(dims) && !legacyFeeMode && (
-          <NoMatchEmptyState dims={dims} />
+        {/* Show the "no match" reason whenever all dims are filled but the
+         *  matrix returned no structure — including for learners still in
+         *  legacy_fee_mode. Previously the `!legacyFeeMode` guard hid this
+         *  banner for legacy users, leaving them with no explanation of
+         *  why the new structure didn't load. Per 2026-05-20 product call,
+         *  legacy users should always see either (a) the matched structure
+         *  or (b) the no-match reason, so they can decide whether to fix
+         *  their dims or click "Adopt Structure" on the legacy banner. */}
+        {!matchedStructure && isFullDims(dims) && (
+          <NoMatchEmptyState dims={dims} dimLabels={dimLabels} />
         )}
       </section>
 
@@ -256,10 +430,18 @@ export function FinanceDetailsSection({
         </section>
       )}
 
-      {/* Legacy fee fields — preserved but only visible when legacy_fee_mode=true.
-       *  These are individual NUMERIC columns on learners_profiles that predate
-       *  the fee_items[] flow. Editable so users can zero out or clear all. */}
-      {legacyFeeMode && (
+      {/* Legacy fee fields — preserved but only visible when:
+       *    (a) the learner is still in legacy_fee_mode, AND
+       *    (b) NO matrix structure has matched for their dims.
+       *  When a matrix structure IS matched, the new structure card above
+       *  is the canonical display — duplicating the same numbers in legacy
+       *  zero-amount inputs (per the 2026-05-21 screenshot bug report) adds
+       *  noise without adding value. The legacy fields remain as a fallback
+       *  so legacy learners with no matching matrix structure aren't left
+       *  with a totally blank Finance tab. The "Adopt Structure" button on
+       *  LegacyModeBanner above is the canonical migration path once a
+       *  matrix structure exists. */}
+      {legacyFeeMode && !matchedStructure && (
         <div className='space-y-3 pt-6 border-t border-dashed'>
           <div className='flex items-start justify-between gap-4'>
             <div>

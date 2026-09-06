@@ -45,7 +45,8 @@ export function ReceiptDetailsServer({ receipt }: ReceiptDetailsServerProps) {
       online: { variant: 'secondary' as const, label: 'Online' },
       bank_transfer: { variant: 'outline' as const, label: 'Bank Transfer' },
       dd: { variant: 'secondary' as const, label: 'DD' },
-      cheque: { variant: 'outline' as const, label: 'Cheque' }
+      cheque: { variant: 'outline' as const, label: 'Cheque' },
+      combined: { variant: 'outline' as const, label: 'Combined Payment' }
     };
 
     const config = modeConfig[mode as keyof typeof modeConfig] || {
@@ -101,6 +102,11 @@ export function ReceiptDetailsServer({ receipt }: ReceiptDetailsServerProps) {
                 </div>
                 <div className='text-green-100'>
                   {formatDate(receipt.receipt_date)}
+                  {receipt.created_at && (
+                    <span className='ml-2 text-green-200 text-sm'>
+                      {format(new Date(receipt.created_at), 'hh:mm a')}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -151,6 +157,11 @@ export function ReceiptDetailsServer({ receipt }: ReceiptDetailsServerProps) {
                     <span>Receipt Date:</span>
                     <span className='font-medium'>
                       {formatDate(receipt.receipt_date)}
+                      {receipt.created_at && (
+                        <span className='text-muted-foreground text-sm ml-1'>
+                          {format(new Date(receipt.created_at), 'hh:mm a')}
+                        </span>
+                      )}
                     </span>
                   </div>
                   {receipt.payment_reference_number && (

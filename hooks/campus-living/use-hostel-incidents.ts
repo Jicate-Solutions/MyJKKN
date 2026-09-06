@@ -81,3 +81,43 @@ export function useDeleteHostelIncident() {
     },
   });
 }
+
+/**
+ * Warden confirmation flow — calls IncidentService.confirmAndCreateMaintenanceLog
+ * to promote an incident with a non-null resource_id into a
+ * resource_maintenance_logs row. See specs/campus-living-rm-integration.md PR-2.
+ */
+export function useConfirmIncidentAsMaintenanceLog() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      incidentId,
+      confirmedByUserId,
+      note,
+    }: {
+      incidentId: string;
+      confirmedByUserId: string;
+      note?: string;
+    }) =>
+      IncidentService.confirmAndCreateMaintenanceLog(
+        incidentId,
+        confirmedByUserId,
+        note,
+      ),
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: hostelIncidentKeys.all });
+      queryClient.invalidateQueries({
+        queryKey: hostelIncidentKeys.detail(variables.incidentId),
+      });
+      // RM maintenance log list is owned by resource-management hooks;
+      // invalidate by exact-string prefix to be safe across both modules.
+      queryClient.invalidateQueries({ queryKey: ['maintenance-logs'] });
+      toast.success(
+        `Maintenance log created (id: ${data.maintenance_log_id.slice(0, 8)}…)`,
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to confirm incident: ${error.message}`);
+    },
+  });
+}

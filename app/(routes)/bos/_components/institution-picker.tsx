@@ -51,14 +51,27 @@ export function InstitutionPicker({
   onChange,
   onSelect,
   showAllOption = false,
+  allowAllInstitutions = false,
+  hideLabel = false,
+  className,
 }: {
   value: string | undefined;
   onChange: (institutionId: string | undefined) => void;
   onSelect?: (option: InstitutionOption) => void;
   showAllOption?: boolean;
+  /**
+   * When true, fetch the FULL institution list even for non-super-admins.
+   * Pass for BoS read-all observers (view-grant holders) — the
+   * /api/institutions/resolve list mode authorizes them server-side.
+   */
+  allowAllInstitutions?: boolean;
+  /** When true, render bare select without the "Institution" label — for compact filter rows. */
+  hideLabel?: boolean;
+  /** Override the trigger width (default `w-[220px]`). */
+  className?: string;
 }) {
   const ownCtx = useInstitutionContext();
-  const allCtx = useAllInstitutionContexts();
+  const allCtx = useAllInstitutionContexts({ enabled: allowAllInstitutions });
 
   const institutions = useMemo<InstitutionOption[]>(() => {
     if (allCtx.data && allCtx.data.length > 0) {
@@ -86,27 +99,33 @@ export function InstitutionPicker({
     ...institutions.map((i) => ({ value: i.id, label: `${i.institution_code} — ${i.name}` })),
   ];
 
+  const select = (
+    <SearchableSelect
+      value={selectValue}
+      onValueChange={(picked) => {
+        if (picked === ALL_SENTINEL) {
+          onChange(undefined);
+        } else {
+          onChange(picked);
+          const opt = institutions.find((i) => i.id === picked);
+          if (opt) onSelect?.(opt);
+        }
+      }}
+      options={options}
+      loading={isLoading}
+      disabled={institutions.length === 0 && !isLoading}
+      placeholder='Select institution'
+      searchPlaceholder='Search institution…'
+      className={className ?? 'w-[220px]'}
+    />
+  );
+
+  if (hideLabel) return select;
+
   return (
     <div className='space-y-1'>
       <Label className='text-xs'>Institution</Label>
-      <SearchableSelect
-        value={selectValue}
-        onValueChange={(picked) => {
-          if (picked === ALL_SENTINEL) {
-            onChange(undefined);
-          } else {
-            onChange(picked);
-            const opt = institutions.find((i) => i.id === picked);
-            if (opt) onSelect?.(opt);
-          }
-        }}
-        options={options}
-        loading={isLoading}
-        disabled={institutions.length === 0 && !isLoading}
-        placeholder='Select institution'
-        searchPlaceholder='Search institution…'
-        className='w-[220px]'
-      />
+      {select}
     </div>
   );
 }

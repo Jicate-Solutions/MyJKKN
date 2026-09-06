@@ -4,7 +4,7 @@
 //
 // HR officer view: list of onboarding checklist TEMPLATES by organization +
 // cadre. Read-only — admins manage the templates at
-// /admin/hr/onboarding-checklists.
+// /hr/admin/onboarding-checklists.
 //
 // Why this page exists despite "no instance table":
 //   The original task plan assumed an instance table tracking each new
@@ -81,7 +81,7 @@ export default function HROnboardingPage() {
               officers brief new joiners against these checklists. To edit a
               template, ask your admin to update it from{' '}
               <Link
-                href="/admin/hr/onboarding-checklists"
+                href="/hr/admin/onboarding-checklists"
                 className="text-primary underline"
               >
                 Admin → HR → Onboarding Checklists
@@ -268,7 +268,7 @@ function EmptyState({ status }: { status: StatusFilter }) {
       <p className="mt-1 text-xs">
         Admins can create templates from{' '}
         <Link
-          href="/admin/hr/onboarding-checklists"
+          href="/hr/admin/onboarding-checklists"
           className="text-primary underline"
         >
           Admin → HR → Onboarding Checklists

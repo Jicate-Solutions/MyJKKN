@@ -16,6 +16,11 @@ export async function GET(request: NextRequest) {
       : institutionId
         ? [institutionId]
         : [];
+    // Edit forms pass `preferId` so the dedup-by-code below keeps the exact
+    // regulation row the syllabus already references (CAS Aided+Self share
+    // regulation_codes — without this hint the survivor is arbitrary and the
+    // edit form's Regulation dropdown shows the placeholder).
+    const preferId = searchParams.get('preferId');
 
     let query = supabase
       .from('regulations')
@@ -33,19 +38,28 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     // Deduplicate by regulation_code — CAS Aided+Self may share the same codes.
+    // If `preferId` is provided, push that row to the front so it wins the
+    // first-wins dedup (lets edit forms keep their existing reference).
     const seen = new Set<string>();
-    const formatted = (data || [])
-      .map((reg: any) => ({
-        id: reg.id,
-        title: `${reg.regulation_code} (${reg.regulation_year})`,
-        regulation_year: reg.regulation_year,
-        regulation_code: reg.regulation_code,
-      }))
-      .filter((r) => {
-        if (seen.has(r.regulation_code)) return false;
-        seen.add(r.regulation_code);
-        return true;
+    const mapped = (data || []).map((reg: any) => ({
+      id: reg.id,
+      title: `${reg.regulation_code} (${reg.regulation_year})`,
+      regulation_year: reg.regulation_year,
+      regulation_code: reg.regulation_code,
+      institution_id: reg.institution_id,
+    }));
+    if (preferId) {
+      mapped.sort((a, b) => {
+        if (a.id === preferId) return -1;
+        if (b.id === preferId) return 1;
+        return 0;
       });
+    }
+    const formatted = mapped.filter((r) => {
+      if (seen.has(r.regulation_code)) return false;
+      seen.add(r.regulation_code);
+      return true;
+    });
 
     return NextResponse.json({ data: formatted, count: formatted.length });
   } catch (error) {

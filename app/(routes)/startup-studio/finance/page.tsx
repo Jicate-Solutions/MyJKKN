@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { Metadata } from 'next';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -24,7 +25,9 @@ export default function FinancePage() {
             Grants, budgets, revenue tracking, and audit compliance for the incubation centre
           </p>
         </div>
-        <FinanceDashboard />
+        <Suspense fallback={null}>
+          <FinanceDashboard />
+        </Suspense>
       </div>
     </ContentLayout>
   );

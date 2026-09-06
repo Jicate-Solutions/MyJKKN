@@ -30,7 +30,14 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
-/** Anthropic model ID used by Layer 4. Keep in sync with anthropic-client.ts. */
+/**
+ * Anthropic model ID for Layer 4 — since the ai_model_config adoption
+ * (feature_key `attention_bar.assistant`) the RUNTIME model is resolved in
+ * anthropic-client.ts via resolveChatModel; this constant remains (a) the
+ * persistence fallback in layer-4.ts and (b) the model the USD rates below
+ * are keyed to. If the config row moves off Haiku 4.5, update these rates
+ * per the "HOW TO UPDATE" block above.
+ */
 export const LAYER_4_MODEL = 'claude-haiku-4-5-20251001';
 
 /**

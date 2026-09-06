@@ -231,7 +231,7 @@ export function LeaveDayCell({ day, date, dayInfo, isToday, canApplyLeave, onApp
           )}
 
           {/* Apply Leave action */}
-          {canApplyLeave && onApplyLeave && !isSunday && (
+          {canApplyLeave && onApplyLeave && (
             <div className='pt-2 border-t'>
               <Button
                 size='sm'

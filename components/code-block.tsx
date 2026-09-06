@@ -21,12 +21,12 @@ export function CodeBlock({ code, language }: CodeBlockProps) {
   };
 
   return (
-    <div className='relative'>
+    <div className='relative max-w-full overflow-x-auto'>
       <Button
         onClick={onCopy}
         variant='ghost'
         size='icon'
-        className='absolute right-2 top-2 text-muted-foreground'
+        className='absolute right-2 top-2 z-10 text-muted-foreground'
       >
         {copied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
       </Button>
@@ -35,7 +35,8 @@ export function CodeBlock({ code, language }: CodeBlockProps) {
         style={vscDarkPlus}
         customStyle={{
           borderRadius: '0.5rem',
-          padding: '1rem'
+          padding: '1rem',
+          maxWidth: '100%'
         }}
       >
         {code.trim()}

@@ -1,7 +1,8 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { StaffPlanningSearchParams } from './data-table-schema';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ export function StaffPlanningDataTable({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showBulkCloneDialog, setShowBulkCloneDialog] = useState(false);
 
+  const adapt = useAdaptiveLabels();
   const {
     canAccess,
     isSuperAdmin,
@@ -168,7 +170,7 @@ export function StaffPlanningDataTable({
     selectedRows: any[];
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreateStaffPlan && (
         <>
           <Button
@@ -232,7 +234,7 @@ export function StaffPlanningDataTable({
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adapt) as any}
         exportConfig={{
           entityName: 'staff-plans',
           columnMapping: {},

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import toast from 'react-hot-toast';
 
 /**
@@ -54,6 +55,7 @@ export function ImportDialog({
   onOpenChange,
   onImportComplete
 }: ImportDialogProps) {
+  const adapt = useAdaptiveLabels();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -138,7 +140,7 @@ export function ImportDialog({
       // Show toast notification
       if (data.success) {
         toast.success(
-          `Successfully imported ${data.successCount} course mapping${data.successCount !== 1 ? 's' : ''}!`,
+          `Successfully imported ${data.successCount} ${adapt('course')} mapping${data.successCount !== 1 ? 's' : ''}!`,
           {
             icon: <CheckCircle2 className="h-4 w-4" />,
             duration: 5000
@@ -212,11 +214,11 @@ export function ImportDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            Import Course Mappings
+            Import {adapt('Course')} Mappings
           </DialogTitle>
           <DialogDescription>
-            Upload an Excel file to import multiple course mappings at once. The file must match
-            the template format with 5-level cascading hierarchy (Institution &rarr; Degree &rarr; Department &rarr; Program &rarr; Semester).
+            Upload an Excel file to import multiple {adapt('course')} mappings at once. The file must match
+            the template format with 5-level cascading hierarchy (Institution &rarr; {adapt('Degree')} &rarr; {adapt('Department')} &rarr; {adapt('Program')} &rarr; {adapt('Semester')}).
           </DialogDescription>
         </DialogHeader>
 
@@ -253,10 +255,10 @@ export function ImportDialog({
             >
               {file ? (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-center gap-2">
-                    <FileSpreadsheet className="h-8 w-8 text-blue-500" />
-                    <div className="text-left">
-                      <p className="font-medium text-sm">{file.name}</p>
+                  <div className="flex items-center justify-center gap-2 min-w-0">
+                    <FileSpreadsheet className="h-8 w-8 text-blue-500 shrink-0" />
+                    <div className="text-left min-w-0">
+                      <p className="font-medium text-sm truncate">{file.name}</p>
                       <p className="text-xs text-muted-foreground">
                         {(file.size / 1024).toFixed(2)} KB
                       </p>
@@ -322,7 +324,7 @@ export function ImportDialog({
                   <div className="space-y-2">
                     <p className="font-medium">
                       {result.success
-                        ? `Successfully imported ${result.successCount} course mapping${result.successCount !== 1 ? 's' : ''}`
+                        ? `Successfully imported ${result.successCount} ${adapt('course')} mapping${result.successCount !== 1 ? 's' : ''}`
                         : `Import failed with ${result.errorCount} error${result.errorCount !== 1 ? 's' : ''}`}
                     </p>
                     <div className="flex gap-4 text-sm">
@@ -378,7 +380,7 @@ export function ImportDialog({
               {result.duplicateMappings && result.duplicateMappings.length > 0 && (
                 <div className="border rounded-lg p-4">
                   <h4 className="font-medium text-sm mb-2">
-                    Duplicate Course Mappings
+                    Duplicate {adapt('Course')} Mappings
                   </h4>
                   <ul className="text-sm space-y-1 text-muted-foreground">
                     {result.duplicateMappings.map((mapping, index) => (

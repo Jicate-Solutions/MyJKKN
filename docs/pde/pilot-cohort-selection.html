@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDE Pilot Cohort — Selection Framework</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    :root {
+      --navy: #0a2540;
+      --navy-light: #1a3a5c;
+      --gold: #c8a951;
+      --gold-light: #e6c875;
+      --bg: #fafbfc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #1a202c;
+      --text-muted: #64748b;
+      --success: #15803d;
+      --warning: #b45309;
+      --danger: #b91c1c;
+      --info: #0369a1;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      padding: 40px 20px;
+      font-size: 15px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: var(--surface);
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(10, 37, 64, 0.06);
+      overflow: hidden;
+    }
+
+    header {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
+      color: white;
+      padding: 48px 56px 40px;
+      border-bottom: 4px solid var(--gold);
+    }
+
+    header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    header .subtitle {
+      font-size: 16px;
+      color: var(--gold-light);
+      font-weight: 500;
+      margin-bottom: 16px;
+    }
+
+    header .meta {
+      display: flex;
+      gap: 24px;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.75);
+      flex-wrap: wrap;
+    }
+
+    header .meta span strong {
+      color: white;
+      font-weight: 600;
+    }
+
+    .content { padding: 40px 56px 56px; }
+
+    section {
+      margin-bottom: 48px;
+      padding-bottom: 40px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+      margin-bottom: 0;
+    }
+
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    h2 .num {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gold);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      background: rgba(200, 169, 81, 0.1);
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--navy);
+      margin: 24px 0 12px;
+    }
+
+    p { margin-bottom: 14px; color: var(--text); }
+    p.lead { font-size: 16px; color: var(--text-muted); margin-bottom: 20px; }
+    ul, ol { margin: 12px 0 18px 24px; }
+    ul li, ol li { margin-bottom: 8px; }
+    strong { font-weight: 600; color: var(--navy); }
+
+    code {
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 13px;
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--navy);
+    }
+
+    .callout {
+      background: #f8fafc;
+      border-left: 4px solid var(--gold);
+      padding: 16px 20px;
+      border-radius: 0 8px 8px 0;
+      margin: 16px 0;
+    }
+    .callout.info { border-left-color: var(--info); background: #f0f9ff; }
+    .callout.warning { border-left-color: var(--warning); background: #fffbeb; }
+    .callout.success { border-left-color: var(--success); background: #f0fdf4; }
+    .callout.danger { border-left-color: var(--danger); background: #fef2f2; }
+
+    .callout-title {
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+      color: var(--navy);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px;
+      font-size: 14px;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    thead { background: var(--navy); color: white; }
+
+    th {
+      padding: 12px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    td {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:hover { background: #f1f5f9; }
+
+    td.num { text-align: center; font-variant-numeric: tabular-nums; font-weight: 500; }
+    td.weight { text-align: center; font-weight: 600; color: var(--gold); }
+
+    .criteria-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      background: white;
+    }
+
+    .criteria-card .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .criteria-card h4 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--navy);
+    }
+
+    .criteria-card .weight-badge {
+      background: var(--gold);
+      color: var(--navy);
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .criteria-card .scoring {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border);
+    }
+
+    .timeline {
+      list-style: none;
+      margin-left: 0;
+      padding-left: 0;
+    }
+
+    .timeline li {
+      position: relative;
+      padding: 14px 0 14px 36px;
+      border-left: 2px solid var(--border);
+      margin-left: 12px;
+    }
+
+    .timeline li:before {
+      content: '';
+      position: absolute;
+      left: -8px;
+      top: 20px;
+      width: 14px;
+      height: 14px;
+      background: var(--gold);
+      border-radius: 50%;
+      border: 3px solid white;
+      box-shadow: 0 0 0 2px var(--gold);
+    }
+
+    .timeline .day {
+      font-weight: 700;
+      color: var(--navy);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .worksheet-table input[type="text"],
+    .worksheet-table input[type="number"] {
+      width: 100%;
+      border: none;
+      background: transparent;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 4px;
+    }
+
+    .worksheet-table td { padding: 6px 8px; }
+    .worksheet-table th { font-size: 11px; padding: 8px 10px; }
+
+    footer {
+      background: #f8fafc;
+      padding: 24px 56px;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .total-row { background: var(--navy) !important; color: white; font-weight: 700; }
+    .total-row td { color: white; border-top: 2px solid var(--gold); }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .metric-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 18px;
+    }
+
+    .metric-card .metric-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--navy);
+      margin-bottom: 4px;
+    }
+
+    .metric-card .metric-target {
+      font-size: 11px;
+      color: var(--gold);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .metric-card .metric-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .risk-card {
+      border-left: 4px solid var(--warning);
+      background: #fffbeb;
+      padding: 14px 18px;
+      margin-bottom: 12px;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .risk-card .risk-label {
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--warning);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+
+    .risk-card .risk-title {
+      font-weight: 600;
+      color: var(--navy);
+      margin-bottom: 6px;
+    }
+
+    .risk-card .mitigation {
+      font-size: 13px;
+      color: var(--text);
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(180, 83, 9, 0.3);
+    }
+
+    @media print {
+      body { padding: 0; background: white; }
+      .container { box-shadow: none; border-radius: 0; }
+      header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      section { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>PDE Pilot Cohort — Selection Framework</h1>
+      <div class="subtitle">Selecting the first 30 coordinators for white-glove rollout</div>
+      <div class="meta">
+        <span><strong>Tier 6</strong> · T6.2</span>
+        <span><strong>Audience:</strong> Director (Omm)</span>
+        <span><strong>Decision owner:</strong> Director</span>
+        <span><strong>Pace cap:</strong> 30 / 60 days</span>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- Section 1 -->
+      <section>
+        <h2><span class="num">01</span> Why a pilot cohort</h2>
+        <p class="lead">Quality over speed for the first cohort. Get 30 right; the next 60 are easier.</p>
+        <p>
+          The PDE rollout is not a feature flip — every onboarded coordinator triggers downstream load:
+          <strong>faculty validator bandwidth</strong> (each submission needs validation against the 7-category rubric),
+          <strong>rubric calibration</strong> (early validations expose where rubric language is ambiguous and needs editing
+          via <code>/admin/pde/rubrics/*</code>), and <strong>bridge audit overhead</strong> (legacy artifacts must be mapped
+          to the new capability framework, dry-run reviewed, then applied).
+        </p>
+        <p>
+          A pilot cohort capped at 30 lets us tune all three loops before scaling. The faculty validators we lean on
+          for cohort 1 become the calibration anchors for cohorts 2–4. Rubric edits made during pilot ship to everyone
+          downstream. Bridge templates refined during pilot become the default for the 200+ coordinators behind them.
+        </p>
+        <div class="callout success">
+          <div class="callout-title">Strategic bet</div>
+          The 60% active-use lock (Director, 2026-05-11) is measured at 90 days. Pilot cohort completion at day 60
+          gives a 30-day buffer to course-correct before the lock is evaluated.
+        </div>
+      </section>
+
+      <!-- Section 2 -->
+      <section>
+        <h2><span class="num">02</span> Pace-cap rationale</h2>
+        <p>
+          The cohort size of 30 is enforced by platform policy
+          <code>pde.rollout.pace_cap_coordinators_per_60d</code> (default: <strong>30</strong>),
+          consumed by <code>pde-pace-cap-service</code> (T2.1). Any onboarding request that would push
+          the rolling 60-day count above the cap is blocked at <code>/admin/pde/coordinators</code> with a
+          policy-pointing error message. Super-admin override exists but is logged.
+        </p>
+        <h3>Why 30 (and not 50 or 100)</h3>
+        <ul>
+          <li><strong>Faculty validation throughput:</strong> assume 4 validators × 5 demonstrations/week × 60 days ≈ 240 validations. At 8 demonstrations per pilot coordinator, that's 30 coordinators worth of validation capacity with zero slack for re-validation cycles.</li>
+          <li><strong>Onboarding meeting overhead:</strong> 30 × 60-minute 1:1 onboarding meetings = 30 hours over 60 days (roughly 1 hour/business day). Director-led; not delegable in cohort 1.</li>
+          <li><strong>Rubric calibration loop:</strong> 30 coordinators surfaces enough discipline diversity (across 8 colleges) to expose rubric edge cases without overwhelming the editor cadence.</li>
+        </ul>
+        <div class="callout info">
+          <div class="callout-title">Policy adjustment</div>
+          Pace cap is policy-driven. If cohort 1 metrics warrant faster expansion, edit the policy via
+          <code>/admin/pde/policies</code> — no code change. The cap then re-evaluates on the next onboarding request.
+        </div>
+      </section>
+
+      <!-- Section 3 -->
+      <section>
+        <h2><span class="num">03</span> Selection criteria</h2>
+        <p class="lead">Five weighted criteria. Director can re-weight — totals must sum to 100%.</p>
+        <p>
+          Each candidate coordinator is scored 0–10 on each criterion. Weighted sum (0–10 scale) gives priority rank.
+          Suggested threshold for cohort 1 inclusion: <strong>weighted score ≥ 7.0</strong>. Director adjusts.
+        </p>
+
+        <div class="criteria-card">
+          <div class="header-row">
+            <h4>1. Faculty engagement history</h4>
+            <span class="weight-badge">40%</span>
+          </div>
+          <p>Has this coordinator already attested learner work in the legacy system? This is the single strongest predictor of pilot success — coordinators with attestation history understand the validator-coordinator-learner triangle and won't need foundational onboarding.</p>
+          <div class="scoring">
+            <strong>Scoring:</strong> 0 = no attestation history. 5 = sporadic attestations (1–5 in past 12 months). 10 = systematic attester (20+ attestations, faculty-validator relationship already established).
+          </div>
+        </div>
+
+        <div class="criteria-card">
+          <div class="header-row">
+            <h4>2. Institution diversity</h4>
+            <span class="weight-badge">20%</span>
+          </div>
+          <p>Cover all 8 colleges proportionally. A pilot dominated by one college (e.g., Engineering) won't surface cross-discipline rubric gaps. Per-college target counts are in Section 4.</p>
+          <div class="scoring">
+            <strong>Scoring:</strong> per-college quota — coordinator scores 10 if their college is under-quota, 5 if at quota, 0 if over-quota. Reweighs as cohort fills.
+          </div>
+        </div>
+
+        <div class="criteria-card">
+          <div class="header-row">
+            <h4>3. Existing PDE capability bridge potential</h4>
+            <span class="weight-badge">15%</span>
+          </div>
+          <p>Coordinator has high-value legacy capabilities that bridge cleanly to the new 7-category framework. High-bridge coordinators help calibrate the bridge service (T6.3) and produce demonstrations early because their legacy artifacts pre-populate evidence pools.</p>
+          <div class="scoring">
+            <strong>Scoring:</strong> 0 = no legacy artifacts. 5 = legacy artifacts exist but require manual mapping. 10 = legacy artifacts map 1:1 to PDE capabilities via existing bridge templates.
+          </div>
+        </div>
+
+        <div class="criteria-card">
+          <div class="header-row">
+            <h4>4. Discipline coverage</h4>
+            <span class="weight-badge">15%</span>
+          </div>
+          <p>Ensure the 7-category framework gets piloted across disciplines. Two coordinators from the same discipline produce correlated demonstrations and don't expose rubric ambiguity.</p>
+          <div class="scoring">
+            <strong>Scoring:</strong> 10 if discipline is under-represented in current cohort selection, 5 if at parity, 0 if over-represented.
+          </div>
+        </div>
+
+        <div class="criteria-card">
+          <div class="header-row">
+            <h4>5. Operational stability</h4>
+            <span class="weight-badge">10%</span>
+          </div>
+          <p>Coordinator has been in role &gt; 6 months and has no pending separation, transfer, or extended leave. A coordinator who departs mid-pilot wastes validator capacity and produces an incomplete signal.</p>
+          <div class="scoring">
+            <strong>Scoring:</strong> 0 = pending separation or &lt; 3 months in role. 5 = 3–6 months in role, stable. 10 = &gt; 6 months in role, no flags.
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr><th>Criterion</th><th>Weight</th><th>Source signal</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Faculty engagement history</td><td class="weight">40%</td><td>Legacy attestation count (last 12mo)</td></tr>
+            <tr><td>Institution diversity</td><td class="weight">20%</td><td>Per-college quota status</td></tr>
+            <tr><td>Bridge potential</td><td class="weight">15%</td><td>Legacy artifact map quality</td></tr>
+            <tr><td>Discipline coverage</td><td class="weight">15%</td><td>Discipline distribution in cohort</td></tr>
+            <tr><td>Operational stability</td><td class="weight">10%</td><td>HR tenure + separation flag</td></tr>
+            <tr class="total-row"><td>Total</td><td class="weight" style="color: white;">100%</td><td>Weighted-sum ranking</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- Section 4 -->
+      <section>
+        <h2><span class="num">04</span> Per-college recommendation matrix</h2>
+        <p class="lead">Suggested distribution across the 8 colleges. Director adjusts; totals to 30.</p>
+        <p>
+          Distribution reflects faculty headcount, discipline diversity for rubric calibration, and validator
+          bandwidth per college. Medical and Pharmacy carry the larger seats because they have the deepest
+          legacy artifact pools (highest bridge potential per Section 3, criterion 3). Allied Health
+          carries one because it's the youngest college and validation infrastructure is still maturing.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>College</th>
+              <th>Total coordinators (est.)</th>
+              <th>Cohort 1 target</th>
+              <th>% of cohort</th>
+              <th>Candidate IDs (Director fills)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Medical</td><td class="num">~45</td><td class="num">8</td><td class="num">27%</td><td><em>e.g. C-MED-021, C-MED-034, ...</em></td></tr>
+            <tr><td>Pharmacy</td><td class="num">~30</td><td class="num">5</td><td class="num">17%</td><td><em>fill</em></td></tr>
+            <tr><td>Nursing</td><td class="num">~25</td><td class="num">4</td><td class="num">13%</td><td><em>fill</em></td></tr>
+            <tr><td>Dental</td><td class="num">~22</td><td class="num">4</td><td class="num">13%</td><td><em>fill</em></td></tr>
+            <tr><td>Engineering</td><td class="num">~40</td><td class="num">4</td><td class="num">13%</td><td><em>fill</em></td></tr>
+            <tr><td>Arts &amp; Science</td><td class="num">~20</td><td class="num">2</td><td class="num">7%</td><td><em>fill</em></td></tr>
+            <tr><td>Education</td><td class="num">~15</td><td class="num">2</td><td class="num">7%</td><td><em>fill</em></td></tr>
+            <tr><td>Allied Health</td><td class="num">~10</td><td class="num">1</td><td class="num">3%</td><td><em>fill</em></td></tr>
+            <tr class="total-row"><td>Total</td><td class="num" style="color: white;">~207</td><td class="num" style="color: white;">30</td><td class="num" style="color: white;">100%</td><td></td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout warning">
+          <div class="callout-title">Director adjustment guide</div>
+          If a college is operationally not ready (e.g., no faculty validator confirmed), reduce its cohort 1
+          seat to zero and redistribute to colleges with higher bridge-potential scores. Allied Health's seat
+          can shift to Medical or Pharmacy without breaking the diversity floor (other 6 colleges represented).
+        </div>
+
+        <h3>Coordinator candidate count guidance</h3>
+        <p>
+          For each college, identify <strong>2× the target count in candidates</strong> (so 60 candidates total
+          across the 8 colleges). Score all 60 on the Section 3 rubric, rank by weighted score, take top
+          30. The over-selection buffer absorbs declines (coordinators who can't commit to 60-day onboarding)
+          and reveals borderline cases worth the second-look conversation.
+        </p>
+      </section>
+
+      <!-- Section 5 -->
+      <section>
+        <h2><span class="num">05</span> Onboarding flow — 60-day cadence</h2>
+        <p class="lead">From "added to platform" to "full autonomy" in 60 days, paced to match validator capacity.</p>
+
+        <ul class="timeline">
+          <li>
+            <span class="day">Day 0 — Onboarding triggered</span>
+            Coordinator added via <code>/admin/pde/coordinators</code>. Pace-cap check (T2.1) confirms cohort
+            slot available. Onboarding log row created (<code>pde_coordinator_onboarding_log</code>).
+            Coordinator receives welcome email (per comms kit) with link to faculty playbook and onboarding
+            meeting calendar.
+          </li>
+          <li>
+            <span class="day">Day 1–7 — Onboarding meeting + setup</span>
+            60-minute 1:1 with Director (or designate). Walk through 7-category framework, demo the
+            demonstration submission flow, introduce assigned faculty validator. Set expectation:
+            "5 shadowed validations in the next 7 days, then independent."
+          </li>
+          <li>
+            <span class="day">Day 8–14 — Shadow 5 validations</span>
+            Coordinator observes their validator rate 5 learner demonstrations. Discusses each rating
+            verbally. Surfaces rubric ambiguity — flagged for review at <code>/admin/pde/rubrics</code>.
+          </li>
+          <li>
+            <span class="day">Day 15–30 — Independent validation, weekly check-in</span>
+            Coordinator rates demonstrations independently. Validator reviews ratings async; weekly 15-min
+            check-in resolves disputes. Coordinator submits 1–2 of their own demonstrations as learner
+            (closes the loop — coordinator experiences both sides of the rubric).
+          </li>
+          <li>
+            <span class="day">Day 30–60 — Full autonomy, KPI tracking</span>
+            Coordinator operates independently. Activity feeds T6.4 KPI dashboard
+            (demonstrations validated, demonstrations submitted, bridge runs triggered). No mandatory
+            check-ins. Director reviews dashboard weekly for anomalies.
+          </li>
+          <li>
+            <span class="day">Day 60 — KPI review + cohort 2 gate</span>
+            Per-coordinator KPI review. Per-cohort metrics evaluated against Section 6 thresholds.
+            If active-use ratio ≥ 40%, cohort 2 spawn approved (pace-cap rolls forward 60 days).
+            If &lt; 40%, pause + retro before cohort 2.
+          </li>
+        </ul>
+
+        <div class="callout info">
+          <div class="callout-title">Why 60 days (not 30 or 90)</div>
+          30 days is too short — coordinator hasn't seen a full grading cycle. 90 days delays cohort 2
+          unnecessarily and burns runway on the 90-day active-use lock. 60 days matches the pace-cap
+          window (<code>pace_cap_coordinators_per_60d</code>) so cohort and policy clock are aligned.
+        </div>
+      </section>
+
+      <!-- Section 6 -->
+      <section>
+        <h2><span class="num">06</span> Success metrics</h2>
+        <p class="lead">Tied to the Director-locked 60% active-use ratio at 90 days.</p>
+
+        <h3>Per-coordinator metrics (T6.4 dashboard)</h3>
+        <div class="metric-grid">
+          <div class="metric-card">
+            <div class="metric-target">Target: ≥ 8 by day 60</div>
+            <div class="metric-name">Demonstrations validated</div>
+            <div class="metric-desc">Count of learner demonstrations the coordinator has rated independently.</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-target">Target: ≥ 2 by day 60</div>
+            <div class="metric-name">Demonstrations submitted as learner</div>
+            <div class="metric-desc">Coordinator on the receiving side of the rubric — proves rubric familiarity.</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-target">Target: ≥ 1 by day 30</div>
+            <div class="metric-name">Bridge runs triggered</div>
+            <div class="metric-desc">Coordinator initiated at least one legacy-artifact bridge run via T6.3.</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-target">Target: ≤ 2 escalations</div>
+            <div class="metric-name">Validator disputes</div>
+            <div class="metric-desc">Coordinator-vs-validator rating disagreements escalated to Director.</div>
+          </div>
+        </div>
+
+        <h3>Per-cohort metrics (decision gates)</h3>
+        <table>
+          <thead>
+            <tr><th>Metric</th><th>Threshold</th><th>If below</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Active-use ratio</strong> (% of cohort hitting all 4 per-coordinator targets)</td>
+              <td class="num">≥ 60% by day 90 (Director lock); ≥ 40% by day 60 (cohort 2 gate)</td>
+              <td>Pause cohort 2 spawn. Retro on cohort 1 with full root-cause review.</td>
+            </tr>
+            <tr>
+              <td><strong>Time-to-first-validation</strong> (median days from day 0 to first independent rating)</td>
+              <td class="num">≤ 14 days</td>
+              <td>Onboarding meeting compression or validator assignment delay — fix in cohort 2 onboarding template.</td>
+            </tr>
+            <tr>
+              <td><strong>Validator-faculty satisfaction</strong> (1–5 survey at day 60)</td>
+              <td class="num">≥ 3.5 average</td>
+              <td>Validator overload — add validator capacity before cohort 2.</td>
+            </tr>
+            <tr>
+              <td><strong>Rubric edit volume</strong> (edits committed via <code>/admin/pde/rubrics</code> during pilot)</td>
+              <td class="num">5–15 edits (sweet spot)</td>
+              <td>&lt; 5: pilot too small to surface ambiguity. &gt; 15: rubric was under-baked — block cohort 2 until rubric stabilizes.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout success">
+          <div class="callout-title">Why these specific metrics</div>
+          Active-use ratio is the only metric Director has locked. The other three exist to predict
+          active-use early (by day 30–60) so corrections happen <em>before</em> the 90-day lock evaluation,
+          not after.
+        </div>
+      </section>
+
+      <!-- Section 7 -->
+      <section>
+        <h2><span class="num">07</span> Risk mitigation</h2>
+        <p class="lead">Four risks ranked by likelihood × blast radius. Each has a pre-committed mitigation.</p>
+
+        <div class="risk-card">
+          <div class="risk-label">Risk 1 · High likelihood</div>
+          <div class="risk-title">Faculty resistance — perceived as "more work"</div>
+          <p>
+            Coordinators see PDE as an added grading layer on top of existing attestation duties.
+            Without explicit framing, they passively de-prioritize the pilot.
+          </p>
+          <div class="mitigation">
+            <strong>Mitigation:</strong> Comms kit (owned by Agent AJ) explicitly frames pilot as
+            "no extra grading — replaces the legacy attestation step". Onboarding meeting caps at
+            60 minutes (no recurring meeting load). Faculty playbook (owned by Agent AI) shows
+            the time-savings math vs legacy flow.
+          </div>
+        </div>
+
+        <div class="risk-card">
+          <div class="risk-label">Risk 2 · Medium likelihood</div>
+          <div class="risk-title">Rubric ambiguity blocks validation</div>
+          <p>
+            Coordinator and validator disagree on rubric interpretation. Demonstrations stall in
+            review. Validator escalations spike.
+          </p>
+          <div class="mitigation">
+            <strong>Mitigation:</strong> Rubric editor live at <code>/admin/pde/rubrics/*</code> from
+            day 0. Weekly rubric-review session during pilot — Director + 2 senior validators triage
+            ambiguity reports + commit edits. Edits ship to all coordinators within 24h.
+          </div>
+        </div>
+
+        <div class="risk-card">
+          <div class="risk-label">Risk 3 · Medium likelihood</div>
+          <div class="risk-title">Bridge audit reveals legacy artifact gaps</div>
+          <p>
+            T6.3 bridge service maps legacy artifacts to new framework. For some coordinators the
+            mapping is incomplete (artifacts don't cleanly bridge), leaving them with no pre-populated
+            evidence and a cold start.
+          </p>
+          <div class="mitigation">
+            <strong>Mitigation:</strong> Dry-run bridge for every cohort 1 candidate <em>before</em>
+            scoring them on Section 3 criterion 3. Coordinators with poor bridge map drop down the
+            ranking — not excluded, but back-loaded into cohort 2 once bridge templates improve.
+          </div>
+        </div>
+
+        <div class="risk-card">
+          <div class="risk-label">Risk 4 · Low likelihood, high impact</div>
+          <div class="risk-title">Pace-cap blocks high-priority add</div>
+          <p>
+            Mid-cohort, a strategically important coordinator (e.g., new department head) needs
+            onboarding but cap is full. Hard block creates political tension.
+          </p>
+          <div class="mitigation">
+            <strong>Mitigation:</strong> Super-admin override is already implemented in T2.1
+            (logged, reversible). Director-only. Use sparingly — every override beyond +2 over cap
+            requires updating the policy value rather than overriding, to keep the policy honest.
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 8 -->
+      <section>
+        <h2><span class="num">08</span> Decision worksheet</h2>
+        <p class="lead">Director-fillable. 40 candidate rows (over-selection buffer). Top 30 by weighted score → cohort 1.</p>
+        <p>
+          Print this section (CMD/CTRL+P) or copy into spreadsheet. Score each candidate 0–10 on the
+          five criteria from Section 3. Weighted score = (Crit1 × 0.40) + (Crit2 × 0.20) + (Crit3 × 0.15) +
+          (Crit4 × 0.15) + (Crit5 × 0.10). Threshold for cohort 1 inclusion: weighted score ≥ 7.0.
+          Mark "Y" in Cohort 1 column for the top 30.
+        </p>
+
+        <table class="worksheet-table">
+          <thead>
+            <tr>
+              <th style="width: 5%;">#</th>
+              <th style="width: 14%;">Institution</th>
+              <th style="width: 18%;">Coordinator name</th>
+              <th style="width: 11%;">Coordinator ID</th>
+              <th style="width: 7%;">Crit 1 (40%)</th>
+              <th style="width: 7%;">Crit 2 (20%)</th>
+              <th style="width: 7%;">Crit 3 (15%)</th>
+              <th style="width: 7%;">Crit 4 (15%)</th>
+              <th style="width: 7%;">Crit 5 (10%)</th>
+              <th style="width: 7%;">Score</th>
+              <th style="width: 5%;">C1?</th>
+              <th style="width: 10%;">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- 40 rows -->
+            <tr><td>1</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>2</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>3</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>4</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>5</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>6</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>7</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>8</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>9</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>10</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>11</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>12</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>13</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>14</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>15</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>16</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>17</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>18</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>19</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>20</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>21</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>22</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>23</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>24</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>25</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>26</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>27</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>28</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>29</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>30</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>31</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>32</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>33</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>34</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>35</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>36</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>37</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>38</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>39</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+            <tr><td>40</td><td><input type="text"></td><td><input type="text"></td><td><input type="text"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10"></td><td><input type="number" min="0" max="10" step="0.01"></td><td><input type="text"></td><td><input type="text"></td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout info">
+          <div class="callout-title">After scoring</div>
+          Once Director marks 30 candidates with "Y" in the C1 column, the operational handoff is:
+          (1) Comms kit (Agent AJ) sends welcome emails to all 30; (2) Faculty playbook (Agent AI) goes to
+          each coordinator's assigned faculty validator; (3) Coordinators added via <code>/admin/pde/coordinators</code>
+          one-by-one, with pace-cap policy automatically enforcing the cohort 1 limit.
+        </div>
+      </section>
+
+    </div>
+
+    <footer>
+      PDE Tier 6 — T6.2 Pilot Cohort Selection Framework · MyJKKN ·
+      Companion docs: T6.1 Faculty Training Playbook, T6.4 KPI Dashboard, T2.1 Pace-Cap Policy
+    </footer>
+  </div>
+</body>
+</html>

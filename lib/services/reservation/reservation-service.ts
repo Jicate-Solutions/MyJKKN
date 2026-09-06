@@ -6,6 +6,14 @@ import {
   logActivityForCurrentUser,
   ResourceManagementActivityTemplates,
 } from '@/lib/utils/activity-logger-client';
+import {
+  notifyBookingSubmitted,
+  notifyApproversPendingBooking,
+  notifyBookingApproved,
+  notifyBookingRejected,
+} from '@/lib/services/reservation/reservation-notification-service';
+import { TimeSlotGeneratorService } from '@/lib/services/resource-management/time-slot-generator-service';
+import { CUSTOM_RANGE_MIN_MINUTES } from '@/lib/services/resource-management/default-slots';
 import type {
   Reservation,
   CreateReservationDto,
@@ -21,7 +29,8 @@ import type {
   RejectReservationDto,
   CancelReservationDto,
   CheckInDto,
-  CheckOutDto
+  CheckOutDto,
+  SlotConflict
 } from '@/types/reservation';
 
 export class ReservationService {
@@ -33,12 +42,20 @@ export class ReservationService {
   ): Promise<Reservation[]> {
     const supabase = createClientSupabaseClient();
 
+    // Use !inner join only when filtering by institution_id so the
+    // .eq on the embedded resource column actually constrains rows.
+    // Safe because resource_id is NOT NULL on resource_reservations,
+    // so !inner cannot silently drop pending-approval rows.
+    const resourceSelect = filters?.institution_id
+      ? 'resource:resources!inner(id, name, parent_category_id, subcategory_id, institution_id)'
+      : 'resource:resources(id, name, parent_category_id, subcategory_id)';
+
     let query = supabase
       .from('resource_reservations')
       .select(
         `
         *,
-        resource:resources(id, name, parent_category_id, subcategory_id),
+        ${resourceSelect},
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email, avatar_url),
         approver:profiles!resource_reservations_approved_by_fkey(id, full_name, email)
       `
@@ -72,6 +89,10 @@ export class ReservationService {
 
     if (filters?.is_recurring !== undefined) {
       query = query.eq('is_recurring', filters.is_recurring);
+    }
+
+    if (filters?.institution_id) {
+      query = (query as any).eq('resource.institution_id', filters.institution_id);
     }
 
     const { data, error } = await query;
@@ -119,6 +140,91 @@ export class ReservationService {
     return data as unknown as Reservation;
   }
 
+  /** Local YYYY-MM-DD for an ISO instant (matches how generated slots are keyed). */
+  private static toLocalDateString(iso: string): string {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /**
+   * Guard a requested booking window.
+   *
+   * Enforces exactly two things, in this order:
+   *
+   *  1. REAL INVARIANTS — end after start, and at least CUSTOM_RANGE_MIN_MINUTES
+   *     long. True for every caller and every resource.
+   *  2. THE RESOURCE OWNER'S OWN POLICY — operating hours, break times and closed
+   *     days, but ONLY when an admin actually configured `time_slot_config` on
+   *     this resource. A window nobody set is not a rule to book by.
+   *
+   * What it deliberately does NOT enforce is the 30-minute grid. That is the
+   * Resource Management picker's UI granularity — its inputs carry
+   * `step={CUSTOM_RANGE_STEP_MINUTES * 60}` and it runs validateCustomRange
+   * client-side before it ever reaches this spine, so here it was pure
+   * redundancy for the picker and a trap for everyone else. The events module
+   * became a second caller five days after this guard was written and holds a
+   * room for organizer-chosen hours typed into a plain <input type="time">:
+   * 09:45–15:45 is a perfectly ordinary workshop and was being refused with
+   * "Start and end times must align to 30-minute steps" AFTER the event row had
+   * already been written, demoting the room to "… (not reserved)". Nothing
+   * downstream needs the grid — the only time rule on `resource_reservations` is
+   * CHECK (end_time > start_time), and conflict detection is a plain timestamp
+   * overlap test.
+   *
+   * Likewise DEFAULT_TIME_SLOT_CONFIG is no longer substituted for an absent
+   * config. Its 09:00–17:30 window exists to OFFER default chips (see
+   * generateSlotsForDate) for the 542 of 552 resources nobody has configured;
+   * enforcing it as policy refused every legitimate evening programme.
+   *
+   * Throws with a human-readable reason.
+   */
+  private static validateBookingRange(
+    bookingConfig: any,
+    resourceId: string,
+    startTime: string,
+    endTime: string
+  ): void {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+
+    if (!(end.getTime() > start.getTime())) {
+      throw new Error('End time must be after start time');
+    }
+    if ((end.getTime() - start.getTime()) / 60000 < CUSTOM_RANGE_MIN_MINUTES) {
+      throw new Error(`Booking must be at least ${CUSTOM_RANGE_MIN_MINUTES} minutes long`);
+    }
+
+    const timeConfig = bookingConfig?.time_slot_config;
+    if (!timeConfig) return;
+
+    const bookingDate = this.toLocalDateString(startTime);
+
+    // An exact match on a configured slot is valid by construction.
+    const generated = TimeSlotGeneratorService.generateSlotsForDate(
+      timeConfig,
+      bookingDate,
+      resourceId
+    );
+    const matchesSlot = generated.some(
+      (s) => s.start_time === startTime && s.end_time === endTime
+    );
+    if (matchesSlot) return;
+
+    // Otherwise hold the range to the hours/breaks/closed days the admin set.
+    const check = TimeSlotGeneratorService.validateTimeSlot(
+      timeConfig,
+      startTime,
+      endTime,
+      bookingDate
+    );
+    if (!check.valid) {
+      throw new Error(check.reason || 'Invalid booking time range');
+    }
+  }
+
   /**
    * Create a new reservation
    */
@@ -132,7 +238,8 @@ export class ReservationService {
     const availability = await this.checkAvailability({
       resource_id: dto.resource_id,
       start_time: dto.start_time,
-      end_time: dto.end_time
+      end_time: dto.end_time,
+      quantity: dto.quantity ?? 1
     });
 
     if (!availability.is_available) {
@@ -149,9 +256,31 @@ export class ReservationService {
       .eq('id', dto.resource_id)
       .single();
 
-    // Determine initial status based on approval config
-    const requiresApproval = (resource as any)?.approval_config?.enabled || false;
+    // Reject out-of-bounds custom time ranges before inserting. Booked-by-slot
+    // selections (default chips / admin slots) pass through untouched.
+    this.validateBookingRange(
+      (resource as any)?.booking_config,
+      dto.resource_id,
+      dto.start_time,
+      dto.end_time
+    );
+
+    // Determine initial status: caller override (booking spine) wins, else the
+    // resource's own approval_config rule. 'auto' = approve now (e.g. an event
+    // booking a same-college room); 'require' = force pending + seed approvers.
+    const approvalMode = dto.approvalMode ?? 'config';
+    const requiresApproval =
+      approvalMode === 'require'
+        ? true
+        : approvalMode === 'auto'
+          ? false
+          : (resource as any)?.approval_config?.enabled || false;
     const initialStatus = requiresApproval ? 'pending' : 'approved';
+
+    // Approvers to seed/notify: caller override (e.g. the cross-college room's
+    // caretaker) else the resource's own configured chain.
+    const approversToSeed: { user_id: string; level?: number }[] =
+      dto.approvers ?? (resource as any)?.approval_config?.approvers ?? [];
 
     const reservationData = {
       resource_id: dto.resource_id,
@@ -166,7 +295,22 @@ export class ReservationService {
       is_recurring: dto.is_recurring || false,
       recurring_config: dto.recurring_config,
       status: initialStatus,
-      approved_at: requiresApproval ? null : new Date().toISOString()
+      approved_at: requiresApproval ? null : new Date().toISOString(),
+      // Booking-spine links — only set when the caller provides them.
+      // These are an ALLOW-LIST, not a passthrough: a link column absent from
+      // this list is silently dropped before it ever reaches PostgREST. That is
+      // exactly what happened to course_session_id between Phase 1 (which added
+      // the column) and Phase 2c (which added the line below) — course venue
+      // holds would have looked successful and linked to nothing.
+      ...(dto.event_id ? { event_id: dto.event_id } : {}),
+      ...(dto.session_id ? { session_id: dto.session_id } : {}),
+      ...(dto.bundle_id ? { bundle_id: dto.bundle_id } : {}),
+      // resource_reservations_single_owner_check is
+      // num_nonnulls(event_id, session_id, course_session_id) <= 1 — a COURSE
+      // hold passes course_session_id and NEITHER event_id nor session_id.
+      // Setting two of the three is a 23514, not a richer link.
+      ...(dto.course_session_id ? { course_session_id: dto.course_session_id } : {}),
+      ...(dto.session_label ? { session_label: dto.session_label } : {})
     };
 
     const { data, error } = await (supabase
@@ -186,12 +330,10 @@ export class ReservationService {
       throw error;
     }
 
-    // If approval is required, create approval records
-    if (requiresApproval && (resource as any)?.approval_config?.approvers) {
-      await this.createApprovalRecords(
-        (data as any).id,
-        (resource as any).approval_config.approvers
-      );
+    // If approval is required, create approval records (caller-supplied chain
+    // when given, e.g. a cross-college room's caretaker; else the resource's own).
+    if (requiresApproval && approversToSeed.length > 0) {
+      await this.createApprovalRecords((data as any).id, approversToSeed);
     }
 
     // Update resource usage count
@@ -199,6 +341,24 @@ export class ReservationService {
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    // Fire-and-forget notifications — never block the booking return path.
+    if (requiresApproval) {
+      const requesterName = (reservation as any).user?.full_name || 'A user';
+      const approverIds: string[] = approversToSeed
+        .map((a) => a.user_id)
+        .filter(Boolean);
+      void notifyBookingSubmitted(reservation, resourceName).catch(console.error);
+      void notifyApproversPendingBooking(
+        approverIds,
+        reservation,
+        resourceName,
+        requesterName
+      ).catch(console.error);
+    } else {
+      void notifyBookingApproved(reservation, resourceName).catch(console.error);
+    }
+
     const tpl = ResourceManagementActivityTemplates.reservationCreated(
       resourceName,
       reservation.start_time
@@ -247,6 +407,18 @@ export class ReservationService {
             'Resource is not available for the selected time'
         );
       }
+
+      const { data: res } = await supabase
+        .from('resources')
+        .select('booking_config')
+        .eq('id', existing.resource_id)
+        .single();
+      this.validateBookingRange(
+        (res as any)?.booking_config,
+        existing.resource_id,
+        dto.start_time || existing.start_time,
+        dto.end_time || existing.end_time
+      );
     }
 
     const { data, error } = await (supabase
@@ -336,37 +508,56 @@ export class ReservationService {
   ): Promise<AvailabilityResult> {
     const supabase = createClientSupabaseClient();
 
-    // Get all reservations for this resource that might conflict
-    let query = supabase
-      .from('resource_reservations')
-      .select('*')
-      .eq('resource_id', dto.resource_id)
-      .in('status', ['pending', 'approved', 'completed'])
-      .or(`and(start_time.lt.${dto.end_time},end_time.gt.${dto.start_time})`);
-
-    // Exclude a specific reservation (for editing)
-    if (dto.exclude_reservation_id) {
-      query = query.neq('id', dto.exclude_reservation_id);
-    }
-
-    const { data: conflicts, error } = await query;
+    // Holder rows for overlapping pending/approved reservations (SECURITY DEFINER RPC).
+    const { data: conflicts, error } = await supabase.rpc(
+      'fn_resource_slot_conflicts',
+      {
+        p_resource_id: dto.resource_id,
+        p_start: dto.start_time,
+        p_end: dto.end_time,
+        p_exclude_id: dto.exclude_reservation_id ?? null
+      }
+    );
 
     if (error) {
       console.error('Error checking availability:', error);
       throw error;
     }
 
-    const is_available = !conflicts || conflicts.length === 0;
+    const holders = (conflicts ?? []) as SlotConflict[];
+
+    // Capacity = resources.initial_stock_quantity (NULL ⇒ unlimited).
+    const { data: resource, error: resourceError } = await supabase
+      .from('resources')
+      .select('initial_stock_quantity')
+      .eq('id', dto.resource_id)
+      .single();
+    if (resourceError || !resource) {
+      throw new Error('Resource not found');
+    }
+
+    const capacity = (resource as any)?.initial_stock_quantity as number | null;
+    const requested = dto.quantity ?? 1;
+    const committed = holders.reduce((sum, h) => sum + (h.quantity ?? 0), 0);
+
+    const is_available =
+      capacity == null || committed + requested <= capacity;
+
+    let message = 'Resource is available';
+    if (!is_available) {
+      const first = holders[0];
+      const who = first?.full_name || 'another user';
+      const role = first?.designation ? ` (${first.designation})` : '';
+      message = `Already held by ${who}${role}. Only ${Math.max(
+        (capacity ?? 0) - committed,
+        0
+      )} unit(s) free for this window — choose another slot or contact the requester.`;
+    }
 
     return {
       is_available,
-      // Type assertion: recurring_config is stored as Json but should be typed as RecurringConfig
-      conflicting_reservations: is_available
-        ? undefined
-        : (conflicts as unknown as Reservation[]),
-      message: is_available
-        ? 'Resource is available'
-        : `Resource is already booked for ${conflicts?.length} time slot(s)`
+      conflicting_reservations: is_available ? undefined : holders,
+      message
     };
   }
 
@@ -382,7 +573,7 @@ export class ReservationService {
     // Get resource booking configuration
     const { data: resource } = await supabase
       .from('resources')
-      .select('booking_config, status')
+      .select('booking_config, status, initial_stock_quantity')
       .eq('id', resourceId)
       .single();
 
@@ -397,12 +588,9 @@ export class ReservationService {
       return [];
     }
 
-    // Import the new services
+    // Import date-availability service (TimeSlotGeneratorService uses static top-level import)
     const { DateAvailabilityService } = await import(
       '@/lib/services/resource-management/date-availability-service'
-    );
-    const { TimeSlotGeneratorService } = await import(
-      '@/lib/services/resource-management/time-slot-generator-service'
     );
 
     const bookingConfig = (resource as any).booking_config as any;
@@ -415,83 +603,63 @@ export class ReservationService {
 
     // Step 2: Generate slots using TimeSlotGeneratorService
     const timeConfig = bookingConfig?.time_slot_config;
-    const generatedSlots = timeConfig
-      ? TimeSlotGeneratorService.generateSlotsForDate(timeConfig, date, resourceId)
-      : this.generateLegacySlots(date, bookingConfig, resourceId);
+    const generatedSlots = TimeSlotGeneratorService.generateSlotsForDate(
+      timeConfig,
+      date,
+      resourceId
+    );
 
     // Step 3: Get existing reservations for the date
-    const startOfDay = `${date}T00:00:00Z`;
-    const endOfDay = `${date}T23:59:59Z`;
+    // Compute the user-local day window expressed in UTC so the query bounds
+    // line up with how slots are stored. Hardcoding `T00:00:00Z` would query
+    // a UTC day, missing late-evening local-time reservations in any
+    // east-of-UTC zone (e.g. IST 11pm = next-UTC-day 17:30 UTC).
+    const startOfDay = new Date(`${date}T00:00:00`).toISOString();
+    const endOfDay = new Date(`${date}T23:59:59`).toISOString();
 
-    const { data: reservations } = await supabase
-      .from('resource_reservations')
-      .select('start_time, end_time, id')
-      .eq('resource_id', resourceId)
-      .in('status', ['pending', 'approved', 'completed'])
-      .gte('start_time', startOfDay)
-      .lte('end_time', endOfDay);
+    const { data: holders, error: slotError } = await supabase.rpc('fn_resource_slot_conflicts', {
+      p_resource_id: resourceId,
+      p_start: startOfDay,
+      p_end: endOfDay,
+      p_exclude_id: null
+    });
+    if (slotError) {
+      console.error('Error fetching slot conflicts:', slotError);
+      throw slotError;
+    }
+    const holderRows = (holders ?? []) as SlotConflict[];
+    const capacity = (resource as any).initial_stock_quantity as number | null;
 
-    // Step 4: Mark booked slots
+    // Step 4: Mark booked slots (capacity-aware) and attach the first holder.
     return generatedSlots.map((slot) => {
-      const isBooked = reservations?.some((r: any) => {
-        const reservationStart = new Date(r.start_time);
-        const reservationEnd = new Date(r.end_time);
-        const slotStart = new Date(slot.start_time);
-        const slotEnd = new Date(slot.end_time);
+      const slotStart = new Date(slot.start_time);
+      const slotEnd = new Date(slot.end_time);
 
-        // Check for overlap
-        return reservationStart < slotEnd && reservationEnd > slotStart;
+      const overlapping = holderRows.filter((h) => {
+        const hStart = new Date(h.start_time);
+        const hEnd = new Date(h.end_time);
+        return hStart < slotEnd && hEnd > slotStart;
       });
+
+      const committed = overlapping.reduce((s, h) => s + (h.quantity ?? 0), 0);
+      const isBooked = capacity != null && committed >= capacity;
+      const holder = overlapping[0];
 
       return {
         start_time: slot.start_time,
         end_time: slot.end_time,
         is_available: !isBooked,
         resource_id: resourceId,
-        slot_name: slot.slot_name, // Pass through custom slot name
-        max_capacity: slot.max_capacity, // Pass through capacity
-        existing_reservation_id: isBooked
-          ? (reservations?.find((r: any) => {
-              const reservationStart = new Date(r.start_time);
-              const reservationEnd = new Date(r.end_time);
-              const slotStart = new Date(slot.start_time);
-              const slotEnd = new Date(slot.end_time);
-              return reservationStart < slotEnd && reservationEnd > slotStart;
-            }) as any)?.id
-          : undefined
+        slot_name: slot.slot_name,
+        max_capacity: slot.max_capacity,
+        existing_reservation_id: isBooked ? holder?.reservation_id : undefined,
+        booked_by_name: isBooked ? holder?.full_name ?? null : undefined,
+        booked_by_designation: isBooked ? holder?.designation ?? null : undefined,
+        booked_status: isBooked ? holder?.status : undefined,
+        booked_start: isBooked ? holder?.start_time : undefined,
+        booked_end: isBooked ? holder?.end_time : undefined
       };
     });
-  }
-
-  /**
-   * Generate legacy slots for backward compatibility
-   */
-  private static generateLegacySlots(
-    date: string,
-    bookingConfig: any,
-    resourceId: string
-  ): Array<{ start_time: string; end_time: string; is_available: boolean; resource_id: string; slot_name?: string; max_capacity?: number }> {
-    const slots = [];
-
-    // Default: 1-hour slots from 9 AM to 5 PM
-    const startHour = bookingConfig?.operating_hours?.start || 9;
-    const endHour = bookingConfig?.operating_hours?.end || 17;
-
-    for (let hour = startHour; hour < endHour; hour++) {
-      const slotStart = `${date}T${hour.toString().padStart(2, '0')}:00:00`;
-      const slotEnd = `${date}T${(hour + 1)
-        .toString()
-        .padStart(2, '0')}:00:00`;
-
-      slots.push({
-        start_time: slotStart,
-        end_time: slotEnd,
-        is_available: true,
-        resource_id: resourceId
-      });
-    }
-
-    return slots;
   }
 
   /**
@@ -587,25 +755,31 @@ export class ReservationService {
   }
 
   /**
-   * Approve a reservation
+   * Approve a reservation. Delegates authorization + chain logic to the
+   * approve_reservation SECURITY DEFINER RPC, then fetches the joined
+   * row for the return shape the UI expects.
    */
   static async approveReservation(
     dto: ApproveReservationDto,
-    approverId: string
+    _approverId: string
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase
+    const { error: rpcError } = await (supabase as any).rpc(
+      'approve_reservation',
+      {
+        p_reservation_id: dto.reservation_id,
+        p_notes: dto.notes ?? null
+      }
+    );
+
+    if (rpcError) {
+      console.error('Error approving reservation:', rpcError);
+      throw rpcError;
+    }
+
+    const { data, error: fetchError } = await (supabase
       .from('resource_reservations') as any)
-      .update({
-        status: 'approved',
-        approved_by: approverId,
-        approved_at: new Date().toISOString(),
-        notes: dto.notes
-          ? `${dto.notes}\n--- Approved by ${approverId} ---`
-          : undefined
-      })
-      .eq('id', dto.reservation_id)
       .select(
         `
         *,
@@ -613,25 +787,19 @@ export class ReservationService {
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
       `
       )
+      .eq('id', dto.reservation_id)
       .single();
 
-    if (error) {
-      console.error('Error approving reservation:', error);
-      throw error;
+    if (fetchError) {
+      console.error('Error fetching approved reservation:', fetchError);
+      throw fetchError;
     }
-
-    // Update approval record
-    await (supabase
-      .from('resource_approvals') as any)
-      .update({
-        status: 'approved',
-        approved_at: new Date().toISOString()
-      })
-      .eq('reservation_id', dto.reservation_id)
-      .eq('approver_user_id', approverId);
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    void notifyBookingApproved(reservation, resourceName).catch(console.error);
+
     const tpl = ResourceManagementActivityTemplates.reservationApproved(resourceName);
     await logActivityForCurrentUser({
       actionType: tpl.actionType,
@@ -651,23 +819,30 @@ export class ReservationService {
   }
 
   /**
-   * Reject a reservation
+   * Reject a reservation. Delegates to the reject_reservation
+   * SECURITY DEFINER RPC, then fetches the joined row.
    */
   static async rejectReservation(
     dto: RejectReservationDto,
-    approverId: string
+    _approverId: string
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase
+    const { error: rpcError } = await (supabase as any).rpc(
+      'reject_reservation',
+      {
+        p_reservation_id: dto.reservation_id,
+        p_reason: dto.rejection_reason
+      }
+    );
+
+    if (rpcError) {
+      console.error('Error rejecting reservation:', rpcError);
+      throw rpcError;
+    }
+
+    const { data, error: fetchError } = await (supabase
       .from('resource_reservations') as any)
-      .update({
-        status: 'rejected',
-        approved_by: approverId,
-        approved_at: new Date().toISOString(),
-        rejection_reason: dto.rejection_reason
-      })
-      .eq('id', dto.reservation_id)
       .select(
         `
         *,
@@ -675,26 +850,19 @@ export class ReservationService {
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
       `
       )
+      .eq('id', dto.reservation_id)
       .single();
 
-    if (error) {
-      console.error('Error rejecting reservation:', error);
-      throw error;
+    if (fetchError) {
+      console.error('Error fetching rejected reservation:', fetchError);
+      throw fetchError;
     }
-
-    // Update approval record
-    await (supabase
-      .from('resource_approvals') as any)
-      .update({
-        status: 'rejected',
-        rejection_reason: dto.rejection_reason,
-        approved_at: new Date().toISOString()
-      })
-      .eq('reservation_id', dto.reservation_id)
-      .eq('approver_user_id', approverId);
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    void notifyBookingRejected(reservation, resourceName, dto.rejection_reason).catch(console.error);
+
     const tpl = ResourceManagementActivityTemplates.reservationRejected(
       resourceName,
       dto.rejection_reason
@@ -722,19 +890,32 @@ export class ReservationService {
    */
   static async cancelReservation(
     dto: CancelReservationDto,
-    userId: string
+    _userId: string
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
+    // Use the cancel_reservation SECURITY DEFINER RPC so that:
+    // 1. Admins with resources.manage can cancel any reservation (the direct
+    //    UPDATE policy only allowed the original booker).
+    // 2. The RPC returns the updated row via RETURNING * without going through
+    //    the institution-based SELECT RLS policy that caused PGRST116 errors
+    //    even when the cancellation itself succeeded.
+    const { error: rpcError } = await (supabase as any).rpc(
+      'cancel_reservation',
+      {
+        p_reservation_id: dto.reservation_id,
+        p_reason: dto.cancellation_reason ?? null
+      }
+    );
+
+    if (rpcError) {
+      console.error('Error cancelling reservation:', rpcError);
+      throw rpcError;
+    }
+
+    // Fetch the full joined row the UI expects (resource name, user details).
     const { data, error } = await (supabase
       .from('resource_reservations') as any)
-      .update({
-        status: 'cancelled',
-        cancelled_by: userId,
-        cancelled_at: new Date().toISOString(),
-        cancellation_reason: dto.cancellation_reason
-      })
-      .eq('id', dto.reservation_id)
       .select(
         `
         *,
@@ -742,10 +923,11 @@ export class ReservationService {
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
       `
       )
+      .eq('id', dto.reservation_id)
       .single();
 
     if (error) {
-      console.error('Error cancelling reservation:', error);
+      console.error('Error fetching cancelled reservation:', error);
       throw error;
     }
 
@@ -952,14 +1134,24 @@ export class ReservationService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const approvalRecords = approvers.map((approver) => ({
-      reservation_id: reservationId,
-      approver_user_id: approver.user_id,
-      approval_level: approver.level,
-      status: 'pending'
-    }));
+    const approvalRecords = approvers
+      .filter((a) => a.user_id)
+      .map((approver) => ({
+        reservation_id: reservationId,
+        approver_user_id: approver.user_id,
+        approval_level: approver.level ?? 1,
+        status: 'pending'
+      }));
 
-    await (supabase as any).from('resource_approvals').insert(approvalRecords);
+    if (approvalRecords.length === 0) return;
+
+    const { error } = await (supabase as any)
+      .from('resource_approvals')
+      .insert(approvalRecords);
+
+    if (error) {
+      console.error('Error seeding approval chain:', error);
+    }
   }
 
   /**

@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Plus, Upload } from 'lucide-react';
 import BulkUploadEnquiries from './bulk-upload-enquiries';
+import { BulkEditEnquiriesDialog } from './bulk-edit-enquiries-dialog';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useRouter } from 'next/navigation';
 
 /**
@@ -17,6 +19,10 @@ import { useRouter } from 'next/navigation';
  */
 export function EnquiriesHeader() {
   const router = useRouter();
+  // Super-admin-only bulk export/edit gate (mirrors the server-side check on the
+  // /api/learners/enquiries/{export-for-edit,bulk-edit-*} routes). isSuperAdmin
+  // lives on usePermissions(), not useAuth().
+  const { isSuperAdmin } = usePermissions();
 
   // Handle import completion - refresh server component data
   const handleImportComplete = () => {
@@ -32,7 +38,10 @@ export function EnquiriesHeader() {
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        {/* Super-admin-only: export all non-active records + bulk-edit round-trip */}
+        {isSuperAdmin && <BulkEditEnquiriesDialog onSuccess={handleImportComplete} />}
+
         {/* Advanced Bulk Upload with Preview */}
         <BulkUploadEnquiries onSuccess={handleImportComplete} />
 

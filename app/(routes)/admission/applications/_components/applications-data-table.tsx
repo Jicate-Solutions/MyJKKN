@@ -152,7 +152,7 @@ export function ApplicationsDataTable() {
           setRefetchKey((prev) => prev + 1);
         }}
       >
-        <SelectTrigger className="w-[200px] h-8">
+        <SelectTrigger className="w-full sm:w-[200px] h-8">
           <SelectValue placeholder="All Stages" />
         </SelectTrigger>
         <SelectContent>

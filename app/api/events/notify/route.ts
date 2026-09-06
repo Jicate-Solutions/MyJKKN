@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 const VALID_API_KEY = process.env.EVENTS_API_KEY;
 
@@ -66,6 +67,13 @@ export async function POST(request: NextRequest) {
 }
 
 // ─── Helper ─────────────────────────────────────────────────────────────
+//
+// 2026-06-30: Refactored to delegate to lib/services/_shared/notifications/
+// notify.ts (the canonical fanout helper extracted from the duplicate
+// per-module createNotification pattern). The legacy `type: 'events'`
+// column is preserved via `extraColumns` for inserts that other readers
+// still filter on; everything else moves into the canonical envelope.
+// Behaviour-preserving wrapper — returns the same `number` callers expect.
 
 async function createNotification(
   supabase: ReturnType<typeof createServiceRoleClient>,
@@ -74,28 +82,19 @@ async function createNotification(
   userIds: string[],
   metadata: Record<string, unknown> = {}
 ): Promise<number> {
-  if (userIds.length === 0) return 0;
-
-  const { data: notification } = await supabase
-    .from('notifications')
-    .insert({
-      type: 'events',
-      title,
-      body,
-      metadata: { source: 'events_notify', ...metadata },
-    })
-    .select('id')
-    .single();
-
-  if (!notification) return 0;
-
-  const links = userIds.map((uid) => ({
-    notification_id: notification.id,
-    user_id: uid,
-  }));
-
-  await supabase.from('user_notifications').insert(links);
-  return userIds.length;
+  const outcome = await fanoutNotification(supabase, {
+    title,
+    body,
+    userIds,
+    source: 'events_notify',
+    metadata,
+    // Legacy column preserved for any consumers (e.g.
+    // lib/services/events/notification-service.ts) that still filter on
+    // notifications.type === 'events'. The shared helper's canonical set
+    // doesn't include this column, but the spread allows backward-compat.
+    extraColumns: { type: 'events' },
+  });
+  return outcome.notified;
 }
 
 // ─── Handlers ───────────────────────────────────────────────────────────

@@ -666,17 +666,17 @@ export function BulkCaptureDialog({
         {step === 'upload' && (
           <div className="space-y-4">
             {/* Template Download */}
-            <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/50">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5 text-green-600" />
-                <div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border p-3 bg-muted/50">
+              <div className="flex min-w-0 items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 shrink-0 text-green-600" />
+                <div className="min-w-0">
                   <p className="text-sm font-medium">Download Template</p>
                   <p className="text-xs text-muted-foreground">
                     Includes institution &amp; program dropdowns + a Reference Guide sheet
                   </p>
                 </div>
               </div>
-              <Button variant="outline" size="sm" onClick={downloadTemplate}>
+              <Button variant="outline" size="sm" className="shrink-0" onClick={downloadTemplate}>
                 <Download className="h-4 w-4 mr-1" />
                 Template
               </Button>

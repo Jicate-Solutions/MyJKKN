@@ -34,11 +34,63 @@ export function useImsPendingIndents(filters: ImsIndentFilters) {
 export function useCreateImsIndent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ data, userId }: { data: CreateImsIndentDto; userId: string }) =>
-      ImsIndentService.createIndent(data, userId),
+    mutationFn: ({
+      data,
+      userId,
+      requiresHodApproval,
+    }: {
+      data: CreateImsIndentDto;
+      userId: string;
+      requiresHodApproval?: boolean;
+    }) => ImsIndentService.createIndent(data, userId, { requiresHodApproval }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
       queryClient.invalidateQueries({ queryKey: ['ims-pending-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-hod-pending-indents'] });
+    },
+  });
+}
+
+/**
+ * Phase D: indents awaiting THIS user's HOD approval, across every department
+ * where departments.head_of_department_id = hodUserId.
+ */
+export function useImsHodPendingIndents(hodUserId: string | undefined) {
+  return useQuery({
+    queryKey: ['ims-hod-pending-indents', hodUserId],
+    queryFn: () => ImsIndentService.getHodPendingIndents(hodUserId!),
+    enabled: !!hodUserId,
+    staleTime: 60 * 1000, // approval queue: refresh faster than list pages
+  });
+}
+
+type UpdateImsIndentData = Omit<
+  CreateImsIndentDto,
+  | 'institution_id'
+  | 'store_id'
+  | 'request_scope'
+  | 'source_store_id'
+  | 'destination_institution_id'
+  | 'destination_store_id'
+>;
+
+export function useUpdateImsIndent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+      userId,
+    }: {
+      id: string;
+      data: UpdateImsIndentData;
+      userId: string;
+    }) => ImsIndentService.updateIndent(id, data, userId),
+    onSuccess: (_result, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-indent', id] });
+      queryClient.invalidateQueries({ queryKey: ['ims-pending-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-dept-indents'] });
     },
   });
 }
@@ -65,6 +117,7 @@ export function useRejectImsIndent() {
       queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
       queryClient.invalidateQueries({ queryKey: ['ims-indent'] });
       queryClient.invalidateQueries({ queryKey: ['ims-pending-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-hod-pending-indents'] });
     },
   });
 }
@@ -72,11 +125,14 @@ export function useRejectImsIndent() {
 export function useIssueImsIndentItem() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ itemId, quantity }: { itemId: string; quantity: number }) =>
-      ImsIndentService.issueItem(itemId, quantity),
+    mutationFn: ({ itemId, quantity, userId }: { itemId: string; quantity: number; userId: string }) =>
+      ImsIndentService.issueItem(itemId, quantity, userId),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
       queryClient.invalidateQueries({ queryKey: ['ims-indent'] });
       queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-department-stock'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-department-summaries'] });
     },
   });
 }
@@ -123,6 +179,9 @@ export function useLocalApproveImsIndent() {
       queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
       queryClient.invalidateQueries({ queryKey: ['ims-indent'] });
       queryClient.invalidateQueries({ queryKey: ['ims-transfers'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-hod-pending-indents'] });
+      // The approved indent lands in the store admin's pending queue next
+      queryClient.invalidateQueries({ queryKey: ['ims-pending-indents'] });
     },
   });
 }

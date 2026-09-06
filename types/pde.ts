@@ -142,6 +142,32 @@ export interface PDEAtRiskLearner {
   total_time: number;
   total_lessons_completed: number;
   risk_level: RiskLevel;
+  /**
+   * True whenever the learner is averaging below the pass mark — independent of
+   * `risk_level`, which is a single-branch CASE where inactivity outranks score
+   * and would otherwise hide a failing learner behind a 'warning' band.
+   */
+  is_low_scoring: boolean;
+  /** False when the learner has completed no assessments, so "healthy" and "no evidence" are distinguishable. */
+  has_assessment_scores: boolean;
+}
+
+/**
+ * Per-learner rollup of `pde_at_risk_log` (view `pde_at_risk_history`), written
+ * by /api/cron/pde-at-risk-flag. The live `pde_at_risk_learners` view answers
+ * "who is at risk right now"; this answers "since when, and for how long".
+ */
+export interface PDEAtRiskHistory {
+  learner_id: string;
+  institution_id: string;
+  first_flagged_at: string;
+  last_flagged_at: string;
+  first_flag_date: string;
+  last_flag_date: string;
+  flag_count: number;
+  days_since_first_flag: number;
+  is_currently_flagged: boolean;
+  worst_risk_level: RiskLevel;
 }
 
 // ============================================
@@ -366,6 +392,10 @@ export interface PDECapability {
   estimated_hours: number | null;
   is_core: boolean;
   created_at: string;
+  // Tier 2 Item 5 — capability versioning (added 2026-05-19)
+  version?: number;
+  valid_until?: string | null;
+  superseded_by?: string | null;
 }
 
 export interface PDELearnerCapability {
@@ -704,5 +734,230 @@ export interface PDEAgencyIndex {
   overall: number;
   level: AgencyLevel;
   evidence: Record<string, unknown>;
+  created_at: string;
+}
+
+// ============================================
+// Phase 4: Clinical Reasoning (AICBL→PDE port)
+// ============================================
+
+export type ClinicalCaseStatus = 'draft' | 'published' | 'archived';
+export type ClinicalQuestionType = 'free_text_socratic' | 'mcq_warmup' | 'image_tag';
+export type OSCEDomain =
+  | 'data_gathering'
+  | 'hypothesis_generation'
+  | 'management_planning'
+  | 'patient_communication'
+  | 'professionalism';
+
+export interface ClinicalCaseScenario {
+  patient_name: string;
+  age: number;
+  gender: string;
+  occupation?: string;
+  chief_complaint: string;
+  hopi: string;
+  medical_history?: string;
+  habit_history?: {
+    type: string;
+    duration_years?: number;
+    frequency?: string;
+    quantity?: string;
+    current_status?: string;
+  };
+  additional_clinical_details?: string;
+  image_url?: string;
+}
+
+export interface DomainWeights {
+  data_gathering: number;
+  hypothesis_generation: number;
+  management_planning: number;
+  patient_communication: number;
+  professionalism: number;
+}
+
+export interface ClinicalCaseMetadata {
+  domain_weights: DomainWeights;
+  discipline?: string;
+  source?: string;
+}
+
+export interface ImageTagRegion {
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  tolerance_px?: number;
+  reasoning?: string;
+}
+
+/**
+ * A de-identified clinical image copied from the PMS bridge into the
+ * pde-clinical-images bucket. These are CANDIDATES — the builder requires
+ * faculty to confirm no burned-in identifiers before one can be attached
+ * (default-deny; see specs/pde-image-bridge-design-2026-07-21.md).
+ */
+export interface ImportedPmsImage {
+  url: string;
+  kind: string;
+  taken_at?: string;
+  seq: number;
+}
+
+export interface ClinicalQuestionMetadata {
+  q_number: number;
+  osce_domain: OSCEDomain;
+  ground_truth: string;
+  key_concepts: string[];
+}
+
+export interface ClinicalCase {
+  id: string;
+  course_id: string;
+  lesson_id: string | null;
+  title: string;
+  description: string | null;
+  assessment_type: 'clinical_case';
+  status: ClinicalCaseStatus;
+  version: number;
+  metadata: ClinicalCaseMetadata;
+  is_active: boolean;
+  pass_threshold: number;
+  time_limit_minutes: number | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined from lesson
+  case_scenario?: ClinicalCaseScenario;
+  // Joined from join queries
+  institution_id?: string | null;
+  course_code?: string;
+  course_name?: string;
+  question_count?: number;
+}
+
+export interface ClinicalCaseQuestion {
+  id: string;
+  assessment_id: string;
+  question_type: ClinicalQuestionType;
+  question_text: string;
+  question_media_url: string | null;
+  options: MCQOption[] | null;
+  correct_answer: string | null;
+  expected_regions: ImageTagRegion[] | null;
+  points: number;
+  order_index: number;
+  metadata: ClinicalQuestionMetadata;
+  created_at: string;
+}
+
+export interface ClinicalCaseWithQuestions extends ClinicalCase {
+  questions: ClinicalCaseQuestion[];
+}
+
+export interface CreateClinicalCaseInput {
+  course_id: string;
+  title: string;
+  description?: string;
+  case_scenario: ClinicalCaseScenario;
+  metadata: ClinicalCaseMetadata;
+  time_limit_minutes?: number | null;
+  pass_threshold?: number;
+  questions: CreateClinicalQuestionInput[];
+}
+
+export interface CreateClinicalQuestionInput {
+  question_type: ClinicalQuestionType;
+  question_text: string;
+  question_media_url?: string | null;
+  options?: MCQOption[] | null;
+  correct_answer?: string | null;
+  expected_regions?: ImageTagRegion[] | null;
+  points?: number;
+  order_index?: number;
+  metadata: ClinicalQuestionMetadata;
+}
+
+export interface UpdateClinicalCaseInput {
+  title?: string;
+  description?: string;
+  case_scenario?: ClinicalCaseScenario;
+  metadata?: Partial<ClinicalCaseMetadata>;
+  time_limit_minutes?: number | null;
+  pass_threshold?: number;
+  status?: ClinicalCaseStatus;
+  questions?: CreateClinicalQuestionInput[];
+}
+
+export interface ClinicalCaseListFilters {
+  status?: ClinicalCaseStatus | 'all';
+  course_id?: string;
+  institution_id?: string;
+}
+
+// Per-student transcript drill
+export interface ClinicalCaseSubmissionTranscript {
+  submission_id: string;
+  learner_id: string;
+  learner_name: string;
+  learner_roll_number?: string;
+  attempt_number: number;
+  started_at: string;
+  completed_at: string | null;
+  auto_score: number | null;
+  final_score: number | null;
+  passed: boolean | null;
+  assessment_version: number;
+  answers: Array<{
+    question_id: string;
+    question_text: string;
+    question_type: ClinicalQuestionType;
+    question_order: number;
+    osce_domain: OSCEDomain;
+    learner_answer: string;
+    ai_feedback?: string | null;
+    domain_score?: number | null;
+  }>;
+  per_domain_scores?: Record<OSCEDomain, number>;
+}
+
+// Cohort analytics
+export interface ClinicalCaseCohortStats {
+  case_id: string;
+  case_title: string;
+  total_attempts: number;
+  unique_learners: number;
+  average_score: number | null;
+  pass_rate: number | null;
+  attempt_distribution: Array<{ attempt_number: number; count: number }>;
+  per_domain_average?: Record<OSCEDomain, number>;
+  students: Array<{
+    learner_id: string;
+    learner_name: string;
+    roll_number?: string;
+    attempts_used: number;
+    best_score: number | null;
+    passed: boolean | null;
+    last_attempt_at: string | null;
+    granted_extra: number;
+  }>;
+}
+
+export interface GrantAttemptsInput {
+  case_id: string;
+  learner_id: string;
+  attempts_granted: number;
+  reason: string;
+}
+
+export interface PdeAttemptGrant {
+  id: string;
+  case_id: string;
+  learner_id: string;
+  attempts_granted: number;
+  reason: string;
+  granted_by: string;
   created_at: string;
 }

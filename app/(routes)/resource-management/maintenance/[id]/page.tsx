@@ -216,13 +216,13 @@ export default function MaintenanceDetailPage({
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='flex items-center justify-between mb-6'>
-        <div>
+      <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6'>
+        <div className='min-w-0'>
           <h1 className='text-3xl font-bold flex items-center gap-2'>
-            <Wrench className='h-8 w-8' />
+            <Wrench className='h-8 w-8 shrink-0' />
             {log.title}
           </h1>
-          <div className='flex items-center gap-2 mt-2'>
+          <div className='flex items-center gap-2 mt-2 flex-wrap'>
             {getStatusBadge(log.status)}
             {getTypeBadge(log.maintenance_type)}
             <Badge variant='outline'>
@@ -231,7 +231,7 @@ export default function MaintenanceDetailPage({
           </div>
         </div>
 
-        <div className='flex items-center gap-2'>
+        <div className='flex items-center gap-2 flex-wrap sm:shrink-0'>
           {log.status === MaintenanceStatus.SCHEDULED && (
             <Button onClick={handleComplete} variant='default'>
               Mark Complete

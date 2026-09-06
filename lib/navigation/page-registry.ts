@@ -14,6 +14,7 @@ import {
   // ~14 sections, leaving the bottom-nav More drawer visually generic).
   LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
   Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
+  ShoppingCart,
 } from 'lucide-react';
 import { MENU_PERMISSIONS, GetPages } from '@/lib/sidebarMenuLink';
 import type { PageEntry } from './types';
@@ -147,6 +148,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['unmarked attendance', 'pending', 'not yet marked'],
     description: 'View classes with pending attendance'
   },
+  '/academic/attendance/history': {
+    keywords: ['unmarked history', 'not marked', 'missed attendance', 'past unmarked', 'attendance gaps', 'last week unmarked'],
+    description: 'Sessions that went unmarked over a chosen date range'
+  },
   '/academic/attendance/reports': {
     keywords: ['attendance report', 'absence report', 'attendance export'],
     description: 'Generate attendance reports and exports'
@@ -254,6 +259,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['my profile', 'student profile', 'personal details'],
     description: 'View and update your profile'
   },
+  '/learners/my-bills': {
+    keywords: ['my bills', 'fees', 'fee bills', 'dues', 'outstanding', 'balance', 'receipts', 'payment history', 'student fees'],
+    description: 'View your fee bills, balances, and payment history'
+  },
   '/learners/leave-onduty/my-applications': {
     keywords: ['apply leave', 'onduty request', 'leave application'],
     description: 'Apply for leave or on-duty and track status'
@@ -292,6 +301,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['student fee', 'student bill', 'fee search', 'student balance'],
     description: 'Search students and view their fee details'
   },
+  '/billing/coverage': {
+    keywords: ['bill not generated', 'missing bill', 'not billed', 'bill gap', 'unbilled learners', 'bill generated', 'bill coverage', 'pending bill generation'],
+    description: 'Find learners with no bill generated for an academic year'
+  },
   '/billing/onboarding': {
     keywords: ['onboarding', 'learner onboarding', 'account', 'enrollment', 'fee payment', 'admission billing', 'new student'],
     description: 'Review pending learner payments and approve for enrollment'
@@ -315,6 +328,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
   '/billing/reports': {
     keywords: ['billing report', 'fee report', 'collection report', 'financial report'],
     description: 'Generate billing and financial reports'
+  },
+  '/billing/activities': {
+    keywords: ['billing activity', 'audit trail', 'billing log', 'transaction history', 'billing audit', 'who did what'],
+    description: 'View audit trail of all billing operations'
   },
   // Resource Management
   '/resource-management/analytics-dashboard': {
@@ -367,11 +384,11 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     description: 'Configure available service request types'
   },
   // Administration
-  '/admin/notifications': {
+  '/notifications/admin': {
     keywords: ['notification', 'announcement', 'broadcast', 'alert', 'push'],
     description: 'Manage and send notifications'
   },
-  '/admin/notifications/new': {
+  '/notifications/admin/new': {
     keywords: ['send notification', 'new announcement', 'broadcast message'],
     description: 'Send a new notification or announcement'
   },
@@ -387,7 +404,7 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['audit', 'system logs', 'change history', 'who changed'],
     description: 'View system audit trail and change history'
   },
-  '/admin/lifecycle': {
+  '/learners/lifecycle': {
     keywords: ['lifecycle', 'student journey', 'enrollment to graduation'],
     description: 'Lifecycle analytics from enrollment to graduation'
   },
@@ -395,6 +412,33 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
   '/startup-studio/events': {
     keywords: ['startup', 'hackathon', 'innovation', 'event', 'entrepreneurship'],
     description: 'Manage startup studio events and hackathons'
+  },
+  // School of Influence (2026-08-13, BUG-005799 / BUG-005800).
+  // The whole programme was absent from this file, so its five admin screens
+  // reached the palette only through the route manifest — as bare folder names
+  // ("Applications", "Coordinators", "Lifecycle") with auto-derived keywords.
+  // Nobody could find the review queue by typing what the programme is called.
+  // Every entry repeats "School of Influence" and "SOI" so the programme name
+  // finds its own screens.
+  '/startup-studio/school-of-influence/admin/applications': {
+    keywords: ['school of influence', 'soi', 'applications', 'review', 'review queue', 'applicants', 'accept', 'coordinator', 'batch'],
+    description: 'Review who has applied to a School of Influencer programme, accept them into a batch, or turn an application down'
+  },
+  '/startup-studio/school-of-influence/admin/coordinators': {
+    keywords: ['school of influence', 'soi', 'coordinator', 'coordinators', 'appoint', 'programme coordinator'],
+    description: 'Appoint and remove School of Influencer programme coordinators'
+  },
+  '/startup-studio/school-of-influence/admin/attendance': {
+    keywords: ['school of influence', 'soi', 'attendance', 'session', 'register', 'completion', 'coordinator'],
+    description: 'Tick off who attended each School of Influencer session and see who is short of the attendance bar'
+  },
+  '/startup-studio/school-of-influence/admin/lifecycle': {
+    keywords: ['school of influence', 'soi', 'inactivity', 'dry run', 'lifecycle', 'quiet', 'remind', 'pause', 'remove'],
+    description: 'See who the School of Influencer inactivity engine would remind, pause or remove'
+  },
+  '/startup-studio/school-of-influence/admin/settings': {
+    keywords: ['school of influence', 'soi', 'settings', 'programme settings', 'batch capacity', 'who can apply', 'configure'],
+    description: 'School of Influencer programme settings — who may apply, batch size, and what happens when a batch fills'
   },
   // Value Added Courses
   '/vac': {
@@ -455,7 +499,7 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['bug leaderboard', 'top reporters', 'bug hunters'],
     description: 'Bug reporting leaderboard'
   },
-  '/admin/ai-query-tools': {
+  '/ai-query/admin': {
     keywords: ['ai tools', 'query tools', 'ai registry'],
     description: 'Manage AI query tool registry'
   },
@@ -636,6 +680,7 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   // Section-icon coverage (used by getSectionIcon in BottomNav)
   LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
   Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
+  ShoppingCart,
 };
 
 function getIconName(icon: LucideIcon): string {

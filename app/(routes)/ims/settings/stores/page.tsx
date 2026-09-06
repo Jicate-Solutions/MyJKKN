@@ -61,7 +61,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { useJkknInstitutions } from '@/hooks/use-jkkn-institutions';
 import {
   useImsStores,
   useCreateImsStore,
@@ -90,6 +91,8 @@ interface StoreFormData {
   receipt_header: string;
   receipt_footer: string;
   sale_number_prefix: string;
+  is_central_supply_store: boolean;
+  is_pos_store: boolean;
 }
 
 const emptyFormData: StoreFormData = {
@@ -106,17 +109,24 @@ const emptyFormData: StoreFormData = {
   receipt_header: '',
   receipt_footer: '',
   sale_number_prefix: 'INV',
+  is_central_supply_store: false,
+  is_pos_store: false,
 };
 
 export default function StoresPage() {
+  return (
+    <ImsPageGuard module="ims.settings.stores" action="manage">
+      <StoresPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function StoresPageInner() {
   const router = useRouter();
-  const { isSuperAdmin, userProfile } = usePermissions();
-  // Use local Supabase institutions (UUID-keyed) — matches the type of
-  // ims_stores.institution_id and the convention used across admission,
-  // internships, HR, etc. The JKKN central API returns numeric counselling_code
-  // as `id`, which 400'd against the UUID column (same bug fixed in
-  // internships/cycles on 2026-05-10).
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({ isActive: true });
+  const { isSuperAdmin, userProfile, canAccess } = usePermissions();
+  const canManageStores = isSuperAdmin || canAccess('ims.settings.stores', 'manage');
+  const { data: jkknInstitutionData, isLoading: institutionsLoading } = useJkknInstitutions({ limit: 100 });
+  const institutions = jkknInstitutionData?.data ?? [];
 
   // Filters
   const [search, setSearch] = useState('');
@@ -181,6 +191,8 @@ export default function StoresPage() {
       receipt_header: store.receipt_header || '',
       receipt_footer: store.receipt_footer || '',
       sale_number_prefix: store.sale_number_prefix || 'INV',
+      is_central_supply_store: store.is_central_supply_store ?? false,
+      is_pos_store: store.is_pos_store ?? false,
     });
     setDialogOpen(true);
   };
@@ -221,6 +233,8 @@ export default function StoresPage() {
           receipt_header: formData.receipt_header || null,
           receipt_footer: formData.receipt_footer || null,
           sale_number_prefix: formData.sale_number_prefix || 'INV',
+          is_central_supply_store: formData.is_central_supply_store,
+          is_pos_store: formData.is_pos_store,
         };
         await updateStore.mutateAsync({
           id: editingStore.id,
@@ -243,6 +257,8 @@ export default function StoresPage() {
           receipt_header: formData.receipt_header || null,
           receipt_footer: formData.receipt_footer || null,
           sale_number_prefix: formData.sale_number_prefix || 'INV',
+          is_central_supply_store: formData.is_central_supply_store,
+          is_pos_store: formData.is_pos_store,
           manager_id: null,
           is_active: true,
           created_by: userProfile?.id || null,
@@ -255,6 +271,16 @@ export default function StoresPage() {
       setEditingStore(null);
       setFormData(emptyFormData);
     } catch (error: any) {
+      // idx_ims_stores_one_warehouse_per_institution — at most one warehouse per institution
+      if (
+        error?.code === '23505' ||
+        String(error?.message ?? '').includes('one_warehouse_per_institution')
+      ) {
+        toast.error(
+          'This institution already has a warehouse. Turn off the warehouse flag on the existing store first.'
+        );
+        return;
+      }
       toast.error(error?.message || 'An error occurred');
     }
   };
@@ -385,7 +411,12 @@ export default function StoresPage() {
                       <TableRow key={store.id}>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{store.name}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{store.name}</p>
+                              {store.is_central_supply_store && (
+                                <Badge variant="secondary">Warehouse</Badge>
+                              )}
+                            </div>
                             <p className="text-xs text-muted-foreground font-mono">
                               {store.code}
                             </p>
@@ -607,6 +638,46 @@ export default function StoresPage() {
                   maxLength={6}
                 />
               </div>
+            </div>
+
+            {/* Warehouse — the institution's single inbound store */}
+            <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="store-warehouse">Warehouse for this institution</Label>
+                <p className="text-xs text-muted-foreground">
+                  Inventory enters the institution here (bulk import, GRN, procurement) and is
+                  forwarded to its operating stores. Only one store per institution can be the
+                  warehouse.
+                </p>
+              </div>
+              <Switch
+                id="store-warehouse"
+                checked={formData.is_central_supply_store}
+                onCheckedChange={(checked) =>
+                  setFormData((prev) => ({ ...prev, is_central_supply_store: checked }))
+                }
+              />
+            </div>
+
+            {/* Whether this store is a SHOP. Off by default: a lab or supply store
+                issues stock but never sells, and ims_pos_checkout refuses to book
+                a sale against one. */}
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5 pr-4">
+                <Label htmlFor="store-pos">Has a selling counter (POS)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Turn on for a store that sells to customers over a counter. Leave off
+                  for lab, supply or warehouse stores — the point of sale is hidden for
+                  them and a sale cannot be booked against them.
+                </p>
+              </div>
+              <Switch
+                id="store-pos"
+                checked={formData.is_pos_store}
+                onCheckedChange={(checked) =>
+                  setFormData((prev) => ({ ...prev, is_pos_store: checked }))
+                }
+              />
             </div>
 
             {/* UPI Payment Settings — Super Admin Only */}

@@ -2,7 +2,7 @@
 
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -60,6 +60,7 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import type { DetailedAttendanceReport } from '@/types/attendance-reports';
 import type { AttendanceAuditEntry } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 // Color scheme constants - Using primary (blue), success (green), danger (red)
 const COLORS = {
@@ -80,8 +81,10 @@ const convertTo12Hour = (time24: string) => {
 };
 
 export default function AttendanceReportDetailPage() {
+  const label = useAdaptiveLabels();
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
 
@@ -169,9 +172,16 @@ export default function AttendanceReportDetailPage() {
 
       const reportData = data as DetailedAttendanceReport;
       setReport(reportData);
-      // Default select first period
+      // Updated: 2026-06-19 (FIX 3) - Honor the ?period= passed by the period cards so
+      // "View Details" opens ON the clicked period, not always the first one in the record.
+      // A semester-level record holds several periods, so defaulting to [0] surfaced the
+      // wrong class (e.g. Oral Medicine showing Oral Surgery). Falls back to the first period.
       if (reportData.period_details && reportData.period_details.length > 0) {
-        setSelectedPeriod(reportData.period_details[0].period_id);
+        const requestedPeriodId = searchParams.get('period');
+        const requested = requestedPeriodId
+          ? reportData.period_details.find((p) => p.period_id === requestedPeriodId)
+          : undefined;
+        setSelectedPeriod((requested ?? reportData.period_details[0]).period_id);
       }
     } catch (error) {
       toast.error('An error occurred while fetching the report');
@@ -179,7 +189,7 @@ export default function AttendanceReportDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [reportId, isValidReportId, userRole, profile?.id, router, shouldWaitForRole]);
+  }, [reportId, isValidReportId, userRole, profile?.id, router, shouldWaitForRole, searchParams]);
 
   useEffect(() => {
     fetchReportDetails();
@@ -283,6 +293,16 @@ export default function AttendanceReportDetailPage() {
     percentage: report.average_attendance
   };
 
+  // Updated: 2026-07-21 - Edit the period the user is actually viewing.
+  // Same bug class as BUG-003154 (fixed for "View Details" on 2026-06-19): one
+  // semester-level record holds several periods, so the Edit button's hardcoded
+  // period_details[0] sent EVERY edit into the first period's roster — a faculty
+  // who marked 6+ periods could never edit periods 2..n. No fallback to [0] here
+  // on purpose: silently editing the wrong class is worse than a disabled button.
+  const periodToEdit = report.period_details.find(
+    (p) => p.period_id === selectedPeriod
+  );
+
   return (
     <ContentLayout title='Attendance Report Details'>
       <Breadcrumb className='print:hidden'>
@@ -332,18 +352,24 @@ export default function AttendanceReportDetailPage() {
               <Button
                 variant='outline'
                 size='sm'
+                disabled={!periodToEdit}
+                title={
+                  periodToEdit
+                    ? `Edit attendance for ${periodToEdit.period_name || `Period ${periodToEdit.period_number}`}`
+                    : 'Select a period below to edit its attendance'
+                }
                 onClick={() => {
-                  const firstPeriod = report.period_details[0];
+                  if (!periodToEdit) return;
                   const params = new URLSearchParams({
                     timetableId: report.timetable_id,
                     sectionId: report.section_id,
                     date: report.attendance_date,
-                    periodId: firstPeriod.period_id,
+                    periodId: periodToEdit.period_id,
                   });
-                  if (firstPeriod.period_name) params.set('periodName', firstPeriod.period_name);
-                  if (firstPeriod.course_name) params.set('courseName', firstPeriod.course_name);
-                  if (firstPeriod.start_time) params.set('startTime', firstPeriod.start_time);
-                  if (firstPeriod.end_time) params.set('endTime', firstPeriod.end_time);
+                  if (periodToEdit.period_name) params.set('periodName', periodToEdit.period_name);
+                  if (periodToEdit.course_name) params.set('courseName', periodToEdit.course_name);
+                  if (periodToEdit.start_time) params.set('startTime', periodToEdit.start_time);
+                  if (periodToEdit.end_time) params.set('endTime', periodToEdit.end_time);
                   router.push(`/academic/attendance/mark?${params.toString()}`);
                 }}
               >
@@ -486,34 +512,34 @@ export default function AttendanceReportDetailPage() {
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Department</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Department')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.department_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Degree</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Degree')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.degree_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Program</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Program')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.program_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Section</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Section')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {/* Updated: 2025-10-09 - Display all sections for semester-level timetables */}
                     {report.section_names && report.section_names.length > 1
-                      ? `Sections ${report.section_names.join(', ')}`
+                      ? `${label('Sections')} ${report.section_names.join(', ')}`
                       : report.section_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Semester</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Semester')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.semester_name || 'N/A'}
                   </p>
@@ -541,8 +567,8 @@ export default function AttendanceReportDetailPage() {
                         }
                       >
                         {report.timetable_type === 'semester'
-                          ? 'Semester Level'
-                          : 'Section Level'}
+                          ? `${label('Semester')} Level`
+                          : `${label('Section')} Level`}
                       </Badge>
                     )}
                   </div>
@@ -662,7 +688,7 @@ export default function AttendanceReportDetailPage() {
                               </div>
                               <div className='flex-1'>
                                 <h4 className='text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2'>
-                                  Course Information
+                                  {label('Course')} Information
                                 </h4>
                                 <p className='font-bold text-gray-900 text-lg'>
                                   {period.course_name || 'Not Available'}
@@ -892,7 +918,7 @@ export default function AttendanceReportDetailPage() {
                                 <TableHead className='w-16'>S.No</TableHead>
                                 <TableHead>Student Name</TableHead>
                                 <TableHead>Roll Number</TableHead>
-                                <TableHead>Section</TableHead>
+                                <TableHead>{label('Section')}</TableHead>
                                 <TableHead className='text-center'>
                                   Status
                                 </TableHead>
@@ -1034,27 +1060,15 @@ export default function AttendanceReportDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Attendance Alert - Clean and Simple */}
-        {report.average_attendance < 75 && (
-          <Card className='border-l-4 border-l-red-500 bg-red-50 dark:bg-red-900/20'>
-            <CardContent className='p-4'>
-              <div className='flex items-start gap-3'>
-                <AlertTriangle className='h-5 w-5 text-red-600 dark:text-red-400 mt-0.5' />
-                <div>
-                  <h3 className='font-semibold text-red-900 dark:text-red-200'>
-                    Low Attendance Alert
-                  </h3>
-                  <p className='text-sm text-red-700 dark:text-red-300 mt-1'>
-                    The overall attendance (
-                    {report.average_attendance.toFixed(1)}%) is below the
-                    recommended 75% threshold. Consider taking appropriate
-                    action.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* 2026-07-06: Removed the "Low Attendance Alert" here. This page is a
+            SINGLE marking session's report (the id is one attendance record) that
+            faculty auto-land on right after saving. A single session's turnout
+            dipping below 75% is normal and does NOT indicate a chronic-attendance
+            problem — yet the banner mislabelled it "overall attendance … take
+            action", firing on every low-turnout (or mis-counted) session. Chronic
+            low-attendance warnings belong on cumulative student/section reports and
+            dashboards, never on a single-session view. (Faculty incident 2026-07-06:
+            "saved successfully but shows low alert irrespective".) */}
 
         {report.average_attendance >= 90 && (
           <Card className='border-l-4 border-l-green-500 bg-green-50 dark:bg-green-900/20'>

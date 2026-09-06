@@ -6,6 +6,7 @@ import type {
   UpdateMessCatererDTO,
   MessCatererBlock,
   CatererStatus,
+  GenderServed,
 } from '@/types/campus-living';
 
 export class MessCatererService {
@@ -295,4 +296,66 @@ export class MessCatererService {
       throw error;
     }
   }
+
+  // ── NEW (PR 3) — gender-matched caterer dispatch ──────────────────
+  /**
+   * Return the active caterer serving a given resident gender for an
+   * institution. Used by reports + billing + the resident menu view to pick
+   * the right cooker once the menu cell (tier-scoped) is identified.
+   *
+   * Match priority:
+   *   1) gender_served = <gender>          (e.g. resident is 'boys' → 'boys' caterer)
+   *   2) gender_served = 'both'            (fallback)
+   *   3) NULL gender_served               (legacy pre-PR-1 rows, last resort)
+   *
+   * Returns null if no active caterer matches at any priority level.
+   */
+  static async getCatererForGender(
+    institutionId: string,
+    gender: 'boys' | 'girls',
+  ): Promise<MessCaterer | null> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('mess_caterers')
+        .select('*')
+        .eq('institution_id', institutionId)
+        .eq('status', 'active')
+        .in('gender_served', [gender, 'both']);
+
+      if (error) {
+        logger.error('campus-living/caterer', 'Failed to fetch caterer for gender', error);
+        throw error;
+      }
+
+      const rows = (data ?? []) as MessCaterer[];
+      // Prefer the gender-exact match before the 'both' fallback.
+      const exact = rows.find((r) => r.gender_served === gender);
+      if (exact) return exact;
+      const both = rows.find((r) => r.gender_served === 'both');
+      if (both) return both;
+
+      // Last resort: legacy NULL gender_served row (pre-PR-1 caterers).
+      const { data: legacy, error: legacyError } = await supabase
+        .from('mess_caterers')
+        .select('*')
+        .eq('institution_id', institutionId)
+        .eq('status', 'active')
+        .is('gender_served', null)
+        .limit(1)
+        .maybeSingle();
+
+      if (legacyError) {
+        logger.error('campus-living/caterer', 'Failed to fetch legacy caterer fallback', legacyError);
+        return null;
+      }
+      return (legacy as MessCaterer | null) ?? null;
+    } catch (error) {
+      logger.error('campus-living/caterer', 'Unexpected error in getCatererForGender', error);
+      throw error;
+    }
+  }
 }
+
+// Re-export type for caller convenience.
+export type { GenderServed };

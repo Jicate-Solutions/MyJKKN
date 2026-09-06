@@ -93,25 +93,63 @@ export function useActivityMutations(leadId?: string) {
   const queryClient = useQueryClient();
 
   const invalidateQueries = () => {
-    if (leadId) {
-      queryClient.invalidateQueries({ queryKey: activityKeys.list(leadId) });
-      queryClient.invalidateQueries({ queryKey: activityKeys.timeline(leadId) });
-      queryClient.invalidateQueries({ queryKey: activityKeys.stats(leadId) });
-    }
-    // Also invalidate the legacy timeline key (only if leadId is valid)
-    if (leadId) {
-      queryClient.invalidateQueries({ queryKey: ['lead-timeline', leadId] });
-    }
+    if (!leadId) return;
+    queryClient.invalidateQueries({ queryKey: activityKeys.list(leadId) });
+    queryClient.invalidateQueries({ queryKey: activityKeys.timeline(leadId) });
+    queryClient.invalidateQueries({ queryKey: activityKeys.stats(leadId) });
+    // (Dropped the legacy ['lead-timeline', leadId] invalidation — no query is
+    // mounted on that key anywhere in the leads UI; it was dead work.)
   };
 
   const createActivity = useMutation({
     mutationFn: (input: CreateActivityInput) => ActivityService.createActivity(input),
+    // Optimistic insert: show the new note in the timeline the instant Save is
+    // clicked, before the RPC round-trip resolves; reconcile on settle.
+    onMutate: async (input: CreateActivityInput) => {
+      if (!leadId) return {};
+      const timelineKey = activityKeys.timeline(leadId);
+      await queryClient.cancelQueries({ queryKey: timelineKey });
+      const previousTimeline = queryClient.getQueryData(timelineKey);
+      const subject =
+        input.title ||
+        input.activity_type
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (l: string) => l.toUpperCase());
+      const optimisticEntry = ActivityService.activityToTimelineEntry({
+        id: `optimistic-${Date.now()}`,
+        lead_id: input.lead_id,
+        activity_type: input.activity_type,
+        subject,
+        title: subject,
+        description: input.description ?? null,
+        outcome: input.outcome ?? null,
+        scheduled_at: input.scheduled_at ?? null,
+        completed_at: null,
+        created_by: null,
+        created_at: new Date().toISOString(),
+      });
+      queryClient.setQueryData(timelineKey, (old: unknown) =>
+        Array.isArray(old) ? [optimisticEntry, ...old] : [optimisticEntry],
+      );
+      return { previousTimeline };
+    },
+    onError: (error: Error, _input, context) => {
+      // Roll back the optimistic entry on failure.
+      if (leadId && context && 'previousTimeline' in context) {
+        queryClient.setQueryData(
+          activityKeys.timeline(leadId),
+          (context as { previousTimeline: unknown }).previousTimeline,
+        );
+      }
+      toast.error(error.message || 'Failed to log activity');
+    },
     onSuccess: () => {
       toast.success('Activity logged successfully');
-      invalidateQueries();
     },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to log activity');
+    // Reconcile with the server (real id / author / stats) once the write settles
+    // — runs AFTER the optimistic update, so the user already sees the note.
+    onSettled: () => {
+      invalidateQueries();
     },
   });
 

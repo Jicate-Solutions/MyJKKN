@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse , connection } from 'next/server';
 import { getAuthSession } from '@/lib/supabase/server';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';
+import { paginationFromSearchParams } from '@/lib/services/service-requests/pagination';
 import type { ServiceRequestFilters } from '@/types/service-request';
 
 export async function GET(request: Request) {
@@ -19,8 +20,7 @@ export async function GET(request: Request) {
       service_type_id: searchParams.get('service_type_id') || undefined,
       priority: searchParams.get('priority') as any || undefined,
       search: searchParams.get('search') || undefined,
-      page: searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1,
-      limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 20,
+      ...paginationFromSearchParams(searchParams),
       sortBy: searchParams.get('sortBy') || 'created_at',
       sortOrder: (searchParams.get('sortOrder') as 'asc' | 'desc') || 'desc',
     };

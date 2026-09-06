@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,8 +25,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScholarshipPermissionManager } from '@/app/(routes)/billing/discounts/_components/scholarship-permission-manager';
 import { UserInstitutionAccessManager } from './_components/user-institution-access-manager';
 import { useAuth } from '@/hooks/use-auth-provider';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function RoleManagementPage() {
+const ROLE_MANAGEMENT_TABS = ['roles', 'scholarships', 'institutions'] as const;
+
+function RoleManagementPageInner() {
   const router = useRouter();
   const { profile, isLoading: isAuthLoading } = useAuth();
   const [roles, setRoles] = useState<CustomRole[]>([]);
@@ -34,7 +37,7 @@ export default function RoleManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
-  const [activeTab, setActiveTab] = useState('roles');
+  const [activeTab, setActiveTab] = useTabParam('roles', ROLE_MANAGEMENT_TABS);
 
   const isSuperAdmin =
     !!profile &&
@@ -100,6 +103,7 @@ export default function RoleManagementPage() {
       description?: string;
       permissions?: Record<string, boolean>;
       institution_scope?: 'all' | 'own';
+      is_privileged?: boolean;
       module_scopes?: Record<string, 'own_records' | 'own_institution' | 'all_institutions'>;
     }
   ) => {
@@ -125,11 +129,18 @@ export default function RoleManagementPage() {
       await fetchRoles();
     } catch (error) {
       console.error('Page: Error updating role:', error);
+      // Supabase/PostgREST errors are plain objects, not Error instances —
+      // read .message off either shape so DB-side validation messages (e.g.
+      // the BoS key-format trigger) reach the admin instead of a generic toast.
+      const message = (error as { message?: string } | null)?.message;
       toast.error(
-        error instanceof Error
-          ? `Update failed: ${error.message}`
+        message
+          ? `Update failed: ${message}`
           : 'Failed to update role. Please check console for details.'
       );
+      // Rethrow so the edit dialog's handleSubmit doesn't show a false
+      // "updated successfully" toast and reset the form as if the save worked.
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -234,7 +245,7 @@ export default function RoleManagementPage() {
         </Alert>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-          <TabsList className='grid w-full grid-cols-3'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:h-9 sm:grid-cols-3 sm:gap-0 sm:overflow-visible'>
             <TabsTrigger value='roles' className='flex items-center gap-2'>
               <Users className='h-4 w-4' />
               Role Management
@@ -256,7 +267,7 @@ export default function RoleManagementPage() {
           </TabsList>
 
           <TabsContent value='roles' className='space-y-6'>
-            <div className='flex items-center gap-4'>
+            <div className='flex flex-wrap items-center gap-2 sm:gap-4'>
               <Button
                 variant='outline'
                 onClick={handleMigratePermissions}
@@ -308,5 +319,14 @@ export default function RoleManagementPage() {
         onSubmit={handleCreateRole}
       />
     </ContentLayout>
+  );
+}
+
+export default function RoleManagementPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <RoleManagementPageInner />
+    </Suspense>
   );
 }

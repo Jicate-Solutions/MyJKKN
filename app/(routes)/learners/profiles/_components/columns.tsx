@@ -220,13 +220,13 @@ export const profileColumns: ColumnDef<LearnerProfile>[] = [
     minSize: 80,
     maxSize: 120,
   },
-  // 6b. Admission Year — cohort via FK. Sort by program_start_year (numeric)
-  // from the joined admission_year_obj so the column stays meaningful after
-  // Phase D drops the legacy admission_year integer column.
+  // 6b. Admission Year — cohort via FK. Sort by year (numeric) from the joined
+  // admission_year_obj so the column stays meaningful after Phase D drops the
+  // legacy admission_year integer column.
   {
     id: 'admission_year',
     accessorFn: (row) =>
-      (row as any).admission_year_obj?.program_start_year ?? row.admission_year ?? null,
+      (row as any).admission_year_obj?.year ?? row.admission_year ?? null,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Admission Year" />
     ),

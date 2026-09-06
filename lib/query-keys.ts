@@ -294,6 +294,28 @@ export const academicKeys = {
       detail: (filters?: Record<string, unknown>) =>
         [...academicKeys.internalMarks.report.all, 'detail', filters] as const
     }
+  },
+
+  // IA Question Papers (proxied to COE /api/v1/ia/*)
+  questionPapers: {
+    all: ['academic', 'question-papers'] as const,
+
+    list: (filters?: Record<string, unknown>) =>
+      [...academicKeys.questionPapers.all, 'list', filters] as const,
+
+    detail: (id: string) =>
+      [...academicKeys.questionPapers.all, 'detail', id] as const,
+
+    templates: (institutionId: string) =>
+      [...academicKeys.questionPapers.all, 'templates', institutionId] as const
+  },
+
+  // Question-wise CIA mark entry (/academic/mark-entry)
+  markEntry: {
+    all: ['academic', 'mark-entry'] as const,
+
+    paper: (filters?: Record<string, unknown>) =>
+      [...academicKeys.markEntry.all, 'paper', filters] as const
   }
 };
 
@@ -371,6 +393,14 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.clients.all, 'detail', id] as const,
     industries: () =>
       [...solutionsHubKeys.clients.all, 'industries'] as const,
+  },
+
+  proposals: {
+    all: ['solutions-hub', 'proposals'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.proposals.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.proposals.all, 'detail', id] as const,
   },
 
   phases: {
@@ -1089,11 +1119,71 @@ export const startupStudioKeys = {
         [...startupStudioKeys.sf100.exercises.all, 'team-response', exerciseId, enrollmentId] as const,
     },
   },
+
+  foundations: {
+    all: ['startup-studio', 'foundations'] as const,
+    cohorts: {
+      all: ['startup-studio', 'foundations', 'cohorts'] as const,
+      list: (filters?: Record<string, unknown>) =>
+        [...startupStudioKeys.foundations.cohorts.all, 'list', filters] as const,
+      detail: (id: string) =>
+        [...startupStudioKeys.foundations.cohorts.all, 'detail', id] as const,
+      roster: (id: string, filters?: Record<string, unknown>) =>
+        [...startupStudioKeys.foundations.cohorts.all, 'roster', id, filters] as const,
+    },
+    worksheets: {
+      all: ['startup-studio', 'foundations', 'worksheets'] as const,
+      list: (cohortId?: string | null) =>
+        [...startupStudioKeys.foundations.worksheets.all, 'list', cohortId ?? null] as const,
+      detail: (id: string) =>
+        [...startupStudioKeys.foundations.worksheets.all, 'detail', id] as const,
+    },
+    journey: (cohortId?: string | null) =>
+      [...startupStudioKeys.foundations.all, 'journey', cohortId ?? null] as const,
+    myResponse: (worksheetId: string) =>
+      [...startupStudioKeys.foundations.all, 'my-response', worksheetId] as const,
+    myEnrollments: () =>
+      [...startupStudioKeys.foundations.all, 'my-enrollments'] as const,
+    progress: () =>
+      [...startupStudioKeys.foundations.all, 'progress'] as const,
+    reviewQueue: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.foundations.all, 'review-queue', filters] as const,
+  },
 };
 
 // ============================================
 // Combined Export
 // ============================================
+// ============================================
+// Cohort Core Module Keys (shared cohort spine)
+// Connected to: hooks/cohort-core/index.ts, lib/services/cohort-core/*
+// ============================================
+export const cohortKeys = {
+  all: ['cohort-core'] as const,
+
+  cohorts: {
+    all: ['cohort-core', 'cohorts'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...cohortKeys.cohorts.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...cohortKeys.cohorts.all, 'detail', id] as const,
+    byKind: (kind: string, institutionId?: string) =>
+      [...cohortKeys.cohorts.all, 'by-kind', kind, institutionId ?? null] as const,
+  },
+
+  memberships: {
+    all: ['cohort-core', 'memberships'] as const,
+    list: (cohortId: string, filters?: Record<string, unknown>) =>
+      [...cohortKeys.memberships.all, 'list', cohortId, filters] as const,
+    detail: (id: string) =>
+      [...cohortKeys.memberships.all, 'detail', id] as const,
+  },
+
+  // status events keyed by whichever anchor is provided
+  events: (params: { cohortId?: string; membershipId?: string }) =>
+    [...cohortKeys.all, 'events', params.cohortId ?? null, params.membershipId ?? null] as const,
+} as const;
+
 export const queryKeys = {
   organization: organizationKeys,
   students: studentKeys,
@@ -1103,6 +1193,7 @@ export const queryKeys = {
   users: userKeys,
   resources: resourceKeys,
   startupStudio: startupStudioKeys,
+  cohortCore: cohortKeys,
 } as const;
 
 // ============================================

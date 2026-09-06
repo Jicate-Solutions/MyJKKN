@@ -21,6 +21,7 @@ import type {
 
 import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Allowed stage transitions — defines the valid moves for each funnel stage.
@@ -29,30 +30,49 @@ import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
 // re-engagement back to 'new' or 'contacted'.
 // ────────────────────────────────────────────────────────────────────────────
 export const ALLOWED_STAGE_TRANSITIONS: Record<FunnelStage, FunnelStage[]> = {
+  // ── Early funnel ──────────────────────────────────────────────────────────
   new:                    ['contacted', 'not_reachable', 'lost', 'dormant'],
-  contacted:              ['interested', 'not_reachable', 'follow_up_scheduled', 'lost', 'dormant'],
-  not_reachable:          ['contacted', 'follow_up_scheduled', 'lost', 'dormant'],
-  interested:             ['engaged', 'qualified', 'follow_up_scheduled', 'not_reachable', 'lost', 'dormant'],
-  follow_up_scheduled:    ['contacted', 'not_reachable', 'interested', 'lost', 'dormant'],
-  engaged:                ['qualified', 'interested', 'follow_up_scheduled', 'lost', 'dormant'],
-  qualified:              ['application_started', 'applied', 'follow_up_scheduled', 'lost', 'dormant'],
-  application_started:    ['application_submitted', 'documents_pending', 'lost', 'dormant'],
-  application_submitted:  ['documents_pending', 'documents_verified', 'lost', 'dormant'],
+  contacted:              ['new', 'interested', 'not_reachable', 'follow_up_scheduled', 'lost', 'dormant'],
+  // Added 'new' (reset an unreachable lead) and 'interested' (they respond
+  // positively before a follow-up is even scheduled).
+  not_reachable:          ['new', 'contacted', 'interested', 'follow_up_scheduled', 'lost', 'dormant'],
+  // Added 'new' + 'contacted' — reset or step back when lead cools off.
+  interested:             ['new', 'contacted', 'engaged', 'qualified', 'follow_up_scheduled', 'not_reachable', 'lost', 'dormant'],
+  follow_up_scheduled:    ['new', 'contacted', 'not_reachable', 'interested', 'lost', 'dormant'],
+  // Added 'new' + 'not_reachable' + 'contacted' — reset or lead goes cold mid-engagement.
+  engaged:                ['new', 'contacted', 'not_reachable', 'qualified', 'interested', 'follow_up_scheduled', 'lost', 'dormant'],
+  // Added 'follow_up_scheduled' — re-schedule before proceeding to application.
+  qualified:              ['application_started', 'applied', 'follow_up_scheduled', 'interested', 'lost', 'dormant'],
+
+  // ── Application track ─────────────────────────────────────────────────────
+  // Added 'qualified' and 'follow_up_scheduled' — abandoned application; push
+  // back to qualified to re-qualify before attempting again.
+  application_started:    ['qualified', 'follow_up_scheduled', 'application_submitted', 'documents_pending', 'lost', 'dormant'],
+  application_submitted:  ['documents_pending', 'documents_verified', 'application_started', 'lost', 'dormant'],
   documents_pending:      ['documents_verified', 'application_submitted', 'lost', 'dormant'],
-  documents_verified:     ['interview_scheduled', 'offer_sent', 'documents_pending', 'lost', 'dormant'],
-  interview_scheduled:    ['interview_completed', 'documents_pending', 'lost', 'dormant'],
+  // Added 'qualified' — documents failed verification entirely; step back.
+  documents_verified:     ['qualified', 'interview_scheduled', 'offer_sent', 'documents_pending', 'lost', 'dormant'],
+  // Added 'qualified' and 'documents_verified' — interview cancelled or
+  // rescheduled; need to step back before re-scheduling.
+  interview_scheduled:    ['qualified', 'documents_verified', 'interview_completed', 'documents_pending', 'lost', 'dormant'],
   interview_completed:    ['offer_sent', 'interviewed', 'lost', 'dormant'],
-  offer_sent:             ['offer_accepted', 'declined', 'lost', 'dormant'],
+
+  // ── Offer / enrolment track ───────────────────────────────────────────────
+  offer_sent:             ['offer_accepted', 'declined', 'interview_completed', 'lost', 'dormant'],
   offer_accepted:         ['token_paid', 'confirmed', 'offer_sent', 'declined', 'lost', 'dormant'],
   token_paid:             ['confirmed', 'enrolled', 'lost', 'dormant'],
+
+  // ── Legacy parallel track (applied → offered) ─────────────────────────────
   applied:                ['interviewed', 'documents_pending', 'lost', 'dormant'],
   interviewed:            ['offered', 'declined', 'lost', 'dormant'],
   offered:                ['confirmed', 'declined', 'withdrew', 'lost', 'dormant'],
+
+  // ── Terminal / re-engagement ──────────────────────────────────────────────
   confirmed:              ['enrolled', 'withdrew', 'lost', 'dormant'],
   enrolled:               ['lost', 'dormant'],
-  declined:               ['new', 'lost', 'dormant'],
-  withdrew:               ['new', 'lost', 'dormant'],
-  expired:                ['new', 'lost', 'dormant'],
+  declined:               ['new', 'contacted', 'lost', 'dormant'],
+  withdrew:               ['new', 'contacted', 'lost', 'dormant'],
+  expired:                ['new', 'contacted', 'lost', 'dormant'],
   lost:                   ['new', 'contacted', 'dormant'],
   dormant:                ['new', 'contacted', 'lost'],
 };
@@ -182,31 +202,39 @@ export class LeadService {
   /**
    * Get a single lead by ID
    */
-  static async getLead(id: string, institutionId?: string): Promise<AdmissionLead> {
-    let query = (this.supabase as any).from('admission_leads')
-      .select(`
-        *,
-        counselor:admission_counselors(id, name, email),
-        program:programs!program_id(id, program_name, program_id),
-        admission_year:admission_years(id, admission_year_name, program_start_year, program_end_year)
-      `)
-      .eq('id', id);
-
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
+  static async getLead(id: string, _institutionId?: string): Promise<AdmissionLead> {
+    // Route through the server-side service-role detail endpoint, which mirrors
+    // the leads-list route's auth + permission + counselor-scope gate.
+    //
+    // BUG-003956: the previous direct browser query ran under RLS, whose
+    // strict-counselor policy excludes source='referral' even when the
+    // counselor is assigned — so a referral lead that appears in the list
+    // 404'd on its detail page. The endpoint applies the SAME ownership rule
+    // the list uses (counselor_id / assigned_counselor_id) WITHOUT the blanket
+    // referral exclusion. The institutionId param is kept for signature
+    // compatibility; the endpoint enforces scope server-side.
+    let res = await fetch(`/api/admission/leads/${id}`);
+    if (res.status === 503) {
+      await new Promise((r) => setTimeout(r, 300));
+      res = await fetch(`/api/admission/leads/${id}`);
     }
 
-    const { data, error } = await query.maybeSingle();
-
-    if (error) {
-      console.error('[LeadService] Error fetching lead:', error);
-      throw new Error(`Failed to fetch lead: ${error.message}`);
-    }
-    if (!data) {
+    if (res.status === 404) {
       throw new Error('Lead not found');
     }
 
-    return this.normalizeLead(data);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      console.error('[LeadService] Error fetching lead:', body);
+      throw new Error(body.error || `Failed to fetch lead (HTTP ${res.status})`);
+    }
+
+    const result = await res.json();
+    if (!result?.data) {
+      throw new Error('Lead not found');
+    }
+
+    return this.normalizeLead(result.data);
   }
 
   /**
@@ -241,6 +269,7 @@ export class LeadService {
       p_institution_id:   input.institution_id,
       p_last_name:        input.last_name ?? null,
       p_program_id:       input.program_id ?? null,
+      p_admission_year_id: input.admission_year_id ?? null,
       p_referral_type:    input.source === 'referral' ? input.referral_type ?? null : null,
       p_referred_by_id:   input.source === 'referral' ? input.referred_by_id ?? null : null,
       p_referred_by_name: input.source === 'referral' ? input.referred_by_name ?? null : null,
@@ -249,7 +278,49 @@ export class LeadService {
     if (error) {
       throw new Error(error.message || 'Failed to log gate entry');
     }
-    return data as GateEntryResult;
+
+    const result = data as GateEntryResult;
+
+    // ─── Lead-created audit activity ───────────────────────────────────
+    // The gate-entry RPC (capture_gate_entry_lead) wraps capture_admission_lead
+    // server-side and never returns through LeadService.captureLead's
+    // runCreateSideEffects path. So without this insert, gate-captured leads
+    // would have no 'lead_created' row on the activity timeline. We only
+    // log on `action === 'created'` — a returning visitor (action='merged')
+    // already has the original creation audit from their first visit.
+    if (result?.action === 'created') {
+      try {
+        const { data: userRes } = await supabase.auth.getUser();
+        const performer = userRes?.user ?? null;
+        const performerLabel =
+          performer?.email ?? performer?.id ?? 'gate kiosk';
+        const descParts = [
+          `Source: gate_entry`,
+          `Captured by: ${performerLabel}`,
+        ];
+        if (input.source === 'referral' && input.referral_type) {
+          descParts.push(`Referral type: ${input.referral_type}`);
+        }
+        if (input.source === 'referral' && input.referred_by_name) {
+          descParts.push(`Referrer: ${input.referred_by_name}`);
+        }
+        await (supabase as any).from('admission_lead_activities').insert({
+          lead_id: result.lead_id,
+          activity_type: 'lead_created',
+          subject: 'Lead Created (Gate Entry)',
+          description: descParts.join(' · '),
+          created_by: performer?.id ?? null,
+        });
+      } catch (activityErr) {
+        // Audit-only failure — gate entry is already saved, never block UX.
+        console.warn(
+          '[LeadService] Failed to log gate-entry lead_created activity:',
+          activityErr,
+        );
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -396,14 +467,28 @@ export class LeadService {
     const result = rpcRes as { lead_id: string; capture_id: string; action: CaptureAction; reactivated: boolean };
 
     // ─── Fetch the resulting lead row for the caller ────────────────
-    const { data: leadRow, error: fetchErr } = await db
+    // Use maybeSingle(): under strict-counselor / referral RLS the caller may
+    // not be able to SELECT the row they just created via the SECURITY DEFINER
+    // RPC. That is a visibility quirk, NOT a create failure — the lead exists.
+    // (BUG-004101: .single() threw PGRST116 "multiple (or no) rows returned" and
+    // the UI reported "Failed to fetch captured lead" even though creation
+    // succeeded.) On null, synthesize a minimal row from the payload + RPC result
+    // so downstream side-effects and the return value still have id/source/phone.
+    const { data: fetchedRow, error: fetchErr } = await db
       .from('admission_leads')
       .select('*')
       .eq('id', result.lead_id)
-      .single();
+      .maybeSingle();
     if (fetchErr) {
       throw new Error(`Failed to fetch captured lead: ${fetchErr.message}`);
     }
+    const leadRow = fetchedRow ?? {
+      ...p_lead,
+      id: result.lead_id,
+      full_name:
+        (p_lead.full_name as string | undefined) ??
+        ([p_lead.first_name, p_lead.last_name].filter(Boolean).join(' ').trim() || null),
+    };
 
     // ─── Side effects (only on 'created'; never on plain 'merged') ──
     if (result.action === 'created') {
@@ -430,6 +515,41 @@ export class LeadService {
    * capture_admission_lead RPC, so the TS path no longer logs it here.
    */
   private static async runCreateSideEffects(data: any, user: any, db: any): Promise<void> {
+    // ─── Lead-created audit activity ───────────────────────────────────
+    // Without this row the activity timelines (both /admission/leads/[id]
+    // and /learners/enquiries/[id]/edit) show no record of when the lead
+    // first entered the system — only later interactions. Best-effort:
+    // failure here doesn't roll back the lead. The expo branch below adds
+    // a SECOND, more specific 'Captured at Exhibition' note when the
+    // source is education_fair; keeping both is intentional (the
+    // lead_created row is the canonical provenance, the expo note adds
+    // event/city detail).
+    try {
+      const sourceLabel = data.source ?? 'unknown';
+      const performerLabel =
+        (user?.email as string | undefined) ??
+        (user?.id as string | undefined) ??
+        'system';
+      const descParts = [
+        `Source: ${sourceLabel}`,
+        `Captured by: ${performerLabel}`,
+      ];
+      if (data.referral_type) descParts.push(`Referral type: ${data.referral_type}`);
+      if (data.referred_by_name) descParts.push(`Referrer: ${data.referred_by_name}`);
+      await db.from('admission_lead_activities').insert({
+        lead_id: data.id,
+        activity_type: 'lead_created',
+        subject: 'Lead Created',
+        description: descParts.join(' · '),
+        created_by: user?.id ?? null,
+      });
+    } catch (createActivityErr) {
+      console.warn(
+        '[LeadService] Failed to log lead_created activity:',
+        createActivityErr,
+      );
+    }
+
     // Expo Bridge — increment total_leads_collected on the linked expo event (best-effort)
     if (data.expo_event_id) {
       try {
@@ -521,23 +641,26 @@ export class LeadService {
             .maybeSingle();
 
           if (counselorProfile?.user_id) {
-            await db
-              .from('notifications')
-              .insert({
-                user_id: counselorProfile.user_id,
-                type: 'info',
-                category: 'admission',
-                priority: 'normal',
-                title: 'New Lead Assigned to You',
-                message: `Lead "${data.full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
-                metadata: {
-                  event_type: 'lead_assigned',
-                  lead_id: data.id,
-                },
-                action_url: `/admission/leads/${data.id}`,
+            // Shared fanout helper: one notifications row (real columns) + a
+            // user_notifications link so the alert reaches the bell. Prior
+            // inline insert used non-existent columns and never fanned out.
+            await fanoutNotification(db, {
+              title: 'New Lead Assigned to You',
+              body: `Lead "${data.full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
+              userIds: [counselorProfile.user_id],
+              createdBy: user?.id ?? counselorProfile.user_id,
+              category: 'admission',
+              priority: 'normal',
+              url: `/admission/leads/${data.id}`,
+              targeting: { type: 'user', user_ids: [counselorProfile.user_id] },
+              metadata: {
+                event_type: 'lead_assigned',
+                lead_id: data.id,
                 action_label: 'View Lead',
                 channels: ['PUSH', 'IN_APP'],
-              });
+              },
+              source: 'lead-service',
+            });
           }
         } catch (notifErr) {
           console.warn('[LeadService] Could not notify auto-assigned counselor:', notifErr);
@@ -634,6 +757,13 @@ export class LeadService {
     // (e.g., a super-admin reassigning a mis-entered lead to the correct
     // institution) and makes the UI appear to save while the DB doesn't update.
     const { id: _stripId, created_at: _stripCreated, ...safeData } = leadData as any;
+
+    // When counselor_id changes without an explicit assigned_counselor_id update,
+    // null out assigned_counselor_id so the stale reference to the previous
+    // counselor is cleared. The next assignCounselor() call repopulates it.
+    if ('counselor_id' in safeData && !('assigned_counselor_id' in safeData)) {
+      (safeData as any).assigned_counselor_id = null;
+    }
 
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
@@ -754,15 +884,29 @@ export class LeadService {
       .eq('id', leadId)
       .single();
 
-    // Validate transition (skip if force=true — for super-admin overrides)
-    // currentStage is undefined for legacy rows with no funnel_stage — skip validation
+    // Validate transition (skip if force=true — for super-admin overrides).
+    // Only reject UNKNOWN/INACTIVE target codes — any active lead status is a
+    // legal target. The old per-stage whitelist (ALLOWED_STAGE_TRANSITIONS) omitted
+    // many valid moves and could never track admin-added statuses at runtime.
+    // If the admission_statuses read fails/returns empty, fall back to the
+    // FunnelStage union keys so a transient DB error never hard-blocks a stage move.
     const currentStage = current?.funnel_stage as FunnelStage | undefined;
     if (!force && currentStage && currentStage !== newStage) {
-      const allowed = ALLOWED_STAGE_TRANSITIONS[currentStage] ?? [];
-      if (!allowed.includes(newStage)) {
+      const { data: activeStatuses } = await (this.supabase as any)
+        .from('admission_statuses')
+        .select('code')
+        .eq('scope', 'lead')
+        .eq('is_active', true);
+      const validCodes = new Set<string>(
+        (activeStatuses ?? []).map((s: any) => s.code as string),
+      );
+      const known =
+        validCodes.size > 0
+          ? validCodes.has(newStage)
+          : Object.prototype.hasOwnProperty.call(ALLOWED_STAGE_TRANSITIONS, newStage);
+      if (!known) {
         throw new Error(
-          `Invalid stage transition: "${currentStage}" -> "${newStage}" is not allowed. ` +
-          `Allowed next stages: ${allowed.join(', ')}.`
+          `Invalid stage transition: "${newStage}" is not an active lead status.`,
         );
       }
     }
@@ -1015,11 +1159,26 @@ export class LeadService {
       .maybeSingle();
     const isNewAssignment = !currentLead?.counselor_id || currentLead.counselor_id !== counselorId;
 
+    // Resolve the new counselor's profiles.id so assigned_counselor_id is always
+    // kept in sync with counselor_id. Without this:
+    //   - The assigned counselor cannot SELECT or UPDATE the lead via RLS
+    //     (adm_leads_select / adm_leads_update both check assigned_counselor_id = auth.uid())
+    //   - Stale assigned_counselor_id from the previous counselor persists, making
+    //     the lead visible to the wrong counselor (cross-counselor data leak)
+    let resolvedProfileId: string | null = profileId ?? null;
+    if (!resolvedProfileId && counselorId) {
+      const { data: acRow } = await (this.supabase as any)
+        .from('admission_counselors')
+        .select('user_id')
+        .eq('id', counselorId)
+        .maybeSingle();
+      resolvedProfileId = acRow?.user_id ?? null;
+    }
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
         counselor_id: counselorId,
-        // assigned_counselor_id references profiles(id) — use profileId when provided
-        ...(profileId ? { assigned_counselor_id: profileId } : {}),
+        assigned_counselor_id: resolvedProfileId, // always sync — clears stale reference
         assigned_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -1063,23 +1222,26 @@ export class LeadService {
           .maybeSingle();
 
         if (counselorProfile?.user_id) {
-          await (this.supabase as any)
-            .from('notifications')
-            .insert({
-              user_id: counselorProfile.user_id,
-              type: 'info',
-              category: 'admission',
-              priority: 'normal',
-              title: 'New Lead Assigned to You',
-              message: `Lead "${(data as any).full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
-              metadata: {
-                event_type: 'lead_assigned',
-                lead_id: leadId,
-              },
-              action_url: `/admission/leads/${leadId}`,
+          // Shared fanout helper: one notifications row (real columns) + a
+          // user_notifications link so the alert reaches the bell. Prior
+          // inline insert used non-existent columns and never fanned out.
+          await fanoutNotification(this.supabase as any, {
+            title: 'New Lead Assigned to You',
+            body: `Lead "${(data as any).full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
+            userIds: [counselorProfile.user_id],
+            createdBy: user?.id ?? counselorProfile.user_id,
+            category: 'admission',
+            priority: 'normal',
+            url: `/admission/leads/${leadId}`,
+            targeting: { type: 'user', user_ids: [counselorProfile.user_id] },
+            metadata: {
+              event_type: 'lead_assigned',
+              lead_id: leadId,
               action_label: 'View Lead',
               channels: ['PUSH', 'IN_APP'],
-            });
+            },
+            source: 'lead-service',
+          });
         }
       } catch (notifErr) {
         console.warn('[LeadService] Could not send counselor assignment notification:', notifErr);
@@ -1226,6 +1388,15 @@ export class LeadService {
     const terminalCount = TERMINAL_STAGES.reduce((sum, s) => sum + (byStage[s] || 0), 0);
     const activeTotal = totalLeads - terminalCount;
 
+    // 2026-05-20: lifecycle-status distribution from the same RPC.
+    // 'admitted' here counts both lifecycle_status='admitted' and ='active'
+    // (the RPC collapses them per the workflow spec).
+    const lifecycleByStageRaw: Record<string, number | string> = data?.lifecycleByStage ?? {};
+    const lifecycleByStage: Record<string, number> = {};
+    for (const [k, v] of Object.entries(lifecycleByStageRaw)) {
+      lifecycleByStage[k] = Number(v) || 0;
+    }
+
     return {
       total: totalLeads,
       activeTotal,
@@ -1233,6 +1404,8 @@ export class LeadService {
       hotLeads,
       priorityLeads,
       stages,
+      // 2026-05-20: surfaced for the new lifecycle funnel viz on /admission/dashboard.
+      lifecycleByStage,
     };
   }
 
@@ -1259,6 +1432,8 @@ export class LeadService {
 
     // The RPC already returns the canonical shape (camelCase keys, rounded
     // rates) — no client-side reshaping needed.
+    // 2026-05-20: extended with lifecycle-status counts. Empty-state fallback
+    // keeps the new fields present so consumers don't NPE on first load.
     return data ?? {
       totalLeads: 0,
       newLeads: 0,
@@ -1268,6 +1443,12 @@ export class LeadService {
       todayFollowups: 0,
       conversionRate: 0,
       applicationStartRate: 0,
+      enquiryCount: 0,
+      enquirySubmittedCount: 0,
+      accountCount: 0,
+      reservedCount: 0,
+      admittedCount: 0,
+      rejectedLifecycleCount: 0,
     };
   }
 }

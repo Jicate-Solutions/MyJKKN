@@ -21,6 +21,7 @@ export const navMeta = {
 export default function NewStudentBillPage() {
   const searchParams = useSearchParams();
   const studentId = searchParams.get('student_id');
+  const returnTo = searchParams.get('returnTo') || undefined;
 
   const {
     canAccess,
@@ -118,7 +119,7 @@ export default function NewStudentBillPage() {
           </p>
         </div>
 
-        <StudentBillForm preSelectedStudent={preSelectedStudent} />
+        <StudentBillForm preSelectedStudent={preSelectedStudent} returnTo={returnTo} />
       </div>
     </ContentLayout>
   );

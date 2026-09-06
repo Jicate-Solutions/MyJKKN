@@ -27,8 +27,9 @@ export default function EditMeetingPage({ params }: EditMeetingPageProps) {
   useEffect(() => {
     BosMeetingService.getMeeting(meetingId)
       .then((data) => {
-        if (data.status !== 'draft') {
-          toast.error('Only draft meetings can be edited.');
+        // Allow editing in draft or principal_approved stages
+        if (data.status !== 'draft' && data.status !== 'principal_approved') {
+          toast.error('Meeting can only be edited in draft or principal approval stages.');
           router.push(`/bos/meetings/${meetingId}`);
           return;
         }
@@ -70,8 +71,8 @@ export default function EditMeetingPage({ params }: EditMeetingPageProps) {
   return (
     <div>
       <PageHeader
-        title='Edit Meeting'
-        description={`Meeting #${meeting.meeting_number}/${meeting.academic_year}`}
+        title='Edit Meeting Schedule & Venue'
+        description={`Meeting #${meeting.meeting_number}/${meeting.academic_year} (${meeting.status === 'draft' ? 'Draft' : 'Principal Approval'})`}
       />
 
       <div className='mt-4'>
@@ -80,6 +81,7 @@ export default function EditMeetingPage({ params }: EditMeetingPageProps) {
           isSubmitting={updateMeeting.isPending}
           onSubmit={handleSubmit}
           onCancel={() => router.push(`/bos/meetings/${meetingId}`)}
+          isEditingScheduleOnly={meeting.status === 'principal_approved'}
         />
       </div>
     </div>

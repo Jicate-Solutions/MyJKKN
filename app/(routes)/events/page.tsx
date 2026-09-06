@@ -1,36 +1,21 @@
 'use client';
 
+// Events Hub — the all-events list.
+//
+// Was a grid of four event-type navigation cards plus a card list of general
+// events. The cards are gone: the sidebar now carries Marathon · All Events,
+// Tournament · All and Induction directly, so they were a second, weaker copy
+// of navigation that already exists — and they pushed the actual event data
+// below the fold. What replaces them is one advanced DataTable over EVERY
+// event row (search, type/status filters, sort, pagination, column
+// visibility/resizing, export), with each row opening in its own console.
+
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Timer, Music, Mic2, Dumbbell, BookOpen, Users } from 'lucide-react';
-
-interface EventTypeCard {
-  title: string;
-  description: string;
-  href: string;
-  icon: React.ElementType;
-  available: boolean;
-}
-
-const EVENT_TYPES: EventTypeCard[] = [
-  {
-    title: 'Marathon',
-    description:
-      'Organize running events with registration, bib management, live tracking, and results.',
-    href: '/events/marathon',
-    icon: Timer,
-    available: true,
-  }
-];
+import { Button } from '@/components/ui/button';
+import { Plus } from 'lucide-react';
+import { EventsDataTable } from './_components/events-data-table';
 
 export default function EventsHubPage() {
   return (
@@ -43,57 +28,32 @@ export default function EventsHubPage() {
       />
 
       <div className="space-y-4 mt-4">
-        <div>
-          <h1 className="text-2xl font-bold py-1">Events Hub</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage all types of institutional events from a single place.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold py-1">Events Hub</h1>
+            <p className="text-sm text-muted-foreground">
+              Every event across the platform — marathons, tournaments,
+              inductions and one-off programmes. Tag an event with NAAC evidence
+              criteria so it emits accreditation evidence once it completes.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/events/proposals">Proposals</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/events/presets">Presets</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/events/create" className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                Create an Event
+              </Link>
+            </Button>
+          </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {EVENT_TYPES.map((eventType) => {
-            const Icon = eventType.icon;
-            const CardWrapper = eventType.available ? Link : 'div';
-            const wrapperProps = eventType.available
-              ? { href: eventType.href }
-              : {};
-
-            return (
-              <CardWrapper
-                key={eventType.title}
-                {...(wrapperProps as any)}
-                className={eventType.available ? 'block' : 'block'}
-              >
-                <Card
-                  className={`h-full transition-colors ${
-                    eventType.available
-                      ? 'hover:border-primary/50 cursor-pointer'
-                      : 'opacity-60'
-                  }`}
-                >
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-primary/10">
-                          <Icon className="h-5 w-5 text-primary" />
-                        </div>
-                        <CardTitle className="text-lg">
-                          {eventType.title}
-                        </CardTitle>
-                      </div>
-                      {!eventType.available && (
-                        <Badge variant="secondary">Coming Soon</Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription>{eventType.description}</CardDescription>
-                  </CardContent>
-                </Card>
-              </CardWrapper>
-            );
-          })}
-        </div>
+        <EventsDataTable />
       </div>
     </ContentLayout>
   );

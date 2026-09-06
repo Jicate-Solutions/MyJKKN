@@ -8,7 +8,9 @@ import { Department } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Department>[] = [
+export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Department>[] => {
+  const adapt = adaptLabel || ((label) => label);
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -47,7 +49,7 @@ export const columns: ColumnDef<Department>[] = [
   {
     accessorKey: 'department_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Department Name' />
+      <DataTableColumnHeader column={column} title={adapt('Department Name')} />
     ),
     cell: ({ row }) => {
       const department = row.original;
@@ -80,7 +82,7 @@ export const columns: ColumnDef<Department>[] = [
   {
     accessorKey: 'degree',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree' />
+      <DataTableColumnHeader column={column} title={adapt('Degree')} />
     ),
     cell: ({ row }) => {
       const department = row.original;
@@ -128,4 +130,5 @@ export const columns: ColumnDef<Department>[] = [
     minSize: 60,
     maxSize: 80
   }
-];
+  ];
+};

@@ -5,6 +5,7 @@ import {
   resolveInstitutionContextByCode,
   listAllInstitutionContexts,
 } from '@/lib/utils/institutions/institution-resolver';
+import { hasAnyBosPermission, BOS_LOOKUP_VIEW_KEYS } from '@/lib/utils/bos/bos-access';
 
 /**
  * GET /api/institutions/resolve
@@ -43,10 +44,16 @@ export async function GET(request: NextRequest) {
     const institutionId = searchParams.get('institutionId');
     const counsellingCode = searchParams.get('counsellingCode');
 
-    // Super-admin with no filter → list all
-    if (isSuperAdmin && !institutionId && !counsellingCode) {
-      const all = await listAllInstitutionContexts(supabase);
-      return NextResponse.json({ data: all });
+    // Super-admin with no filter → list all.
+    // BoS read-all observers (any of BOS_LOOKUP_VIEW_KEYS) also get the full
+    // list — it backs the InstitutionPicker on /bos/course-scheme etc., which
+    // now renders for view-grant holders, not just super-admins. Metadata only
+    // (names/codes/ids); record reads stay gated by their own routes.
+    if (!institutionId && !counsellingCode) {
+      if (isSuperAdmin || (await hasAnyBosPermission(user.id, BOS_LOOKUP_VIEW_KEYS))) {
+        const all = await listAllInstitutionContexts(supabase);
+        return NextResponse.json({ data: all });
+      }
     }
 
     // Resolve by counselling_code

@@ -50,6 +50,14 @@ interface CascadePreviewProps {
   previewData: CascadePreviewData | null;
   /** Policy scope */
   scope: CascadeScope;
+  /**
+   * Optional override for the plain-English scope wording in the header
+   * ("Review the downstream effect across <this>"). Added 2026-07-31 for the
+   * School of Influence settings editor, whose scopes are "every batch" and
+   * "this batch" — neither of which any `CascadeScope` value describes
+   * truthfully. Purely additive: callers that omit it keep the derived label.
+   */
+  scopeLabel?: string;
   /** Called when the user clicks "Confirm and apply" */
   onConfirm: () => void;
   /** Called when the user clicks "Cancel" */
@@ -89,6 +97,7 @@ export function CascadePreview({
   proposedChanges,
   previewData,
   scope,
+  scopeLabel: scopeLabelOverride,
   onConfirm,
   onCancel,
   isSaving = false,
@@ -106,7 +115,8 @@ export function CascadePreview({
   if (!open) return null;
 
   const scopeLabel =
-    scope === 'platform' ? 'all colleges' : scope === 'college' ? 'this college' : 'this cycle';
+    scopeLabelOverride ??
+    (scope === 'platform' ? 'all colleges' : scope === 'college' ? 'this college' : 'this cycle');
 
   const hasCritical = previewData?.consequences.some((c) => c.severity === 'critical');
   const hasChanges = proposedChanges.length > 0;

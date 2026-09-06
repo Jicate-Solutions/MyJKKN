@@ -101,7 +101,8 @@ export function BatchForm({
 
       try {
         setInstitutionsLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all types (super-admin-only path).
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/batches', 'Error loading institutions', error);
@@ -117,7 +118,13 @@ export function BatchForm({
     const loadInstitutionName = async () => {
       if (!isSuperAdmin && userProfile?.institution_id) {
         try {
-          const data = await OrganizationService.getInstitutionNames();
+          // entityType:'all' + userId → resolve the user's own institution name
+          // even when it's a school (entity_type='school').
+          const data = await OrganizationService.getInstitutionNames(
+            undefined,
+            userProfile?.id,
+            'all'
+          );
           const inst = data.find((i) => i.id === userProfile.institution_id);
           if (inst) setInstitutionName(inst.name);
         } catch (err) {
@@ -470,7 +477,7 @@ export function BatchForm({
           </CardContent>
         </Card>
 
-        <div className='flex justify-end space-x-4'>
+        <div className='flex flex-wrap justify-end gap-4'>
           <Button
             type='button'
             variant='outline'

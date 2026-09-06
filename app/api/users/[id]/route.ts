@@ -148,7 +148,7 @@ export async function GET(
     console.log('Has departments data:', !!departmentData);
     console.log('Department data:', departmentData);
 
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         success: true,
         data,
@@ -156,6 +156,8 @@ export async function GET(
       },
       { status: 200 }
     );
+    res.headers.set('Cache-Control', 'no-store, must-revalidate');
+    return res;
   } catch (error) {
     console.error('Error in user fetch API:', error);
     return NextResponse.json(
@@ -258,7 +260,7 @@ export async function PATCH(
     // Get target user's original data for activity logging
     const { data: originalTargetUser } = await supabase
       .from('profiles')
-      .select('role, full_name, email, phone_number, institution_id, is_active')
+      .select('role, full_name, email, phone_number, institution_id, is_active, assigned_store_id')
       .eq('id', userId)
       .single();
 
@@ -293,6 +295,35 @@ export async function PATCH(
     if (body.is_active !== undefined) updateData.is_active = body.is_active;
     if (body.profile_complete !== undefined) updateData.profile_completed = body.profile_complete;
 
+    // IMS store allocation. Consumed by useImsStoreContext as priority-2 store
+    // resolution (ahead of the institution first-match fallback). Validated here
+    // because a dangling or inactive store would strand the user on Gate D.
+    if (body.assigned_store_id !== undefined) {
+      if (body.assigned_store_id === null || body.assigned_store_id === '') {
+        updateData.assigned_store_id = null; // explicit clear
+      } else {
+        const { data: store } = await supabaseAdmin
+          .from('ims_stores')
+          .select('id, is_active')
+          .eq('id', body.assigned_store_id)
+          .maybeSingle();
+
+        if (!store) {
+          return NextResponse.json(
+            { error: 'Assigned store not found' },
+            { status: 400 }
+          );
+        }
+        if (!store.is_active) {
+          return NextResponse.json(
+            { error: 'Cannot assign an inactive store' },
+            { status: 400 }
+          );
+        }
+        updateData.assigned_store_id = body.assigned_store_id;
+      }
+    }
+
     // Update the user profile - use admin client for cross-user updates
     const updateClient = user.id === userId ? supabase : supabaseAdmin;
     const { data, error } = await updateClient
@@ -308,6 +339,89 @@ export async function PATCH(
         { error: 'Failed to update user' },
         { status: 500 }
       );
+    }
+
+    // Cross-institution IMS store grants (ims_user_store_grants).
+    //
+    // Gated on super_admin — deliberately stricter than the canEdit check above,
+    // which also admits 'administrator' and self-edits. A grant here lets the
+    // user read another institution's IMS data, so it is not an ordinary profile
+    // field. The DB agrees: ims_user_store_grants' write policies are
+    // super_admin-only, so this is defence in depth rather than the only gate.
+    //
+    // Rows are deactivated rather than deleted, keeping granted_by/granted_at as
+    // an audit trail of who opened up what.
+    let grantsChanged = false;
+    if (body.ims_store_grant_ids !== undefined) {
+      if (currentProfile.role !== 'super_admin') {
+        return NextResponse.json(
+          { error: 'Only super admins can change IMS store grants' },
+          { status: 403 }
+        );
+      }
+
+      const requestedIds: string[] = Array.isArray(body.ims_store_grant_ids)
+        ? body.ims_store_grant_ids
+        : [];
+
+      // Same validation the assigned_store_id block applies: a dangling or
+      // inactive store id would produce a grant that silently grants nothing.
+      if (requestedIds.length > 0) {
+        const { data: validStores } = await supabaseAdmin
+          .from('ims_stores')
+          .select('id, is_active')
+          .in('id', requestedIds);
+
+        const activeIds = new Set(
+          (validStores || []).filter((s) => s.is_active).map((s) => s.id)
+        );
+        const invalid = requestedIds.filter((id) => !activeIds.has(id));
+
+        if (invalid.length > 0) {
+          return NextResponse.json(
+            { error: `Store not found or inactive: ${invalid.join(', ')}` },
+            { status: 400 }
+          );
+        }
+      }
+
+      const { data: existingGrants } = await supabaseAdmin
+        .from('ims_user_store_grants')
+        .select('store_id, is_active')
+        .eq('user_id', userId);
+
+      const existing = existingGrants || [];
+      const toRevoke = existing
+        .filter((g) => g.is_active && !requestedIds.includes(g.store_id))
+        .map((g) => g.store_id);
+      const toGrant = requestedIds.filter(
+        (id) => !existing.some((g) => g.store_id === id && g.is_active)
+      );
+
+      if (toRevoke.length > 0) {
+        await supabaseAdmin
+          .from('ims_user_store_grants')
+          .update({ is_active: false })
+          .eq('user_id', userId)
+          .in('store_id', toRevoke);
+      }
+
+      if (toGrant.length > 0) {
+        // Upsert, not insert: a previously revoked grant still holds its row
+        // (unique on user_id+store_id), so re-granting must reactivate it.
+        await supabaseAdmin.from('ims_user_store_grants').upsert(
+          toGrant.map((store_id) => ({
+            user_id: userId,
+            store_id,
+            is_active: true,
+            granted_by: user.id,
+            granted_at: new Date().toISOString()
+          })),
+          { onConflict: 'user_id,store_id' }
+        );
+      }
+
+      grantsChanged = toRevoke.length > 0 || toGrant.length > 0;
     }
 
     // If role changed via the simple role field, sync to user_roles table
@@ -397,6 +511,14 @@ export async function PATCH(
       changes.push('institution');
     if (originalTargetUser?.is_active !== body.is_active)
       changes.push('account_status');
+    // Guarded on !== undefined: unlike the comparisons above, an omitted
+    // assigned_store_id must not be read as a change to null.
+    if (
+      body.assigned_store_id !== undefined &&
+      originalTargetUser?.assigned_store_id !== body.assigned_store_id
+    )
+      changes.push('assigned_store');
+    if (grantsChanged) changes.push('ims_store_grants');
     if (updatedRoleIds !== undefined) changes.push('roles');
 
     if (changes.length > 0) {

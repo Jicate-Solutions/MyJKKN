@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, GraduationCap } from 'lucide-react';
+import { AddToLinkedInButton } from '@/components/linkedin/add-to-linkedin-button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   TrainingService,
@@ -33,6 +34,8 @@ import {
   type TrainingCategory,
   type EnrollmentStatus,
 } from '@/lib/services/hr/training-service';
+import { TrainingPollAnswerCard, type TrainingAnswerAdapter } from '@/components/live-poll/training-poll-answer-card';
+import { HrPollService } from '@/lib/services/live-poll/hr-poll-service';
 
 const CATEGORY_LABELS: Record<TrainingCategory, string> = {
   induction: 'Induction',
@@ -69,6 +72,17 @@ export default function StaffTrainingPage() {
   const [openPrograms, setOpenPrograms] = useState<HRTrainingSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Staff trainee live-poll answer surface (Phase C) — discovers open HR polls for
+  // sessions this staff member is enrolled in; renders nothing otherwise.
+  const pollAnswerAdapter: TrainingAnswerAdapter = useMemo(() => ({
+    getMyOpenPolls: async () => (await HrPollService.getMyOpenPolls()).map((p) => ({
+      poll_id: p.poll_id, title: p.session_title, already_answered: p.already_answered,
+    })),
+    getForAnswering: (pid) => HrPollService.getForAnswering(pid),
+    submit: (pid, ans) => HrPollService.submit(pid, ans),
+    getQuestionTotals: (pid) => HrPollService.getStaffQuestionTotals(pid),
+  }), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +176,10 @@ export default function StaffTrainingPage() {
           </p>
         </div>
 
+        {/* Live training poll — appears only when the trainer opens a poll for a
+            session this staff member is enrolled in (Phase C). */}
+        <TrainingPollAnswerCard adapter={pollAnswerAdapter} />
+
         {error && (
           <p className="text-sm text-red-600 dark:text-red-400">
             Error: {error}
@@ -240,6 +258,20 @@ export default function StaffTrainingPage() {
                             </>
                           )}
                         </div>
+                        {/* Staff can add a completed training to their LinkedIn.
+                            HR training certs are EXTERNAL URLs (FDP/NPTEL PDFs an
+                            admin pastes on completion) — not JKKN /verify creds —
+                            so certUrl points at the stored external certificate. */}
+                        {en.status === 'completed' && en.certificate_url && (
+                          <div className="mt-2">
+                            <AddToLinkedInButton
+                              cert={{
+                                name: p?.title || 'Training Programme',
+                                certUrl: en.certificate_url,
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

@@ -124,8 +124,11 @@ function ConsentOverlay({
   }
 
   return (
-    /* Full-screen backdrop */
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-900/90 via-slate-800/90 to-emerald-950/90 backdrop-blur-sm p-4">
+    /* Full-screen backdrop. z-[90] sits ABOVE the fixed mobile bottom nav
+       (z-[80]) so the "I Agree" footer is never clipped behind it. items-start
+       + overflow-y-auto lets a tall consent card scroll on short screens instead
+       of being vertically-centred and cut off. */
+    <div className="fixed inset-0 z-[90] flex items-start sm:items-center justify-center overflow-y-auto bg-gradient-to-br from-slate-900/90 via-slate-800/90 to-emerald-950/90 backdrop-blur-sm p-4">
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden">
 
         {/* ── Header band ── */}
@@ -251,7 +254,7 @@ function ConsentOverlay({
 
 function ConsentLoadingSkeleton() {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
       <div className="h-10 w-10 animate-spin rounded-full border-4 border-emerald-400 border-t-transparent" />
     </div>
   );

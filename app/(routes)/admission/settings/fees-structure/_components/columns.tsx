@@ -26,8 +26,8 @@ export type FeeStructureRow = AdmissionFeeStructure & {
   department_name: string | null;
   programme_name: string | null;
   quota_name: string | null;
-  community_name: string | null;
   accommodation_name: string | null;
+  community_name: string | null;
   admission_year_name: string | null;
   item_count: number;
 };
@@ -81,7 +81,7 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
         </Tooltip>
       </TooltipProvider>
     ),
-    size: 220,
+    size: 420,
   },
   {
     id: 'institution',
@@ -114,37 +114,37 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
     size: 130,
   },
   {
+    id: 'gender',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Gender" />,
+    cell: ({ row }) => row.original.gender ?? 'Any',
+    size: 90,
+  },
+  {
     id: 'accommodation',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Accommodation" />,
-    cell: ({ row }) => row.original.accommodation_name ?? '—',
-    size: 150,
-  },
-  {
-    accessorKey: 'item_count',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Items" />,
-    cell: ({ row }) => (
-      <span className="tabular-nums font-medium">{row.original.item_count}</span>
-    ),
-    size: 80,
-  },
-  {
-    id: 'effective',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Effective" />,
     cell: ({ row }) => {
-      const from = row.original.effective_from;
-      const to = row.original.effective_to;
-      if (!from && !to) {
-        return <span className="text-xs text-muted-foreground italic">Always</span>;
-      }
-      const fmt = (d: string | null) =>
-        d ? new Date(d).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' }) : '∞';
-      return (
-        <span className="text-xs whitespace-nowrap">
-          {fmt(from)} – {fmt(to)}
-        </span>
-      );
+      const name = row.original.accommodation_name;
+      return <Badge variant={name ? 'outline' : 'secondary'}>{name ?? 'Any'}</Badge>;
     },
-    size: 200,
+    size: 130,
+  },
+  {
+    // Classification, not a matching dimension — an unset value is a genuine
+    // "not yet classified" (all pre-existing structures), so it renders as a
+    // muted dash rather than the "Any" wording used by the real dimensions.
+    accessorKey: 'package_type',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Package Type" />,
+    cell: ({ row }) => {
+      const value = row.original.package_type;
+      if (value === 'package') {
+        return <Badge variant="secondary">Package</Badge>;
+      }
+      if (value === 'non_package') {
+        return <Badge variant="outline">Non-Package</Badge>;
+      }
+      return <span className="text-muted-foreground">—</span>;
+    },
+    size: 130,
   },
   {
     accessorKey: 'status',

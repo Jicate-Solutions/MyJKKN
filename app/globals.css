@@ -6,6 +6,95 @@ body {
   font-family: var(--font-poppins), var(--font-noto-tamil), Arial, Helvetica, sans-serif;
 }
 
+/* Pin the last (row-action) column of a DataTable to the right edge so the
+   action stays reachable when the table overflows horizontally — e.g. the
+   Hostel Allocations table when the sidebar is expanded. Opt-in: only tables
+   wrapped in .pinned-actions-col are affected, every other DataTable is
+   untouched. Unlayered so it reliably wins over Tailwind's utility layer. */
+.pinned-actions-col .table-container table thead th:last-child,
+.pinned-actions-col .table-container table tbody td:last-child {
+  position: sticky;
+  right: 0;
+  background: hsl(var(--background));
+  box-shadow: -6px 0 8px -8px rgb(0 0 0 / 0.25);
+}
+.pinned-actions-col .table-container table thead th:last-child {
+  z-index: 3;
+}
+.pinned-actions-col .table-container table tbody td:last-child {
+  z-index: 2;
+}
+/* Match the row's hover surface (bg-muted/50 over the base background) so the
+   pinned cell doesn't read as a different colour while staying fully opaque. */
+.pinned-actions-col .table-container table tbody tr:hover td:last-child {
+  background:
+    linear-gradient(hsl(var(--muted) / 0.5), hsl(var(--muted) / 0.5)),
+    hsl(var(--background));
+}
+
+/* Wide forensic tables (Allocation Audit): ten-plus columns that must stay
+   READABLE rather than merely fit.
+
+   The bug this fixes: components/ui/table.tsx renders <table class="w-full">,
+   so the table always shrinks to its container. .table-container's
+   overflow-x-auto therefore never engages, every column gets squeezed below
+   its declared `size`, and cells clip mid-word ("JKKN College of .", "Boys
+   Host") with no scrollbar to recover them. A per-column width is only a
+   *hint* to the browser once the table is constrained to 100%.
+
+   min-width forces the table past its container so the existing horizontal
+   scroll actually engages and each column gets its declared size. Pair it with
+   .pinned-actions-col (above) and the sticky first column below, so the
+   learner's identity and the row actions both stay on screen while scrolling.
+   Opt-in and unlayered, exactly like .pinned-actions-col. */
+/* 1980px = the sum of the 11 declared column sizes (1975) plus slack, so the
+   browser never has to steal width from a column to make the table fit. */
+.audit-wide-table .table-container table {
+  min-width: 1980px;
+}
+.audit-wide-table .table-container table thead th:first-child,
+.audit-wide-table .table-container table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  background: hsl(var(--background));
+  box-shadow: 6px 0 8px -8px rgb(0 0 0 / 0.25);
+}
+/* Above the pinned action column's header (z-3) so the two sticky cells never
+   fight when the table is scrolled to either extreme. */
+.audit-wide-table .table-container table thead th:first-child {
+  z-index: 4;
+}
+.audit-wide-table .table-container table tbody td:first-child {
+  z-index: 2;
+}
+.audit-wide-table .table-container table tbody tr:hover td:first-child {
+  background:
+    linear-gradient(hsl(var(--muted) / 0.5), hsl(var(--muted) / 0.5)),
+    hsl(var(--background));
+}
+
+/* Hostel Allocations (/campus-living/allocations) — the single merged table.
+   Exactly the problem .audit-wide-table solves above, on a second table.
+
+   Folding the Allocated and Not Allocated tabs into one table took it from 9
+   columns to 14 (Mess Cat., Type, Date, Fee, Why not allocated). Because
+   components/ui/table.tsx renders <table class="w-full">, the table stayed
+   pinned to its container and every column was squeezed below its declared
+   size: "JKKN Coll…", "Classic Ro", and — worst of it — the sticky actions
+   cell clipped its own buttons off the right edge, so a row's actions looked
+   like they were missing rather than merely cut off. No scrollbar appeared to
+   recover any of it, because overflow-x-auto never engages on a table that
+   already fits.
+
+   2060px = the sum of the declared column sizes in the widest case (2010, the
+   super-admin with manage rights, who gets both the select checkbox and the
+   Institution column) plus slack, so the browser never has to steal width from
+   a column. A narrower role set simply distributes the surplus; nothing clips
+   either way. Opt-in and unlayered, exactly like the two rules above. */
+.allocations-wide-table .table-container table {
+  min-width: 2060px;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -54,7 +143,7 @@ body {
 
   .dark {
     /* ═══ Ultrahuman-Inspired Dark Cinema Theme ═══ */
-    /* 4-tier surface elevation: L0 (#050506) → L1 (#0A0A0C) → L2 (#141416) → L3 (#2A2A2E) */
+    /* 4-tier surface elevation: L0 (#050506) → L1 (#070708) → L2 (#131316) → L3 (#29292E) */
 
     /* L0 — Deepest background */
     --background: 240 10% 2%;
@@ -76,7 +165,7 @@ body {
     --secondary: 240 5% 17%;
     --secondary-foreground: 0 0% 90%;
 
-    /* Between L1 and L2 — subtle surface variation */
+    /* Above --card: L2 is 8%, this is 12% — sits between L2 and L3 */
     --muted: 240 5% 12%;
     --muted-foreground: 240 4% 63%;
 
@@ -462,4 +551,296 @@ body {
 .ProseMirror ul[data-type='taskList'] li > label {
   flex-shrink: 0;
   margin-top: 2px;
+}
+
+/* ── react-big-calendar — theme-aware + responsive overrides ──────────────── */
+/* react-big-calendar ships only a light-mode stylesheet with hardcoded white
+   backgrounds and #ddd borders, and a desktop-density layout. These rules
+   remap it onto the app's design tokens (so dark mode works and it matches the
+   brand) and make the month grid / agenda list usable on small screens.
+   The toolbar is replaced by a custom React component (calendar-toolbar.tsx),
+   so .rbc-toolbar is intentionally not styled here. */
+.rbc-calendar {
+  max-width: 100%;
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+}
+
+/* Grid surfaces + borders → design tokens */
+.rbc-month-view,
+.rbc-time-view,
+.rbc-agenda-view,
+.rbc-time-header.rbc-overflowing,
+.rbc-time-content,
+.rbc-month-row + .rbc-month-row,
+.rbc-header,
+.rbc-header + .rbc-header,
+.rbc-day-bg + .rbc-day-bg,
+.rbc-time-header-content,
+.rbc-timeslot-group,
+.rbc-time-content > * + * > *,
+.rbc-agenda-view table.rbc-agenda-table,
+.rbc-agenda-view table.rbc-agenda-table tbody > tr > td,
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  border-color: hsl(var(--border)) !important;
+}
+
+.rbc-month-view,
+.rbc-time-view,
+.rbc-agenda-view {
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* Weekday header row */
+.rbc-header {
+  padding: 8px 4px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Date numbers */
+.rbc-date-cell {
+  padding: 4px 6px;
+  font-size: 0.8rem;
+}
+.rbc-button-link {
+  color: inherit;
+}
+
+/* Today + off-range (previous/next month) days */
+.rbc-today {
+  background-color: hsl(var(--primary) / 0.08);
+}
+.rbc-off-range-bg {
+  background-color: hsl(var(--muted) / 0.4);
+}
+.rbc-off-range {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Now-indicator line in week/day views */
+.rbc-current-time-indicator {
+  background-color: hsl(var(--primary));
+  height: 2px;
+}
+
+/* Event chips (background colour is set per-event via eventPropGetter) */
+.rbc-event,
+.rbc-day-slot .rbc-event {
+  padding: 2px 6px;
+  font-size: 0.78rem;
+  border-radius: 6px;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.25);
+}
+.rbc-event:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+.rbc-event.rbc-selected {
+  filter: brightness(0.92);
+}
+
+/* "+ N more" link */
+.rbc-show-more {
+  color: hsl(var(--primary));
+  background: transparent;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Month "show more" popup overlay */
+.rbc-overlay {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.4);
+}
+.rbc-overlay-header {
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+/* Agenda (list) view — the primary layout on mobile */
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
+}
+.rbc-agenda-empty {
+  padding: 2rem 1rem;
+  color: hsl(var(--muted-foreground));
+}
+.rbc-time-view .rbc-label,
+.rbc-agenda-time-cell {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+/* ── Small screens (≤640px) ───────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .rbc-calendar { font-size: 0.8rem; }
+  .rbc-header { padding: 6px 2px; font-size: 0.65rem; }
+  .rbc-date-cell { padding: 2px 4px; font-size: 0.72rem; }
+  .rbc-event,
+  .rbc-day-slot .rbc-event { font-size: 0.7rem; padding: 1px 4px; }
+  .rbc-show-more { font-size: 0.65rem; }
+  .rbc-row-segment { padding: 0 1px 1px; }
+
+  /* Agenda rows breathe and wrap instead of cramming into a fixed table */
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr > td { padding: 8px 6px; }
+  .rbc-agenda-time-cell { white-space: nowrap; }
+  .rbc-agenda-event-cell { white-space: normal; }
+}
+
+/* ── Week / Day (time-grid) responsiveness ───────────────────────────────── */
+/* The time-grid views (Week = 7 day columns, Day = 1) sit beside a left time
+   gutter. RBC keeps the day-header row and the time-grid body in one flex
+   column sharing the same per-column width, so they shrink together as the
+   viewport narrows — which means the fix is *density* (tighten the gutter and
+   scale text down), NOT horizontal scroll (that would desync header from body
+   and break the "content fits the viewport" rule). Phones never reach Week —
+   the toolbar drops it below 768px and defaults to Agenda — but Day on a phone
+   and Week on a tablet both rely on these rules to stay legible. */
+
+/* Keep each hour slot tall enough that a short event is still tappable. */
+.rbc-timeslot-group {
+  min-height: 42px;
+}
+
+/* Time-grid event chips hold long, multi-line titles. Keep that text wrapping
+   and clipped *inside* the colored block (instead of spilling past it into the
+   grid) so a busy Week/Day column stays readable. */
+.rbc-day-slot .rbc-event {
+  line-height: 1.2;
+}
+.rbc-day-slot .rbc-event-content {
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rbc-day-slot .rbc-event-label {
+  font-size: 0.68rem;
+  opacity: 0.9;
+}
+
+@media (max-width: 1024px) {
+  .rbc-time-view .rbc-label,
+  .rbc-time-gutter,
+  .rbc-time-header-gutter {
+    font-size: 0.68rem;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .rbc-time-header-content .rbc-header {
+    padding: 6px 2px;
+    font-size: 0.66rem;
+  }
+  .rbc-day-slot .rbc-event {
+    font-size: 0.7rem;
+    padding: 1px 4px;
+  }
+  /* Cap the all-day band so a busy day doesn't starve the scrollable grid. */
+  .rbc-allday-cell {
+    max-height: 72px;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .rbc-time-view .rbc-label,
+  .rbc-time-gutter,
+  .rbc-time-header-gutter {
+    font-size: 0.62rem;
+  }
+  .rbc-time-header-content .rbc-header {
+    font-size: 0.62rem;
+  }
+  .rbc-day-slot .rbc-event {
+    font-size: 0.66rem;
+  }
+}
+
+/* ── Agenda / List view — never clip; scroll long lists; cards on phones ──── */
+/* The shared rule above gives the agenda `overflow: hidden` (for rounded
+   corners), which silently clips both a wide row AND a long list. Switch it to
+   `auto` so a tall list scrolls inside the bordered card and a tablet-width row
+   can scroll horizontally if needed — the rounded corners still clip. */
+.rbc-agenda-view {
+  overflow: auto;
+}
+
+/* Below 640px the rigid 3-column table can't fit a phone, so drop the table
+   layout entirely and stack each item into a card (skill rule: tables → card
+   layout on mobile). Tapping a card's title still fires onSelectEvent → the
+   detail dialog. */
+@media (max-width: 640px) {
+  .rbc-agenda-view table.rbc-agenda-table,
+  .rbc-agenda-view table.rbc-agenda-table tbody,
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr,
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+    display: block;
+    width: 100% !important;
+  }
+  .rbc-agenda-view table.rbc-agenda-table thead {
+    display: none;
+  }
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr {
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+    border: none !important;
+    padding: 0 !important;
+  }
+  .rbc-agenda-date-cell {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: hsl(var(--muted-foreground));
+  }
+  .rbc-agenda-time-cell {
+    font-size: 0.72rem;
+    color: hsl(var(--muted-foreground));
+    margin: 2px 0;
+    white-space: normal !important;
+  }
+  .rbc-agenda-event-cell {
+    font-size: 0.9rem;
+    font-weight: 600;
+    white-space: normal;
+  }
+}
+/* ── IA question paper rich editor ─────────────────────────────────────────
+   The paper-wide language/font is a PAPER-level choice (ia_question_papers.
+   default_font): the authoring screen sets --qp-editor-font on a wrapper and it
+   cascades into every question and option editor, so the screen matches what the
+   COE PDF renderer prints from the same column.
+
+   Bamini and Suntommy must NEVER appear in the FALLBACK stack — they are legacy
+   glyph faces whose LATIN codepoints carry Tamil shapes, so English text would
+   render as Tamil. They only ever apply when explicitly selected.
+
+   Inline font marks saved on older papers are spans with their own font-family
+   and still override this, matching the renderer. */
+.qp-rich-editor-body {
+  font-family: var(--qp-editor-font, inherit);
+}
+
+/* The placeholder is driven by the data-placeholder attribute the editor sets. */
+.qp-rich-editor-root .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: hsl(var(--muted-foreground));
 }

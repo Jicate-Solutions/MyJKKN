@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Users, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers, BookText, ListTree, FileText } from 'lucide-react';
+import { Users, UsersRound, UserCog, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers, BookText, ListTree, FileText, Landmark, Building2, Target } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -21,9 +21,14 @@ const BOS_NAV_TABS = [
   { href: '/bos/courses',       label: 'Courses',          icon: BookText },
   { href: '/bos/course-scheme', label: 'Course Scheme',    icon: ListTree },
   { href: '/bos/experts',       label: 'External Experts', icon: Users },
+  { href: '/bos/committees',    label: 'Committees',       icon: UsersRound },
+  { href: '/bos/member-types',  label: 'Member Types',     icon: UserCog },
   { href: '/bos/compositions',  label: 'Compositions',     icon: ClipboardList },
+  { href: '/bos/po-pso',        label: 'PO & PSO',         icon: Target },
   { href: '/bos/syllabus',      label: 'Syllabus',         icon: BookOpen },
   { href: '/bos/meetings',      label: 'Meetings',         icon: CalendarDays },
+  { href: '/bos/academic-council', label: 'Academic Council', icon: Landmark },
+  { href: '/bos/governing-body', label: 'Governing Body',   icon: Building2 },
   { href: '/bos/ta-da',         label: 'TA/DA Claims',     icon: Receipt },
   { href: '/bos/reports',       label: 'Reports',          icon: BarChart3 },
 ];
@@ -40,6 +45,8 @@ function resolveSubLeaf(tabHref: string, pathname: string): string | null {
     if (tabHref === '/bos/experts') return 'Add Expert';
     if (tabHref === '/bos/compositions') return 'New Composition';
     if (tabHref === '/bos/meetings') return 'Schedule Meeting';
+    if (tabHref === '/bos/academic-council') return 'New Council Meeting';
+    if (tabHref === '/bos/governing-body') return 'New Governing Body Meeting';
     if (tabHref === '/bos/courses') return 'New Course';
     if (tabHref === '/bos/sop') return 'New SOP Document';
     if (tabHref === '/bos/taxonomy') return null;

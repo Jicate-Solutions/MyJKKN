@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DegreeForm } from '../_components/degree-form';
 import { Card, CardContent } from '@/components/ui/card';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -26,8 +27,13 @@ export const navMeta = {
 } as const;
 
 export default function NewDegreePage() {
+  const adapt = useAdaptiveLabels();
+  const pageTitle = adapt('New Degree');
+  const listLabel = adapt('Degrees');
+  const helpText = adapt('Add a new degree');
+
   return (
-    <ContentLayout title='New Degree'>
+    <ContentLayout title={pageTitle}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -44,21 +50,21 @@ export default function NewDegreePage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/degrees'>Degrees</Link>
+              <Link href='/organizations/degrees'>{listLabel}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>New Degree</BreadcrumbPage>
+            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-2xl font-bold py-1'>New Degree</h1>
+          <h1 className='text-2xl font-bold py-1'>{pageTitle}</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Add a new degree program
+            {helpText}
           </p>
         </div>
 

@@ -3,7 +3,8 @@
 // GET /api/ai-pulse/evidence/naac/export
 //
 // Returns the same payload as /api/ai-pulse/evidence/naac, formatted as
-// NAAC Criterion 3.3.1 evidence CSV. Forces an attachment download via
+// NAAC Attribute 9 (Research & Innovation Outcomes, Binary framework —
+// formerly Criterion 3.3.1) evidence CSV. Forces an attachment download via
 // Content-Disposition.
 //
 // Column order is locked to spec §7 — IQAC pastes this into the AQAR
@@ -30,7 +31,7 @@ import {
 } from '@/lib/services/ai-pulse/naac-evidence-service';
 import { BaseService } from '@/lib/services/base-service';
 
-// CSV column order — frozen per spec §7 (NAAC Criterion 3.3.1).
+// CSV column order — frozen per spec §7 (NAAC Attribute 9 — Research & Innovation Outcomes).
 const CSV_FIELDS: Array<{ label: string; value: string }> = [
   { label: 'AY', value: 'academic_year' },
   { label: 'Institution', value: 'institution_name' },
@@ -42,7 +43,9 @@ const CSV_FIELDS: Array<{ label: string; value: string }> = [
   { label: 'Live App URL', value: 'live_app_url' },
   { label: 'Featured Tool', value: 'featured_tool' },
   { label: 'Champion at time', value: 'champion_at_time' },
-  { label: 'IG Reach', value: 'ig_reach' },
+  // Self-reported active-users count; real IG reach (ig_post_metrics) available via pulse-analytics-service as a future upgrade.
+  { label: 'Active Users (self-reported)', value: 'ig_reach' },
+  { label: 'Verification', value: 'verification' },
   { label: 'Proof URLs', value: 'proof_urls' },
 ];
 
@@ -85,6 +88,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Explicit role gate — this export carries placement PII (names, salaries,
+    // proof URLs) across institutions. "Logged in" is NOT sufficient; require
+    // the NAAC-evidence permission (super-admin bypass is built into the RPC).
+    const { data: canExport } = await (supabase as any).rpc('user_has_permission', {
+      permission_name: 'aiPulse:naac.evidence_export',
+    });
+    if (!canExport) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const url = new URL(request.url);
     const defaults = defaultLastQuarter();
     const filters: NaacEvidenceFilters = {
@@ -103,7 +116,7 @@ export async function GET(request: NextRequest) {
     // Rows 3+ = data.
     const exportedAt = new Date().toISOString();
     const headerLines = [
-      `# NAAC Criterion 3.3.1 — Research / Innovation Outputs (AI Pulse Gold Standards)`,
+      `# NAAC Attribute 9 — Research & Innovation Outcomes (Binary framework) — AI Pulse Gold Standards`,
       `# Source: MyJKKN AI Pulse · Generated: ${exportedAt}`,
       `# Range: ${response.summary.range_label} · Institution filter: ${filters.institution_id ?? 'all'}`,
       `# Gold standards: ${response.summary.gold_standard_count} · Departments: ${response.summary.department_count} · Cycles: ${response.summary.cycle_count}`,
@@ -113,7 +126,7 @@ export async function GET(request: NextRequest) {
     const csv = `${headerLines}\n${csvBody}`;
 
     const filenameDate = exportedAt.slice(0, 10);
-    const filename = `naac-3.3.1-ai-pulse-evidence-${filenameDate}.csv`;
+    const filename = `naac-attr9-ai-pulse-evidence-${filenameDate}.csv`;
 
     return new NextResponse(csv, {
       status: 200,

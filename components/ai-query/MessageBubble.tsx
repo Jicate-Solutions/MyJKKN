@@ -5,39 +5,79 @@
  * Displays a single message in the AI Query chat with analytics dashboard styling
  */
 
-import { Bot, User, Loader2, CheckCircle, TrendingUp, Users, IndianRupee, BarChart3, AlertTriangle, CheckCircle2, XCircle, Info } from 'lucide-react';
+import { Bot, User, Loader2, CheckCircle, BarChart3, FileText, Table2, Presentation, Lock, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AIQueryMessage, ActionDefinition } from '@/types/ai-query';
+import type { AIQueryMessage, ActionDefinition, ArtifactRef, ArtifactType } from '@/types/ai-query';
+import { AnswerFeedback } from './AnswerFeedback';
+import { markdownComponents } from './markdown-components';
 
 interface MessageBubbleProps {
   message: AIQueryMessage;
   onActionClick?: (action: ActionDefinition, messageId: string) => void;
+  /** Open an artifact in the side panel (by artifact id). */
+  onOpenArtifact?: (artifactId: string) => void;
 }
 
-// Helper to detect and style stat values in text
-function parseStatValue(text: string): { value: string; label: string } | null {
-  const match = text.match(/^(\d+[\d,]*\.?\d*%?)\s*(.*)$/);
-  if (match) {
-    return { value: match[1], label: match[2] };
-  }
-  return null;
+// Format the Max-lane response time for the badge (e.g. 25s, 1m 30s).
+function formatDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 1) return '<1s';
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem ? `${m}m ${rem}s` : `${m}m`;
 }
 
-// Detect if content has KPI-like patterns
-function hasKPIPattern(content: string): boolean {
-  return /Total\s+\w+:|Active\s+\w+:|Count:|students?:|staff:|Amount:|\d+%/i.test(content);
+const ARTIFACT_META: Record<ArtifactType, { icon: typeof BarChart3; label: string }> = {
+  chart: { icon: BarChart3, label: 'Chart' },
+  report: { icon: FileText, label: 'Report' },
+  spreadsheet: { icon: Table2, label: 'Spreadsheet' },
+  slides: { icon: Presentation, label: 'Slides' },
+};
+
+function ArtifactCard({
+  artifact,
+  onOpen,
+}: {
+  artifact: ArtifactRef;
+  onOpen?: (id: string) => void;
+}) {
+  const meta = ARTIFACT_META[artifact.type] ?? ARTIFACT_META.report;
+  const Icon = meta.icon;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen?.(artifact.id)}
+      className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-gradient-to-br from-primary/5 to-primary/[0.02] p-3 text-left transition-colors hover:border-primary/40 hover:from-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+    >
+      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="h-4.5 w-4.5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-sm font-medium text-foreground/90">
+            {artifact.title || `${meta.label}`}
+          </p>
+          {artifact.is_sensitive && (
+            <Lock className="h-3 w-3 flex-shrink-0 text-amber-500" aria-label="Contains sensitive data" />
+          )}
+        </div>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+          {meta.label} · tap to open
+        </p>
+      </div>
+      <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+    </button>
+  );
 }
 
-export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
+export function MessageBubble({ message, onActionClick, onOpenArtifact }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isStreaming = message.isStreaming;
-  const hasKPIs = !isUser && hasKPIPattern(message.content);
 
   return (
     <div
@@ -90,196 +130,21 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
             <div className="text-xs sm:text-sm">{message.content}</div>
           ) : (
             <div className="ai-response-content p-2 sm:p-4">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  // Enhanced headings with icons
-                  h1: ({ children }) => (
-                    <div className="flex items-center gap-2 mb-4 pb-2 border-b border-border/50">
-                      <div className="p-1.5 rounded-lg bg-primary/10">
-                        <BarChart3 className="h-5 w-5 text-primary" />
-                      </div>
-                      <h1 className="text-lg font-bold text-foreground m-0">{children}</h1>
-                    </div>
-                  ),
-                  h2: ({ children }) => (
-                    <div className="flex items-center gap-2 mt-4 mb-3">
-                      <div className="w-1 h-5 rounded-full bg-primary" />
-                      <h2 className="text-base font-semibold text-foreground m-0">{children}</h2>
-                    </div>
-                  ),
-                  h3: ({ children }) => (
-                    <h3 className="text-sm font-semibold text-foreground/90 mt-3 mb-2 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/60" />
-                      {children}
-                    </h3>
-                  ),
-                  // Enhanced table styling - Analytics Dashboard Style (Mobile Scrollable)
-                  table: ({ children }) => (
-                    <div className="my-3 sm:my-4 rounded-lg border border-border/60 overflow-hidden shadow-sm">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs sm:text-sm min-w-[400px]">
-                          {children}
-                        </table>
-                      </div>
-                    </div>
-                  ),
-                  thead: ({ children }) => (
-                    <thead className="bg-gradient-to-r from-muted/80 to-muted/50">
-                      {children}
-                    </thead>
-                  ),
-                  th: ({ children }) => (
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left font-semibold text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground border-b border-border/50 whitespace-nowrap">
-                      {children}
-                    </th>
-                  ),
-                  tbody: ({ children }) => (
-                    <tbody className="divide-y divide-border/30">
-                      {children}
-                    </tbody>
-                  ),
-                  tr: ({ children }) => (
-                    <tr className="hover:bg-muted/30 transition-colors">
-                      {children}
-                    </tr>
-                  ),
-                  td: ({ children }) => {
-                    const text = String(children);
-                    // Style numeric values
-                    const isNumeric = /^\d+[\d,]*\.?\d*%?$/.test(text.trim());
-                    const isPercentage = text.includes('%');
-                    const isHighValue = parseInt(text.replace(/[^\d]/g, '')) > 50;
-
-                    return (
-                      <td className={cn(
-                        "px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm",
-                        isNumeric && "font-mono font-semibold",
-                        isNumeric && isHighValue && "text-primary",
-                        isPercentage && "text-emerald-600 dark:text-emerald-400"
-                      )}>
-                        {isNumeric && !isPercentage ? (
-                          <span className="inline-flex items-center gap-1">
-                            {children}
-                          </span>
-                        ) : children}
-                      </td>
-                    );
-                  },
-                  // Enhanced list styling
-                  ul: ({ children }) => (
-                    <ul className="space-y-1.5 my-3 ml-1">
-                      {children}
-                    </ul>
-                  ),
-                  ol: ({ children }) => (
-                    <ol className="space-y-1.5 my-3 ml-1 list-decimal list-inside">
-                      {children}
-                    </ol>
-                  ),
-                  li: ({ children }) => (
-                    <li className="flex items-start gap-2 text-sm text-foreground/90">
-                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary/50 flex-shrink-0" />
-                      <span className="flex-1">{children}</span>
-                    </li>
-                  ),
-                  // Enhanced code styling - Preview Style
-                  code: ({ className, children }) => {
-                    const isInline = !className;
-                    const text = String(children);
-
-                    // Check if it looks like a stat/KPI value
-                    if (isInline && /^\d+[\d,]*\.?\d*%?$/.test(text.trim())) {
-                      return (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-primary/10 text-primary font-mono font-bold text-sm">
-                          {children}
-                        </span>
-                      );
-                    }
-
-                    return isInline ? (
-                      <code className="px-1.5 py-0.5 rounded-md bg-muted border border-border/50 text-xs font-mono text-foreground/90">
-                        {children}
-                      </code>
-                    ) : (
-                      <div className="my-3 rounded-lg overflow-hidden border border-border/60 shadow-sm">
-                        <div className="flex items-center justify-between px-3 py-1.5 bg-muted/80 border-b border-border/50">
-                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Output</span>
-                          <div className="flex gap-1">
-                            <span className="w-2 h-2 rounded-full bg-red-400" />
-                            <span className="w-2 h-2 rounded-full bg-yellow-400" />
-                            <span className="w-2 h-2 rounded-full bg-green-400" />
-                          </div>
-                        </div>
-                        <pre className="p-3 bg-slate-950 overflow-x-auto">
-                          <code className={cn("text-xs font-mono text-slate-300", className)}>
-                            {children}
-                          </code>
-                        </pre>
-                      </div>
-                    );
-                  },
-                  // Enhanced pre styling
-                  pre: ({ children }) => <>{children}</>,
-                  // Enhanced blockquote - Info/Alert style
-                  blockquote: ({ children }) => (
-                    <div className="my-3 flex items-start gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                      <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                      <div className="text-sm text-foreground/90">{children}</div>
-                    </div>
-                  ),
-                  // Enhanced strong - highlight important text
-                  strong: ({ children }) => {
-                    const text = String(children);
-                    // Check for status-like text
-                    if (/no\s+(fee\s+)?defaulters?|success|complete|active/i.test(text)) {
-                      return (
-                        <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          {children}
-                        </span>
-                      );
-                    }
-                    if (/error|fail|overdue|pending|inactive/i.test(text)) {
-                      return (
-                        <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          {children}
-                        </span>
-                      );
-                    }
-                    return <strong className="font-semibold text-foreground">{children}</strong>;
-                  },
-                  // Enhanced paragraph
-                  p: ({ children }) => (
-                    <p className="text-sm text-foreground/90 leading-relaxed my-2">
-                      {children}
-                    </p>
-                  ),
-                  // Enhanced links
-                  a: ({ href, children }) => (
-                    <a
-                      href={href}
-                      className="text-primary hover:text-primary/80 underline underline-offset-2 transition-colors"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {children}
-                    </a>
-                  ),
-                  // Enhanced horizontal rule
-                  hr: () => (
-                    <div className="my-4 flex items-center gap-2">
-                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
-                    </div>
-                  ),
-                }}
-              >
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                 {message.content}
               </ReactMarkdown>
             </div>
           )}
         </div>
+
+        {/* Artifact cards — click opens the side panel (charts/reports/etc.) */}
+        {!isUser && message.artifacts && message.artifacts.length > 0 && (
+          <div className="mt-2 flex w-full max-w-md flex-col gap-2">
+            {message.artifacts.map((a) => (
+              <ArtifactCard key={a.id} artifact={a} onOpen={onOpenArtifact} />
+            ))}
+          </div>
+        )}
 
         {/* Tool Calls Indicator - Enhanced */}
         {message.toolCalls && message.toolCalls.length > 0 && (
@@ -292,6 +157,9 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
               >
                 <CheckCircle className="h-3 w-3 mr-1" />
                 {tool.name.replace(/_/g, ' ')}
+                {tool.name === 'max_lane' && typeof message.responseMs === 'number' && (
+                  <span className="ml-1 opacity-70">· {formatDuration(message.responseMs)}</span>
+                )}
               </Badge>
             ))}
           </div>
@@ -312,6 +180,11 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
               </Button>
             ))}
           </div>
+        )}
+
+        {/* "Looks wrong?" feedback — assistant answers only; logs for admin review (no user alert) */}
+        {!isUser && !isStreaming && message.jobId && (
+          <AnswerFeedback jobId={message.jobId} />
         )}
 
         {/* Timestamp - Subtle */}

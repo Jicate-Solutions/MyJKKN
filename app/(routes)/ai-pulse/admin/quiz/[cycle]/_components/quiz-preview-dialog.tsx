@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle2, Eye, EyeOff, Languages } from 'lucide-react';
 import type { QuizPayload } from '@/lib/services/ai-pulse/quiz-service';
+import { stripLeadingQuestionNumber } from '@/lib/services/ai-pulse/quiz-question-text';
 
 interface QuizPreviewDialogProps {
   open: boolean;
@@ -130,9 +131,13 @@ export function QuizPreviewDialog({
                       Q{qi + 1}
                     </span>
                     <div className="flex-1 space-y-1">
+                      {/* Numbered by the Q{n} label above, so any number the
+                          author typed into the text is stripped here — the
+                          learner must not see it twice. The editor keeps
+                          showing the raw stored text. */}
                       {showEn && (
                         <p className="text-sm font-medium">
-                          {q.question_en || (
+                          {stripLeadingQuestionNumber(q.question_en) || (
                             <span className="italic text-muted-foreground">
                               (English question missing)
                             </span>
@@ -141,7 +146,7 @@ export function QuizPreviewDialog({
                       )}
                       {showTa && (
                         <p className="text-sm font-medium" lang="ta">
-                          {q.question_ta || (
+                          {stripLeadingQuestionNumber(q.question_ta) || (
                             <span className="italic text-muted-foreground">
                               (Tamil translation missing)
                             </span>

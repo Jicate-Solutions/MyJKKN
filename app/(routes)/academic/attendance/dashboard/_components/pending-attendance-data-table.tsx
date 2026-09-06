@@ -54,8 +54,15 @@ export function PendingAttendanceDataTable({
 
       // Map DataTable parameters to our service parameters
       const attendanceDate = pendingFilters?.attendanceDate || new Date().toISOString().split('T')[0];
+      // For a view_all_institutions viewer with no explicit institution filter, leave
+      // institution undefined so the service spans every college (RLS scopes the rows).
+      // Falling back to the viewer's own institution here silently collapsed all-colleges
+      // scope on the Pending tab — same root cause as BUG-004284 on the Statistics tab.
+      const effectiveUserInstitutionId = canViewAllInstitutions
+        ? pendingFilters?.institutionId || undefined
+        : pendingFilters?.institutionId || userInstitutionId;
       const filters: DashboardFilters = {
-        userInstitutionId: pendingFilters?.institutionId || userInstitutionId,
+        userInstitutionId: effectiveUserInstitutionId,
         page: params.page,
         limit: params.limit,
         sortBy: params.sort_by || 'attendance_date',
@@ -232,18 +239,21 @@ export function PendingAttendanceDataTable({
             { wch: 15 }, // Academic Year
             { wch: 20 }  // Primary Staff
           ],
+          // DATA KEYS, not the labels above — the export resolves these
+          // against each row and columnMapping supplies the heading. Passing
+          // the labels here matched nothing and downloaded a blank file.
           headers: [
-            'Date',
-            'Period',
-            'Course',
-            'Institution',
-            'Degree',
-            'Department',
-            'Program',
-            'Semester',
-            'Section',
-            'Academic Year',
-            'Primary Staff'
+            'attendance_date',
+            'period_name',
+            'course_name',
+            'institution_name',
+            'degree_name',
+            'department_name',
+            'program_name',
+            'semester_name',
+            'section_name',
+            'academic_year_name',
+            'primary_staff_name'
           ]
         }}
         idField='period_id'

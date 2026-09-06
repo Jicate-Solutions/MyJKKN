@@ -10,7 +10,10 @@
 
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
-import type { AttendanceConsolidationReport } from '@/types/attendance';
+import type {
+  AttendanceConsolidationReport,
+  SubjectwiseGroup,
+} from '@/types/attendance';
 
 /**
  * Build the Summary sheet: metadata, overall stats, and group-level table
@@ -144,6 +147,69 @@ function buildStudentDetailsSheet(report: AttendanceConsolidationReport): XLSX.W
 }
 
 /**
+ * Build one Subjectwise (Camu-format) matrix sheet per group.
+ * Layout mirrors the PDF: header block, then Regn No | Name | course codes | Overall,
+ * a "(T)" totals row, and % + (A/T) per cell. Added: 2026-07-04.
+ */
+function buildSubjectwiseSheet(
+  report: AttendanceConsolidationReport,
+  group: SubjectwiseGroup
+): XLSX.WorkSheet {
+  const grandTotal = group.courses.reduce((sum, c) => sum + c.totalPeriods, 0);
+
+  const headerLine2 = [group.degreeName, group.programName, group.academicYearName]
+    .filter(Boolean)
+    .join(' | ');
+  const headerLine3 = [
+    group.departmentName,
+    group.semesterName && group.sectionName
+      ? `${group.semesterName} (${group.sectionName})`
+      : group.semesterName || group.groupName,
+    group.sectionName,
+    'For All Attendances - Subjectwise',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  const rows: (string | number)[][] = [
+    [report.institution?.name || ''],
+    ['Attendance Summary Subjectwise %'],
+    [`${report.reportParams.dateFrom} To ${report.reportParams.dateTo}`],
+    [headerLine2],
+    [headerLine3],
+    [],
+    ['Regn. No.', 'Student Name', ...group.courses.map((c) => c.courseCode), 'Overall'],
+    ['', 'Total no. of periods', ...group.courses.map((c) => `(${c.totalPeriods})`), `(${grandTotal})`],
+    ['', '', ...group.courses.map(() => '% (A/T)'), '% (A/T)'],
+    ...group.students.map((student) => {
+      const cells = group.courses.map((course) => {
+        const cell = student.perCourse[course.courseId];
+        if (!cell || cell.total === 0) return '(0/0)';
+        const pct = Math.round((cell.present / cell.total) * 100);
+        return `${pct} (${cell.present}/${cell.total})`;
+      });
+      const overall =
+        student.overallTotal > 0
+          ? `${Math.round((student.overallPresent / student.overallTotal) * 100)} (${student.overallPresent}/${student.overallTotal})`
+          : '(0/0)';
+      return [student.rollNumber || '-', student.studentName, ...cells, overall];
+    }),
+    [],
+    ['Course Codes:'],
+    ...group.courses.map((c) => [c.courseCode, c.courseName]),
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 14 }, // Regn. No.
+    { wch: 32 }, // Student Name
+    ...group.courses.map(() => ({ wch: 11 })),
+    { wch: 13 }, // Overall
+  ];
+  return ws;
+}
+
+/**
  * Export a consolidation report to an advanced multi-sheet Excel file.
  * Downloads the file immediately in the browser.
  */
@@ -154,8 +220,29 @@ export function exportConsolidationReportToExcel(report: AttendanceConsolidation
 
   const wb = XLSX.utils.book_new();
 
-  XLSX.utils.book_append_sheet(wb, buildSummarySheet(report), 'Summary');
-  XLSX.utils.book_append_sheet(wb, buildStudentDetailsSheet(report), 'Student Details');
+  // Subjectwise (Camu) template: one matrix sheet per group (Added: 2026-07-04)
+  if (report.reportParams.template === 'subjectwise') {
+    const groups = report.reportData.subjectwiseGroups || [];
+    if (groups.length === 0) {
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.aoa_to_sheet([['No attendance data found for the selected filters']]),
+        'Subjectwise'
+      );
+    }
+    // Sheet names: max 31 chars, no []:*?/\ characters, must be unique
+    const usedNames = new Set<string>();
+    groups.forEach((group, i) => {
+      let safeName =
+        group.groupName.replace(/[\[\]:*?/\\]/g, ' ').trim().slice(0, 28) || `Group ${i + 1}`;
+      if (usedNames.has(safeName)) safeName = `${safeName.slice(0, 24)} (${i + 1})`;
+      usedNames.add(safeName);
+      XLSX.utils.book_append_sheet(wb, buildSubjectwiseSheet(report, group), safeName);
+    });
+  } else {
+    XLSX.utils.book_append_sheet(wb, buildSummarySheet(report), 'Summary');
+    XLSX.utils.book_append_sheet(wb, buildStudentDetailsSheet(report), 'Student Details');
+  }
 
   const fileName = `${report.reportName.replace(/[^a-z0-9]/gi, '_')}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
   XLSX.writeFile(wb, fileName);

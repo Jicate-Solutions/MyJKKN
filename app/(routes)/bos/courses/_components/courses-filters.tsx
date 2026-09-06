@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
@@ -39,49 +38,40 @@ export function CoursesFilters({
   }, [institutionId]);
 
   return (
-    <div className='flex gap-3 flex-wrap items-end'>
-      <div className='space-y-1'>
-        <Label className='text-xs'>Search</Label>
-        <Input
-          placeholder='Code or name...'
-          value={value.search}
-          onChange={(e) => onChange({ ...value, search: e.target.value })}
-          className='w-[260px]'
-        />
-      </div>
-      <div className='space-y-1'>
-        <Label className='text-xs'>Regulation</Label>
-        <SearchableSelect
-          value={value.regulation_code}
-          onValueChange={(v) => onChange({ ...value, regulation_code: v })}
-          options={[
-            { value: '', label: 'All regulations' },
-            ...regulations.map((r) => ({
-              value: r.regulation_code,
-              label: r.regulation_year
-                ? `${r.regulation_code} (${r.regulation_year})`
-                : r.regulation_code,
-            })),
-          ]}
-          loading={regulationsLoading}
-          disabled={!institutionId}
-          placeholder='All regulations'
-          searchPlaceholder='Search regulation…'
-          className='w-[180px]'
-        />
-      </div>
-      <div className='space-y-1'>
-        <Label className='text-xs'>Status</Label>
-        <Select value={value.is_active} onValueChange={(v) => onChange({ ...value, is_active: v as 'true' | 'false' })}>
-          <SelectTrigger className='w-[140px]'>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='true'>Active</SelectItem>
-            <SelectItem value='false'>Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
+    <>
+      <SearchableSelect
+        value={value.regulation_code}
+        onValueChange={(v) => onChange({ ...value, regulation_code: v })}
+        options={[
+          { value: '', label: 'All regulations' },
+          ...regulations.map((r) => ({
+            value: r.regulation_code,
+            label: r.regulation_year
+              ? `${r.regulation_code} (${r.regulation_year})`
+              : r.regulation_code,
+          })),
+        ]}
+        loading={regulationsLoading}
+        disabled={!institutionId}
+        placeholder='All regulations'
+        searchPlaceholder='Search regulation…'
+        className='w-full'
+      />
+      <Select value={value.is_active} onValueChange={(v) => onChange({ ...value, is_active: v as 'true' | 'false' })}>
+        <SelectTrigger className='w-full'>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value='true'>Active</SelectItem>
+          <SelectItem value='false'>Inactive</SelectItem>
+        </SelectContent>
+      </Select>
+      <Input
+        placeholder='Search code or name…'
+        value={value.search}
+        onChange={(e) => onChange({ ...value, search: e.target.value })}
+        className='w-full'
+      />
+    </>
   );
 }

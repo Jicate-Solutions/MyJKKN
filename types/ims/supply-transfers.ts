@@ -22,12 +22,21 @@ export interface ImsSupplyShipment {
   received_at: string | null;
   received_by: string | null;
   receipt_notes: string | null;
+  // Logistics tracking (added 2026-04-28: columns existed in prod DB but were
+  // missing from this interface, so the Transfers detail page silently dropped them)
+  vehicle_no: string | null;
+  courier_name: string | null;
+  driver_name: string | null;
+  driver_contact: string | null;
+  expected_arrival: string | null;
   status: ImsShipmentStatus;
   created_at: string;
   updated_at: string;
   // Joined
   source_store?: { id: string; name: string; code: string } | null;
-  destination_institution?: { id: string; institution_name: string } | null;
+  // `institutions` has no `institution_name` column — only `name`. Selecting
+  // `institution_name` here 400s the whole shipment query.
+  destination_institution?: { id: string; name: string } | null;
   destination_store?: { id: string; name: string; code: string } | null;
   dispatched_by_profile?: { full_name: string } | null;
   items?: ImsSupplyShipmentItem[];

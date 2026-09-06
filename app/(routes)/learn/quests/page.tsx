@@ -72,7 +72,7 @@ const SOURCE_TYPE_LABELS: Record<QuestSourceType, string> = {
   nif: 'NIF',
   industry: 'Industry',
   community: 'Community',
-  faculty: 'Senior Learner',
+  faculty: 'Learning Facilitator',
   learner: 'Learner-Proposed',
 };
 
@@ -192,8 +192,8 @@ function QuestCard({
         <Separator />
 
         {/* Footer: enrolled count + action */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground min-w-0">
             {enrolledCount > 0 && (
               <span className="flex items-center gap-1">
                 <Users className="h-3 w-3" />
@@ -210,7 +210,7 @@ function QuestCard({
 
           {isEnrolled ? (
             <Link href={`/learn/quests/${quest.id}`}>
-              <Button size="sm" variant="outline" className="text-xs h-8">
+              <Button size="sm" variant="outline" className="text-xs h-8 shrink-0">
                 In Progress
                 <ArrowRight className="h-3 w-3 ml-1" />
               </Button>
@@ -218,7 +218,7 @@ function QuestCard({
           ) : (
             <Button
               size="sm"
-              className="text-xs h-8 bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+              className="text-xs h-8 shrink-0 bg-[#0b6d41] hover:bg-[#0b6d41]/90"
               onClick={() => onEnroll(quest.id)}
               disabled={isEnrolling}
             >

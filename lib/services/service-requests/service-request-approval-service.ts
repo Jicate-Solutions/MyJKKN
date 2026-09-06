@@ -20,6 +20,7 @@ import type {
 } from '@/types/service-request';
 import { ServiceRequestTimelineService } from './service-request-timeline-service';
 import { notifyTmsWebhook } from './transport-webhook';
+import { normalizePagination } from './pagination';
 
 const getSupabase = async () => await createServerSupabaseClient() as any;
 
@@ -198,6 +199,23 @@ export class ServiceRequestApprovalService {
           console.error('[service-requests/approvals] Webhook notification failed:', err)
         );
       }
+
+      // Bus Pass Request: write the approved route/stop onto the learner's
+      // profile so the TMS app can read who needs a bus. Privileged cross-table
+      // write → SECURITY DEFINER RPC. Failure is logged, not thrown: the
+      // approval status change already committed above.
+      if (request.service_type?.slug === 'transport-request') {
+        const { error: busPassSyncError } = await supabase.rpc(
+          'sync_bus_pass_to_learner_profile',
+          { p_request_id: request.id }
+        );
+        if (busPassSyncError) {
+          console.error(
+            '[service-requests/approvals] Bus-pass profile sync failed:',
+            busPassSyncError
+          );
+        }
+      }
     } else {
       // Advance to next step
       const nextStepOrder = currentStep.step_order + 1;
@@ -288,12 +306,63 @@ export class ServiceRequestApprovalService {
   }
 
   /**
+   * Build the PostgREST `.or()` filter selecting the service_requests a user
+   * may approve, split into two scopes:
+   *
+   *   • Role-matched steps (approver_role === userRole): institution-scoped
+   *     when institutionId is provided — preserves multi-tenant isolation for
+   *     the broad role-based path.
+   *   • Named-approver steps (userId ∈ approver_user_ids): NOT institution-
+   *     scoped, so a user explicitly chosen as approver sees the request even
+   *     when it originates in a different institution (cross-institution
+   *     approval — mirrors the RLS named-approver policies).
+   *
+   * Returns an `or=(...)` body string, or null when neither scope matched.
+   * Keeps the coarse (service_type_id × current_approval_step) matching the
+   * callers already used: a request matches a scope if its type AND its current
+   * step both appear in that scope's step set.
+   */
+  private static buildApproverScopeFilter(
+    matchingSteps: any[],
+    userRole: string,
+    userId: string,
+    institutionId?: string
+  ): string | null {
+    const roleSteps = matchingSteps.filter((s) => s.approver_role === userRole);
+    const namedSteps = matchingSteps.filter(
+      (s) => Array.isArray(s.approver_user_ids) && s.approver_user_ids.includes(userId)
+    );
+
+    const group = (steps: any[], scoped: boolean): string | null => {
+      if (steps.length === 0) return null;
+      const typeIds = [...new Set(steps.map((s) => s.service_type_id))];
+      const stepOrders = [...new Set(steps.map((s) => s.step_order))];
+      const parts = [
+        `service_type_id.in.(${typeIds.join(',')})`,
+        `current_approval_step.in.(${stepOrders.join(',')})`,
+      ];
+      if (scoped && institutionId) {
+        parts.push(`institution_id.eq.${institutionId}`);
+      }
+      return `and(${parts.join(',')})`;
+    };
+
+    const groups = [group(roleSteps, true), group(namedSteps, false)].filter(
+      (g): g is string => g !== null
+    );
+    return groups.length > 0 ? groups.join(',') : null;
+  }
+
+  /**
    * Get requests pending approval for a user.
    *
    * A step is considered "assigned to this user" if EITHER:
    *   • the step's approver_role matches the user's role, OR
    *   • the user's id is in the step's approver_user_ids array (multi-approver
    *     mode — a specific subset of named approvers).
+   *
+   * Named-approver matches are NOT institution-scoped (cross-institution
+   * approval); role matches stay scoped to filters.institution_id.
    */
   static async getPendingApprovalsForUser(
     userRole: string,
@@ -302,16 +371,15 @@ export class ServiceRequestApprovalService {
   ): Promise<ServiceRequestListResponse> {
     const supabase = await getSupabase();
 
-    const page = filters?.page || 1;
-    const limit = filters?.limit || 20;
+    const { page, limit } = normalizePagination(filters?.page, filters?.limit);
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    // Union of role-matched and explicit-user-id-matched steps.
-    // Supabase/PostgREST: `contains` on an array column uses the @> operator.
+    // Steps this user could act on — role match OR explicit user-id match.
+    // PostgREST: `cs` (contains) on an array column uses the @> operator.
     const { data: matchingSteps } = await supabase
       .from('service_request_approval_steps')
-      .select('step_order, service_type_id')
+      .select('step_order, service_type_id, approver_role, approver_user_ids')
       .or(`approver_role.eq.${userRole},approver_user_ids.cs.{${userId}}`);
 
     if (!matchingSteps || matchingSteps.length === 0) {
@@ -321,8 +389,15 @@ export class ServiceRequestApprovalService {
       };
     }
 
-    const serviceTypeIds = [...new Set(matchingSteps.map((s: any) => s.service_type_id))];
-    const stepOrders = [...new Set(matchingSteps.map((s: any) => s.step_order))];
+    const orFilter = this.buildApproverScopeFilter(
+      matchingSteps,
+      userRole,
+      userId,
+      filters?.institution_id
+    );
+    if (!orFilter) {
+      return { data: [], metadata: { total: 0, page, limit, totalPages: 0 } };
+    }
 
     let query = supabase
       .from('service_requests')
@@ -334,18 +409,23 @@ export class ServiceRequestApprovalService {
         { count: 'exact' }
       )
       .in('status', ['submitted', 'in_review'])
-      .in('service_type_id', serviceTypeIds)
-      .in('current_approval_step', stepOrders);
+      .or(orFilter);
 
-    if (filters?.institution_id) {
-      query = query.eq('institution_id', filters.institution_id);
+    // Narrow server-side. Filtering client-side would only ever search the
+    // current page, so a request on page 40 would look like it didn't exist.
+    if (filters?.service_type_id) {
+      query = query.eq('service_type_id', filters.service_type_id);
+    }
+    if (filters?.priority) {
+      query = query.eq('priority', filters.priority);
+    }
+    if (filters?.search) {
+      query = query.ilike('request_number', `%${filters.search}%`);
     }
 
-    query = query
+    const { data, error, count } = await query
       .order('created_at', { ascending: false })
       .range(from, to);
-
-    const { data, error, count } = await query;
 
     if (error) {
       console.error('[service-requests/approvals] Failed to fetch pending approvals:', error);
@@ -381,26 +461,24 @@ export class ServiceRequestApprovalService {
 
     const { data: matchingSteps } = await supabase
       .from('service_request_approval_steps')
-      .select('step_order, service_type_id')
+      .select('step_order, service_type_id, approver_role, approver_user_ids')
       .or(`approver_role.eq.${userRole},approver_user_ids.cs.{${userId}}`);
 
     if (!matchingSteps || matchingSteps.length === 0) return 0;
 
-    const serviceTypeIds = [...new Set(matchingSteps.map((s: any) => s.service_type_id))];
-    const stepOrders = [...new Set(matchingSteps.map((s: any) => s.step_order))];
+    const orFilter = this.buildApproverScopeFilter(
+      matchingSteps,
+      userRole,
+      userId,
+      institutionId
+    );
+    if (!orFilter) return 0;
 
-    let query = supabase
+    const { count, error } = await supabase
       .from('service_requests')
       .select('*', { count: 'exact', head: true })
       .in('status', ['submitted', 'in_review'])
-      .in('service_type_id', serviceTypeIds)
-      .in('current_approval_step', stepOrders);
-
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
-
-    const { count, error } = await query;
+      .or(orFilter);
 
     if (error) {
       console.error('[service-requests/approvals] Failed to count pending:', error);

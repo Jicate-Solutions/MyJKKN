@@ -23,9 +23,17 @@ export const GET = withAuth(async (request, auth) => {
 
   switch (reportType) {
     case 'occupancy': {
-      const { data: blocks, error: blocksError } = await supabase
-        .from('hostel_blocks').select('id, name, hostel_type, total_rooms, total_capacity')
+      // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id
+      // dropped; scope via hostel_block_institutions junction.
+      const { data: blockIds } = await supabase
+        .from('hostel_block_institutions').select('block_id')
         .eq('institution_id', institutionId);
+      const idList = ((blockIds ?? []) as Array<{ block_id: string }>).map((r) => r.block_id);
+      const { data: blocks, error: blocksError } = idList.length === 0
+        ? { data: [] as Array<{ id: string; name: string; hostel_type: string; total_rooms: number | null; total_capacity: number | null }>, error: null }
+        : await supabase
+            .from('hostel_blocks').select('id, name, hostel_type, total_rooms, total_capacity')
+            .in('id', idList);
       if (blocksError) throw blocksError;
 
       const { count: totalAllocations, error: allocError } = await supabase

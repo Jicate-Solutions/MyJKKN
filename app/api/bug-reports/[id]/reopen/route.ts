@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 /**
@@ -49,7 +50,7 @@ export async function POST(
     // 2. Fetch the bug report to verify ownership and status
     const { data: bugReport, error: fetchError } = await supabase
       .from('bug_reports')
-      .select('id, display_id, reporter_user_id, status, resolved_at')
+      .select('id, display_id, reporter_user_id, status, resolved_at, duplicate_of')
       .eq('id', reportId)
       .single();
 
@@ -77,11 +78,15 @@ export async function POST(
       );
     }
 
-    // 5. Reopen the bug - change status to 'in_progress' and clear resolved_at
+    // 5. Reopen the bug and clear resolved_at.
+    // If this report is a duplicate of another bug, re-park it as 'duplicate'
+    // (it stays grouped) and reopen the CANONICAL bug instead — that is where
+    // the fix work happens, and a reopen on any copy means the fix failed.
+    const isDuplicate = !!bugReport.duplicate_of;
     const { data: updatedBug, error: updateError } = await supabase
       .from('bug_reports')
       .update({
-        status: 'in_progress',
+        status: isDuplicate ? 'duplicate' : 'in_progress',
         resolved_at: null
       })
       .eq('id', reportId)
@@ -109,6 +114,34 @@ export async function POST(
     if (messageError) {
       logger.warn('bug-reports/api', 'Failed to create reopen message', messageError);
       // Don't fail the request if message creation fails
+    }
+
+    // 7. If this was a duplicate, reopen the canonical bug too (admin client:
+    // the canonical belongs to a different reporter, so RLS blocks the session
+    // client). Failures are logged but don't fail the reporter's reopen.
+    if (isDuplicate) {
+      try {
+        const adminSupabase = createAdminClient();
+        const { error: canonicalError } = await (
+          adminSupabase.from('bug_reports') as any
+        )
+          .update({ status: 'in_progress', resolved_at: null })
+          .eq('id', bugReport.duplicate_of)
+          .eq('status', 'resolved');
+
+        if (canonicalError) {
+          logger.error('bug-reports/api', 'Failed to reopen canonical bug', canonicalError);
+        } else {
+          await (adminSupabase as any).from('bug_report_messages').insert({
+            bug_report_id: bugReport.duplicate_of,
+            sender_user_id: user.id,
+            message_text: `Reopened because duplicate report ${bugReport.display_id} was reopened by its reporter.`,
+            is_internal: false
+          });
+        }
+      } catch (err) {
+        logger.error('bug-reports/api', 'Unexpected error reopening canonical bug', err);
+      }
     }
 
     return NextResponse.json(

@@ -13,10 +13,17 @@
 
 import { Calendar, GraduationCap } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MyMarksSemesterGroup } from '@/types/my-marks';
+
+/** Minimal shape the tab row needs — fed by both the Internal and Result tabs. */
+export interface SemesterTabItem {
+  semester_code: string;
+  semester_label: string;
+  /** Subject count shown as the "N subj" pill. */
+  count: number;
+}
 
 interface SemesterTabsProps {
-  semesters: MyMarksSemesterGroup[];
+  semesters: SemesterTabItem[];
   activeCode: string | null;
   currentCode: string | null;
   onSelect: (code: string) => void;
@@ -50,7 +57,7 @@ export function SemesterTabs({
               aria-selected={isActive}
               aria-controls={`semester-panel-${sem.semester_code}`}
               onClick={() => onSelect(sem.semester_code)}
-              title={`${sem.semester_label} — ${sem.registrations.length} subject${sem.registrations.length === 1 ? '' : 's'}`}
+              title={`${sem.semester_label} — ${sem.count} subject${sem.count === 1 ? '' : 's'}`}
               className={cn(
                 'snap-start flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium transition-all',
                 'min-h-[32px]',
@@ -81,9 +88,9 @@ export function SemesterTabs({
                     ? 'bg-primary-foreground/20 text-primary-foreground'
                     : 'bg-muted text-muted-foreground'
                 )}
-                aria-label={`${sem.registrations.length} subjects`}
+                aria-label={`${sem.count} subjects`}
               >
-                {sem.registrations.length} subj
+                {sem.count} subj
               </span>
             </button>
           );

@@ -103,13 +103,13 @@ export default function BuildArenaLandingPage() {
                 }) => (
                   <div
                     key={enrollment.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                    className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
                   >
-                    <div className="space-y-1">
+                    <div className="space-y-1 min-w-0">
                       <p className="font-medium">
                         {enrollment.quest?.title || 'Untitled Quest'}
                       </p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         {enrollment.quest?.quest_type && (
                           <Badge variant="outline" className="text-xs capitalize">
                             {enrollment.quest.quest_type.replace(/_/g, ' ')}
@@ -128,7 +128,7 @@ export default function BuildArenaLandingPage() {
                         )}
                       </div>
                     </div>
-                    <Button asChild size="sm" className="bg-[#0b6d41] hover:bg-[#0b6d41]/90">
+                    <Button asChild size="sm" className="shrink-0 bg-[#0b6d41] hover:bg-[#0b6d41]/90">
                       <Link href={`/learn/build/${enrollment.quest_id}`}>
                         <Hammer className="h-3.5 w-3.5 mr-1" />
                         Continue Building
@@ -174,13 +174,13 @@ export default function BuildArenaLandingPage() {
                 }) => (
                   <div
                     key={session.id}
-                    className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors"
+                    className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors"
                   >
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 min-w-0">
                       <p className="text-sm font-medium">
                         {session.quest?.title || 'Build Session'}
                       </p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1">
                         <Calendar className="h-3 w-3" />
                         {session.started_at
                           ? new Date(session.started_at).toLocaleString()
@@ -194,7 +194,7 @@ export default function BuildArenaLandingPage() {
                       </p>
                     </div>
                     {session.quest_id && (
-                      <Button asChild size="sm" variant="outline" className="text-xs h-7">
+                      <Button asChild size="sm" variant="outline" className="text-xs h-7 shrink-0">
                         <Link href={`/learn/build/${session.quest_id}`}>
                           Resume
                           <ArrowRight className="h-3 w-3 ml-1" />

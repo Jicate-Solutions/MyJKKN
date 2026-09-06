@@ -78,8 +78,7 @@ export function AdmissionYearsDataTable({
           (!hasCrossInstitutionAccess && userProfile?.institution_id
             ? userProfile.institution_id
             : undefined),
-        program_id: search.program_id,
-        program_start_year: search.program_start_year,
+        year: search.year,
         isActive:
           search.status === 'active'
             ? true
@@ -144,7 +143,7 @@ export function AdmissionYearsDataTable({
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <Button
           onClick={() => router.push('/admission/settings/years/new')}

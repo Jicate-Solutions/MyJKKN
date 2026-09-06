@@ -12,14 +12,15 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Construction, Award } from 'lucide-react';
 import { useMyMarksInternalFinal } from '@/hooks/learners/use-my-marks';
-import type { MyMarksSemesterGroup } from '@/types/my-marks';
+import type { CiaViewSession } from '@/types/my-marks';
 
 interface Props {
-  semester: MyMarksSemesterGroup;
+  session: CiaViewSession;
 }
 
-export function FinalPanel({ semester }: Props) {
+export function FinalPanel({ session }: Props) {
   const { data } = useMyMarksInternalFinal();
+  const courseCount = session.courses.length;
 
   if (!data || data.status === 'coming_soon') {
     return (
@@ -30,7 +31,7 @@ export function FinalPanel({ semester }: Props) {
             Final marks coming soon
           </CardTitle>
           <CardDescription>
-            Consolidated final marks for {semester.semester_label} will be
+            Consolidated final marks for {session.semester_label} will be
             published here once your institution finalizes the assessment.
           </CardDescription>
         </CardHeader>
@@ -39,8 +40,8 @@ export function FinalPanel({ semester }: Props) {
             <div className="flex items-center gap-2">
               <Award className="h-4 w-4" />
               <span>
-                You have <strong>{semester.registrations.length}</strong>{' '}
-                registered course{semester.registrations.length === 1 ? '' : 's'} this semester.
+                You have <strong>{courseCount}</strong>{' '}
+                registered course{courseCount === 1 ? '' : 's'} this semester.
               </span>
             </div>
             <p>
@@ -59,7 +60,7 @@ export function FinalPanel({ semester }: Props) {
       <CardHeader>
         <CardTitle>Final Marks</CardTitle>
         <CardDescription>
-          Consolidated CIA totals for {semester.semester_label}.
+          Consolidated CIA totals for {session.semester_label}.
         </CardDescription>
       </CardHeader>
       <CardContent>

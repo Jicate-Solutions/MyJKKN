@@ -14,14 +14,6 @@ import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ColumnDef } from '@tanstack/react-table';
 import { ContentLayout } from '@/components/layout/content-layout';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -45,22 +37,6 @@ export default function AuditFindingTypeSettingsPage() {
     <PermissionGuard module='audit' action='finding_type.manage'>
       <ContentLayout title='Finding Types'>
         <div className='space-y-6'>
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/'>Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/audit'>Audit</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Finding Types</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-
           <Card>
             <CardContent className='p-6'>
               <div className='space-y-6'>
@@ -212,7 +188,9 @@ function FindingTypesTable() {
       items={data}
       loading={isLoading}
       error={isError ? 'Failed to load finding types.' : null}
-      onRefresh={refetch}
+      onRefresh={() => {
+        refetch();
+      }}
       onBulkDelete={async (ids) => {
         const supabase = createClientSupabaseClient();
         const success: string[] = [];

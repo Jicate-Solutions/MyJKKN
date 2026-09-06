@@ -16,6 +16,10 @@
  * - Pages emit a `navMeta` const if they want to override label/icon:
  *     export const navMeta = { label: 'My Custom Label', icon: 'Users' }
  *   (See components/navigation/nav-meta.ts for the type.)
+ * - Landings served by a route.ts GET handler instead of a page.tsx (the
+ *   pure-redirect conversions from #2763/#2777) may export the same navMeta
+ *   const from the route.ts — it is read with the same literal regex when
+ *   the directory has no page.tsx.
  *
  * Run via:
  *   npm run gen:routes
@@ -281,9 +285,18 @@ function walk(absDir: string, urlSoFar: string): RouteNode[] {
       continue;
     }
 
+    // navMeta source: page.tsx when the landing is a page; otherwise a
+    // route.ts landing (pure-redirect GET handlers introduced in #2763/#2777
+    // — extra named exports from a Route Handler are legal and ignored by
+    // the runtime). Without the route.ts fallback, hubs whose page.tsx
+    // carried navMeta lose their custom label/icon on conversion and fall
+    // back to title-case (regression caught after #2777: /pde/admin/compliance
+    // "PDE Compliance"/ShieldCheck degraded to "Compliance"/FileText).
     const meta = hasOwnPage
       ? readNavMeta(path.join(childAbs, 'page.tsx'))
-      : null;
+      : fs.existsSync(path.join(childAbs, 'route.ts'))
+        ? readNavMeta(path.join(childAbs, 'route.ts'))
+        : null;
 
     out.push({
       path: childUrl,
@@ -293,8 +306,15 @@ function walk(absDir: string, urlSoFar: string): RouteNode[] {
     });
   }
 
-  // Stable sort: alphabetical by path
-  out.sort((a, b) => a.path.localeCompare(b.path));
+  // Stable sort: alphabetical by path, with explicit position overrides.
+  // SORT_KEY pins specific routes to a chosen spot (e.g. Parent Portal Content
+  // should sit right after Timetables in the Academic tab/sidebar, not in its
+  // alphabetical slot between "Obe" and "Periods").
+  const SORT_KEY: Record<string, string> = {
+    '/academic/parent-portal': '/academic/timetables/zzz',
+  };
+  const sortKey = (p: string) => SORT_KEY[p] ?? p;
+  out.sort((a, b) => sortKey(a.path).localeCompare(sortKey(b.path)));
 
   // Dedup by path — guards against the rare case where a route group
   // passthrough (seg === '') merges children that already exist at this

@@ -22,7 +22,7 @@ export default async function SyllabusPage({ searchParams }: SyllabusPageProps) 
               <div>
                 <h1 className='text-xl font-semibold'>Course Syllabi</h1>
                 <p className='text-sm text-muted-foreground'>
-                  Manage Board of Studies course syllabi.
+                  Manage Board of Studies course syllabus.
                 </p>
               </div>
               <SyllabusActions />

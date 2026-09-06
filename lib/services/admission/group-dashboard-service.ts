@@ -10,6 +10,9 @@ import type {
   SourceAnalyticsRow,
   GeographyAnalyticsRow,
   InstitutionComparisonRow,
+  AdmittedSourceRow,
+  AdmittedSourceCount,
+  AdmittedSourcePage,
 } from '@/types/admission-workflow-config';
 
 const EMPTY_GROUP_DASHBOARD: GroupDashboardData = {
@@ -20,7 +23,16 @@ const EMPTY_GROUP_DASHBOARD: GroupDashboardData = {
     total_enrolled: 0,
     total_rejected: 0,
     total_seats: 0,
+    total_filled: 0,
+    total_enrolled_leads: 0,
+    total_seat_filled_learners: 0,
     overall_fill_percentage: 0,
+    total_enquiry: 0,
+    total_enquiry_submitted: 0,
+    total_account: 0,
+    total_reserved: 0,
+    total_admitted: 0,
+    total_rejected_lifecycle: 0,
   },
 };
 
@@ -41,7 +53,12 @@ export class GroupDashboardService {
   static async getGroupDashboard(
     institutionIds?: string[],
     admissionYearId?: string | null,
-    programStartYear?: number | null
+    programStartYear?: number | null,
+    // 2026-05-21: optional date-range filter (IST). NULL on both sides
+    // preserves prior behaviour. Drives the Overview tab's
+    // "All time / Today / Custom range" segmented toggle.
+    fromDate?: string | null,
+    toDate?: string | null
   ): Promise<GroupDashboardData> {
     if (institutionIds !== undefined && institutionIds.length === 0) {
       return EMPTY_GROUP_DASHBOARD;
@@ -66,6 +83,8 @@ export class GroupDashboardService {
       p_institution_ids: resolvedInstitutionIds,
       p_admission_year_id: admissionYearId ?? null,
       p_program_start_year: programStartYear ?? null,
+      p_from_date: fromDate ?? null,
+      p_to_date: toDate ?? null,
     });
 
     if (error) {
@@ -84,12 +103,49 @@ export class GroupDashboardService {
       rejected_learners: number;
       total_seats: number;
       filled_seats: number;
+      // 2026-05-17 (E4): RPC now returns lead-space + learner-space "filled"
+      // side-by-side. enrolled_leads === filled_seats during the rollout window;
+      // seat_filled_learners is the new learner-space count from the dynamic
+      // admission_statuses catalog.
+      enrolled_leads: number;
+      seat_filled_learners: number;
       fill_percentage: number;
+      // 2026-05-20: lifecycle-status counts from the workflow realignment.
+      enquiry_count: number;
+      enquiry_submitted_count: number;
+      account_count: number;
+      reserved_count: number;
+      admitted_count: number;            // = 'admitted' + 'active' per spec
+      rejected_lifecycle_count: number;
     };
 
-    const rows = ((data ?? []) as Row[]).map((r): InstitutionAdmissionSummary => ({
+    // 2026-06-17: The Group Dashboard overview shows only 'institution' and
+    // 'school' entity types (in separate sections); 'company' / 'admin_office'
+    // are excluded group-wide. The RPC doesn't return entity_type, so resolve
+    // it here with a tiny RLS-scoped lookup and filter the rows below. Totals
+    // are then summed over the filtered set, so the header KPI strip excludes
+    // the non-academic entities too.
+    const OVERVIEW_ENTITY_TYPES = new Set(['institution', 'school']);
+    const rpcRows = (data ?? []) as Row[];
+    const entityTypeById = new Map<string, string>();
+    if (rpcRows.length > 0) {
+      const { data: entityRows, error: entityErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id, entity_type')
+        .in('id', rpcRows.map((r) => r.institution_id));
+      if (entityErr) {
+        console.error('[admission/group] Failed to resolve entity types:', entityErr);
+        throw entityErr;
+      }
+      for (const e of (entityRows ?? []) as Array<{ id: string; entity_type: string | null }>) {
+        entityTypeById.set(e.id, e.entity_type ?? '');
+      }
+    }
+
+    const rows = rpcRows.map((r): InstitutionAdmissionSummary => ({
       institution_id: r.institution_id,
       institution_name: r.institution_name,
+      entity_type: entityTypeById.get(r.institution_id) ?? '',
       total_leads: Number(r.total_leads),
       active_crm_leads: Number(r.active_crm_leads),
       lost_leads: Number(r.lost_leads),
@@ -98,14 +154,28 @@ export class GroupDashboardService {
       rejected: Number(r.rejected_learners),
       total_seats: Number(r.total_seats),
       filled_seats: Number(r.filled_seats),
+      enrolled_leads: Number(r.enrolled_leads ?? r.filled_seats ?? 0),
+      seat_filled_learners: Number(r.seat_filled_learners ?? 0),
       fill_percentage: Number(r.fill_percentage),
-    }));
+      enquiry_count: Number(r.enquiry_count ?? 0),
+      enquiry_submitted_count: Number(r.enquiry_submitted_count ?? 0),
+      account_count: Number(r.account_count ?? 0),
+      reserved_count: Number(r.reserved_count ?? 0),
+      admitted_count: Number(r.admitted_count ?? 0),
+      rejected_lifecycle_count: Number(r.rejected_lifecycle_count ?? 0),
+    })).filter((r) => OVERVIEW_ENTITY_TYPES.has(r.entity_type));
 
-    rows.sort((a, b) => b.enrolled - a.enrolled);
+    // 2026-05-20: Sort by admitted (lifecycle) rather than legacy funnel-stage
+    // 'enrolled' so the comparison table ranks institutions by the new
+    // workflow's success metric.
+    rows.sort((a, b) => b.admitted_count - a.admitted_count);
 
     // 2026-05-02: Fill Rate uses total_filled (admitted+active+graduated+account)
     // not total_enrolled (active only) — otherwise top card disagrees with the
     // Seat Analytics > Summary tab which shares the same definition.
+    // 2026-05-17 (E4): also aggregate enrolled_leads (lead-space) and
+    // seat_filled_learners (learner-space) so the dashboard can render the
+    // dual-KPI split for the "Filled" card.
     const totals = rows.reduce(
       (acc, s) => ({
         total_leads: acc.total_leads + s.total_leads,
@@ -114,12 +184,28 @@ export class GroupDashboardService {
         total_rejected: acc.total_rejected + s.rejected,
         total_seats: acc.total_seats + s.total_seats,
         total_filled: acc.total_filled + s.filled_seats,
+        total_enrolled_leads: acc.total_enrolled_leads + s.enrolled_leads,
+        total_seat_filled_learners:
+          acc.total_seat_filled_learners + s.seat_filled_learners,
         overall_fill_percentage: 0,
+        // 2026-05-20: lifecycle-status totals — the primary source for
+        // the dashboard's top KPI strip and all-tab analytics.
+        total_enquiry: acc.total_enquiry + s.enquiry_count,
+        total_enquiry_submitted:
+          acc.total_enquiry_submitted + s.enquiry_submitted_count,
+        total_account: acc.total_account + s.account_count,
+        total_reserved: acc.total_reserved + s.reserved_count,
+        total_admitted: acc.total_admitted + s.admitted_count,
+        total_rejected_lifecycle:
+          acc.total_rejected_lifecycle + s.rejected_lifecycle_count,
       }),
       {
         total_leads: 0, total_applied: 0, total_enrolled: 0,
         total_rejected: 0, total_seats: 0, total_filled: 0,
+        total_enrolled_leads: 0, total_seat_filled_learners: 0,
         overall_fill_percentage: 0,
+        total_enquiry: 0, total_enquiry_submitted: 0, total_account: 0,
+        total_reserved: 0, total_admitted: 0, total_rejected_lifecycle: 0,
       }
     );
     totals.overall_fill_percentage =
@@ -194,6 +280,7 @@ export class GroupDashboardService {
       ...r,
       intake: Number(r.intake),
       filled: Number(r.filled),
+      reserved: Number(r.reserved),
       balance: Number(r.balance),
       fill_percentage: Number(r.fill_percentage),
       daily_counts: (r.daily_counts ?? {}) as Record<string, number>,
@@ -238,6 +325,118 @@ export class GroupDashboardService {
       lead_count: Number(r.lead_count),
       enrolled_count: Number(r.enrolled_count),
       conversion_rate: Number(r.conversion_rate),
+    }));
+  }
+
+  /**
+   * Resolve the institution scope for an analytics RPC.
+   *
+   * `undefined` means "super-admin, all institutions" — the caller has no
+   * explicit scope, so we list every institution the browser client can read
+   * and let the RPC's own role_has_institution_access() gate do the filtering.
+   * `[]` means "scoped user with no access" and short-circuits to no query.
+   */
+  private static async resolveInstitutionScope(
+    institutionIds: string[] | undefined,
+    label: string
+  ): Promise<string[]> {
+    if (institutionIds !== undefined) return institutionIds;
+    const { data, error } = await (this.supabase as any)
+      .from('institutions')
+      .select('id');
+    if (error) {
+      console.error(`[admission/group] Failed to resolve institutions for ${label}:`, error);
+      throw error;
+    }
+    return ((data ?? []) as Array<{ id: string }>).map((i) => i.id);
+  }
+
+  /**
+   * Admitted learners with the source they came from — the drill-down behind
+   * the "Admitted" KPI. Backed by fn_admitted_source_breakdown.
+   *
+   * Anchored on learners_profiles (NOT admission_leads), so the total here
+   * always equals the KPI that was clicked. Learners with no lead row come
+   * back with source === null and are filterable via DIRECT_SOURCE_KEY.
+   *
+   * Pagination is server-side: the RPC returns `total_count` as a window
+   * count on every row, so there is no second count query. (A `count: 'exact'`
+   * companion query over this shape is an unbounded scan paid twice and a
+   * known source of 57014 timeouts in this codebase.)
+   */
+  static async getAdmittedSourceBreakdown(
+    institutionIds: string[] | undefined,
+    admissionYear: number | null,
+    source: string | null,
+    limit: number,
+    offset: number
+  ): Promise<AdmittedSourcePage> {
+    const resolved = await this.resolveInstitutionScope(institutionIds, 'admitted-sources');
+    if (resolved.length === 0) return { rows: [], totalCount: 0 };
+
+    const { data, error } = await (this.supabase as any).rpc('fn_admitted_source_breakdown', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
+      p_source: source ?? null,
+      p_limit: limit,
+      p_offset: offset,
+    });
+    if (error) {
+      console.error('[admission/group] fn_admitted_source_breakdown failed:', error);
+      throw error;
+    }
+
+    const raw = (data ?? []) as any[];
+    return {
+      rows: raw.map((r): AdmittedSourceRow => ({
+        learner_id: r.learner_id,
+        full_name: r.full_name ?? null,
+        application_id: r.application_id ?? null,
+        roll_number: r.roll_number ?? null,
+        student_mobile: r.student_mobile ?? null,
+        father_mobile: r.father_mobile ?? null,
+        mother_mobile: r.mother_mobile ?? null,
+        institution_id: r.institution_id,
+        institution_name: r.institution_name,
+        program_name: r.program_name ?? null,
+        source: r.source ?? null,
+        referral_type: r.referral_type ?? null,
+        referred_by_name: r.referred_by_name ?? null,
+        admitted_at: r.admitted_at ?? null,
+        created_at: r.created_at ?? null,
+      })),
+      // Zero rows means zero matches — the window count only exists on a row.
+      totalCount: raw.length > 0 ? Number(raw[0].total_count) : 0,
+    };
+  }
+
+  /**
+   * Per-source admitted counts for the drill-down's filter chips and donut.
+   * Backed by fn_admitted_source_counts. Separate from the list RPC so the
+   * chips don't have to page the whole result set.
+   *
+   * The '__direct__' bucket (DIRECT_SOURCE_KEY) is a real, first-class value
+   * here — it is the count of admitted learners with no lead row, which for
+   * AY 2026 is 64% of the cohort.
+   */
+  static async getAdmittedSourceCounts(
+    institutionIds: string[] | undefined,
+    admissionYear: number | null
+  ): Promise<AdmittedSourceCount[]> {
+    const resolved = await this.resolveInstitutionScope(institutionIds, 'admitted-source-counts');
+    if (resolved.length === 0) return [];
+
+    const { data, error } = await (this.supabase as any).rpc('fn_admitted_source_counts', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
+    });
+    if (error) {
+      console.error('[admission/group] fn_admitted_source_counts failed:', error);
+      throw error;
+    }
+    return ((data ?? []) as any[]).map((r): AdmittedSourceCount => ({
+      source: r.source,
+      admits: Number(r.admits),
     }));
   }
 

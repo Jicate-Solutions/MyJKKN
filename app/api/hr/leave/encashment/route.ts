@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json();
-    const required = ['hr_organization_id', 'employee_id', 'academic_year_id', 'leave_type_id', 'days_encashed', 'per_diem_rate'];
+    const required = ['hr_organization_id', 'employee_id', 'hr_academic_year_id', 'leave_type_id', 'days_encashed', 'per_diem_rate'];
     for (const f of required) {
       if (body[f] === undefined || body[f] === null) {
         return NextResponse.json({ error: `${f} is required` }, { status: 400 });
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     const created = await LeaveService.requestEncashment(supabase, {
       hr_organization_id: body.hr_organization_id,
       employee_id: body.employee_id,
-      academic_year_id: body.academic_year_id,
+      hr_academic_year_id: body.hr_academic_year_id,
       leave_type_id: body.leave_type_id,
       days_encashed: Number(body.days_encashed),
       per_diem_rate: Number(body.per_diem_rate),

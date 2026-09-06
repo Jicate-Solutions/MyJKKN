@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { Suspense, useState, useCallback } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -900,7 +901,7 @@ function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss,
       isOverdue && "border-red-300 dark:border-red-800"
     )}>
       <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <div className={cn(
               "p-2 rounded-lg",
@@ -1021,7 +1022,7 @@ function RuleCard({ rule, onToggle, onSettings }: {
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className={cn(
               "p-2 rounded-lg",
@@ -1098,7 +1099,10 @@ function RemindersSkeleton() {
 // MAIN PAGE CONTENT
 // ============================================================================
 
+const REMINDERS_TABS = ['reminders', 'rules', 'history'] as const;
+
 function AdmissionRemindersPageContent() {
+  const [activeTab, setActiveTab] = useTabParam('reminders', REMINDERS_TABS);
   const { profile } = useAuth();
   const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
   const institutionId = (isSuperAdmin || isAdmissionGlobalUser) ? undefined : profile?.institution_id;
@@ -1368,8 +1372,8 @@ function AdmissionRemindersPageContent() {
           </div>
 
           {/* Tabs */}
-          <Tabs defaultValue="reminders" className="space-y-6">
-            <TabsList>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="reminders">
                 Reminders
                 {(overdueCount > 0) && (
@@ -1499,7 +1503,9 @@ function AdmissionRemindersPageContent() {
 export default function AdmissionRemindersPage() {
   return (
     <AdmissionErrorBoundary>
-      <AdmissionRemindersPageContent />
+      <Suspense fallback={null}>
+        <AdmissionRemindersPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

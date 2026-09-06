@@ -1,0 +1,121 @@
+name: Nav reachability gate
+
+# Fails a PR if it adds a static page.tsx that no sidebar/chip click-path can
+# reach (an "orphan page"), beyond the baseline in package.json
+# (`check:reachability --max-unreachable N`).
+#
+# WHY THIS WORKFLOW EXISTS (issue #1193):
+#   The reachability check used to run inside `build-check.yml`, but that
+#   workflow's FIRST step is `tsc --noEmit`, which dies on the repo's large
+#   baseline of pre-existing TS errors. Every run went red, so build-check.yml
+#   was disabled_manually (~2026-04-10). With it off, `check:reachability` ran
+#   in only ONE place — `npm run build` at Vercel DEPLOY time — so orphans
+#   accumulated silently through PRs and then blocked a later, unrelated deploy
+#   (misattributed to whoever deployed next).
+#
+#   This workflow restores PR-time detection WITHOUT the tsc shadow: it runs
+#   ONLY gen:routes + check:reachability, so an orphan fails the PR that
+#   introduced it — when its author can most cheaply wire the nav-config or
+#   add the page to NAV_EXCLUDE.
+#
+# Minutes diet (2026-06-12): docs/screenshots/.github-only PRs skip the npm
+# install + checks entirely (they cannot change pages or nav), and
+# node_modules is cached on the lockfile hash. The job still reports SUCCESS
+# on skip — required-check status stays satisfied.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+  # Merge queue (2026-07-11): full-tree checks re-run on the queue's merged
+  # tree so a combination of individually-green PRs can't land a broken main.
+  # Inert until the merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  reachability:
+    name: Every page is chip-reachable
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    # Drafts skip — matches the repo's other gated workflows.
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # base ref needed for the docs-only scope check
+
+      - name: Skip if diff cannot affect pages or nav
+        id: scope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          # merge_group has no base_ref; the group's parent SHA is already in
+          # history (checkout of the merge head with fetch-depth 0).
+          if [[ -n "$MG_BASE_SHA" ]]; then
+            DIFF_BASE="$MG_BASE_SHA"
+          else
+            git fetch origin "$BASE_REF" --quiet
+            DIFF_BASE="origin/$BASE_REF"
+          fi
+          CHANGED=$(git diff --name-only "$DIFF_BASE...HEAD")
+          NON_DOCS=$(echo "$CHANGED" | grep -vE '\.(md|mdx|txt|png|jpe?g|gif|svg|webp|pdf)$|^\.screenshots/|^docs/|^specs/|^\.github/|^LICENSE$|^\.gitignore$' || true)
+          if [[ -z "$NON_DOCS" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docs/screenshots/.github-only diff — cannot change pages or nav. Install + checks skipped (Actions minutes saved)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: steps.scope.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # npm download cache intentionally NOT used: the node_modules cache
+          # (seeded from main) makes it dead weight on hits; lockfile-change
+          # misses pay a one-off cold install instead (rare, acceptable).
+
+      # node_modules cache: npm ci installs ~1,850 packages (~40-60s) on
+      # every push otherwise. Keyed on the lockfile — a hit skips npm ci.
+      - name: Cache node_modules
+        if: steps.scope.outputs.skip != 'true'
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.scope.outputs.skip != 'true' && steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      # Regenerate the route manifest from the PR's filesystem so the check
+      # sees the PR's actual pages, not a stale committed manifest.
+      - name: Regenerate route manifest
+        if: steps.scope.outputs.skip != 'true'
+        run: npm run gen:routes
+
+      # Threshold lives in package.json (check:reachability --max-unreachable N),
+      # so this and the Vercel build gate stay in lockstep from one source.
+      - name: Check nav reachability
+        if: steps.scope.outputs.skip != 'true'
+        run: npm run check:reachability
+
+      # Sidebar health incl. the menu-visibility contract (gate 3): a menu
+      # entry with no MENU_PERMISSIONS mapping and no always-visible special
+      # case is silently SUPER-ADMIN-ONLY (default-deny filter). Receipt:
+      # /my-induction-sessions, found live 2026-07-03 — "ungated on purpose"
+      # yet invisible to the resource persons it was built for. This script
+      # also runs in the Vercel build; running it here fails the PR that
+      # introduces a violation instead of a later, unrelated deploy.
+      - name: Check sidebar health (incl. menu-visibility contract)
+        if: steps.scope.outputs.skip != 'true'
+        run: npm run check:sidebar

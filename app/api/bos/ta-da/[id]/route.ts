@@ -37,7 +37,7 @@ export async function GET(
       .select(`
         *,
         member:bos_members (
-          id, display_name, display_designation, member_type,
+          id, display_name, display_designation, display_institution, member_type,
           contact_no, email, staff_id,
           staff:staff ( id, phone )
         ),
@@ -94,7 +94,7 @@ export async function PUT(
       .select(`
         *,
         member:bos_members (
-          id, display_name, display_designation, member_type,
+          id, display_name, display_designation, display_institution, member_type,
           contact_no, email, staff_id,
           staff:staff ( id, phone )
         ),
@@ -113,38 +113,8 @@ export async function PUT(
   }
 }
 
-// ── DELETE /api/bos/ta-da/[id] ───────────────────────────────────────────────
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { id } = await params;
-
-    const compositionId = await compositionIdForClaim(supabase, id);
-    if (!compositionId) {
-      return NextResponse.json({ error: 'Claim not found' }, { status: 404 });
-    }
-    const scope = await resolveBosBoardScope(user.id);
-    const deny = guardCompositionWrite(scope, compositionId);
-    if (deny) return NextResponse.json({ error: deny }, { status: 403 });
-
-    const { error } = await supabase
-      .from('bos_ta_da_claims')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
-
-    return new NextResponse(null, { status: 204 });
-  } catch (error) {
-    console.error('[bos/ta-da/:id] DELETE error:', error);
-    return NextResponse.json({ error: 'Failed to delete claim' }, { status: 500 });
-  }
-}
+// DELETE /api/bos/ta-da/[id] is intentionally not exported.
+// As of 2026-05-21 SOP redesign, claim deletion is auto-managed by the
+// attendance route — when an attendee flips out of 'present' status, the
+// orphan claim is cleaned up there (with a guardrail that preserves
+// 'approved' / 'paid' claims to maintain payment audit trail).

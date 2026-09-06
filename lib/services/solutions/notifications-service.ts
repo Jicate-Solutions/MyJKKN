@@ -45,11 +45,11 @@ export class NotificationsService extends BaseService {
     }
 
     if (filters?.type) {
-      query = query.eq('type', filters.type);
+      query = query.eq('notification_type', filters.type);
     }
 
     if (filters?.read !== undefined) {
-      query = query.eq('read', filters.read);
+      query = query.eq('is_read', filters.read);
     }
 
     // Apply pagination
@@ -79,7 +79,7 @@ export class NotificationsService extends BaseService {
   static async getUnreadNotifications(limit: number = 50): Promise<Notification[]> {
     const { data, error } = await this.supabase.from('sh_notifications')
       .select('*')
-      .eq('read', false)
+      .eq('is_read', false)
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -93,7 +93,7 @@ export class NotificationsService extends BaseService {
   static async getUnreadCount(): Promise<number> {
     const { count, error } = await this.supabase.from('sh_notifications')
       .select('*', { count: 'exact', head: true })
-      .eq('read', false);
+      .eq('is_read', false);
 
     if (error) throw new Error(`Failed to get unread count: ${error.message}`);
     return count || 0;
@@ -123,11 +123,11 @@ export class NotificationsService extends BaseService {
     const { data, error } = await this.supabase.from('sh_notifications')
       .insert({
         user_id: input.user_id,
-        type: input.type,
+        notification_type: input.type,
         title: input.title,
         message: input.message,
-        link: input.link,
-        read: false,
+        action_url: input.link,
+        is_read: false,
       })
       .select()
       .single();
@@ -145,11 +145,11 @@ export class NotificationsService extends BaseService {
   ): Promise<Notification[]> {
     const notifications = userIds.map((userId) => ({
       user_id: userId,
-      type: notification.type,
+      notification_type: notification.type,
       title: notification.title,
       message: notification.message,
-      link: notification.link,
-      read: false,
+      action_url: notification.link,
+      is_read: false,
     }));
 
     const { data, error } = await this.supabase.from('sh_notifications')
@@ -165,7 +165,7 @@ export class NotificationsService extends BaseService {
    */
   static async markAsRead(id: string): Promise<Notification> {
     const { data, error } = await this.supabase.from('sh_notifications')
-      .update({ read: true })
+      .update({ is_read: true, read_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
@@ -179,8 +179,8 @@ export class NotificationsService extends BaseService {
    */
   static async markAllAsRead(): Promise<void> {
     const { error } = await this.supabase.from('sh_notifications')
-      .update({ read: true })
-      .eq('read', false);
+      .update({ is_read: true, read_at: new Date().toISOString() })
+      .eq('is_read', false);
 
     if (error) throw new Error(`Failed to mark all notifications as read: ${error.message}`);
   }
@@ -203,7 +203,7 @@ export class NotificationsService extends BaseService {
 
     const { data, error } = await this.supabase.from('sh_notifications')
       .delete()
-      .eq('read', true)
+      .eq('is_read', true)
       .lt('created_at', cutoffDate.toISOString())
       .select('id');
 

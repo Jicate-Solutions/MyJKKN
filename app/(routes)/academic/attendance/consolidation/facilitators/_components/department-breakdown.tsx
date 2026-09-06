@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/collapsible';
 import { ChevronDown, Building2 } from 'lucide-react';
 import type { FacilitatorDepartmentBreakdown } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface Props {
   breakdown: FacilitatorDepartmentBreakdown[];
@@ -17,6 +18,7 @@ interface Props {
 
 export function DepartmentBreakdown({ breakdown }: Props) {
   const [isOpen, setIsOpen] = useState(true);
+  const label = useAdaptiveLabels();
   const maxAssigned = Math.max(...breakdown.map((d) => d.totalAssigned ?? d.totalMarked), 1);
 
   if (breakdown.length === 0) {
@@ -31,7 +33,7 @@ export function DepartmentBreakdown({ breakdown }: Props) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm sm:text-base">Department Breakdown</CardTitle>
+                <CardTitle className="text-sm sm:text-base">{label('Department')} Breakdown</CardTitle>
                 <span className="text-[10px] sm:text-xs text-muted-foreground">
                   ({breakdown.length})
                 </span>

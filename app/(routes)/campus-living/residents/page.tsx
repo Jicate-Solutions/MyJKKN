@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
@@ -16,10 +17,39 @@ import { UserPlus } from 'lucide-react';
 import { HostelResidentsDataTable } from './_components/residents-data-table';
 import { ResidentFormDialog } from './_components/resident-form-dialog';
 import { LearnersTab } from './_components/learners-tab';
+import { GenerateBillsTab } from './_components/generate-bills-tab';
+import { UpgradesTab } from './_components/upgrades-tab';
+import { UpgradeCategoriesTab } from './_components/upgrade-categories-tab';
+import { usePermissions } from '@/hooks/use-permissions';
 import { HOSTEL_RESIDENT_TYPES, type HostelResidentType } from '@/types/hostel-residents';
 import type { ResidentFilters } from '@/types/hostel-residents';
 
+const TAB_VALUES = ['learners', 'non-learners', 'generate', 'upgrade-categories', 'upgrades'] as const;
+type TabValue = (typeof TAB_VALUES)[number];
+
 export default function HostelResidentsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { isSuperAdmin, permissions } = usePermissions();
+  const canManageUpgrades =
+    isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
+
+  // URL-driven tab (?tab=…). Only the active tab's content is rendered for the
+  // heavy "generate" tab so its hostel-year hooks + dry-run state don't mount
+  // eagerly (Radix TabsContent renders all children otherwise).
+  const tabParam = searchParams.get('tab');
+  const activeTab: TabValue = (TAB_VALUES as readonly string[]).includes(
+    tabParam ?? '',
+  )
+    ? (tabParam as TabValue)
+    : 'learners';
+
+  const onTabChange = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', value);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  };
+
   const [createOpen, setCreateOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | HostelResidentType>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>(
@@ -52,10 +82,15 @@ export default function HostelResidentsPage() {
           </p>
         </div>
 
-        <Tabs defaultValue='learners' className='space-y-4'>
-          <TabsList>
+        <Tabs value={activeTab} onValueChange={onTabChange} className='space-y-4'>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='learners'>Learners</TabsTrigger>
             <TabsTrigger value='non-learners'>Non-learners</TabsTrigger>
+            <TabsTrigger value='generate'>Generate Hostel-Year Bills</TabsTrigger>
+            {canManageUpgrades && (
+              <TabsTrigger value='upgrade-categories'>Upgrade Categories</TabsTrigger>
+            )}
+            <TabsTrigger value='upgrades'>Upgrades</TabsTrigger>
           </TabsList>
 
           <TabsContent value='learners' className='space-y-4'>
@@ -118,6 +153,51 @@ export default function HostelResidentsPage() {
             </div>
 
             <HostelResidentsDataTable filters={filters} />
+          </TabsContent>
+
+          <TabsContent value='generate' className='space-y-4'>
+            {/* Render only when active — keeps the hostel-year hooks + dry-run
+                state from mounting eagerly on the other tabs. */}
+            {activeTab === 'generate' && (
+              <>
+                <div>
+                  <p className='text-sm text-muted-foreground'>
+                    Select a hostel year and hostellers, then preview the bills
+                    that would be generated for each learner before committing.
+                  </p>
+                </div>
+                <GenerateBillsTab />
+              </>
+            )}
+          </TabsContent>
+
+          {canManageUpgrades && (
+            <TabsContent value='upgrade-categories' className='space-y-4'>
+              {/* Lazy-mount — keeps its catalog/table hooks off the other tabs
+                  and avoids URL-state collision with the Learners tab table. */}
+              {activeTab === 'upgrade-categories' && (
+                <>
+                  <div>
+                    <p className='text-sm text-muted-foreground'>
+                      Upgrade a learner&apos;s room (auto-allocated categories) and/or mess category
+                      on their behalf — single or in bulk. Eligible learners follow the same
+                      pay-to-confirm flow as a self-service upgrade.
+                    </p>
+                  </div>
+                  <UpgradeCategoriesTab />
+                </>
+              )}
+            </TabsContent>
+          )}
+
+          <TabsContent value='upgrades' className='space-y-4'>
+            <div>
+              <p className='text-sm text-muted-foreground'>
+                Learners who have a hostel/mess category upgrade in progress or completed,
+                sourced from the upgrade-fee bills.
+              </p>
+            </div>
+            <UpgradesTab />
           </TabsContent>
         </Tabs>
       </div>

@@ -1,6 +1,29 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
+/**
+ * Students for a report period/slot, flattening SUBDIVIDED (grouped) slots.
+ *
+ * A normal slot stores its roster as `{ students: [...] }`. A subdivided /
+ * practical slot (a lab split into groups) stores it as
+ * `{ groups: [{ students: [...] }, ...] }` — with NO top-level `students`.
+ * Reading `period.students` on such a slot yields `undefined` → 0 students →
+ * 0% → a false "Low Attendance Alert" / "0 students" report. This helper
+ * returns the real roster for both shapes so every report path counts
+ * subdivided classes correctly. (Faculty incident 2026-07-06/07.)
+ */
+function slotStudents(period: any): any[] {
+  if (Array.isArray(period?.students) && period.students.length > 0) {
+    return period.students;
+  }
+  if (Array.isArray(period?.groups)) {
+    return period.groups.flatMap((g: any) =>
+      Array.isArray(g?.students) ? g.students : []
+    );
+  }
+  return Array.isArray(period?.students) ? period.students : [];
+}
+
 export interface AttendanceReportFilters {
   institution_id?: string;
   academic_year_id?: string;
@@ -60,6 +83,24 @@ export interface AttendanceStatistics {
   todayPeriods: number;
   todayTotalCapacity: number;
 }
+
+/**
+ * Default window for the statistics card when the user has not picked a date
+ * range. Previously this was '2020-01-01' (6.5 years) combined with an
+ * unpaginated select of attendance_data -- the full per-period roster blob --
+ * which crashed the browser tab with "Aw, Snap! Out of Memory". A trailing year
+ * covers an academic year, keeps the 30-day trend and 7-day comparison intact,
+ * and bounds how much the aggregate has to scan. Pick an explicit range to widen.
+ */
+const STATS_DEFAULT_WINDOW_DAYS = 365;
+
+/**
+ * Row ceiling for the client-side fallback that runs only when the
+ * get_attendance_statistics RPC is missing from the schema cache. Statistics
+ * computed from a truncated set are wrong, so the fallback reports that it
+ * truncated rather than pretending the numbers are complete.
+ */
+const STATS_FALLBACK_MAX_ROWS = 2000;
 
 export class AttendanceReportService {
   private static supabase = createClientSupabaseClient();
@@ -287,8 +328,8 @@ export class AttendanceReportService {
 
           periods.forEach((period: any) => {
             // Count students and attendance
-            if (period.students && Array.isArray(period.students)) {
-              const students = period.students;
+            const students = slotStudents(period);
+            if (students.length > 0) {
               totalStudents = Math.max(totalStudents, students.length);
               // Check for 'status' field which contains 'Present' or 'Absent'
               totalPresent += students.filter(
@@ -561,8 +602,8 @@ export class AttendanceReportService {
 
       periods.forEach((period: any) => {
         // Count students and attendance
-        if (period.students && Array.isArray(period.students)) {
-          const students = period.students;
+        const students = slotStudents(period);
+        if (students.length > 0) {
           totalStudents = Math.max(totalStudents, students.length);
           totalPresent += students.filter(
             (s: any) => s.status === 'Present'
@@ -672,14 +713,20 @@ export class AttendanceReportService {
         if (profileData?.is_super_admin || profileData?.role === 'admin') {
           // Super admin or admin - full access
         } else {
-          // For regular faculty, check staff assignment
-          const { data: staffData } = await this.supabase
+          // For regular faculty, check staff assignment.
+          // Updated: 2026-06-19 (FIX 5) - Match against ALL of the user's staff ids, not a
+          // single one. A person can have more than one staff record; the id stored in
+          // attendance_data.assigned_faculty.faculty_id may be a different staff row than the
+          // first, which produced false "Faculty not assigned" denials. Using a plain select
+          // (not .single()) also avoids throwing when duplicate staff rows exist.
+          const { data: staffRows } = await this.supabase
             .from('staff')
             .select('id')
-            .eq('profile_id', userId)
-            .single() as { data: { id: string } | null };
+            .eq('profile_id', userId) as { data: { id: string }[] | null };
 
-          if (!staffData) {
+          const staffIds = new Set((staffRows || []).map((s) => s.id));
+
+          if (staffIds.size === 0) {
             logger.warn('academic/attendance-reports', 'Faculty profile not found in staff table', { userId });
             // Don't block access - allow faculty to view reports even without staff record
             // This handles cases where faculty users don't have corresponding staff records
@@ -691,17 +738,18 @@ export class AttendanceReportService {
 
             const isAssigned = periods.some((period: any) => {
               const facultyMatch = Array.isArray(period.assigned_faculty)
-                ? period.assigned_faculty.some((f: any) => f.faculty_id === staffData.id)
-                : period.assigned_faculty?.faculty_id === staffData.id;
+                ? period.assigned_faculty.some((f: any) => staffIds.has(f.faculty_id))
+                : staffIds.has(period.assigned_faculty?.faculty_id);
               // Also allow if this user was the one who marked the attendance
               const isMarker = period.marked_by_details?.marker_id === userId;
               return facultyMatch || isMarker;
             });
 
             if (!isAssigned) {
-              logger.error('academic/attendance-reports', 'Faculty not assigned to this report', {
+              // Expected business outcome (not a system error) - log at warn.
+              logger.warn('academic/attendance-reports', 'Faculty not assigned to this report', {
                 userId,
-                staffId: staffData.id,
+                staffIds: Array.from(staffIds),
                 reportId: (data as any).id
               });
               // Deny access - faculty can only view reports they are assigned to
@@ -726,7 +774,6 @@ export class AttendanceReportService {
       );
 
       // Filter periods for faculty users - only show periods they are assigned to
-      let facultyStaffId: string | null = null;
       if (userRole === 'faculty' && userId) {
         // Get staff ID if not super admin or admin
         const { data: profileData } = await this.supabase
@@ -736,27 +783,37 @@ export class AttendanceReportService {
           .single() as { data: { role: string; is_super_admin: boolean } | null };
 
         if (!profileData?.is_super_admin && profileData?.role !== 'admin') {
-          const { data: staffData } = await this.supabase
+          // Match against ALL of the user's staff ids, not a single one - mirrors
+          // the access check above (FIX 5). A `.single()` lookup here could return
+          // a different staff row than the one recorded in the period's
+          // assigned_faculty, dropping the viewer's own just-marked period and
+          // zeroing out total_students/average_attendance.
+          const { data: staffRows } = await this.supabase
             .from('staff')
             .select('id')
-            .eq('profile_id', userId)
-            .single() as { data: { id: string } | null };
+            .eq('profile_id', userId) as { data: { id: string }[] | null };
 
-          if (staffData) {
-            facultyStaffId = staffData.id;
+          const facultyStaffIds = new Set((staffRows || []).map((s) => s.id));
 
-            // Filter periods to only include those assigned to this faculty
+          if (facultyStaffIds.size > 0) {
+            // Filter periods to only include those assigned to this faculty.
+            // Updated: 2026-06-17 - Also keep periods this faculty MARKED, mirroring
+            // the access check above (assigned OR marker). Without this, a period
+            // saved with an empty assigned_faculty (e.g. older cycle-timetable
+            // records marked before assigned-faculty resolution was fixed) is
+            // hidden from the very faculty who recorded it → "0 periods" report.
             periods = periods.filter((period: any) => {
-              if (Array.isArray(period.assigned_faculty)) {
-                return period.assigned_faculty.some(
-                  (f: any) => f.faculty_id === facultyStaffId
-                );
-              }
-              return period.assigned_faculty?.faculty_id === facultyStaffId;
+              const isAssigned = Array.isArray(period.assigned_faculty)
+                ? period.assigned_faculty.some(
+                    (f: any) => facultyStaffIds.has(f.faculty_id)
+                  )
+                : facultyStaffIds.has(period.assigned_faculty?.faculty_id);
+              const isMarker = period.marked_by_details?.marker_id === userId;
+              return isAssigned || isMarker;
             });
 
             if (periods.length === 0) {
-              logger.warn('academic/attendance-reports', 'No periods found for this faculty in the report', { facultyStaffId });
+              logger.warn('academic/attendance-reports', 'No periods found for these Senior Learners in the report', { facultyStaffIds: Array.from(facultyStaffIds) });
             }
           }
         }
@@ -792,7 +849,7 @@ export class AttendanceReportService {
       }
 
       for (const period of sortedPeriods) {
-        const students = period.students || [];
+        const students = slotStudents(period);
         const presentCount = students.filter(
           (s: any) => s.status === 'Present'
         ).length;
@@ -1108,17 +1165,61 @@ export class AttendanceReportService {
   /**
    * Get attendance statistics
    */
+  /**
+   * Map the get_attendance_statistics jsonb payload onto AttendanceStatistics.
+   * Postgres `numeric` can arrive as a string through PostgREST, so every figure
+   * is coerced rather than trusted -- an un-coerced string would render as
+   * "88.4" but break any arithmetic the cards do on it.
+   */
+  private static toStatistics(row: Record<string, unknown>): AttendanceStatistics {
+    const num = (v: unknown): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const arr = (v: unknown): any[] => (Array.isArray(v) ? v : []);
+
+    return {
+      totalClasses: num(row.totalClasses),
+      averageAttendance: num(row.averageAttendance),
+      totalStudents: num(row.totalStudents),
+      totalFaculty: num(row.totalFaculty),
+      presentToday: num(row.presentToday),
+      absentToday: num(row.absentToday),
+      todayClasses: num(row.todayClasses),
+      todayAttendanceRate: num(row.todayAttendanceRate),
+      weeklyComparison: num(row.weeklyComparison),
+      todayPeriods: num(row.todayPeriods),
+      todayTotalCapacity: num(row.todayTotalCapacity),
+      attendanceTrend: arr(row.attendanceTrend).map((t) => ({
+        date: t?.date,
+        percentage: num(t?.percentage),
+        present: num(t?.present),
+        total: num(t?.total)
+      })),
+      departmentComparison: arr(row.departmentComparison),
+      lowAttendanceAlerts: arr(row.lowAttendanceAlerts).map((a) => ({
+        date: a?.date,
+        percentage: num(a?.percentage),
+        section: undefined
+      }))
+    };
+  }
+
   static async getAttendanceStatistics(
     filters: AttendanceReportFilters,
     level: 'institution' | 'department' | 'faculty' = 'institution',
     facultyStaffId?: string
   ): Promise<{ data: AttendanceStatistics | null; error: string | null }> {
     try {
-      // Use same date range as reports or default to a broader range for statistics
-      // If no date range specified, use a wider range to match all available data
-      const endDate =
-        filters.date_range?.to || new Date().toISOString().split('T')[0];
-      const startDate = filters.date_range?.from || '2020-01-01'; // Broader default range
+      // `today` is computed once and handed to the RPC so the server reproduces
+      // this exact (UTC) day boundary rather than using its own current_date.
+      const today = new Date().toISOString().split('T')[0];
+      const endDate = filters.date_range?.to || today;
+      const startDate =
+        filters.date_range?.from ||
+        new Date(Date.now() - STATS_DEFAULT_WINDOW_DAYS * 86400000)
+          .toISOString()
+          .split('T')[0];
 
       let data: any[] = [];
       let count = 0;
@@ -1151,6 +1252,43 @@ export class AttendanceReportService {
         data = rpcData || [];
         count = data.length > 0 ? data[0]?.total_count || data.length : 0;
       } else {
+        // Aggregate in Postgres: one jsonb row instead of every matching
+        // session record with its roster blob attached. Counting these in the
+        // browser is what crashed the tab -- see
+        // 20260923000000_attendance_statistics_aggregate_rpc.sql.
+        const { data: agg, error: aggError } = await (this.supabase as any).rpc(
+          'get_attendance_statistics',
+          {
+            p_institution_id: filters.institution_id || null,
+            p_academic_year_id: filters.academic_year_id || null,
+            p_degree_id: filters.degree_id || null,
+            p_department_id: filters.department_id || null,
+            p_program_id: filters.program_id || null,
+            p_semester_id: filters.semester_id || null,
+            p_section_id: filters.section_id || null,
+            p_date_from: startDate,
+            p_date_to: endDate,
+            p_today: today
+          }
+        );
+
+        if (!aggError && agg) {
+          return { data: this.toStatistics(agg), error: null };
+        }
+
+        // The function is absent from the schema cache, which here means the
+        // migration has not been applied (or landed partially). Fall back to
+        // counting client-side, but BOUNDED -- the unpaginated roster fetch
+        // must never come back.
+        logger.warn(
+          'academic/attendance-reports',
+          'get_attendance_statistics RPC unavailable; using bounded client-side fallback',
+          {
+            message: aggError?.message,
+            code: (aggError as { code?: string } | null)?.code
+          }
+        );
+
         // Build base query for non-faculty users
         let query = this.supabase
           .from('student_attendance')
@@ -1183,7 +1321,9 @@ export class AttendanceReportService {
 
         query = query
           .gte('attendance_date', startDate)
-          .lte('attendance_date', endDate);
+          .lte('attendance_date', endDate)
+          .order('attendance_date', { ascending: false })
+          .range(0, STATS_FALLBACK_MAX_ROWS - 1);
 
         const result = await query;
 
@@ -1193,6 +1333,16 @@ export class AttendanceReportService {
 
         data = result.data || [];
         count = result.count || 0;
+
+        // Statistics built from a truncated set are wrong. Say so rather than
+        // presenting partial figures as complete.
+        if (count > data.length) {
+          logger.warn(
+            'academic/attendance-reports',
+            'Statistics fallback truncated: figures cover only the most recent rows',
+            { returned: data.length, matched: count, startDate, endDate }
+          );
+        }
       }
 
       // Calculate statistics
@@ -1263,7 +1413,8 @@ export class AttendanceReportService {
         .slice(-30); // Last 30 days for trend
 
       // Get today's stats and enhanced metrics
-      const today = new Date().toISOString().split('T')[0];
+      // (`today` is declared once at the top of this method and shared with the
+      // RPC call, so both paths agree on the day boundary.)
       const todayStats = dailyStats[today] || { present: 0, total: 0 };
 
       // Calculate today's specific metrics

@@ -59,14 +59,19 @@ import {
   CheckSquare,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   Download,
+  FilePen,
   GitBranch,
   Mail,
   MessageCircle,
   MessageSquare,
   Phone,
+  ShieldCheck,
   StickyNote,
   TrendingUp,
+  UserCheck,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -96,7 +101,13 @@ const ACTIVITY_META: Record<
   whatsapp:     { label: 'WhatsApp',     icon: MessageCircle, colorClass: 'text-emerald-600 bg-emerald-50', chartColor: '#059669' },
   stage_change: { label: 'Stage changes',icon: ArrowRight,    colorClass: 'text-purple-600 bg-purple-50',   chartColor: '#9333ea' },
   task:         { label: 'Tasks',        icon: CheckSquare,   colorClass: 'text-sky-600 bg-sky-50',         chartColor: '#0284c7' },
-  cascade:      { label: 'Cascades',     icon: GitBranch,     colorClass: 'text-rose-600 bg-rose-50',       chartColor: '#e11d48' },
+  cascade:                  { label: 'Cascades',          icon: GitBranch,     colorClass: 'text-rose-600 bg-rose-50',       chartColor: '#e11d48' },
+  lead_created:             { label: 'Lead Created',      icon: UserPlus,      colorClass: 'text-teal-600 bg-teal-50',       chartColor: '#0d9488' },
+  enquiry_submitted:        { label: 'Enquiry Submitted', icon: ClipboardCheck,colorClass: 'text-cyan-600 bg-cyan-50',       chartColor: '#0891b2' },
+  student_section_filled:   { label: 'Section Filled',    icon: UserCheck,     colorClass: 'text-lime-600 bg-lime-50',       chartColor: '#65a30d' },
+  moved_to_account_verified:{ label: 'Account Verified',  icon: ShieldCheck,   colorClass: 'text-emerald-700 bg-emerald-50', chartColor: '#047857' },
+  moved_to_counselor:       { label: 'Assigned Counselor',icon: Users,         colorClass: 'text-violet-600 bg-violet-50',   chartColor: '#7c3aed' },
+  manual_edit:              { label: 'Manual Edit',       icon: FilePen,       colorClass: 'text-slate-600 bg-slate-50',     chartColor: '#475569' },
 };
 
 function initials(name: string) {
@@ -253,7 +264,7 @@ export function ActivityTab({ institutionId }: ActivityTabProps) {
     <div className="space-y-6">
       {/* Date selector + Export */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button variant="outline" size="icon" onClick={goPrev} aria-label="Previous day">
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -565,8 +576,15 @@ function KpiTile({
   );
 }
 
+const FALLBACK_META = {
+  label: 'Activity',
+  icon: Activity,
+  colorClass: 'text-gray-600 bg-gray-50',
+  chartColor: '#6b7280',
+};
+
 function TimelineRow({ event }: { event: TeamActivityDayRow }) {
-  const meta = ACTIVITY_META[event.activity_type];
+  const meta = ACTIVITY_META[event.activity_type] ?? FALLBACK_META;
   const Icon = meta.icon;
 
   return (

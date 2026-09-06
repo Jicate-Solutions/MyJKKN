@@ -1,7 +1,20 @@
 'use client';
 
 
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTabParam } from '@/hooks/use-tab-param';
+import { LifecycleStatusBadge, getStatusLabel } from '@/components/learners/lifecycle-status-badge';
+import type { LifecycleStatus } from '@/types/learner-profile';
+import { DataTable } from '@/components/ui/data-table';
+import type { ColumnDef } from '@tanstack/react-table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -43,10 +56,14 @@ import {
   CreditCard,
   Star,
   Globe,
-  User
+  User,
+  ClipboardList
 } from 'lucide-react';
 import Link from 'next/link';
-import { ConsultantService } from '@/lib/services/admission/consultant-service';
+import {
+  ConsultantService,
+  resolveReferralLearner
+} from '@/lib/services/admission/consultant-service';
 import { useQuery } from '@tanstack/react-query';
 import type { EducationConsultant, ConsultantLeadAttribution, ConsultantCommissionTransaction } from '@/types/education-consultants';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -93,17 +110,6 @@ function getTierColor(tier: string): string {
   return colors[tier] || 'bg-gray-100 text-gray-800';
 }
 
-function getReferralStatusColor(status: string): string {
-  const colors: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    verified: 'bg-blue-100 text-blue-800',
-    enrolled: 'bg-green-100 text-green-800',
-    rejected: 'bg-red-100 text-red-800',
-    dropped: 'bg-gray-100 text-gray-800'
-  };
-  return colors[status] || 'bg-gray-100 text-gray-800';
-}
-
 function getCommissionStatusColor(status: string): string {
   const colors: Record<string, string> = {
     pending: 'bg-yellow-100 text-yellow-800',
@@ -114,6 +120,101 @@ function getCommissionStatusColor(status: string): string {
   };
   return colors[status] || 'bg-gray-100 text-gray-800';
 }
+
+// Pseudo-status for a referral that reaches no learners_profiles row on
+// EITHER attribution path — the only case that is genuinely "not enquired".
+const NOT_ENQUIRED = 'not_enquired';
+
+// The effective status of a referral row, used identically by the columns, the
+// filters and the stat cards so the three can never disagree.
+function referralStatusOf(row: any): string {
+  return resolveReferralLearner(row).lifecycle_status ?? NOT_ENQUIRED;
+}
+
+// Bucket for referrals whose learner has no admission year set.
+const UNKNOWN_YEAR = 'Unknown';
+
+// The year a referral belongs to = the LEARNER'S ADMISSION YEAR, deliberately
+// not the attribution's created_at. The referral sync bulk-created every
+// existing attribution row, so created_at puts all 745 of a consultant's
+// referrals in a single year and answers nothing. admission_year spreads them
+// properly (2022-2023 … 2026-2027).
+function referralYearOf(row: any): string {
+  return resolveReferralLearner(row).admission_year_name ?? UNKNOWN_YEAR;
+}
+
+// Advanced data-table columns for the Recent Referrals tab.
+// Plain string headers are auto-wrapped by DataTable into sortable headers;
+// accessorFn feeds sorting/search with the resolved nested values.
+//
+// Every learner-derived cell goes through resolveReferralLearner(): about half
+// of all attributions are written with admission_id NULL and the learner hanging
+// off the attribution's own learner_profile_id, so reading `lead` alone left
+// those rows blank and mislabelled them "Not Enquired".
+const referralColumns: ColumnDef<any>[] = [
+  {
+    id: 'student_name',
+    accessorFn: (row) => resolveReferralLearner(row).name ?? '',
+    header: 'Student Name',
+    cell: ({ row }) => (
+      <span className="font-medium">
+        {resolveReferralLearner(row.original).name || 'N/A'}
+      </span>
+    )
+  },
+  {
+    id: 'program',
+    accessorFn: (row) => resolveReferralLearner(row).program_name ?? '',
+    header: 'Program',
+    cell: ({ row }) => resolveReferralLearner(row.original).program_name || '-'
+  },
+  {
+    id: 'institution',
+    accessorFn: (row) => row.institution?.name ?? '',
+    header: 'Institution',
+    cell: ({ row }) => row.original.institution?.name || '-'
+  },
+  {
+    id: 'admission_year',
+    accessorFn: (row) => resolveReferralLearner(row).admission_year_name ?? '',
+    header: 'Year',
+    cell: ({ row }) => {
+      const year = resolveReferralLearner(row.original).admission_year_name;
+      return year ? (
+        <span className="whitespace-nowrap">{year}</span>
+      ) : (
+        <span className="text-muted-foreground">-</span>
+      );
+    }
+  },
+  {
+    id: 'status',
+    accessorFn: (row) => resolveReferralLearner(row).lifecycle_status ?? '',
+    header: 'Status',
+    cell: ({ row }) => {
+      const status = resolveReferralLearner(row.original).lifecycle_status;
+      return status ? (
+        // lifecycle_status is a free-form column, so it is typed as string here;
+        // the badge already warns and falls back on an unrecognised value.
+        <LifecycleStatusBadge status={status as LifecycleStatus} />
+      ) : (
+        // Referred learner that hasn't entered the admission workflow yet
+        // (no learners_profiles row on either attribution path)
+        <Badge
+          variant="outline"
+          className="bg-gray-100 text-gray-600 border-gray-300"
+        >
+          Not Enquired
+        </Badge>
+      );
+    }
+  },
+  {
+    accessorKey: 'created_at',
+    header: 'Referred On',
+    cell: ({ row }) => format(new Date(row.original.created_at), 'PP')
+  }
+];
 
 function ConsultantDetailSkeleton() {
   return (
@@ -139,10 +240,18 @@ function ConsultantDetailSkeleton() {
   );
 }
 
+const CONSULTANT_DETAIL_TABS = [
+  'details',
+  'commission-structure',
+  'referrals',
+  'commissions'
+] as const;
+
 function ConsultantDetailContent() {
   const params = useParams();
   const router = useRouter();
   const consultantId = params.id as string;
+  const [activeTab, setActiveTab] = useTabParam('details', CONSULTANT_DETAIL_TABS);
 
   // UUID validation for Next.js PPR compatibility
   const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(consultantId);
@@ -161,12 +270,20 @@ function ConsultantDetailContent() {
     enabled: !!consultantId && isValidId
   });
 
-  // Fetch recent referrals (lead attributions)
-  const { data: referralsData } = useQuery({
+  // Fetch this consultant's referrals (lead attributions).
+  //
+  // The whole set, not a page of it. The tab's search, Status/Institution
+  // filters and stat cards all key off the learner's lifecycle_status, which is
+  // a COALESCE across two embed paths and so cannot be pushed into PostgREST as
+  // a filter — the complete set has to be in hand to bucket it. This previously
+  // asked for `limit: 20`, which made a 745-referral consultant show "17 of 20"
+  // in the stat cards and offer filter options drawn from only the newest 20
+  // rows. getLeadAttributions pages internally in 1000-row windows.
+  const { data: referralsData, isLoading: referralsLoading } = useQuery({
     queryKey: ['consultant-referrals', consultantId],
     queryFn: () => ConsultantService.getLeadAttributions({
       consultant_id: consultantId,
-      limit: 5
+      fetch_all: true
     }),
     enabled: !!consultantId && isValidId
   });
@@ -180,6 +297,119 @@ function ConsultantDetailContent() {
     }),
     enabled: !!consultantId && isValidId
   });
+
+  // ── Referrals table: client-side Status / Institution filters ─────────────
+  // 'not_enquired' is a pseudo-status for referred leads with no learner
+  // profile yet (matches the "Not Enquired" badge in the Status column).
+  const [referralStatusFilter, setReferralStatusFilter] = useState('all');
+  const [referralInstitutionFilter, setReferralInstitutionFilter] = useState('all');
+  const [referralYearFilter, setReferralYearFilter] = useState('all');
+
+  const referrals = useMemo(
+    () => (referralsData?.data || []) as any[],
+    [referralsData]
+  );
+
+  const referralStatusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of referrals) {
+      set.add(referralStatusOf(r));
+    }
+    return Array.from(set).sort();
+  }, [referrals]);
+
+  const referralInstitutionOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of referrals) {
+      if (r.institution?.name) set.add(r.institution.name);
+    }
+    return Array.from(set).sort();
+  }, [referrals]);
+
+  // Year options carry their own counts, so "which year, how many referrals"
+  // is answerable straight from the open dropdown without applying anything.
+  // Newest year first; the "no admission year" bucket always sorts last.
+  const referralYearOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of referrals) {
+      const y = referralYearOf(r);
+      map.set(y, (map.get(y) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === UNKNOWN_YEAR) return 1;
+      if (b[0] === UNKNOWN_YEAR) return -1;
+      return b[0].localeCompare(a[0]);
+    });
+  }, [referrals]);
+
+  const filteredReferrals = useMemo(() => {
+    return referrals.filter((r) => {
+      const status = referralStatusOf(r);
+      if (referralStatusFilter !== 'all' && status !== referralStatusFilter) {
+        return false;
+      }
+      if (
+        referralInstitutionFilter !== 'all' &&
+        r.institution?.name !== referralInstitutionFilter
+      ) {
+        return false;
+      }
+      if (
+        referralYearFilter !== 'all' &&
+        referralYearOf(r) !== referralYearFilter
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    referrals,
+    referralStatusFilter,
+    referralInstitutionFilter,
+    referralYearFilter
+  ]);
+
+  // Stat-card breakdowns. Counts respect the Institution and Year filters (the
+  // cards show the status distribution within that slice) but NOT the status
+  // filter itself — otherwise clicking a card would zero out the rest.
+  const statCardBase = useMemo(() => {
+    return referrals.filter((r) => {
+      if (
+        referralInstitutionFilter !== 'all' &&
+        r.institution?.name !== referralInstitutionFilter
+      ) {
+        return false;
+      }
+      if (
+        referralYearFilter !== 'all' &&
+        referralYearOf(r) !== referralYearFilter
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [referrals, referralInstitutionFilter, referralYearFilter]);
+
+  const referralStatusCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of statCardBase) {
+      const s = referralStatusOf(r);
+      map.set(s, (map.get(s) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [statCardBase]);
+
+  // If the selected status doesn't exist within the newly selected
+  // institution, clear it — otherwise the table filters on an invisible value
+  useEffect(() => {
+    if (
+      referralStatusFilter !== 'all' &&
+      referralStatusCounts.length > 0 &&
+      !referralStatusCounts.some(([s]) => s === referralStatusFilter)
+    ) {
+      setReferralStatusFilter('all');
+    }
+  }, [referralStatusCounts, referralStatusFilter]);
 
   if (isLoading) {
     return <ConsultantDetailSkeleton />;
@@ -203,13 +433,12 @@ function ConsultantDetailContent() {
     );
   }
 
-  const referrals = referralsData?.data || [];
   const commissions = commissionsData?.data || [];
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-6">
           <Avatar className="h-24 w-24">
             <AvatarImage src={consultant.profile_photo_url || ''} alt={consultant.name} />
@@ -225,7 +454,7 @@ function ConsultantDetailContent() {
                 Contact: {consultant.contact_person}
               </p>
             )}
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2">
               <Badge className={getTypeColor(consultant.consultant_type)}>
                 {consultant.consultant_type.replace('_', ' ')}
               </Badge>
@@ -241,16 +470,16 @@ function ConsultantDetailContent() {
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-muted-foreground">
               {consultant.email && (
-                <span className="flex items-center gap-1">
-                  <Mail className="h-4 w-4" />
+                <span className="flex items-center gap-1 min-w-0 break-all">
+                  <Mail className="h-4 w-4 shrink-0" />
                   {consultant.email}
                 </span>
               )}
               {consultant.phone && (
                 <span className="flex items-center gap-1">
-                  <Phone className="h-4 w-4" />
+                  <Phone className="h-4 w-4 shrink-0" />
                   {consultant.phone}
                 </span>
               )}
@@ -365,8 +594,8 @@ function ConsultantDetailContent() {
       </div>
 
       {/* Details Tabs */}
-      <Tabs defaultValue="details" className="w-full">
-        <TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="commission-structure">Commission Structure</TabsTrigger>
           <TabsTrigger value="referrals">Recent Referrals</TabsTrigger>
@@ -618,6 +847,47 @@ function ConsultantDetailContent() {
         </TabsContent>
 
         <TabsContent value="referrals" className="mt-4">
+          {/* Status stat cards — same idiom as the page summary cards above;
+              clicking a card applies it as a table filter */}
+          {referrals.length > 0 && (
+            <div className="mb-4">
+              <div className="grid gap-4 md:grid-cols-4">
+                {referralStatusCounts.map(([status, count]) => (
+                  <Card
+                    key={status}
+                    onClick={() =>
+                      setReferralStatusFilter(
+                        referralStatusFilter === status ? 'all' : status
+                      )
+                    }
+                    className={`cursor-pointer transition-colors hover:bg-muted/50 ${
+                      referralStatusFilter === status
+                        ? 'ring-1 ring-primary/50 bg-muted/50'
+                        : ''
+                    }`}
+                  >
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">
+                        {status === 'not_enquired'
+                          ? 'Not Enquired'
+                          : getStatusLabel(status as any)}
+                      </CardTitle>
+                      <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{count}</div>
+                      <p className="text-xs text-muted-foreground">
+                        of {statCardBase.length} referrals
+                        {referralYearFilter !== 'all' && ` in ${referralYearFilter}`}
+                        {referralInstitutionFilter !== 'all' &&
+                          ` at ${referralInstitutionFilter}`}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
@@ -629,40 +899,98 @@ function ConsultantDetailContent() {
               </Link>
             </CardHeader>
             <CardContent>
-              {referrals.length === 0 ? (
+              {referralsLoading ? (
+                // Fetching the full set takes a beat on a large consultant;
+                // without this the tab would flash "No referrals yet" first.
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : referrals.length === 0 ? (
                 <div className="text-center py-8">
                   <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground">No referrals yet</p>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Student Name</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Referred On</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {referrals.map((referral) => (
-                      <TableRow key={referral.id}>
-                        <TableCell className="font-medium">
-                          {(referral as any).lead?.full_name || 'N/A'}
-                        </TableCell>
-                        <TableCell>{(referral as any).lead?.program_name || '-'}</TableCell>
-                        <TableCell>
-                          <Badge className={getReferralStatusColor(referral.is_verified ? 'verified' : 'pending')}>
-                            {referral.is_verified ? 'Verified' : 'Pending'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {format(new Date(referral.created_at), 'PP')}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <DataTable
+                  columns={referralColumns}
+                  data={filteredReferrals}
+                  searchPlaceholder="Search by learner, program, institution..."
+                  getRowId={(row: any) => row.id}
+                  showRefresh={false}
+                  tableTools={
+                    <>
+                      {/* Admission year, with the per-year count on the option
+                          itself — opening the dropdown answers "which year, how
+                          many" without needing to select anything. */}
+                      <Select
+                        value={referralYearFilter}
+                        onValueChange={setReferralYearFilter}
+                      >
+                        <SelectTrigger className="w-[190px]">
+                          <SelectValue placeholder="Year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">
+                            All Years ({referrals.length})
+                          </SelectItem>
+                          {referralYearOptions.map(([year, count]) => (
+                            <SelectItem key={year} value={year}>
+                              {year} ({count})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={referralStatusFilter}
+                        onValueChange={setReferralStatusFilter}
+                      >
+                        <SelectTrigger className="w-[170px]">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Status</SelectItem>
+                          {referralStatusOptions.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s === 'not_enquired'
+                                ? 'Not Enquired'
+                                : getStatusLabel(s as any)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={referralInstitutionFilter}
+                        onValueChange={setReferralInstitutionFilter}
+                      >
+                        <SelectTrigger className="w-[210px]">
+                          <SelectValue placeholder="Institution" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Institutions</SelectItem>
+                          {referralInstitutionOptions.map((name) => (
+                            <SelectItem key={name} value={name}>
+                              {name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  }
+                  globalFilterFn={(row, _columnId, filterValue) => {
+                    const q = String(filterValue).toLowerCase();
+                    const r = row.original as any;
+                    const learner = resolveReferralLearner(r);
+                    return [
+                      learner.name,
+                      learner.program_name,
+                      learner.lifecycle_status,
+                      learner.admission_year_name,
+                      r.institution?.name
+                    ].some((v) => v?.toLowerCase().includes(q));
+                  }}
+                />
               )}
             </CardContent>
           </Card>
@@ -706,7 +1034,7 @@ function ConsultantDetailContent() {
                             style: 'currency',
                             currency: 'INR',
                             maximumFractionDigits: 0
-                          }).format(commission.final_amount)}
+                          }).format(commission.net_amount)}
                         </TableCell>
                         <TableCell>
                           <Badge className={getCommissionStatusColor(commission.status)}>
@@ -753,7 +1081,9 @@ export default function ConsultantDetailPage() {
           </BreadcrumbList>
         </Breadcrumb>
         <div className="mt-6">
-          <ConsultantDetailContent />
+          <Suspense fallback={null}>
+            <ConsultantDetailContent />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>

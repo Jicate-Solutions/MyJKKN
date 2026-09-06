@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,7 +11,18 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useHostelBlocks, useDeleteHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Building2,
   Plus,
@@ -22,7 +34,8 @@ import {
   Loader2,
   ShieldCheck,
   Clock,
-  Pencil
+  Pencil,
+  Trash2
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
@@ -40,11 +53,84 @@ const typeConfig: Record<string, { label: string; variant: 'default' | 'secondar
 export default function HostelBlocksPage() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions();
   const institutionId = profile?.institution_id || '';
   const { data, isLoading } = useHostelBlocks(institutionId);
   const blocks = (data as any)?.data || [] as any[];
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+
+  // Resolve the primary (chief, else first) active warden per block. getBlocks
+  // returns no warden data, so fetch hostel_wardens for the visible blocks and
+  // resolve staff names separately (hostel_wardens stores staff_id, not a name).
+  const blockIdsKey = blocks.map((b: any) => b.id).join(',');
+  const [wardenByBlock, setWardenByBlock] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    const blockIds = blocks.map((b: any) => b.id).filter(Boolean);
+    if (blockIds.length === 0) {
+      setWardenByBlock(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const supabase = createClientSupabaseClient();
+      const { data: wardenRows } = await supabase
+        .from('hostel_wardens')
+        .select('block_id, designation, staff_id')
+        .in('block_id', blockIds)
+        .eq('is_active', true);
+      const rows = (wardenRows ?? []) as { block_id: string | null; designation: string | null; staff_id: string }[];
+      const staffIds = Array.from(new Set(rows.map((r) => r.staff_id))).filter(Boolean);
+      const nameById = new Map<string, string>();
+      if (staffIds.length > 0) {
+        const { data: staffRows } = await supabase
+          .from('staff')
+          .select('id, first_name, last_name')
+          .in('id', staffIds);
+        ((staffRows ?? []) as { id: string; first_name: string | null; last_name: string | null }[]).forEach((s) => {
+          const full = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
+          if (full) nameById.set(s.id, full);
+        });
+      }
+      if (cancelled) return;
+      // Prefer the chief warden as the card's headline name; else keep the first.
+      const picked = new Map<string, { name: string; isChief: boolean }>();
+      rows.forEach((r) => {
+        if (!r.block_id) return;
+        const name = nameById.get(r.staff_id);
+        if (!name) return;
+        const isChief = r.designation === 'chief_warden';
+        const existing = picked.get(r.block_id);
+        if (!existing || (isChief && !existing.isChief)) {
+          picked.set(r.block_id, { name, isChief });
+        }
+      });
+      const flat = new Map<string, string>();
+      picked.forEach((v, k) => flat.set(k, v.name));
+      setWardenByBlock(flat);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockIdsKey]);
+
+  // Permission-gated actions (super admin bypasses every check). The matching
+  // keys live in lib/constants/permissions.ts and are enforced by RLS on
+  // hostel_blocks — these UI gates mirror that so unauthorized roles don't see
+  // dead-end buttons. Delete is intentionally super-admin-only.
+  const canCreate = canAccess('campus_living', 'blocks.create');
+  const canEdit = canAccess('campus_living', 'blocks.edit');
+
+  const deleteBlock = useDeleteHostelBlock();
+  const [blockToDelete, setBlockToDelete] = useState<{ id: string; name: string } | null>(null);
+
+  const confirmDelete = () => {
+    if (!blockToDelete) return;
+    deleteBlock.mutate(blockToDelete.id, {
+      onSettled: () => setBlockToDelete(null),
+    });
+  };
 
   const filteredBlocks = blocks.filter((block: any) => {
     const matchesSearch =
@@ -83,12 +169,14 @@ export default function HostelBlocksPage() {
               Manage hostel buildings, floors, and wardens
             </p>
           </div>
-          <Button asChild>
-            <Link href="/campus-living/blocks/new">
-              <Plus className="mr-2 h-4 w-4" />
-              New Block
-            </Link>
-          </Button>
+          {canCreate && (
+            <Button asChild>
+              <Link href="/campus-living/blocks/new">
+                <Plus className="mr-2 h-4 w-4" />
+                New Block
+              </Link>
+            </Button>
+          )}
         </div>
 
         {/* Filters */}
@@ -142,20 +230,39 @@ export default function HostelBlocksPage() {
                       <div className="flex items-center gap-1.5 shrink-0">
                         <Badge variant={typeCfg.variant}>{typeCfg.label}</Badge>
                         <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          aria-label="Edit block"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            router.push(`/campus-living/blocks/${block.id}/edit`);
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        {canEdit && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            aria-label="Edit block"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              router.push(`/campus-living/blocks/${block.id}/edit`);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {/* Delete — super admin only (per access policy). */}
+                        {isSuperAdmin && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            aria-label="Delete block"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setBlockToDelete({ id: block.id, name: block.name });
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardHeader>
@@ -170,9 +277,9 @@ export default function HostelBlocksPage() {
                         <div
                           className={`h-full rounded-full transition-all ${
                             occupancyPercent >= 95 ? 'bg-red-500' :
-                            occupancyPercent >= 80 ? 'bg-green-500' :
+                            occupancyPercent >= 80 ? 'bg-amber-500' :
                             occupancyPercent >= 50 ? 'bg-blue-500' :
-                            'bg-amber-500'
+                            'bg-green-500'
                           }`}
                           style={{ width: `${occupancyPercent}%` }}
                         />
@@ -199,7 +306,7 @@ export default function HostelBlocksPage() {
                     <div className="flex items-center justify-between text-sm border-t pt-3">
                       <div className="flex items-center gap-1.5 text-muted-foreground">
                         <ShieldCheck className="h-3.5 w-3.5" />
-                        <span>{block.warden_name}</span>
+                        <span>{wardenByBlock.get(block.id) ?? 'No warden assigned'}</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-muted-foreground">
                         <Clock className="h-3.5 w-3.5" />
@@ -209,13 +316,11 @@ export default function HostelBlocksPage() {
 
                     {/* Amenities */}
                     <div className="flex flex-wrap gap-1.5">
-                      {Object.entries(block.amenities ?? {})
-                        .filter(([, available]) => available)
-                        .map(([amenity]) => (
-                          <Badge key={amenity} variant="outline" className="text-xs capitalize">
-                            {amenity.replace('_', ' ')}
-                          </Badge>
-                        ))}
+                      {(block.amenity_tags ?? []).map((a: { id: string; name: string }) => (
+                        <Badge key={a.id} variant="outline" className="text-xs">
+                          {a.name}
+                        </Badge>
+                      ))}
                     </div>
                   </CardContent>
                 </Card>
@@ -236,6 +341,44 @@ export default function HostelBlocksPage() {
           </Card>
         )}
       </div>
+
+      {/* Delete confirmation — only ever reachable by super admins (gated above). */}
+      <AlertDialog
+        open={!!blockToDelete}
+        onOpenChange={(open) => {
+          if (!open) setBlockToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this block?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes <span className="font-medium">{blockToDelete?.name}</span> and
+              cannot be undone. Blocks with existing rooms or residents may be blocked by the database.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBlock.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDelete();
+              }}
+              disabled={deleteBlock.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteBlock.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                'Delete Block'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }

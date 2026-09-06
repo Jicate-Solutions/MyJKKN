@@ -106,7 +106,7 @@ function AnalyticsDashboardContent() {
       </Breadcrumb>
 
       {/* Header */}
-      <div className='flex items-center justify-between mb-6'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6'>
         <div>
           <h1 className='text-3xl font-bold flex items-center gap-2'>
             <BarChart3 className='h-8 w-8' />
@@ -215,7 +215,7 @@ function AnalyticsDashboardContent() {
         )}
 
         {/* Row 1: Resource Utilization & Reservation Status */}
-        <div className='grid gap-6 md:grid-cols-2'>
+        <div className='grid grid-cols-1 gap-6 md:grid-cols-2'>
           <ResourceUtilizationChart
             data={data?.resources}
             isLoading={isLoading}

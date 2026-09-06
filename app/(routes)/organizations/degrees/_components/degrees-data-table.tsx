@@ -1,7 +1,8 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { DegreesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
@@ -9,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { Degree } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { useState } from 'react';
 import {
   DropdownMenu,
@@ -37,6 +39,8 @@ interface DegreesDataTableProps {
 export function DegreesDataTable({ search }: DegreesDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
+  const adaptLabel = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Degree[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -114,7 +118,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
 
       if (successful > 0) {
         toast.success(
-          `Successfully deleted ${successful} degree${
+          `Successfully deleted ${successful} ${adaptLabel('degree')}${
             successful > 1 ? 's' : ''
           }`
         );
@@ -122,7 +126,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} degree${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${adaptLabel('degree')}${failed > 1 ? 's' : ''}`
         );
       }
 
@@ -139,7 +143,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
       setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting degrees:', error);
-      toast.error('An error occurred while deleting degrees');
+      toast.error(`An error occurred while deleting ${adaptLabel('degrees')}`);
     } finally {
       setIsDeleting(false);
     }
@@ -180,10 +184,10 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Degrees exported successfully');
+      toast.success(`${adaptLabel('Degrees')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export degrees');
+      toast.error(`Failed to export ${adaptLabel('degrees')}`);
     }
   };
 
@@ -199,10 +203,10 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Degrees exported successfully');
+      toast.success(`${adaptLabel('Degrees')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export degrees');
+      toast.error(`Failed to export ${adaptLabel('degrees')}`);
     }
   };
 
@@ -218,7 +222,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Degrees exported successfully');
+      toast.success(`${adaptLabel('Degrees')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export degrees');
@@ -231,7 +235,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <>
           <Button
@@ -240,7 +244,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
             className='h-8'
           >
             <Plus className='mr-2 h-4 w-4' />
-            Add Degree
+            Add {adaptLabel('Degree')}
           </Button>
 
           <Button
@@ -308,10 +312,13 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adaptLabel)}
         exportConfig={{
-          entityName: 'degrees',
-          columnMapping: {},
+          entityName: adaptLabel('degrees'),
+          columnMapping: {
+            'degree_id': adaptLabel('Degree ID'),
+            'degree_name': adaptLabel('Degree Name')
+          },
           columnWidths: [],
           headers: []
         }}
@@ -331,12 +338,12 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Degrees`
-                : `Delete Degree: ${selectedForDelete[0]?.degree_name}`}
+                ? `Delete ${selectedForDelete.length} ${adaptLabel('Degrees')}`
+                : `Delete ${adaptLabel('Degree')}: ${selectedForDelete[0]?.degree_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              degree{selectedForDelete.length > 1 ? 's' : ''} and all related
+              {adaptLabel('degree')}{selectedForDelete.length > 1 ? 's' : ''} and all related
               data.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -345,7 +352,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
           {selectedForDelete.length > 0 && (
             <div className='my-4 p-3 bg-muted rounded-lg'>
               <div className='text-sm font-medium mb-2'>
-                Degree{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+                {adaptLabel('Degree')}{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
               </div>
               <div className='space-y-1 max-h-32 overflow-y-auto'>
                 {selectedForDelete.map((degree) => (
@@ -372,8 +379,8 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Degrees`
-                    : 'Degree'
+                    ? `${selectedForDelete.length} ${adaptLabel('Degrees')}`
+                    : adaptLabel('Degree')
                 }`
               )}
             </AlertDialogAction>

@@ -30,6 +30,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/academic/years'],
     },
     {
+      label: 'Parent Portal',
+      icon: 'Megaphone',
+      href: '/academic/parent-portal',
+      matchPaths: ['/academic/parent-portal'],
+    },
+    {
       label: 'Regulations',
       icon: 'Bookmark',
       href: '/academic/regulations',
@@ -116,10 +122,22 @@ const config: ModuleNavConfig = {
           matchPaths: ['/academic/attendance/mark'],
         },
         {
+          label: 'Day Attendance',
+          icon: 'CalendarCheck',
+          href: '/academic/attendance/day',
+          matchPaths: ['/academic/attendance/day'],
+        },
+        {
           label: 'Pending',
           icon: 'Hourglass',
           href: '/academic/attendance/pending',
           matchPaths: ['/academic/attendance/pending'],
+        },
+        {
+          label: 'Unmarked History',
+          icon: 'History',
+          href: '/academic/attendance/history',
+          matchPaths: ['/academic/attendance/history'],
         },
         {
           label: 'Reports',
@@ -142,12 +160,19 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Question Papers',
+      icon: 'FileText',
+      href: '/academic/question-papers',
+      matchPaths: ['/academic/question-papers'],
+    },
+    {
       label: 'Assessment',
       icon: 'GraduationCap',
       href: '/academic/internal-marks',
       matchPaths: [
         '/academic/internal-marks',
         '/academic/course-grades',
+        '/academic/mark-entry',
       ],
       children: [
         {
@@ -155,6 +180,29 @@ const config: ModuleNavConfig = {
           icon: 'PenLine',
           href: '/academic/internal-marks',
           exact: true,
+        },
+        {
+          // CIA entry screen — question-wise (against the round's question
+          // paper) or direct component totals. Separate page from Internal
+          // Marks, which keeps its existing marks/report surface.
+          label: 'Mark Entry',
+          icon: 'ClipboardEdit',
+          href: '/academic/mark-entry',
+        },
+        {
+          label: 'IA Monitor',
+          icon: 'GaugeCircle',
+          href: '/academic/internal-marks/monitor',
+        },
+        {
+          label: 'Attendance vs Marks',
+          icon: 'Scale',
+          href: '/academic/internal-marks/attendance-insight',
+        },
+        {
+          label: 'Exam IA Audit',
+          icon: 'ClipboardCheck',
+          href: '/academic/internal-marks/exam-audit',
         },
         {
           label: 'Internal Marks Report',

@@ -80,6 +80,40 @@ export function useMySF100Enrollment(programId: string) {
   });
 }
 
+export interface SF100Goal {
+  scored: boolean;
+  arm?: 'control' | 'treatment';
+  program_target?: number;
+  stretch_delta?: number;
+  effective_target?: number;
+  reason?: string;
+}
+
+/**
+ * The current user's SF100 goal for their own enrollment: the moat's control /
+ * treatment experiment arm and the (possibly stretched) paying-user goal the team
+ * should be shown. Treatment-arm teams get a higher STRETCH goal — the first real
+ * within-cohort A/B differential (M6). Backed by fn_my_sf100_goal, a SECURITY
+ * DEFINER RPC that is owner-gated (caller must be on the team) and anon-revoked, so
+ * the value resolves regardless of the team's RLS grants on the cohort spine.
+ */
+export function useMySF100Goal(enrollmentId?: string) {
+  return useQuery({
+    queryKey: ['sf100', 'my-goal', enrollmentId ?? 'none'],
+    queryFn: async (): Promise<SF100Goal> => {
+      const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+      const supabase = createClientSupabaseClient() as any;
+      const { data, error } = await supabase.rpc('fn_my_sf100_goal', {
+        p_enrollment_id: enrollmentId,
+      });
+      if (error) throw error;
+      return (data ?? { scored: false }) as SF100Goal;
+    },
+    enabled: !!enrollmentId,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
 /**
  * Fetch check-ins for a specific SF100 enrollment
  */
@@ -277,6 +311,31 @@ export function useUpdateSF100Program(programId: string) {
       queryClient.invalidateQueries({ queryKey: startupStudioKeys.sf100.programs.all });
       queryClient.invalidateQueries({
         queryKey: startupStudioKeys.sf100.programs.detail(programId),
+      });
+    },
+  });
+}
+
+/**
+ * Update an SF100 team's editable details — team name + problem statement.
+ * Both fields live on the enrollment's event_registrations row; the PATCH is
+ * authorized by that table's RLS (team owner OR admin). Invalidates the
+ * enrollment detail + the enrollments list so the edited row re-renders.
+ */
+export function useUpdateSF100TeamDetails(enrollmentId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: { team_name?: string; problem_idea?: string }) =>
+      apiClient.patch(`${BASE}/enrollments/${enrollmentId}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: startupStudioKeys.sf100.enrollments.detail(enrollmentId),
+      });
+      // `.enrollments.all` is a prefix of every program's list key, so this
+      // refreshes the admin enrollments table the edit was launched from.
+      queryClient.invalidateQueries({
+        queryKey: startupStudioKeys.sf100.enrollments.all,
       });
     },
   });

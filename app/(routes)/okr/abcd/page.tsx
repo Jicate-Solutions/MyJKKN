@@ -5,7 +5,8 @@
 // Process vs. Result analysis for strategic assessment
 // ============================================================================
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import Link from 'next/link';
 import {
   AlertOctagon,
@@ -49,12 +50,17 @@ import { ABCD_CATEGORY_CONFIG, ABCDCategory, PROCESS_RATING_LABELS } from '@/typ
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
-export default function ABCDMatrixPage() {
+const ABCD_TABS = ['matrix', 'distribution', 'list'] as const;
+
+function ABCDMatrixPageInner() {
   const { institutions } = useUserInstitutionAccess();
   const institutionId = institutions?.[0]?.institution_id || undefined;
 
   // Filter state
   const [categoryFilter, setCategoryFilter] = useState<ABCDCategory | 'all'>('all');
+
+  // URL-synced main tab (deep-linkable / favoritable)
+  const [activeTab, setActiveTab] = useTabParam('matrix', ABCD_TABS);
 
   // Fetch data
   const { data: analysisData = [], isLoading: analysisLoading } = useABCDAnalysis({
@@ -166,7 +172,7 @@ export default function ABCDMatrixPage() {
           )}
 
           {/* Main Content */}
-          <Tabs defaultValue="matrix" className="space-y-4">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
             <div className="flex items-center justify-between">
               <TabsList>
                 <TabsTrigger value="matrix">Matrix View</TabsTrigger>
@@ -399,5 +405,14 @@ export default function ABCDMatrixPage() {
         </div>
       </OKRErrorBoundary>
     </ContentLayout>
+  );
+}
+
+export default function ABCDMatrixPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ABCDMatrixPageInner />
+    </Suspense>
   );
 }

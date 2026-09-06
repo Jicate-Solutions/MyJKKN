@@ -134,7 +134,18 @@ const HEADING_LEVELS = [
   { label: 'Heading 4', level: 4 },
 ];
 
-const FONT_SIZES = ['10', '11', '12', '14', '16', '18', '20', '24', '28', '32'];
+const FONT_SIZES = [
+  '8', '9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48',
+];
+
+// Radix <SelectItem> forbids an empty-string value, so "no explicit font /
+// size" needs a sentinel. Picking it clears the mark instead of writing it.
+const INHERIT = '__inherit__';
+
+// Browsers normalise `style.fontFamily` (quotes, spacing) differently from the
+// literal we store, so dropdown matching compares a normalised form.
+const normalizeFont = (value: unknown) =>
+  String(value ?? '').replace(/["']/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const TEXT_COLORS = ['#000000', '#374151', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0284c7', '#2563eb', '#7c3aed', '#db2777'];
 const HIGHLIGHT_COLORS = ['#fff59d', '#fde68a', '#fca5a5', '#a7f3d0', '#bae6fd', '#c4b5fd', '#f9a8d4'];
@@ -152,6 +163,17 @@ export function SopRibbon(props: SopRibbonProps) {
   }
 
   const chain = () => editor.chain().focus();
+
+  // Font dropdowns mirror the textStyle mark at the cursor/selection, so they
+  // read like Word's — move the caret into 20pt Georgia text and the controls
+  // follow. useEditorRerender() above re-renders on every selection change.
+  const textStyle = editor.getAttributes('textStyle');
+  const activeFontFamily =
+    FONT_FAMILIES.find(
+      (f) => f.value && normalizeFont(f.value) === normalizeFont(textStyle.fontFamily)
+    )?.value ?? INHERIT;
+  const rawFontSize = String(textStyle.fontSize ?? '').replace(/pt$/i, '');
+  const activeFontSize = FONT_SIZES.includes(rawFontSize) ? rawFontSize : INHERIT;
 
   // ── Helper: file-pick + insert image ─────────────────────────────────────
   const insertImage = () => {
@@ -211,7 +233,7 @@ export function SopRibbon(props: SopRibbonProps) {
   return (
     <div className='border rounded-md bg-background sticky top-0 z-10 shadow-sm'>
       <Tabs defaultValue='home' className='w-full'>
-        <TabsList className='h-auto rounded-none border-b w-full justify-start gap-0 bg-muted/40 px-2 py-0'>
+        <TabsList className='h-auto rounded-none border-b w-full max-w-full justify-start gap-0 bg-muted/40 px-2 py-0 overflow-x-auto [&>button]:shrink-0'>
           <TabsTrigger value='home'       className='rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none'>Home</TabsTrigger>
           <TabsTrigger value='insert'     className='rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none'>Insert</TabsTrigger>
           <TabsTrigger value='layout'     className='rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none'>Layout</TabsTrigger>
@@ -242,23 +264,38 @@ export function SopRibbon(props: SopRibbonProps) {
             </Group>
 
             <Group label='Font'>
-              <Select onValueChange={(v) => chain().setFontFamily(v).run()}>
+              <Select
+                value={activeFontFamily}
+                onValueChange={(v) =>
+                  v === INHERIT
+                    ? chain().unsetFontFamily().run()
+                    : chain().setFontFamily(v).run()
+                }
+              >
                 <SelectTrigger className='h-8 w-36 text-xs'>
                   <SelectValue placeholder='Font' />
                 </SelectTrigger>
                 <SelectContent>
                   {FONT_FAMILIES.map((f) => (
-                    <SelectItem key={f.value} value={f.value || 'default'}>
+                    <SelectItem key={f.value || INHERIT} value={f.value || INHERIT}>
                       <span style={{ fontFamily: f.value || undefined }}>{f.label}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <Select onValueChange={(v) => chain().setMark('textStyle', { fontSize: `${v}pt` }).run()}>
-                <SelectTrigger className='h-8 w-16 text-xs'>
+              <Select
+                value={activeFontSize}
+                onValueChange={(v) =>
+                  v === INHERIT
+                    ? chain().unsetFontSize().run()
+                    : chain().setFontSize(`${v}pt`).run()
+                }
+              >
+                <SelectTrigger className='h-8 w-[4.5rem] text-xs'>
                   <SelectValue placeholder='Size' />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={INHERIT}>Auto</SelectItem>
                   {FONT_SIZES.map((s) => (
                     <SelectItem key={s} value={s}>{s}</SelectItem>
                   ))}
@@ -423,9 +460,14 @@ export function SopRibbon(props: SopRibbonProps) {
               </Popover>
             </Group>
 
-            <Group label='Comments'>
-              <Button type='button' size='sm' variant='ghost' className='h-8 gap-1' onClick={() => props.onToggleComments?.()}><MessageSquare className='h-4 w-4' /> Comments</Button>
-            </Group>
+            {/* Comments is SOP-specific (backed by bos_sop_comments). Only
+                render when the host wires onToggleComments — the minutes editor
+                reuses this ribbon but has no comments backing, so it omits it. */}
+            {props.onToggleComments && (
+              <Group label='Comments'>
+                <Button type='button' size='sm' variant='ghost' className='h-8 gap-1' onClick={() => props.onToggleComments?.()}><MessageSquare className='h-4 w-4' /> Comments</Button>
+              </Group>
+            )}
 
             <Group label='Language' last>
               <Select value={tamilMode} onValueChange={(v) => onTamilModeChange(v as TamilInputMode)}>
@@ -454,25 +496,36 @@ export function SopRibbon(props: SopRibbonProps) {
               <Button type='button' size='sm' variant='ghost' className='h-8 gap-1' onClick={() => window.print()}><Printer className='h-4 w-4' /> Print preview</Button>
             </Group>
 
-            <Group label='History'>
-              <Button type='button' size='sm' variant='ghost' className='h-8' onClick={() => props.onOpenHistory?.()}>Version history</Button>
-              <Button type='button' size='sm' variant='ghost' className='h-8' onClick={() => props.onSnapshot?.()}>Save & Snapshot</Button>
-            </Group>
+            {/* Version history + Snapshot are SOP-specific (bos_sop_versions).
+                Hidden when the host wires neither callback. */}
+            {(props.onOpenHistory || props.onSnapshot) && (
+              <Group label='History'>
+                {props.onOpenHistory && (
+                  <Button type='button' size='sm' variant='ghost' className='h-8' onClick={() => props.onOpenHistory?.()}>Version history</Button>
+                )}
+                {props.onSnapshot && (
+                  <Button type='button' size='sm' variant='ghost' className='h-8' onClick={() => props.onSnapshot?.()}>Save & Snapshot</Button>
+                )}
+              </Group>
+            )}
 
-            <Group label='Export' last>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button type='button' size='sm' variant='ghost' className='h-8 gap-1'>Export <ChevronDown className='h-3 w-3' /></Button>
-                </PopoverTrigger>
-                <PopoverContent className='w-44 p-1'>
-                  {(['pdf', 'docx', 'html', 'markdown', 'txt'] as const).map((f) => (
-                    <Button key={f} type='button' size='sm' variant='ghost' className='w-full justify-start' onClick={() => props.onExport?.(f)}>
-                      {f.toUpperCase()}
-                    </Button>
-                  ))}
-                </PopoverContent>
-              </Popover>
-            </Group>
+            {/* Multi-format export is backed by SOP-only export routes. */}
+            {props.onExport && (
+              <Group label='Export' last>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button type='button' size='sm' variant='ghost' className='h-8 gap-1'>Export <ChevronDown className='h-3 w-3' /></Button>
+                  </PopoverTrigger>
+                  <PopoverContent className='w-44 p-1'>
+                    {(['pdf', 'docx', 'html', 'markdown', 'txt'] as const).map((f) => (
+                      <Button key={f} type='button' size='sm' variant='ghost' className='w-full justify-start' onClick={() => props.onExport?.(f)}>
+                        {f.toUpperCase()}
+                      </Button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              </Group>
+            )}
           </div>
         </TabsContent>
       </Tabs>

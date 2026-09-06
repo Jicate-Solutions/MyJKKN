@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { ImsActivityFeed } from '@/components/ims/activity-feed';
 import { useAuth } from '@/hooks/use-auth';
+import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
 import {
   useImsIndent,
   useApproveImsIndent,
@@ -11,6 +13,8 @@ import {
   useIssueImsIndentItem,
   useMarkImsIndentIssued,
   useConfirmImsIndentDelivery,
+  useImsHodPendingIndents,
+  useLocalApproveImsIndent,
 } from '@/hooks/ims/use-ims-indents';
 import {
   INDENT_STATUS_CONFIG,
@@ -49,15 +53,31 @@ import {
   Building2,
   User,
   FileText,
+  Pencil,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function IndentDetailPage() {
+  return (
+    <ImsPageGuard module="ims.indents" action="view">
+      <IndentDetailPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function IndentDetailPageInner() {
   const params = useParams();
   const router = useRouter();
   const { profile } = useAuth();
   const id = params.id as string;
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canApprove = isSuperAdmin || canAccess('ims.indents', 'approve');
+  const canEdit = isSuperAdmin || canAccess('ims.indents', 'edit');
+  const canDispatch = isSuperAdmin || canAccess('ims.transfers', 'dispatch');
+  const canReceive = isSuperAdmin || canAccess('ims.transfers', 'receive');
 
   const [issueQuantities, setIssueQuantities] = useState<Record<string, number>>({});
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -69,6 +89,16 @@ export default function IndentDetailPage() {
   const issueItem = useIssueImsIndentItem();
   const markIssued = useMarkImsIndentIssued();
   const confirmDelivery = useConfirmImsIndentDelivery();
+
+  // Phase D: HOD approval on the detail page. Reuses the HOD-queue query
+  // (shared React Query cache with /ims/indents/hod-approvals) — membership in
+  // that list already proves "pending_local_approval AND I head this dept",
+  // so no separate headship lookup is needed. Only fetched while relevant.
+  const { data: hodQueue = [] } = useImsHodPendingIndents(
+    indent?.status === 'pending_local_approval' ? profile?.id : undefined
+  );
+  const localApprove = useLocalApproveImsIndent();
+  const isHodApprover = hodQueue.some((q) => q.id === id);
 
   if (isLoading) {
     return (
@@ -102,7 +132,12 @@ export default function IndentDetailPage() {
   const isApproved = indent.status === 'approved' || indent.status === 'pending_issue' || indent.status === 'partially_issued';
   const isPendingApproval = indent.status === 'pending_approval';
   const isRequester = indent.requested_by === profile?.id;
-  const canConfirmDelivery = indent.status === 'issued' && isRequester;
+  const canConfirmDelivery = indent.status === 'issued' && isRequester && canReceive;
+  // Edit allowed only pre-approval, by the requester (or a privileged user).
+  const isEditable =
+    (indent.status === 'draft' || indent.status === 'pending_approval') &&
+    canEdit &&
+    (isRequester || isSuperAdmin);
 
   const allItemsIssued =
     indent.items &&
@@ -115,6 +150,15 @@ export default function IndentDetailPage() {
     try {
       await approveIndent.mutateAsync({ id, userId: profile?.id || '' });
       toast.success('Indent approved successfully');
+    } catch {
+      toast.error('Failed to approve indent');
+    }
+  };
+
+  const handleHodApprove = async () => {
+    try {
+      await localApprove.mutateAsync({ id, userId: profile?.id || '' });
+      toast.success('Approved — forwarded to store admin');
     } catch {
       toast.error('Failed to approve indent');
     }
@@ -146,11 +190,11 @@ export default function IndentDetailPage() {
       return;
     }
     try {
-      await issueItem.mutateAsync({ itemId, quantity: qty });
+      await issueItem.mutateAsync({ itemId, quantity: qty, userId: profile?.id || '' });
       toast.success('Item issued successfully');
       setIssueQuantities((prev) => ({ ...prev, [itemId]: 0 }));
-    } catch {
-      toast.error('Failed to issue item');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to issue item');
     }
   };
 
@@ -158,8 +202,11 @@ export default function IndentDetailPage() {
     try {
       await markIssued.mutateAsync(id);
       toast.success('Indent marked as fully issued');
-    } catch {
-      toast.error('Failed to mark indent as issued');
+    } catch (error) {
+      // Surface the reason — the service refuses to stamp an indent 'issued'
+      // while any line is still unissued, and "Failed to mark" alone would hide
+      // which lines still need issuing.
+      toast.error(error instanceof Error ? error.message : 'Failed to mark indent as issued');
     }
   };
 
@@ -193,8 +240,17 @@ export default function IndentDetailPage() {
               <p className="text-muted-foreground">Indent Request Details</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {isPendingApproval && (
+          <div className="flex flex-wrap items-center gap-2">
+            {isEditable && (
+              <Button
+                variant="outline"
+                onClick={() => router.push(`/ims/indents/${id}/edit`)}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </Button>
+            )}
+            {isPendingApproval && canApprove && (
               <>
                 <Button
                   className="bg-green-600 hover:bg-green-700"
@@ -213,7 +269,27 @@ export default function IndentDetailPage() {
                 </Button>
               </>
             )}
-            {isApproved && allItemsIssued && (
+            {/* Phase D: HOD step — reuses the same reject dialog below */}
+            {isHodApprover && (
+              <>
+                <Button
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={handleHodApprove}
+                  disabled={localApprove.isPending}
+                >
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Approve (HOD)
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => setRejectDialogOpen(true)}
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Reject
+                </Button>
+              </>
+            )}
+            {isApproved && allItemsIssued && canDispatch && (
               <Button onClick={handleMarkAllIssued} disabled={markIssued.isPending}>
                 <Package className="mr-2 h-4 w-4" />
                 Mark All Issued
@@ -291,15 +367,13 @@ export default function IndentDetailPage() {
                 <p className="text-sm text-muted-foreground">Required Date</p>
                 <p className="flex items-center gap-2 font-medium">
                   <Calendar className="h-4 w-4" />
-                  {indent.required_date
-                    ? new Date(indent.required_date).toLocaleDateString()
-                    : 'Not specified'}
+                  {indent.required_date ? formatDateDMY(indent.required_date) : 'Not specified'}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Created At</p>
                 <p className="font-medium">
-                  {new Date(indent.created_at).toLocaleString()}
+                  {formatDateTimeDMY(indent.created_at)}
                 </p>
               </div>
             </div>
@@ -326,7 +400,7 @@ export default function IndentDetailPage() {
                   {indent.approved_by_profile.full_name}
                   {indent.approved_at && (
                     <span className="text-muted-foreground ml-2">
-                      on {new Date(indent.approved_at).toLocaleString()}
+                      on {formatDateTimeDMY(indent.approved_at)}
                     </span>
                   )}
                 </p>
@@ -385,7 +459,7 @@ export default function IndentDetailPage() {
                         </TableCell>
                         {isApproved && (
                           <TableCell>
-                            {!isFullyIssued && (
+                            {!isFullyIssued && canDispatch && (
                               <div className="flex items-center gap-2">
                                 <Input
                                   type="number"
@@ -430,6 +504,9 @@ export default function IndentDetailPage() {
             </Table>
           </CardContent>
         </Card>
+
+        {/* Phase F: end-to-end audit trail */}
+        <ImsActivityFeed entityType="indent" entityId={id} />
 
         {/* Reject Dialog */}
         <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>

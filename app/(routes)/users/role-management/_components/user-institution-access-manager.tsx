@@ -44,6 +44,7 @@ import {
   Search
 } from 'lucide-react';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
+import { useAuth } from '@/hooks/use-auth-provider';
 
 interface Institution {
   id: string;
@@ -80,6 +81,7 @@ interface UserWithAccess extends User {
 }
 
 export function UserInstitutionAccessManager() {
+  const { profile } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [accessRecords, setAccessRecords] = useState<UserInstitutionRecord[]>(
@@ -101,15 +103,27 @@ export function UserInstitutionAccessManager() {
   >('billing_only');
 
   useEffect(() => {
+    // Wait for auth to resolve before loading. Passing profile.id below routes
+    // the institution fetch through the CAS/CET-aware accessible-institutions
+    // RPC; firing before profile is ready would fall back to the unscoped
+    // "all institutions" query path.
+    if (!profile?.id) return;
     loadData();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       const [usersData, institutionsData, accessData] = await Promise.all([
         UserService.getUsers({ page: 1, limit: 1000 }),
-        OrganizationService.getInstitutionNames(true),
+        // Scope the picker to the acting user's accessible institutions.
+        // getInstitutionNames(userId) delegates to the CAS/CET-aware
+        // get_user_accessible_institutions RPC: super-admins (role
+        // institution_scope='all') still get every college, while scoped
+        // admins get only their own counselling_code cluster (CAS or CET
+        // siblings merged; NULL codes never merged).
+        OrganizationService.getInstitutionNames(true, profile?.id, 'all'),
         UserInstitutionAccessService.getUserInstitutionAccessRecords()
       ]);
 
@@ -506,7 +520,7 @@ export function UserInstitutionAccessManager() {
         <TabsContent value='users' className='space-y-4'>
           <Card>
             <CardHeader>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <CardTitle className='flex items-center gap-2'>
                   <Users className='h-5 w-5' />
                   User Institution Access Management
@@ -670,7 +684,7 @@ export function UserInstitutionAccessManager() {
             </CardHeader>
             <CardContent>
               {/* Filters */}
-              <div className='flex gap-4 mb-6'>
+              <div className='flex flex-col sm:flex-row gap-4 mb-6'>
                 <div className='flex-1'>
                   <Label htmlFor='search' className='sr-only'>
                     Search
@@ -687,7 +701,7 @@ export function UserInstitutionAccessManager() {
                   </div>
                 </div>
                 <Select value={selectedRole} onValueChange={setSelectedRole}>
-                  <SelectTrigger className='w-48'>
+                  <SelectTrigger className='w-full sm:w-48'>
                     <SelectValue placeholder='Filter by role' />
                   </SelectTrigger>
                   <SelectContent>

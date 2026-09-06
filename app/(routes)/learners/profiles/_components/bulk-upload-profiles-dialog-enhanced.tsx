@@ -208,7 +208,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         '* First Name': 'JOHN',
         '* Last Name': 'DOE',
         '* Date of Birth': '2005-01-15',
-        '* Gender': 'MALE',
+        '* Gender': 'Male',
         '* Religion': 'HINDU',
         '* Community': 'BC',
         '* Caste': 'OBC',
@@ -253,6 +253,10 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         // Basic Details (Optional)
         'Aadhar Number': '123456789012',
         'Blood Group': 'O+',
+        // External identifiers — alphanumeric, no fixed length enforced.
+        'ABC ID': 'ED453871909686',
+        'EMIS Number': '33150200123',
+        'UMIS Number': 'UM2024005567',
         'Admission Year': '2024',
 
         // Parent/Guardian (Optional)
@@ -267,9 +271,8 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         // Contact (Optional)
         'Personal Email': 'john@gmail.com',
 
-        // Accommodation (Optional)
-        'Hostel Type': 'AC HOSTEL',
-        'Food Type': 'VEG',
+        // Accommodation (Optional) — bus is only relevant for Day Scholars
+        'Bus Required': 'No',
 
         // Previous Education (Optional)
         'Last School': 'St. Mary\'s High School',
@@ -287,7 +290,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         'Counseling Applied': 'TRUE',
         'Counseling Number': 'COUN2024001',
         'Quota': 'MANAGEMENT',
-        'Category': 'General',
 
         // Reference (Optional)
         'Reference Type': 'Alumni',
@@ -316,13 +318,13 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
         { '📊 FIELD REQUIREMENTS': '' },
         { 'Required Fields (28)': 'Must be filled for every student - marked with * in template' },
-        { 'Optional Fields (35)': 'Can be left blank - no asterisk in template' },
+        { 'Optional Fields (38)': 'Can be left blank - no asterisk in template' },
         { '': '' },
 
         { '✅ DROPDOWN FIELDS - VALID VALUES ONLY': '' },
         { 'Field Name': 'Valid Options (use these exact values)' },
         { '': '' },
-        { '* Gender (Required)': 'MALE  |  FEMALE  |  OTHER' },
+        { '* Gender (Required)': 'Male  |  Female  |  Other' },
         { '* Religion (Required)': 'HINDU  |  CHRISTIAN  |  MUSLIM  |  SIKH  |  BUDDHIST  |  JAIN  |  OTHERS' },
         { '* Community (Required)': 'OC  |  BC  |  BCM  |  MBC  |  DNC  |  BC-CC  |  SC  |  ST  |  SBC  |  SC (A)' },
         { '* Entry Type (Required)': 'FIRST YEAR  |  LATERAL ENTRY  |  RE-ADMISSION  |  COLLEGE TRANSFER' },
@@ -330,9 +332,8 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { '* Scholarship Type (Required)': 'FIRST GRADUATE  |  PMS SCHOLARSHIP  |  7.5% SCHOLARSHIP  |  NOT APPLICABLE' },
         { '': '' },
         { 'Blood Group (Optional)': 'A+  |  A-  |  B+  |  B-  |  AB+  |  AB-  |  O+  |  O-  |  A1+  |  A1B' },
-        { 'Hostel Type (Optional)': 'AC HOSTEL  |  NON-AC HOSTEL' },
-        { 'Food Type (Optional)': 'VEG  |  NON-VEG  |  VEGAN' },
         { 'Quota (Optional)': 'GOVERNMENT  |  MANAGEMENT' },
+        { 'Bus Required (Optional)': 'YES  |  NO  (Day Scholars only)' },
         { 'Counseling Applied (Optional)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },
         { '': '' },
 
@@ -343,14 +344,17 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { 'College Email': 'Must end with @jkkn.ac.in  (Example: john.doe@jkkn.ac.in)' },
         { 'Academic Year': 'YYYY-YYYY  (Example: 2024-2025)' },
         { 'Aadhar Number': '12 digits  (Example: 123456789012)' },
+        { 'ABC ID': 'Letters + digits, any length  (Example: ED453871909686)' },
+        { 'EMIS Number': 'Letters + digits, any length  (Example: 33150200123)' },
+        { 'UMIS Number': 'Letters + digits, any length  (Example: UM2024005567)' },
+        { '  ↳ all three': 'Saved UPPERCASE with spaces removed. Leave blank if not issued yet.' },
         { '10th/12th Marks': 'JSON format  (Example: {"overall": "95", "maths": "98"})' },
         { '': '' },
 
         { '❌ COMMON MISTAKES': '' },
         { 'Wrong': 'Correct' },
         { 'Entry Type: "FIRST YEAR"': 'Use: REGULAR' },
-        { 'Gender: "M" or "F"': 'Use: MALE or FEMALE' },
-        { 'Hostel Type: "Boys Hostel"': 'Use: AC HOSTEL or NON-AC HOSTEL' },
+        { 'Gender: "M" or "F"': 'Use: Male or Female' },
         { 'Religion: "Hindu"': 'Use: HINDU (all uppercase)' },
         { 'Email: john@gmail.com': 'Use: john.doe@jkkn.ac.in' },
         { 'Mobile: 98765-43210': 'Use: 9876543210 (no dashes)' },
@@ -359,7 +363,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { '': '' },
 
         { '💡 TIPS FOR SUCCESS': '' },
-        { '✓': 'All dropdown values are case-insensitive (MALE = male = Male)' },
+        { '✓': 'All dropdown values are case-insensitive (Male = male = MALE)' },
         { '✓': 'Required fields marked with * must be filled' },
         { '✓': 'Delete the example row before uploading your actual data' },
         { '✓': 'Copy-paste the example row to create more student entries' },
@@ -513,8 +517,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
               // SECTION 7: Accommodation
               accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text', 'accommodation_type'),
-              hostel_type: sanitizeValue(mappedData.hostel_type, 'text', 'hostel_type'),
-              food_type: sanitizeValue(mappedData.food_type, 'text', 'food_type'),
+              bus_required: sanitizeValue(mappedData.bus_required, 'text', 'bus_required'),
 
               // SECTION 8: Previous Education
               last_school: sanitizeValue(mappedData.last_school, 'text'),
@@ -1340,7 +1343,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                 </AlertDescription>
               </Alert>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader>
                     <CardTitle>Selected Rows</CardTitle>

@@ -56,7 +56,7 @@ const MODULE_PREFIX_MAP: Array<{ prefix: string; module: string }> = [
   { prefix: '/work-pulse', module: 'Work Pulse' },
   { prefix: '/vac', module: 'Value Added Courses' },
   { prefix: '/billing', module: 'Billing' },
-  { prefix: '/staff', module: 'Employee Management' },
+  { prefix: '/staff', module: 'Employee' },
   { prefix: '/hr', module: 'HR' },
   { prefix: '/organizations', module: 'Organization' },
   { prefix: '/system', module: 'System' },
@@ -109,12 +109,61 @@ export interface PageInfo {
 }
 
 /**
+ * Acronyms that should stay uppercase when a tab slug is turned into a
+ * human label (e.g. "ai-debug" → "AI Debug", "rls" → "RLS").
+ */
+const TAB_ACRONYMS: Record<string, string> = {
+  ai: 'AI',
+  rls: 'RLS',
+  api: 'API',
+  hr: 'HR',
+  okr: 'OKR',
+  id: 'ID',
+  qr: 'QR',
+};
+
+/** "module-access" → "Module Access", "ai-debug" → "AI Debug" */
+export function tabLabelFromSlug(tab: string): string {
+  return tab
+    .replace(/[-_]/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map(
+      (w) =>
+        TAB_ACRONYMS[w.toLowerCase()] ??
+        w.charAt(0).toUpperCase() + w.slice(1)
+    )
+    .join(' ');
+}
+
+/**
  * Returns a usable PageInfo for any pathname, or null when the page should
  * not be favoritable (auth, api, etc.).
  *
  * Always derives — never returns undefined for a "real" app route.
+ *
+ * When `tab` is provided (the page's `?tab=` search param), the result is
+ * tab-scoped: path carries the query string so the favorite deep-links to
+ * that tab, and the title gets the tab label appended. This is what lets a
+ * user favorite e.g. "Permissions Audit · Resolver" instead of only the
+ * whole page.
  */
-export function derivePageInfo(pathname: string): PageInfo | null {
+export function derivePageInfo(
+  pathname: string,
+  tab?: string | null
+): PageInfo | null {
+  const base = derivePagePathInfo(pathname);
+  if (!base) return null;
+  if (!tab) return base;
+
+  return {
+    ...base,
+    path: `${base.path}?tab=${encodeURIComponent(tab)}`,
+    title: `${base.title} · ${tabLabelFromSlug(tab)}`,
+  };
+}
+
+function derivePagePathInfo(pathname: string): PageInfo | null {
   if (!pathname) return null;
 
   // Exclude non-favoritable routes (auth, api, etc.)

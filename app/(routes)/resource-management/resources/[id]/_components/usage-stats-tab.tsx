@@ -138,8 +138,8 @@ export function UsageStatsTab({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className='flex items-center justify-between'>
-            <div>
+          <div className='flex items-center justify-between gap-3'>
+            <div className='min-w-0'>
               <div
                 className={`text-5xl font-bold ${getUtilizationColor(
                   stats?.utilizationRate || 0

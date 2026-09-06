@@ -116,14 +116,14 @@ export async function POST(request: Request) {
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', user.id)
       .single();
 
     if (
       profileError ||
       !profile ||
-      !['admin', 'super_admin', 'administrator'].includes(profile.role)
+      (!(profile as any).is_super_admin && !['super_admin', 'administrator', 'ceo'].includes(profile.role))
     ) {
       return NextResponse.json(
         { error: 'Admin permissions required' },

@@ -2,20 +2,53 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // ── Local types (table: hostel_health_cases) ───────────────────────────
-export type HealthSeverity = 'low' | 'medium' | 'high' | 'critical' | string;
-export type HealthStatus = 'open' | 'under_treatment' | 'recovered' | 'referred' | 'closed' | string;
+// Schema-of-truth (prod, verified 2026-05-19 via information_schema):
+//   hostel_health_cases columns: id, institution_id, learner_id, block_id,
+//     case_number, symptoms, severity (enum health_severity_enum), temperature,
+//     status (enum), first_aid_given, first_aid_by, first_aid_at, doctor_name,
+//     doctor_referral_at, hospital_name, diagnosis, medication, parent_notified,
+//     parent_notified_at, parent_notified_by, recovery_notes, cleared_by,
+//     cleared_at, follow_up_dates[], created_by, created_at, updated_at
+// Type drift fixed: severity enum was ['low','medium','high','critical'] — prod
+//   enum is health_severity_enum ['minor','moderate','serious','emergency'].
+//   learner_id is NOT NULL in prod (required, not optional). symptoms is NOT
+//   NULL. Replaced loose `reported_at` / `recovered_on` / `notes` placeholders
+//   with the real columns (first_aid/doctor/parent_notified/recovery flow).
+export type HealthSeverity = 'minor' | 'moderate' | 'serious' | 'emergency';
+export type HealthStatus =
+  | 'open'
+  | 'under_treatment'
+  | 'recovered'
+  | 'referred'
+  | 'closed'
+  | string;
 
 export interface HostelHealthCase {
   id: string;
   institution_id: string;
-  learner_id?: string | null;
+  learner_id: string;
   block_id?: string | null;
-  symptoms?: string | null;
-  severity: HealthSeverity;
+  case_number: string;
+  symptoms: string;
+  severity: HealthSeverity | string;
+  temperature?: number | null;
   status: HealthStatus;
-  reported_at?: string | null;
-  recovered_on?: string | null;
-  notes?: string | null;
+  first_aid_given?: string | null;
+  first_aid_by?: string | null;
+  first_aid_at?: string | null;
+  doctor_name?: string | null;
+  doctor_referral_at?: string | null;
+  hospital_name?: string | null;
+  diagnosis?: string | null;
+  medication?: string | null;
+  parent_notified?: boolean | null;
+  parent_notified_at?: string | null;
+  parent_notified_by?: string | null;
+  recovery_notes?: string | null;
+  cleared_by?: string | null;
+  cleared_at?: string | null;
+  follow_up_dates?: string[] | null;
+  created_by?: string | null;
   created_at: string;
   updated_at?: string;
   [k: string]: unknown;

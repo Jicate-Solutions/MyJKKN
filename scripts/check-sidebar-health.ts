@@ -32,7 +32,12 @@
 
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { GetRoleBasedPages } from '../lib/sidebarMenuLink';
+import {
+  GetRoleBasedPages,
+  MENU_PERMISSIONS,
+  normalizeRoute,
+  isStudentPortalRoute,
+} from '../lib/sidebarMenuLink';
 import {
   validateSidebar,
   assertSidebarHealthy,
@@ -170,6 +175,14 @@ function extractSidebarHrefs(): Set<string> {
 const sidebarHrefs = extractSidebarHrefs();
 
 // Walk app/(routes) recursively.
+// Only a route handler that actually exports GET serves a document at the
+// URL; a POST-only handler would 405 — exactly the 404-class this gate blocks.
+function hasGetRouteHandler(p: string): boolean {
+  if (!existsSync(p)) return false;
+  try { return /export (async )?(function|const) GET/.test(readFileSync(p, 'utf8')); }
+  catch { return false; }
+}
+
 function walk(dirAbs: string, relPath: string): void {
   let entries: string[];
   try {
@@ -190,7 +203,17 @@ function walk(dirAbs: string, relPath: string): void {
   const hasPageTsx = existsSync(join(dirAbs, 'page.tsx')) ||
                      existsSync(join(dirAbs, 'page.ts')) ||
                      existsSync(join(dirAbs, 'page.jsx')) ||
-                     existsSync(join(dirAbs, 'page.js'));
+                     existsSync(join(dirAbs, 'page.js')) ||
+                     // A Route Handler serving GET also makes the path
+                     // reachable (no 404). Landing folders that only issue an
+                     // HTTP redirect use route.ts instead of page.tsx because
+                     // a page-body redirect() degrades to a ~363 KB shell +
+                     // 1-second <meta http-equiv="refresh"> once the page sits
+                     // inside app/(routes)/loading.tsx's Suspense boundary —
+                     // a Route Handler responds with a real 307 before any
+                     // rendering. First user: /staff (perf(staff) PR).
+                     hasGetRouteHandler(join(dirAbs, 'route.ts')) ||
+                     hasGetRouteHandler(join(dirAbs, 'route.js'));
 
   // Only evaluate folders that have route children AND are not the top
   // app/(routes) root itself (that root is handled by app/(routes)/layout.tsx
@@ -257,10 +280,112 @@ if (pageErrors.length > 0) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Gate 3: Menu-visibility contract
+// ────────────────────────────────────────────────────────────────────────────
+//
+// GetRoleBasedPages default-denies any menu href with no MENU_PERMISSIONS
+// mapping for every non-super-admin. So a leaf entry that (a) has no mapping
+// and (b) isn't an always-visible special case is silently SUPER-ADMIN-ONLY —
+// usually the opposite of the author's intent. Receipt: /my-induction-sessions
+// (found live 2026-07-03) — commented "UNGATED on purpose" so every resource
+// person could reach their own feedback + live-pulse page, yet the default-deny
+// hid it from all of them; only super admins ever saw the link.
+//
+// Contract: every leaf href a super admin sees must be visible to someone
+// else too — via a MENU_PERMISSIONS mapping, OR by rendering for at least one
+// zero-permission probe role (the always-visible / role-special cases).
+// Deliberately-restricted entries (requiresSuperAdmin flag, student-portal
+// routes, the dashboard) are exempt.
+
+interface VisibilityIssue { href: string; label: string; }
+const visibilityIssues: VisibilityIssue[] = [];
+
+// Zero-permission probes: a neutral role (matches no special case) plus the
+// legacy roles the filter special-cases (e.g. faculty checklists). Visible to
+// any of these without real permissions ⇒ visible-by-design without a mapping.
+// NOTE: the probe carries ONE fake permission — GetRoleBasedPages short-circuits
+// an all-false permission set to "Dashboard only", which would blind the probe
+// to the always-visible special cases.
+const PROBE_ROLES = ['__visibility_probe__', 'faculty', 'staff', 'hod'] as const;
+const PROBE_PERMISSIONS = { '__visibility_probe__.marker': true };
+const probeVisible = new Set<string>();
+for (const role_key of PROBE_ROLES) {
+  for (const g of GetRoleBasedPages('/', { role_key, permissions: { ...PROBE_PERMISSIONS } })) {
+    for (const m of g.menus) {
+      probeVisible.add(m.href);
+      for (const s of m.submenus ?? []) probeVisible.add(s.href);
+    }
+  }
+}
+
+const isDynamicHref = (href: string) => href.includes('[') || href.includes('${');
+
+// Pre-existing violations (baseline, 2026-07-03) — these entries are ALREADY
+// silently super-admin-only in production. Tracked for follow-up mapping;
+// listed here so the gate blocks NEW violations without failing on old ones.
+// Fixing one? Map it in MENU_PERMISSIONS and REMOVE it from this list.
+const KNOWN_SUPER_ADMIN_ONLY_BASELINE = new Set<string>([
+  '/admission/marketing/campaigns',
+  '/admission/marketing/automations/monitoring',
+  '/admission/marketing/automations/roi',
+  '/admission/marketing/automations/segments',
+  '/admission/marketing/whatsapp-broadcast',
+  '/admission/marketing/database',
+  '/projects',
+]);
+
+for (const g of groups) {
+  for (const m of g.menus) {
+    if ((m as { requiresSuperAdmin?: boolean }).requiresSuperAdmin) continue;
+    // A parent's visibility derives from its children — only leaves carry the
+    // contract (matching the filter: parents show iff any submenu is visible).
+    const leaves =
+      (m.submenus?.length ?? 0) > 0
+        ? m.submenus.map((s) => ({ href: s.href, label: s.label }))
+        : [{ href: m.href, label: m.label }];
+    for (const leaf of leaves) {
+      if (!leaf.href || !leaf.href.startsWith('/')) continue;
+      if (leaf.href === '/') continue; // dashboard: always visible
+      if (isDynamicHref(leaf.href)) continue;
+      if (isStudentPortalRoute(leaf.href)) continue; // student-only by design
+      if (MENU_PERMISSIONS[normalizeRoute(leaf.href)]) continue; // permission-mapped
+      if (probeVisible.has(leaf.href)) continue; // always-visible special case
+      if (KNOWN_SUPER_ADMIN_ONLY_BASELINE.has(leaf.href)) continue; // pre-existing, tracked
+      if (visibilityIssues.some((v) => v.href === leaf.href)) continue; // dedupe (entry appears in several groups)
+      visibilityIssues.push({ href: leaf.href, label: leaf.label });
+    }
+  }
+}
+
+console.log(`=== Menu-Visibility Contract ===`);
+console.log(`Probe roles: ${PROBE_ROLES.join(', ')}`);
+console.log(`Errors: ${visibilityIssues.length}\n`);
+
+if (visibilityIssues.length > 0) {
+  console.log(`✗  BLOCKING ISSUES (entries visible ONLY to super admins):`);
+  visibilityIssues.forEach((v) =>
+    console.log(
+      `   ${v.href} ("${v.label}"): no MENU_PERMISSIONS mapping and hidden from every ` +
+      `non-super-admin by the default-deny filter. Either map it in MENU_PERMISSIONS, ` +
+      `or add an always-visible special case in GetRoleBasedPages (self-scoped pages), ` +
+      `or mark it requiresSuperAdmin if super-only is intended.`
+    )
+  );
+  console.log('');
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Final verdict — non-zero exit if ANY gate failed
 // ────────────────────────────────────────────────────────────────────────────
 
 let failed = false;
+
+if (visibilityIssues.length > 0) {
+  console.error(
+    `Menu-visibility contract violated by ${visibilityIssues.length} entr${visibilityIssues.length > 1 ? 'ies' : 'y'} — silently super-admin-only. See list above.\n`
+  );
+  failed = true;
+}
 
 try {
   assertSidebarHealthy(groups);

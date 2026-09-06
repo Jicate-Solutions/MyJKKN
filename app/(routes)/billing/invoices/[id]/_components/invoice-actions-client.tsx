@@ -32,9 +32,9 @@ import {
 import toast from 'react-hot-toast';
 import {
   sendInvoice,
-  downloadInvoicePDF,
   deleteInvoice
 } from '../../../_actions/invoice-actions';
+import { useDownloadInvoicePDF } from '@/hooks/billing/use-billing-invoices';
 import type { BillingInvoice } from '@/types/billing-schedule';
 
 interface InvoiceActionsClientProps {
@@ -49,7 +49,7 @@ export function InvoiceActionsClient({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [sendLoading, setSendLoading] = useState(false);
-  const [downloadLoading, setDownloadLoading] = useState(false);
+  const { downloadPDF, loading: downloadLoading } = useDownloadInvoicePDF();
 
   const handleSendInvoice = async () => {
     if (!invoice.student?.college_email) {
@@ -71,17 +71,11 @@ export function InvoiceActionsClient({
   };
 
   const handleDownloadPDF = async () => {
-    setDownloadLoading(true);
-    startTransition(async () => {
-      const result = await downloadInvoicePDF(invoice.id);
-      setDownloadLoading(false);
-
-      if (result.success) {
-        toast.success('PDF download started');
-      } else {
-        toast.error(result.error || 'Failed to download PDF');
-      }
-    });
+    try {
+      await downloadPDF(invoice.id);
+    } catch {
+      // Error toast already shown by useDownloadInvoicePDF
+    }
   };
 
   const handleDelete = async () => {

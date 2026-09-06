@@ -21,6 +21,7 @@ import {
   sendNotification
 } from '@/lib/services/notification/notification-service';
 import type {
+  Notification,
   NotificationFilters,
   CreateNotificationDto,
   UpdateNotificationDto,
@@ -51,6 +52,37 @@ export function useNotification(id: string | undefined) {
   });
 }
 
+/**
+ * How many unread rows the bell dropdown actually renders. The badge number
+ * does NOT come from this list — see useUnreadNotifications below.
+ */
+export const UNREAD_PREVIEW_LIMIT = 5;
+
+export interface UnreadNotificationsResult {
+  /** The newest unread rows, capped at UNREAD_PREVIEW_LIMIT — a preview, not the inbox. */
+  notifications: Notification[];
+  /** GLOBAL unread tally from a COUNT query, independent of the preview length. */
+  unreadCount: number;
+}
+
+/**
+ * Unread preview rows + the real global unread count for the header bell.
+ *
+ * Why this hook fetches the API instead of calling getNotifications() directly:
+ * it used to run `getNotifications({ user_id, is_read: false })` with NO limit,
+ * so the service applied no range() and every unread row came back FULLY JOINED
+ * (notifications + profiles) — on a 30-second poll — only so the bell could read
+ * `.length` and render `.slice(0, 5)`. At ~257 unread that is ~257 joined rows
+ * every 30s per user, growing without bound as the inbox grows. An array length
+ * standing in for a COUNT.
+ *
+ * GET /api/notifications returns `unread_count` from a real COUNT query that is
+ * global by contract (not page-scoped), so the badge stays honest while we fetch
+ * only the handful of rows the dropdown renders.
+ *
+ * The route derives the user from the session cookie; `userId` here gates the
+ * query and keys the cache/realtime channel.
+ */
 export function useUnreadNotifications(userId: string | undefined) {
   const queryClient = useQueryClient();
 
@@ -95,19 +127,43 @@ export function useUnreadNotifications(userId: string | undefined) {
     };
   }, [userId, queryClient]);
 
-  return useQuery({
+  return useQuery<UnreadNotificationsResult>({
     queryKey: ['notifications', 'unread', userId],
-    queryFn: () =>
-      userId
-        ? getNotifications({
-            user_id: userId,
-            is_read: false,
-            is_archived: false
-          })
-        : [],
+    queryFn: async () => {
+      // Unread === read_at IS NULL, nothing else. The old call also passed
+      // `is_archived: false`, which was a phantom: user_notifications has no
+      // is_archived / archived_at column, the service mapper hardcodes
+      // is_archived:false on every row, and the filter was silently ignored.
+      // It read like an archive feature existed and misled a reviewer into
+      // doubting the count. Dropped.
+      const params = new URLSearchParams({
+        is_read: 'false',
+        limit: String(UNREAD_PREVIEW_LIMIT)
+      });
+
+      const response = await fetch(`/api/notifications?${params}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch unread notifications');
+      }
+
+      const payload = await response.json();
+      return {
+        notifications: (payload.notifications ?? []) as Notification[],
+        // Global by contract. Never fall back to notifications.length — that is
+        // the bug this hook exists to avoid; it would silently cap the badge at
+        // UNREAD_PREVIEW_LIMIT.
+        unreadCount: payload.unread_count ?? 0
+      };
+    },
     enabled: !!userId,
-    staleTime: 5 * 1000, // 5 seconds for unread count
-    refetchInterval: 30 * 1000 // Fallback poll if realtime misses
+    // 30s poll retained (2026-08-02 verify pass): user_notifications is NOT
+    // in the supabase_realtime publication on prod, so the postgres_changes
+    // subscription above never fires there — this poll IS the delivery path,
+    // not a fallback. The dedupe win stands regardless: one QueryClient means
+    // ONE 30s poller instead of two. staleTime 15s keeps remounts cheap
+    // without letting a navigation show a >15s-stale badge.
+    staleTime: 15 * 1000,
+    refetchInterval: 30 * 1000 // primary delivery path in prod (see above)
   });
 }
 

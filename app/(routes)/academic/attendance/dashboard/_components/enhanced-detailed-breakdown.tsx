@@ -7,6 +7,7 @@ import {
   Building,
   BookOpen,
   Calendar,
+  CalendarClock,
   Users,
   ChevronDown,
   ChevronRight,
@@ -57,6 +58,7 @@ import {
 } from 'recharts';
 import { cn } from '@/lib/utils';
 import type { AttendanceStats } from '@/types/attendance-dashboard';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface EnhancedDetailedBreakdownProps {
   stats: AttendanceStats[];
@@ -70,6 +72,20 @@ interface HierarchyLevel {
   total_students: number;
   present: number;
   absent: number;
+  /** Learners with a status recorded for this date — the rate's denominator. */
+  marked: number;
+  /**
+   * Learners who HAD a class scheduled today and still have no mark — the real
+   * backlog. Rendered wherever the percentage is; never omitted.
+   *
+   * This is NOT `total_students - marked`. That older reading counted learners
+   * whose section has no timetable slot today, i.e. people nobody could mark,
+   * and made a department report 317 pending while its actual outstanding count
+   * was 33. Those learners are in `no_class` instead.
+   */
+  unmarked: number;
+  /** Learners with no timetable slot today. Cannot be marked; not a backlog. */
+  no_class: number;
   attendance_percentage: number;
   icon: React.ComponentType<{ className?: string }>;
   color: string;
@@ -79,9 +95,99 @@ interface HierarchyLevel {
     | 'department'
     | 'program'
     | 'semester'
-    | 'section';
+    | 'section'
+    | 'timetable';
+  /**
+   * Timetable rows only — the validity window, shown beside the name so it is
+   * obvious which schedule put this class on today.
+   */
+  start_date?: string | null;
+  end_date?: string | null;
+  /**
+   * Section rows only. True when no timetable scheduled a markable period for
+   * this section on the selected date, so its learners cannot be marked at all
+   * and are not part of the pending backlog.
+   */
+  no_class_today?: boolean;
+  /** Learners who have no section yet — shown as "Not yet placed". */
+  is_unplaced?: boolean;
+  /** A college with no learners once this view's narrowing is applied. */
+  is_empty_view?: boolean;
   children?: HierarchyLevel[];
 }
+
+/**
+ * Wording for the two cases that used to be silent.
+ *
+ * NOT_YET_PLACED_LABEL replaces the bare "Unknown Section" a learner with no
+ * section_id used to render as; EMPTY_VIEW_REASON is what a college shows
+ * instead of disappearing from the list altogether.
+ */
+const NOT_YET_PLACED_LABEL = 'Not yet placed';
+const NOT_YET_PLACED_REASON =
+  'These learners have no section yet, so attendance cannot be recorded for them until one is assigned.';
+const EMPTY_VIEW_REASON =
+  'No learners admitted in this intake yet — nothing to record attendance for.';
+
+/**
+ * The unmarked count, phrased for a card.
+ *
+ * Kept as one function so a percentage can never be rendered in this file
+ * without it: a college that marked 1 learner of 93 reads as "100%" unless the
+ * 92 are said out loud (Director decision 2026-08-11).
+ */
+function unmarkedNote(unmarked: number, marked: number): string {
+  if (unmarked <= 0) return `all ${marked} marked`;
+  if (marked <= 0) return `${unmarked} not yet marked — nobody marked yet`;
+  return `${marked} marked · ${unmarked} not yet marked`;
+}
+
+/**
+ * A timetable's validity window, phrased for a subtitle.
+ *
+ * Sliced rather than date-formatted: these arrive as plain ISO `date` strings
+ * (no time component), and `new Date('2026-07-01')` is UTC midnight — at a
+ * negative UTC offset that renders as the previous day, which is exactly the
+ * off-by-one this codebase has hit before with all-day dates.
+ */
+function formatWindow(start?: string | null, end?: string | null): string {
+  if (!start && !end) return 'no end date';
+  if (!start) return `until ${String(end).slice(0, 10)}`;
+  if (!end) return `from ${String(start).slice(0, 10)}`;
+  return `${String(start).slice(0, 10)} → ${String(end).slice(0, 10)}`;
+}
+
+/**
+ * Split a level's headcount into "really pending" and "no class today".
+ *
+ * Applied at EVERY level, not just sections: the cards were switched to the
+ * scheduled arithmetic while this breakdown still showed `total - marked`, so
+ * the header read "Not yet marked 0" above a table claiming 317 for the same
+ * department. One helper, used by both the tree and the table, so they cannot
+ * drift apart again.
+ *
+ * `legacyUnmarked` is returned unchanged when the RPC did not emit the
+ * scheduling columns (`has_scheduling` false). Without that branch every level
+ * would read "0 pending, everyone has no class" against an un-migrated
+ * database — the most misleading state this screen can show.
+ */
+function splitUnmarked(
+  hasScheduling: boolean,
+  total: number,
+  scheduled: number,
+  scheduledMarked: number,
+  legacyUnmarked: number
+): { unmarked: number; no_class: number } {
+  if (!hasScheduling) return { unmarked: legacyUnmarked, no_class: 0 };
+  return {
+    unmarked: Math.max(scheduled - scheduledMarked, 0),
+    no_class: Math.max(total - scheduled, 0)
+  };
+}
+
+/** Section rows whose learners have no scheduled class on the selected date. */
+const NO_CLASS_TODAY_REASON =
+  'No timetable scheduled a period for this section today, so these learners cannot be marked. They are not part of the pending count.';
 
 const LEVEL_COLORS = {
   institution: 'hsl(var(--primary))',
@@ -89,7 +195,8 @@ const LEVEL_COLORS = {
   department: 'hsl(var(--accent))',
   program: 'hsl(var(--muted))',
   semester: 'hsl(var(--destructive))',
-  section: 'hsl(var(--success))'
+  section: 'hsl(var(--success))',
+  timetable: 'hsl(var(--primary))'
 };
 
 const LEVEL_ICONS = {
@@ -98,7 +205,8 @@ const LEVEL_ICONS = {
   department: Building,
   program: BookOpen,
   semester: Calendar,
-  section: Users
+  section: Users,
+  timetable: CalendarClock
 };
 
 const ATTENDANCE_COLORS = {
@@ -212,15 +320,31 @@ function HierarchyCard({
   );
   const hasChildren = item.children && item.children.length > 0;
 
-  // Chart data for this item
+  // Chart data for this item. "Not yet marked" is a slice, not an omission --
+  // a pie of Present vs Absent over a mostly-unmarked cohort reads as a
+  // complete picture of a cohort nobody has looked at.
   const chartData = [
     {
       name: 'Present',
       value: item.present,
       color: ATTENDANCE_COLORS.excellent
     },
-    { name: 'Absent', value: item.absent, color: ATTENDANCE_COLORS.poor }
-  ];
+    { name: 'Absent', value: item.absent, color: ATTENDANCE_COLORS.poor },
+    {
+      name: 'Not yet marked',
+      value: item.unmarked,
+      color: ATTENDANCE_COLORS.fair
+    },
+    // Kept as its own slice rather than folded into "Not yet marked". Merging
+    // them is what made the pie imply a marking failure over learners who had
+    // no class at all; dropping it instead would leave the pie summing to less
+    // than the headcount with no explanation for the gap.
+    {
+      name: 'No class today',
+      value: item.no_class,
+      color: 'hsl(var(--muted-foreground))'
+    }
+  ].filter((slice) => slice.value > 0);
 
   return (
     <Card
@@ -231,8 +355,8 @@ function HierarchyCard({
       style={{ borderLeftColor: level > 0 ? item.color : undefined }}
     >
       <CardHeader className='pb-3'>
-        <div className='flex items-center justify-between'>
-          <div className='flex items-center gap-3'>
+        <div className='flex items-center justify-between gap-2'>
+          <div className='flex items-center gap-3 min-w-0 flex-1'>
             {hasChildren && (
               <Button
                 variant='ghost'
@@ -256,31 +380,74 @@ function HierarchyCard({
             >
               <Icon className='h-5 w-5' />
             </div>
-            <div>
-              <CardTitle className='text-lg font-semibold'>
-                {item.name}
+            <div className='min-w-0'>
+              <CardTitle className='text-lg font-semibold truncate'>
+                {item.is_unplaced ? NOT_YET_PLACED_LABEL : item.name}
               </CardTitle>
-              <p className='text-sm text-muted-foreground capitalize'>
-                {item.level} • {item.total_students} students
+              <p className='text-sm text-muted-foreground capitalize truncate'>
+                {item.level} • {item.total_students} learners
+                {/* Not capitalised by the parent class because it is a date
+                    range, not a label — rendered inline so the window that makes
+                    this timetable "today's" is visible without expanding it. */}
+                {item.level === 'timetable' && (
+                  <span className='normal-case'>
+                    {' • '}
+                    {formatWindow(item.start_date, item.end_date)}
+                  </span>
+                )}
               </p>
             </div>
           </div>
 
-          <div className='flex items-center gap-3'>
-            <Badge className={gradeColor}>{grade}</Badge>
-            <div className='text-right'>
-              <div className='text-2xl font-bold'>
-                {item.attendance_percentage}%
+          <div className='flex items-center gap-3 shrink-0'>
+            {/* No grade and no percentage when nobody has been marked: a rate
+                over zero marked learners is not a low score, it is no reading
+                at all. */}
+            {item.marked > 0 ? (
+              <>
+                <Badge className={gradeColor}>{grade}</Badge>
+                <div className='text-right'>
+                  <div className='text-2xl font-bold'>
+                    {item.attendance_percentage}%
+                  </div>
+                  {/* The denominator, always. Never "Attendance" alone. */}
+                  <div className='text-sm text-muted-foreground'>
+                    of {item.marked} marked
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className='text-right'>
+                <div className='text-2xl font-bold text-muted-foreground'>—</div>
+                {/* "Not yet marked" here would be a false accusation: with no
+                    period scheduled there is nothing for anyone to mark. */}
+                <div className='text-sm text-muted-foreground'>
+                  {item.no_class_today ? 'No class today' : 'Not yet marked'}
+                </div>
               </div>
-              <div className='text-sm text-muted-foreground'>Attendance</div>
-            </div>
+            )}
           </div>
         </div>
+
+        {/* Reasons, so neither case reads as an unexplained blank */}
+        {item.is_empty_view && (
+          <p className='text-xs text-muted-foreground'>{EMPTY_VIEW_REASON}</p>
+        )}
+        {item.no_class_today && !item.is_unplaced && (
+          <p className='text-xs text-muted-foreground'>
+            {NO_CLASS_TODAY_REASON}
+          </p>
+        )}
+        {item.is_unplaced && (
+          <p className='text-xs text-muted-foreground'>
+            {NOT_YET_PLACED_REASON}
+          </p>
+        )}
 
         {/* Progress Bar */}
         <div className='space-y-2'>
           <Progress
-            value={item.attendance_percentage}
+            value={item.marked > 0 ? item.attendance_percentage : 0}
             className='h-2'
             style={
               {
@@ -293,13 +460,15 @@ function HierarchyCard({
           <div className='flex justify-between text-xs text-muted-foreground'>
             <span>{item.present} Present</span>
             <span>{item.absent} Absent</span>
+            <span>{item.unmarked} not yet marked</span>
+            {item.no_class > 0 && <span>{item.no_class} no class today</span>}
           </div>
         </div>
       </CardHeader>
 
       {/* Detailed Stats */}
       <CardContent className='pt-0'>
-        <div className='grid grid-cols-3 gap-4 mb-4'>
+        <div className='grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4'>
           <div className='text-center p-3 bg-green-50 dark:bg-green-950 rounded-lg'>
             <div className='text-2xl font-bold text-green-600 dark:text-green-400'>
               {item.present}
@@ -315,6 +484,24 @@ function HierarchyCard({
             <div className='text-xs text-red-600/70 dark:text-red-400/70'>
               Absent
             </div>
+          </div>
+          {/* The backlog, given the same weight as present and absent. This is
+              the number the percentage used to hide. */}
+          <div className='text-center p-3 bg-amber-50 dark:bg-amber-950 rounded-lg'>
+            <div className='text-2xl font-bold text-amber-600 dark:text-amber-400'>
+              {item.unmarked}
+            </div>
+            <div className='text-xs text-amber-600/70 dark:text-amber-400/70'>
+              Not yet marked
+            </div>
+            {/* Stated on the same tile so the two can never be read apart: this
+                tile is a work queue, and the figure beside it is explicitly not
+                part of that queue. */}
+            {item.no_class > 0 && (
+              <div className='text-[10px] text-muted-foreground mt-0.5'>
+                +{item.no_class} no class today
+              </div>
+            )}
           </div>
           <div className='text-center p-3 bg-blue-50 dark:bg-blue-950 rounded-lg'>
             <div className='text-2xl font-bold text-blue-600 dark:text-blue-400'>
@@ -416,64 +603,153 @@ function transformStatsToHierarchy(stats: AttendanceStats[]): HierarchyLevel[] {
   }
 
   stats.forEach((institution) => {
+    // One flag per college, read from the RPC's own output — see splitUnmarked.
+    const hasSched = institution.has_scheduling === true;
+
+    const institutionSplit = splitUnmarked(
+      hasSched,
+      institution.total_students,
+      institution.total_scheduled,
+      institution.total_scheduled_marked,
+      institution.total_unmarked
+    );
+
     const institutionNode: HierarchyLevel = {
       id: institution.institution_id,
       name: institution.institution_name,
       total_students: institution.total_students,
       present: institution.total_present,
       absent: institution.total_absent,
+      marked: institution.total_marked,
+      unmarked: institutionSplit.unmarked,
+      no_class: institutionSplit.no_class,
       attendance_percentage: institution.attendance_percentage,
       icon: LEVEL_ICONS.institution,
       color: LEVEL_COLORS.institution,
       level: 'institution',
+      is_empty_view: institution.is_empty_view,
+      no_class_today: hasSched && institution.total_scheduled === 0 && institution.total_students > 0,
       children: []
     };
 
     // Add departments directly to institution (current data structure: Institution → Department → Semester → Section)
     if (institution.departments) {
       institution.departments.forEach((department) => {
+        const departmentSplit = splitUnmarked(
+          hasSched,
+          department.total_students,
+          department.total_scheduled,
+          department.total_scheduled_marked,
+          department.total_unmarked
+        );
+
         const departmentNode: HierarchyLevel = {
           id: `${institution.institution_id}-${department.department_id}`,
           name: department.department_name,
           total_students: department.total_students,
           present: department.total_present,
           absent: department.total_absent,
+          marked: department.total_marked,
+          unmarked: departmentSplit.unmarked,
+          no_class: departmentSplit.no_class,
           attendance_percentage: department.attendance_percentage,
           icon: LEVEL_ICONS.department,
           color: LEVEL_COLORS.department,
           level: 'department',
+          no_class_today:
+            hasSched &&
+            department.total_scheduled === 0 &&
+            department.total_students > 0,
           children: []
         };
 
         // Add semesters
         if (department.semesters) {
           department.semesters.forEach((semester) => {
+            const semesterSplit = splitUnmarked(
+              hasSched,
+              semester.total_students,
+              semester.total_scheduled,
+              semester.total_scheduled_marked,
+              semester.total_unmarked
+            );
+
             const semesterNode: HierarchyLevel = {
               id: `${institution.institution_id}-${department.department_id}-${semester.semester_id}`,
               name: semester.semester_name,
               total_students: semester.total_students,
               present: semester.total_present,
               absent: semester.total_absent,
+              marked: semester.total_marked,
+              unmarked: semesterSplit.unmarked,
+              no_class: semesterSplit.no_class,
               attendance_percentage: semester.attendance_percentage,
               icon: LEVEL_ICONS.semester,
               color: LEVEL_COLORS.semester,
               level: 'semester',
+              no_class_today:
+                hasSched &&
+                semester.total_scheduled === 0 &&
+                semester.total_students > 0,
               children: []
             };
 
             // Add sections
             if (semester.sections) {
               semester.sections.forEach((section) => {
+                const sectionSplit = splitUnmarked(
+                  hasSched,
+                  section.total_students,
+                  section.scheduled,
+                  section.scheduled_marked,
+                  section.unmarked
+                );
+
                 const sectionNode: HierarchyLevel = {
                   id: `${institution.institution_id}-${department.department_id}-${semester.semester_id}-${section.section_id}`,
-                  name: section.section_name,
+                  name: section.is_unplaced
+                    ? NOT_YET_PLACED_LABEL
+                    : section.section_name,
                   total_students: section.total_students,
                   present: section.present,
                   absent: section.absent,
+                  marked: section.marked,
+                  unmarked: sectionSplit.unmarked,
+                  no_class: sectionSplit.no_class,
                   attendance_percentage: section.percentage, // Note: sections use 'percentage' not 'attendance_percentage'
                   icon: LEVEL_ICONS.section,
                   color: LEVEL_COLORS.section,
-                  level: 'section'
+                  level: 'section',
+                  is_unplaced: section.is_unplaced,
+                  // Empty exactly when nothing scheduled this section today. The
+                  // row then reads "No class today" instead of an unmarked count
+                  // nobody can act on — that conflation is what made Dental report
+                  // 357 pending against a true backlog of 0.
+                  no_class_today:
+                    hasSched && (section.timetables?.length ?? 0) === 0,
+                  children: (section.timetables ?? []).map((tt) => ({
+                    id: `${institution.institution_id}-${department.department_id}-${semester.semester_id}-${section.section_id}-${tt.id}`,
+                    name: tt.name,
+                    // A timetable schedules the WHOLE section, so it inherits the
+                    // section's counts rather than splitting them. Two timetables
+                    // covering one section would each show the same learners —
+                    // attributing an unmarked learner to one of them would be
+                    // invention, so the row states the schedule, not a share.
+                    total_students: section.total_students,
+                    present: section.present,
+                    absent: section.absent,
+                    marked: section.marked,
+                    unmarked: sectionSplit.unmarked,
+                    // A timetable row exists only because this section HAS a
+                    // class today, so it can never carry a "no class" count.
+                    no_class: 0,
+                    attendance_percentage: section.percentage,
+                    icon: LEVEL_ICONS.timetable,
+                    color: LEVEL_COLORS.timetable,
+                    level: 'timetable' as const,
+                    start_date: tt.start_date,
+                    end_date: tt.end_date
+                  }))
                 };
 
                 semesterNode.children!.push(sectionNode);
@@ -501,8 +777,16 @@ interface ExpandableTableRow {
   total_students: number;
   present: number;
   absent: number;
+  marked: number;
+  /** Scheduled today and still unmarked — the actionable backlog. */
+  unmarked: number;
+  /** No timetable slot today. Cannot be marked; deliberately a separate column. */
+  no_class: number;
   attendance_percentage: number;
   level: 'department' | 'semester' | 'section';
+  is_unplaced?: boolean;
+  /** True when NOTHING is scheduled for this row today. */
+  no_class_today?: boolean;
   children?: ExpandableTableRow[];
   parentId?: string;
 }
@@ -521,7 +805,11 @@ function transformToExpandableTableRows(
         total_students: department.total_students,
         present: department.present,
         absent: department.absent,
+        marked: department.marked,
+        unmarked: department.unmarked,
+        no_class: department.no_class,
         attendance_percentage: department.attendance_percentage,
+        no_class_today: department.no_class_today,
         level: 'department',
         children: []
       };
@@ -534,7 +822,11 @@ function transformToExpandableTableRows(
           total_students: semester.total_students,
           present: semester.present,
           absent: semester.absent,
+          marked: semester.marked,
+          unmarked: semester.unmarked,
+          no_class: semester.no_class,
           attendance_percentage: semester.attendance_percentage,
+          no_class_today: semester.no_class_today,
           level: 'semester',
           parentId: departmentRow.id,
           children: []
@@ -548,8 +840,13 @@ function transformToExpandableTableRows(
             total_students: section.total_students,
             present: section.present,
             absent: section.absent,
+            marked: section.marked,
+            unmarked: section.unmarked,
+            no_class: section.no_class,
             attendance_percentage: section.attendance_percentage,
+            no_class_today: section.no_class_today,
             level: 'section',
+            is_unplaced: section.is_unplaced,
             parentId: semesterRow.id
           };
 
@@ -578,6 +875,7 @@ function ExpandableDetailedBreakdownTable({
   );
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const label = useAdaptiveLabels();
 
   // Toggle row expansion
   const toggleRowExpansion = (rowId: string) => {
@@ -719,7 +1017,7 @@ function ExpandableDetailedBreakdownTable({
           <div className='relative'>
             <Input
               type='text'
-              placeholder='Search departments, semesters, sections...'
+              placeholder={`Search ${label('departments')}, ${label('semesters')}, sections...`}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className='pl-8 w-80'
@@ -797,14 +1095,27 @@ function ExpandableDetailedBreakdownTable({
             <TableRow className='bg-muted/50'>
               <TableHead className='font-semibold w-96'>Name</TableHead>
               <TableHead className='font-semibold text-right'>
-                Total Students
+                Total Learners
               </TableHead>
               <TableHead className='font-semibold text-right'>
                 Present
               </TableHead>
               <TableHead className='font-semibold text-right'>Absent</TableHead>
+              {/* Sits immediately before the percentage on purpose: the rate is
+                  present ÷ marked, so this column is its missing context. */}
               <TableHead className='font-semibold text-right'>
-                Attendance %
+                Not yet marked
+              </TableHead>
+              {/* Ships beside "Not yet marked", never instead of it. Together the
+                  two account for every learner the row counts, which is what
+                  makes the backlog number safe to act on: before this column
+                  existed, Dentistry (UG) reported 317 pending when 284 of those
+                  learners had no class scheduled at all. */}
+              <TableHead className='font-semibold text-right'>
+                No class today
+              </TableHead>
+              <TableHead className='font-semibold text-right'>
+                Attendance % (of marked)
               </TableHead>
               <TableHead className='font-semibold text-center'>
                 Status
@@ -859,26 +1170,73 @@ function ExpandableDetailedBreakdownTable({
                     </span>
                   </TableCell>
                   <TableCell className='text-right'>
-                    <span className='font-semibold'>
-                      {row.attendance_percentage}%
-                    </span>
-                  </TableCell>
-                  <TableCell className='text-center'>
-                    <Badge
-                      variant='secondary'
+                    {/* Amber only when there is something to chase. A zero here
+                        is a finished queue, not a warning. */}
+                    <span
                       className={cn(
-                        'text-xs',
-                        getAttendanceColor(row.attendance_percentage)
+                        'font-medium',
+                        row.unmarked > 0
+                          ? 'text-amber-600'
+                          : 'text-muted-foreground'
                       )}
                     >
-                      {row.attendance_percentage >= 90
-                        ? 'Excellent'
-                        : row.attendance_percentage >= 75
-                        ? 'Good'
-                        : row.attendance_percentage >= 60
-                        ? 'Fair'
-                        : 'Poor'}
-                    </Badge>
+                      {row.unmarked}
+                    </span>
+                  </TableCell>
+                  {/* Muted, never amber: nobody can act on these. */}
+                  <TableCell className='text-right'>
+                    <span className='text-muted-foreground'>
+                      {row.no_class > 0 ? row.no_class : '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell className='text-right'>
+                    {/* A rate over zero marked learners is not 0% -- it is no
+                        reading. Show a dash, not a grade nobody earned. */}
+                    {row.marked > 0 ? (
+                      <span className='font-semibold'>
+                        {row.attendance_percentage}%
+                        <span className='text-muted-foreground font-normal'>
+                          {' '}
+                          of {row.marked}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className='text-muted-foreground'>—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className='text-center'>
+                    {row.marked > 0 ? (
+                      <Badge
+                        variant='secondary'
+                        className={cn(
+                          'text-xs',
+                          getAttendanceColor(row.attendance_percentage)
+                        )}
+                      >
+                        {row.attendance_percentage >= 90
+                          ? 'Excellent'
+                          : row.attendance_percentage >= 75
+                          ? 'Good'
+                          : row.attendance_percentage >= 60
+                          ? 'Fair'
+                          : 'Poor'}
+                      </Badge>
+                    ) : row.no_class_today ? (
+                      /* Nothing is scheduled for this row today, so "Not yet
+                         marked" would blame staff for work that does not exist.
+                         This is the badge the screenshots showed on section "C"
+                         and "ADD CRRI A", each holding one learner with no class. */
+                      <Badge
+                        variant='outline'
+                        className='text-xs text-muted-foreground'
+                      >
+                        No class today
+                      </Badge>
+                    ) : (
+                      <Badge variant='outline' className='text-xs'>
+                        Not yet marked
+                      </Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               );
@@ -895,6 +1253,7 @@ export function EnhancedDetailedBreakdown({
   canViewAllInstitutions,
   isLoading = false
 }: EnhancedDetailedBreakdownProps) {
+  const label = useAdaptiveLabels();
   if (isLoading) {
     return (
       <div className='space-y-4'>
@@ -964,10 +1323,10 @@ export function EnhancedDetailedBreakdown({
               </div>
               <div className='text-sm text-muted-foreground'>
                 {isSingleInstitution
-                  ? 'Departments'
+                  ? label('Departments')
                   : canViewAllInstitutions
                   ? 'Institutions'
-                  : 'Departments'}
+                  : label('Departments')}
               </div>
             </div>
             <div className='text-center'>
@@ -1001,8 +1360,8 @@ export function EnhancedDetailedBreakdown({
             <h3 className='text-xl font-semibold'>Detailed Breakdown</h3>
             <p className='text-sm text-muted-foreground mt-1'>
               {isSingleInstitution
-                ? 'Department → Semester → Section breakdown with detailed attendance analytics'
-                : 'Institution → Department → Semester → Section hierarchy'}
+                ? `${label('Department')} → ${label('Semester')} → ${label('Section')} breakdown with detailed attendance analytics`
+                : `Institution → ${label('Department')} → ${label('Semester')} → ${label('Section')} hierarchy`}
             </p>
           </div>
           {isSingleInstitution && (

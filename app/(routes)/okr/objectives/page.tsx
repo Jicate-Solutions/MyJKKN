@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { OKRErrorBoundary } from '../_components';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -178,9 +179,12 @@ function ElectiveOKRCard({
   );
 }
 
-export default function ObjectivesListPage() {
+const OBJECTIVES_TABS = ['all', 'core', 'elective'] as const;
+
+function ObjectivesListPageInner() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<KRStatus | 'all'>('all');
+  const [activeTab, setActiveTab] = useTabParam('all', OBJECTIVES_TABS);
 
   const { data: myOKRs, isLoading } = useAllMyOKRs();
   const deleteElective = useDeleteElectiveOKR();
@@ -270,7 +274,7 @@ export default function ObjectivesListPage() {
         </Card>
 
         {/* Tabs */}
-        <Tabs defaultValue="all" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="all">
               All ({(myOKRs?.core.length || 0) + (myOKRs?.elective.length || 0)})
@@ -382,5 +386,14 @@ export default function ObjectivesListPage() {
       </div>
       </OKRErrorBoundary>
     </ContentLayout>
+  );
+}
+
+export default function ObjectivesListPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ObjectivesListPageInner />
+    </Suspense>
   );
 }

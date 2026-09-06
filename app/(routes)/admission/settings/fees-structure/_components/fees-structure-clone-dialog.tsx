@@ -8,7 +8,7 @@
 //      structure to a new cohort with one click.
 //   2. "Clone with overrides" — pre-fills every dimension from the source
 //      and lets the admin override any subset (degree/dept/programme/
-//      quota/community/accommodation/year). Useful for branching to a new
+//      quota/community/year). Useful for branching to a new
 //      programme variant.
 //
 // Source structure picker is filtered by the institution selected in the
@@ -94,7 +94,6 @@ export function FeesStructureCloneDialog({
   const [programs, setPrograms] = useState<NamedOption[]>([]);
   const [quotas, setQuotas] = useState<NamedOption[]>([]);
   const [communities, setCommunities] = useState<NamedOption[]>([]);
-  const [accommodations, setAccommodations] = useState<NamedOption[]>([]);
 
   const [overrides, setOverrides] = useState<Partial<FeeStructureMatrixDimensions>>({});
   const [overrideName, setOverrideName] = useState('');
@@ -140,17 +139,15 @@ export function FeesStructureCloneDialog({
       AdmissionYearService.getAdmissionYearsByInstitution(institutionId),
       LookupService.listQuotas(true),
       LookupService.listCommunityCategories(true),
-      LookupService.listAccommodationTypes(institutionId, true),
       DegreeService.getDegreesByInstitution(institutionId),
     ])
-      .then(([yr, q, c, a, deg]) => {
+      .then(([yr, q, c, deg]) => {
         if (cancelled) return;
         setYears(
           (yr ?? []).map((y) => ({ id: y.id, admission_year_name: y.admission_year_name })),
         );
         setQuotas((q ?? []).map((row) => ({ id: row.id, name: row.name })));
         setCommunities((c ?? []).map((row) => ({ id: row.id, name: row.name })));
-        setAccommodations((a ?? []).map((row) => ({ id: row.id, name: row.name })));
         setDegrees(
           (deg ?? []).map((d: { id: string; degree_name: string }) => ({
             id: d.id,
@@ -182,8 +179,8 @@ export function FeesStructureCloneDialog({
       department_id: selectedSource.department_id,
       programme_id: selectedSource.programme_id,
       quota_id: selectedSource.quota_id,
-      accommodation_type_id: selectedSource.accommodation_type_id,
       admission_year_id: selectedSource.admission_year_id,
+      gender: selectedSource.gender ?? undefined,
     });
     setOverrideName(`${selectedSource.name} (cloned)`);
   }, [selectedSource]);
@@ -429,20 +426,24 @@ export function FeesStructureCloneDialog({
                   structure's community list in the editor.
                 */}
                 <DimensionSelect
-                  label="Accommodation"
-                  value={overrides.accommodation_type_id ?? ''}
-                  onChange={(v) =>
-                    setOverrides((prev) => ({ ...prev, accommodation_type_id: v }))
-                  }
-                  options={accommodations}
-                />
-                <DimensionSelect
                   label="Academic year"
                   value={overrides.admission_year_id ?? ''}
                   onChange={(v) =>
                     setOverrides((prev) => ({ ...prev, admission_year_id: v }))
                   }
                   options={years.map((y) => ({ id: y.id, name: y.admission_year_name }))}
+                />
+                <DimensionSelect
+                  label="Gender (optional)"
+                  value={overrides.gender ?? '__any__'}
+                  onChange={(v) =>
+                    setOverrides((prev) => ({ ...prev, gender: v === '__any__' ? undefined : v }))
+                  }
+                  options={[
+                    { id: '__any__', name: 'Any Gender' },
+                    { id: 'MALE', name: 'Male' },
+                    { id: 'FEMALE', name: 'Female' },
+                  ]}
                 />
                 <div className="space-y-1">
                   <Label htmlFor="clone-name">Name</Label>

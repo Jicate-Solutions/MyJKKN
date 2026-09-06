@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useBosTaxonomies, useBosTaxonomy } from '@/hooks/bos/use-bos-taxonomies';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Button } from '@/components/ui/button';
@@ -22,11 +22,13 @@ import { BosRegulationTaxonomy } from '@/types/bos';
 
 interface TaxonomyFormProps {
   regulationId: string;
+  // undefined => save the regulation-wide default; a value => save that board's override.
+  boardId?: string;
   initialData?: BosRegulationTaxonomy | null;
   onSaved?: () => void;
 }
 
-export function TaxonomyForm({ regulationId, initialData, onSaved }: TaxonomyFormProps) {
+export function TaxonomyForm({ regulationId, boardId, initialData, onSaved }: TaxonomyFormProps) {
   const queryClient = useQueryClient();
 
   const [selectedTaxonomyId, setSelectedTaxonomyId] = useState<string>('');
@@ -48,10 +50,13 @@ export function TaxonomyForm({ regulationId, initialData, onSaved }: TaxonomyFor
     }
   }, [initialData, taxonomies, selectedTaxonomyId]);
 
-  // Auto-fill K-values from taxonomy levels when selecting a new framework
+  // Auto-fill K-values from the framework's mapped levels (bos_taxonomy master).
+  // Runs on both create AND edit: the levels are defined once on the framework,
+  // so the regulation config should always reflect them rather than make the
+  // user re-type descriptions (or keep a stale snapshot from an earlier save).
+  // Only falls through to the stored k_values when the framework has no levels.
   useEffect(() => {
     if (!selectedTaxonomyId || !taxonomyDetail) return;
-    if (initialData) return; // don't overwrite existing config
     const levels = taxonomyDetail.levels ?? [];
     if (levels.length === 0) return;
     const autoFilled: Record<string, string> = {};
@@ -61,21 +66,11 @@ export function TaxonomyForm({ regulationId, initialData, onSaved }: TaxonomyFor
         autoFilled[level.code] = level.name;
       });
     setKValues(autoFilled);
-  }, [taxonomyDetail, selectedTaxonomyId, initialData]);
+  }, [taxonomyDetail, selectedTaxonomyId]);
 
   const handleTaxonomyChange = (id: string) => {
     setSelectedTaxonomyId(id);
     if (!initialData) setKValues({});
-  };
-
-  const addKValue = () => {
-    const next = `K${Object.keys(kValues).length + 1}`;
-    setKValues({ ...kValues, [next]: '' });
-  };
-  const removeKValue = (key: string) => {
-    const copy = { ...kValues };
-    delete copy[key];
-    setKValues(copy);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -92,6 +87,7 @@ export function TaxonomyForm({ regulationId, initialData, onSaved }: TaxonomyFor
         body: JSON.stringify({
           taxonomy_type: selectedTaxonomy.code,
           k_values: kValues,
+          board_id: boardId ?? null,
         }),
       });
       if (!res.ok) {
@@ -100,7 +96,9 @@ export function TaxonomyForm({ regulationId, initialData, onSaved }: TaxonomyFor
       }
       toast.success('Taxonomy framework saved');
       queryClient.invalidateQueries({ queryKey: ['bos', 'taxonomy-assignments'] });
-      queryClient.invalidateQueries({ queryKey: ['bos', 'regulation-taxonomy-config', regulationId] });
+      queryClient.invalidateQueries({ queryKey: ['bos', 'regulation-taxonomy-config', regulationId, boardId ?? ''] });
+      // Also refresh the syllabus-form taxonomy cache so CO chips reflect the change.
+      queryClient.invalidateQueries({ queryKey: ['bos', 'taxonomy'] });
       onSaved?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save taxonomy');
@@ -149,7 +147,8 @@ export function TaxonomyForm({ regulationId, initialData, onSaved }: TaxonomyFor
         <div>
           <h3 className='font-semibold text-sm'>K-Values</h3>
           <p className='text-xs text-muted-foreground'>
-            Knowledge levels (e.g. K1: Remember, K2: Understand)
+            Mapped from the selected framework (read-only). Pick a framework above and Save —
+            this regulation is linked to it; the levels come from the taxonomy master.
           </p>
         </div>
         {taxonomyDetailQuery.isLoading && selectedTaxonomyId && (
@@ -161,7 +160,6 @@ export function TaxonomyForm({ regulationId, initialData, onSaved }: TaxonomyFor
               <TableRow>
                 <TableHead className='w-28'>Code</TableHead>
                 <TableHead>Description</TableHead>
-                <TableHead className='w-12' />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -171,31 +169,13 @@ export function TaxonomyForm({ regulationId, initialData, onSaved }: TaxonomyFor
                     <Input value={code} disabled className='w-24' />
                   </TableCell>
                   <TableCell>
-                    <Input
-                      value={desc}
-                      placeholder='Description'
-                      onChange={(e) => setKValues({ ...kValues, [code]: e.target.value })}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='icon'
-                      onClick={() => removeKValue(code)}
-                    >
-                      <Trash2 className='h-4 w-4 text-destructive' />
-                    </Button>
+                    <Input value={desc} disabled className='bg-muted/40' />
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-        <Button type='button' variant='outline' size='sm' onClick={addKValue}>
-          <Plus className='h-4 w-4 mr-1' />
-          Add K-Value
-        </Button>
       </div>
 
       {/* Actions */}

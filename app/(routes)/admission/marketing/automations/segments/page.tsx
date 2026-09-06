@@ -396,7 +396,7 @@ function SegmentBuilderDialog({ open, onOpenChange, institutionId, editingSegmen
           </div>
 
           {/* Logic toggle */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm text-muted-foreground">Match</span>
             <Button
               variant={logic === 'AND' ? 'default' : 'outline'}
@@ -560,14 +560,14 @@ function SegmentsPageContent() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Audience Segments</h2>
           <p className="text-muted-foreground">
             Build reusable audience segments for WhatsApp campaigns
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-1" /> Refresh
           </Button>

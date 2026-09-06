@@ -178,7 +178,7 @@ export default function AICTEDashboardPage() {
               </div>
 
               {/* Auto-detected institutions */}
-              <div className="min-w-[260px]">
+              <div className="min-w-0 sm:min-w-[260px]">
                 <div className="rounded-lg border bg-card p-3">
                   <div className="text-xs text-muted-foreground">Scope (auto-detected)</div>
                   <div className="mt-1 space-y-1">

@@ -65,7 +65,7 @@ export default async function UsersPage() {
 
   return (
     <ContentLayout title='Users'>
-      <div className='flex justify-between items-center'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div className='space-y-1'>
           <PageBreadcrumb
             items={[{ label: 'Home', href: '/' }, { label: 'Users' }]}
@@ -75,7 +75,7 @@ export default async function UsersPage() {
             View and manage user accounts
           </p>
         </div>
-        <div className='flex items-center gap-4'>
+        <div className='flex shrink-0 items-center gap-4'>
           <Button variant='outline'>
             <Download className='mr-2 h-4 w-4' />
             Export

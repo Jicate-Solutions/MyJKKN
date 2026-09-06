@@ -92,16 +92,21 @@ export class BosMeetingService {
     return res.json();
   }
 
-  /** Returns the next sequential meeting number for a board + academic year combo */
+  /**
+   * Returns the next sequential meeting number for a composition, plus the list
+   * of already-taken numbers (used by the form to validate manual overrides).
+   */
   static async getNextMeetingNumber(
-    boardId: string,
-    academicYear: string
-  ): Promise<number> {
+    compositionId: string
+  ): Promise<{ nextNumber: number; takenNumbers: number[] }> {
     const res = await fetch(
-      `${this.baseUrl}/next-number?boardId=${boardId}&academicYear=${academicYear}`
+      `${this.baseUrl}/next-number?compositionId=${encodeURIComponent(compositionId)}`
     );
     if (!res.ok) throw new Error('Failed to get next meeting number');
-    const { next_number } = await res.json();
-    return next_number;
+    const { next_number, taken_numbers } = await res.json();
+    return {
+      nextNumber: Number(next_number),
+      takenNumbers: Array.isArray(taken_numbers) ? taken_numbers.map(Number) : [],
+    };
   }
 }

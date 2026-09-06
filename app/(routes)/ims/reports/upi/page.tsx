@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { useRouter } from 'next/navigation';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -36,6 +37,14 @@ const formatCurrency = (value: number) =>
 type DatePreset = 'today' | 'week' | 'month' | 'custom';
 
 export default function UpiAuditReportPage() {
+  return (
+    <ImsPageGuard module="ims.reports" action="view">
+      <UpiAuditReportPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function UpiAuditReportPageInner() {
   const router = useRouter();
   const { storeId, institutionId } = useImsStoreContext();
 
@@ -108,7 +117,7 @@ export default function UpiAuditReportPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-wrap gap-2 items-end">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {(['today', 'week', 'month'] as DatePreset[]).map((p) => (
                   <Button
                     key={p}
@@ -128,19 +137,19 @@ export default function UpiAuditReportPage() {
                 </Button>
               </div>
               {preset === 'custom' && (
-                <div className="flex gap-2 items-center">
+                <div className="flex w-full items-center gap-2 sm:w-auto">
                   <Input
                     type="date"
                     value={customFrom}
                     onChange={(e) => setCustomFrom(e.target.value)}
-                    className="w-40"
+                    className="w-full sm:w-40"
                   />
                   <span className="text-muted-foreground">to</span>
                   <Input
                     type="date"
                     value={customTo}
                     onChange={(e) => setCustomTo(e.target.value)}
-                    className="w-40"
+                    className="w-full sm:w-40"
                   />
                 </div>
               )}

@@ -86,24 +86,28 @@ export async function GET(request: NextRequest) {
 
     // Build query - select all fields except migration fields.
     // 2026-05-02 (Phase C-8): replaced legacy admission_year integer with the
-    // FK + program_start_year join. Response derives the integer at serialize
+    // FK + admission_years.year join. Response derives the integer at serialize
     // time so external consumers see no shape change.
     const selectFields = `
       id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
-      gender, religion, community, caste, father_name, father_occupation, father_mobile,
+      gender, religion, father_name, father_occupation, father_mobile,
       mother_name, mother_occupation, mother_mobile, annual_income, last_school,
       board_of_study, tenth_marks, twelfth_marks, medical_cutoff_marks,
       engineering_cutoff_marks, neet_roll_number, neet_score, counseling_applied,
-      counseling_number, scholarship_type, quota, entry_type, student_mobile,
+      counseling_number, scholarship_type, entry_type, student_mobile,
       student_email, permanent_address_street, permanent_address_taluk,
       permanent_address_district, permanent_address_pin_code, permanent_address_state,
-      accommodation_type, hostel_type, food_type, reference_type, reference_name, reference_contact,
+      bus_required, transport_route_id, transport_stop_id, reference_type, reference_name, reference_contact,
       institution_id, degree_id, department_id, program_id, semester_id, section_id,
       academic_year_id, regulation_id, batch_id, roll_number, register_number,
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
       created_by, updated_by, aadhar_number, enquiry_date, blood_group,
-      admission_year_id,
-      admission_year_obj:admission_years!admission_year_id(program_start_year)
+      admission_year_id, quota_id, community_category_id, caste_id, accommodation_type_id,
+      admission_year_obj:admission_years!admission_year_id(year),
+      quota_obj:quotas!quota_id(name),
+      community_obj:community_categories!community_category_id(code),
+      caste_obj:castes!caste_id(name),
+      accommodation_obj:accommodation_types!accommodation_type_id(name)
     `.trim();
 
     let query = (supabase as any).from('learners_profiles').select(
@@ -112,9 +116,34 @@ export async function GET(request: NextRequest) {
     );
 
     // Apply filters
-    // Default: only active learners unless lifecycle_status is specified
-    if (lifecycleStatus) {
-      const statuses = lifecycleStatus.split(',');
+    // lifecycle_status semantics:
+    //   - omitted            → only 'active' learners (back-compat default)
+    //   - 'all'              → every lifecycle status, no filter
+    //   - 'a,b,c'            → only the listed statuses (validated below)
+    const VALID_LIFECYCLE_STATUSES = [
+      'enquiry', 'enquiry_submitted', 'pending', 'approved', 'account',
+      'reserved', 'admitted', 'rejected', 'waitlisted', 'active',
+      'inactive', 'exited', 'graduated', 'alumni'
+    ];
+    if (lifecycleStatus && lifecycleStatus.trim().toLowerCase() === 'all') {
+      // No status filter — return learners across all lifecycle statuses.
+    } else if (lifecycleStatus) {
+      const statuses = lifecycleStatus
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const invalid = statuses.filter(
+        (s) => !VALID_LIFECYCLE_STATUSES.includes(s)
+      );
+      if (statuses.length === 0 || invalid.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Invalid lifecycle_status value(s): ${invalid.join(', ') || '(empty)'}`,
+            valid_values: [...VALID_LIFECYCLE_STATUSES, 'all']
+          },
+          { status: 400, headers: corsHeaders }
+        );
+      }
       query = query.in('lifecycle_status', statuses);
     } else {
       query = query.eq('lifecycle_status', 'active');
@@ -139,7 +168,7 @@ export async function GET(request: NextRequest) {
       const { data: ayRows } = await (supabase as any)
         .from('admission_years')
         .select('id')
-        .eq('program_start_year', yearInt);
+        .eq('year', yearInt);
       const ayIds = (ayRows ?? []).map((r: any) => r.id);
       if (ayIds.length === 0) {
         // No admission_years rows for that year — short-circuit to empty result.
@@ -154,7 +183,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (quota) {
-      query = query.eq('quota', quota);
+      // ?quota= accepts a readable name/code (or a UUID); resolve to quota_id (FK).
+      const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
+      const resolveQuota = await buildQuotaResolver(supabase);
+      const qid = resolveQuota(quota);
+      query = query.eq('quota_id', qid ?? '00000000-0000-0000-0000-000000000000');
     }
 
     // Apply pagination
@@ -170,11 +203,19 @@ export async function GET(request: NextRequest) {
     // 2026-05-02 (Phase C-8): Derive legacy admission_year integer from the FK
     // join for back-compat. Strip the join helper from the response shape.
     const learners = (learnersRaw ?? []).map((row: any) => {
-      const ayObj = row.admission_year_obj as { program_start_year?: number } | null;
-      const { admission_year_obj: _, ...rest } = row;
+      const ayObj = row.admission_year_obj as { year?: number } | null;
+      const quotaObj = row.quota_obj as { name?: string } | null;
+      const communityObj = row.community_obj as { code?: string } | null;
+      const casteObj = row.caste_obj as { name?: string } | null;
+      const accommodationObj = row.accommodation_obj as { name?: string } | null;
+      const { admission_year_obj: _ay, quota_obj: _q, community_obj: _c, caste_obj: _cs, accommodation_obj: _acc, ...rest } = row;
       return {
         ...rest,
-        admission_year: ayObj?.program_start_year ?? null,
+        admission_year: ayObj?.year ?? null,
+        quota: quotaObj?.name ?? null,
+        community: communityObj?.code ?? null,
+        caste: casteObj?.name ?? null,
+        accommodation_type: accommodationObj?.name ?? null,
       };
     });
 

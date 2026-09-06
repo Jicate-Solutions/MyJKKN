@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar, CheckCircle2, Circle, ClipboardCheck } from 'lucide-react';
+import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar, CheckCircle2, Circle, ClipboardCheck, Mail, Phone, Clock, IndianRupee, Building2, AlertCircle, Loader2, Pencil } from 'lucide-react';
 import {
   useCandidate,
   usePackages,
@@ -26,9 +26,15 @@ import {
   useCounterPackage,
   useWithdrawCandidate,
   useUpdateCandidateStatus,
+  useApproveCandidate,
+  useRejectCandidate,
+  useUpdateStepComment,
 } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { CandidateDiscussionThread } from '../../_components/candidate-discussion-thread';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   CANDIDATE_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -59,9 +65,50 @@ const PACKAGE_STATUS_COLORS: Record<HRRecruitmentCandidatePackage['status'], str
   rejected:  'bg-red-100 text-red-900 dark:bg-red-900/20 dark:text-red-200',
 };
 
-function formatSalary(amount: number): string {
+// Salary is optional on a package — show the fallback when it wasn't decided yet.
+function formatSalary(amount: number | null | undefined, fallback = '—'): string {
+  if (amount === null || amount === undefined) return fallback;
   return `₹${amount.toLocaleString('en-IN')}`;
 }
+
+// Two-letter initials for the sidebar avatar.
+function initials(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? '')
+      .join('') || '?'
+  );
+}
+
+// Minimal/neutral status accent — a left border on the identity card and a
+// small dot on the status pill, driven by the candidate's status.
+const STATUS_ACCENT: Record<CandidateStatus, string> = {
+  submitted:        'border-l-yellow-400',
+  pending_approval: 'border-l-yellow-400',
+  approved:         'border-l-green-500',
+  package_fixed:    'border-l-blue-500',
+  offer_issued:     'border-l-blue-500',
+  joined:           'border-l-emerald-500',
+  rejected:         'border-l-red-500',
+  withdrawn:        'border-l-gray-400',
+  offer_rescinded:  'border-l-gray-400',
+  no_show:          'border-l-orange-500',
+};
+const STATUS_DOT: Record<CandidateStatus, string> = {
+  submitted:        'bg-yellow-500',
+  pending_approval: 'bg-yellow-500',
+  approved:         'bg-green-500',
+  package_fixed:    'bg-blue-500',
+  offer_issued:     'bg-blue-500',
+  joined:           'bg-emerald-500',
+  rejected:         'bg-red-500',
+  withdrawn:        'bg-gray-400',
+  offer_rescinded:  'bg-gray-400',
+  no_show:          'bg-orange-500',
+};
 
 export default function CandidateDetailPage() {
   const params = useParams();
@@ -75,6 +122,14 @@ export default function CandidateDetailPage() {
   const counterPackage = useCounterPackage();
   const withdraw = useWithdrawCandidate();
   const updateStatus = useUpdateCandidateStatus();
+  const approve = useApproveCandidate();
+  const rejectCand = useRejectCandidate();
+  const { permissions, isSuperAdmin, userRoles } = usePermissions();
+  const { institutions } = useInstitutionsWithAccess();
+  const institutionName = useMemo(
+    () => institutions.find((i) => i.id === candidate?.institution_id)?.name,
+    [institutions, candidate?.institution_id],
+  );
 
   // ζ FINDING #5 (PR #943) — Onboarding read-side rendering + (this PR, κ) toggle wiring.
   // role_specific_details.onboarding_steps is populated by
@@ -96,6 +151,23 @@ export default function CandidateDetailPage() {
   }, [profile]);
   // Index of the step currently being toggled (so we can disable that row only).
   const [togglingStepIndex, setTogglingStepIndex] = useState<number | null>(null);
+
+  // Approval-chain override context (mirrors the workspace + pending list):
+  // the current step is "mine" if pinned to me, or role-only and I hold that
+  // role_key. Anyone else who holds hr.recruitment.approve.override (or is
+  // super-admin) can act as an OVERRIDE.
+  const myRoleKeys = useMemo(
+    () => new Set((userRoles ?? []).map((r) => (r.role_key ?? '').toLowerCase())),
+    [userRoles],
+  );
+  const [stepApproveOpen, setStepApproveOpen] = useState(false);
+  const [stepApproveComment, setStepApproveComment] = useState('');
+  const [stepRejectOpen, setStepRejectOpen] = useState(false);
+  const [stepRejectReason, setStepRejectReason] = useState('');
+  // Edit a decided step's review comment.
+  const updateStepComment = useUpdateStepComment();
+  const [editStepIndex, setEditStepIndex] = useState<number | null>(null);
+  const [editStepComment, setEditStepComment] = useState('');
 
   // POST the toggle, then invalidate the candidate cache so the section re-renders.
   const toggleOnboardingStep = async (stepIndex: number, nextCompleted: boolean) => {
@@ -162,9 +234,11 @@ export default function CandidateDetailPage() {
 
   const onPropose = async (e: React.FormEvent) => {
     e.preventDefault();
-    const monthlySalary = parseFloat(proposeSalary);
-    if (isNaN(monthlySalary) || monthlySalary <= 0) {
-      toast.error('Enter a valid Monthly Salary');
+    // Salary is optional — blank means "not decided yet" and is stored as NULL.
+    const rawSalary = proposeSalary.trim();
+    const monthlySalary = rawSalary ? parseFloat(rawSalary) : null;
+    if (monthlySalary !== null && (isNaN(monthlySalary) || monthlySalary <= 0)) {
+      toast.error('Enter a valid Monthly Salary, or leave it blank');
       return;
     }
 
@@ -202,9 +276,11 @@ export default function CandidateDetailPage() {
   const onCounter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!counterPackageId) return;
-    const monthlySalary = parseFloat(counterCtc);
-    if (isNaN(monthlySalary) || monthlySalary <= 0) {
-      toast.error('Enter a valid Monthly Salary');
+    // Salary is optional — blank means "not decided yet" and is stored as NULL.
+    const rawSalary = counterCtc.trim();
+    const monthlySalary = rawSalary ? parseFloat(rawSalary) : null;
+    if (monthlySalary !== null && (isNaN(monthlySalary) || monthlySalary <= 0)) {
+      toast.error('Enter a valid Monthly Salary, or leave it blank');
       return;
     }
 
@@ -283,6 +359,87 @@ export default function CandidateDetailPage() {
   const canWithdraw = ['submitted', 'pending_approval'].includes(candidate.status);
   const canMarkJoined = ['offer_issued', 'approved'].includes(candidate.status);
 
+  // Current-step approval action context.
+  const currentStep = approvalChain[candidate.current_step];
+  const isPendingApproval = ['submitted', 'pending_approval'].includes(candidate.status);
+  const isMyStep =
+    !!currentStep &&
+    (currentStep.approver_user_id
+      ? currentStep.approver_user_id === profile?.id
+      : !!currentStep.approver_role &&
+        myRoleKeys.has(currentStep.approver_role.toLowerCase()));
+  const canOverrideStep =
+    isSuperAdmin || permissions['hr.recruitment.approve.override'] === true;
+  const isStepOverride = isPendingApproval && !isMyStep && canOverrideStep;
+  // Legacy chains have no step_type — the last step acts as final.
+  const isFinalStep =
+    currentStep?.step_type === 'final' ||
+    (currentStep?.step_type === undefined && candidate.current_step === approvalChain.length - 1);
+  const stepDecisionLabel = isFinalStep ? 'Final Approve' : 'Mark Reviewed';
+
+  const handleStepApprove = async () => {
+    if (isStepOverride && !stepApproveComment.trim()) {
+      toast.error("A comment is required to override another approver's step.");
+      return;
+    }
+    try {
+      await approve.mutateAsync({ id, comment: stepApproveComment.trim() || undefined });
+      toast.success(isFinalStep ? 'Candidate approved' : 'Step reviewed');
+      setStepApproveOpen(false);
+      setStepApproveComment('');
+    } catch (err) {
+      const m = (err as Error).message ?? '';
+      if (m.includes('already been fully approved') || m.includes('Approval chain exhausted')) {
+        toast.info('This candidate is no longer pending — refreshing.');
+        setStepApproveOpen(false);
+        setStepApproveComment('');
+        return;
+      }
+      toast.error(m);
+    }
+  };
+
+  const handleStepReject = async () => {
+    if (!stepRejectReason.trim()) return;
+    try {
+      await rejectCand.mutateAsync({ id, reason: stepRejectReason.trim() });
+      toast.success('Candidate rejected');
+      setStepRejectOpen(false);
+      setStepRejectReason('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
+  // A decided step's comment is editable by its author, super-admin, or an
+  // override-key holder (server re-checks the same rule).
+  const canEditStepComment = (step: (typeof approvalChain)[number]) =>
+    (step.status === 'approved' || step.status === 'rejected') &&
+    (step.decided_by === profile?.id ||
+      isSuperAdmin ||
+      permissions['hr.recruitment.approve.override'] === true);
+
+  const openEditStepComment = (idx: number, current: string) => {
+    setEditStepIndex(idx);
+    setEditStepComment(current);
+  };
+
+  const handleSaveStepComment = async () => {
+    if (editStepIndex === null) return;
+    try {
+      await updateStepComment.mutateAsync({
+        id,
+        stepIndex: editStepIndex,
+        comment: editStepComment.trim(),
+      });
+      toast.success('Comment updated');
+      setEditStepIndex(null);
+      setEditStepComment('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
   return (
     <ContentLayout title="Candidate Detail">
       <Breadcrumb>
@@ -295,104 +452,143 @@ export default function CandidateDetailPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="mt-6 space-y-4 max-w-3xl">
+      <div className="mt-6 grid gap-4 items-start lg:grid-cols-[320px_minmax(0,1fr)]">
 
-        {/* 1. Header card */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <h1 className="text-xl font-semibold">{candidate.name}</h1>
-                <p className="text-sm text-muted-foreground mt-0.5">{candidate.role_title}</p>
-                <p className="text-xs text-muted-foreground">{ROLE_CATEGORY_LABELS[candidate.role_category]}</p>
+        {/* ============ SIDEBAR — identity, facts, primary actions ============ */}
+        <aside className="space-y-3 lg:sticky lg:top-6 lg:self-start">
+          <Card className={`border-l-4 ${STATUS_ACCENT[candidate.status]}`}>
+            <CardContent className="p-4 space-y-3">
+              {/* Avatar + name */}
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-base font-semibold">
+                  {initials(candidate.name)}
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-base font-semibold leading-tight">{candidate.name}</h1>
+                  <p className="text-xs text-muted-foreground truncate">{candidate.role_title}</p>
+                </div>
               </div>
+
+              {/* Status + category */}
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`px-2.5 py-1 rounded text-sm font-medium ${STATUS_COLORS[candidate.status]}`}>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium ${STATUS_COLORS[candidate.status]}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[candidate.status]}`} />
                   {CANDIDATE_STATUS_LABELS[candidate.status]}
                 </span>
-                {candidate.cvviz_url && (
-                  <a
-                    href={candidate.cvviz_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline border rounded px-2 py-1"
-                  >
-                    CVViz <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
+                <span className="text-xs text-muted-foreground">{ROLE_CATEGORY_LABELS[candidate.role_category]}</span>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {/* Meta grid */}
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-              <div>
-                <span className="text-muted-foreground">Email:</span>{' '}
-                <span className="font-medium">{candidate.email}</span>
-              </div>
-              {candidate.phone && (
-                <div>
-                  <span className="text-muted-foreground">Phone:</span>{' '}
-                  <span className="font-medium">{candidate.phone}</span>
-                </div>
-              )}
-              {candidate.institution_id && (
-                <div>
-                  <span className="text-muted-foreground">Institution:</span>{' '}
-                  <span className="font-mono text-xs">{candidate.institution_id}</span>
-                </div>
-              )}
-              {candidate.proposed_monthly_salary_band && (
-                <div>
-                  <span className="text-muted-foreground">Monthly Salary Band:</span>{' '}
-                  <span className="font-medium">{MONTHLY_SALARY_BAND_LABELS[candidate.proposed_monthly_salary_band]}</span>
-                </div>
-              )}
-              {candidate.expected_joining_date && (
-                <div>
-                  <span className="text-muted-foreground">Expected Joining:</span>{' '}
-                  <span className="font-medium">{candidate.expected_joining_date}</span>
-                </div>
-              )}
-              {candidate.actual_joining_date && (
-                <div>
-                  <span className="text-muted-foreground">Actual Joining:</span>{' '}
-                  <span className="font-medium">{candidate.actual_joining_date}</span>
-                </div>
-              )}
-              <div>
-                <span className="text-muted-foreground">Submitted:</span>{' '}
-                <span className="font-medium">
-                  {new Date(candidate.submitted_at ?? candidate.created_at).toLocaleString()}
-                </span>
-              </div>
-              {candidate.is_emergency && (
-                <div className="col-span-2">
-                  <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-300 flex items-center gap-1 w-fit">
-                    <AlertTriangle className="h-3 w-3" />
-                    Urgent — bypasses multi-step approval
-                  </Badge>
-                </div>
-              )}
-              {candidate.is_internal_transfer && (
-                <div className="col-span-2">
-                  <Badge variant="outline" className="border-blue-500 text-blue-700 dark:text-blue-300 w-fit">
-                    Internal Transfer
-                    {candidate.source_staff_id && (
-                      <span className="ml-1 font-mono text-xs">(from {candidate.source_staff_id})</span>
-                    )}
-                  </Badge>
-                </div>
-              )}
-            </div>
 
-            {candidate.rejection_reason && (
-              <div className="mt-3 text-sm text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 rounded p-2">
-                <span className="font-medium">Rejection reason:</span> {candidate.rejection_reason}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              {/* Flags */}
+              {(candidate.is_emergency || candidate.is_internal_transfer) && (
+                <div className="flex flex-wrap gap-1.5">
+                  {candidate.is_emergency && (
+                    <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-300 flex items-center gap-1 text-[10px]">
+                      <AlertTriangle className="h-3 w-3" /> Urgent
+                    </Badge>
+                  )}
+                  {candidate.is_internal_transfer && (
+                    <Badge variant="outline" className="border-blue-500 text-blue-700 dark:text-blue-300 text-[10px]">
+                      Internal Transfer
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              <div className="border-t border-border" />
+
+              {/* Key facts */}
+              <dl className="space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="text-muted-foreground text-xs">Email</span>
+                  <span className="ml-auto font-medium truncate max-w-[170px]" title={candidate.email}>{candidate.email}</span>
+                </div>
+                {candidate.phone && (
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground text-xs">Phone</span>
+                    <span className="ml-auto font-medium">{candidate.phone}</span>
+                  </div>
+                )}
+                {candidate.proposed_monthly_salary_band && (
+                  <div className="flex items-center gap-2">
+                    <IndianRupee className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground text-xs">Salary Band</span>
+                    <span className="ml-auto font-medium text-right">{MONTHLY_SALARY_BAND_LABELS[candidate.proposed_monthly_salary_band]}</span>
+                  </div>
+                )}
+                {candidate.expected_joining_date && (
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground text-xs">Expected Joining</span>
+                    <span className="ml-auto font-medium">{candidate.expected_joining_date}</span>
+                  </div>
+                )}
+                {candidate.actual_joining_date && (
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground text-xs">Actual Joining</span>
+                    <span className="ml-auto font-medium">{candidate.actual_joining_date}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="text-muted-foreground text-xs">Submitted</span>
+                  <span className="ml-auto font-medium">{new Date(candidate.submitted_at ?? candidate.created_at).toLocaleDateString()}</span>
+                </div>
+                {candidate.institution_id && (
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground text-xs">Institution</span>
+                    <span
+                      className="ml-auto font-medium truncate max-w-[170px] text-right"
+                      title={institutionName ?? candidate.institution_id}
+                    >
+                      {institutionName ?? '—'}
+                    </span>
+                  </div>
+                )}
+              </dl>
+
+              {candidate.cvviz_url && (
+                <a
+                  href={candidate.cvviz_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium text-primary hover:bg-muted/50 transition-colors"
+                >
+                  View CVViz Profile <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+
+              {candidate.rejection_reason && (
+                <div className="text-xs text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 rounded p-2">
+                  <span className="font-medium">Rejected:</span> {candidate.rejection_reason}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Primary actions */}
+          {(canWithdraw || canMarkJoined) && (
+            <div className="flex flex-col gap-2">
+              {canMarkJoined && (
+                <Button className="w-full" onClick={onMarkJoined} disabled={updateStatus.isPending}>
+                  <ArrowRight className="h-4 w-4 mr-1" />
+                  {updateStatus.isPending ? 'Updating…' : 'Mark as Joined'}
+                </Button>
+              )}
+              {canWithdraw && (
+                <Button variant="outline" className="w-full" onClick={() => setWithdrawOpen(true)} disabled={withdraw.isPending}>
+                  Withdraw Candidate
+                </Button>
+              )}
+            </div>
+          )}
+        </aside>
+
+        {/* ============ MAIN COLUMN — workflow ============ */}
+        <div className="space-y-4 min-w-0">
 
         {/* 2. JKKN History panel — R4.3 Alumni Signals */}
         {alumniSignal && (
@@ -513,21 +709,26 @@ export default function CandidateDetailPage() {
               <ol className="relative ml-2 space-y-4">
                 {approvalChain.map((step, idx) => {
                   const isActive = idx === candidate.current_step;
-                  const dotColor =
-                    step.status === 'approved' ? 'bg-green-500' :
-                    step.status === 'rejected' ? 'bg-red-500' :
-                    isActive ? 'bg-yellow-500' : 'bg-muted-foreground/30';
+                  const isCurrentPending = isActive && step.status === 'pending';
+                  const StepIcon =
+                    step.status === 'approved' ? CheckCircle2 :
+                    step.status === 'rejected' ? AlertCircle :
+                    isCurrentPending ? Loader2 : Circle;
+                  const iconColor =
+                    step.status === 'approved' ? 'text-green-500' :
+                    step.status === 'rejected' ? 'text-red-500' :
+                    isCurrentPending ? 'text-yellow-500' : 'text-muted-foreground/40';
 
                   return (
                     <li key={idx} className="flex items-start gap-3 text-sm">
                       {/* Vertical connector */}
                       <div className="relative flex flex-col items-center">
-                        <span className={`h-3 w-3 rounded-full mt-0.5 shrink-0 ${dotColor}`} />
+                        <StepIcon className={`h-4 w-4 mt-0.5 shrink-0 ${iconColor} ${isCurrentPending ? 'animate-spin' : ''}`} />
                         {idx < approvalChain.length - 1 && (
-                          <span className="w-px flex-1 bg-border mt-1 min-h-[1rem]" />
+                          <span className="w-px flex-1 bg-border mt-1.5 min-h-[1.25rem]" />
                         )}
                       </div>
-                      <div className="flex-1 pb-2">
+                      <div className={`flex-1 pb-2 ${isCurrentPending ? '-mx-2 rounded-md bg-yellow-50/60 px-2 py-1.5 dark:bg-yellow-900/10' : ''}`}>
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium">Step {step.step_order ?? idx + 1}:</span>
                           <span>{step.approver_role}</span>
@@ -543,10 +744,52 @@ export default function CandidateDetailPage() {
                             {new Date(step.decided_at).toLocaleString()}
                           </p>
                         )}
-                        {(step as any).comment && (
-                          <p className="text-xs text-muted-foreground mt-0.5 italic">
-                            &ldquo;{(step as any).comment}&rdquo;
-                          </p>
+                        {(step as any).comment ? (
+                          <div className="mt-0.5 flex items-start gap-1.5">
+                            <p className="flex-1 text-xs text-muted-foreground italic">
+                              &ldquo;{(step as any).comment}&rdquo;
+                              {(step as any).edited_at && (
+                                <span className="ml-1 not-italic opacity-60">(edited)</span>
+                              )}
+                            </p>
+                            {canEditStepComment(step) && (
+                              <button
+                                type="button"
+                                onClick={() => openEditStepComment(idx, (step as any).comment ?? '')}
+                                className="shrink-0 text-muted-foreground hover:text-foreground"
+                                aria-label="Edit comment"
+                                title="Edit comment"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          canEditStepComment(step) && (
+                            <button
+                              type="button"
+                              onClick={() => openEditStepComment(idx, '')}
+                              className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <Pencil className="h-3 w-3" /> Add note
+                            </button>
+                          )
+                        )}
+                        {/* Actions on the current pending step */}
+                        {isActive && step.status === 'pending' && isPendingApproval && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Button size="sm" onClick={() => setStepApproveOpen(true)}>
+                              {isStepOverride ? `Override — ${stepDecisionLabel}` : stepDecisionLabel}
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setStepRejectOpen(true)}>
+                              Reject
+                            </Button>
+                            {isStepOverride && (
+                              <span className="text-xs text-muted-foreground">
+                                Acting on {step.approver_role}&rsquo;s step
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </li>
@@ -663,7 +906,7 @@ export default function CandidateDetailPage() {
         {/* 5. Package negotiation history */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-sm">Salary Negotiation</CardTitle>
               <Button size="sm" onClick={() => setProposeOpen(true)}>
                 Propose Package
@@ -746,23 +989,10 @@ export default function CandidateDetailPage() {
           </CardContent>
         </Card>
 
-        {/* 6. Bottom actions */}
-        {(canWithdraw || canMarkJoined) && (
-          <div className="flex gap-2 flex-wrap">
-            {canWithdraw && (
-              <Button variant="outline" onClick={() => setWithdrawOpen(true)} disabled={withdraw.isPending}>
-                Withdraw Candidate
-              </Button>
-            )}
-            {canMarkJoined && (
-              <Button onClick={onMarkJoined} disabled={updateStatus.isPending}>
-                <ArrowRight className="h-4 w-4 mr-1" />
-                {updateStatus.isPending ? 'Updating…' : 'Mark as Joined'}
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
+        {/* 6. Discussion thread */}
+        <CandidateDiscussionThread candidateId={id} />
+        </div>{/* end main column */}
+      </div>{/* end two-column grid */}
 
       {/* Propose package dialog */}
       <Dialog open={proposeOpen} onOpenChange={setProposeOpen}>
@@ -772,16 +1002,21 @@ export default function CandidateDetailPage() {
           </DialogHeader>
           <form onSubmit={onPropose} className="space-y-3">
             <div>
-              <Label htmlFor="proposeSalary">Monthly Salary (₹) <span className="text-destructive">*</span></Label>
+              <Label htmlFor="proposeSalary">
+                Monthly Salary (₹){' '}
+                <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+              </Label>
               <Input
                 id="proposeSalary"
                 type="number"
                 value={proposeSalary}
                 onChange={(e) => setProposeCtc(e.target.value)}
-                required
-                placeholder="e.g. 600000"
+                placeholder="e.g. 50000"
                 min="1"
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Leave blank if the figure isn&apos;t decided yet.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Salary Breakdown (optional)</Label>
@@ -843,7 +1078,7 @@ export default function CandidateDetailPage() {
                   <option value="">Select parent package…</option>
                   {packages.map((pkg) => (
                     <option key={pkg.id} value={pkg.id}>
-                      {formatSalary(pkg.proposed_monthly_salary)} — {pkg.status}
+                      {formatSalary(pkg.proposed_monthly_salary, 'Amount not set')} — {pkg.status}
                     </option>
                   ))}
                 </select>
@@ -867,16 +1102,21 @@ export default function CandidateDetailPage() {
           </DialogHeader>
           <form onSubmit={onCounter} className="space-y-3">
             <div>
-              <Label htmlFor="counterCtc">Counter Monthly Salary Amount (₹) <span className="text-destructive">*</span></Label>
+              <Label htmlFor="counterCtc">
+                Counter Monthly Salary Amount (₹){' '}
+                <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+              </Label>
               <Input
                 id="counterCtc"
                 type="number"
                 value={counterCtc}
                 onChange={(e) => setCounterCtc(e.target.value)}
-                required
-                placeholder="e.g. 550000"
+                placeholder="e.g. 45000"
                 min="1"
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Leave blank if the figure isn&apos;t decided yet.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Salary Breakdown (optional)</Label>
@@ -953,6 +1193,112 @@ export default function CandidateDetailPage() {
               disabled={withdraw.isPending}
             >
               {withdraw.isPending ? 'Withdrawing…' : 'Confirm Withdraw'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step approve / review / override dialog */}
+      <Dialog open={stepApproveOpen} onOpenChange={(o) => { if (!o) setStepApproveOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {isStepOverride ? 'Override Approval' : isFinalStep ? 'Final Approval' : 'Mark as Reviewed'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {isStepOverride && (
+              <p className="text-sm text-muted-foreground">
+                You are acting on the {currentStep?.approver_role} step on behalf of the assigned approver.
+                This is recorded as an override.
+              </p>
+            )}
+            <Label htmlFor="step-approve-comment">
+              {isStepOverride
+                ? 'Reason for override (required)'
+                : isFinalStep ? 'Comment (optional)' : 'Review notes (optional)'}
+            </Label>
+            <Textarea
+              id="step-approve-comment"
+              value={stepApproveComment}
+              onChange={(e) => setStepApproveComment(e.target.value)}
+              rows={2}
+              placeholder={
+                isStepOverride
+                  ? 'Explain why you are approving on their behalf…'
+                  : isFinalStep ? 'Final remarks…' : 'Any notes for the next approver…'
+              }
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStepApproveOpen(false)}>Cancel</Button>
+            <Button
+              disabled={approve.isPending || (isStepOverride && !stepApproveComment.trim())}
+              onClick={handleStepApprove}
+            >
+              {approve.isPending
+                ? 'Saving…'
+                : isStepOverride ? 'Confirm Override' : isFinalStep ? 'Confirm Final Approval' : 'Confirm Review'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step reject dialog */}
+      <Dialog open={stepRejectOpen} onOpenChange={(o) => { if (!o) setStepRejectOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Candidate</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              This rejects the candidate and ends the approval chain.
+            </p>
+            <Label htmlFor="step-reject-reason">Reason (required)</Label>
+            <Textarea
+              id="step-reject-reason"
+              value={stepRejectReason}
+              onChange={(e) => setStepRejectReason(e.target.value)}
+              rows={2}
+              placeholder="Why is this candidate being rejected…"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStepRejectOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!stepRejectReason.trim() || rejectCand.isPending}
+              onClick={handleStepReject}
+            >
+              {rejectCand.isPending ? 'Rejecting…' : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit step comment dialog */}
+      <Dialog open={editStepIndex !== null} onOpenChange={(o) => { if (!o) setEditStepIndex(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit review comment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="edit-step-comment">Comment</Label>
+            <Textarea
+              id="edit-step-comment"
+              value={editStepComment}
+              onChange={(e) => setEditStepComment(e.target.value)}
+              rows={3}
+              placeholder="Update this step's review comment…"
+            />
+            <p className="text-xs text-muted-foreground">
+              The change is recorded (edited by / at) on the approval step.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditStepIndex(null)}>Cancel</Button>
+            <Button disabled={updateStepComment.isPending} onClick={handleSaveStepComment}>
+              {updateStepComment.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

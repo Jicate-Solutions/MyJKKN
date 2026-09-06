@@ -224,14 +224,14 @@ export default function ApprovalQueuePage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="text-xs text-muted-foreground">
                         Pending {item.days_pending} day(s)
                         {item.approval_authority && (
                           <> &middot; Routed to: {item.approval_authority}</>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
                           size="sm"
                           variant="default"

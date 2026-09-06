@@ -732,7 +732,7 @@ export function UserResolverTab() {
                         filteredModules.map(mod => (
                         <div
                           key={mod.moduleName}
-                          className={`flex items-center justify-between p-3 rounded-lg border ${
+                          className={`flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border ${
                             mod.conflicts.length > 0 ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20' : 'border-border'
                           }`}
                         >

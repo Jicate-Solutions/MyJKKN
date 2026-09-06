@@ -29,7 +29,7 @@ export type TermStatus = 'upcoming' | 'active' | 'completed' | 'archived';
 export type LCMemberStatus = 'active' | 'inactive' | 'on_leave' | 'graduated' | 'removed';
 
 // Announcement
-export type AnnouncementStatus = 'draft' | 'pending_review' | 'published' | 'archived';
+export type AnnouncementStatus = 'draft' | 'pending_review' | 'published' | 'archived' | 'returned';
 export type AnnouncementScope = 'lc_wide' | 'institution' | 'chapter' | 'vertical';
 export type AnnouncementUrgency = 'low' | 'normal' | 'high' | 'urgent';
 export type AnnouncementType = 'general' | 'event' | 'urgent' | 'circular';
@@ -211,6 +211,9 @@ export interface LCAnnouncement {
   reviewed_at: string | null;
   published_at: string | null;
   archived_at: string | null;
+  return_reason: string | null;
+  returned_by: string | null;
+  returned_at: string | null;
   read_count: number;
   attachments: { name: string; url: string; type: string }[] | null;
   created_at: string;
@@ -658,6 +661,11 @@ export interface CreateAnnouncementDto {
   scope: AnnouncementScope;
   scope_id?: string;
   attachments?: { name: string; url: string; type: string }[];
+  /**
+   * Submit live on creation instead of saving a draft. LC office bearers only --
+   * the database rejects it for anyone else.
+   */
+  publish?: boolean;
 }
 export type UpdateAnnouncementDto = Partial<CreateAnnouncementDto> & { status?: AnnouncementStatus };
 

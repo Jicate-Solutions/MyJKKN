@@ -29,12 +29,12 @@ import toast from 'react-hot-toast';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { FeesStructureDimensionSelector } from '../../_components/fees-structure-dimension-selector';
-import { NewStructureForm } from '../../_components/fees-structure-form';
+import { NewStructureForm, filterFeeStructureCategories } from '../../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
-import type { FeeStructureMatrixDimensions } from '@/types/admission';
+import type { FeeStructureMatrixDimensions, FeeItemAppliesTo } from '@/types/admission';
 import type { BillingCategory } from '@/types/billing';
 
 interface RouteProps {
@@ -52,6 +52,8 @@ interface FormItem {
   billing_category_id: string;
   amount: number;
   is_optional: boolean;
+  applies_to: FeeItemAppliesTo;
+  applies_year_of_study: number | null;
 }
 
 // Local prefill shape — matches the optional `initialValues` prop on
@@ -64,6 +66,14 @@ interface Prefill {
   effective_from: string;
   effective_to: string;
   community_category_ids: string[];
+  /**
+   * Source's declared hostel tier. Only surfaces once the operator picks the
+   * Hostel accommodation in the dimension selector — the clone deliberately
+   * leaves accommodation unset, and NewStructureForm clears these when the
+   * chosen accommodation isn't hostel.
+   */
+  hostel_category_id: string | null;
+  mess_category_id: string | null;
   items: FormItem[];
 }
 
@@ -130,19 +140,19 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           return;
         }
 
-        setCategories(cats);
+        setCategories(filterFeeStructureCategories(cats));
         setCommunityOptions(comms);
         setSourceName(source.name);
 
-        // Pre-fill all 7 matrix dims from source.
+        // Pre-fill all matrix dims from source (including optional gender).
         setSelectedDims({
           institution_id: source.institution_id,
           degree_id: source.degree_id,
           department_id: source.department_id,
           programme_id: source.programme_id,
           quota_id: source.quota_id,
-          accommodation_type_id: source.accommodation_type_id,
           admission_year_id: source.admission_year_id,
+          gender: source.gender ?? undefined,
         });
 
         // Pre-fill the form values. Adding "(cloned)" to the name avoids
@@ -155,6 +165,8 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           effective_from: source.effective_from ?? '',
           effective_to: source.effective_to ?? '',
           community_category_ids: sourceCommunities,
+          hostel_category_id: source.hostel_category_id ?? null,
+          mess_category_id: source.mess_category_id ?? null,
           items: sourceItems
             .slice()
             .sort((a, b) => a.sort_order - b.sort_order)
@@ -162,6 +174,8 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
               billing_category_id: it.billing_category_id,
               amount: Number(it.amount),
               is_optional: it.is_optional,
+              applies_to: it.applies_to ?? 'every_year',
+              applies_year_of_study: it.applies_year_of_study ?? null,
             })),
         });
         setLoading(false);
@@ -190,8 +204,7 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
     selectedDims.department_id &&
     selectedDims.programme_id &&
     selectedDims.admission_year_id &&
-    selectedDims.quota_id &&
-    selectedDims.accommodation_type_id
+    selectedDims.quota_id
   );
 
   return (

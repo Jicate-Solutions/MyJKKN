@@ -247,10 +247,17 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
           timetableData.selected_dates.length > 0
         ) {
           resolvedDates = timetableData.selected_dates;
-        } else {
-          // AUTO-RECOVERY: selected_dates is null, undefined, or empty []
-          // Fixed: 2026-02-10 - Always attempt recovery when selected_dates has no entries.
+        } else if (timetableData.selected_dates === null || timetableData.selected_dates === undefined) {
+          // AUTO-RECOVERY: selected_dates was never explicitly saved (null/undefined).
+          // This covers the case where a user added slots before clicking Save Configuration.
+          // Fixed: 2026-02-10 - Attempt recovery when selected_dates has no entries.
+          // Fixed: BUG-002553 - Limit recovery to null/undefined only; [] means the user
+          // intentionally saved with no date ranges and must be respected, otherwise the
+          // RANGE keys left in timetable_data from old slots would resurrect deleted ranges.
           resolvedDates = recoverDatesFromTimetableData(timetableData.timetable_data);
+        } else {
+          // selected_dates is explicitly [] — user saved with no date ranges; honour it.
+          resolvedDates = [];
         }
       } else {
         // Regular mode: Load selected days

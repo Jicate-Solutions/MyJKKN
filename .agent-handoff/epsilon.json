@@ -1,0 +1,25 @@
+{
+  "agent": "epsilon-pixel-capi",
+  "pr_branch": "feat/meta-pixel-capi",
+  "route_prefixes": ["/admin/integrations/meta-pixel"],
+  "module_key": "integrations_meta_pixel",
+  "tables": ["meta_capi_events"],
+  "permission_keys": [
+    "integrations.meta_pixel.view",
+    "integrations.meta_pixel.manage"
+  ],
+  "policy_keys": [
+    "meta.capi.pixel_id",
+    "meta.capi.access_token_ref",
+    "meta.capi.is_enabled"
+  ],
+  "api_routes": ["POST /api/meta/capi/track"],
+  "followups": [
+    "Register /admin/integrations/meta-pixel in lib/permissions-audit/module-mappings.ts",
+    "Register meta_capi_events in lib/constants/table-module-map.ts",
+    "Wire fireLeadCreatedCapi from services/admission/lead-service.ts createLead()",
+    "Wire fireLeadConvertedCapi from services/admission/applications-service.ts confirmPayment()",
+    "Add per-institution env vars to Vercel: META_CAPI_ACCESS_TOKEN_<INSTITUTION_SLUG> (one per pixel)"
+  ],
+  "spec_vs_reality_overrides": []
+}

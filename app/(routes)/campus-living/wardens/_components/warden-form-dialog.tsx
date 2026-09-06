@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -43,9 +43,12 @@ type FoundStaff = {
   first_name: string | null;
   last_name: string | null;
   email: string | null;
+  institution_email: string | null;
   phone: string | null;
   profile_id: string | null;
   designation: string | null;
+  role_key: string | null;
+  institution_id: string | null;
 };
 
 interface WardenFormDialogProps {
@@ -53,6 +56,8 @@ interface WardenFormDialogProps {
   onOpenChange: (open: boolean) => void;
   mode: 'create' | 'edit';
   warden?: HostelWarden;
+  /** Pre-selects this block in create mode (e.g. the block-scoped wardens page). */
+  defaultBlockId?: string;
 }
 
 const designationLabel: Record<WardenDesignation, string> = {
@@ -68,6 +73,7 @@ export function WardenFormDialog({
   onOpenChange,
   mode,
   warden,
+  defaultBlockId,
 }: WardenFormDialogProps) {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id ?? '';
@@ -78,55 +84,42 @@ export function WardenFormDialog({
 
   const [staffId, setStaffId] = useState<string>(warden?.staff_id ?? '');
   const [userId, setUserId] = useState<string>(warden?.user_id ?? '');
+  // The warden record is scoped to the selected staff member's institution,
+  // not the logged-in user's — super-admins have no institution_id of their own.
+  const [staffInstitutionId, setStaffInstitutionId] = useState<string>(
+    warden?.institution_id ?? ''
+  );
   const [selectedStaffName, setSelectedStaffName] = useState<string>('');
   const [designation, setDesignation] = useState<WardenDesignation | ''>(
     warden?.designation ?? ''
   );
   const [shift, setShift] = useState<WardenShift | 'none'>(warden?.shift ?? 'none');
   const [phone, setPhone] = useState<string>(warden?.phone ?? '');
-  const [blockId, setBlockId] = useState<string>(warden?.block_id ?? '');
+  const [blockId, setBlockId] = useState<string>(warden?.block_id ?? defaultBlockId ?? '');
   const [assignedFloors, setAssignedFloors] = useState<string>(
     warden?.assigned_floors?.join(', ') ?? ''
   );
   const [isResidential, setIsResidential] = useState<boolean>(warden?.is_residential ?? false);
   const [isActive, setIsActive] = useState<boolean>(warden?.is_active ?? true);
 
-  // Staff search
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState<FoundStaff[]>([]);
-  const [searching, setSearching] = useState(false);
-
-  useEffect(() => {
-    if (mode === 'edit' || !searchTerm || searchTerm.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    const handle = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const supabase = createClientSupabaseClient();
-        let q = supabase
-          .from('staff')
-          .select('id, first_name, last_name, email, phone, profile_id, designation')
-          .or(
-            `first_name.ilike.%${searchTerm}%,last_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`
-          )
-          .limit(10);
-        if (institutionId) q = q.eq('institution_id', institutionId);
-        const { data } = await q;
-        setSearchResults((data ?? []) as FoundStaff[]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(handle);
-  }, [searchTerm, mode, institutionId]);
+  // Stable callback so <StaffPicker> (memoized) doesn't re-render when other
+  // fields change. Uses a functional phone update to avoid depending on `phone`.
+  const handleStaffSelect = useCallback((s: FoundStaff) => {
+    if (!s.profile_id) return;
+    const fullName = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
+    setStaffId(s.id);
+    setUserId(s.profile_id);
+    setStaffInstitutionId(s.institution_id ?? '');
+    setSelectedStaffName(fullName || s.institution_email || s.email || s.id);
+    if (s.phone) setPhone((prev) => prev || s.phone || '');
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     if (mode === 'edit' && warden) {
       setStaffId(warden.staff_id);
       setUserId(warden.user_id);
+      setStaffInstitutionId(warden.institution_id ?? '');
       setDesignation(warden.designation);
       setShift(warden.shift ?? 'none');
       setPhone(warden.phone);
@@ -137,23 +130,26 @@ export function WardenFormDialog({
     } else {
       setStaffId('');
       setUserId('');
+      setStaffInstitutionId('');
       setSelectedStaffName('');
       setDesignation('');
       setShift('none');
       setPhone('');
-      setBlockId('');
+      setBlockId(defaultBlockId ?? '');
       setAssignedFloors('');
       setIsResidential(false);
       setIsActive(true);
-      setSearchTerm('');
     }
-  }, [open, mode, warden]);
+  }, [open, mode, warden, defaultBlockId]);
 
   const isPending = createMut.isPending || updateMut.isPending;
+  // Prefer the selected staff member's institution; fall back to the user's own
+  // (institution-scoped admins) so create still works in both setups.
+  const effectiveInstitutionId = staffInstitutionId || institutionId;
   const canSubmit =
     mode === 'edit'
       ? !!designation && !!phone && !isPending
-      : !!staffId && !!userId && !!designation && !!phone && !!institutionId && !isPending;
+      : !!staffId && !!userId && !!designation && !!phone && !!effectiveInstitutionId && !isPending;
 
   const parseFloors = (s: string): number[] | null => {
     if (!s.trim()) return null;
@@ -173,7 +169,7 @@ export function WardenFormDialog({
 
     if (mode === 'create') {
       await createMut.mutateAsync({
-        institution_id: institutionId,
+        institution_id: effectiveInstitutionId,
         staff_id: staffId,
         user_id: userId,
         designation,
@@ -244,6 +240,7 @@ export function WardenFormDialog({
                       onClick={() => {
                         setStaffId('');
                         setUserId('');
+                        setStaffInstitutionId('');
                         setSelectedStaffName('');
                       }}
                     >
@@ -251,64 +248,10 @@ export function WardenFormDialog({
                     </Button>
                   </div>
                 ) : (
-                  <>
-                    <div className='relative'>
-                      <Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
-                      <Input
-                        id='staff-search'
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder='Search staff by name or email (min 2 chars)'
-                        className='pl-9'
-                      />
-                    </div>
-                    {searching && (
-                      <p className='text-xs text-muted-foreground'>Searching...</p>
-                    )}
-                    {searchResults.length > 0 && (
-                      <div className='max-h-[220px] overflow-y-auto rounded-md border'>
-                        {searchResults.map((s) => {
-                          const fullName = [s.first_name, s.last_name]
-                            .filter(Boolean)
-                            .join(' ')
-                            .trim();
-                          const noProfile = !s.profile_id;
-                          return (
-                            <button
-                              type='button'
-                              key={s.id}
-                              disabled={noProfile}
-                              className='w-full text-left p-2 hover:bg-accent border-b last:border-0 disabled:opacity-50 disabled:cursor-not-allowed'
-                              onClick={() => {
-                                if (!s.profile_id) return;
-                                setStaffId(s.id);
-                                setUserId(s.profile_id);
-                                setSelectedStaffName(fullName || s.email || s.id);
-                                if (s.phone && !phone) setPhone(s.phone);
-                                setSearchTerm('');
-                                setSearchResults([]);
-                              }}
-                            >
-                              <div className='text-sm font-medium'>
-                                {fullName || (
-                                  <span className='text-muted-foreground italic'>(no name)</span>
-                                )}
-                              </div>
-                              <div className='text-xs text-muted-foreground'>
-                                {s.email ?? '—'}
-                                {s.designation && <span> · {s.designation}</span>}
-                              </div>
-                              {noProfile && (
-                                <div className='text-xs text-destructive mt-1'>
-                                  No linked user profile — cannot assign as warden
-                                </div>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
+                  <StaffPicker
+                    institutionId={institutionId}
+                    onSelect={handleStaffSelect}
+                  />
                 )}
               </div>
             )}
@@ -452,3 +395,130 @@ export function WardenFormDialog({
     </Dialog>
   );
 }
+
+/**
+ * Isolated staff search box + results list.
+ *
+ * Owns its own `searchTerm`/`searchResults`/`searching` state so typing only
+ * re-renders THIS small component, not the whole warden form (which carries
+ * ~15 fields + several data hooks). Memoized + a stable `onSelect` callback
+ * keep it from re-rendering when sibling fields (designation, phone, …) change.
+ *
+ * Only mounted in create mode while no staff is selected, so it needs no
+ * `mode` guard — selecting a staff member unmounts it.
+ */
+const StaffPicker = memo(function StaffPicker({
+  institutionId,
+  onSelect,
+}: {
+  institutionId: string;
+  onSelect: (staff: FoundStaff) => void;
+}) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<FoundStaff[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const term = searchTerm.trim();
+    if (term.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    // Commas/parentheses are PostgREST `.or()` control characters — strip them
+    // so a query like "Smith, John" doesn't break the filter and silently
+    // return nothing. `%`/`_` stay (harmless inside the ilike pattern here).
+    const safe = term.replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!safe) {
+      setSearchResults([]);
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const supabase = createClientSupabaseClient();
+        // Search ALL staff — wardens are appointed from general faculty/staff,
+        // not only people who already hold a warden role_key. The warden rank is
+        // chosen via the Designation field below; the picker just needs a staff
+        // member with a linked profile. (Do NOT re-add a role_key allowlist here —
+        // that silently hides eligible staff. See campus-living staff-picker note.)
+        let q = supabase
+          .from('staff')
+          .select('id, first_name, last_name, email, institution_email, phone, profile_id, designation, role_key, institution_id')
+          .or(
+            `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,institution_email.ilike.%${safe}%,email.ilike.%${safe}%`
+          )
+          .limit(25);
+        if (institutionId) q = q.eq('institution_id', institutionId);
+        const { data } = await q;
+        if (!cancelled) setSearchResults((data ?? []) as FoundStaff[]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [searchTerm, institutionId]);
+
+  return (
+    <>
+      <div className='relative'>
+        <Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+        <Input
+          id='staff-search'
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder='Search staff by name or email…'
+          className='pl-9'
+          autoComplete='off'
+        />
+      </div>
+      {searching && <p className='text-xs text-muted-foreground'>Searching...</p>}
+      {!searching && searchTerm.trim().length >= 2 && searchResults.length === 0 && (
+        <p className='text-xs text-muted-foreground'>No matching staff found.</p>
+      )}
+      {searchResults.length > 0 && (
+        <div className='max-h-[220px] overflow-y-auto rounded-md border'>
+          {searchResults.map((s) => {
+            const fullName = [s.first_name, s.last_name]
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            const noProfile = !s.profile_id;
+            return (
+              <button
+                type='button'
+                key={s.id}
+                disabled={noProfile}
+                className='w-full text-left p-2 hover:bg-accent border-b last:border-0 disabled:opacity-50 disabled:cursor-not-allowed'
+                onClick={() => onSelect(s)}
+              >
+                <div className='text-sm font-medium'>
+                  {fullName || (
+                    <span className='text-muted-foreground italic'>(no name)</span>
+                  )}
+                </div>
+                <div className='text-xs text-muted-foreground'>
+                  {s.institution_email || s.email || '—'}
+                  {s.role_key && (
+                    <span className='ml-1 inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary capitalize'>
+                      {s.role_key.replace(/_/g, ' ')}
+                    </span>
+                  )}
+                  {s.designation && <span> · {s.designation}</span>}
+                </div>
+                {noProfile && (
+                  <div className='text-xs text-destructive mt-1'>
+                    No linked user profile — cannot assign as warden
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+});

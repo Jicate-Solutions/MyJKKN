@@ -2,8 +2,8 @@
  * Canonical notification categories available in the Send Notification form.
  *
  * Admins see these as both:
- *   - Dropdown options when creating a notification (admin/notifications/new)
- *   - Filter tabs when browsing notifications (admin/notifications)
+ *   - Dropdown options when creating a notification (notifications/admin/new)
+ *   - Filter tabs when browsing notifications (notifications/admin)
  *
  * The admin feed ADDITIONALLY surfaces any "organic" categories emitted
  * directly by modules (e.g. "Dashboard:Rescue" from the lead-rescue cron),

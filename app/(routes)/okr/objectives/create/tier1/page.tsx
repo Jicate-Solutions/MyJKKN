@@ -19,7 +19,8 @@ import { OKRErrorBoundary } from '../../../_components';
  * 11. Contingency - Plan B if things go off-track
  */
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -225,14 +226,16 @@ const getDefaultValues = (): Tier1FormValues => {
 // MAIN COMPONENT
 // ============================================================================
 
-export default function Tier1CreatePage() {
+const TIER1_CREATE_TABS = ['section1', 'section2', 'section3', 'section4', 'section5', 'section6'] as const;
+
+function Tier1CreatePageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const { institutions } = useUserInstitutionAccess();
   const createObjective = useCreateObjective();
   const createKeyResult = useCreateKeyResult();
 
-  const [activeTab, setActiveTab] = useState('section1');
+  const [activeTab, setActiveTab] = useTabParam('section1', TIER1_CREATE_TABS);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
 
@@ -438,7 +441,7 @@ export default function Tier1CreatePage() {
               {/* Navigation */}
               <Card>
                 <CardContent className="pt-6">
-                  <TabsList className="grid w-full grid-cols-6 h-auto">
+                  <TabsList className="flex w-full justify-start gap-1 overflow-x-auto h-auto sm:grid sm:grid-cols-6 sm:gap-0 sm:overflow-visible">
                     <TabsTrigger value="section1" className="flex-col gap-1 py-2">
                       <Target className="h-4 w-4" />
                       <span className="text-xs">Basic & Context</span>
@@ -1764,5 +1767,14 @@ export default function Tier1CreatePage() {
       </div>
       </OKRErrorBoundary>
     </ContentLayout>
+  );
+}
+
+export default function Tier1CreatePage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <Tier1CreatePageInner />
+    </Suspense>
   );
 }

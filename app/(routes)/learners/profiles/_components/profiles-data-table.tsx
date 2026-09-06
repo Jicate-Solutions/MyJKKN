@@ -12,11 +12,12 @@ import { DataTable } from '@/components/data-table/data-table';
 import { profileColumns } from './columns';
 import type { ProfilesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { TrashIcon, ArrowRight } from 'lucide-react';
+import { TrashIcon, ArrowRight, DownloadIcon } from 'lucide-react';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { LearnerExportDialog } from './learner-export-dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,6 +52,7 @@ export function ProfilesDataTable({ search, statusFilter }: ProfilesDataTablePro
   const [learnersToDelete, setLearnersToDelete] = useState<LearnerProfile[]>([]);
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   /**
    * Fetch data function for DataTable
@@ -184,6 +186,15 @@ export function ProfilesDataTable({ search, statusFilter }: ProfilesDataTablePro
 
     return (
       <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => setShowExportDialog(true)}
+        >
+          <DownloadIcon className="mr-2 h-4 w-4" />
+          Export
+        </Button>
         {props.selectedRows.length > 0 && (
           <>
             <Button asChild size="sm" className="h-8">
@@ -228,6 +239,14 @@ export function ProfilesDataTable({ search, statusFilter }: ProfilesDataTablePro
           enableRowSelection: true,
         }}
         renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Export Dialog */}
+      <LearnerExportDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        filters={search}
+        statusFilter={statusFilter}
       />
 
       {/* Bulk Delete Confirmation Dialog */}

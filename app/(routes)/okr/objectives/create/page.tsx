@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { OKRErrorBoundary } from '../../_components';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -222,7 +223,9 @@ function getEndDate(startDate: string, cycleType: OKRCycleType): string {
 // MAIN COMPONENT
 // ============================================================================
 
-export default function CreateObjectivePage() {
+const CREATE_OBJECTIVE_TABS = ['basics', 'keyResults', 'dependencies', 'tasks', 'risks'] as const;
+
+function CreateObjectivePageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const { institutions } = useUserInstitutionAccess();
@@ -230,7 +233,7 @@ export default function CreateObjectivePage() {
   const createKeyResult = useCreateKeyResult();
 
   // Step state
-  const [activeTab, setActiveTab] = useState('basics');
+  const [activeTab, setActiveTab] = useTabParam('basics', CREATE_OBJECTIVE_TABS);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Basic info
@@ -589,7 +592,7 @@ export default function CreateObjectivePage() {
 
         {/* Main Form Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-5 sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="basics" className="gap-1">
               <FileText className="h-3 w-3" />
               Basics
@@ -1307,5 +1310,14 @@ export default function CreateObjectivePage() {
       </div>
       </OKRErrorBoundary>
     </ContentLayout>
+  );
+}
+
+export default function CreateObjectivePage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <CreateObjectivePageInner />
+    </Suspense>
   );
 }

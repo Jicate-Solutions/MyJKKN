@@ -258,6 +258,7 @@ export default function AttendanceHistoryPage() {
                   <TableHead className="text-center">Morning</TableHead>
                   <TableHead className="text-center">Late (mins)</TableHead>
                   <TableHead className="text-center">Curfew</TableHead>
+                  <TableHead>Marked By</TableHead>
                   <TableHead>Remarks</TableHead>
                 </TableRow>
               </TableHeader>
@@ -298,6 +299,23 @@ export default function AttendanceHistoryPage() {
                         <span className="text-muted-foreground text-xs">—</span>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="text-sm">
+                          {record?.marker?.full_name ?? (record?.marked_by ? 'Unknown' : '—')}
+                        </span>
+                        {(record?.updated_at ?? record?.created_at) && (
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(record.updated_at ?? record.created_at).toLocaleString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
                       {record?.remarks ?? '—'}
                     </TableCell>
@@ -305,7 +323,7 @@ export default function AttendanceHistoryPage() {
                 ))}
                 {filteredRecords.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-10">
+                    <TableCell colSpan={9} className="py-10">
                       {hasActiveFilters ? (
                         <div className="text-center text-muted-foreground space-y-1">
                           <p className="font-medium text-foreground">No matching records</p>

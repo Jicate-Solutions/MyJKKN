@@ -28,12 +28,12 @@ import {
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 
-import { BosMeeting, BOS_MEETING_TYPE_LABELS, BosMember } from '@/types/bos';
+import { BosMeeting, BOS_MEETING_TYPE_LABELS, BosMember, isBosChairmanRow, isCouncilMeetingType } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
+import { useBosCommitteesByComposition } from '@/hooks/bos/use-bos-committees';
 import { BosMeetingService } from '@/lib/services/bos/bos-meeting-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -55,10 +55,18 @@ interface CompositionDetail extends CompositionOption {
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
-const meetingFormSchema = z.object({
+// Schema for creating meetings in draft stage
+const meetingFormSchemaCreate = z.object({
   institutions_id: z.string().min(1),
   board_id: z.string().min(1, 'Board is required'),
   composition_id: z.string().min(1, 'Composition is required'),
+  // Convening council/committee of the composition — drives which members are
+  // invited and which TA/DA rate table applies to the meeting's claims.
+  committee_id: z.string().min(1, 'Council / Committee is required'),
+  meeting_number: z
+    .number({ invalid_type_error: 'Meeting number is required' })
+    .int('Must be a whole number')
+    .positive('Must be greater than 0'),
   meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']),
   academic_year: z.string().min(1, 'Academic year is required'),
   scheduled_date: z.string().min(1, 'Scheduled date is required'),
@@ -67,7 +75,27 @@ const meetingFormSchema = z.object({
   agenda_text: z.string().optional(),
 });
 
-export type MeetingFormValues = z.infer<typeof meetingFormSchema>;
+// Schema for editing meetings (allows blank scheduled_date for NULL → populated
+// updates; committee_id relaxed so schedule-only edits of legacy rows with no
+// committee still validate — the field's card is hidden in that mode).
+const meetingFormSchemaEdit = z.object({
+  institutions_id: z.string().min(1),
+  board_id: z.string().min(1, 'Board is required'),
+  composition_id: z.string().min(1, 'Composition is required'),
+  committee_id: z.string().optional(),
+  meeting_number: z
+    .number({ invalid_type_error: 'Meeting number is required' })
+    .int('Must be a whole number')
+    .positive('Must be greater than 0'),
+  meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']),
+  academic_year: z.string().min(1, 'Academic year is required'),
+  scheduled_date: z.string(),
+  scheduled_time: z.string().optional(),
+  venue: z.string().optional(),
+  agenda_text: z.string().optional(),
+});
+
+export type MeetingFormValues = z.infer<typeof meetingFormSchemaCreate>;
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -76,6 +104,7 @@ interface MeetingFormProps {
   isSubmitting: boolean;
   onSubmit: (data: MeetingFormValues) => void;
   onCancel: () => void;
+  isEditingScheduleOnly?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,7 +117,7 @@ function deriveAcademicYear(dateStr: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: MeetingFormProps) {
+export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditingScheduleOnly }: MeetingFormProps) {
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const scope = useBosBoardScope();
 
@@ -96,16 +125,24 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
   const [loadingCompositions, setLoadingCompositions] = useState(false);
   const [compositionDetail, setCompositionDetail] = useState<CompositionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [nextMeetingNumber, setNextMeetingNumber] = useState<number | null>(null);
+  // `takenNumbers` carries every meeting_number already used in the selected
+  // composition. The form validates the chairman's input against this list
+  // (server enforces the same rule + a DB unique constraint as a race-safety net).
+  const [takenNumbers, setTakenNumbers] = useState<number[]>([]);
+  const [meetingNumberTouched, setMeetingNumberTouched] = useState(false);
 
   const form = useForm<MeetingFormValues>({
-    resolver: zodResolver(meetingFormSchema),
+    resolver: zodResolver(meeting ? meetingFormSchemaEdit : meetingFormSchemaCreate),
     defaultValues: meeting
       ? {
           institutions_id: meeting.institutions_id,
           board_id: meeting.board_id,
           composition_id: meeting.composition_id,
-          meeting_type: meeting.meeting_type,
+          committee_id: meeting.committee_id ?? '',
+          meeting_number: meeting.meeting_number,
+          // AC meetings never open this form (they have their own edit page),
+          // so the stored type is always within the schema's BoS-only union.
+          meeting_type: meeting.meeting_type as MeetingFormValues['meeting_type'],
           academic_year: meeting.academic_year,
           scheduled_date: meeting.scheduled_date ?? '',
           scheduled_time: meeting.scheduled_time ?? '',
@@ -116,6 +153,8 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
           institutions_id: '',
           board_id: '',
           composition_id: '',
+          committee_id: '',
+          meeting_number: undefined as unknown as number, // populated once composition is chosen
           meeting_type: 'regular',
           academic_year: '',
           scheduled_date: '',
@@ -127,8 +166,32 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
 
   const compositionId = form.watch('composition_id');
   const institutionsId = form.watch('institutions_id');
-  const boardId = form.watch('board_id');
-  const academicYear = form.watch('academic_year');
+
+  // Councils/committees are composition-owned (bos_committees) — the meeting
+  // is convened by one of them, and its member list + TA/DA rates follow it.
+  const { data: committees = [], isLoading: loadingCommittees } =
+    useBosCommitteesByComposition(compositionId || null, { isActive: true });
+
+  // Keep the committee selection consistent with the chosen composition:
+  // clear a selection that belongs to a different composition, and auto-pick
+  // when the composition has exactly one active committee (the common case).
+  useEffect(() => {
+    if (!compositionId) {
+      if (form.getValues('committee_id')) form.setValue('committee_id', '');
+      return;
+    }
+    if (loadingCommittees) return;
+    const current = form.getValues('committee_id');
+    // Clear only against a non-empty loaded list — a failed/empty fetch must
+    // not wipe a legitimate saved selection on the edit page.
+    if (current && committees.length > 0 && !committees.some((c) => c.id === current)) {
+      form.setValue('committee_id', '');
+    }
+    if (!form.getValues('committee_id') && committees.length === 1) {
+      form.setValue('committee_id', committees[0].id, { shouldValidate: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compositionId, committees, loadingCommittees]);
 
   const { data: academicYearsData } = useAcademicYears(institutionsId || undefined);
   const academicYears = academicYearsData?.data ?? [];
@@ -220,18 +283,32 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositionId]);
 
-  // Fetch next meeting number once board + academic_year are derived.
+  // Fetch the suggested next meeting number (and the list of taken numbers
+  // used for client-side duplicate validation) for the selected composition.
+  // - On create: prefill the field with the suggestion unless the chairman
+  //   has already typed an override.
+  // - On edit: never overwrite the persisted value, but still load taken
+  //   numbers so we can flag conflicts if they retype the field.
   useEffect(() => {
-    if (!boardId || !academicYear || meeting) return;
-    BosMeetingService.getNextMeetingNumber(boardId, academicYear)
-      .then(setNextMeetingNumber)
-      .catch(() => setNextMeetingNumber(null));
-  }, [boardId, academicYear, meeting]);
+    if (!compositionId) {
+      setTakenNumbers([]);
+      return;
+    }
+    BosMeetingService.getNextMeetingNumber(compositionId)
+      .then(({ nextNumber, takenNumbers: taken }) => {
+        setTakenNumbers(taken);
+        if (!meeting && !meetingNumberTouched) {
+          form.setValue('meeting_number', nextNumber, { shouldValidate: false });
+        }
+      })
+      .catch(() => setTakenNumbers([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compositionId]);
 
   // Pull the chairman row from the members list.
   const chairman = useMemo<BosMember | null>(() => {
     if (!compositionDetail?.members?.length) return null;
-    return compositionDetail.members.find((m) => m.member_type === 'chairman' && m.is_active) ?? null;
+    return compositionDetail.members.find((m) => isBosChairmanRow(m) && m.is_active) ?? null;
   }, [compositionDetail]);
 
   const handleDateChange = (value: string) => {
@@ -241,6 +318,27 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
       const match = academicYearOptions.find((opt) => opt.value === derived);
       if (match) form.setValue('academic_year', match.value);
     }
+  };
+
+  // A number is a duplicate when it already exists for this composition AND
+  // it isn't the meeting's own current number (edit-mode self-match is fine).
+  const isDuplicateMeetingNumber = (n: number) =>
+    Number.isFinite(n) &&
+    takenNumbers.includes(n) &&
+    !(meeting && n === meeting.meeting_number);
+
+  // Intercept submit so the inline error appears on the meeting_number field
+  // before we round-trip to the server. The server still enforces the same
+  // rule (DB UNIQUE + explicit 409) — this is just for snappier UX.
+  const handleFormSubmit = (values: MeetingFormValues) => {
+    if (isDuplicateMeetingNumber(values.meeting_number)) {
+      form.setError('meeting_number', {
+        type: 'manual',
+        message: `Meeting ${values.meeting_number} already exists for this composition.`,
+      });
+      return;
+    }
+    onSubmit(values);
   };
 
   if (permissionsLoading || scope.isLoading) {
@@ -262,7 +360,16 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+      <form onSubmit={form.handleSubmit(handleFormSubmit)} className='space-y-6'>
+
+        {/* Show message when editing only schedule in principal_approved stage */}
+        {isEditingScheduleOnly && (
+          <Card className='border-amber-200 bg-amber-50'>
+            <CardContent className='pt-4 text-sm text-amber-900'>
+              This meeting is in principal approval stage. You can only update the scheduled date, time, and venue.
+            </CardContent>
+          </Card>
+        )}
 
         {/* Two-column layout on xl+: main form (2/3) | sticky chairman side panel (1/3). */}
         <div className='grid grid-cols-1 gap-6 xl:grid-cols-3'>
@@ -270,7 +377,8 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
           {/* ── Main column ──────────────────────────────────────────── */}
           <div className='space-y-6 xl:col-span-2'>
 
-            {/* Composition (primary selector) + auto-derived board */}
+            {/* Composition (primary selector) + auto-derived board — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
             <Card>
               <CardHeader>
                 <CardTitle className='text-base'>Select Composition</CardTitle>
@@ -327,17 +435,110 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                       )}
                     </div>
                   </div>
+
+                  {/* Convening council/committee — sourced from the selected
+                      composition's committees; members and TA/DA rates follow it. */}
+                  <FormField
+                    control={form.control}
+                    name='committee_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Council / Committee <span className='text-destructive'>*</span></FormLabel>
+                        <SearchableSelect
+                          value={field.value ?? ''}
+                          onValueChange={field.onChange}
+                          options={committees.map((c) => ({ value: c.id, label: c.name }))}
+                          placeholder={
+                            !compositionId
+                              ? 'Select composition first'
+                              : loadingCommittees
+                                ? 'Loading…'
+                                : committees.length === 0
+                                  ? 'No committees in this composition'
+                                  : 'Select council / committee'
+                          }
+                          searchPlaceholder='Search committee…'
+                          loading={loadingCommittees}
+                          disabled={!compositionId || loadingCommittees || committees.length === 0}
+                          className='w-full'
+                        />
+                        <FormDescription>
+                          Which council/committee convenes this meeting. Members are invited
+                          from it, and its TA/DA rates apply to the meeting&apos;s claims.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
               </CardContent>
             </Card>
+            )}
 
-            {/* Meeting Identity */}
+            {/* Meeting Identity — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
             <Card>
               <CardHeader>
                 <CardTitle className='text-base'>Meeting Details</CardTitle>
               </CardHeader>
               <CardContent className='space-y-4'>
-                <div className='grid gap-4 md:grid-cols-2'>
+                <div className='grid gap-4 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='meeting_number'
+                    render={({ field }) => {
+                      const fieldValue =
+                        typeof field.value === 'number' && Number.isFinite(field.value)
+                          ? String(field.value)
+                          : '';
+                      return (
+                        <FormItem>
+                          <FormLabel>
+                            Meeting Number <span className='text-destructive'>*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={1}
+                              step={1}
+                              inputMode='numeric'
+                              placeholder={compositionId ? 'e.g. 3' : 'Select composition first'}
+                              disabled={!compositionId || loadingDetail}
+                              value={fieldValue}
+                              onChange={(e) => {
+                                setMeetingNumberTouched(true);
+                                const raw = e.target.value;
+                                if (raw === '') {
+                                  field.onChange(undefined);
+                                  return;
+                                }
+                                const parsed = Number(raw);
+                                field.onChange(Number.isFinite(parsed) ? parsed : undefined);
+                              }}
+                              onBlur={(e) => {
+                                field.onBlur();
+                                const parsed = Number(e.target.value);
+                                if (Number.isFinite(parsed) && isDuplicateMeetingNumber(parsed)) {
+                                  form.setError('meeting_number', {
+                                    type: 'manual',
+                                    message: `Meeting ${parsed} already exists for this composition.`,
+                                  });
+                                } else {
+                                  form.clearErrors('meeting_number');
+                                }
+                              }}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Auto-suggested from the composition. Edit if earlier meetings were
+                            conducted outside the system.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
+
                   <FormField
                     control={form.control}
                     name='meeting_type'
@@ -351,11 +552,17 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {Object.entries(BOS_MEETING_TYPE_LABELS).map(([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            ))}
+                            {/* Council-family types are excluded — Academic
+                                Council and Governing Body meetings are scheduled
+                                from /bos/academic-council and /bos/governing-body,
+                                not this Board of Studies meeting form. */}
+                            {Object.entries(BOS_MEETING_TYPE_LABELS)
+                              .filter(([value]) => !isCouncilMeetingType(value))
+                              .map(([value, label]) => (
+                                <SelectItem key={value} value={value}>
+                                  {label}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -386,6 +593,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 </div>
               </CardContent>
             </Card>
+            )}
 
             {/* Schedule & Venue */}
             <Card>
@@ -443,7 +651,8 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
               </CardContent>
             </Card>
 
-            {/* Agenda Overview */}
+            {/* Agenda Overview — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
             <Card>
               <CardHeader>
                 <CardTitle className='text-base'>Agenda Overview</CardTitle>
@@ -471,10 +680,12 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 />
               </CardContent>
             </Card>
+            )}
           </div>
 
-          {/* ── Sidebar (chairman + meeting summary) ─────────────────── */}
-          <aside className='xl:col-span-1'>
+          {/* ── Sidebar (chairman + meeting summary) — hidden in schedule-only edit mode */}
+          {!isEditingScheduleOnly && (
+          <aside className='xl:col-span-1' >
             <div className='space-y-4 xl:sticky xl:top-6'>
               <Card>
                 <CardHeader>
@@ -527,22 +738,9 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
                 </CardContent>
               </Card>
 
-              {/* Meeting number preview — visible only on create when derivable. */}
-              {nextMeetingNumber && !meeting && (
-                <Card>
-                  <CardContent className='space-y-2 p-4'>
-                    <div className='text-xs uppercase tracking-wide text-muted-foreground'>
-                      Meeting number
-                    </div>
-                    <Badge variant='secondary' className='text-sm'>
-                      Meeting {nextMeetingNumber} of {academicYear || '–'}
-                    </Badge>
-                    <p className='text-xs text-muted-foreground'>Auto-assigned on save.</p>
-                  </CardContent>
-                </Card>
-              )}
             </div>
           </aside>
+          )}
         </div>
 
         {/* ── Actions ───────────────────────────────────────────────── */}

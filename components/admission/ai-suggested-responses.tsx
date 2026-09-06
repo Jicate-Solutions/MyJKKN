@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +28,7 @@ import {
   Wand2
 } from 'lucide-react';
 import {
-  useAIResponses,
+  useAIServiceStatus,
   useResponseIntents,
   useCommunicationChannels
 } from '@/hooks/admission/use-ai-responses';
@@ -234,15 +234,102 @@ export function AISuggestedResponses({
 
   const { intents } = useResponseIntents();
   const { channels } = useCommunicationChannels();
-  const {
-    isAvailable,
-    statusMessage,
-    isCheckingStatus,
-    generateSuggestions,
-    isGenerating,
-    suggestions,
-    generationError
-  } = useAIResponses(lead.id);
+
+  // Availability gate — the Max lane needs no local API key, so this reports
+  // available whenever the job type is enabled server-side.
+  const { data: status, isLoading: isCheckingStatus } = useAIServiceStatus();
+  const isAvailable = status?.status === 'available';
+  const statusMessage = status?.message;
+
+  // ── Max-lane generation state (timer + inbox-resume) ─────────────────────
+  // Drafts run on the subscription lane: the POST enqueues a registry job and
+  // long-polls; if it's slow it returns a job_id we persist so a finished
+  // answer resurfaces here even if the counselor navigated away (the "while you
+  // were away" inbox — the result lives in ai_jobs, keyed to this user).
+  const STORAGE_KEY = `ai-reply-draft:${lead.id}`;
+  const [suggestions, setSuggestions] = useState<SuggestedResponse[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [generationError, setGenerationError] = useState<{ message: string } | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  // Poll a slow job to completion (used both after a 202 and on mount-resume).
+  const resumeJob = useCallback(
+    (jobId: string, jobChannel: CommunicationChannel) => {
+      stopPolling();
+      setPending(true);
+      let attempts = 0;
+      const MAX_ATTEMPTS = 80; // ~4 min at 3s cadence
+      pollTimerRef.current = setInterval(async () => {
+        attempts += 1;
+        if (attempts > MAX_ATTEMPTS) {
+          stopPolling();
+          setPending(false);
+          setGenerationError({
+            message: 'The reply draft is taking too long. Please try again.'
+          });
+          try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+          return;
+        }
+        try {
+          const res = await fetch(
+            `/api/ai/generate-response?job_id=${encodeURIComponent(jobId)}&channel=${jobChannel}`,
+            { cache: 'no-store' }
+          );
+          const data = await res.json();
+          if (data?.status === 'done' && Array.isArray(data.suggestions)) {
+            stopPolling();
+            setPending(false);
+            setSuggestions(data.suggestions);
+            try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+          } else if (data?.status === 'error' || data?.status === 'not_found' || data?.status === 'canceled') {
+            stopPolling();
+            setPending(false);
+            setGenerationError({ message: data?.message || 'The reply draft did not complete.' });
+            try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+          }
+          // else still pending → keep polling
+        } catch {
+          // transient network error → keep polling
+        }
+      }, 3000);
+    },
+    [STORAGE_KEY, stopPolling]
+  );
+
+  // Elapsed timer while a draft is generating or resuming.
+  useEffect(() => {
+    if (!isGenerating && !pending) return;
+    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [isGenerating, pending]);
+
+  // Inbox resume: if a slow job was left in progress for this lead, pick it back
+  // up on mount so the finished answer reappears.
+  useEffect(() => {
+    let stored: { jobId?: string; channel?: CommunicationChannel } | null = null;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      stored = raw ? JSON.parse(raw) : null;
+    } catch {
+      stored = null;
+    }
+    if (stored?.jobId) {
+      setElapsed(0);
+      resumeJob(stored.jobId, stored.channel || channel);
+    }
+    return () => stopPolling();
+    // Mount-only resume; STORAGE_KEY is lead-scoped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleGenerate = async () => {
     const leadContext: LeadContext = {
@@ -251,12 +338,48 @@ export function AISuggestedResponses({
       institutionName
     };
 
-    await generateSuggestions(
-      leadContext,
-      channel,
-      intent,
-      customPrompt || undefined
-    );
+    stopPolling();
+    setGenerationError(null);
+    setSuggestions([]);
+    setPending(false);
+    setElapsed(0);
+    setIsGenerating(true);
+
+    try {
+      const res = await fetch('/api/ai/generate-response', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leadContext,
+          channel,
+          intent,
+          customPrompt: customPrompt || undefined
+        })
+      });
+      const data = await res.json();
+
+      if (res.status === 202 && typeof data?.jobId === 'string') {
+        // Slow job — persist and keep polling (survives navigation).
+        setIsGenerating(false);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: data.jobId, channel }));
+        } catch { /* ignore */ }
+        resumeJob(data.jobId, channel);
+        return;
+      }
+
+      if (!res.ok) {
+        setIsGenerating(false);
+        setGenerationError({ message: data?.message || 'Failed to generate reply drafts' });
+        return;
+      }
+
+      setIsGenerating(false);
+      setSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : []);
+    } catch {
+      setIsGenerating(false);
+      setGenerationError({ message: 'Failed to connect. Please try again.' });
+    }
   };
 
   // Loading state while checking service availability
@@ -368,11 +491,15 @@ export function AISuggestedResponses({
         </div>
 
         {/* Generate Button */}
-        <Button onClick={handleGenerate} disabled={isGenerating} className="w-full">
-          {isGenerating ? (
+        <Button
+          onClick={handleGenerate}
+          disabled={isGenerating || pending}
+          className="w-full"
+        >
+          {isGenerating || pending ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Generating...
+              Generating…
             </>
           ) : suggestions.length > 0 ? (
             <>
@@ -387,6 +514,19 @@ export function AISuggestedResponses({
           )}
         </Button>
 
+        {/* Timer + inbox-fallback note while the Max lane works */}
+        {(isGenerating || pending) && (
+          <p className="text-xs text-muted-foreground text-center">
+            Drafting on Max… {elapsed}s
+            {pending && (
+              <>
+                {' '}· taking a little longer — you can leave this page and the
+                draft will reappear here when it&apos;s ready.
+              </>
+            )}
+          </p>
+        )}
+
         {/* Error State */}
         {generationError && (
           <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 rounded-lg">
@@ -396,7 +536,7 @@ export function AISuggestedResponses({
         )}
 
         {/* Loading State */}
-        {isGenerating && (
+        {(isGenerating || pending) && (
           <div className="space-y-3">
             <ResponseSkeleton />
             <ResponseSkeleton />
@@ -405,7 +545,7 @@ export function AISuggestedResponses({
         )}
 
         {/* Suggestions */}
-        {!isGenerating && suggestions.length > 0 && (
+        {!isGenerating && !pending && suggestions.length > 0 && (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
               {suggestions.length} suggestions generated
@@ -422,7 +562,7 @@ export function AISuggestedResponses({
         )}
 
         {/* Empty State */}
-        {!isGenerating && suggestions.length === 0 && !generationError && (
+        {!isGenerating && !pending && suggestions.length === 0 && !generationError && (
           <div className="text-center py-4 text-sm text-muted-foreground">
             Click "Generate Suggestions" to get AI-powered response options
           </div>

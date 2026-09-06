@@ -28,9 +28,15 @@ import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import type { AttendanceSearchContext } from '@/types/attendance';
+import type { EntityType } from '@/types/organizations';
 import { cn } from '@/lib/utils';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+
+// Institution dropdown must list both colleges and schools (not admin_office/company).
+// Module-level constant → stable reference, so it doesn't re-trigger the hook's fetch each render.
+const INSTITUTION_ENTITY_TYPES: EntityType[] = ['institution', 'school'];
 
 interface AttendanceFiltersProps {
   searchContext: AttendanceSearchContext;
@@ -48,6 +54,7 @@ export function AttendanceFilters({
 }: AttendanceFiltersProps) {
   const { isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
+  const label = useAdaptiveLabels();
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
   // Updated: 2025-10-09 - Track timetable type to conditionally require section field
@@ -61,7 +68,7 @@ export function AttendanceFilters({
 
   // Fetch data hooks
   const { institutions, refetch: fetchInstitutions } =
-    useInstitutionsWithAccess({});
+    useInstitutionsWithAccess({ entityType: INSTITUTION_ENTITY_TYPES });
 
   const { academicYears } = useAcademicYearsByInstitution(
     searchContext.institution_id || undefined
@@ -227,6 +234,30 @@ export function AttendanceFilters({
     }
   }, [profile?.role, profile?.department_id, searchContext.department_id, departments, onContextChange, isSuperAdmin]);
 
+  // Updated: 2026-06-19 (FIX 7) - When an institution has exactly ONE degree, auto-select it.
+  // Schools (where "Department" is shown as "Wing") typically have a single degree, and the
+  // Wing/Department dropdown is disabled until a degree is picked — so a single trivial choice
+  // left the Wing dropdown stuck/disabled. Auto-selecting the sole option un-sticks it.
+  // Guard with the institution_id match to avoid the placeholderData stale-list race in
+  // useDegrees (the previous institution's degrees can linger for one render after a switch).
+  // [BUG-004231, BUG-004188, BUG-004187]
+  useEffect(() => {
+    if (
+      !isSuperAdmin &&
+      searchContext.institution_id &&
+      !searchContext.degree_id &&
+      degrees.length === 1
+    ) {
+      const onlyDegree = degrees[0] as { id: string; institution_id?: string };
+      if (
+        !onlyDegree.institution_id ||
+        onlyDegree.institution_id === searchContext.institution_id
+      ) {
+        onContextChange({ degree_id: onlyDegree.id });
+      }
+    }
+  }, [isSuperAdmin, searchContext.institution_id, searchContext.degree_id, degrees, onContextChange]);
+
   // Check if HOD's department belongs to the currently selected degree
   const isHodDepartmentInCurrentDegree =
     profile?.role === 'hod' &&
@@ -375,7 +406,7 @@ export function AttendanceFilters({
 
             {/* Degree */}
             <div className='space-y-2'>
-              <Label htmlFor='degree'>Degree</Label>
+              <Label htmlFor='degree'>{label('Degree')}</Label>
               <Select
                 value={searchContext.degree_id || undefined}
                 onValueChange={(value) => {
@@ -390,7 +421,7 @@ export function AttendanceFilters({
                 disabled={!searchContext.institution_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select degree' />
+                  <SelectValue placeholder={`Select ${label('degree')}`} />
                 </SelectTrigger>
                 <SelectContent>
                   {degrees.map(
@@ -409,7 +440,7 @@ export function AttendanceFilters({
 
             {/* Department */}
             <div className='space-y-2'>
-              <Label htmlFor='department'>Department</Label>
+              <Label htmlFor='department'>{label('Department')}</Label>
               <Select
                 value={searchContext.department_id || undefined}
                 onValueChange={(value) => {
@@ -426,8 +457,8 @@ export function AttendanceFilters({
                   <SelectValue
                     placeholder={
                       isHodDepartmentInCurrentDegree
-                        ? 'Your department (auto-selected)'
-                        : 'Select department'
+                        ? `Your ${label('department')} (auto-selected)`
+                        : `Select ${label('department')}`
                     }
                   />
                 </SelectTrigger>
@@ -458,7 +489,7 @@ export function AttendanceFilters({
 
             {/* Program */}
             <div className='space-y-2'>
-              <Label htmlFor='program'>Program</Label>
+              <Label htmlFor='program'>{label('Program')}</Label>
               <Select
                 value={searchContext.program_id || undefined}
                 onValueChange={(value) => {
@@ -471,7 +502,7 @@ export function AttendanceFilters({
                 disabled={!searchContext.department_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select program' />
+                  <SelectValue placeholder={`Select ${label('program')}`} />
                 </SelectTrigger>
                 <SelectContent>
                   {/* Remove duplicates by program name for super admin */}
@@ -500,7 +531,7 @@ export function AttendanceFilters({
 
             {/* Semester */}
             <div className='space-y-2'>
-              <Label htmlFor='semester'>Semester</Label>
+              <Label htmlFor='semester'>{label('Semester')}</Label>
               <Select
                 value={searchContext.semester_id || undefined}
                 onValueChange={(value) => {
@@ -512,7 +543,7 @@ export function AttendanceFilters({
                 disabled={!searchContext.department_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select semester' />
+                  <SelectValue placeholder={`Select ${label('semester')}`} />
                 </SelectTrigger>
                 <SelectContent>
                   {/* Remove duplicates by semester name */}
@@ -542,7 +573,7 @@ export function AttendanceFilters({
             {/* Section */}
             <div className='space-y-2'>
               <Label htmlFor='section'>
-                Section
+                {label('Section')}
                 {isSectionRequired && (
                   <span className='text-red-500 ml-1'>*</span>
                 )}
@@ -561,24 +592,45 @@ export function AttendanceFilters({
                 )}>
                   <SelectValue placeholder={
                     isSectionRequired
-                      ? 'Select section (required)'
-                      : 'Select section'
+                      ? `Select ${label('section')} (required)`
+                      : `Select ${label('section')}`
                   } />
                 </SelectTrigger>
                 <SelectContent>
                   {/* Updated: 2025-10-09 - Only show "All Sections" for semester-level timetables */}
                   {!isSectionRequired && (
-                    <SelectItem value='all_sections'>All Sections</SelectItem>
+                    <SelectItem value='all_sections'>{label('All Sections')}</SelectItem>
                   )}
-                  {/* Remove duplicates by section name */}
+                  {/* Updated: 2026-06-17 - Guard against the stale-list race
+                      from React Query's `placeholderData: previousData` in
+                      useSections. When the semester changes, the section list
+                      keeps returning the PREVIOUS semester's sections until the
+                      refetch lands. Because every semester has its own
+                      identically-named section (e.g. each has an "A"), the user
+                      could pick a stale cross-semester section, desyncing
+                      section_id from semester_id and producing empty attendance
+                      results. Only render sections that belong to the currently
+                      selected semester. */}
+                  {/* Updated: 2026-07-31 (BUG-003152) - Key by section id, not
+                      section_name. Two distinct sections in the same semester
+                      can share a name (e.g. a regular-intake section and a
+                      separately admitted batch's section both named "A"), and
+                      deduping by name was silently dropping one of them from
+                      the list. */}
                   {Array.from(
                     new Map(
-                      sections.map(
-                        (section: {
-                          id: string;
-                          section_name: import('react').ReactNode;
-                        }) => [section.section_name, section]
-                      )
+                      sections
+                        .filter(
+                          (section: { semester_id?: string }) =>
+                            !searchContext.semester_id ||
+                            section.semester_id === searchContext.semester_id
+                        )
+                        .map(
+                          (section: {
+                            id: string;
+                            section_name: import('react').ReactNode;
+                          }) => [section.id, section]
+                        )
                     ).values()
                   ).map(
                     (section: {
@@ -599,7 +651,7 @@ export function AttendanceFilters({
 
           <div className='space-y-2'>
             <Label htmlFor='date'>Attendance Date</Label>
-            <div className='flex gap-4 w-[280px]'>
+            <div className='flex gap-2 sm:gap-4 w-full sm:w-[280px]'>
               <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
                 <PopoverTrigger asChild>
                   <Button

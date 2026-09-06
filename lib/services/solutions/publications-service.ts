@@ -104,19 +104,20 @@ export interface NIRFMetrics {
   maxTotalScore: number;
 }
 
+/**
+ * NAAC publication metrics under the Binary Accreditation 2024 framework.
+ *
+ * Retired 2026-07-09 (stale-metric audit PR-7): the previous shape fabricated
+ * an old-framework CGPA (totalScore/1000 × 4) and letter grade (A++…D) from
+ * criterion C3 scoring. NAAC abolished CGPA/letter grades under Binary
+ * Accreditation 2024, so this now carries honest publication counts only.
+ */
 export interface NAACCriteria {
-  C3: {
-    publications: number;
-    consultancy: number;
-    extension: number;
-    collaboration: number;
-    score: number;
-    maxScore: number;
-  };
-  totalScore: number;
-  maxTotalScore: number;
-  cgpa: number;
-  grade: string;
+  totalPublications: number;
+  publishedCount: number;
+  byJournalType: Record<JournalType, number>;
+  framework: 'binary-2024';
+  note: string;
 }
 
 // ============================================
@@ -437,44 +438,24 @@ export class PublicationsService extends BaseService {
   }
 
   /**
-   * Calculate NAAC criteria
+   * NAAC publication metrics (Binary Accreditation 2024).
+   *
+   * Retired 2026-07-09 (stale-metric audit PR-7): the previous implementation
+   * fabricated an old-framework CGPA and letter grade (A++…D) via C3 scoring
+   * (maxScore 250 / maxTotalScore 1000). NAAC abolished CGPA/letter grades
+   * under Binary Accreditation 2024 — this now returns publication counts
+   * only, tagged with the framework.
    */
   static async calculateNAACCriteria(): Promise<NAACCriteria> {
     const pubStats = await this.getPublicationStats();
 
-    // C3 calculation based on publications
-    const c3Publications = Math.min(100, pubStats.total * 4);
-    const c3Score = Math.round(c3Publications / 4);
-
-    const criteria: NAACCriteria = {
-      C3: {
-        publications: c3Publications,
-        consultancy: 0,
-        extension: 0,
-        collaboration: 0,
-        score: c3Score,
-        maxScore: 250,
-      },
-      totalScore: c3Score,
-      maxTotalScore: 1000,
-      cgpa: 0,
-      grade: 'D',
+    return {
+      totalPublications: pubStats.total,
+      publishedCount: pubStats.publishedCount,
+      byJournalType: pubStats.byJournalType,
+      framework: 'binary-2024',
+      note: 'CGPA/letter grades abolished under NAAC Binary Accreditation 2024',
     };
-
-    // Calculate CGPA
-    criteria.cgpa = criteria.maxTotalScore > 0 ? parseFloat(((criteria.totalScore / criteria.maxTotalScore) * 4).toFixed(2)) : 0;
-
-    // Determine grade
-    if (criteria.cgpa >= 3.51) criteria.grade = 'A++';
-    else if (criteria.cgpa >= 3.26) criteria.grade = 'A+';
-    else if (criteria.cgpa >= 3.01) criteria.grade = 'A';
-    else if (criteria.cgpa >= 2.76) criteria.grade = 'B++';
-    else if (criteria.cgpa >= 2.51) criteria.grade = 'B+';
-    else if (criteria.cgpa >= 2.01) criteria.grade = 'B';
-    else if (criteria.cgpa >= 1.51) criteria.grade = 'C';
-    else criteria.grade = 'D';
-
-    return criteria;
   }
 
   /**

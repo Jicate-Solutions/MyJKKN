@@ -18,11 +18,31 @@ name: Visual Proof Gate
 # cannot pass status checks.
 #
 # Pattern: skill instructions are read; CI gates can't be skipped.
+#
+# POLICY CHANGE — opt-in enforcement (2026-07-13, requested by Boobalan)
+# ----------------------------------------------------------------------
+# The gate now runs its classification + evidence checks ONLY when the
+# `visual-proof-required` label is on the PR. Without the label the gate
+# passes immediately with a "skipped" summary. Rationale: the gate fired on
+# every PR and its UI-touching default blocked changes with no visual diff;
+# enforcement is now on request (anyone can apply the label to demand proof).
+# NOTE: this inverts the 2026-05-08 enforce-by-default directive. When the
+# gate IS opted in, everything below behaves exactly as before — including
+# the Director-only `visual-proof-skip` authority.
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     branches: [main]
+  # Merge queue (2026-07-11): the gate re-verifies in the queue. The queue
+  # event carries no PR object — the PR number is parsed from the queue branch
+  # name (gh-readonly-queue/main/pr-N-…) and labels/body fetched via gh, so the
+  # skip-label authority check and all 4 evidence paths keep working. A real
+  # re-check, NOT a pass-through — a vacuously-passing gate is worse than a
+  # missing one (see feedback_authz_grep_false_negative_and_vacuous_gate_pass).
+  # Inert until the merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -46,16 +66,84 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Classify PR scope by changed files
-        id: scope
+      # Merge-queue runs have no pull_request context. Parse the PR number from
+      # the queue branch name and fetch labels + body via gh so the evidence
+      # checks below evaluate identically to a PR-event run.
+      - name: Resolve PR context (merge queue)
+        if: github.event_name == 'merge_group'
         env:
-          BASE_REF: ${{ github.base_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MG_HEAD_REF: ${{ github.event.merge_group.head_ref }}
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --quiet
+          PR_NUM=$(sed -E 's#.*/pr-([0-9]+)-.*#\1#' <<< "$MG_HEAD_REF")
+          [[ "$PR_NUM" =~ ^[0-9]+$ ]] || { echo "::error::Cannot parse PR number from '$MG_HEAD_REF'"; exit 1; }
+          echo "MG_PR_NUMBER=$PR_NUM" >> "$GITHUB_ENV"
+          # Body to a file (bodies can contain anything — env delimiters are
+          # not collision-safe for arbitrary text). Labels as a JSON name array
+          # matching the PR path's toJson() shape so the same grep works.
+          gh pr view "$PR_NUM" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""' > /tmp/mg-pr-body.txt
+          {
+            echo "MG_LABELS<<MG_CTX_EOF"
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUM/labels" --jq '[.[].name]'
+            echo "MG_CTX_EOF"
+          } >> "$GITHUB_ENV"
+
+      # Opt-in switch (2026-07-13): without the `visual-proof-required` label
+      # the gate passes immediately. Labels come from the PR event, or from
+      # MG_LABELS (fetched above) on merge-queue runs. The `labeled`/`unlabeled`
+      # trigger types above re-run the gate when the label is toggled.
+      - name: Check opt-in label
+        id: optin
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME:-}" == "merge_group" ]]; then
+            LABELS="${MG_LABELS:-[]}"
+          fi
+          if echo "$LABELS" | grep -q '"visual-proof-required"'; then
+            echo "enforce=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "## 🔍 Visual Proof Gate — opted in"
+              echo ""
+              echo "\`visual-proof-required\` label present — running classification and evidence checks."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enforce=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## ✅ Visual Proof Gate — skipped (opt-in)"
+              echo ""
+              echo "Enforcement is opt-in (policy change 2026-07-13). No \`visual-proof-required\`"
+              echo "label on this PR, so the gate passes without checking for screenshots."
+              echo ""
+              echo "To demand visual proof on this PR:"
+              echo '```bash'
+              echo "gh pr edit ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --add-label visual-proof-required"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Visual Proof Gate skipped::Opt-in label 'visual-proof-required' not present"
+          fi
+
+      - name: Classify PR scope by changed files
+        id: scope
+        if: steps.optin.outputs.enforce == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          # merge_group has no base_ref; the group's parent SHA is already in
+          # history (checkout of the merge head with fetch-depth 0).
+          if [[ -n "$MG_BASE_SHA" ]]; then
+            DIFF_BASE="$MG_BASE_SHA"
+          else
+            git fetch origin "$BASE_REF" --quiet
+            DIFF_BASE="origin/$BASE_REF"
+          fi
 
           # Get full list of changed files
-          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          CHANGED=$(git diff --name-only "$DIFF_BASE...HEAD")
           echo "Changed files:"
           echo "$CHANGED" | sed 's/^/  /'
           echo ""
@@ -96,7 +184,45 @@ jobs:
           # Deliberately NOT added: `lib/hooks/` (React hooks tie to UI),
           # `lib/components/` (obviously UI), and the rest of `app/` outside
           # `app/api/` (page.tsx, layout.tsx, components — all rendering).
-          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/types/|types/|app/api/|next\.config\.ts|serwist\.config\.mjs|package\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+          # `__tests__/` added 2026-05-19 (PR #993 — PDE Tier-2 consumer
+          # wiring): vitest/jest test files under `__tests__/**` are pure
+          # verification code with zero rendering surface. They imported
+          # `lib/services/*` files that are already non-UI, but the test
+          # file path itself fell outside the regex and forced manual skip.
+          # `e2e/` + `playwright.config.ts` added 2026-06-19 (PR #1478 — guide-
+          # driven E2E auth harness): Playwright specs/setup under `e2e/**` and
+          # the root `playwright.config.ts` are pure test infrastructure — they
+          # drive a browser in CI, they do not render UI in the app. Same class
+          # as `__tests__/`; the paths just fell outside the regex and forced a
+          # manual skip. Deliberately NOT broadened to all `*.config.ts`
+          # (`tailwind.config.ts` IS visual — see the next.config note above).
+          # `vercel.json` added 2026-06-22 (PR #1571 — attendance auto-meeting
+          # cron): root-level Vercel deploy config (cron schedules, headers,
+          # rewrites, function settings). Same class as next.config.ts /
+          # package.json — it changes HOW/WHEN code runs, never renders UI. A
+          # cron-only PR (one new vercel.json crons[] entry) was forcing a
+          # manual skip even though all other files were already exempt.
+          # `lib/instagram/` added 2026-06-27 (PR #1646 — IG account-sync cron):
+          # the Instagram Graph-API client layer (api-client, extra-portfolios,
+          # sync-accounts) — Graph fetches + Supabase upserts, returns data,
+          # never renders JSX. Same class as the other lib/ backend layers; the
+          # folder just hadn't been hit by a gated PR before. NOT broadened to
+          # all of `lib/` (lib/hooks, lib/components ARE UI — see lib/services).
+          # `lib/ai-tasks/` added 2026-07-05 (AI Max-button async lane): the
+          # task-type registry (registry.ts) + ETA math (eta.ts) — Anthropic +
+          # Supabase calls, never render JSX. Same class as the other lib/ backend
+          # layers. NOTE: `components/ai-tasks/` is deliberately NOT exempt — the
+          # AiTaskButton renders and must keep requiring visual proof.
+          # `lib/constants/` added 2026-07-07 (PRs #1856 table-module-map,
+          # #1858 CARRE classify): pure data maps (module to label, auditable-
+          # module lists), same class as `lib/types/`, never render JSX. They
+          # blocked zero-UI config PRs on a screenshot that cannot exist.
+          # `lib/guide/registry.ts` added same day (#1859 smart-guide wiring):
+          # the MODULE_LABELS + MODULE_GLOSSARIES data registry (text maps, no
+          # JSX). Scoped to registry.ts ONLY, NOT all of `lib/guide/`, because
+          # `lib/guide/use-progress.ts` is a React hook (hooks tie to UI, see
+          # the lib/hooks note above) and must keep requiring visual proof.
+          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/instagram/|lib/ai-tasks/|lib/constants/|lib/guide/registry\.ts|lib/types/|types/|app/api/|__tests__/|e2e/|next\.config\.ts|playwright\.config\.ts|serwist\.config\.mjs|package\.json|vercel\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
 
           # Anything outside the non-UI set means the gate applies.
           UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)
@@ -132,15 +258,25 @@ jobs:
           fi
 
       - name: Check for visual proof evidence
-        if: steps.scope.outputs.requires_proof == 'true'
+        if: steps.optin.outputs.enforce == 'true' && steps.scope.outputs.requires_proof == 'true'
         env:
           BASE_REF: ${{ github.base_ref }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_BODY: ${{ github.event.pull_request.body }}
           LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
           set -euo pipefail
+
+          # Merge-queue context: the event has no PR object, so the step env
+          # above resolves empty — swap in the metadata fetched via gh by the
+          # "Resolve PR context" step (MG_* via GITHUB_ENV; body via file).
+          if [[ "${GITHUB_EVENT_NAME:-}" == "merge_group" ]]; then
+            PR_NUMBER="${MG_PR_NUMBER:?merge-group PR number unresolved}"
+            LABELS="${MG_LABELS:-[]}"
+            PR_BODY="$(cat /tmp/mg-pr-body.txt 2>/dev/null || true)"
+          fi
 
           # ---- Path 1: explicit skip label (justified bypass — Director-only) ----
           if echo "$LABELS" | grep -q '"visual-proof-skip"'; then
@@ -198,8 +334,11 @@ jobs:
           # auditable, structurally-enforced way is to commit them to the PR
           # branch under .screenshots/ — diff includes them, GitHub renders
           # them inline in the PR description via relative paths.
+          # Same dual base as the scope step: queue-group parent SHA when in a
+          # merge-queue run, origin/<base_ref> (fetched by the scope step) on PR runs.
+          if [[ -n "${MG_BASE_SHA:-}" ]]; then DIFF_BASE="$MG_BASE_SHA"; else DIFF_BASE="origin/$BASE_REF"; fi
           SCREENSHOT_FILES=$(
-            git diff --name-only --diff-filter=A "origin/$BASE_REF...HEAD" \
+            git diff --name-only --diff-filter=A "$DIFF_BASE...HEAD" \
               -- '.screenshots/*.png' '.screenshots/*.jpg' '.screenshots/*.jpeg' \
                  '.screenshots/*.gif' '.screenshots/*.webp' || true
           )
@@ -297,7 +436,7 @@ jobs:
           exit 1
 
       - name: Annotate questionable skip
-        if: steps.scope.outputs.requires_proof == 'true' && contains(github.event.pull_request.labels.*.name, 'visual-proof-skip')
+        if: steps.optin.outputs.enforce == 'true' && steps.scope.outputs.requires_proof == 'true' && contains(github.event.pull_request.labels.*.name, 'visual-proof-skip')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

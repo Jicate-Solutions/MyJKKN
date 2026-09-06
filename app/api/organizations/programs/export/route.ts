@@ -102,6 +102,13 @@ export async function GET(request: NextRequest) {
         institutionName: program.institutions?.name || '',
         degreeName: program.degrees?.degree_name || '',
         departmentName: program.departments?.department_name || '',
+        durationYears:
+          program.program_duration_yrs != null
+            ? Number(program.program_duration_yrs)
+            : '',
+        programType: program.program_type || '',
+        patternType: program.pattern_type || '',
+        mode: program.is_part_time ? 'Part-time' : 'Full-time',
         isActive: program.is_active ? 'Yes' : 'No',
         createdAt: program.created_at
           ? new Date(program.created_at).toLocaleString()
@@ -151,6 +158,10 @@ export async function GET(request: NextRequest) {
         { header: 'Institution', key: 'institutionName', width: 25 },
         { header: 'Degree', key: 'degreeName', width: 20 },
         { header: 'Department', key: 'departmentName', width: 25 },
+        { header: 'Duration (Years)', key: 'durationYears', width: 15 },
+        { header: 'Type', key: 'programType', width: 10 },
+        { header: 'Pattern', key: 'patternType', width: 12 },
+        { header: 'Mode', key: 'mode', width: 12 },
         { header: 'Active', key: 'isActive', width: 10 },
         { header: 'Created At', key: 'createdAt', width: 20 },
         { header: 'Updated At', key: 'updatedAt', width: 20 }
@@ -189,6 +200,10 @@ export async function GET(request: NextRequest) {
           { label: 'Institution', value: 'institutionName' },
           { label: 'Degree', value: 'degreeName' },
           { label: 'Department', value: 'departmentName' },
+          { label: 'Duration (Years)', value: 'durationYears' },
+          { label: 'Type', value: 'programType' },
+          { label: 'Pattern', value: 'patternType' },
+          { label: 'Mode', value: 'mode' },
           { label: 'Active', value: 'isActive' },
           { label: 'Created At', value: 'createdAt' },
           { label: 'Updated At', value: 'updatedAt' }

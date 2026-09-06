@@ -26,8 +26,6 @@ import {
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
   ACCOMMODATION_VALUES,
-  HOSTEL_TYPE_VALUES,
-  FOOD_TYPE_VALUES,
   QUOTA_VALUES
 } from '@/lib/constants/learner-dropdown-values';
 import * as XLSX from 'xlsx';
@@ -48,6 +46,11 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'caste': ['Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
+  // Must stay in sync with the identical block in lib/utils/bulk-upload-validation.ts,
+  // or a column that validates cleanly in preview is dropped on the real upload.
+  'abc_id': ['ABC ID', 'abc_id', 'ABC', 'Academic Bank of Credits ID'],
+  'emis': ['EMIS Number', 'EMIS', 'emis', 'emis_number'],
+  'umis': ['UMIS Number', 'UMIS', 'umis', 'umis_number'],
   'admission_year': ['Admission Year', 'admission_year'],
 
   // SECTION 2: Parent/Guardian Information
@@ -125,8 +128,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 9: Accommodation Details
   'accommodation_type': ['Accommodation Type', '* Accommodation Type', 'accommodation_type'],
-  'hostel_type': ['Hostel Type', 'hostel_type'],
-  'food_type': ['Food Type', 'food_type'],
+  'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
@@ -136,7 +138,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'roll_number': ['Roll Number', 'roll_number'],
   'register_number': ['Register Number', 'register_number'],
   'quota': ['Quota', 'quota'],
-  'category': ['Category', 'category'],
   'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
 };
 
@@ -284,6 +285,17 @@ export async function POST(request: NextRequest) {
         caste: sanitizeValue(mappedData.caste, 'text'),
         aadhar_number: sanitizeValue(mappedData.aadhar_number, 'number'),
         blood_group: normalizeDropdownValue(mappedData.blood_group, BLOOD_GROUP_VALUES),
+        // 'text' trims + upper-cases; the extra replace also strips internal
+        // spaces, so "ED 4538 7190 9686" pasted from a PDF matches what the
+        // form's IdentifierField would have stored. NOT sanitized as 'number':
+        // that drops every letter, which would gut an ID like ED453871909686.
+        // Trailing `|| null` matters: sanitizeValue returns '' for a blank cell
+        // and bulk-learner-upload-service spreads ...rest straight into the
+        // insert, so a blank would store '' — a value distinct from NULL that
+        // defeats "IS NULL" back-fill reporting and the partial indexes.
+        abc_id: sanitizeValue(mappedData.abc_id, 'text').replace(/\s+/g, '') || null,
+        emis: sanitizeValue(mappedData.emis, 'text').replace(/\s+/g, '') || null,
+        umis: sanitizeValue(mappedData.umis, 'text').replace(/\s+/g, '') || null,
         // 2026-05-02 (Phase D): integer column dropped. Legacy
         // admission_year input from Excel is parsed only to resolve the FK.
         _admission_year_input: mappedData.admission_year ? parseInt(mappedData.admission_year) : undefined,
@@ -360,8 +372,12 @@ export async function POST(request: NextRequest) {
 
         // Accommodation Details
         accommodation_type: normalizeDropdownValue(mappedData.accommodation_type, ACCOMMODATION_VALUES),
-        hostel_type: normalizeDropdownValue(mappedData.hostel_type, HOSTEL_TYPE_VALUES),
-        food_type: normalizeDropdownValue(mappedData.food_type, FOOD_TYPE_VALUES),
+        bus_required:
+          mappedData.bus_required === 'TRUE' || mappedData.bus_required === true
+            ? true
+            : mappedData.bus_required === 'FALSE' || mappedData.bus_required === false
+            ? false
+            : null,
         // Reference Information
         reference_type: sanitizeValue(mappedData.reference_type, 'text'),
         reference_name: sanitizeValue(mappedData.reference_name, 'text'),
@@ -371,7 +387,6 @@ export async function POST(request: NextRequest) {
         roll_number: mappedData.roll_number || '',
         register_number: mappedData.register_number || '',
         quota: normalizeDropdownValue(mappedData.quota, QUOTA_VALUES),
-        category: sanitizeValue(mappedData.category, 'text'),
         student_photo_url: mappedData.student_photo_url || '',
       };
 
@@ -520,7 +535,6 @@ export async function POST(request: NextRequest) {
           {
             year: yearInput,
             institutionId: sanitizedData.institution_id,
-            programId: sanitizedData.program_id,
           }
         );
       }

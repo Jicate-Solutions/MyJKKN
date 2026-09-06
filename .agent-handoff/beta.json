@@ -1,0 +1,12 @@
+{
+  "route_prefixes": ["/admin/social/facebook"],
+  "module_key": "social_facebook",
+  "tables": [
+    "fb_pages",
+    "fb_posts",
+    "fb_post_metrics",
+    "fb_page_metrics",
+    "social_facebook_logs"
+  ],
+  "permission_keys": ["social.facebook.view", "social.facebook.manage"]
+}

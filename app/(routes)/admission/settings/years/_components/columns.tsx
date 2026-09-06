@@ -40,21 +40,21 @@ export const columns: ColumnDef<AdmissionYear>[] = [
     cell: ({ row }) => {
       const ay = row.original;
       return (
-        <Link
-          href={`/admission/settings/years/${ay.id}`}
-          className='font-medium text-primary hover:underline'
-        >
-          {ay.admission_year_name}
-        </Link>
+        <div className='flex items-center gap-2'>
+          <Link
+            href={`/admission/settings/years/${ay.id}`}
+            className='font-medium text-primary hover:underline'
+          >
+            {ay.admission_year_name}
+          </Link>
+          {ay.is_current && (
+            <Badge variant='outline' className='border-primary text-primary'>
+              Current
+            </Badge>
+          )}
+        </div>
       );
     }
-  },
-  {
-    id: 'program',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program' />
-    ),
-    cell: ({ row }) => row.original.program?.program_name ?? 'N/A'
   },
   {
     id: 'institution',
@@ -65,28 +65,11 @@ export const columns: ColumnDef<AdmissionYear>[] = [
     cell: ({ row }) => row.original.institution?.name ?? 'N/A'
   },
   {
-    accessorKey: 'program_start_year',
+    accessorKey: 'year',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Start Year' />
+      <DataTableColumnHeader column={column} title='Year' />
     ),
-    cell: ({ row }) => row.getValue('program_start_year')
-  },
-  {
-    accessorKey: 'program_end_year',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='End Year' />
-    ),
-    cell: ({ row }) => row.getValue('program_end_year')
-  },
-  {
-    id: 'duration',
-    header: 'Duration',
-    cell: ({ row }) => {
-      const start = row.original.program_start_year;
-      const end = row.original.program_end_year;
-      const yrs = end - start;
-      return `${yrs} ${yrs === 1 ? 'year' : 'years'}`;
-    }
+    cell: ({ row }) => row.getValue('year')
   },
   {
     accessorKey: 'is_active',

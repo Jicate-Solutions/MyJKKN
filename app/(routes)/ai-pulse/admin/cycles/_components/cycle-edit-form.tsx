@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Save,
+  ScrollText,
   ShieldAlert,
   XCircle,
 } from 'lucide-react';
@@ -49,10 +50,17 @@ import {
   useUpdateCycleConfig,
   type UpdateCycleConfigInput,
 } from '@/lib/services/ai-pulse/cycles-service';
+import {
+  deriveCycleTimes,
+  deriveEffectiveStatus,
+} from '@/lib/services/ai-pulse/live-session-service';
 import { FeaturedToolSelect } from './featured-tool-select';
 import { HostUserSelect } from './host-user-select';
 
 const PERMISSION_KEY = 'aiPulse:cycles.manage';
+
+// "post_event" reads better than the raw enum once capitalised.
+const STATUS_LABELS: Record<string, string> = { post_event: 'Post-event' };
 
 interface CycleEditFormProps {
   cycleId: string;
@@ -66,6 +74,8 @@ interface FormState {
   meet_url: string;
   recording_url: string;
   external_judge_cycle: boolean;
+  challenge_text: string;
+  you_said_we_changed: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -76,6 +86,8 @@ const EMPTY_FORM: FormState = {
   meet_url: '',
   recording_url: '',
   external_judge_cycle: false,
+  challenge_text: '',
+  you_said_we_changed: '',
 };
 
 function isValidHttpUrl(s: string): boolean {
@@ -100,6 +112,9 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [cancelReason, setCancelReason] = useState('');
   const [dirty, setDirty] = useState(false);
+  // Status is clock-derived; compute after mount to avoid a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Hydrate form from cycle data
   useEffect(() => {
@@ -112,6 +127,8 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
       meet_url: cycle.ai_pulse.meet_url || '',
       recording_url: cycle.ai_pulse.recording_url || '',
       external_judge_cycle: cycle.ai_pulse.external_judge_cycle === true,
+      challenge_text: cycle.ai_pulse.challenge_text || '',
+      you_said_we_changed: cycle.ai_pulse.you_said_we_changed || '',
     });
     setDirty(false);
   }, [cycle]);
@@ -172,13 +189,22 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
   }
 
   const isCancelled = cycle.status === 'cancelled';
+  // Cycles never leave 'draft' in storage; show the real clock-derived status.
+  const { starts_at, ends_at } = deriveCycleTimes({
+    demo_date: cycle.demo_date,
+    config: { ai_pulse: cycle.ai_pulse },
+  });
+  const effectiveStatus = mounted
+    ? deriveEffectiveStatus(cycle.status, starts_at, ends_at)
+    : cycle.status;
+  const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus;
 
   // ---------------------------------------------------------------------------
   // Save handler
   // ---------------------------------------------------------------------------
   const handleSave = async () => {
     if (!isValidHttpUrl(form.meet_url)) {
-      toast.error('Meet URL must be a valid http(s) URL');
+      toast.error('Meeting link must be a valid http(s) URL');
       return;
     }
     if (!isValidHttpUrl(form.recording_url)) {
@@ -194,6 +220,8 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
       meet_url: form.meet_url.trim() || null,
       recording_url: form.recording_url.trim() || null,
       external_judge_cycle: form.external_judge_cycle,
+      challenge_text: form.challenge_text.trim() || null,
+      you_said_we_changed: form.you_said_we_changed.trim() || null,
     };
 
     const res = await update.mutateAsync(patch);
@@ -237,7 +265,7 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
               {cycle.name || 'Untitled cycle'}
             </h2>
             <Badge variant="outline" className="capitalize">
-              {cycle.status}
+              {statusLabel}
             </Badge>
             {cycle.demo_date && (
               <span className="text-sm text-muted-foreground">
@@ -253,6 +281,16 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* The post-session quiz is authored on a separate console; without
+              this link it had no entry point from the UI. */}
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/ai-pulse/admin/quiz/${cycleId}`)}
+            className="gap-2"
+          >
+            <ScrollText className="h-4 w-4" />
+            Edit quiz
+          </Button>
           <Button
             onClick={handleSave}
             disabled={!dirty || update.isPending || isCancelled}
@@ -340,15 +378,53 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
 
           {/* Meet URL */}
           <div className="space-y-2">
-            <Label htmlFor="meet-url">Google Meet URL</Label>
+            <Label htmlFor="meet-url">Meeting link (Teams preferred — 1000-participant capacity)</Label>
             <Input
               id="meet-url"
               type="url"
               value={form.meet_url}
               onChange={(e) => setField('meet_url', e.target.value)}
-              placeholder="https://meet.google.com/abc-defg-hij"
+              placeholder="https://teams.microsoft.com/l/meetup-join/…"
               disabled={isCancelled}
             />
+          </div>
+
+          {/* Weekly challenge (CARE C-move) */}
+          <div className="space-y-2">
+            <Label htmlFor="challenge-text">This week&apos;s challenge</Label>
+            <Textarea
+              id="challenge-text"
+              value={form.challenge_text}
+              onChange={(e) => setField('challenge_text', e.target.value)}
+              placeholder="e.g. Use Lovable to build a one-page tool your department would actually use — patient intake, lab log, attendance helper…"
+              rows={2}
+              maxLength={400}
+              disabled={isCancelled}
+            />
+            <p className="text-xs text-muted-foreground">
+              What teams must build and submit this week. Shown to every
+              learner on My Pulse and judged by faculty on Monday — without it,
+              Gold has no stated brief.
+            </p>
+          </div>
+
+          {/* You said, we changed (CARE E-move) */}
+          <div className="space-y-2">
+            <Label htmlFor="you-said-we-changed">You said, we changed</Label>
+            <Textarea
+              id="you-said-we-changed"
+              value={form.you_said_we_changed}
+              onChange={(e) => setField('you_said_we_changed', e.target.value)}
+              placeholder="e.g. You asked for slower Tamil segments — this week each demo runs twice, once per language."
+              rows={2}
+              maxLength={300}
+              disabled={isCancelled}
+            />
+            <p className="text-xs text-muted-foreground">
+              One line answering last week&apos;s learner feedback (collected
+              with the quiz). Shown on My Pulse — proof that feedback changes
+              the program.
+            </p>
           </div>
 
           {/* Recording URL */}

@@ -14,10 +14,14 @@ import type { LearnerProfile } from '@/types/learner-profile';
 
 /**
  * Virtual lifecycle_status sentinel handled by getEnquiries: expands to
- * lifecycle_status='admitted' AND legacy_fee_mode=true and annotates each row
+ * lifecycle_status='enquiry' AND legacy_fee_mode=true and annotates each row
  * with resolution_status / missing_fields from
  * vw_learners_profile_fee_backfill_status so the "Fees Setup Pending" tab can
  * render badges.
+ *
+ * 2026-05-20: Updated from 'admitted' to 'enquiry' as part of the workflow
+ * realignment. The 554 legacy_fee_mode rows that used to sit at 'admitted' were
+ * migrated to 'enquiry' in 20260520120100_realign_lifecycle_statuses_data_and_seed.
  */
 export const FEES_SETUP_PENDING = 'fees_setup_pending';
 
@@ -47,7 +51,26 @@ interface GetEnquiriesParams {
   institution_id?: string;
   degree_id?: string;
   department_id?: string;
+  // 2026-05-21: programme/semester/section/academic-year were dropped silently
+  // because the page.tsx → getEnquiries handoff only forwarded the top-3 FK
+  // filters. Users filtering by a specific programme variant (e.g. BSc CS
+  // Cyber Security) saw all department leads, indistinguishable from leads
+  // on the base programme. URL params already exist (see data-table-schema.ts),
+  // we just need the service to honour them.
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  // URL param is `academic_year_id` but the FK column on learners_profiles
+  // is `admission_year_id` — translate at the page→service boundary.
+  admission_year_id?: string;
   lifecycle_status?: string;
+  // 2026-06-17: Group Dashboard drill-down scope. The dashboard appends the
+  // selected admission YEAR (integer, e.g. 2026) + the scoped institution id
+  // list (plural). These mirror the year + institution scope the dashboard RPC
+  // applies, so the enquiries list total matches the KPI card the user clicked.
+  // `admission_year` (int) expands to the matching admission_year UUIDs.
+  admission_year?: number;
+  institution_ids?: string[];
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }
@@ -100,9 +123,15 @@ async function getEnquiriesInner(
     institution_id,
     degree_id,
     department_id,
+    program_id,
+    semester_id,
+    section_id,
+    admission_year_id,
     lifecycle_status,
-    sortBy = 'first_name',
-    sortOrder = 'asc'
+    admission_year,
+    institution_ids,
+    sortBy = 'created_at',
+    sortOrder = 'desc'
   } = params;
 
   // Build query - filter for enquiry and pending statuses
@@ -117,20 +146,27 @@ async function getEnquiriesInner(
       program:programs(id, program_name),
       semester:semesters(id, semester_name, semester_code),
       section:sections(id, section_name),
-      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, program_start_year, program_end_year)
+      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
     `,
       { count: 'exact' }
     );
 
   // Filter for enquiry statuses.
-  // The 'fees_setup_pending' sentinel is a virtual tab: expand to admitted+legacy.
+  // The 'fees_setup_pending' sentinel is a virtual tab: expand to enquiry+legacy.
+  // 2026-05-20: Default lifecycle list now includes 'enquiry', 'enquiry_submitted'.
+  // Avoids the May 2026 regression where the default filter dropped 'enquiry'.
   const isFeesSetupPending = lifecycle_status === FEES_SETUP_PENDING;
+  const isAllStatuses = lifecycle_status === 'all';
   if (isFeesSetupPending) {
-    query = query.eq('lifecycle_status', 'admitted').eq('legacy_fee_mode', true);
+    query = query.eq('lifecycle_status', 'enquiry').eq('legacy_fee_mode', true);
+  } else if (isAllStatuses) {
+    // Search across all admission lifecycle stages EXCEPT 'active' —
+    // active students are managed in the Profiles page, not Enquiries.
+    query = query.neq('lifecycle_status', 'active');
   } else if (lifecycle_status) {
     query = query.eq('lifecycle_status', lifecycle_status);
   } else {
-    query = query.in('lifecycle_status', ['admitted', 'pending']);
+    query = query.in('lifecycle_status', ['enquiry', 'enquiry_submitted', 'pending']);
   }
 
   // Apply filters - Parse advanced search format
@@ -185,6 +221,47 @@ async function getEnquiriesInner(
     query = query.eq('department_id', department_id);
   }
 
+  if (program_id) {
+    query = query.eq('program_id', program_id);
+  }
+
+  if (semester_id) {
+    query = query.eq('semester_id', semester_id);
+  }
+
+  if (section_id) {
+    query = query.eq('section_id', section_id);
+  }
+
+  if (admission_year_id) {
+    query = query.eq('admission_year_id', admission_year_id);
+  }
+
+  // 2026-06-17: Group Dashboard drill-down scope. `admission_year` is the
+  // integer cohort year; expand it to the matching admission_year UUIDs
+  // (admission_year is per-institution) so the filtered total matches the
+  // dashboard's year-scoped KPI card. An empty id list yields no rows, which
+  // is correct — there is no cohort for that year. On lookup error we fail
+  // open (skip the filter) rather than crash the list.
+  if (admission_year != null && Number.isFinite(admission_year)) {
+    const { data: ayRows, error: ayErr } = await supabase
+      .from('admission_years')
+      .select('id')
+      .eq('year', admission_year);
+    if (ayErr) {
+      console.error('[getEnquiries] Failed to resolve admission years for scope:', ayErr);
+    } else {
+      query = query.in(
+        'admission_year_id',
+        (ayRows ?? []).map((r: { id: string }) => r.id)
+      );
+    }
+  }
+
+  if (institution_ids && institution_ids.length > 0) {
+    query = query.in('institution_id', institution_ids);
+  }
+
   // Apply sorting
   query = query.order(sortBy, { ascending: sortOrder === 'asc' });
 
@@ -192,8 +269,11 @@ async function getEnquiriesInner(
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
-  // Execute the main query
-  const { data, error } = await query.range(from, to);
+  // Execute the main query. PostgREST returns the exact filtered total in
+  // `count` because we passed `{ count: 'exact' }` on the .select() above —
+  // there is no need for a second `countQuery` here. Dropping the redundant
+  // round-trip cuts per-tab database calls in half. (2026-05-20)
+  const { data, error, count } = await query.range(from, to);
 
   // Never throw from a Server Component data fetcher — the error bubbles up
   // to the root error boundary and crashes the entire page (all tabs).
@@ -216,82 +296,6 @@ async function getEnquiriesInner(
       data: [],
       metadata: { total_items: 0, page, limit, total_pages: 0 }
     };
-  }
-
-  // Get accurate count with a separate simplified query
-  let countQuery = supabase
-    .from('learners_profiles')
-    .select('*', { count: 'exact', head: true });
-
-  // Apply the same filters as the main query
-  if (isFeesSetupPending) {
-    countQuery = countQuery.eq('lifecycle_status', 'admitted').eq('legacy_fee_mode', true);
-  } else if (lifecycle_status) {
-    countQuery = countQuery.eq('lifecycle_status', lifecycle_status);
-  } else {
-    countQuery = countQuery.in('lifecycle_status', ['admitted', 'pending']);
-  }
-
-  if (search) {
-    // Check if this is the new advanced search format
-    if (search.includes('|') || search.includes(':')) {
-      // Parse the search format
-      const searchParts = search.split('|');
-      const searchConditions: string[] = [];
-
-      searchParts.forEach(part => {
-        const [field, value] = part.split(':');
-        if (!field || !value) return;
-
-        const trimmedValue = value.trim();
-        if (!trimmedValue) return;
-
-        // Map field names to database columns
-        if (field === 'name') {
-          searchConditions.push(`first_name.ilike.%${trimmedValue}%`);
-          searchConditions.push(`last_name.ilike.%${trimmedValue}%`);
-        } else if (field === 'roll') {
-          searchConditions.push(`roll_number.ilike.%${trimmedValue}%`);
-        } else if (field === 'email') {
-          searchConditions.push(`student_email.ilike.%${trimmedValue}%`);
-          searchConditions.push(`college_email.ilike.%${trimmedValue}%`);
-        }
-      });
-
-      // Apply the OR conditions if we have any
-      if (searchConditions.length > 0) {
-        countQuery = countQuery.or(searchConditions.join(','));
-      }
-    } else {
-      // Fallback to old search format
-      countQuery = countQuery.or(
-        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,student_email.ilike.%${search}%,student_mobile.ilike.%${search}%`
-      );
-    }
-  }
-
-  if (institution_id) {
-    countQuery = countQuery.eq('institution_id', institution_id);
-  }
-
-  if (degree_id) {
-    countQuery = countQuery.eq('degree_id', degree_id);
-  }
-
-  if (department_id) {
-    countQuery = countQuery.eq('department_id', department_id);
-  }
-
-  const { count, error: countError } = await countQuery;
-
-  if (countError) {
-    console.error('[getEnquiries] Error fetching count:', {
-      code: countError.code,
-      message: countError.message,
-      details: countError.details,
-      hint: countError.hint,
-      statusFilter: lifecycle_status,
-    });
   }
 
   const totalPages = count ? Math.ceil(count / limit) : 0;

@@ -1,7 +1,7 @@
 'use client'
 
 
-import { use, useState, useEffect } from 'react'
+import { Suspense, use, useState, useEffect } from 'react'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2 } from 'lucide-react'
@@ -28,16 +28,19 @@ import { useEventVenues } from '@/hooks/startup-studio/use-event-venues'
 import { VerificationTable } from './_components/verification-table'
 import { EvaluatorProgressBar } from './_components/evaluator-progress-bar'
 import type { EvaluatorTeamCard, VerificationStatus } from '@/types/startup-studio'
+import { useTabParam } from '@/hooks/use-tab-param'
 
 type TabValue = 'pending' | 'verified' | 'flagged' | 'all'
 
-export default function EvaluatePage({ params }: { params: Promise<{ id: string }> }) {
+const EVALUATE_TABS = ['pending', 'verified', 'flagged', 'all'] as const
+
+function EvaluatePageInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { profile } = useAuth()
   const profileId = profile?.id ?? ''
   const isSuperAdmin = profile?.role === 'super_admin'
 
-  const [tab, setTab] = useState<TabValue>('pending')
+  const [tab, setTab] = useTabParam<TabValue>('pending', EVALUATE_TABS)
   const [selectedVenueId, setSelectedVenueId] = useState('')
 
   const { data: event, isLoading: eventLoading } = useEvent(id)
@@ -190,7 +193,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
             />
 
             <Tabs value={tab} onValueChange={v => setTab(v as TabValue)}>
-              <TabsList className="grid grid-cols-4 w-full">
+              <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
                 <TabsTrigger value="pending">Pending ({pendingTeams.length})</TabsTrigger>
                 <TabsTrigger value="verified">Done ({verifiedTeams.length})</TabsTrigger>
                 <TabsTrigger
@@ -227,5 +230,14 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
         )}
       </div>
     </ContentLayout>
+  )
+}
+
+export default function EvaluatePage(props: { params: Promise<{ id: string }> }) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <EvaluatePageInner {...props} />
+    </Suspense>
   )
 }

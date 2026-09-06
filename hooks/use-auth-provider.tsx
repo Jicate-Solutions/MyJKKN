@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getQueryClient } from '@/providers/query-client-provider';
 import type { Profile } from '@/types/auth';
 
 interface AuthContextValue {
@@ -11,6 +12,18 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+/**
+ * Purge the service-worker "api-cache" so a previous user's cached /api/*
+ * responses can never be served to the next user on a shared browser
+ * (admission-leads cross-counselor leak, 2026-06-03). Only the api-cache is
+ * removed — never precache/next-static, which would trigger the SW refresh loop
+ * the pwa-provider guards against. Best-effort, non-blocking.
+ */
+function purgeApiCache(): void {
+  if (typeof window === 'undefined' || !('caches' in window)) return;
+  void caches.delete('api-cache').catch(() => {});
+}
 
 /**
  * Auth Provider - Provides auth state globally
@@ -31,6 +44,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Memoize the supabase client to prevent re-creation
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
+  // True while a loadUserAndProfile pass is running. On every page load the
+  // initial effect kicks off a load AND supabase-js fires SIGNED_IN as it
+  // restores the cookie session — the profileRef guard below can't catch that
+  // because the first load hasn't set profileRef yet. Result (measured
+  // 2026-08-02): the profiles select ran twice on EVERY page, platform-wide.
+  // The in-flight pass reads getSession() itself, so the concurrent trigger
+  // is pure duplication — skip it.
+  const loadInFlightRef = useRef(false);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -40,6 +62,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.location.pathname.startsWith('/auth/');
 
     const loadUserAndProfile = async () => {
+      if (loadInFlightRef.current) return;
+      loadInFlightRef.current = true;
       try {
         // 1. Get User from Supabase Auth
         const {
@@ -82,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfile(null);
         }
       } finally {
+        loadInFlightRef.current = false;
         if (isMounted) {
           setIsLoading(false);
         }
@@ -110,6 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // When Supabase can't refresh the token (expired/revoked), it emits SIGNED_OUT.
       // Clear profile silently — middleware/proxy will redirect to /auth/login.
       if (event === 'SIGNED_OUT' && !session) {
+        purgeApiCache();
         setProfile(null);
         setIsLoading(false);
         return;
@@ -121,6 +147,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // data tables) and causes unsaved input to be lost.
       if (event === 'SIGNED_IN' && session?.user?.id && profileRef.current?.id === session.user.id) {
         return;
+      }
+
+      // A different user signed in on this browser (or a fresh login) — drop the
+      // prior user's cached /api/* responses before loading the new profile so a
+      // stale body can't be served to the new user.
+      if (event === 'SIGNED_IN') {
+        purgeApiCache();
+        // The browser-singleton QueryClient survives layout unmounts (2026-08-02
+        // dedupe); non-user-keyed entries could otherwise serve the prior
+        // user's rows for up to their staleTime after an in-tab user switch.
+        getQueryClient().clear();
       }
 
       setIsLoading(true);

@@ -257,7 +257,7 @@ function ProgrammeCard({ regulationId, programme, institutionsId }: ProgrammeCar
       {isExpanded && (
         <div className='p-4'>
           <Tabs defaultValue='pos'>
-            <TabsList className='mb-4'>
+            <TabsList className='mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
               <TabsTrigger value='pos'>
                 Programme Outcomes
                 {po_count > 0 && (
@@ -455,7 +455,7 @@ export function ProgrammeOutcomesEditor({ regulationId, boardId, institutionsId 
     <div className='space-y-3'>
       {programmes.map((programme) => (
         <ProgrammeCard
-          key={programme.programme_code}
+          key={`${programme.board_id}:${programme.programme_code}`}
           regulationId={regulationId}
           programme={programme}
           institutionsId={institutionsId}

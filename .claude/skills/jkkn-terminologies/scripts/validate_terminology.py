@@ -27,18 +27,32 @@ CRITICAL_TERMS = {
     r'\btrainees\b': 'learners',
     r'\bstudent body\b': 'learner community',
 
-    # Teaching Staff
-    r'\bfaculty\b': 'learning facilitators',
-    r'\bteacher\b': 'learning facilitator',
-    r'\bteachers\b': 'learning facilitators',
-    r'\bprofessor\b': 'learning facilitator',
-    r'\bprofessors\b': 'learning facilitators',
-    r'\binstructor\b': 'learning facilitator',
-    r'\binstructors\b': 'learning facilitators',
-    r'\btutor\b': 'learning facilitator',
-    r'\btutors\b': 'learning facilitators',
-    r'\beducator\b': 'learning facilitator',
-    r'\beducators\b': 'learning facilitators',
+    # Teaching Staff — Director ruling 2026-07-14 ("Senior Learners everywhere"):
+    # written copy uses "Senior Learner(s)" for the teaching role, SUPERSEDING the
+    # 2026-06-29 encoding that normalized written copy toward "learning facilitators".
+    # "Senior Learner" is the teaching role, NOT a senior student (that concept is
+    # "peer mentor"); the learners-council staff advisor role key stays separate.
+    # Longer patterns first so "learning facilitators" reports over bare "facilitators".
+    r'\blearning facilitators\b': 'Senior Learners',
+    r'\blearning facilitator\b': 'Senior Learner',
+    r'\bfacilitators\b': 'Senior Learners',
+    r'\bfacilitator\b': 'Senior Learner',
+    r'\bfaculty\b': 'Senior Learners',
+    r'\bteacher\b': 'Senior Learner',
+    r'\bteachers\b': 'Senior Learners',
+    r'\bprofessor\b': 'Senior Learner',
+    r'\bprofessors\b': 'Senior Learners',
+    r'\binstructor\b': 'Senior Learner',
+    r'\binstructors\b': 'Senior Learners',
+    r'\btutor\b': 'Senior Learner',
+    r'\btutors\b': 'Senior Learners',
+    r'\beducator\b': 'Senior Learner',
+    r'\beducators\b': 'Senior Learners',
+
+    # Teaching sessions — Director correction 2026-07-14 ("improves the classes" →
+    # sessions). Plural only: singular \bclass\b collides with route slugs
+    # (class-feedback) and class= attributes on copy-bearing lines.
+    r'\bclasses\b': 'sessions',
 
     # Non-Academic Staff
     r'\bstaff\b': 'team members',

@@ -70,6 +70,7 @@ import { useApproverProfiles } from '@/hooks/organization/use-profiles';
 import { SubCategoryService } from '@/lib/services/resource-management/sub-category-service';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { generateResourceCode, isValidResourceCode } from '@/lib/utils/resource-id-generator';
+import { DEFAULT_TIME_SLOT_CONFIG } from '@/lib/services/resource-management/default-slots';
 import {
   Loader2,
   Upload,
@@ -1274,6 +1275,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                         <SelectItem value='occupied'>Occupied</SelectItem>
                         <SelectItem value='maintenance'>Maintenance</SelectItem>
                         <SelectItem value='retired'>Retired</SelectItem>
+                        <SelectItem value='inactive'>Inactive</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -1779,18 +1781,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         {/* Enhanced Time Slot Configuration */}
         {(bookingType === 'reservation' || bookingType === 'both') && (
           <TimeSlotConfigComponent
-            config={
-              bookingConfig.time_slot_config || {
-                operating_hours: {
-                  default: { start: '09:00', end: '17:00' }
-                },
-                slot_generation: 'automatic',
-                automatic_config: {
-                  slot_duration: 60,
-                  buffer_time: 0
-                }
-              }
-            }
+            config={bookingConfig.time_slot_config || DEFAULT_TIME_SLOT_CONFIG}
             onChange={(timeConfig: TimeSlotConfig) =>
               updateBookingConfig('time_slot_config', timeConfig)
             }
@@ -1811,10 +1802,19 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                 id='enable_approval'
                 checked={approvalConfig.enabled || false}
                 onCheckedChange={(checked) => {
-                  updateApprovalConfig('enabled', checked);
-                  if (!checked) {
-                    // Clear approvers when disabled
-                    updateApprovalConfig('approvers', []);
+                  if (checked) {
+                    form.setValue('approval_config', {
+                      ...approvalConfig,
+                      enabled: true,
+                      approval_type: approvalConfig.approval_type || 'sequential',
+                      require_all_approvers: approvalConfig.require_all_approvers ?? true,
+                    });
+                  } else {
+                    form.setValue('approval_config', {
+                      ...approvalConfig,
+                      enabled: false,
+                      approvers: [],
+                    });
                   }
                 }}
               />
@@ -1860,7 +1860,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
 
                 {/* Add Approvers Section */}
                 <div className='space-y-4 rounded-lg border p-4'>
-                  <div className='flex items-center justify-between'>
+                  <div className='flex flex-wrap items-center justify-between gap-2'>
                     <h4 className='font-medium text-sm'>Approvers List</h4>
                     <Button
                       type='button'
@@ -1897,7 +1897,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                         key={approver.id}
                         className='rounded-lg border p-4 space-y-3 bg-background'
                       >
-                        <div className='flex items-center justify-between'>
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
                           <div className='flex items-center gap-2'>
                             <Badge variant='outline'>
                               Level {approver.level}

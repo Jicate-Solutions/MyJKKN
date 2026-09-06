@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
-import { canAccessBos, resolveBosAccess, resolveCoeInstitutionId, type BosAccessScope } from '@/lib/utils/bos/bos-access';
+import { canAccessBos, resolveBosBoardScope, resolveCoeInstitutionId, type BosBoardScope } from '@/lib/utils/bos/bos-access';
 import { courseFormSchema } from '@/lib/services/bos/courses-schemas';
 
 async function authenticate(action: 'view' | 'edit' | 'delete') {
@@ -13,7 +13,7 @@ async function authenticate(action: 'view' | 'edit' | 'delete') {
   }
   const [hasAccess, scope] = await Promise.all([
     canAccessBos(user.id, 'academic.bos-courses', action),
-    resolveBosAccess(user.id),
+    resolveBosBoardScope(user.id),
   ]);
   if (!hasAccess) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
@@ -23,14 +23,19 @@ async function authenticate(action: 'view' | 'edit' | 'delete') {
 
 /**
  * Fetches the course, checks lock status, and for non-super-admins verifies
- * the course belongs to their own institution. Returns an error response or null.
+ * the course belongs to an institution where the user has board membership.
+ * Multi-institution-aware: a faculty serving on Board X in Institution A and
+ * Board Y in Institution B can mutate courses in either, provided the course
+ * also sits on one of their boards.
+ *
+ * Returns an error response or null.
  */
 async function assertMutationAllowed(
   client: CoeRestClient,
   id: string,
-  scope: BosAccessScope,
+  scope: BosBoardScope,
 ): Promise<NextResponse | null> {
-  const existing = await client.get<{ course_status?: string; courses_status?: string; institutions_id?: string }>(`/api/v1/courses/${id}`);
+  const existing = await client.get<{ course_status?: string; courses_status?: string; institutions_id?: string; board_id?: string; board_code?: string }>(`/api/v1/courses/${id}`);
   const lockVal = existing?.courses_status ?? existing?.course_status;
   if (lockVal?.toLowerCase() === 'locked') {
     return NextResponse.json(
@@ -38,13 +43,39 @@ async function assertMutationAllowed(
       { status: 423 },
     );
   }
-  // Non-super-admins may only mutate courses belonging to their own institution.
-  if (!scope.isSuperAdmin && scope.institutionsId && existing?.institutions_id) {
-    const userCoeId = await resolveCoeInstitutionId(scope.institutionsId);
-    if (userCoeId && userCoeId !== existing.institutions_id) {
+  if (scope.isSuperAdmin) return null;
+
+  // Resolve the COE institution_id of every institution the user has
+  // membership in (union of allInstitutionIds + institutionsOf), then accept
+  // the mutation only if the course's institutions_id is in that set.
+  if (existing?.institutions_id) {
+    const myJkknIds = new Set<string>([
+      ...(scope.institutionsId ? [scope.institutionsId] : []),
+      ...scope.allInstitutionIds,
+      ...scope.institutionsOf,
+    ]);
+    if (myJkknIds.size === 0) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    const allowedCoeIds = await Promise.all(
+      Array.from(myJkknIds).map((id) => resolveCoeInstitutionId(id)),
+    );
+    const allowed = new Set(allowedCoeIds.filter((x): x is string => !!x));
+    if (!allowed.has(existing.institutions_id)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
   }
+
+  // Board-membership gate: the course's board_id must be in the user's
+  // boardsOf set. Falls back to board_code when COE only returns the code
+  // (older course rows).
+  if (existing?.board_id && !scope.boardsOf.has(existing.board_id)) {
+    return NextResponse.json(
+      { error: 'Forbidden: this course belongs to a board you do not serve on' },
+      { status: 403 },
+    );
+  }
+
   return null;
 }
 
@@ -103,16 +134,24 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       updates.board_code = body.board_code;
     }
 
-    // Recompute totals if both sides were sent
-    if ('internal_max_mark' in updates && 'external_max_mark' in updates) {
+    // Recompute the total from the CONVERTED marks — the weightage pair the
+    // Max Marks form edits. Summing the question-paper ceilings instead would
+    // store 50 + 100 = 150 for a Theory + Practical course whose real total is
+    // 100. Falls back to the ceilings only for callers that send just those.
+    if ('internal_converted_mark' in updates && 'external_converted_mark' in updates) {
+      const i = (updates.internal_converted_mark as number | undefined) ?? 0;
+      const e = (updates.external_converted_mark as number | undefined) ?? 0;
+      updates.total_max_mark = i + e;
+    } else if ('internal_max_mark' in updates && 'external_max_mark' in updates) {
       const i = (updates.internal_max_mark as number | undefined) ?? 0;
       const e = (updates.external_max_mark as number | undefined) ?? 0;
       updates.total_max_mark = i + e;
     }
     if ('theory_hours' in updates && 'practical_hours' in updates) {
       const t = (updates.theory_hours as number | undefined) ?? 0;
+      const tut = (updates.tutorial_hours as number | undefined) ?? 0;
       const p = (updates.practical_hours as number | undefined) ?? 0;
-      updates.class_hours = t + p;
+      updates.class_hours = t + tut + p;
     }
 
     const updated = await client.put<unknown>(`/api/v1/courses/${id}`, updates);

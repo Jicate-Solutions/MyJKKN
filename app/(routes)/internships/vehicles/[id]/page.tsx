@@ -55,11 +55,25 @@ import {
 import { VehicleForm, type InstitutionOption } from '../../_components/vehicles/VehicleForm';
 import { VehicleBookingHistory } from '../../_components/vehicles/VehicleBookingHistory';
 import type { CreateVehicleInput, UpdateVehicleInput } from '@/lib/services/internships/types';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../../_components/no-access-alert';
 
 const FALLBACK_LEAD_TIME_DAYS = 2;
 const FALLBACK_CAPACITY = 10;
 
 export default function InternshipVehicleDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  return (
+    <PermissionGuard module="internship.vehicles" action="view" fallback={<NoAccessAlert />}>
+      <InternshipVehicleDetailPageInner params={params} />
+    </PermissionGuard>
+  );
+}
+
+function InternshipVehicleDetailPageInner({
   params,
 }: {
   params: Promise<{ id: string }>;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { resolveCasRegulationIds } from '@/lib/utils/bos/institution-scope';
 import { isMemberForProgramme } from '@/lib/utils/bos/bos-chairman-access';
 import { BosProgrammeOutcome } from '@/types/bos';
 
@@ -27,8 +28,12 @@ async function resolveInstitution(
 /**
  * GET /api/bos/taxonomy/[regulationId]/programmes/[code]/pos
  * Returns all POs for this regulation + programme, ordered by sort_order.
+ *
+ * Query parameters:
+ * - institutionsIds (optional CSV): For CAS, pass both UUIDs (Aided,Self-Financing)
+ *   to search across both. If omitted, resolves from user's scope.
  */
-export async function GET(_request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params }: Params) {
   try {
     const { regulationId, code: programmeCode } = await params;
     const supabase = await createClient();
@@ -36,16 +41,64 @@ export async function GET(_request: NextRequest, { params }: Params) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const scope = await resolveBosAccess(user.id);
-    const institutionsId = await resolveInstitution(supabase, scope, regulationId);
-    if (!institutionsId) return NextResponse.json({ data: [] });
 
-    const { data, error } = await supabase
+    // CAS-aware institution filtering: accept CSV from client, validate against scope
+    const { searchParams } = new URL(request.url);
+    const csv = searchParams.get('institutionsIds');
+    const clientIds = csv ? csv.split(',').filter(Boolean) : [];
+
+    let filterIds: string[] = [];
+    if (scope.isSuperAdmin && clientIds.length > 0) {
+      filterIds = clientIds;
+    } else {
+      // Non-admin: validate client IDs against their scope, or use scope's full institutional set
+      const allowed = new Set([
+        ...(scope.institutionsId ? [scope.institutionsId] : []),
+        ...scope.allInstitutionIds,
+      ]);
+      filterIds = clientIds.filter(id => allowed.has(id));
+      if (filterIds.length === 0) {
+        // No client IDs or they failed validation; use scope's full set
+        filterIds = scope.allInstitutionIds.length > 0
+          ? scope.allInstitutionIds
+          : scope.institutionsId
+            ? [scope.institutionsId]
+            : [];
+      }
+    }
+
+    // Fallback: if still empty, resolve from regulation
+    if (filterIds.length === 0) {
+      const institutionsId = await resolveInstitution(supabase, scope, regulationId);
+      if (!institutionsId) return NextResponse.json({ data: [] });
+      filterIds = [institutionsId];
+    }
+
+    // Service-role for the SELECT: bos_programme_outcomes RLS gates on
+    // role_has_institution_access(institutions_id), and the POs may live under
+    // the CAS Aided sibling while the caller's context is the Self sibling — RLS
+    // hides the cross-sibling rows. filterIds above is the CAS-aware authz (a
+    // non-admin's client ids are validated against their scope), so service-role
+    // is safe. Same precedent as /api/bos/compositions, /meetings, /lookup/*.
+    const db = createServiceRoleClient();
+    // CAS-aware: POs may be entered under either sibling regulation of the same
+    // code (Aided/SF), so query across both.
+    const regIds = await resolveCasRegulationIds(db, regulationId);
+    let query = db
       .from('bos_programme_outcomes')
       .select('*')
-      .eq('institutions_id', institutionsId)
-      .eq('regulation_id', regulationId)
-      .eq('programme_code', programmeCode.toUpperCase())
-      .order('sort_order', { ascending: true });
+      .in('regulation_id', regIds)
+      .eq('programme_code', programmeCode.toUpperCase());
+
+    if (filterIds.length === 1) {
+      query = query.eq('institutions_id', filterIds[0]);
+    } else if (filterIds.length > 1) {
+      query = query.in('institutions_id', filterIds);
+    }
+
+    query = query.order('sort_order', { ascending: true });
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return NextResponse.json({ data: data ?? [] });

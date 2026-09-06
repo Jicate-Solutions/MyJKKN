@@ -1,7 +1,7 @@
 'use client';
 // app/(routes)/users/activity/page.tsx
 
-import { useState, useMemo, useCallback } from 'react';
+import { Suspense, useState, useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
@@ -72,6 +72,7 @@ import {
   UserActivityLogWithUser
 } from '@/types/activity';
 import { cn } from '@/lib/utils';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 // Engagement Analytics imports
 import { EngagementFilters } from '@/components/analytics/engagement-filters';
@@ -121,7 +122,9 @@ const ACTION_ICON_COLORS = {
   default: 'text-gray-500'
 };
 
-export default function ActivityPage() {
+const ACTIVITY_TABS = ['activity', 'engagement'] as const;
+
+function ActivityPageInner() {
   // React Query client for cache invalidation
   const queryClient = useQueryClient();
 
@@ -135,8 +138,8 @@ export default function ActivityPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState('activity');
+  // Tab state (URL-synced via ?tab=)
+  const [activeTab, setActiveTab] = useTabParam('activity', ACTIVITY_TABS);
 
   // Engagement Analytics state
   const [engagementFilters, setEngagementFilters] = useState<{
@@ -1345,5 +1348,14 @@ export default function ActivityPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ActivityPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ActivityPageInner />
+    </Suspense>
   );
 }

@@ -1,65 +1,169 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { DataTable } from '@/components/ui/data-table';
+import { useRoomsByBlockWithOccupancy } from '@/hooks/campus-living/use-hostel-rooms';
+import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import { createRoomColumns } from './_components/rooms-columns';
+import { RoomFormDialog } from './_components/room-form-dialog';
+import { BulkUploadRooms } from './_components/bulk-upload-rooms';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { useAuth } from '@/hooks/use-auth';
-import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
+  RoomFiltersPanel,
+  EMPTY_ROOM_FILTERS,
+  roomMatchesFilters,
+  type RoomAdvancedFilters,
+} from './_components/room-filters-panel';
 import {
-  ArrowLeft,
-  Search,
-  BedDouble,
-  Loader2,
-  Plus,
-  Filter,
-  Users
-} from 'lucide-react';
+  HostelRoomService,
+  type HostelRoomWithBedsAndOccupancy,
+} from '@/lib/services/campus-living/hostel-room-service';
+import { ArrowLeft, Loader2, Plus, Trash2, FileDown } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
-const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
-  available: { label: 'Available', variant: 'success' },
-  partially_occupied: { label: 'Partial', variant: 'default' },
-  full: { label: 'Full', variant: 'secondary' },
-  maintenance: { label: 'Maintenance', variant: 'destructive' },
-  reserved: { label: 'Reserved', variant: 'outline' },
-  closed: { label: 'Closed', variant: 'outline' },
-};
+const STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: 'all', label: 'All Status' },
+  { value: 'available', label: 'Available' },
+  { value: 'partially_occupied', label: 'Partial' },
+  { value: 'full', label: 'Full' },
+];
+
+const FLOOR_LABELS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
+
+// DataTable search matches the room number (the only free-text identifier).
+const roomGlobalFilter = (
+  row: { original: HostelRoomWithBedsAndOccupancy },
+  _columnId: string,
+  value: string
+) =>
+  String(row.original.room_number ?? '')
+    .toLowerCase()
+    .includes(value.toLowerCase());
 
 export default function BlockRoomsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const searchParams = useSearchParams();
   const floorParam = searchParams.get('floor');
-  const { profile } = useAuth();
 
-  const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedFloor, setSelectedFloor] = useState<number | null>(
     floorParam !== null ? parseInt(floorParam) : null
   );
+  const [advancedFilters, setAdvancedFilters] =
+    useState<RoomAdvancedFilters>(EMPTY_ROOM_FILTERS);
+  const [createOpen, setCreateOpen] = useState(false);
+  // The DataTable owns its search box; mirror the query here (via onSearch) so
+  // the PDF export can honour it on top of the floor/status/advanced filters.
+  const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
 
-  const { data: rooms, isLoading } = useRoomsByBlock(id);
+  const { data: rooms, isLoading, refetch } = useRoomsByBlockWithOccupancy(id);
+  const { data: blockData } = useHostelBlock(id);
+  const blockType = (blockData as { hostel_type?: string } | undefined)?.hostel_type;
 
-  const filteredRooms = rooms?.filter((room) => {
-    const matchesSearch = room.room_number.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
-    const matchesFloor = selectedFloor === null || room.floor === selectedFloor;
-    return matchesSearch && matchesStatus && matchesFloor;
-  }) ?? [];
+  // Floor + status chip filters are block-specific UX; the DataTable layers
+  // search + sort + pagination + column visibility on top of the filtered set.
+  const filteredRooms = useMemo(
+    () =>
+      (rooms ?? []).filter((room) => {
+        const matchesStatus =
+          statusFilter === 'all' || room.derived_status === statusFilter;
+        const matchesFloor = selectedFloor === null || room.floor === selectedFloor;
+        return (
+          matchesStatus &&
+          matchesFloor &&
+          roomMatchesFilters(room, advancedFilters)
+        );
+      }),
+    [rooms, statusFilter, selectedFloor, advancedFilters]
+  );
 
-  const floorLabels = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
+  const columns = useMemo(
+    () => createRoomColumns({ blockId: id, blockType }),
+    [id, blockType]
+  );
+
+  // Multi-select bulk delete. DataTable renders its own confirm dialog + the
+  // selection checkbox column (auto-added once a bulk action is wired) and
+  // owns the success/error toast — so this handler stays quiet and just throws
+  // on failure.
+  const handleBulkDelete = async (selected: HostelRoomWithBedsAndOccupancy[]) => {
+    const results = await Promise.allSettled(
+      selected.map((room) => HostelRoomService.deleteRoom(room.id))
+    );
+    await refetch();
+    const rejected = results.filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected'
+    );
+    if (rejected.length === 0) return;
+
+    // fn_delete_hostel_room names the blocking room and the real reason
+    // (residents / deposits / vacate requests / open maintenance), so repeat it
+    // verbatim. The previous version inferred "active residents" from the
+    // constraint name in a 23503 and told operators to vacate rooms that had
+    // been empty for days — the FK also trips on vacated history rows.
+    const messages = Array.from(
+      new Set(
+        rejected.map((r) => {
+          const e = r.reason as { message?: string } | undefined;
+          return e?.message?.trim() || 'This room could not be deleted.';
+        })
+      )
+    );
+    const shown = messages.slice(0, 3).join(' ');
+    const rest = messages.length > 3 ? ` …and ${messages.length - 3} more.` : '';
+    throw new Error(
+      `${rejected.length} of ${selected.length} room${selected.length === 1 ? '' : 's'} could not be deleted. ${shown}${rest}`
+    );
+  };
+
+  // Bulk PDF export of the currently-visible rooms (floor + status + advanced
+  // filters, plus the table's free-text search). jsPDF is dynamically imported
+  // so it stays out of the page bundle until the operator actually exports.
+  const handleExportPdf = async () => {
+    const q = search.trim().toLowerCase();
+    const exportRooms = q
+      ? filteredRooms.filter((r) =>
+          String(r.room_number ?? '').toLowerCase().includes(q)
+        )
+      : filteredRooms;
+
+    if (exportRooms.length === 0) {
+      toast.error('No rooms to export for the current filters');
+      return;
+    }
+
+    const filters: string[] = [];
+    if (selectedFloor !== null)
+      filters.push(`Floor = ${FLOOR_LABELS[selectedFloor] ?? `Floor ${selectedFloor}`}`);
+    if (statusFilter !== 'all')
+      filters.push(
+        `Status = ${STATUS_FILTERS.find((s) => s.value === statusFilter)?.label ?? statusFilter}`
+      );
+    if (JSON.stringify(advancedFilters) !== JSON.stringify(EMPTY_ROOM_FILTERS))
+      filters.push('Advanced filters applied');
+    if (q) filters.push(`Search = "${search.trim()}"`);
+
+    const blockName =
+      (blockData as { name?: string } | undefined)?.name ?? 'Block';
+
+    try {
+      setExporting(true);
+      const { exportRoomsPdf } = await import('./_components/rooms-pdf');
+      await exportRoomsPdf(exportRooms, { blockName, filters });
+      toast.success(
+        `Exported ${exportRooms.length} room${exportRooms.length === 1 ? '' : 's'} to PDF`
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to export PDF');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -99,127 +203,100 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
               </p>
             </div>
           </div>
-          <Button asChild>
-            <Link href={`/campus-living/blocks/${id}/rooms/new`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleExportPdf}
+              disabled={exporting || filteredRooms.length === 0}
+            >
+              {exporting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileDown className="mr-2 h-4 w-4" />
+              )}
+              Export PDF
+            </Button>
+            <BulkUploadRooms blockId={id} blockType={blockType} />
+            <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Add Room
-            </Link>
-          </Button>
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search rooms..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-
-          {/* Floor Filter */}
-          <div className="flex gap-2 flex-wrap">
-            <Button
-              variant={selectedFloor === null ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSelectedFloor(null)}
-            >
-              All Floors
             </Button>
-            {floorLabels.map((label, idx) => (
-              <Button
-                key={idx}
-                variant={selectedFloor === idx ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedFloor(idx)}
-              >
-                {label}
-              </Button>
-            ))}
           </div>
         </div>
 
-        {/* Status Filter */}
+        {/* Floor Filter */}
         <div className="flex gap-2 flex-wrap">
-          {['all', 'available', 'partially_occupied', 'full', 'maintenance', 'reserved'].map((status) => (
+          <Button
+            variant={selectedFloor === null ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setSelectedFloor(null)}
+          >
+            All Floors
+          </Button>
+          {FLOOR_LABELS.map((label, idx) => (
             <Button
-              key={status}
-              variant={statusFilter === status ? 'default' : 'outline'}
+              key={idx}
+              variant={selectedFloor === idx ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setStatusFilter(status)}
+              onClick={() => setSelectedFloor(idx)}
             >
-              {status === 'all' ? 'All Status' : statusConfig[status]?.label ?? status}
+              {label}
             </Button>
           ))}
         </div>
 
-        {/* Rooms Table */}
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Room No.</TableHead>
-                  <TableHead>Floor</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>AC</TableHead>
-                  <TableHead>Occupancy</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Bathroom</TableHead>
-                  <TableHead className="text-right">Annual Fee</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredRooms.map((room) => {
-                  const sCfg = statusConfig[room.status] ?? { label: room.status, variant: 'outline' as const };
-                  return (
-                    <TableRow key={room.id}>
-                      <TableCell className="font-medium">{room.room_number}</TableCell>
-                      <TableCell>{floorLabels[room.floor] ?? `Floor ${room.floor}`}</TableCell>
-                      <TableCell className="capitalize">{room.room_type}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="capitalize text-xs">
-                          {room.ac_status.replace('_', ' ')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>{room.current_occupancy}/{room.capacity}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
-                      </TableCell>
-                      <TableCell>{room.has_attached_bathroom ? 'Yes' : 'No'}</TableCell>
-                      <TableCell className="text-right">
-                        {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(room.annual_fee)}
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/campus-living/blocks/${id}/rooms/${room.id}`}>
-                            View
-                          </Link>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {filteredRooms.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                      No rooms found matching your filters
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        {/* Status Filter */}
+        <div className="flex gap-2 flex-wrap">
+          {STATUS_FILTERS.map((status) => (
+            <Button
+              key={status.value}
+              variant={statusFilter === status.value ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setStatusFilter(status.value)}
+            >
+              {status.label}
+            </Button>
+          ))}
+        </div>
+
+        {/* Advanced Rooms Table */}
+        <DataTable
+          columns={columns}
+          data={filteredRooms}
+          searchPlaceholder="Search rooms..."
+          globalFilterFn={roomGlobalFilter}
+          onSearch={setSearch}
+          getRowId={(row) => row.id}
+          tableTools={
+            <RoomFiltersPanel
+              rooms={rooms ?? []}
+              value={advancedFilters}
+              onChange={setAdvancedFilters}
+            />
+          }
+          onRefresh={() => refetch()}
+          onBulkAction={handleBulkDelete}
+          bulkActionConfig={{
+            label: 'Delete',
+            icon: Trash2,
+            variant: 'destructive',
+            confirmTitle: 'Delete selected rooms?',
+            confirmDescription:
+              'This permanently deletes the selected room{plural} and their beds. This cannot be undone.',
+            successMessage: 'Deleted {count} room{plural}',
+            errorMessage: 'Failed to delete the selected rooms',
+            loadingText: 'Deleting...',
+          }}
+        />
       </div>
+
+      <RoomFormDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        mode="create"
+        blockId={id}
+        blockType={blockType}
+      />
     </ContentLayout>
   );
 }

@@ -94,34 +94,106 @@ export class LCODService {
   }
 
   /**
+   * Pick the approval chain for a request.
+   *
+   * Order of preference:
+   *   1. A chain whose event_scope matches the linked event's scope (newest wins).
+   *   2. The college's fallback chain (is_fallback) -- used when the request has no event,
+   *      the event has no scope, or no chain matches that scope.
+   *
+   * "Newest wins" is intentional: several chains may share a scope, and ordering by
+   * created_at DESC makes the choice deterministic instead of the previous arbitrary pick.
+   */
+  private static async resolveChainForRequest(
+    institutionId: string,
+    eventId: string | null
+  ): Promise<{ id: string; name: string; steps: unknown }> {
+    // A request is approved by YOUR COLLEGE's chain, so the college has to be known first.
+    // The page passes `profile.institution_id || ''`, and an empty string is not a valid
+    // UUID -- without this guard Postgres answers 22P02 and the learner is shown the raw
+    // text 'invalid input syntax for type uuid: ""', which tells them nothing.
+    if (!institutionId || !institutionId.trim()) {
+      throw new Error(
+        'Your profile is not linked to a college yet, so we cannot work out who should '
+        + 'approve this request. Ask the Learners Council office to add your college to '
+        + 'your profile, then try again.'
+      );
+    }
+
+    // Derive the event scope, if this request is tied to an event.
+    let eventScope: string | null = null;
+    if (eventId) {
+      const { data: event } = await this.supabase
+        .from('lc_events')
+        .select('scope')
+        .eq('id', eventId)
+        .maybeSingle();
+      eventScope = (event as { scope?: string } | null)?.scope || null;
+    }
+
+    // 1. Scope match (newest wins).
+    if (eventScope) {
+      const { data: scoped, error: scopedErr } = await this.supabase
+        .from('lc_od_approval_chains')
+        .select('id, name, steps')
+        .eq('institution_id', institutionId)
+        .eq('is_active', true)
+        .eq('event_scope', eventScope)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (scopedErr) {
+        console.error('[learners-council/od] Error matching chain by scope:', scopedErr);
+        throw new Error(
+          'We could not look up the approval steps for this event just now. Please try '
+          + 'again in a minute. If it keeps happening, tell the Learners Council office.'
+        );
+      }
+      if (scoped && scoped.length > 0) return scoped[0] as { id: string; name: string; steps: unknown };
+    }
+
+    // 2. Fallback chain for the college.
+    // Cast: is_fallback is newer than the checked-in generated DB types.
+    const { data: fallback, error: fbErr } = await (this.supabase.from('lc_od_approval_chains') as any)
+      .select('id, name, steps')
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .eq('is_fallback', true)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (fbErr) {
+      console.error('[learners-council/od] Error fetching fallback chain:', fbErr);
+      throw new Error(
+        'We could not look up your college\'s approval steps just now. Please try again '
+        + 'in a minute. If it keeps happening, tell the Learners Council office.'
+      );
+    }
+    if (fallback && fallback.length > 0) return fallback[0] as { id: string; name: string; steps: unknown };
+
+    // Two different situations, and the learner can only act on the right one. The old
+    // single message talked about "this event" even when the learner had deliberately
+    // chosen "No linked event", which sent people looking for a problem that was not there.
+    throw new Error(
+      eventId
+        ? 'No approval steps are set up for this event yet. Ask a Learners Council office '
+          + 'bearer to add an approval chain for this kind of event, or to mark one chain as '
+          + 'your college\'s default.'
+        : 'Your college has no default approval chain, so a request with no linked event has '
+          + 'nobody to go to. Ask a Learners Council office bearer to open Approval Chains and '
+          + 'mark one chain as the default for your college, then try again.'
+    );
+  }
+
+  /**
    * Create a new OD request
-   * Auto-assigns approval chain based on institution
+   * Auto-assigns the approval chain by event scope (see resolveChainForRequest).
    */
   static async createODRequest(
     dto: CreateODRequestDto,
     userId: string,
     institutionId: string
   ): Promise<LCODRequest> {
-    // Find the active approval chain for this institution
-    const { data: chains, error: chainError } = await this.supabase
-      .from('lc_od_approval_chains')
-      .select('id, name, steps')
-      .eq('institution_id', institutionId)
-      .eq('is_active', true)
-      .limit(1);
-
-    if (chainError) {
-      console.error('[learners-council/od] Error fetching approval chains:', chainError);
-      throw new Error(`Failed to fetch approval chains: ${chainError.message}`);
-    }
-
-    if (!chains || chains.length === 0) {
-      throw new Error(
-        'No active approval chain configured for this institution. Please ask an administrator to set up an OD approval chain before submitting requests.'
-      );
-    }
-
-    const chainId = chains[0].id;
+    const chain = await this.resolveChainForRequest(institutionId, dto.event_id || null);
+    const chainId = chain.id;
 
     // Generate request number
     const requestNumber = `OD-${Date.now().toString(36).toUpperCase()}`;
@@ -153,7 +225,10 @@ export class LCODService {
 
     if (error) {
       console.error('[learners-council/od] Error creating OD request:', error);
-      throw new Error(`Failed to create OD request: ${error.message}`);
+      throw new Error(
+        'We could not save your OD request. Please check the dates and the reason, then '
+        + 'try again. If it keeps happening, tell the Learners Council office.'
+      );
     }
 
     return data as unknown as LCODRequest;
@@ -163,12 +238,22 @@ export class LCODService {
    * Submit OD request for approval
    */
   static async submitODRequest(id: string): Promise<LCODRequest> {
+    // Freeze the chain's steps onto the request as it enters the queue, so later edits to
+    // the chain cannot change the rules for a request that is already being approved.
+    const { data: current } = await this.supabase
+      .from('lc_od_requests')
+      .select('chain:lc_od_approval_chains(steps)')
+      .eq('id', id)
+      .single();
+    const frozenSteps = (current?.chain as { steps?: unknown } | null)?.steps ?? null;
+
     const { data, error } = await this.supabase
       .from('lc_od_requests')
       .update({
         status: 'submitted' as ODRequestStatus,
         submitted_at: new Date().toISOString(),
         current_step: 1,
+        steps_snapshot: frozenSteps,
       })
       .eq('id', id)
       .eq('status', 'draft')
@@ -201,6 +286,112 @@ export class LCODService {
   // ============================================================================
 
   /**
+   * Does an approver satisfy a chain step's approver_role?
+   *
+   * Bridges the chain's role vocabulary (as offered by the chain builder dropdown:
+   * lc_president, lc_vice_president, md, principal, hod, dean, yuva_chair, class_advisor)
+   * to the identity signals we actually hold about a user. Used by BOTH the approve action
+   * and the pending-approvals list, so the "can I see it" and "can I act on it" answers can
+   * never drift apart -- the original bug was that the chains said `lc_president` while the
+   * President is only known to the system as position title `President`, so nobody matched.
+   *
+   * Note: `class_advisor` and `dean` intentionally resolve to nobody -- the system holds no
+   * class-advisor mapping and no 'dean' role today. Steps naming them will stall until that
+   * data exists; surfaced to the operator rather than silently matched to every faculty.
+   */
+  private static approverMatchesRole(
+    requiredRoleRaw: string,
+    ctx: {
+      userId: string;
+      positionTitle?: string | null;
+      positionCategory?: string | null;
+      profileRole?: string | null;
+      isSuperAdmin?: boolean;
+      yuvaRoles?: string[];
+    }
+  ): boolean {
+    const required = (requiredRoleRaw || '').toLowerCase().trim();
+    if (!required) return false;
+
+    // Direct user-id pin (a step can name a specific person).
+    if (required === ctx.userId) return true;
+
+    const title = (ctx.positionTitle || '').toLowerCase().replace(/\s+/g, '_'); // President -> president
+    const category = (ctx.positionCategory || '').toLowerCase();
+    const profileRole = (ctx.profileRole || '').toLowerCase();
+    const yuva = (ctx.yuvaRoles || []).map((r) => r.toLowerCase());
+
+    // LC office bearers: chains say `lc_president`, the position title is `President`.
+    const strippedLc = required.startsWith('lc_') ? required.slice(3) : required;
+
+    // Managing Director: the account is a super admin, not a profile.role of 'md'.
+    if (required === 'md' || required === 'managing_director') {
+      if (ctx.isSuperAdmin || profileRole === 'super_admin') return true;
+    }
+
+    // LC office bearer by position title (president / vice_president / secretary / treasurer).
+    if (title && (title === strippedLc || title === required)) return true;
+
+    // Position category (executive / representative / yuva_chair / yuva_co_chair).
+    if (category && (category === required || category === strippedLc)) return true;
+
+    // YUVA vertical roles.
+    if (required === 'yuva_chair') {
+      if (category === 'yuva_chair') return true;
+      if (yuva.some((r) => r.endsWith('_chair') && !r.endsWith('_co_chair'))) return true;
+    }
+    if (yuva.includes(required)) return true;
+
+    // Institutional roles carried on profile.role (principal / hod / faculty / staff).
+    if (profileRole && profileRole === required) return true;
+
+    return false;
+  }
+
+  /**
+   * Gather everything we know about an approver's identity, once, so both the approve
+   * action and the pending-approvals list judge role matches the same way.
+   */
+  private static async buildApproverContext(approverId: string): Promise<{
+    userId: string;
+    positionTitle: string | null;
+    positionCategory: string | null;
+    profileRole: string | null;
+    isSuperAdmin: boolean;
+    yuvaRoles: string[];
+  }> {
+    const [membership, profile, yuva] = await Promise.all([
+      this.supabase
+        .from('lc_members')
+        .select('position:lc_positions(title, category)')
+        .eq('user_id', approverId)
+        .eq('status', 'active')
+        .maybeSingle(),
+      this.supabase
+        .from('profiles')
+        .select('role, is_super_admin')
+        .eq('id', approverId)
+        .maybeSingle(),
+      this.supabase
+        .from('yuva_vertical_members')
+        .select('role')
+        .eq('user_id', approverId)
+        .eq('is_active', true),
+    ]);
+
+    return {
+      userId: approverId,
+      positionTitle: (membership.data?.position as any)?.title ?? null,
+      positionCategory: (membership.data?.position as any)?.category ?? null,
+      profileRole: (profile.data as any)?.role ?? null,
+      isSuperAdmin: (profile.data as any)?.is_super_admin === true,
+      yuvaRoles: ((yuva.data as { role?: string }[] | null) || [])
+        .map((y) => y.role)
+        .filter((r): r is string => !!r),
+    };
+  }
+
+  /**
    * Approve an OD request step
    */
   static async approveODRequest(
@@ -222,37 +413,18 @@ export class LCODService {
 
     const currentStep = request.current_step || 1;
     const chain = request.chain as any;
-    const totalSteps = chain?.steps?.length || 1;
+    // Read the frozen snapshot taken at submit time, not the live chain -- a chain edited
+    // after this request entered the queue must not change its rules. (Fallback to the
+    // live chain only for any legacy row submitted before snapshots existed.)
+    const steps = (request as any).steps_snapshot ?? chain?.steps;
+    const totalSteps = Array.isArray(steps) ? steps.length || 1 : 1;
 
     // Validate approver has the required role for this step
-    const steps = chain?.steps;
-    if (steps && steps.length >= currentStep) {
+    if (Array.isArray(steps) && steps.length >= currentStep) {
       const stepConfig = steps[currentStep - 1];
       if (stepConfig?.approver_role) {
-        const { data: approverMembership } = await this.supabase
-          .from('lc_members')
-          .select('position:lc_positions(title, category)')
-          .eq('user_id', approverId)
-          .eq('status', 'active')
-          .maybeSingle();
-
-        const approverProfile = await this.supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', approverId)
-          .single();
-
-        const posTitle = (approverMembership?.position as any)?.title || '';
-        const posCategory = (approverMembership?.position as any)?.category || '';
-        const profileRole = approverProfile?.data?.role || '';
-
-        const requiredRole = stepConfig.approver_role.toLowerCase();
-        const hasRole =
-          posTitle.toLowerCase().includes(requiredRole) ||
-          posCategory.toLowerCase() === requiredRole ||
-          profileRole.toLowerCase() === requiredRole;
-
-        if (!hasRole) {
+        const ctx = await this.buildApproverContext(approverId);
+        if (!this.approverMatchesRole(stepConfig.approver_role, ctx)) {
           throw new Error(`You do not have the required role (${stepConfig.approver_role}) to approve at this step`);
         }
       }
@@ -419,50 +591,22 @@ export class LCODService {
 
     if (!requests || requests.length === 0) return [];
 
-    // Get the LC member roles for this approver to match against chain steps
-    const { data: memberRoles } = await this.supabase
-      .from('lc_members')
-      .select('position_id, lc_positions:position_id(title, category)')
-      .eq('user_id', approverId)
-      .eq('status', 'active');
+    // Same identity resolution the approve action uses, so a request that shows up in the
+    // queue is exactly one the user can actually approve.
+    const ctx = await this.buildApproverContext(approverId);
 
-    // Get YUVA vertical member roles for this approver
-    const { data: yuvaRoles } = await this.supabase
-      .from('yuva_vertical_members')
-      .select('role, vertical_id')
-      .eq('user_id', approverId)
-      .eq('is_active', true);
-
-    // Build a set of approver role strings this user holds
-    const approverRoles = new Set<string>();
-    approverRoles.add(approverId); // Direct user ID match
-
-    if (memberRoles) {
-      for (const m of memberRoles) {
-        const pos = m.lc_positions as any;
-        if (pos?.title) approverRoles.add(pos.title.toLowerCase().replace(/\s+/g, '_'));
-        if (pos?.category) approverRoles.add(pos.category);
-      }
-    }
-    if (yuvaRoles) {
-      for (const y of yuvaRoles) {
-        if (y.role) approverRoles.add(y.role);
-      }
-    }
-
-    // Filter requests where the current step's approver_role matches this user's roles
+    // Filter requests where the current step's approver_role matches this user.
+    // Read the frozen snapshot (rules at submit time), not the live chain.
     const filtered = (requests as any[]).filter((req) => {
       const chain = req.chain as any;
-      const steps = chain?.steps;
+      const steps = req.steps_snapshot ?? chain?.steps;
       if (!Array.isArray(steps) || steps.length === 0) return false;
 
       const currentStep = req.current_step || 1;
       const step = steps.find((s: any) => s.step_order === currentStep);
-      if (!step) return false;
+      if (!step?.approver_role) return false;
 
-      // Check if the approver_role in the step matches any role the user holds
-      const stepRole = (step.approver_role || '').toLowerCase().replace(/\s+/g, '_');
-      return approverRoles.has(stepRole) || approverRoles.has(step.approver_role);
+      return this.approverMatchesRole(step.approver_role, ctx);
     });
 
     return filtered as unknown as LCODRequest[];
@@ -511,7 +655,7 @@ export class LCODService {
         steps: dto.steps,
         is_active: true,
         created_by: userId,
-      })
+      } as any)
       .select('*')
       .single();
 
@@ -532,7 +676,7 @@ export class LCODService {
   ): Promise<LCODApprovalChain> {
     const { data, error } = await this.supabase
       .from('lc_od_approval_chains')
-      .update(dto)
+      .update(dto as any)
       .eq('id', id)
       .select('*')
       .single();
@@ -543,6 +687,21 @@ export class LCODService {
     }
 
     return data as unknown as LCODApprovalChain;
+  }
+
+  /**
+   * Mark a chain as its college's fallback ("use when nothing else matches").
+   * Delegates to fn_lc_set_fallback_chain, which clears the college's other fallback and
+   * sets this one atomically (avoiding the one-fallback-per-college unique index), and is
+   * gated to LC office bearers / super admins.
+   */
+  static async setFallbackChain(chainId: string): Promise<void> {
+    // Cast: fn_lc_set_fallback_chain is newer than the checked-in generated DB types.
+    const { error } = await (this.supabase.rpc as any)('fn_lc_set_fallback_chain', { p_chain_id: chainId });
+    if (error) {
+      console.error('[learners-council/od] Error setting fallback chain:', error);
+      throw new Error(`Failed to set default chain: ${error.message}`);
+    }
   }
 
   /**
@@ -690,8 +849,8 @@ export class LCODService {
   ): Promise<{ hasConflict: boolean; details: string | null }> {
     try {
       // Check daily_attendance for existing records in the date range
-      const { data: attendanceRecords, error } = await this.supabase
-        .from('daily_attendance')
+      // Cast: daily_attendance is not in the checked-in generated DB types.
+      const { data: attendanceRecords, error } = await (this.supabase as any).from('daily_attendance')
         .select('id, date, status')
         .eq('student_id', userId)
         .gte('date', startDate)
@@ -755,8 +914,8 @@ export class LCODService {
         institution_id: request.institution_id,
       }));
 
-      const { error: upsertError } = await this.supabase
-        .from('daily_attendance')
+      // Cast: daily_attendance is not in the checked-in generated DB types.
+      const { error: upsertError } = await (this.supabase as any).from('daily_attendance')
         .upsert(records, { onConflict: 'student_id,date' });
 
       if (upsertError) {

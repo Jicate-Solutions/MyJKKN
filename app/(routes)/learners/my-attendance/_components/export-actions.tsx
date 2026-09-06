@@ -160,12 +160,12 @@ export function ExportActions({ learnerId, semesterId }: ExportActionsProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           <Button
             onClick={handleExportPdf}
             disabled={exportingPdf}
             variant="outline"
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 w-full sm:w-auto"
           >
             {exportingPdf ? (
               <>
@@ -184,7 +184,7 @@ export function ExportActions({ learnerId, semesterId }: ExportActionsProps) {
             onClick={handleExportExcel}
             disabled={exportingExcel}
             variant="outline"
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 w-full sm:w-auto"
           >
             {exportingExcel ? (
               <>

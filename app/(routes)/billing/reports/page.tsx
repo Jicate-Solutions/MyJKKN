@@ -1,23 +1,28 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   BarChart3,
   FileText,
   TrendingUp,
   AlertCircle,
-  Receipt,
+  ReceiptIndianRupee,
   CreditCard,
   RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useBillingDashboardMetrics } from '@/hooks/billing/use-billing-reports';
+import {
+  useBillingDashboardMetrics,
+  useStudentYearBreakdown
+} from '@/hooks/billing/use-billing-reports';
+import { useCollectionSplit } from '@/hooks/billing/use-billing-analytics';
 import { ReportFilters } from './_components/report-filters';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 import { DashboardMetrics } from './_components/dashboard-metrics';
@@ -27,8 +32,17 @@ import { InvoiceReportTab } from './_components/invoice-report-tab';
 import { DiscountReportTab } from './_components/discount-report-tab';
 import { RefundReportTab } from './_components/refund-report-tab';
 
-export default function BillingReportsPage() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+const BILLING_REPORTS_TABS = [
+  'dashboard',
+  'outstanding',
+  'collection',
+  'invoices',
+  'discounts',
+  'refunds'
+] as const;
+
+function BillingReportsPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('dashboard', BILLING_REPORTS_TABS);
   const [filters, setFilters] = useState<BillingReportFilters>({});
 
   const {
@@ -46,11 +60,28 @@ export default function BillingReportsPage() {
     loading: metricsLoading,
     error: metricsError,
     refetch: refetchMetrics
-  } = useBillingDashboardMetrics(
-    filters.institution_id,
-    filters.date_from,
-    filters.date_to
-  );
+  } = useBillingDashboardMetrics(filters);
+
+  // Year-wise split of the Total Students / amount cards. Separate query: the
+  // dashboard RPC returns grand totals only.
+  const { breakdown: yearWiseStudents } = useStudentYearBreakdown(filters);
+
+  // Management vs Government split — served by the analytics RPC rather than
+  // re-aggregated client-side here, since the attribution walks
+  // receipt_items -> bills -> categories and belongs in Postgres.
+  // Gated on billing.analytics.view inside the RPC, so a reports-only user
+  // simply gets no split section (the query errors and `data` stays undefined).
+  //
+  // This RPC belongs to the separate billing analytics feature and its
+  // filter type (BillingAnalyticsFilters) only accepts institution_ids and a
+  // date range — no degree/department/program/scheme hierarchy. So unlike
+  // useBillingDashboardMetrics above, it is deliberately left institution+date
+  // scoped here rather than extended as a side effect of this change.
+  const collectionSplit = useCollectionSplit({
+    institution_ids: filters.institution_id ? [filters.institution_id] : undefined,
+    date_from: filters.date_from,
+    date_to: filters.date_to,
+  });
 
   // Show loading state while permissions are loading
   if (permissionsLoading) {
@@ -127,7 +158,7 @@ export default function BillingReportsPage() {
           onValueChange={setActiveTab}
           className='space-y-4'
         >
-          <TabsList className='grid w-full grid-cols-6'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-6 sm:gap-0 sm:overflow-visible'>
             <TabsTrigger value='dashboard' className='flex items-center gap-2'>
               <BarChart3 className='h-4 w-4' />
               Dashboard
@@ -148,7 +179,7 @@ export default function BillingReportsPage() {
               Invoices
             </TabsTrigger>
             <TabsTrigger value='discounts' className='flex items-center gap-2'>
-              <Receipt className='h-4 w-4' />
+              <ReceiptIndianRupee className='h-4 w-4' />
               Discounts
             </TabsTrigger>
             <TabsTrigger value='refunds' className='flex items-center gap-2'>
@@ -178,6 +209,8 @@ export default function BillingReportsPage() {
                 metrics={metrics}
                 loading={metricsLoading}
                 canExport={canExportReports}
+                split={collectionSplit.data}
+                yearWiseStudents={yearWiseStudents}
               />
             )}
           </TabsContent>
@@ -210,5 +243,14 @@ export default function BillingReportsPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function BillingReportsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <BillingReportsPageInner />
+    </Suspense>
   );
 }

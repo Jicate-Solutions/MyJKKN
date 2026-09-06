@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -113,8 +114,10 @@ function ChannelCard({ channel }: { channel: PDEChannel & { message_count?: numb
 // Main Page
 // ============================================
 
-export default function ChannelsPage() {
-  const [tab, setTab] = useState('all');
+const CHANNEL_TABS = ['all', 'quest', 'help', 'showcase'] as const;
+
+function ChannelsPageInner() {
+  const [tab, setTab] = useTabParam('all', CHANNEL_TABS);
   const [search, setSearch] = useState('');
 
   const { data: channels, isLoading } = useChannels();
@@ -164,7 +167,7 @@ export default function ChannelsPage() {
 
         {/* Tabs + Content */}
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             {TAB_FILTERS.map((t) => (
               <TabsTrigger key={t.value} value={t.value}>
                 {t.label}
@@ -197,5 +200,14 @@ export default function ChannelsPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ChannelsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ChannelsPageInner />
+    </Suspense>
   );
 }

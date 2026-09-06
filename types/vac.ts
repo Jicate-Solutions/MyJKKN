@@ -102,6 +102,8 @@ export interface VACCourse {
   programme_id: string | null;
   institution_id: string | null;
   faculty_eligible: boolean;
+  /** NAAC-2024 metric 6.4 — value-education course */
+  is_value_education: boolean;
   course_category: VACCourseCategory;
   nsqf_level: number | null;
   nheqf_level: number | null;
@@ -254,6 +256,8 @@ export interface CreateVACCourseInput {
   institution_id: string;
   programme_id?: string;
   faculty_eligible?: boolean;
+  /** NAAC-2024 metric 6.4 — value-education course */
+  is_value_education?: boolean;
   course_category?: VACCourseCategory;
   nsqf_level?: number;
   nheqf_level?: number;

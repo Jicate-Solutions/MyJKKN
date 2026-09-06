@@ -50,7 +50,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 export interface AdminNavOverride {
   /** Storage row id (uuid). Undefined for unsaved drafts. */
   id?: string;
-  /** Target href, e.g. `/admin/notifications/recipients`. */
+  /** Target href, e.g. `/admin/retention-policies`. */
   href: string;
   /** Override category (e.g. `'System'`). Unset = use filesystem default. */
   category?: string | null;
@@ -74,8 +74,8 @@ export interface AdminNavOverride {
 const QUERY_KEY = ['admin', 'nav-overrides'] as const;
 
 /**
- * Convert an href like `/admin/notifications/recipients` into the
- * platform_policies key form `nav.admin.override.admin.notifications.recipients`.
+ * Convert an href like `/admin/retention-policies` into the
+ * platform_policies key form `nav.admin.override.admin.retention-policies`.
  *
  * Round-trip with `keyToHref()` below.
  */
@@ -93,8 +93,8 @@ export function hrefToPolicyKey(href: string): string {
 
 /**
  * Convert a platform_policies key like
- * `nav.admin.override.admin.notifications.recipients` back into the href
- * `/admin/notifications/recipients`. Used for rendering existing rows.
+ * `nav.admin.override.admin.retention-policies` back into the href
+ * `/admin/retention-policies`. Used for rendering existing rows.
  */
 export function keyToHref(policyKey: string): string {
   const prefix = 'nav.admin.override.';

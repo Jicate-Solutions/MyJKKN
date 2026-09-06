@@ -28,7 +28,7 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover';
-import { cn } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { format } from 'date-fns';
 import type { LearnerDashboardFilters, LifecycleStatus } from '@/types/learner-dashboard';
 import { useQuery } from '@tanstack/react-query';
@@ -57,6 +57,10 @@ export function DashboardFilters({
   );
   const [selectedAcademicYearId, setSelectedAcademicYearId] = useState<string | undefined>(
     filters.academicYearId
+  );
+  // 'all' rather than undefined: Radix Select forbids an empty item value.
+  const [selectedAdmissionYear, setSelectedAdmissionYear] = useState<string>(
+    filters.admissionYear ? String(filters.admissionYear) : 'all'
   );
   const [selectedDegreeId, setSelectedDegreeId] = useState<string | undefined>(
     filters.degreeId
@@ -90,6 +94,7 @@ export function DashboardFilters({
   useEffect(() => {
     setSelectedInstitutionIds(filters.institutionIds || []);
     setSelectedAcademicYearId(filters.academicYearId);
+    setSelectedAdmissionYear(filters.admissionYear ? String(filters.admissionYear) : 'all');
     setSelectedDegreeId(filters.degreeId);
     setSelectedDepartmentId(filters.departmentId);
     setSelectedProgramId(filters.programId);
@@ -142,6 +147,44 @@ export function DashboardFilters({
       if (error) throw error;
       return data || [];
     }
+  });
+
+  /**
+   * Admission years, as DISTINCT CALENDAR YEARS.
+   *
+   * Deliberately NOT institution-cascaded, unlike Academic Year directly above.
+   * `admission_years` is institution-scoped — production holds eleven separate
+   * "2026" rows, one per college, out of 79 — so scoping the list (or filtering
+   * by a single row id) would silently narrow the dashboard to one institution,
+   * which is invisible in "All Institutions" mode and is precisely where a
+   * cohort comparison has to keep working.
+   *
+   * So the filter travels as the integer year and the server fans it back out
+   * to every visible row id. RLS on admission_years still decides which rows
+   * this user sees, so the year list is already tenant-correct.
+   *
+   * The query key matches the Learners Profiles filter bar's
+   * (learner-filter-bar.tsx) so the two panels share one cache entry.
+   */
+  const { data: admissionYears = [] } = useQuery<number[]>({
+    queryKey: ['admission-years', 'distinct-years'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admission_years')
+        .select('year')
+        .order('year', { ascending: false });
+
+      // Supabase errors are plain objects — surface the code rather than
+      // letting a failure look like "there are no admission years".
+      if (error) {
+        throw new Error(`Failed to load admission years: ${getErrorMessage(error)}`);
+      }
+
+      return Array.from(
+        new Set((data ?? []).map((row: { year: number }) => row.year))
+      ).sort((a, b) => b - a);
+    },
+    staleTime: 30 * 60 * 1000
   });
 
   // Fetch degrees (STRICT CASCADE: Only load when specific institution is selected)
@@ -265,6 +308,7 @@ export function DashboardFilters({
     const newFilters: LearnerDashboardFilters = {
       institutionIds: selectedInstitutionIds.length > 0 ? selectedInstitutionIds : undefined,
       academicYearId: selectedAcademicYearId,
+      admissionYear: selectedAdmissionYear === 'all' ? undefined : Number(selectedAdmissionYear),
       degreeId: selectedDegreeId,
       departmentId: selectedDepartmentId,
       programId: selectedProgramId,
@@ -272,7 +316,7 @@ export function DashboardFilters({
       sectionId: selectedSectionId,
       lifecycleStatuses: selectedStatuses.length > 0 ? selectedStatuses : undefined,
       isProfileComplete: selectedProfileComplete === 'all' ? undefined : selectedProfileComplete === 'complete',
-      gender: selectedGender === 'all' ? undefined : (selectedGender as 'male' | 'female' | 'other'),
+      gender: selectedGender === 'all' ? undefined : (selectedGender as 'Male' | 'Female' | 'Other'),
       dateRange: dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined
     };
 
@@ -359,6 +403,7 @@ export function DashboardFilters({
   const activeFilterCount = [
     selectedInstitutionIds.length > 0,
     selectedAcademicYearId,
+    selectedAdmissionYear !== 'all',
     selectedDegreeId,
     selectedDepartmentId,
     selectedProgramId,
@@ -373,7 +418,7 @@ export function DashboardFilters({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Filter className="h-5 w-5 text-muted-foreground" />
           <h3 className="text-lg font-semibold">Advanced Filters</h3>
@@ -383,7 +428,7 @@ export function DashboardFilters({
             </span>
           )}
         </div>
-        <Button variant="outline" size="sm" onClick={onReset}>
+        <Button variant="outline" size="sm" onClick={onReset} className="shrink-0">
           <X className="h-4 w-4 mr-2" />
           Reset All
         </Button>
@@ -410,7 +455,7 @@ export function DashboardFilters({
                     : 'Pick a date range'}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
+              <PopoverContent className="w-auto max-w-[calc(100vw-2rem)] overflow-x-auto p-0" align="start">
                 <div className="p-3 space-y-2 border-b">
                   <p className="text-sm font-medium">Quick Select</p>
                   <div className="grid grid-cols-2 gap-2">
@@ -508,6 +553,30 @@ export function DashboardFilters({
           </Select>
         </div>
 
+        {/* Admission Year — the intake cohort, as a calendar year.
+            Not gated on Institution (see the query above): the cohort question
+            is the one you most want to ask across all institutions at once. */}
+        <div className="space-y-2">
+          <Label>Admission Year</Label>
+          <Select
+            value={selectedAdmissionYear}
+            onValueChange={setSelectedAdmissionYear}
+            disabled={admissionYears.length === 0}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="All Admission Years" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Admission Years</SelectItem>
+              {admissionYears.map((year) => (
+                <SelectItem key={year} value={String(year)}>
+                  {year}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Degree */}
         <div className="space-y-2">
           <Label>Degree</Label>
@@ -564,7 +633,6 @@ export function DashboardFilters({
             onValueChange={(value) =>
               setSelectedProgramId(value === 'all' ? undefined : value)
             }
-            disabled={programs.length === 0}
           >
             <SelectTrigger>
               <SelectValue placeholder="All Programs" />
@@ -588,7 +656,6 @@ export function DashboardFilters({
             onValueChange={(value) =>
               setSelectedSemesterId(value === 'all' ? undefined : value)
             }
-            disabled={semesters.length === 0}
           >
             <SelectTrigger>
               <SelectValue placeholder={
@@ -614,7 +681,6 @@ export function DashboardFilters({
             onValueChange={(value) =>
               setSelectedSectionId(value === 'all' ? undefined : value)
             }
-            disabled={sections.length === 0}
           >
             <SelectTrigger>
               <SelectValue placeholder={
@@ -638,7 +704,7 @@ export function DashboardFilters({
           <RadioGroup
             value={selectedProfileComplete}
             onValueChange={setSelectedProfileComplete}
-            className="flex gap-4"
+            className="flex flex-wrap gap-4"
           >
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="all" id="pc-all" />
@@ -661,19 +727,25 @@ export function DashboardFilters({
           <RadioGroup
             value={selectedGender}
             onValueChange={setSelectedGender}
-            className="flex gap-4"
+            className="flex flex-wrap gap-4"
           >
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="all" id="gender-all" />
               <Label htmlFor="gender-all" className="font-normal">All</Label>
             </div>
+            {/* Values are the STORED canon (Title Case), not lower case — see
+                LearnerDashboardFilters.gender. */}
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="male" id="gender-male" />
+              <RadioGroupItem value="Male" id="gender-male" />
               <Label htmlFor="gender-male" className="font-normal">Male</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="female" id="gender-female" />
+              <RadioGroupItem value="Female" id="gender-female" />
               <Label htmlFor="gender-female" className="font-normal">Female</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="Other" id="gender-other" />
+              <Label htmlFor="gender-other" className="font-normal">Other</Label>
             </div>
           </RadioGroup>
         </div>

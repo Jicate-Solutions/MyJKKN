@@ -102,7 +102,7 @@ function TimeSelector({ value, onChange, placeholder }: TimeSelectorProps) {
 
   return (
     <div className='space-y-2'>
-      <div className='flex gap-2 items-center'>
+      <div className='flex flex-wrap gap-2 items-center'>
         <Select
           value={currentTime.hour || ''}
           onValueChange={(hour) =>
@@ -233,7 +233,9 @@ export function PeriodForm({
 
       try {
         setInstitutionsLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools and every entity type, not just
+        // entity_type='institution'. Super-admin-only path, so no userId.
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/periods', 'Error loading institutions', error);
@@ -249,7 +251,14 @@ export function PeriodForm({
     const loadInstitutionName = async () => {
       if (!isSuperAdmin && userProfile?.institution_id) {
         try {
-          const data = await OrganizationService.getInstitutionNames();
+          // entityType:'all' + userId → resolve the user's own institution name
+          // even when it's a school (entity_type='school'); the prior default
+          // 'institution' filter excluded schools so the name never displayed.
+          const data = await OrganizationService.getInstitutionNames(
+            undefined,
+            userProfile?.id,
+            'all'
+          );
           const inst = data.find((i) => i.id === userProfile.institution_id);
           if (inst) setInstitutionName(inst.name);
         } catch (err) {
@@ -464,7 +473,7 @@ export function PeriodForm({
           </CardContent>
         </Card>
 
-        <div className='flex justify-end space-x-4'>
+        <div className='flex flex-wrap justify-end gap-4'>
           <Button
             type='button'
             variant='outline'

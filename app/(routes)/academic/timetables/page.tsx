@@ -61,13 +61,19 @@ export default async function TimetablesPage({
   const { data: userProfile } = user
     ? await supabase
         .from('profiles')
-        .select('id, role, institution_id, department_id')
+        .select('id, role, institution_id, department_id, is_super_admin')
         .eq('id', user.id)
         .single()
     : { data: null };
 
-  // Check if super admin
-  const isSuperAdmin = userProfile?.role === 'super_admin';
+  // Check if super admin — mirrors the canonical check in usePermissions()
+  // and the sibling academic/attendance/pending/page.tsx. Checking only
+  // role === 'super_admin' misses users granted super-admin via the
+  // is_super_admin flag, wrongly scoping their timetable list down to their
+  // own institution/department and hiding (and effectively blocking editing
+  // of) timetables from other institutions they're actually authorized for.
+  const isSuperAdmin =
+    userProfile?.is_super_admin === true || userProfile?.role === 'super_admin';
 
   // Build filters for server-side data fetching
   const filters = {

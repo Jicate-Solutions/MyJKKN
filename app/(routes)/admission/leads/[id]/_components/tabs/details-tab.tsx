@@ -52,7 +52,7 @@ export function DetailsTab({
           </div>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-4">
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <dt className="text-sm text-muted-foreground">Full Name</dt>
               <dd className="font-medium">{lead.full_name || '-'}</dd>
@@ -92,7 +92,7 @@ export function DetailsTab({
           <CardTitle className="text-base">Academic Details</CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-4">
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <dt className="text-sm text-muted-foreground">Institution</dt>
               <dd className="font-medium">{institutionName || '-'}</dd>
@@ -107,7 +107,7 @@ export function DetailsTab({
               <dt className="text-sm text-muted-foreground">Admission Year</dt>
               <dd className="font-medium">
                 {lead.admission_year?.admission_year_name
-                  ? `${lead.admission_year.admission_year_name} (${lead.admission_year.program_start_year}–${lead.admission_year.program_end_year})`
+                  ? `${lead.admission_year.admission_year_name} (${lead.admission_year.year})`
                   : lead.academic_year /* legacy fallback for historical rows */
                     || '-'}
               </dd>
@@ -155,7 +155,7 @@ export function DetailsTab({
           <CardTitle className="text-base">Address</CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-4">
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="col-span-2">
               <dt className="text-sm text-muted-foreground">Address Line</dt>
               <dd className="font-medium">{lead.address_line1 || '-'}</dd>
@@ -186,7 +186,7 @@ export function DetailsTab({
           <CardTitle className="text-base">Parent / Guardian</CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-4">
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <dt className="text-sm text-muted-foreground">Parent Name</dt>
               <dd className="font-medium">{lead.parent_name || '-'}</dd>
@@ -209,7 +209,7 @@ export function DetailsTab({
           <CardTitle className="text-base">Source & Timeline</CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-4">
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <dt className="text-sm text-muted-foreground">Lead Source</dt>
               <dd className="font-medium capitalize">
@@ -316,7 +316,7 @@ export function DetailsTab({
                       </div>
                     </div>
                     {(attr.consultant?.email || attr.consultant?.phone || attr.attribution_percentage != null) && (
-                      <dl className="grid grid-cols-2 gap-2 text-sm mt-2">
+                      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm mt-2">
                         {attr.consultant?.email && (
                           <div>
                             <dt className="text-muted-foreground">Email</dt>
@@ -355,7 +355,7 @@ export function DetailsTab({
                     Active
                   </Badge>
                 </div>
-                <dl className="grid grid-cols-2 gap-2 text-sm">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                   {lead.counselor.email && (
                     <div>
                       <dt className="text-muted-foreground">Email</dt>

@@ -3,6 +3,10 @@ import { toast } from 'react-hot-toast';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import { studentSearchKeys } from './use-student-search';
 import type {
+  BillCancelReasonCode,
+  BillCancellationAttachment
+} from '@/types/billing-bill-cancellation';
+import type {
   StudentBill,
   CreateStudentBillDto,
   UpdateStudentBillDto,
@@ -240,6 +244,80 @@ export function useBulkDeleteStudentBills() {
     onError: (error: any) => {
       console.error('Error bulk deleting student bills:', error);
       toast.error(error.message || 'Failed to delete student bills');
+    }
+  });
+}
+
+// Single-bill cancellation lives in hooks/billing/use-bill-cancellation.ts.
+// It needs a reason code and at least one supporting document, which this
+// module has no shape for, and fn_cancel_student_bill rejects a call without
+// them -- so there is deliberately no useCancelStudentBill here to reach for.
+
+// Hook to bulk cancel student bills under ONE reason and ONE document set.
+export function useBulkCancelStudentBills() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      ids,
+      reasonCode,
+      reason,
+      attachments
+    }: {
+      ids: string[];
+      reasonCode: BillCancelReasonCode;
+      reason: string;
+      attachments: BillCancellationAttachment[];
+    }) =>
+      StudentBillService.bulkCancelStudentBills(ids, reasonCode, reason, attachments),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: studentBillKeys.lists() });
+
+      result.success.forEach((id) => {
+        queryClient.invalidateQueries({
+          queryKey: studentBillKeys.detail(id)
+        });
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: [...studentBillKeys.all, 'by-student']
+      });
+      queryClient.invalidateQueries({
+        queryKey: [...studentBillKeys.all, 'unpaid']
+      });
+      queryClient.invalidateQueries({
+        queryKey: [...studentBillKeys.all, 'outstanding']
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.summaries()
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.details()
+      });
+      // billCancellationKeys.all, written out rather than imported:
+      // use-bill-cancellation.ts imports studentBillKeys from THIS module, and
+      // importing back would make the two modules circular — which resolves to
+      // `undefined` at init depending on which side loads first.
+      queryClient.invalidateQueries({ queryKey: ['bill-cancellations'] });
+
+      const successCount = result.success.length;
+      const failedCount = result.failed.length;
+
+      if (successCount > 0) {
+        toast.success(`${successCount} bill(s) cancelled successfully`);
+      }
+
+      if (failedCount > 0) {
+        // Each failure carries the RPC guard message for THAT bill (wrong
+        // status, or money receipted against it), so show the first verbatim
+        // rather than a count the operator cannot act on.
+        toast.error(
+          `${failedCount} bill(s) not cancelled — ${result.failed[0]?.error ?? 'unknown reason'}`
+        );
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'Failed to cancel student bills');
     }
   });
 }

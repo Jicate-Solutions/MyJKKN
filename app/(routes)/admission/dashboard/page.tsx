@@ -33,7 +33,6 @@ import {
   Users,
   UserPlus,
   TrendingUp,
-  Target,
   CheckCircle,
   AlertCircle,
   Flame,
@@ -42,6 +41,11 @@ import {
   RefreshCw,
   Loader2,
   Building2,
+  Inbox,
+  FileText,
+  Landmark,
+  Ticket,
+  GraduationCap,
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -50,39 +54,23 @@ import { BriefingNotificationBanner } from '@/components/admission/briefing-noti
 import { BriefingPopup } from '@/components/admission/briefing-popup';
 
 // navMeta — declares this page for sidebar auto-discovery, matching the
-// canonical `{ label, icon }` shape used by `/admin/counselors/rule-types`.
+// canonical `{ label, icon }` shape used by `/admission/counselors/admin/rule-types`.
 // Aligns discoverability with `/admission/group-dashboard` so both admission
 // dashboards render consistently in nav scaffolding.
 export const navMeta = { label: 'Admission Dashboard', icon: 'LayoutDashboard' } as const;
 
-// Funnel stages with colors — matches admission_lead_stage enum
-const FUNNEL_STAGES = [
-  { key: 'new', label: 'New', color: 'bg-blue-500' },
-  { key: 'contacted', label: 'Contacted', color: 'bg-indigo-500' },
-  { key: 'not_reachable', label: 'Not Reachable', color: 'bg-slate-400' },
-  { key: 'interested', label: 'Interested', color: 'bg-sky-500' },
-  { key: 'follow_up_scheduled', label: 'Follow-up Scheduled', color: 'bg-violet-500' },
-  { key: 'engaged', label: 'Engaged', color: 'bg-fuchsia-500' },
-  { key: 'qualified', label: 'Qualified', color: 'bg-purple-500' },
-  { key: 'application_started', label: 'Application Started', color: 'bg-pink-500' },
-  { key: 'application_submitted', label: 'Application Submitted', color: 'bg-rose-500' },
-  { key: 'documents_pending', label: 'Documents Pending', color: 'bg-orange-500' },
-  { key: 'documents_verified', label: 'Documents Verified', color: 'bg-amber-500' },
-  { key: 'interview_scheduled', label: 'Interview Scheduled', color: 'bg-yellow-500' },
-  { key: 'interview_completed', label: 'Interview Completed', color: 'bg-yellow-600' },
-  { key: 'interviewed', label: 'Interviewed', color: 'bg-yellow-400' },
-  { key: 'offer_sent', label: 'Offer Sent', color: 'bg-green-500' },
-  { key: 'offer_accepted', label: 'Offer Accepted', color: 'bg-emerald-500' },
-  { key: 'token_paid', label: 'Token Paid', color: 'bg-teal-500' },
-  { key: 'applied', label: 'Applied', color: 'bg-violet-400' },
-  { key: 'offered', label: 'Offered', color: 'bg-orange-400' },
-  { key: 'enrolled', label: 'Enrolled', color: 'bg-cyan-500' },
-  { key: 'confirmed', label: 'Confirmed', color: 'bg-green-600' },
-  { key: 'declined', label: 'Declined', color: 'bg-red-500' },
-  { key: 'withdrew', label: 'Withdrew', color: 'bg-red-400' },
-  { key: 'expired', label: 'Expired', color: 'bg-gray-400' },
-  { key: 'lost', label: 'Lost', color: 'bg-gray-500' },
-  { key: 'dormant', label: 'Dormant', color: 'bg-gray-300' }
+// 2026-05-20: Funnel stages now follow the lifecycle workflow shipped in
+// commit c5b93ca0f. Colors mirror the admission_statuses seed so the
+// dashboard chart, the LifecycleStatusBadge, and the group-dashboard funnel
+// chart all speak the same visual language. 'admitted' aggregates
+// admitted+active per the workflow spec.
+const LIFECYCLE_STAGES = [
+  { key: 'enquiry',           label: 'Enquiry',           color: 'bg-blue-500' },
+  { key: 'enquiry_submitted', label: 'Enquiry Submitted', color: 'bg-purple-500' },
+  { key: 'account',           label: 'Account',           color: 'bg-violet-500' },
+  { key: 'reserved',          label: 'Reserved',          color: 'bg-sky-500' },
+  { key: 'admitted',          label: 'Admitted',          color: 'bg-emerald-500' },
+  { key: 'rejected',          label: 'Rejected',          color: 'bg-red-500' },
 ];
 
 function DashboardSkeleton() {
@@ -162,27 +150,40 @@ function KPICard({
 function FunnelVisualization({
   funnelData
 }: {
-  funnelData: { total: number; activeTotal?: number; byStage: Record<string, number>; hotLeads: number; priorityLeads: number } | undefined;
+  funnelData:
+    | {
+        total: number;
+        activeTotal?: number;
+        byStage: Record<string, number>;
+        lifecycleByStage?: Record<string, number>;
+        hotLeads: number;
+        priorityLeads: number;
+      }
+    | undefined;
 }) {
   if (!funnelData) return null;
 
-  const maxCount = Math.max(...Object.values(funnelData.byStage), 1);
+  // 2026-05-20: Source of truth flipped from byStage (funnel_stage) to
+  // lifecycleByStage (lifecycle_status, with admitted+active collapsed). If the
+  // server hasn't rolled out the new field yet, fall back to an empty map so
+  // the chart still renders (zeros across all stages) instead of crashing.
+  const stageMap = funnelData.lifecycleByStage ?? {};
+  const maxCount = Math.max(...Object.values(stageMap), 1);
 
   return (
     <div className="space-y-3">
-      {FUNNEL_STAGES.map((stage) => {
-        const count = funnelData.byStage[stage.key] || 0;
+      {LIFECYCLE_STAGES.map((stage) => {
+        const count = stageMap[stage.key] || 0;
         const percentage = maxCount > 0 ? (count / maxCount) * 100 : 0;
 
         return (
           <div key={stage.key} className="flex items-center gap-3">
-            {/*
-              `title` attr — fixed-width label column truncates long stage names
-              like "Application Submitted", "Documents Pending", "Follow-up
-              Scheduled". Native browser tooltip reveals the full name on hover
-              without adding a Tooltip primitive dep.
-            */}
-            <div className="w-32 text-sm text-muted-foreground truncate" title={stage.label}>{stage.label}</div>
+            <div className="w-40 text-sm text-muted-foreground truncate" title={stage.label}>
+              {stage.label}
+              {stage.key === 'admitted' && (
+                <span className="ml-1 text-[10px] text-muted-foreground/70">(+ active)</span>
+              )}
+            </div>
             <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
               <div
                 className={`h-full ${stage.color} transition-all duration-500`}
@@ -394,16 +395,18 @@ function AdmissionDashboardPageContent() {
             onOpenChange={setShowBriefingPopup}
           />
 
-          {/* KPI Cards.
-              All four tiles render the live counts from the funnel + summary
-              RPCs in both modes:
+          {/* KPI strip — 2 rows × 4 cards (8 cards total).
+              Row 1: lead-side signals (active leads, hot, priority) + headline
+                     Admitted KPI for the cohort that crossed the fees threshold.
+              Row 2: lifecycle workflow stages — Enquiry → Enquiry Submitted →
+                     Account → Reserved (drill from entry to seat-reserved).
+              All counts come from the same RPCs we just extended; modes:
                 - "All Institutions" → aggregate across every institution the
-                  caller's RLS allows (server-side RPC supports `p_institution_id
-                  = null`).
+                  caller's RLS allows (server-side RPC supports p_institution_id=null).
                 - Single institution → filtered to that institution.
-              The "Select an institution" gate that used to dash-out Hot/Priority
-              Leads was a workaround for the earlier `institutionId || ''` bug;
-              with the call site fixed, the gate is no longer needed. */}
+              2026-05-20: 'Application Start Rate' (funnel_stage-based) retired
+              and replaced with the lifecycle KPIs to match the workflow-realigned
+              group dashboard treatment. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Total Active Leads"
@@ -427,23 +430,57 @@ function AdmissionDashboardPageContent() {
               color="text-yellow-600"
             />
             <KPICard
-              title="Application Start Rate"
-              value={`${(summary?.applicationStartRate ?? 0).toFixed(1)}%`}
-              description="Lead → Application Started"
-              icon={Target}
-              color="text-green-600"
+              title="Admitted"
+              value={summary?.admittedCount ?? 0}
+              description="Includes active learners"
+              icon={GraduationCap}
+              color="text-emerald-600"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <KPICard
+              title="Enquiry"
+              value={summary?.enquiryCount ?? 0}
+              description="Lead moved to counselor"
+              icon={Inbox}
+              color="text-blue-600"
+            />
+            <KPICard
+              title="Enquiry Submitted"
+              value={summary?.enquirySubmittedCount ?? 0}
+              description="QR self-fill form completed"
+              icon={FileText}
+              color="text-purple-600"
+            />
+            <KPICard
+              title="Account"
+              value={summary?.accountCount ?? 0}
+              description="Bills generated"
+              icon={Landmark}
+              color="text-violet-600"
+            />
+            <KPICard
+              title="Reserved"
+              value={summary?.reservedCount ?? 0}
+              description="Universal fees paid"
+              icon={Ticket}
+              color="text-sky-600"
             />
           </div>
 
           {/* Main Content Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Funnel Visualization */}
+            {/* Lifecycle Funnel Visualization — 6-stage workflow.
+                2026-05-20: replaced the 26-stage admission_lead_stage chart
+                with the lifecycle workflow shipped in c5b93ca0f. Bars now show
+                learners_profiles distribution: Enquiry → Enquiry Submitted →
+                Account → Reserved → Admitted (+ active) → Rejected. */}
             <Card className="lg:col-span-2">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Admission Funnel</CardTitle>
-                    <CardDescription>Lead distribution across stages</CardDescription>
+                    <CardTitle>Lifecycle Workflow</CardTitle>
+                    <CardDescription>Learner distribution across lifecycle stages</CardDescription>
                   </div>
                   <Button variant="ghost" size="sm" asChild>
                     <Link href="/admission/analytics">

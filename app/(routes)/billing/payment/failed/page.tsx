@@ -105,6 +105,10 @@ export default function PaymentFailedPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const transactionId = searchParams.get('transaction_id');
+  // Set by the Razorpay cancel_url (reason=user_cancelled) and by the failure
+  // callback (reason=<error code>). Used to show the right "cancelled" vs
+  // "failed" variant when the DB row hasn't been moved to a final state.
+  const reason = searchParams.get('reason');
   const [showContent, setShowContent] = useState(false);
 
   const {
@@ -285,7 +289,17 @@ export default function PaymentFailedPage() {
     return statusInfo[status] || statusInfo.failed;
   };
 
-  const statusInfo = getStatusInfo(paymentStatus.status);
+  // A user cancel returns via cancel_url with reason=user_cancelled while the
+  // DB row may still be 'initiated' (no server callback fires on a cancel).
+  // Show the cancelled variant unless the DB already has a more specific
+  // final state (failed/expired/refunded/success).
+  const displayStatus =
+    reason === 'user_cancelled' &&
+    !['failed', 'expired', 'refunded', 'success'].includes(paymentStatus.status)
+      ? 'cancelled'
+      : paymentStatus.status;
+
+  const statusInfo = getStatusInfo(displayStatus);
 
   return (
     <div className='min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-yellow-50 dark:from-gray-900 dark:via-red-950 dark:to-gray-800 py-12 px-4'>
@@ -306,7 +320,7 @@ export default function PaymentFailedPage() {
               className='text-center mb-8'
             >
               <div className='inline-flex items-center justify-center mb-4'>
-                <FailureAnimation status={paymentStatus.status} />
+                <FailureAnimation status={displayStatus} />
               </div>
 
               <motion.h1
@@ -350,7 +364,7 @@ export default function PaymentFailedPage() {
                       variant='secondary'
                       className='bg-white/20 text-white border-white/30'
                     >
-                      {paymentStatus.status.toUpperCase()}
+                      {displayStatus.toUpperCase()}
                     </Badge>
                   </div>
                 </div>

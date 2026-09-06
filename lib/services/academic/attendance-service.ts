@@ -593,7 +593,7 @@ export class AttendanceService {
       // First, find the active timetable for the given filters that includes the selected date
       const timetableQuery = this.supabase
         .from('timetables')
-        .select('id, start_date, end_date, timetable_name')
+        .select('id, start_date, end_date, timetable_name, timetable_format')
         .eq('institution_id', filters.institution_id)
         .eq('academic_year_id', filters.academic_year_id)
         .eq('degree_id', filters.degree_id)
@@ -619,9 +619,14 @@ export class AttendanceService {
       }
 
       const timetableId = (timetables[0] as any).id;
+      const timetableFormat = (timetables[0] as any).timetable_format;
 
-      // Determine day of week from date
-      const dayOfWeek = this.getDayOfWeekFromDate(date);
+      // Determine the timetable_data lookup key for this date.
+      // Added: 2026-06-17 - Cycle timetables key by "cycle-N", not weekday.
+      const lookupKey =
+        timetableFormat === 'cycle'
+          ? await this.resolveCycleKey(timetableId, date)
+          : this.getDayOfWeekFromDate(date);
 
       // Get timetable data and extract slots for the specific day
       const { data: timetableData, error: timetableDataError } =
@@ -638,8 +643,8 @@ export class AttendanceService {
 
       let slots: any[] = [];
       const _ttd = (timetableData as { timetable_data?: TimetableData })?.timetable_data;
-      if (_ttd) {
-        const daySlots = _ttd[dayOfWeek];
+      if (_ttd && lookupKey) {
+        const daySlots = _ttd[lookupKey];
         if (daySlots && typeof daySlots === 'object') {
           // Convert JSON structure to array format
           slots = Object.entries(daySlots).map(
@@ -647,7 +652,7 @@ export class AttendanceService {
               ...slotData,
               id: slotData.slot_id || periodId,
               period_id: periodId,
-              day_of_week: dayOfWeek
+              day_of_week: lookupKey
             })
           );
         }
@@ -898,6 +903,7 @@ export class AttendanceService {
         .from('timetables')
         .select(
           `id, timetable_format, timetable_type, start_date, end_date, selected_dates, section_id, semester_id, timetable_data,
+           attendance_mode, class_incharge_id,
            degrees(degree_name),
            programs(program_name),
            departments(department_name),
@@ -905,7 +911,15 @@ export class AttendanceService {
            sections(section_name)`
         )
         .eq('institution_id', filters.institution_id)
-        .eq('academic_year_id', filters.academic_year_id)
+        // Updated: 2026-06-29 - Do NOT gate on academic_year_id. A timetable's
+        // validity is its OWN start_date/end_date window (enforced per-timetable
+        // below), NOT the calendar bounds of the academic_year row it is tagged
+        // with. Timetables are routinely scheduled across the academic-year
+        // boundary (e.g. a 2025-26-tagged timetable running Jun–Oct 2026). The
+        // remaining filters (degree/program/department/semester + the date-range
+        // check below) already pin the result to a single class; the AY equality
+        // only added a way to wrongly exclude it. Mirrors the faculty
+        // getFacultyTodayPeriods fix so both paths show periods by timetable date.
         .eq('degree_id', filters.degree_id)
         .eq('program_id', filters.program_id)
         .eq('department_id', filters.department_id)
@@ -968,6 +982,41 @@ export class AttendanceService {
 
       // Collect all slots from all relevant timetables
       const allSlots: any[] = [];
+
+      // Updated: 2026-06-19 (FIX 2) - Resolve the staff id + HOD status ONCE here instead
+      // of per-timetable inside the loop. Both are timetable-independent, and the batch
+      // de-duplication below needs the staff id BEFORE it picks one slot variant per period
+      // (so it can prefer the variant this staff actually teaches — see periodSlotMap).
+      let staffIdForFiltering: string | null = null;
+      let isHODUser = false;
+      // Added: 2026-07-22 - Direct profile-ID assignment fallback (mirrors STEP 7/8 of
+      // validateStaffAssignment, which already authorizes marking via profile_ids/
+      // primary_profile_id). Without this, a faculty whose profiles.email has no
+      // matching staff row (e.g. assigned only by profile, or email drift) got
+      // getCurrentUserStaffId() = null and saw zero periods here even though the
+      // save-time check would have authorized them.
+      let userProfileIdForFiltering: string | null = null;
+      if (options.filterByStaffAssignment && !options.isSuperAdmin) {
+        staffIdForFiltering = await this.getCurrentUserStaffId();
+        if (!staffIdForFiltering) {
+          // HOD users have no staff record but should see their own department's periods.
+          const { data: userData } = await (this.supabase as any).auth.getUser();
+          if (userData?.user) {
+            userProfileIdForFiltering = userData.user.id;
+            const { data: profile } = await this.supabase
+              .from('profiles')
+              .select('role, department_id')
+              .eq('id', userData.user.id)
+              .single();
+            if (
+              (profile as any)?.role === 'hod' &&
+              (profile as any).department_id === filters.department_id
+            ) {
+              isHODUser = true;
+            }
+          }
+        }
+      }
 
       for (const timetable of timetables) {
         // Check date range for ALL timetable formats (both regular and batch)
@@ -1063,7 +1112,7 @@ export class AttendanceService {
                 // Use a Map to track which periods we've already found slots for
                 // FIX: 2025-12-06 - Store the actual slot data (not just boolean) to compare staff counts
                 // Updated: 2025-12-11 - Added isFromRange to prefer RANGE slots over individual slots
-                const periodSlotMap = new Map<string, { slotData: any; day: string; staffCount: number; isFromRange?: boolean }>();
+                const periodSlotMap = new Map<string, { slotData: any; day: string; staffCount: number; isFromRange?: boolean; hasStaff?: boolean }>();
 
                 Object.keys(timetableData).forEach((day) => {
                   const daySlots = timetableData[day];
@@ -1122,30 +1171,42 @@ export class AttendanceService {
                           const isFromRange = slotData.slot_date?.startsWith('RANGE:');
                           const existingIsFromRange = existingSlot?.isFromRange;
 
+                          // Updated: 2026-06-19 (FIX 2) - Does THIS variant include the current staff?
+                          // The RANGE / staff-count tiebreaks below are staff-agnostic and could drop the
+                          // only variant a faculty actually teaches (combined/divided classes), leaving
+                          // them with 0 periods + the misleading "duplicate staff record" warning. When a
+                          // staff filter is active, prefer the variant that contains the current staff.
+                          // When no staff filter is active (super admin), currentHasStaff is always false,
+                          // so these two branches are inert and the original logic is preserved.
+                          const currentHasStaff =
+                            !!staffIdForFiltering &&
+                            Array.isArray(slotData.staff_ids) &&
+                            slotData.staff_ids.includes(staffIdForFiltering);
+                          const existingHasStaff = existingSlot?.hasStaff ?? false;
+
+                          const storeSlot = () =>
+                            periodSlotMap.set(periodId, {
+                              slotData,
+                              day,
+                              staffCount: currentStaffCount,
+                              isFromRange,
+                              hasStaff: currentHasStaff
+                            });
+
                           if (!existingSlot) {
                             // First slot for this period - store it with range flag
-                            periodSlotMap.set(periodId, {
-                              slotData,
-                              day,
-                              staffCount: currentStaffCount,
-                              isFromRange
-                            });
+                            storeSlot();
+                          } else if (currentHasStaff && !existingHasStaff) {
+                            // Staff-aware: current variant includes this faculty, existing doesn't → prefer current
+                            storeSlot();
+                          } else if (!currentHasStaff && existingHasStaff) {
+                            // Existing variant includes this faculty, current doesn't → keep existing
                           } else if (isFromRange && !existingIsFromRange) {
                             // Current is RANGE, existing is individual → prefer RANGE for consistency
-                            periodSlotMap.set(periodId, {
-                              slotData,
-                              day,
-                              staffCount: currentStaffCount,
-                              isFromRange
-                            });
+                            storeSlot();
                           } else if (currentStaffCount > existingSlot.staffCount && !(!isFromRange && existingIsFromRange)) {
                             // Both same type and current has more staff - use as tiebreaker
-                            periodSlotMap.set(periodId, {
-                              slotData,
-                              day,
-                              staffCount: currentStaffCount,
-                              isFromRange
-                            });
+                            storeSlot();
                           }
                           // If current has fewer or equal staff and same type, keep existing
                           // If current is individual and existing is RANGE → keep RANGE
@@ -1166,6 +1227,24 @@ export class AttendanceService {
                     slot_date: date,
                     _original_slot_date: slotData.slot_date // Keep original for reference
                   });
+                });
+              }
+            } else if ((timetable as { timetable_format?: string }).timetable_format === 'cycle') {
+              // Added: 2026-06-17 - Cycle timetables key timetable_data by
+              // "cycle-N", not weekday. Resolve the active cycle for the date.
+              const cycleKey = await this.resolveCycleKey((timetable as any).id, date);
+              const daySlots = cycleKey ? (timetableData as any)[cycleKey] : undefined;
+              if (daySlots && typeof daySlots === 'object') {
+                Object.keys(daySlots).forEach((periodId) => {
+                  const slotData = (daySlots as any)[periodId];
+                  if (slotData && !slotData.is_break_slot) {
+                    slots.push({
+                      ...slotData,
+                      period_id: periodId,
+                      day_of_week: cycleKey,
+                      id: slotData.slot_id
+                    });
+                  }
                 });
               }
             } else {
@@ -1347,41 +1426,22 @@ export class AttendanceService {
           continue;
         }
 
-        // Store staffId for later filtering if needed
-        let staffIdForFiltering: string | null = null;
-        let isHODUser = false;
-
-        if (options.filterByStaffAssignment && !options.isSuperAdmin) {
-          staffIdForFiltering = await this.getCurrentUserStaffId();
-
-          if (!staffIdForFiltering) {
-            // Check if user is HOD - HOD users don't have staff records but should see their department's periods
-            const { data: userData } = await (this.supabase as any).auth.getUser();
-            if (userData.user) {
-              const { data: profile } = await this.supabase
-                .from('profiles')
-                .select('role, department_id')
-                .eq('id', userData.user.id)
-                .single();
-
-              if (
-                (profile as any)?.role === 'hod' &&
-                (profile as any).department_id === filters.department_id
-              ) {
-                isHODUser = true;
-              } else {
-                continue; // Skip this timetable if user has no staff access and is not HOD
-              }
-            } else {
-              continue;
-            }
-          }
+        // Updated: 2026-06-19 (FIX 2) - staffIdForFiltering / isHODUser are now resolved
+        // once before the loop. Here we only skip timetables this user cannot access.
+        if (
+          options.filterByStaffAssignment &&
+          !options.isSuperAdmin &&
+          !staffIdForFiltering &&
+          !isHODUser &&
+          !userProfileIdForFiltering
+        ) {
+          continue; // No staff record, not an HOD, and not signed in → skip
         }
 
         if (slots && slots.length > 0) {
           // Filter slots by staff assignment if needed (but not for super admin or HOD users)
           let filteredSlots = slots;
-          if (staffIdForFiltering && !options.isSuperAdmin && !isHODUser) {
+          if ((staffIdForFiltering || userProfileIdForFiltering) && !options.isSuperAdmin && !isHODUser) {
 
             filteredSlots = slots.filter((slot: any) => {
               // Check if staff is assigned to the main slot
@@ -1421,12 +1481,70 @@ export class AttendanceService {
                 }
               }
 
+              // Added: 2026-06-29 - Practical periods (period_mode='practical') assign
+              // staff per BATCH in practical_config.batches[].staff_mapping (an object
+              // keyed by course_id whose values are staff_id arrays), NOT in
+              // staff_ids/staff_members/sub_slots. Without this the assigned faculty's
+              // practical period was filtered out of the search results too. Mirrors the
+              // getFacultyTodayPeriods practical fix.
+              if (
+                slot.period_mode === 'practical' &&
+                slot.practical_config &&
+                Array.isArray(slot.practical_config.batches)
+              ) {
+                const inPracticalBatch = slot.practical_config.batches.some(
+                  (batch: any) => {
+                    const mapping = batch?.staff_mapping;
+                    if (!mapping || typeof mapping !== 'object') return false;
+                    return Object.values(mapping).some(
+                      (list: any) =>
+                        Array.isArray(list) && list.includes(staffIdForFiltering)
+                    );
+                  }
+                );
+                if (inPracticalBatch) return true;
+              }
+
+              // Direct profile-ID assignment fallback (STEP 7/8 of validateStaffAssignment) —
+              // covers faculty assigned via profile_ids/primary_profile_id with no matching staff row.
+              if (userProfileIdForFiltering) {
+                if (
+                  slot.profile_ids &&
+                  Array.isArray(slot.profile_ids) &&
+                  slot.profile_ids.includes(userProfileIdForFiltering)
+                ) {
+                  return true;
+                }
+                if (slot.primary_profile_id === userProfileIdForFiltering) {
+                  return true;
+                }
+                if (slot.sub_slots && Array.isArray(slot.sub_slots)) {
+                  for (const subSlot of slot.sub_slots) {
+                    if (
+                      subSlot.profile_ids &&
+                      Array.isArray(subSlot.profile_ids) &&
+                      subSlot.profile_ids.includes(userProfileIdForFiltering)
+                    ) {
+                      return true;
+                    }
+                    if (subSlot.primary_profile_id === userProfileIdForFiltering) {
+                      return true;
+                    }
+                  }
+                }
+              }
+
               return false;
             });
 
-            // Warning: If all slots were filtered out, this may indicate a duplicate staff record issue
+            // Updated: 2026-06-19 (FIX 2) - Neutral diagnostic. All slots being filtered out
+            // for this staff usually just means they teach none of this timetable's periods on
+            // this date (a date outside their teaching range, or a combined class taught by a
+            // colleague) — NOT a duplicate staff record. The old "possible duplicate staff record"
+            // wording sent triage down the wrong path. Logged at debug since it is an expected,
+            // non-error condition; the UI surfaces an explicit "no classes on this date" empty state.
             if (slots.length > 0 && filteredSlots.length === 0) {
-              logger.warn('academic/attendance', 'All slots filtered out for staff - possible duplicate staff record', {
+              logger.debug('academic/attendance', 'No assigned slots for this staff on this timetable/date', {
                 userStaffId: staffIdForFiltering,
                 sampleSlotStaffIds: slots[0]?.staff_ids || [],
                 timetableId: (timetable as any).id
@@ -1504,11 +1622,21 @@ export class AttendanceService {
           return {
             timetable_slot_id: slot.slot_id || slot.id,
             timetable_id: slot.timetable_id,
+            // Updated: 2026-06-19 (FIX 4) - Stamp institution_id (available in the fetch
+            // context) onto every period so the leave-check effect in available-periods-cards
+            // can run instead of logging "Skipping leave check - missing institution_id".
+            institution_id: filters.institution_id,
             id: slot.period_id,
             period_name: periodData?.period_name || 'Unknown Period',
             start_time: periodData?.start_time || '',
             end_time: periodData?.end_time || '',
             is_break: periodData?.is_break || false,
+            // Updated: 2026-06-10 - Carry FN/AN tag + attendance mode so the
+            // session_wise collapse (below) and the marking page can branch.
+            session: periodData?.session || null,
+            attendance_mode:
+              (timetableData as any)?.attendance_mode || 'period_wise',
+            class_incharge_id: (timetableData as any)?.class_incharge_id || null,
             // Add the hierarchy names from timetable relations
             degree_name: Array.isArray((timetableData as any)?.degrees)
               ? (timetableData as any).degrees[0]?.degree_name || ''
@@ -1672,12 +1800,30 @@ export class AttendanceService {
         return cleanPeriod;
       });
 
+      // Updated: 2026-06-10 - For session_wise (school) timetables, collapse the
+      // full period list down to just the first forenoon + first afternoon
+      // period, relabelled as Morning / Afternoon sessions.
+      const sessionAdjusted = this.collapseSessionWisePeriods(cleanedPeriods);
+
       // Final validation to ensure we always return an array
-      return Array.isArray(cleanedPeriods) ? cleanedPeriods : [];
+      return Array.isArray(sessionAdjusted) ? sessionAdjusted : [];
     } catch (error) {
       logger.error('academic/attendance', 'Error in getAvailablePeriodsForDate', error);
       return [];
     }
+  }
+
+  /**
+   * Updated: 2026-06-10
+   * Exclude period options that belong to session_wise (school day-wise)
+   * timetables from the period-based attendance flow. Day-wise attendance is a
+   * separate, date+session subsystem (see DailySessionAttendanceService and the
+   * "Day Attendance" tab) and must NOT appear in the period/course search/marking
+   * UI. period_wise (college) timetables pass through untouched.
+   */
+  private static collapseSessionWisePeriods(periods: any[]): any[] {
+    if (!Array.isArray(periods) || periods.length === 0) return periods;
+    return periods.filter((p) => p?.attendance_mode !== 'session_wise');
   }
 
   /**
@@ -1726,6 +1872,83 @@ export class AttendanceService {
     }
   }
 
+  /**
+   * Added: 2026-06-11 - Resolve the Day-wise (session_wise) class for a set of
+   * attendance search criteria, so the overview can DECIDE the attendance type
+   * automatically instead of asking the user to pick a tab. Returns the matched
+   * session_wise class (timetable + section + labels) or null when the criteria
+   * point at a period_wise (college) timetable / no day-wise class exists.
+   *
+   * Only the provided criteria are filtered on, so it works whether the admin
+   * narrowed down to a section or stopped at the semester. A section_id is
+   * required on the matched timetable because day-wise marking is section-keyed.
+   */
+  static async getSessionWiseClassForCriteria(ctx: {
+    institution_id?: string | null;
+    academic_year_id?: string | null;
+    degree_id?: string | null;
+    program_id?: string | null;
+    department_id?: string | null;
+    semester_id?: string | null;
+    section_id?: string | null;
+  }): Promise<{
+    timetable_id: string;
+    section_id: string;
+    institution_id: string;
+    institution_name?: string;
+    section_name: string;
+    class_label: string;
+  } | null> {
+    try {
+      let query = this.supabase
+        .from('timetables')
+        .select(
+          `id, institution_id, section_id, timetable_name,
+           sections:section_id(section_name),
+           institutions:institution_id(name)`
+        )
+        .eq('attendance_mode', 'session_wise')
+        .eq('is_active', true)
+        .not('section_id', 'is', null);
+
+      // Filter only on the criteria the user actually provided.
+      if (ctx.institution_id) query = query.eq('institution_id', ctx.institution_id);
+      if (ctx.academic_year_id) query = query.eq('academic_year_id', ctx.academic_year_id);
+      if (ctx.degree_id) query = query.eq('degree_id', ctx.degree_id);
+      if (ctx.program_id) query = query.eq('program_id', ctx.program_id);
+      if (ctx.department_id) query = query.eq('department_id', ctx.department_id);
+      if (ctx.semester_id) query = query.eq('semester_id', ctx.semester_id);
+      if (ctx.section_id) query = query.eq('section_id', ctx.section_id);
+
+      const { data, error } = await query.limit(1).maybeSingle();
+      if (error) {
+        logger.error('academic/attendance', 'Error resolving session_wise class for criteria', error);
+        return null;
+      }
+      if (!data) return null;
+
+      const t = data as any;
+      const sectionName = Array.isArray(t.sections)
+        ? t.sections[0]?.section_name
+        : t.sections?.section_name;
+      const institutionName = Array.isArray(t.institutions)
+        ? t.institutions[0]?.name
+        : t.institutions?.name;
+      const base = t.timetable_name || sectionName || 'Class';
+      return {
+        timetable_id: t.id,
+        section_id: t.section_id,
+        institution_id: t.institution_id,
+        institution_name: institutionName || undefined,
+        section_name: sectionName || '',
+        class_label: institutionName ? `${institutionName} — ${base}` : base
+      };
+    } catch (error) {
+      logger.error('academic/attendance', 'Error in getSessionWiseClassForCriteria', error);
+      return null;
+    }
+  }
+
   // Get attendance records with filters
   // NOTE: This method is deprecated since we moved to consolidated approach
   static async getAttendance(
@@ -1746,6 +1969,24 @@ export class AttendanceService {
       logger.error('academic/attendance', 'Error fetching attendance', error);
       throw error;
     }
+  }
+
+  // Added: 2026-06-17 - Resolve the timetable_data lookup key for a date.
+  // Cycle-format timetables key timetable_data by "cycle-N" (not weekday); the
+  // active cycle is computed by the canonical get_cycle_for_date RPC (counts
+  // working days, skips Sundays/holidays). Returns the "cycle-N" key, or null
+  // when there are no classes that day. Regular/batch formats are handled by
+  // their own branches — call this only for cycle timetables.
+  private static async resolveCycleKey(
+    timetableId: string,
+    date: string
+  ): Promise<string | null> {
+    const { data: cycleNum, error } = await this.supabase.rpc(
+      'get_cycle_for_date',
+      { p_timetable_id: timetableId, p_date: date }
+    );
+    if (error || !cycleNum) return null;
+    return `cycle-${cycleNum}`;
   }
 
   // Helper method to get day of week from date

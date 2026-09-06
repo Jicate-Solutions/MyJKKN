@@ -1,0 +1,194 @@
+# Feedback Spine manifest — DISCOVERY PASS, re-verified 2026-07-13 (read-only;
+# no sim/walk has been executed against this manifest yet — unlike scf.yaml,
+# treat every assert below as verified-by-inspection, not verified-by-run).
+#
+# Every fact carries its receipt: a file on jicate/main or a prod table/catalog
+# checked via Mgmt API on 2026-07-13. A sibling copy exists IN THE REPO at
+# .claude/loop-manifests/feedback-spine.yaml (jicate/main) — already stale on
+# re-check the same day (claimed a feedback-spine→ai-pulse loop_edge that is
+# gone from prod, and a 108-event classify backlog since drained). THIS file is
+# the /loops-skill source of truth; re-verify counts at run time.
+loop_key: feedback-spine
+name: Feedback Spine & intake adapters
+prod_ref: kvizhngldtiuufknvehv
+
+# Loop shape (loop_registry verified 2026-07-13: class=intake, tier 3, domain
+# platform, is_active=true, gates ALL 'off', routine_id NULL):
+# 5 adapter crons normalize source rows into ONE spine table; a daily Claude
+# subscription routine (external Mac/Server run) fills the ai_* columns;
+# downstream loops read. loop_edges (prod 2026-07-13, cols from_key/to_key):
+#   feedback-spine → scf  (what_flows='fuel')
+#   feedback-spine → mess (what_flows='fuel')
+# (an earlier → ai-pulse draft edge existed per the repo manifest but is GONE
+#  from prod loop_edges as of this re-check.)
+tables:
+  input: session_feedback        # primary live source (64,519 rows, prod count
+                                 # 2026-07-13). Other adapter inputs are
+                                 # mess_feedback, pp_feedback, ig_dm_messages
+                                 # (ALL THREE = 0 rows in prod, same check) and
+                                 # the external Meta Graph comments edge.
+                                 # Adapters are scheduled+firing (HTTP 200) but
+                                 # fuel-starved on the three empty sources.
+  action: feedback_events        # the spine. 21 columns verified via
+                                 # information_schema 2026-07-13 (id, source,
+                                 # source_ref, institution_id, actor_type,
+                                 # actor_ref, target_type, target_ref, event_type,
+                                 # content, rating, raw, ai_sentiment, ai_intent,
+                                 # ai_topic, ai_draft_reply, ai_model,
+                                 # ai_processed_at, occurred_at, created_at,
+                                 # updated_at). UNIQUE (source, source_ref) =
+                                 # idempotency key. Writes service_role ONLY (no
+                                 # authenticated write policy). Live SELECT
+                                 # policy (pg_policy 2026-07-13): is_super_admin()
+                                 # OR is_admin() OR (user_has_permission('feedback.view')
+                                 # AND role_has_institution_access(institution_id)).
+                                 # ⚠️ the only tracked migration
+                                 # (supabase/migrations/20260626110000_feedback_spine.sql)
+                                 # LACKS the role_has_institution_access clause —
+                                 # the live policy was tightened out-of-band;
+                                 # pg_policy is the truth, not the migration file.
+
+# Adapters + workers (paths verified in jicate/main ls-tree 2026-07-13):
+#   app/api/cron/feedback-adapter-session/route.ts      source='session_feedback'
+#       reads latest 1000 session_feedback by created_at DESC; only non-empty
+#       free_text becomes classifiable content; occurred_at = created_at.
+#   app/api/cron/feedback-adapter-mess/route.ts         source='mess'   (mess_feedback = 0 rows)
+#   app/api/cron/feedback-adapter-parent/route.ts       source='parent' (pp_feedback = 0 rows;
+#       source col misspelled 'institutions_id', mapped to institution_id —
+#       documented in lib/ai-routines/feedback-adapters.ts notes)
+#   app/api/cron/feedback-adapter-ig-dm/route.ts        source='ig_dm'  (local
+#       ig_dm_messages = 0 rows; no Meta API call)
+#   app/api/cron/feedback-adapter-ig-comments/route.ts  source='ig_comment'
+#       (calls Meta Graph API — external quota)
+#   app/api/webhooks/instagram/route.ts                 ALSO ingests IG comments
+#       real-time (same source='ig_comment', source_ref=comment_id → shared
+#       dedup with the cron adapter; verified lines 149-228)
+#   lib/services/feedback/feedback-ingest.ts            THE single write path;
+#       upsert ignoreDuplicates on (source,source_ref)
+#   lib/services/feedback/feedback-classify.ts          per-event enrichment fn
+#       (reads NOTHING from feedback_events — its caller persists)
+#   app/api/cron/feedback-classify/route.ts             DORMANT/SUPERSEDED —
+#       Director decision 2026-06-26 (specs/feedback-spine-daily-classify-routine.md):
+#       classification runs on the Claude Max SUBSCRIPTION routine, not this
+#       paid-API cron. NO ai_routine_schedules row (verified 2026-07-13).
+#
+# Scheduling: NOT vercel.json. The 5 adapters fire via
+# /api/cron/ai-routine-dispatcher (route exists on jicate/main) from
+# ai_routine_schedules — prod rows verified 2026-07-13, all enabled=true,
+# last_status='HTTP 200', last_fired_at=2026-07-13:
+#   feedback-adapter-session + -mess       minute_of_day=405 (06:45 IST = 01:15 UTC)
+#   feedback-adapter-parent                minute_of_day=420 (07:00 IST)
+#   feedback-adapter-ig-dm + -ig-comments  minute_of_day=435 (07:15 IST)
+# The classify SUBSCRIPTION routine has no schedule row (external run). Queue
+# receipt 2026-07-13 (this pass): 0 events awaiting classification
+# (ai_processed_at IS NULL AND content IS NOT NULL) — the 108-event backlog
+# seen earlier on 07-13 was drained; every content-bearing row is classified.
+#
+# Fill rates = feedback_events BY SOURCE (prod, this pass 2026-07-13):
+#   source='session_feedback' n=7319 (531 with content, 531 classified, 0 with rating)
+#   source='ig_comment'       n=970  (970 content, 970 classified)
+#   mess / parent / ig_dm = 0
+# ⚠️ LATENT ADAPTER BUG (report, don't hotfix — /loops rail): the session
+# adapter maps rating via `r.understood === true ? 1 : r.understood === false
+# ? 0 : null` (route.ts) but session_feedback.understood is SMALLINT (1-4,
+# information_schema 2026-07-13) — strict boolean equality never matches, so
+# rating is NULL on ALL 7,319 session rows (receipt: count(rating)=0). The
+# numeric understanding signal never reaches the spine; only free_text does.
+
+sentinel: ZZAUDIT                # prefix for every seeded/submitted identifier
+
+# sim: OMITTED — honest gap, not an oversight. Class=intake has NO measure
+# function: loop_registry.gates.m='off' (verified 2026-07-13) and pg_proc has
+# no public fn matching %feedback%/%spine%/%classify% that computes an outcome
+# delta (checked 2026-07-13 — the 24 matches are induction/scf/ai-query
+# submit/list/summary fns; fn_ai_feedback_list reads ai_query_feedback, a
+# super-admin list fn, not a measurer). A sim would need a measurer like fn_feedback_spine_measure_*
+# asserting a known delta (e.g. classification coverage), which does not exist.
+# Closest mechanical regress today: rolled-back INSERT into feedback_events
+# asserting (source,source_ref) dedup + pickup by the partial classify-queue
+# index — but that asserts plumbing, not a measured outcome, so it does not
+# qualify as a /loops sim block. NEVER invent a sim against a nonexistent fn.
+
+# confound: OMITTED — feedback_events has NO outcome or human-verdict columns
+# (all 21 prod columns listed above; the only enrichment is ai_sentiment/
+# ai_intent/ai_topic/ai_draft_reply/ai_model/ai_processed_at). Nothing measures
+# whether a classification or draft reply changed anything, so the
+# not_tried-vs-tried falsification is impossible on this loop today.
+
+# feed_forward: OMITTED — lib/services/feedback/feedback-classify.ts is a pure
+# per-event enrichment (content in → sentiment/intent/topic/draft out); grep
+# 2026-07-13 confirms it reads no feedback_events rows and no prior outcomes,
+# so there is no N+1-conditions-on-N mechanism to prove. Feed-forward on spine
+# data lives in the DOWNSTREAM loops (scf, mess) per loop_edges.
+
+walk:
+  personas:
+    student: test.student@jkkn.ac.in         # /learners/class-feedback is UNGATED on
+                                             # purpose (lib/sidebarMenuLink.ts ~line 1483
+                                             # comment: learner lane has no
+                                             # MENU_PERMISSIONS entry)
+    superadmin: test.superadmin@jkkn.ac.in   # /feedback gated by MENU_PERMISSIONS
+                                             # '/feedback': 'feedback.view'
+                                             # (lib/sidebarMenuLink.ts line 1294) +
+                                             # PermissionGuard module="feedback"
+                                             # action="view" (app/(routes)/feedback/
+                                             # page.tsx lines 121-123); superadmin
+                                             # passes via is_super_admin. Of the
+                                             # custom_roles, ONLY 'ceo' holds
+                                             # feedback.view=true (prod check
+                                             # 2026-07-13; faculty/hod/principal all
+                                             # false) — no test.ceo account exists, so
+                                             # superadmin is the only usable dashboard
+                                             # persona.
+  hops:
+    - { as: student, do: form_submit, page: /learners/class-feedback,
+        detail: "submit class feedback with free_text containing 'ZZAUDIT' for an open 48h-window session",
+        assert_db: "1 new session_feedback row, source='async', free_text LIKE '%ZZAUDIT%'" }
+      # Requires test.student to have an attendance-marked session inside the
+      # 48h feedback window. If none is open, FALLBACK: seed one sentinel
+      # session_feedback row via Mgmt API (service role, course_code='ZZAUDIT1',
+      # free_text='ZZAUDIT walk marker') — the adapter treats it identically.
+      # session_feedback NOT-NULLs + UNIQUE key: see scf.yaml sim comments.
+    - { as: superadmin, do: api_get,
+        path: "/api/cron/feedback-adapter-session?secret=$CRON_SECRET",
+        assert: "http 200 + success:true + inserted>=1",
+        assert_db: "feedback_events row source='session_feedback', source_ref=<session_feedback.id>, content LIKE '%ZZAUDIT%', ai_processed_at IS NULL" }
+      # Adapter is documented safeToManualTrigger:true (lib/ai-routines/
+      # feedback-adapters.ts) — read-then-upsert, idempotent, zero messages.
+      # Auth accepts ?secret=, Bearer, or x-vercel-cron (route.ts authorized()).
+      # It reads the latest 1000 session_feedback rows by created_at DESC, so a
+      # freshly-created sentinel is always inside the window.
+    - { as: superadmin, do: open_assert, page: /feedback,
+        expect: "event visible in Feedback Explorer / session-feedback source tile; ai_sentiment blank (classification = the DAILY subscription routine — do NOT trigger it inside a walk)" }
+    - { as: superadmin, do: open_assert, page: /feedback,
+        detail: "OPTIONAL next-day re-check, read-only",
+        expect: "sentinel event shows ai_sentiment/ai_intent once the subscription classify routine has run (ai_processed_at NOT NULL)" }
+  forbidden:
+    - "/api/cron/feedback-classify — paid Anthropic API AND dormant/superseded by Director decision 2026-06-26 (specs/feedback-spine-daily-classify-routine.md); never fire it from a walk"
+    - "/api/cron/feedback-adapter-ig-comments — hits the external Meta Graph API (quota); a walk only ever triggers the session adapter"
+    - "sending ai_draft_reply to anyone — drafts are human-approval-only by design; no code path auto-sends and a walk must not either"
+    - "session-feedback-nudge / session-feedback-escalation / maxlane:session-feedback-escalation routines — all present in ai_routine_schedules (verified 2026-07-13) and they message real users off the same input table"
+  cleanup: |
+    DELETE FROM feedback_events WHERE content LIKE '%ZZAUDIT%'
+       OR source_ref IN (SELECT id::text FROM session_feedback WHERE free_text LIKE '%ZZAUDIT%' OR course_code LIKE 'ZZAUDIT%');
+    DELETE FROM session_feedback WHERE free_text LIKE '%ZZAUDIT%' OR course_code LIKE 'ZZAUDIT%';
+    -- (tightened 2026-07-13 from LIKE 'ZZ%' — 0 real ZZ% course_codes exist
+    --  today, but the sentinel contract is ZZAUDIT; never widen past it.)
+    -- verify in a SEPARATE call: both sentinel counts = 0 (same-statement
+    -- DELETE;SELECT sees the pre-delete snapshot — /loops known trap).
+  notes:
+    - Delete ORDER matters — feedback_events first (its source_ref subquery
+      needs the session_feedback rows still present).
+    - RESURRECTION trap — deleting only the feedback_events row leaves the
+      sentinel session_feedback row for the next 06:45-IST adapter run to
+      re-ingest; cleanup MUST remove the source row too, in the same session.
+    - source_ref is TEXT with no FK — cast session_feedback.id::text when matching.
+    - The /feedback dashboard reads via the BROWSER client under RLS — a
+      non-admin persona without feedback.view gets the PermissionGuard explicit
+      access-denied panel (not a silent redirect). For a non-super persona the
+      live policy ALSO requires role_has_institution_access(institution_id) —
+      seed sentinel rows with the persona's institution if ever walking as ceo.
+    - Do NOT assert on feedback_events.rating for session rows — it is NULL by
+      the latent smallint-vs-boolean adapter bug documented above.
+
+registry_gates_hint: '{"a":"off","f":"off","g":"off","m":"off"}'  # actual prod loop_registry state 2026-07-13; intake class — ingestion+classification are LIVE even with all gates off (the g/a/m/f gates describe generate/act/measure/feed-forward stages this loop does not have)

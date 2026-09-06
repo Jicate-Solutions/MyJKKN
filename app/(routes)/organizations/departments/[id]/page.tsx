@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface DepartmentDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -37,6 +38,8 @@ export default function DepartmentDetailsPage({
 
   // Get permissions
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
+  const pageTitle = adapt('Department Details');
   const canEditDepartment =
     isSuperAdmin || canAccess('organizations.departments', 'edit');
 
@@ -62,7 +65,7 @@ export default function DepartmentDetailsPage({
 
   if (loading) {
     return (
-      <ContentLayout title='Department Details'>
+      <ContentLayout title={pageTitle}>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin' />
         </div>
@@ -72,13 +75,13 @@ export default function DepartmentDetailsPage({
 
   if (error || !department) {
     return (
-      <ContentLayout title='Department Details'>
+      <ContentLayout title={pageTitle}>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Department not found'}
+            {error || `${adapt('Department')} not found`}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/organizations/departments'>Back to Departments</Link>
+            <Link href='/organizations/departments'>Back to {adapt('Departments')}</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -86,7 +89,7 @@ export default function DepartmentDetailsPage({
   }
 
   return (
-    <ContentLayout title='Department Details'>
+    <ContentLayout title={pageTitle}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -103,37 +106,37 @@ export default function DepartmentDetailsPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/departments'>Departments</Link>
+              <Link href='/organizations/departments'>{adapt('Departments')}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Department Details</BreadcrumbPage>
+            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex justify-between items-center'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
             <h1 className='text-2xl font-bold py-1'>
               {department.department_name}
             </h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Department Details
+              {pageTitle}
             </p>
           </div>
           {canEditDepartment ? (
             <Button asChild>
               <Link href={`/organizations/departments/${id}/edit`}>
                 <PenSquare className='mr-2 h-4 w-4' />
-                Edit Department
+                {adapt('Edit Department')}
               </Link>
             </Button>
           ) : (
             <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
-              Edit Department
+              {adapt('Edit Department')}
             </Button>
           )}
         </div>
@@ -145,13 +148,13 @@ export default function DepartmentDetailsPage({
           <CardContent className='grid gap-6'>
             <div className='grid gap-4 md:grid-cols-2'>
               <div>
-                <p className='font-medium'>Department Code</p>
+                <p className='font-medium'>{adapt('Department')} Code</p>
                 <p className='text-base text-muted-foreground'>
                   {department.department_code}
                 </p>
               </div>
               <div>
-                <p className='font-medium'>Department Name</p>
+                <p className='font-medium'>{adapt('Department')} Name</p>
                 <p className='text-base text-muted-foreground'>
                   {department.department_name}
                 </p>
@@ -175,7 +178,7 @@ export default function DepartmentDetailsPage({
                 </Badge>
               </div>
               <div>
-                <p className='font-medium'>Degree</p>
+                <p className='font-medium'>{adapt('Degree')}</p>
                 <p className='text-base text-muted-foreground'>
                   {department.degree?.degree_name}
                 </p>

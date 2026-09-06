@@ -2,6 +2,10 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { ApprovalChainService } from '@/lib/services/approval-chain-service';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
+import {
+  detectVacancyOnVacate,
+  notifyUpgradePool,
+} from '@/lib/services/campus-living/premium-vacancy-service';
 import type { StageDefinition } from '@/types/approval-chain';
 import {
   DEFAULT_CLEARANCE_ITEMS,
@@ -559,8 +563,11 @@ export class HostelVacateRequestService {
 
   /**
    * Finalize a completed request: calls HostelAllocationService.vacate() to
-   * flip the allocation to status=vacated + stamps actual_vacate_date, then
-   * marks the request status=completed.
+   * flip the allocation to status=vacated, stamp actual_vacate_date +
+   * check_out_date AND free the bed (one transaction, via
+   * fn_cl_vacate_allocation), then marks the request status=completed.
+   * The RPC is idempotent on an already-vacated allocation, so a retried
+   * finalize does not fail here.
    *
    * Preconditions: engine run in status=completed AND all required clearance
    * items are cleared. Service enforces both; callers should check the
@@ -616,6 +623,24 @@ export class HostelVacateRequestService {
         .select()
         .single();
       if (error) throw error;
+
+      // PR ζ — premium upgrade-vacancy detection + notification. Isolated in a
+      // try/catch so a notification failure NEVER rolls back a finalized vacate:
+      // the bed is already freed; the upgrade offer is a best-effort follow-up.
+      // A failure here is logged loudly (loud-boundary principle) and swallowed.
+      try {
+        const vacancy = await detectVacancyOnVacate(requestId);
+        if (vacancy) {
+          await notifyUpgradePool(vacancy.id);
+        }
+      } catch (notifyError) {
+        logger.error(
+          'campus-living/vacate',
+          'Premium-vacancy detect/notify failed AFTER successful finalize (vacate stands; upgrade offer not sent)',
+          notifyError,
+        );
+      }
+
       return data as HostelVacateRequest;
     } catch (error) {
       logger.error('campus-living/vacate', 'Unexpected error in finalize', error);

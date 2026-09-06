@@ -4,26 +4,12 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
-import { useBillingCategories } from '@/hooks/billing/use-billing-categories';
 import { usePermissions } from '@/hooks/use-permissions';
-import { BillingCategoryList } from './_components/billing-category-list';
-import { BillingCategoryFilters } from './_components/billing-category-filters';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
+import { BillingCategoriesDataTable } from './_components/billing-categories-data-table';
 
 export default function BillingCategoriesPage() {
-  const {
-    categories,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchCategories
-  } = useBillingCategories();
-
   const {
     canAccess,
     isSuperAdmin,
@@ -52,23 +38,6 @@ export default function BillingCategoriesPage() {
           <p className='text-destructive'>
             You don&apos;t have permission to view billing categories.
           </p>
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <ContentLayout title='Billing Categories'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchCategories()}
-            className='mt-4'
-          >
-            Try Again
-          </Button>
         </div>
       </ContentLayout>
     );
@@ -108,26 +77,7 @@ export default function BillingCategoriesPage() {
           </div>
         </div>
 
-        <Card>
-          <CardContent className='p-6'>
-            <BillingCategoryFilters
-              filters={filters}
-              onFilterChange={updateFilters}
-            />
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <BillingCategoryList
-                categories={categories}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchCategories}
-              />
-            )}
-          </CardContent>
-        </Card>
+        <BillingCategoriesDataTable />
       </div>
     </ContentLayout>
   );

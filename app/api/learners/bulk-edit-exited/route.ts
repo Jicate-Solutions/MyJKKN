@@ -14,7 +14,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
-import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { parseExcelFile, mapColumns, sanitizeValue, hasColumn, listColumns } from '@/lib/utils/excel-parser';
 import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
 import { normalizeDropdownValue, BLOOD_GROUP_VALUES } from '@/lib/constants/learner-dropdown-values';
 
@@ -29,13 +29,26 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   // SECTION 1: Basic Details
   'first_name': ['First Name', 'first_name', 'firstname'],
   'last_name': ['Last Name', 'last_name', 'lastname'],
+  // Header strings must match buildBulkEditColumns() byte-for-byte, and this
+  // block must stay in sync with the identical one in bulk-edit-preview.
+  'first_name_tamil': ['First Name (Tamil)', 'first_name_tamil'],
+  'last_name_tamil': ['Last Name (Tamil)', 'last_name_tamil'],
   'date_of_birth': ['Date of Birth', 'DOB', 'date_of_birth', 'dob'],
   'gender': ['Gender', 'gender'],
   'religion': ['Religion', 'religion'],
+  // FK-backed fields ship as a paired "<Field> ID" + readable label column.
+  // The ID column wins; the label resolves to the same FK. Must stay in sync
+  // with the identical block in bulk-edit-preview/route.ts.
+  'community_category_id': ['Community ID', 'community_category_id'],
   'community': ['Community', 'community'],
+  'caste_id': ['Caste ID', 'caste_id'],
   'caste': ['Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
+  'abc_id': ['ABC ID', 'abc_id', 'ABC'],
+  'emis': ['EMIS Number', 'EMIS', 'emis', 'emis_number'],
+  'umis': ['UMIS Number', 'UMIS', 'umis', 'umis_number'],
+  'admission_year_id': ['Admission Year ID', 'admission_year_id'],
   'admission_year': ['Admission Year', 'admission_year'],
 
   // SECTION 2: Parent/Guardian Information
@@ -103,19 +116,24 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'counseling_number': ['Counseling Number', 'counseling_number'],
 
   // SECTION 9: Accommodation Details
+  'accommodation_type_id': ['Accommodation Type ID', 'accommodation_type_id'],
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
-  'hostel_type': ['Hostel Type', 'hostel_type'],
-  'food_type': ['Food Type', 'food_type'],
+  'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
+  // The typed reference: Type + ID + Person resolve together into
+  // referral_type / referred_by_id / referred_by_name plus the legacy mirror.
+  // 'Reference Name' stays as an alias so templates downloaded before
+  // 2026-08-01 keep mapping to the same resolver.
   'reference_type': ['Reference Type', 'reference_type'],
-  'reference_name': ['Reference Name', 'reference_name'],
+  'referred_by_id': ['Reference ID', 'referred_by_id'],
+  'referred_by_name': ['Reference Person', 'Reference Name', 'referred_by_name', 'reference_name'],
   'reference_contact': ['Reference Contact', 'reference_contact'],
 
   // SECTION 11: Student Specific
   'roll_number': ['Roll Number', 'roll_number'],
   'register_number': ['Register Number', 'register_number'],
+  'quota_id': ['Quota ID', 'quota_id'],
   'quota': ['Quota', 'quota'],
-  'category': ['Category', 'category'],
   'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
 };
 
@@ -223,7 +241,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Parse Excel file
-    const parseResult = await parseExcelFile(file, 'Active Learners');
+    const parseResult = await parseExcelFile(file, 'Active Learners', COLUMN_MAPPING.id);
 
     if (parseResult.errors.length > 0) {
       return NextResponse.json(
@@ -240,6 +258,23 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: 'No data found in file'
+        },
+        { status: 400 }
+      );
+    }
+
+    // Same guard as bulk-edit-preview: identify the file by its ID column, not
+    // by the sheet name. Preview and apply must reject identically or a file can
+    // pass review and then fail the write.
+    if (!hasColumn(parseResult.rows, COLUMN_MAPPING.id)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `No ID column found in the uploaded sheet (expected "ID*"). ` +
+            `Columns found: ${listColumns(parseResult.rows)}. ` +
+            `Use "Download Current Data" in this dialog and edit that file - the ` +
+            `Learners "Export" file has no ID column and cannot be used for bulk edit.`
         },
         { status: 400 }
       );
@@ -277,6 +312,15 @@ export async function POST(request: NextRequest) {
       if (mappedData.last_name) {
         sanitizedData.last_name = sanitizeValue(mappedData.last_name, 'text');
       }
+      // Trimmed, NOT sanitizeValue('text') — that upper-cases, and Tamil is a
+      // caseless script. Preview applies the identical rule, so what the
+      // reviewer approved is exactly what gets written.
+      if (mappedData.first_name_tamil) {
+        sanitizedData.first_name_tamil = String(mappedData.first_name_tamil).trim();
+      }
+      if (mappedData.last_name_tamil) {
+        sanitizedData.last_name_tamil = String(mappedData.last_name_tamil).trim();
+      }
       if (mappedData.date_of_birth) {
         sanitizedData.date_of_birth = sanitizeValue(mappedData.date_of_birth, 'date');
       }
@@ -294,6 +338,17 @@ export async function POST(request: NextRequest) {
       }
       if (mappedData.aadhar_number) {
         sanitizedData.aadhar_number = sanitizeValue(mappedData.aadhar_number, 'mobile');
+      }
+      // Identical rule to bulk-edit-preview, so what the reviewer approved is
+      // exactly what gets written. 'mobile' would strip the letters out.
+      if (mappedData.abc_id) {
+        sanitizedData.abc_id = String(mappedData.abc_id).replace(/\s+/g, '').toUpperCase();
+      }
+      if (mappedData.emis) {
+        sanitizedData.emis = String(mappedData.emis).replace(/\s+/g, '').toUpperCase();
+      }
+      if (mappedData.umis) {
+        sanitizedData.umis = String(mappedData.umis).replace(/\s+/g, '').toUpperCase();
       }
       if (mappedData.blood_group) {
         // Uses the shared dropdown-normalizer (same as bulk-upload-profiles).
@@ -386,24 +441,15 @@ export async function POST(request: NextRequest) {
         sanitizedData.program_id = mappedData.program_id;
       }
 
-      // Admission year — Phase D dropped the integer column; the year value
-      // from the Excel cell is used only to resolve the admission_year_id FK.
-      // Institution is fixed by the existing profile (bulk-edit cannot retarget).
+      // Admission year — Phase D dropped the integer column; the cell is used
+      // only to resolve the admission_year_id FK. Resolution happens in
+      // BulkLearnerEditService against the LEARNER's institution, not the
+      // uploader's: gating on profile.institution_id here meant a super admin
+      // (institution_id = null) silently never updated admission year, and
+      // requiring a resolved program_id made it depend on an unrelated column.
+      // Passing the raw value through also keeps preview and write symmetric.
       if (mappedData.admission_year != null && mappedData.admission_year !== '') {
-        const yearInt = Number(mappedData.admission_year);
-        if (Number.isFinite(yearInt) && sanitizedData.program_id && profile.institution_id) {
-          const { resolveAdmissionYearId } = await import(
-            '@/lib/services/admission/resolve-admission-year'
-          );
-          (sanitizedData as any).admission_year_id = await resolveAdmissionYearId(
-            supabase as any,
-            {
-              year: yearInt,
-              institutionId: profile.institution_id,
-              programId: sanitizedData.program_id,
-            }
-          );
-        }
+        sanitizedData.admission_year = mappedData.admission_year;
       }
 
       // Semester (resolve name to ID if name provided)
@@ -584,18 +630,31 @@ export async function POST(request: NextRequest) {
       if (mappedData.accommodation_type) {
         sanitizedData.accommodation_type = sanitizeValue(mappedData.accommodation_type, 'text');
       }
-      if (mappedData.hostel_type) {
-        sanitizedData.hostel_type = sanitizeValue(mappedData.hostel_type, 'text');
+      // FK-backed "<Field> ID" cells pass through UNTOUCHED — sanitizeValue()
+      // upper-cases, which would mangle a uuid. The service resolves these and
+      // the matching label columns to the same FK column.
+      if (mappedData.community_category_id) sanitizedData.community_category_id = mappedData.community_category_id;
+      if (mappedData.caste_id) sanitizedData.caste_id = mappedData.caste_id;
+      if (mappedData.quota_id) sanitizedData.quota_id = mappedData.quota_id;
+      if (mappedData.accommodation_type_id) sanitizedData.accommodation_type_id = mappedData.accommodation_type_id;
+      if (mappedData.admission_year_id) sanitizedData.admission_year_id = mappedData.admission_year_id;
+      if (mappedData.bus_required !== undefined && mappedData.bus_required !== '') {
+        const b = String(mappedData.bus_required).trim().toLowerCase();
+        if (['yes', 'y', 'true', '1'].includes(b)) sanitizedData.bus_required = true;
+        else if (['no', 'n', 'false', '0'].includes(b)) sanitizedData.bus_required = false;
       }
-      if (mappedData.food_type) {
-        sanitizedData.food_type = sanitizeValue(mappedData.food_type, 'text');
-      }
-      // SECTION 10: Reference Information
+      // SECTION 10: Reference Information — must stay byte-identical to the
+      // preview route's block, or a file can pass review and then write
+      // something else. Reference ID passes through untouched: sanitizeValue
+      // upper-cases, which mangles a uuid.
       if (mappedData.reference_type) {
-        sanitizedData.reference_type = sanitizeValue(mappedData.reference_type, 'text');
+        sanitizedData.reference_type = String(mappedData.reference_type).trim();
       }
-      if (mappedData.reference_name) {
-        sanitizedData.reference_name = sanitizeValue(mappedData.reference_name, 'text');
+      if (mappedData.referred_by_id) {
+        sanitizedData.referred_by_id = String(mappedData.referred_by_id).trim();
+      }
+      if (mappedData.referred_by_name) {
+        sanitizedData.referred_by_name = sanitizeValue(mappedData.referred_by_name, 'text');
       }
       if (mappedData.reference_contact) {
         sanitizedData.reference_contact = sanitizeValue(mappedData.reference_contact, 'mobile');
@@ -625,7 +684,39 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 6. Process bulk edit
+    // 6. Gate: refuse to write anything while the sheet still has invalid rows,
+    // unless the user explicitly opted to skip them. processBulkEdit is
+    // partial-success by design (it `continue`s past a bad row), which is why a
+    // single bad email used to return success:false AFTER writing every other
+    // row. Enforced here, not just disabled in the UI.
+    const skipInvalid = formData.get('skipInvalid') === 'true';
+    const invalidRows = bulkEditRows.filter(row => !row.validation.isValid);
+
+    if (invalidRows.length > 0 && !skipInvalid) {
+      return NextResponse.json(
+        {
+          // Same shape as a successful run so the client can render this report
+          // instead of crashing on a bare { error } payload.
+          success: false,
+          total_rows: bulkEditRows.length,
+          updated: 0,
+          skipped: bulkEditRows.length - invalidRows.length,
+          failed: invalidRows.length,
+          updated_learners: [],
+          errors: invalidRows.map(row => ({
+            row: row.rowNumber,
+            id: row.data.id,
+            error: row.validation.errors.map(e => e.message).join(', ')
+          })),
+          error:
+            `${invalidRows.length} row(s) failed validation - nothing was updated. ` +
+            `Fix them in the sheet and re-upload, or choose to skip invalid rows.`
+        },
+        { status: 400 }
+      );
+    }
+
+    // 7. Process bulk edit
     const result = await BulkLearnerEditService.processBulkEdit(
       bulkEditRows,
       profile.institution_id || undefined,
@@ -633,7 +724,7 @@ export async function POST(request: NextRequest) {
       user.id
     );
 
-    // 7. Return result
+    // 8. Return result
     return NextResponse.json(result);
 
   } catch (error) {

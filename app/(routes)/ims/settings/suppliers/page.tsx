@@ -67,12 +67,15 @@ import {
   useDeleteImsSupplier,
   useToggleImsSupplierActive,
 } from '@/hooks/ims/use-ims-settings';
+import { usePoFormats } from '@/hooks/procurement/use-po-formats';
 import type {
   ImsSupplier,
   ImsSupplierFilters,
   CreateImsSupplierDto,
   UpdateImsSupplierDto,
 } from '@/types/ims';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface SupplierFormData {
   name: string;
@@ -82,6 +85,7 @@ interface SupplierFormData {
   phone: string;
   address: string;
   gstin: string;
+  default_po_format_id: string;
 }
 
 const emptyFormData: SupplierFormData = {
@@ -92,10 +96,21 @@ const emptyFormData: SupplierFormData = {
   phone: '',
   address: '',
   gstin: '',
+  default_po_format_id: '',
 };
 
 export default function SuppliersPage() {
-  const { storeId, institutionId, isSuperAdmin } = useImsStoreContext();
+  return (
+    <ImsPageGuard module="ims.settings.suppliers" action="manage">
+      <SuppliersPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function SuppliersPageInner() {
+  const { storeId, institutionId } = useImsStoreContext();
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canManage = isSuperAdmin || canAccess('ims.settings.suppliers', 'manage');
 
   // Filters
   const [search, setSearch] = useState('');
@@ -127,6 +142,7 @@ export default function SuppliersPage() {
 
   // Queries
   const { data: suppliersList, isLoading: suppliersLoading } = useImsSuppliers(filters);
+  const { data: poFormats } = usePoFormats(institutionId, { activeOnly: true });
 
   // Mutations
   const createSupplier = useCreateImsSupplier();
@@ -152,6 +168,7 @@ export default function SuppliersPage() {
       phone: supplier.phone || '',
       address: supplier.address || '',
       gstin: supplier.gstin || '',
+      default_po_format_id: supplier.default_po_format_id || '',
     });
     setDialogOpen(true);
   };
@@ -177,6 +194,7 @@ export default function SuppliersPage() {
           phone: formData.phone || null,
           address: formData.address || null,
           gstin: formData.gstin || null,
+          default_po_format_id: formData.default_po_format_id || null,
         };
         await updateSupplier.mutateAsync({
           id: editingSupplier.id,
@@ -192,6 +210,7 @@ export default function SuppliersPage() {
           phone: formData.phone || null,
           address: formData.address || null,
           gstin: formData.gstin || null,
+          default_po_format_id: formData.default_po_format_id || null,
           is_active: true,
           institution_id: institutionId || null,
           store_id: storeId || null,
@@ -265,10 +284,12 @@ export default function SuppliersPage() {
               Manage your inventory suppliers and vendors
             </p>
           </div>
-          <Button onClick={handleAddNew}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Supplier
-          </Button>
+          {canManage && (
+            <Button onClick={handleAddNew}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Supplier
+            </Button>
+          )}
         </div>
 
         {/* Filters */}
@@ -377,18 +398,24 @@ export default function SuppliersPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleEdit(supplier)}>
-                                <Pencil className="h-4 w-4 mr-2" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-red-600 focus:text-red-600"
-                                onClick={() => handleDeleteClick(supplier)}
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
+                              {canManage && (
+                                <DropdownMenuItem onClick={() => handleEdit(supplier)}>
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                              )}
+                              {canManage && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-red-600 focus:text-red-600"
+                                    onClick={() => handleDeleteClick(supplier)}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -512,6 +539,32 @@ export default function SuppliersPage() {
                   setFormData((prev) => ({ ...prev, gstin: e.target.value }))
                 }
               />
+            </div>
+
+            {/* Default PO Format */}
+            <div className="space-y-2">
+              <Label htmlFor="supplier-po-format">Default PO Format</Label>
+              <Select
+                value={formData.default_po_format_id || 'none'}
+                onValueChange={(v) =>
+                  setFormData((prev) => ({ ...prev, default_po_format_id: v === 'none' ? '' : v }))
+                }
+              >
+                <SelectTrigger id="supplier-po-format">
+                  <SelectValue placeholder="Standard (default)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Standard (default)</SelectItem>
+                  {(poFormats ?? []).map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Pre-selected when a Purchase Order is generated for this vendor.
+              </p>
             </div>
           </div>
 

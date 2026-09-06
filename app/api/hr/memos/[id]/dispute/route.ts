@@ -46,7 +46,7 @@ export async function POST(
   const { data: staffRow } = await supabase
     .from('staff')
     .select('id')
-    .eq('auth_user_id', user.id)
+    .eq('profile_id', user.id)
     .eq('id', memo.staff_id)
     .maybeSingle();
   if (!staffRow) {

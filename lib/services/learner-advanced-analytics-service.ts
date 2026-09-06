@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { resolveAdmissionYearIds } from '@/lib/utils/admission-year-filter';
 import type {
   AdvancedLearnerAnalytics,
   IntakeCapacityMetrics,
@@ -21,11 +22,19 @@ export class LearnerAdvancedAnalyticsService {
   static async getAdvancedAnalytics(
     filters: LearnerDashboardFilters
   ): Promise<AdvancedLearnerAnalytics> {
+    // `admissionYear` arrives as a calendar year because admission_years is
+    // institution-scoped (eleven "2026" rows, one per college). Resolve it once
+    // here and hand the row ids down, rather than letting each of the four
+    // metric queries repeat the lookup. See lib/utils/admission-year-filter.ts.
+    const admissionYearIds = filters.admissionYear
+      ? await resolveAdmissionYearIds(await createClient(), filters.admissionYear)
+      : undefined;
+
     const [intakeCapacity, geography, trends, schoolFeeders] = await Promise.all([
-      this.getIntakeCapacityMetrics(filters),
-      this.getGeographyMetrics(filters),
-      this.getTrendMetrics(filters),
-      this.getSchoolFeederMetrics(filters),
+      this.getIntakeCapacityMetrics(filters, admissionYearIds),
+      this.getGeographyMetrics(filters, admissionYearIds),
+      this.getTrendMetrics(filters, admissionYearIds),
+      this.getSchoolFeederMetrics(filters, admissionYearIds),
     ]);
 
     return {
@@ -43,7 +52,8 @@ export class LearnerAdvancedAnalyticsService {
    * Calculates seat utilization, over-intake, waitlist conversion, and 3-year stability
    */
   static async getIntakeCapacityMetrics(
-    filters: LearnerDashboardFilters
+    filters: LearnerDashboardFilters,
+    admissionYearIds?: string[]
   ): Promise<IntakeCapacityMetrics[]> {
     const supabase = await createClient();
 
@@ -80,6 +90,9 @@ export class LearnerAdvancedAnalyticsService {
       if (filters.academicYearId) {
         learnersQuery = learnersQuery.eq('academic_year_id', filters.academicYearId);
       }
+      if (admissionYearIds) {
+        learnersQuery = learnersQuery.in('admission_year_id', admissionYearIds);
+      }
 
       const { count: actualIntake } = await learnersQuery;
 
@@ -92,6 +105,9 @@ export class LearnerAdvancedAnalyticsService {
 
       if (filters.academicYearId) {
         waitlistQuery = waitlistQuery.eq('academic_year_id', filters.academicYearId);
+      }
+      if (admissionYearIds) {
+        waitlistQuery = waitlistQuery.in('admission_year_id', admissionYearIds);
       }
 
       const { count: waitlistCount } = await waitlistQuery;
@@ -173,19 +189,24 @@ export class LearnerAdvancedAnalyticsService {
    * District/Taluk contributions, hostel ratios, transport usage
    */
   static async getGeographyMetrics(
-    filters: LearnerDashboardFilters
+    filters: LearnerDashboardFilters,
+    admissionYearIds?: string[]
   ): Promise<GeographyMetrics> {
     const supabase = await createClient();
 
     let query = supabase
       .from('learners_profiles')
-      .select('permanent_address_district, permanent_address_taluk, accommodation_type');
+      // accommodation_type TEXT retired — read the FK's code instead.
+      .select('permanent_address_district, permanent_address_taluk, accommodation_ref:accommodation_types!accommodation_type_id(code)');
 
     if (filters.institutionId) {
       query = query.eq('institution_id', filters.institutionId);
     }
     if (filters.programId) {
       query = query.eq('program_id', filters.programId);
+    }
+    if (admissionYearIds) {
+      query = query.in('admission_year_id', admissionYearIds);
     }
     if (filters.lifecycleStatus && filters.lifecycleStatus.length > 0) {
       query = query.in('lifecycle_status', filters.lifecycleStatus);
@@ -245,7 +266,7 @@ export class LearnerAdvancedAnalyticsService {
       .sort((a, b) => b.count - a.count);
 
     // Hostel vs Day Scholar ratios
-    const hostelCount = learners.filter(l => l.accommodation_type?.toLowerCase() === 'hostel').length;
+    const hostelCount = learners.filter(l => (l as { accommodation_ref?: { code?: string } }).accommodation_ref?.code === 'hostel').length;
     const dayScholarCount = totalLearners - hostelCount;
 
     const hostelStudentRatio = totalLearners > 0 ? (hostelCount / totalLearners) * 100 : 0;
@@ -264,7 +285,8 @@ export class LearnerAdvancedAnalyticsService {
    * Gender ratio, community mix, first-generation, income distribution
    */
   static async getTrendMetrics(
-    filters: LearnerDashboardFilters
+    filters: LearnerDashboardFilters,
+    admissionYearIds?: string[]
   ): Promise<TrendMetrics> {
     const supabase = await createClient();
 
@@ -277,6 +299,9 @@ export class LearnerAdvancedAnalyticsService {
     }
     if (filters.programId) {
       query = query.eq('program_id', filters.programId);
+    }
+    if (admissionYearIds) {
+      query = query.in('admission_year_id', admissionYearIds);
     }
     if (filters.lifecycleStatus && filters.lifecycleStatus.length > 0) {
       query = query.in('lifecycle_status', filters.lifecycleStatus);
@@ -380,7 +405,8 @@ export class LearnerAdvancedAnalyticsService {
    * Tracks which schools send students and program distribution
    */
   static async getSchoolFeederMetrics(
-    filters: LearnerDashboardFilters
+    filters: LearnerDashboardFilters,
+    admissionYearIds?: string[]
   ): Promise<SchoolFeederMetrics> {
     const supabase = await createClient();
 
@@ -400,6 +426,9 @@ export class LearnerAdvancedAnalyticsService {
     }
     if (filters.programId) {
       query = query.eq('program_id', filters.programId);
+    }
+    if (admissionYearIds) {
+      query = query.in('admission_year_id', admissionYearIds);
     }
     if (filters.lifecycleStatus && filters.lifecycleStatus.length > 0) {
       query = query.in('lifecycle_status', filters.lifecycleStatus);

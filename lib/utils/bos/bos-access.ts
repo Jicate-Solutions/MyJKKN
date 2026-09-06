@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { isBosChairmanRow } from '@/types/bos';
 
 export interface BosAccessScope {
   isSuperAdmin: boolean;
@@ -85,6 +86,40 @@ export async function resolveBosAccess(userId: string): Promise<BosAccessScope> 
   };
 }
 
+/**
+ * Expands an arbitrary institution UUID to all of its CAS siblings — every
+ * institution that shares its counselling_code (Aided + Self for a CAS college;
+ * just itself for everyone else). Always includes the input id, even if the
+ * counselling_code lookup returns nothing.
+ *
+ * Unlike resolveBosAccess (which expands the *caller's* institution), this
+ * takes any institution id, so it works for super-admins creating records for
+ * other institutions. Use it wherever a per-institution DB constraint needs to
+ * be enforced across the CAS pair — e.g. the member-type name uniqueness check.
+ */
+export async function casSiblingInstitutionIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  institutionsId: string
+): Promise<string[]> {
+  const { data: inst } = await supabase
+    .from('institutions')
+    .select('counselling_code')
+    .eq('id', institutionsId)
+    .maybeSingle();
+
+  const code = (inst?.counselling_code as string | undefined) ?? null;
+  if (!code) return [institutionsId];
+
+  const { data: siblings } = await supabase
+    .from('institutions')
+    .select('id')
+    .eq('counselling_code', code);
+
+  const ids = new Set<string>([institutionsId]);
+  for (const s of (siblings ?? []) as { id: string }[]) ids.add(s.id);
+  return [...ids];
+}
+
 export function guardInstitutionWrite(
   scope: BosAccessScope,
   targetInstitutionsId: string | undefined | null
@@ -118,15 +153,51 @@ export function guardInstitutionWrite(
  *   else query.in('institutions_id', ids)
  *
  * Returns:
- *  - null for super-admin (no filter — caller may apply its own).
+ *  - null for super-admin OR a read-all observer (no filter — caller may apply its own).
  *  - [] when the user has no institution at all (deny).
  *  - [id] for a normal single-institution user.
  *  - [aided, self] for CAS users (so they see records under either UUID).
+ *
+ * `canReadAll` (default false) lifts the institution filter for a read-only
+ * observer — a role that holds the module's `*.view` grant. See hasBosPermission.
+ * READ-ONLY: never wire this into a write guard.
  */
-export function readableInstitutionIds(scope: BosAccessScope): string[] | null {
-  if (scope.isSuperAdmin) return null;
+export function readableInstitutionIds(scope: BosAccessScope, canReadAll = false): string[] | null {
+  if (scope.isSuperAdmin || canReadAll) return null;
   if (scope.allInstitutionIds.length > 0) return scope.allInstitutionIds;
   return scope.institutionsId ? [scope.institutionsId] : [];
+}
+
+/**
+ * Counselling-code counterpart of `readableInstitutionIds`, for reads that
+ * filter on the denormalized `bos_*.counselling_code` column (added 2026-06-18).
+ *
+ * Because both CAS siblings share one counselling_code, we only need the user's
+ * OWN institution's code — no sibling-pair reconstruction. Apply as:
+ *   const codes = await readableCounsellingCodes(scope);
+ *   if (codes === null) { /* super-admin → no filter *\/ }
+ *   else if (codes.length === 0) { /* deny → empty *\/ }
+ *   else query = query.in('counselling_code', codes);
+ *
+ * Returns:
+ *  - null for super-admin OR a read-all observer (no filter).
+ *  - [] when the user has no institution (deny).
+ *  - [code] for a normal user (covers the CAS pair via the shared code).
+ *
+ * `canReadAll` (default false) lifts the filter for a read-only observer.
+ * READ-ONLY: never wire this into a write guard.
+ */
+export async function readableCounsellingCodes(scope: BosAccessScope, canReadAll = false): Promise<string[] | null> {
+  if (scope.isSuperAdmin || canReadAll) return null;
+  if (!scope.institutionsId) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('institutions')
+    .select('counselling_code')
+    .eq('id', scope.institutionsId)
+    .maybeSingle();
+  const code = (data?.counselling_code as string | undefined) ?? null;
+  return code ? [code] : [];
 }
 
 export function applyInstitutionScope(
@@ -149,18 +220,22 @@ export type BosModule = 'academic.bos-courses' | 'academic.bos-scheme';
 export type BosAction = 'view' | 'create' | 'edit' | 'delete' | 'import';
 
 /**
- * Server-side permission check for BoS modules.
- * Mirrors the client-side usePermissions().canAccess() but runs in API routes.
- * Super-admin short-circuits to true via profiles.is_super_admin.
+ * Server-side check: does this user hold a specific permission key?
+ * Super-admin short-circuits to true. Otherwise RPC into user_has_permission()
+ * — the canonical check that reads the JSONB `custom_roles.permissions` field
+ * (same source RLS uses, and the same source `lib/services/bos/bos-role-permissions`
+ * seeds via flat keys like 'academic.bos-courses.view'). Using this over the
+ * unseeded `role_permissions` table avoids the dual-permission-system mismatch
+ * we hit on bos_members earlier.
+ *
+ * This is the engine behind the read-only observer tier: read GET handlers call
+ * it with their module's `*.view` key to decide whether the caller may READ all
+ * institutions' data. READ-ONLY — never gate a write on the result of a
+ * `.view` check.
  */
-export async function canAccessBos(
-  userId: string,
-  module: BosModule,
-  action: BosAction
-): Promise<boolean> {
+export async function hasBosPermission(userId: string, permissionKey: string): Promise<boolean> {
   const supabase = await createClient();
 
-  // Super-admin bypass — same path resolveBosAccess uses.
   const { data: profile } = await supabase
     .from('profiles')
     .select('is_super_admin, role')
@@ -171,19 +246,12 @@ export async function canAccessBos(
     return true;
   }
 
-  // Canonical permission check: RPC into the user_has_permission() SQL
-  // function, which reads the JSONB `custom_roles.permissions` field — the
-  // same source RLS uses (and the same source `lib/services/bos/bos-role-permissions`
-  // seeds via flat keys like 'academic.bos-courses.view'). Switching off the
-  // `role_permissions` table (which is unseeded in this codebase) avoids the
-  // dual-permission-system mismatch we hit on bos_members earlier.
-  const permissionKey = `${module}.${action}`;
   const { data: hasPerm, error } = await supabase.rpc('user_has_permission', {
     permission_name: permissionKey,
   });
 
   if (error) {
-    console.error('[canAccessBos] user_has_permission RPC error:', error);
+    console.error('[hasBosPermission] user_has_permission RPC error:', { permissionKey, error });
     return false;
   }
 
@@ -191,9 +259,70 @@ export async function canAccessBos(
 }
 
 /**
+ * View-grant keys that unlock the read-all observer tier on the shared BoS
+ * lookup routes (institutions / boards / programs dropdowns). Any ONE of these
+ * is sufficient: the dropdowns feed multiple tabs (Courses, Course Scheme,
+ * Syllabus), so a user granted only e.g. `academic.bos-scheme.view` must still
+ * get populated dropdowns on /bos/course-scheme. Checking only
+ * `academic.bos-courses.view` (the original key) left scheme/syllabus-only
+ * grants with disabled dropdowns.
+ */
+export const BOS_LOOKUP_VIEW_KEYS = [
+  'academic.bos-courses.view',
+  'academic.bos-scheme.view',
+  'academic.bos-syllabus.view',
+] as const;
+
+/**
+ * True when the user holds ANY of the given permission keys.
+ * Fetches the profile once (super-admin short-circuit), then probes the
+ * user_has_permission RPC per key until one hits. Use with
+ * BOS_LOOKUP_VIEW_KEYS on shared lookup routes; single-module routes should
+ * keep calling hasBosPermission with their own key.
+ */
+export async function hasAnyBosPermission(userId: string, permissionKeys: readonly string[]): Promise<boolean> {
+  const supabase = await createClient();
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_super_admin, role')
+    .eq('id', userId)
+    .single();
+
+  if (profile?.is_super_admin === true || profile?.role === 'super_admin') {
+    return true;
+  }
+
+  for (const permissionKey of permissionKeys) {
+    const { data: hasPerm, error } = await supabase.rpc('user_has_permission', {
+      permission_name: permissionKey,
+    });
+    if (error) {
+      console.error('[hasAnyBosPermission] user_has_permission RPC error:', { permissionKey, error });
+      continue;
+    }
+    if (hasPerm === true) return true;
+  }
+  return false;
+}
+
+/**
+ * Server-side permission check for BoS modules.
+ * Mirrors the client-side usePermissions().canAccess() but runs in API routes.
+ * Super-admin short-circuits to true via profiles.is_super_admin.
+ */
+export async function canAccessBos(
+  userId: string,
+  module: BosModule,
+  action: BosAction
+): Promise<boolean> {
+  return hasBosPermission(userId, `${module}.${action}`);
+}
+
+/**
  * Re-export — COE institution mapping is shared with Internal Marks.
  */
-export { resolveCoeInstitutionId, resolveCoeInstitutionCode } from '@/lib/utils/internal-marks/internal-marks-access';
+export { resolveCoeInstitutionId, resolveCoeInstitutionCode, resolveCoeInstitutionById } from '@/lib/utils/internal-marks/internal-marks-access';
 
 // ── Board-level scoping (Phase 1 of BOS access tightening) ──────────────────
 // Layers on top of resolveBosAccess / guardInstitutionWrite. Adds two new
@@ -224,6 +353,17 @@ export interface BosBoardScope extends BosAccessScope {
    * board-chairman edit rights on syllabi (which only carry board_id).
    */
   chairmanForBoards: Set<string>;
+  /**
+   * MyJKKN institution_ids derived from the user's active compositions
+   * (bos_compositions.institution_id for every composition in memberOf).
+   *
+   * Use this instead of `institutionsId` (single) when a query needs to span
+   * every institution the user has board membership in — e.g. a faculty
+   * member who serves on Board A under Institution X and Board B under
+   * Institution Y must see courses from both. See
+   * /api/bos/courses-master GET for the fan-out pattern.
+   */
+  institutionsOf: Set<string>;
 }
 
 /**
@@ -264,6 +404,7 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
     isChairmanIn: new Set<string>(),
     boardsOf: new Set<string>(),
     chairmanForBoards: new Set<string>(),
+    institutionsOf: new Set<string>(),
   };
 
   // Super-admin: short-circuit. No need to resolve staff_id or memberships
@@ -297,9 +438,15 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
   // Embedded inner-join filter: only active members of active compositions.
   // PostgREST recognises bos_members.composition_id → bos_compositions(id) FK
   // and lets us filter the parent by an embedded column with !inner + .eq.
+  // Also select institutions_id (plural — renamed by migration 20260424 from
+  // the original singular `institution_id`) from the embedded composition so
+  // we can build institutionsOf. Needed for cross-institution membership (a
+  // faculty on boards under multiple institutions). Without it, downstream
+  // API routes collapse the user to a single institution and silently drop
+  // the rest.
   const { data: memberRows } = await supabase
     .from('bos_members')
-    .select('composition_id, member_type, bos_compositions!inner(id, board_id, is_active)')
+    .select('composition_id, member_type, member_type_rec:bos_member_types(base_type), bos_compositions!inner(id, board_id, institutions_id, is_active)')
     .eq('staff_id', staffId)
     .eq('is_active', true)
     .eq('bos_compositions.is_active', true);
@@ -308,20 +455,45 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
   const isChairmanIn = new Set<string>();
   const boardsOf = new Set<string>();
   const chairmanForBoards = new Set<string>();
+  const institutionsOf = new Set<string>();
   type EmbeddedRow = {
     composition_id: string;
     member_type: string | null;
+    member_type_rec: { base_type: string | null } | null;
     // Supabase returns the embed as a single object for many-to-one FKs.
-    bos_compositions: { id: string; board_id: string | null; is_active: boolean } | null;
+    bos_compositions: { id: string; board_id: string | null; institutions_id: string | null; is_active: boolean } | null;
   };
   for (const row of (memberRows ?? []) as EmbeddedRow[]) {
     if (!row.composition_id) continue;
     memberOf.add(row.composition_id);
     const boardId = row.bos_compositions?.board_id ?? null;
+    const compInstitutionId = row.bos_compositions?.institutions_id ?? null;
     if (boardId) boardsOf.add(boardId);
-    if (row.member_type === 'chairman') {
+    if (compInstitutionId) institutionsOf.add(compInstitutionId);
+    // member_type stores the catalog type NAME since 20260710150000 — chairman
+    // is recognised via the catalog base_type, with a case-insensitive literal
+    // fallback for legacy/unlinked rows. Mirrors the DB helper predicate.
+    if (isBosChairmanRow(row)) {
       isChairmanIn.add(row.composition_id);
       if (boardId) chairmanForBoards.add(boardId);
+    }
+  }
+
+  // Multi-board: a composition may govern MULTIPLE boards via the
+  // bos_composition_boards junction (the embedded board_id above is only the
+  // PRIMARY board). Expand boardsOf/chairmanForBoards to every board of the
+  // user's compositions so a member of a multi-board composition reaches all
+  // those boards' courses/syllabi/programmes across /bos/* (those read paths
+  // gate on boardsOf). Additive — the primary board is already in the sets.
+  if (memberOf.size > 0) {
+    const { data: compBoards } = await supabase
+      .from('bos_composition_boards')
+      .select('composition_id, board_id')
+      .in('composition_id', Array.from(memberOf));
+    for (const row of (compBoards ?? []) as { composition_id: string; board_id: string }[]) {
+      if (!row.board_id) continue;
+      boardsOf.add(row.board_id);
+      if (isChairmanIn.has(row.composition_id)) chairmanForBoards.add(row.board_id);
     }
   }
 
@@ -333,17 +505,50 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
     isChairmanIn,
     boardsOf,
     chairmanForBoards,
+    institutionsOf,
   };
 }
 
 /**
  * Derives the right query filter for a composition-scoped GET handler.
- * Super-admin → 'all'. Principal → 'byInstitution' (CAS-aware via
- * allInstitutionIds). Members/chairman → 'byComposition' over their
- * memberships. Anyone else → 'none' (return empty list).
+ * Super-admin OR read-all observer → 'all'. Principal → 'byInstitution'
+ * (CAS-aware via allInstitutionIds). Members/chairman → 'byComposition' over
+ * their memberships. Anyone else → 'none' (return empty list).
+ *
+ * `canReadAll` (default false) lifts scoping to 'all' for a read-only observer
+ * — a role holding the module's `*.view` grant. READ-ONLY: never wire this into
+ * a write guard.
  */
-export function compositionScopeFilter(scope: BosBoardScope): CompositionScopeFilter {
-  if (scope.isSuperAdmin) return { kind: 'all' };
+/**
+ * Read-all resolver — the single source of truth for the BoS "read-all" tier.
+ *
+ * Pure permission-driven (chosen 2026-07-11): ANY role that holds the module's
+ * `*.view` grant reads that module's data across ALL institutions — VIEW ONLY.
+ * There is deliberately NO membership/principal gate. A board member or
+ * principal who also holds the grant therefore sees every institution's data
+ * (read-only); their WRITE scope is unchanged because writes are gated
+ * separately by guard*Write, never by this flag.
+ *
+ * Grant access purely by toggling `academic.bos-*.view` on a role in the RBAC
+ * dialog — no code change per role.
+ *
+ * Super-admin returns false here because their own path already yields read-all;
+ * callers combine as `scope.isSuperAdmin || isBosReadAllObserver(...)`.
+ *
+ * READ-ONLY: never pass the result of this into a write guard.
+ *
+ * NB: `scope` stays in the signature (only isSuperAdmin is read) so a
+ * membership gate could be reintroduced later without touching ~19 call sites.
+ */
+export function isBosReadAllObserver(scope: BosBoardScope, hasViewGrant: boolean): boolean {
+  if (scope.isSuperAdmin) return false;
+  // Pure permission-driven: holding the view grant is sufficient. No membership
+  // or principal gate — see the doc comment above.
+  return hasViewGrant;
+}
+
+export function compositionScopeFilter(scope: BosBoardScope, canReadAll = false): CompositionScopeFilter {
+  if (scope.isSuperAdmin || canReadAll) return { kind: 'all' };
 
   if (scope.isPrincipal) {
     const ids = scope.allInstitutionIds.length > 0
@@ -384,6 +589,39 @@ export function guardCompositionWrite(
 }
 
 /**
+ * Course-write authorization for /api/bos/courses-master {POST, PUT, DELETE}.
+ *
+ * Allow when:
+ *   - super-admin, OR
+ *   - target institution is the user's own primary (allInstitutionIds — CAS-aware), OR
+ *   - target institution is in scope.institutionsOf (user has an active
+ *     composition under that institution — multi-institution membership).
+ *
+ * The third clause is the only difference from guardInstitutionWrite: course
+ * writes are gated by board membership, so any institution where the user
+ * serves on a board is fair game. Used in lieu of guardInstitutionWrite for
+ * the courses routes; leave the legacy helper alone for routes that still
+ * mean "must be your own institution" (members, meetings, ta-da).
+ */
+export function guardCourseInstitutionWrite(
+  scope: BosBoardScope,
+  targetInstitutionId: string | undefined | null,
+): string | null {
+  if (scope.isSuperAdmin) return null;
+  if (!targetInstitutionId) return null;
+  const allowed = new Set<string>([
+    ...(scope.institutionsId ? [scope.institutionsId] : []),
+    ...scope.allInstitutionIds,
+    ...scope.institutionsOf,
+  ]);
+  if (allowed.size === 0) return null;
+  if (!allowed.has(targetInstitutionId)) {
+    return 'Forbidden: you can only manage courses for institutions where you serve on a board';
+  }
+  return null;
+}
+
+/**
  * Stricter variant of guardCompositionWrite for operations that must be limited
  * to the board chairman (a.k.a. HOD): editing the composition record itself,
  * adding/removing members, deleting the composition.
@@ -404,6 +642,67 @@ export function guardCompositionChairman(
   }
   if (!scope.isChairmanIn.has(compositionId)) {
     return 'Forbidden: only the board chairman can modify this composition';
+  }
+  return null;
+}
+
+/**
+ * Write-gate for Academic Council (AC) bodies and meetings.
+ *
+ * This is the deliberate INVERSE of guardCompositionChairman: for a subject-
+ * level BoS, the chairman schedules and the principal only approves; for the
+ * institution-level Academic Council, the PRINCIPAL is the convener/scheduler
+ * and there is no separate approval step.
+ *
+ *   - super-admin → allowed
+ *   - principal (within scope of the target institution) → allowed
+ *   - anyone else (including BoS chairmen, who are AC *members*) → denied
+ *
+ * CAS-aware: a principal of one sibling UUID (Aided/SF) may manage AC records
+ * for either sibling, mirroring guardInstitutionWrite.
+ */
+export function guardAcademicCouncilWrite(
+  scope: BosBoardScope,
+  targetInstitutionsId: string | null | undefined
+): string | null {
+  if (scope.isSuperAdmin) return null;
+  if (!scope.isPrincipal) {
+    return 'Forbidden: only the principal (or a super admin) can manage Academic Council meetings';
+  }
+  if (targetInstitutionsId) {
+    const inScope =
+      scope.allInstitutionIds.includes(targetInstitutionsId) ||
+      scope.institutionsId === targetInstitutionsId;
+    if (!inScope) {
+      return 'Forbidden: you can only manage the Academic Council of your own institution';
+    }
+  }
+  return null;
+}
+
+/**
+ * Write-gate for Governing Body (GB) bodies and meetings.
+ *
+ * Identical policy to guardAcademicCouncilWrite (the Governing Body is modelled
+ * "all as same" as the Academic Council): super-admin OR the institution's
+ * principal (CAS-aware) may manage GB records; everyone else is denied. Kept as
+ * a separate function so the denial messages read correctly for the GB module.
+ */
+export function guardGoverningBodyWrite(
+  scope: BosBoardScope,
+  targetInstitutionsId: string | null | undefined
+): string | null {
+  if (scope.isSuperAdmin) return null;
+  if (!scope.isPrincipal) {
+    return 'Forbidden: only the principal (or a super admin) can manage Governing Body meetings';
+  }
+  if (targetInstitutionsId) {
+    const inScope =
+      scope.allInstitutionIds.includes(targetInstitutionsId) ||
+      scope.institutionsId === targetInstitutionsId;
+    if (!inScope) {
+      return 'Forbidden: you can only manage the Governing Body of your own institution';
+    }
   }
   return null;
 }

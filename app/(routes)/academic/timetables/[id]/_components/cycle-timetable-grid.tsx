@@ -6,6 +6,7 @@
 // Slot rendering is identical to TimetableGrid — reuses same visual patterns.
 
 import { forwardRef } from 'react';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCcw, Lock, X, Users } from 'lucide-react';
@@ -41,6 +42,7 @@ export const CycleTimetableGrid = forwardRef<HTMLDivElement, CycleTimetableGridP
     },
     ref
   ) => {
+    const adapt = useAdaptiveLabels();
     // Build ordered array of cycle keys: ["cycle-1", "cycle-2", ...]
     const cycleKeys: CycleKey[] = Array.from(
       { length: numCycles },
@@ -61,7 +63,7 @@ export const CycleTimetableGrid = forwardRef<HTMLDivElement, CycleTimetableGridP
     const renderRegularSlot = (slot: any) => (
       <div className='text-blue-700 min-h-[50px] flex flex-col justify-center text-center'>
         <div className='font-semibold text-xs mb-0.5 leading-tight'>
-          {slot.course?.course_code || 'Course'}
+          {slot.course?.course_code || adapt('Course')}
         </div>
         {slot.staff_members?.length > 0 && (
           <div className='text-xs text-gray-700 mb-0.5 leading-tight'>
@@ -115,7 +117,7 @@ export const CycleTimetableGrid = forwardRef<HTMLDivElement, CycleTimetableGridP
                 ) : (
                   <div>
                     <div className='font-semibold text-xs mb-0.5 leading-tight'>
-                      {subSlot.course?.course_code || 'Course'}
+                      {subSlot.course?.course_code || adapt('Course')}
                     </div>
                     {subSlot.staff_members?.length > 0 && (
                       <div className='text-xs text-gray-700 mb-0.5 leading-tight truncate'>

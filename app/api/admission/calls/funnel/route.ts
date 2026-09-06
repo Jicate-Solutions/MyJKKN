@@ -40,21 +40,43 @@ export async function GET(request: NextRequest) {
     const supabase = createServiceRoleClient();
 
     // ── Stage 1: Total inbound calls ──
-    let callsQuery = supabase
-      .from('admission_call_logs')
-      .select('id, lead_id, cost_amount', { count: 'exact' })
-      .eq('direction', 'inbound');
+    // FIX (2026-08-02): paged with .range() — PostgREST caps un-ranged selects
+    // at 10,000 rows and still returns HTTP 200, while `count: 'exact'` stays
+    // correct. So `totalCalls` was right but the `calls` array fed to stages
+    // 2-3 was capped: with admission_only=false (11,594 inbound calls in
+    // prod), "Answered" reported 3,452 of the true 4,031 and "Leads Created"
+    // 2,726 of the true 3,134 (measured live 2026-08-02) — funnel stages that
+    // disagreed with their own total. The default admission-only scope
+    // (7,701 rows) crosses the same cap soon. Stage 3 needs the actual
+    // distinct lead ids for stages 4-5, so pagination (not an aggregate RPC)
+    // is the correct shape. Stable id ordering keeps pages from overlapping.
+    // The exact count is requested on the FIRST page only: a beyond-end range
+    // combined with count=exact makes PostgREST answer 416 (verified live),
+    // which would fault the loop whenever the row count is an exact multiple
+    // of the page size.
+    const PAGE_SIZE = 1000;
+    const calls: Array<{ id: string; lead_id: string | null; cost_amount: number | null }> = [];
+    let totalCallsCount = 0;
+    for (let from = 0; ; from += PAGE_SIZE) {
+      let callsQuery = supabase
+        .from('admission_call_logs')
+        .select('id, lead_id, cost_amount', from === 0 ? { count: 'exact' } : {})
+        .eq('direction', 'inbound')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
 
-    if (institution_id) callsQuery = callsQuery.eq('institution_id', institution_id);
-    if (fromDate) callsQuery = callsQuery.gte('created_at', fromDate);
-    if (toDate) callsQuery = callsQuery.lte('created_at', toDate);
-    if (admissionOnly) callsQuery = callsQuery.eq('is_admission_call', true);
+      if (institution_id) callsQuery = callsQuery.eq('institution_id', institution_id);
+      if (fromDate) callsQuery = callsQuery.gte('created_at', fromDate);
+      if (toDate) callsQuery = callsQuery.lte('created_at', toDate);
+      if (admissionOnly) callsQuery = callsQuery.eq('is_admission_call', true);
 
-    const { data: callsData, count: totalCalls, error: callsError } = await callsQuery;
-    if (callsError) throw new Error(`Calls query error: ${callsError.message}`);
+      const { data: page, count, error: callsError } = await callsQuery;
+      if (callsError) throw new Error(`Calls query error: ${callsError.message}`);
 
-    const calls = callsData || [];
-    const totalCallsCount = totalCalls || 0;
+      if (from === 0) totalCallsCount = count || 0;
+      calls.push(...((page || []) as typeof calls));
+      if (!page || page.length < PAGE_SIZE) break;
+    }
 
     // ── Stage 2: Answered calls (cost_amount > 0) ──
     const answeredCount = calls.filter(c => c.cost_amount != null && c.cost_amount > 0).length;

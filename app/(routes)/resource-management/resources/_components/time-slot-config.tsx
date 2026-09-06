@@ -259,7 +259,7 @@ export function TimeSlotConfigComponent({
 
             {/* Break Times */}
             <div className='space-y-3 mt-4'>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
                 <Label className='text-xs font-medium'>Break Times</Label>
                 <Button
                   type='button'
@@ -336,7 +336,7 @@ export function TimeSlotConfigComponent({
         {/* Custom Slots */}
         {slotGeneration === 'custom' && (
           <div className='space-y-4 rounded-lg border p-4 bg-muted/20'>
-            <div className='flex items-center justify-between'>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
               <Label className='text-sm font-medium'>Custom Time Slots</Label>
               <Button
                 type='button'

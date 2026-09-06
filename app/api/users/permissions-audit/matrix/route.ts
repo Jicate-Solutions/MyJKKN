@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -81,7 +82,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (userRoleRows) {
-      for (const ur of userRoleRows as Array<{ user_id: string; custom_roles: { role_key: string } | null }>) {
+      for (const ur of userRoleRows as unknown as Array<{ user_id: string; custom_roles: { role_key: string } | null }>) {
         const roleKey = ur.custom_roles?.role_key;
         if (!roleKey || !ur.user_id) continue;
         if (!userRolesSet[roleKey]) userRolesSet[roleKey] = new Set();
@@ -116,14 +117,20 @@ export async function GET(request: NextRequest) {
       roleUserCounts[roleKey] = userSet.size;
     }
 
-    // 3. Collect all unique permission keys and build role list + meta
+    // 3. Collect all unique permission keys and build role list + meta.
+    // Seed with the canonical permission catalog so modules declared in
+    // PERMISSION_CATEGORIES (e.g. ims.*) appear in the matrix even before
+    // any role has set those keys in JSONB. Then merge in any extra keys
+    // observed in custom_roles.permissions to preserve legacy/orphan keys.
     const roles: string[] = [];
     const roleMeta: Record<string, {
       name: string;
       userCount: number;
       isSystem: boolean;
     }> = {};
-    const allPermissionKeys = new Set<string>();
+    const allPermissionKeys = new Set<string>(
+      PERMISSION_CATEGORIES.flatMap((cat) => cat.permissions.map((p) => p.key))
+    );
 
     for (const role of customRoles) {
       roles.push(role.role_key);
@@ -181,10 +188,21 @@ function collectPermissionKeys(
 }
 
 /**
- * Get a permission value from a nested object using dot-notation key.
- * e.g. getPermissionValue({ users: { view: true } }, "users.view") -> true
+ * Get a permission value for a dot-notation key. Permissions may be stored EITHER
+ * as a FLAT dotted key ({ "id_cards.jobs.manage": true }) OR nested
+ * ({ id_cards: { jobs: { manage: true } } }) — real data has both shapes. The
+ * flat form must be checked FIRST: without it, a role that flat-stores
+ * "id_cards.jobs.manage" was reported as NOT granting it (the nested walk looks
+ * for obj.id_cards → undefined), so the audit lens under-reported which roles
+ * hold flat-keyed permissions (e.g. it claimed "Only super admins have this"
+ * when Registrar & Admission Officer actually did). Fixed 2026-07-26.
+ * e.g. getPermissionValue({ "users.view": true }, "users.view") -> true
+ *      getPermissionValue({ users: { view: true } }, "users.view") -> true
  */
 function getPermissionValue(obj: Record<string, any>, dotKey: string): boolean {
+  // Flat dotted key stored directly on the object.
+  if (obj[dotKey] === true) return true;
+  // Otherwise walk the nested structure.
   const parts = dotKey.split('.');
   let current: any = obj;
   for (const part of parts) {

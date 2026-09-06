@@ -2,9 +2,11 @@
 
 // app/(routes)/admission/settings/seat-config/page.tsx
 //
-// Seat Configuration — admission-year driven (2026-04-21 rewrite).
-// Before: pick academic_year → list all programs → upsert into intake_history.
-// Now:    pick institution → list admission_years rows → update admission_years.sanctioned_intake directly.
+// Seat Configuration — program driven.
+// Pick institution → list that institution's active programs → update
+// programs.sanctioned_intake directly. No admission-year dimension, no quota
+// breakdown (admission_years is now institution-wide; per-program sanctioned
+// seats live on programs.sanctioned_intake).
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -33,90 +35,45 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { createSeatConfigColumns } from './_components/seat-config-columns';
 import { EditSeatDialog } from './_components/edit-seat-dialog';
-import { QuotaSeatsDialog } from './_components/quota-seats-dialog';
-import type { AdmissionYearRow } from './_components/seat-config-columns';
+import type { ProgramSeatRow } from './_components/seat-config-columns';
 import toast from 'react-hot-toast';
 
 const supabase = createClientSupabaseClient();
 
-// Fetch admission-year rows (with their linked program info + per-quota seat
-// allocations) for an institution. The quota_seats embed surfaces the
-// breakdown stored in admission_year_quota_seats so the column cell can
-// render Govt:30 · Mgmt:20 · NRI:5 · free:5 alongside the cohort total.
-async function fetchAdmissionYearsForInstitution(
+// Fetch the institution's active programs. Sanctioned seats live directly on
+// programs.sanctioned_intake.
+async function fetchProgramsForInstitution(
   institutionId: string
-): Promise<AdmissionYearRow[]> {
+): Promise<ProgramSeatRow[]> {
   const { data, error } = await (supabase as any)
-    .from('admission_years')
-    .select(
-      `
-        id,
-        admission_year_name,
-        program_start_year,
-        program_end_year,
-        sanctioned_intake,
-        is_active,
-        program:programs (
-          id,
-          program_id,
-          program_name
-        ),
-        quota_seats:admission_year_quota_seats (
-          quota_id,
-          sanctioned_intake,
-          quota:quotas ( id, code, name, sort_order )
-        )
-      `
-    )
+    .from('programs')
+    .select('id, program_id, program_name, sanctioned_intake, actual_intake, is_active')
     .eq('institution_id', institutionId)
     .eq('is_active', true)
-    .order('program_start_year', { ascending: false })
-    .order('admission_year_name');
+    .order('program_name');
   if (error) throw error;
-
-  return (data ?? []).map((r: any) => {
-    // Order quota breakdown by the quotas.sort_order column for stable rendering
-    const quotaBreakdown = (r.quota_seats ?? [])
-      .filter((qs: any) => qs.quota)
-      .sort(
-        (a: any, b: any) =>
-          (a.quota?.sort_order ?? 999) - (b.quota?.sort_order ?? 999),
-      )
-      .map((qs: any) => ({
-        quota_id: qs.quota_id,
-        quota_code: qs.quota?.code ?? '—',
-        quota_name: qs.quota?.name ?? '—',
-        sanctioned_intake: qs.sanctioned_intake ?? 0,
-      }));
-
-    return {
-      id: r.id,
-      admission_year_name: r.admission_year_name,
-      program_name: r.program?.program_name ?? '—',
-      program_code: r.program?.program_id ?? '—',
-      program_start_year: r.program_start_year,
-      program_end_year: r.program_end_year,
-      is_active: r.is_active,
-      sanctioned_intake: r.sanctioned_intake ?? 0,
-      originalSanctionedIntake: r.sanctioned_intake ?? 0,
-      dirty: false,
-      saving: false,
-      quota_breakdown: quotaBreakdown,
-    };
-  });
+  return (data ?? []).map((p: any) => ({
+    id: p.id,
+    program_name: p.program_name ?? '—',
+    program_code: p.program_id ?? '—',
+    sanctioned_intake: p.sanctioned_intake ?? 0,
+    originalSanctionedIntake: p.sanctioned_intake ?? 0,
+    dirty: false,
+    saving: false,
+  }));
 }
 
 async function updateSanctionedIntake(
-  admissionYearId: string,
+  programId: string,
   sanctionedIntake: number
 ): Promise<void> {
   const { error } = await (supabase as any)
-    .from('admission_years')
+    .from('programs')
     .update({
       sanctioned_intake: sanctionedIntake,
       updated_at: new Date().toISOString()
     })
-    .eq('id', admissionYearId);
+    .eq('id', programId);
   if (error) throw error;
 }
 
@@ -125,11 +82,10 @@ export default function SeatConfigPage() {
     useInstitutionsWithAccess({ isActive: true });
 
   const [pickedInstitutionId, setPickedInstitutionId] = useState<string>('');
-  const [rows, setRows] = useState<AdmissionYearRow[]>([]);
+  const [rows, setRows] = useState<ProgramSeatRow[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
-  const [editRow, setEditRow] = useState<AdmissionYearRow | null>(null);
-  const [quotaDialogRow, setQuotaDialogRow] = useState<AdmissionYearRow | null>(null);
+  const [editRow, setEditRow] = useState<ProgramSeatRow | null>(null);
 
   // Auto-pick first institution once list loads
   useEffect(() => {
@@ -142,11 +98,11 @@ export default function SeatConfigPage() {
     if (!pickedInstitutionId) return;
     setLoadingData(true);
     try {
-      const data = await fetchAdmissionYearsForInstitution(pickedInstitutionId);
+      const data = await fetchProgramsForInstitution(pickedInstitutionId);
       setRows(data);
     } catch (err: any) {
       toast.error(
-        'Failed to load admission years: ' + (err?.message ?? 'Unknown error')
+        'Failed to load programs: ' + (err?.message ?? 'Unknown error')
       );
     } finally {
       setLoadingData(false);
@@ -157,10 +113,10 @@ export default function SeatConfigPage() {
     loadData();
   }, [loadData]);
 
-  const updateRow = useCallback((admissionYearId: string, value: number) => {
+  const updateRow = useCallback((programId: string, value: number) => {
     setRows((prev) =>
       prev.map((r) =>
-        r.id === admissionYearId
+        r.id === programId
           ? {
               ...r,
               sanctioned_intake: value,
@@ -171,7 +127,7 @@ export default function SeatConfigPage() {
     );
   }, []);
 
-  const saveRow = useCallback(async (row: AdmissionYearRow) => {
+  const saveRow = useCallback(async (row: ProgramSeatRow) => {
     setRows((prev) =>
       prev.map((r) => (r.id === row.id ? { ...r, saving: true } : r))
     );
@@ -189,7 +145,7 @@ export default function SeatConfigPage() {
             : r
         )
       );
-      toast.success(`Saved: ${row.admission_year_name}`);
+      toast.success(`Saved: ${row.program_name}`);
     } catch (err: any) {
       toast.error('Save failed: ' + (err?.message ?? 'Unknown error'));
       setRows((prev) =>
@@ -199,7 +155,7 @@ export default function SeatConfigPage() {
   }, []);
 
   const handleEditSave = useCallback(
-    async (row: AdmissionYearRow, newValue: number) => {
+    async (row: ProgramSeatRow, newValue: number) => {
       const updated = {
         ...row,
         sanctioned_intake: newValue,
@@ -227,13 +183,12 @@ export default function SeatConfigPage() {
       createSeatConfigColumns({
         onUpdate: updateRow,
         onSave: saveRow,
-        onEdit: setEditRow,
-        onConfigureQuotas: setQuotaDialogRow
+        onEdit: setEditRow
       }),
     [updateRow, saveRow]
   );
 
-  const getRowId = useCallback((row: AdmissionYearRow) => row.id, []);
+  const getRowId = useCallback((row: ProgramSeatRow) => row.id, []);
 
   const dirtyCount = rows.filter((r) => r.dirty).length;
   const configuredCount = rows.filter((r) => r.sanctioned_intake > 0).length;
@@ -295,8 +250,7 @@ export default function SeatConfigPage() {
               <div>
                 <h1 className='text-xl font-bold'>Seat Configuration</h1>
                 <p className='text-xs text-muted-foreground'>
-                  Set sanctioned seats per admission year — one row per program
-                  cohort
+                  Set sanctioned seats per program — one row per program
                 </p>
               </div>
             </div>
@@ -306,7 +260,7 @@ export default function SeatConfigPage() {
           <Card>
             <CardContent className='pt-4 pb-4'>
               <div className='flex flex-wrap gap-4 items-end'>
-                <div className='space-y-1 min-w-[240px]'>
+                <div className='space-y-1 w-full sm:w-auto sm:min-w-[240px]'>
                   <p className='text-xs font-medium flex items-center gap-1'>
                     <Building2 className='h-3 w-3' /> Institution
                   </p>
@@ -337,7 +291,7 @@ export default function SeatConfigPage() {
                 {rows.length > 0 && (
                   <div className='ml-auto flex items-center gap-2 flex-wrap'>
                     <Badge variant='outline' className='text-xs'>
-                      {rows.length} admission years
+                      {rows.length} programs
                     </Badge>
                     <Badge variant='outline' className='text-xs'>
                       {configuredCount}/{rows.length} configured
@@ -355,11 +309,10 @@ export default function SeatConfigPage() {
           <div className='flex items-start gap-2 text-xs text-muted-foreground bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md px-3 py-2'>
             <Info className='h-4 w-4 text-blue-500 shrink-0 mt-0.5' />
             <span>
-              Each row is one <strong>admission year</strong> (program cohort
-              window). Seat counts are stored directly on the admission year.
-              Add new admission years in{' '}
-              <strong>Settings → Admission Years</strong>. Edit inline or click
-              the <strong>✏</strong> pencil icon per row.
+              Each row is one <strong>program</strong>. Sanctioned seats are
+              stored directly on the program. Add new programs in the{' '}
+              <strong>program master</strong>. Edit inline or click the{' '}
+              <strong>✏</strong> pencil icon per row.
             </span>
           </div>
 
@@ -377,17 +330,17 @@ export default function SeatConfigPage() {
           ) : rows.length === 0 ? (
             <Card>
               <CardContent className='py-10 text-center text-sm text-muted-foreground'>
-                No active admission years found for{' '}
-                <strong>{selectedInstitutionName}</strong>. Add admission years
-                in <strong>Settings → Admission Years</strong> first.
+                No active programs found for{' '}
+                <strong>{selectedInstitutionName}</strong>. Add programs in the{' '}
+                <strong>program master</strong> first.
               </CardContent>
             </Card>
           ) : (
             <DataTable
               columns={columns}
               data={rows}
-              searchPlaceholder='Search admission years…'
-              filterColumn='admission_year_name'
+              searchPlaceholder='Search programs…'
+              filterColumn='program_name'
               getRowId={getRowId}
               tableTools={tableTools}
               onRefresh={loadData}
@@ -406,15 +359,6 @@ export default function SeatConfigPage() {
               if (!open) setEditRow(null);
             }}
             onSave={handleEditSave}
-          />
-
-          <QuotaSeatsDialog
-            row={quotaDialogRow}
-            open={quotaDialogRow !== null}
-            onOpenChange={(open) => {
-              if (!open) setQuotaDialogRow(null);
-            }}
-            onSaved={loadData}
           />
         </div>
       </ContentLayout>

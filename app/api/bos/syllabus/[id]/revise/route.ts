@@ -128,6 +128,12 @@ export async function POST(
       web_resources: body.updated_content.web_resources ?? currentSyllabus.web_resources,
       pedagogy: body.updated_content.pedagogy ?? currentSyllabus.pedagogy,
       po_mappings: body.updated_content.po_mappings ?? currentSyllabus.po_mappings,
+      assessment_structure: body.updated_content.assessment_structure ?? currentSyllabus.assessment_structure,
+      concept_applications: body.updated_content.concept_applications ?? currentSyllabus.concept_applications,
+      assessment_pattern: body.updated_content.assessment_pattern ?? currentSyllabus.assessment_pattern,
+      capstone_project: body.updated_content.capstone_project ?? currentSyllabus.capstone_project,
+      capstone_rubric: body.updated_content.capstone_rubric ?? currentSyllabus.capstone_rubric,
+      llc_conference: body.updated_content.llc_conference ?? currentSyllabus.llc_conference,
       notes: body.updated_content.notes ?? currentSyllabus.notes,
       created_by: user.id,
     };

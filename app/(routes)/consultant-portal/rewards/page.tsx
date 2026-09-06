@@ -6,13 +6,14 @@
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Select,
   SelectContent,
@@ -86,7 +87,9 @@ const statusConfig: Record<RewardStatus, { label: string; variant: 'default' | '
   cancelled: { label: 'Cancelled', variant: 'destructive', icon: X, description: 'Reward was cancelled' },
 };
 
-export default function MyRewardsPage() {
+const MY_REWARDS_TABS = ['active', 'history'] as const;
+
+function MyRewardsPageInner() {
   const router = useRouter();
   const { profile, isLoading: isAuthLoading } = useAuth();
   const { institutions } = useUserInstitutionAccess();
@@ -95,7 +98,7 @@ export default function MyRewardsPage() {
   // State
   const [consultant, setConsultant] = useState<EducationConsultant | null>(null);
   const [isLoadingConsultant, setIsLoadingConsultant] = useState(true);
-  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+  const [activeTab, setActiveTab] = useTabParam('active', MY_REWARDS_TABS);
   const [selectedStatus, setSelectedStatus] = useState<RewardStatus | 'all'>('all');
   const [viewReward, setViewReward] = useState<ReferralReward | null>(null);
   const [redeemDialog, setRedeemDialog] = useState<ReferralReward | null>(null);
@@ -727,5 +730,14 @@ export default function MyRewardsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function MyRewardsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MyRewardsPageInner />
+    </Suspense>
   );
 }

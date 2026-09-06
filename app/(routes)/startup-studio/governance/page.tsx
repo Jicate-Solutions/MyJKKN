@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { Metadata } from 'next';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -24,7 +25,9 @@ export default function GovernancePage() {
             Board management, regulatory compliance tracking, and institutional readiness assessments
           </p>
         </div>
-        <GovernanceDashboard />
+        <Suspense fallback={null}>
+          <GovernanceDashboard />
+        </Suspense>
       </div>
     </ContentLayout>
   );

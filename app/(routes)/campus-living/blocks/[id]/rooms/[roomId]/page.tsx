@@ -1,15 +1,23 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
-import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelRoom } from '@/hooks/campus-living/use-hostel-rooms';
+import { useHostelRoomWithOccupancy } from '@/hooks/campus-living/use-hostel-rooms';
+import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import { RoomFormDialog } from '../_components/room-form-dialog';
+import { RoomConditionPhotosCard } from '../_components/room-condition-photos-card';
+import {
+  formatRoomPurpose,
+  formatTierAccess,
+  isSpecialPurpose,
+} from '../_components/room-meta';
+import type { HostelRoom } from '@/types/campus-living';
 import {
   ArrowLeft,
   BedDouble,
@@ -43,8 +51,17 @@ export default function RoomDetailPage({
 }) {
   const { id, roomId } = use(params);
   const { profile } = useAuth();
-  const { data: roomData, isLoading } = useHostelRoom(roomId);
+  // hostel-rooms-v2 PR 3 (2026-05-26): use the occupancy-enriched hook so
+  // derived_status + active_residents arrive zipped with the room row.
+  const { data: roomData, isLoading } = useHostelRoomWithOccupancy(roomId);
+  const { data: blockData } = useHostelBlock(id);
+  const blockType = (blockData as { hostel_type?: string } | undefined)?.hostel_type;
+  const [editOpen, setEditOpen] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const room = roomData as any;
+  // Block name lives on the joined hostel_blocks relation per the service
+  // select. Convenience alias keeps the JSX terse below.
+  const blockName: string | undefined = room?.hostel_blocks?.name ?? undefined;
 
   if (isLoading || !room) {
     return (
@@ -56,6 +73,14 @@ export default function RoomDetailPage({
     );
   }
 
+  // getRoomWithOccupancy returns the beds relation as `hostel_beds` and a
+  // nullable `furniture` jsonb; maintenance history isn't joined to a table
+  // yet. Guard each so a freshly-created room (0 beds, null furniture) renders
+  // instead of throwing on `.length` / `Object.entries`.
+  const beds = room.hostel_beds ?? [];
+  const furniture = room.furniture ?? {};
+  const maintenanceHistory = room.maintenance_history ?? [];
+
   return (
     <ContentLayout title={`Room ${room.room_number}`}>
       <PageBreadcrumb
@@ -63,7 +88,7 @@ export default function RoomDetailPage({
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'Blocks', href: '/campus-living/blocks' },
-          { label: room.block_name, href: `/campus-living/blocks/${id}` },
+          { label: blockName ?? 'Block', href: `/campus-living/blocks/${id}` },
           { label: 'Rooms', href: `/campus-living/blocks/${id}/rooms` },
           { label: room.room_number },
         ]}
@@ -83,17 +108,23 @@ export default function RoomDetailPage({
                 <h1 className="text-2xl font-bold">Room {room.room_number}</h1>
                 <Badge variant="outline" className="capitalize">{room.room_type}</Badge>
                 <Badge variant="outline" className="capitalize">{room.ac_status.replace('_', ' ')}</Badge>
-                <Badge variant={room.status === 'full' ? 'secondary' : room.status === 'available' ? 'success' : 'default'}>
-                  {room.status.replace('_', ' ')}
+                <Badge variant={room.derived_status === 'full' ? 'secondary' : room.derived_status === 'available' ? 'success' : 'default'}>
+                  {String(room.derived_status ?? 'unknown').replace('_', ' ')}
                 </Badge>
+                {isSpecialPurpose(room.room_purpose) && (
+                  <Badge variant="outline">{formatRoomPurpose(room.room_purpose)}</Badge>
+                )}
+                {room.tier_access && (
+                  <Badge variant="secondary">{formatTierAccess(room.tier_access)}</Badge>
+                )}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                {room.block_name} &middot; Ground Floor &middot; {room.current_occupancy}/{room.capacity} occupied
+                {blockName ?? 'Block'} &middot; Floor {room.floor} &middot; {room.active_residents}/{room.capacity} occupied
               </p>
             </div>
           </div>
           <div className="flex gap-2">
-            {room.current_occupancy < room.capacity && (
+            {room.active_residents < room.capacity && (
               <Button asChild>
                 <Link href={`/campus-living/allocations/new?block=${id}&room=${roomId}`}>
                   <UserPlus className="mr-2 h-4 w-4" />
@@ -101,14 +132,7 @@ export default function RoomDetailPage({
                 </Link>
               </Button>
             )}
-            <Button
-              variant="outline"
-              onClick={() =>
-                toast.info('Inline room edit ships next.', {
-                  description: 'Edit-room dialog is being wired in a follow-up PR.',
-                })
-              }
-            >
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
               <Edit className="mr-2 h-4 w-4" />
               Edit Room
             </Button>
@@ -125,14 +149,14 @@ export default function RoomDetailPage({
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold">{room.current_occupancy}</p>
+              <p className="text-2xl font-bold">{room.active_residents}</p>
               <p className="text-xs text-muted-foreground">Occupied</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold">
-                {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(room.annual_fee)}
+                {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(room.annual_fee ?? 0)}
               </p>
               <p className="text-xs text-muted-foreground">Annual Fee</p>
             </CardContent>
@@ -145,15 +169,69 @@ export default function RoomDetailPage({
           </Card>
         </div>
 
+        {/* Inventory & Renovation Status */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Inventory &amp; Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Purpose</p>
+                <p className="font-medium">{formatRoomPurpose(room.room_purpose)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Tier</p>
+                <p className="font-medium">{formatTierAccess(room.tier_access)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Actual Capacity</p>
+                <p className="font-medium">{room.actual_capacity ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Renovation</p>
+                <p className="font-medium">{room.renovated ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Painting</p>
+                <p className="font-medium">{room.painting ?? '—'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Amenities */}
+        {(room.amenity_tags ?? []).length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Amenities</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {(room.amenity_tags ?? []).map((a: { id: string; name: string }) => (
+                  <Badge key={a.id} variant="secondary">
+                    {a.name}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Bed Grid */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Beds</CardTitle>
-              <CardDescription>{room.beds.length} beds in this room</CardDescription>
+              <CardDescription>{beds.length} beds in this room</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {room.beds.map((bed) => {
+              {beds.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No beds configured yet. Beds are created when students are allocated to this room.
+                </p>
+              )}
+              {beds.map((bed) => {
                 const bCfg = bedStatusConfig[bed.status] ?? { label: bed.status, variant: 'outline' as const };
                 return (
                   <div key={bed.id} className="p-4 border rounded-lg">
@@ -207,14 +285,18 @@ export default function RoomDetailPage({
                 <CardTitle className="text-base">Furniture Inventory</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {Object.entries(room.furniture).map(([item, count]) => (
-                    <div key={item} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <span className="text-sm capitalize">{item}</span>
-                      <span className="font-medium">{count as number}</span>
-                    </div>
-                  ))}
-                </div>
+                {Object.keys(furniture).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No furniture recorded.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {Object.entries(furniture).map(([item, count]) => (
+                      <div key={item} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                        <span className="text-sm capitalize">{item}</span>
+                        <span className="font-medium">{count as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {room.is_accessible && (
                   <Badge variant="outline" className="mt-3">Wheelchair Accessible</Badge>
                 )}
@@ -230,11 +312,14 @@ export default function RoomDetailPage({
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Maintenance History</CardTitle>
-                <CardDescription>{room.maintenance_history.length} past requests</CardDescription>
+                <CardDescription>{maintenanceHistory.length} past requests</CardDescription>
               </CardHeader>
               <CardContent>
+                {maintenanceHistory.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No maintenance requests recorded.</p>
+                )}
                 <div className="space-y-3">
-                  {room.maintenance_history.map((req) => {
+                  {maintenanceHistory.map((req) => {
                     const pCfg = maintenancePriorityConfig[req.priority] ?? { label: req.priority, color: '' };
                     return (
                       <div key={req.id} className="flex items-center justify-between p-3 border rounded-lg">
@@ -262,7 +347,18 @@ export default function RoomDetailPage({
             </Card>
           </div>
         </div>
+
+        <RoomConditionPhotosCard roomId={roomId} />
       </div>
+
+      <RoomFormDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        mode="edit"
+        blockId={id}
+        blockType={blockType}
+        room={room as HostelRoom}
+      />
     </ContentLayout>
   );
 }

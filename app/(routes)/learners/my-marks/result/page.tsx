@@ -1,20 +1,27 @@
 /**
  * /learners/my-marks/result
  *
- * Phase 1 stub for Semester Result. The page renders the same top tab
- * switcher (Internal | Result) and a "Coming Soon" card. Phase 2 will
- * replace the card body with real subject-by-subject result data when
- * the COE result endpoint is shared.
+ * Server component shell. Validates student access, then renders the
+ * client-side <ResultShell /> which loads the registration index and shows
+ * published semester results semester-by-semester. The active semester is
+ * driven by the `?semester=` search param — fully bookmarkable.
  */
 
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { ResultShell } from '../_components/result-shell';
 
-export default async function ResultPage() {
+interface PageProps {
+  searchParams: Promise<{
+    semester?: string;
+  }>;
+}
+
+export default async function ResultPage({ searchParams }: PageProps) {
+  const params = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -26,8 +33,20 @@ export default async function ResultPage() {
     redirect(`/auth/login?reason=${validation.reason}`);
   }
 
+  // Quick role check (avoid showing a "no profile" flash for non-students).
+  const adminClient = createServiceRoleClient();
+  const { data: profile } = await adminClient
+    .from('profiles')
+    .select('role, learner_id')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'student' || !profile.learner_id) {
+    redirect('/');
+  }
+
   return (
-    <ContentLayout title="Marks">
+    <ContentLayout title="Marks" fullWidth>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
@@ -36,8 +55,8 @@ export default async function ResultPage() {
           { label: 'Result' },
         ]}
       />
-      <div className="mt-2">
-        <ResultShell />
+      <div className="mt-0">
+        <ResultShell initialSemester={params.semester} />
       </div>
     </ContentLayout>
   );

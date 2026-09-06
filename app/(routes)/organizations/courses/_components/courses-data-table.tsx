@@ -1,10 +1,11 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getCourseColumns } from './columns';
 import type { CoursesSearchParams } from './data-table-schema';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
+import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { Course } from '@/types/organizations';
@@ -37,12 +38,15 @@ interface CoursesDataTableProps {
 export function CoursesDataTable({ search }: CoursesDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const label = useAdaptiveLabels();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Course[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Fixed: 2025-12-27 - Use correct permission for courses
   const canCreate =
@@ -121,7 +125,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
 
       if (successful > 0) {
         toast.success(
-          `Successfully deleted ${successful} course${
+          `Successfully deleted ${successful} ${label('course').toLowerCase()}${
             successful > 1 ? 's' : ''
           }`
         );
@@ -129,7 +133,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} course${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${label('course').toLowerCase()}${failed > 1 ? 's' : ''}`
         );
       }
 
@@ -155,6 +159,76 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
   const handleImportComplete = () => {
     setRefreshTrigger(prev => prev + 1);
     router.refresh();
+  };
+
+  // Manual "Sync from COE": forces an immediate mirror + mapping sync for the
+  // selected institution (bypasses the on-demand TTL and hourly cron). For
+  // COE-mastered institutions (CAS, Engineering) — anything just added in the COE
+  // portal lands in MyJKKN now. No-op (with a message) for MyJKKN-mastered ones.
+  const handleCoeSync = async () => {
+    if (!search.institution_id) {
+      toast.error(`Select an institution first to sync from COE`);
+      return;
+    }
+    setIsSyncing(true);
+    const toastId = toast.loading('Syncing from COE…');
+    try {
+      const res = await fetch('/api/coe-sync/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institutionId: search.institution_id }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Sync failed');
+      if (!j.coeMastered) {
+        toast(j.message, { id: toastId, icon: 'ℹ️' });
+        return;
+      }
+      const skipNote = j.mappingsSkipped ? `, ${j.mappingsSkipped} mapping(s) skipped` : '';
+      toast.success(
+        `Synced from COE: ${j.coursesUpserted} ${label('course').toLowerCase()}(s), ${j.mappingsUpserted} mapping(s)${skipNote}`,
+        { id: toastId },
+      );
+      if (j.errors?.length) {
+        toast.error(`${j.errors.length} error(s) during sync — see server logs`);
+      }
+      setRefreshTrigger(prev => prev + 1);
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Sync failed', { id: toastId });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Super-admin: sync EVERY COE-mastered institution in one pass (the cron, on
+  // demand). No institution filter needed.
+  const handleCoeSyncAll = async () => {
+    setIsSyncing(true);
+    const toastId = toast.loading('Syncing all COE institutions…');
+    try {
+      const res = await fetch('/api/coe-sync/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Sync failed');
+      const skipNote = j.mappingsSkipped ? `, ${j.mappingsSkipped} skipped` : '';
+      toast.success(
+        `Synced ${j.institutionsProcessed} COE institution(s): ${j.coursesUpserted} ${label('course').toLowerCase()}(s), ${j.mappingsUpserted} mapping(s)${skipNote}`,
+        { id: toastId },
+      );
+      if (j.errors?.length) {
+        toast.error(`${j.errors.length} error(s) during sync — see server logs`);
+      }
+      setRefreshTrigger(prev => prev + 1);
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Sync failed', { id: toastId });
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleDownloadTemplate = async () => {
@@ -187,7 +261,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -206,7 +280,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -225,7 +299,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -238,7 +312,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <>
           <Button
@@ -247,7 +321,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
             className='h-8'
           >
             <Plus className='mr-2 h-4 w-4' />
-            Add Course
+            Add {label("course")}
           </Button>
 
           <Button
@@ -259,6 +333,40 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
             <Upload className='mr-2 h-4 w-4' />
             Import
           </Button>
+
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8'
+            onClick={handleCoeSync}
+            disabled={isSyncing}
+            title='Pull the latest courses & mappings from the COE portal for the selected institution'
+          >
+            {isSyncing ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : (
+              <RefreshCw className='mr-2 h-4 w-4' />
+            )}
+            Sync from COE
+          </Button>
+
+          {isSuperAdmin && (
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8'
+              onClick={handleCoeSyncAll}
+              disabled={isSyncing}
+              title='Super-admin: pull latest courses & mappings from COE for ALL COE-mastered institutions'
+            >
+              {isSyncing ? (
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              ) : (
+                <RefreshCw className='mr-2 h-4 w-4' />
+              )}
+              Sync all COE
+            </Button>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -316,7 +424,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getCourseColumns(adapt) as any}
         exportConfig={{
           entityName: 'courses',
           columnMapping: {},
@@ -339,8 +447,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Courses`
-                : `Delete Course: ${selectedForDelete[0]?.course_name}`}
+                ? `Delete ${selectedForDelete.length} ${label("course")}s`
+                : `Delete ${label("course")}: ${selectedForDelete[0]?.course_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
@@ -380,8 +488,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Courses`
-                    : 'Course'
+                    ? `${selectedForDelete.length} ${label("course")}s`
+                    : label("course")
                 }`
               )}
             </AlertDialogAction>

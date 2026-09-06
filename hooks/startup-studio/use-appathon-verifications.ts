@@ -111,6 +111,8 @@ export function useAdminUpdateVerification(eventId: string) {
       toast.success('Verification updated')
       qc.invalidateQueries({ queryKey: verificationKeys.flaggedVerifications(eventId) })
       qc.invalidateQueries({ queryKey: verificationKeys.verifiedLeaderboard(eventId) })
+      qc.invalidateQueries({ queryKey: ['evaluator-teams', eventId] })
+      qc.invalidateQueries({ queryKey: verificationKeys.evaluatorProgress(eventId) })
     },
     onError: () => toast.error('Failed to update verification'),
   })

@@ -31,6 +31,14 @@ const COUNSELOR_ROLE_KEYS = [
 // set in _user_is_strict_counselor SQL helper.
 // Final rule (2026-05-11): admission_staff and tier-1 execs see all leads
 // even when they also hold a secondary counselor role.
+// Reverted 2026-05-22 (later that day): the BUG-003938 expansion (hod, principal,
+// dean, etc.) demoted every HOD-counselor at JKKN out of strict-counselor mode,
+// silently leaking the entire 18,721-row leads dataset (e.g., Karthika J,
+// staff_counselor+hod, was seeing 18,722 instead of her 169 assigned leads).
+// User requirement: counselors who ALSO hold a senior-leadership role must
+// stay scoped to their assigned leads. Senior-leadership users WITHOUT a
+// counselor role are unaffected (they don't pass the hasAnyCounselorRole gate).
+// SQL mirror: supabase/migrations/20260522110000_revert_strict_counselor_overrides_to_canonical.sql
 const NON_COUNSELOR_OVERRIDE_ROLE_KEYS = [
   'admission',
   'admission_staff',
@@ -60,6 +68,7 @@ const LEAD_VIEW_ALLOWLIST_ROLE_KEYS = [
   'expo_counselor',
   'learner_counselor',
   'staff_counselor',
+  'seo',
 ] as const;
 
 export interface CounselorScope {

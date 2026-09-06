@@ -137,12 +137,12 @@ export default function EditProductPage({ params }: EditProductPageProps) {
           ]}
         />
         <div className="space-y-6 mt-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-2">
-              <Skeleton className="h-8 w-72" />
+              <Skeleton className="h-8 w-full sm:w-72" />
               <Skeleton className="h-5 w-48" />
             </div>
-            <Skeleton className="h-10 w-24" />
+            <Skeleton className="h-10 w-24 shrink-0" />
           </div>
           <Skeleton className="h-64 w-full" />
           <Skeleton className="h-48 w-full" />
@@ -203,14 +203,14 @@ export default function EditProductPage({ params }: EditProductPageProps) {
         ]}
       />
       <div className="space-y-6 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">Edit Product</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
               Update details for {product.product_code} - {product.title}
             </p>
           </div>
-          <Button variant="outline" asChild>
+          <Button variant="outline" asChild className="shrink-0">
             <Link href={`/solutions/products/${id}`}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back

@@ -436,8 +436,16 @@ export function useConsolidatedAttendance() {
         return result;
       } catch (err) {
         console.error('Error saving consolidated attendance:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        toast.error('Failed to save attendance');
+        // Surface the ACTUAL reason instead of a hardcoded generic toast. The
+        // service throws user-friendly messages for the known failure cases
+        // (e.g. a permission/RLS denial), and a generic "Failed to save
+        // attendance" hid WHY — making the 2026-07-07 save-failure reports
+        // impossible to diagnose. Falls back to a friendly generic only when no
+        // message is available.
+        const message =
+          err instanceof Error && err.message ? err.message : 'An error occurred';
+        setError(message);
+        toast.error(`Couldn't save attendance: ${message}`);
         return null;
       } finally {
         setLoading(false);

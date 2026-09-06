@@ -40,7 +40,7 @@ import type { UpdateReceiptDto } from '@/types/billing-schedule';
 
 // Validation schema for receipt editing
 const receiptEditSchema = z.object({
-  payment_mode: z.enum(['cash', 'online', 'bank_transfer', 'dd', 'cheque'], {
+  payment_mode: z.enum(['cash', 'online', 'bank_transfer', 'dd', 'cheque', 'combined'], {
     errorMap: () => ({ message: 'Please select a payment mode' })
   }),
   payment_reference_number: z.string().optional(),
@@ -245,6 +245,9 @@ export default function EditReceiptPage() {
                                 </SelectItem>
                                 <SelectItem value='dd'>DD</SelectItem>
                                 <SelectItem value='cheque'>Cheque</SelectItem>
+                                <SelectItem value='combined'>
+                                  Combined Payment
+                                </SelectItem>
                               </SelectContent>
                             </Select>
                             <FormMessage />

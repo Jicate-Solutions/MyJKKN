@@ -104,6 +104,7 @@ export interface ModuleNavConfig {
 import campusLivingNav from '@/app/(routes)/campus-living/nav-config';
 import admissionNav from '@/app/(routes)/admission/nav-config';
 import learnersCouncilNav from '@/app/(routes)/learners-council/nav-config';
+import projectsNav from '@/app/(routes)/projects/nav-config';
 import okrNav from '@/app/(routes)/okr/nav-config';
 import startupStudioNav from '@/app/(routes)/startup-studio/nav-config';
 import academicNav from '@/app/(routes)/academic/nav-config';
@@ -111,11 +112,15 @@ import solutionsNav from '@/app/(routes)/solutions/nav-config';
 import accreditationNav from '@/app/(routes)/accreditation/nav-config';
 import auditNav from '@/app/(routes)/audit/nav-config';
 import hrNav from '@/app/(routes)/hr/nav-config';
+import calendarNav from '@/app/(routes)/calendar/nav-config';
+import procurementNav from '@/app/(routes)/procurement/nav-config';
+import billingNav from '@/app/(routes)/billing/nav-config';
 
 const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   campusLivingNav,
   admissionNav,
   learnersCouncilNav,
+  projectsNav,
   okrNav,
   startupStudioNav,
   academicNav,
@@ -123,6 +128,9 @@ const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   accreditationNav,
   auditNav,
   hrNav,
+  calendarNav,
+  procurementNav,
+  billingNav,
 ];
 
 const BY_MODULE = new Map(

@@ -179,12 +179,28 @@ export class AIQueryService {
     userId: string,
     params: Record<string, unknown> = {}
   ): Promise<ToolResponse> {
+    // NOTE: `this.supabase` is the caller's SSR session client (createClient()
+    // in app/api/ai-query/route.ts uses createServerClient with cookies), so
+    // the user's JWT reaches the RPC and auth.uid() resolves inside it — NOT a
+    // service-role client. The 7 child-app RPCs gate on auth.uid() safely on
+    // this path (proven E2E: a super-admin session returned 1,314 transport
+    // bookings). The legacy p_user_id is still passed for the older tools.
     const rpcName = `ai_rpc_${toolName}`;
+
+    // Drop empty-string args (the LLM sometimes emits "" for an unused filter).
+    // An empty string would hit ::uuid / ::date / enum casts and fail the tool;
+    // dropping it lets the RPC's DEFAULT NULL apply (= "no filter"), which is
+    // the intended behavior. Keeps the RPCs robust to sloppy tool arguments.
+    const cleanParams: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (typeof v === 'string' && v.trim() === '') continue;
+      cleanParams[k] = v;
+    }
 
     try {
       const { data, error } = await (this.supabase as any).rpc(rpcName, {
         p_user_id: userId,
-        ...params,
+        ...cleanParams,
       });
 
       if (error) {
@@ -455,8 +471,6 @@ export class AIQueryService {
     caste?: string;
     // Accommodation filters
     accommodationType?: string;
-    hostelType?: string;
-    foodType?: string;
     // Academic filters
     institutionId?: string;
     departmentId?: string;
@@ -550,6 +564,98 @@ export class AIQueryService {
   } = {}): Promise<ToolResponse> {
     return this.executeTool('departments', userId, {
       p_institution_id: params.institutionId,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  // ============================================
+  // Transport Tools (TMS child app — tmsadmin.jkkn.ai)
+  // ============================================
+
+  static async getTransportBookings(userId: string, params: {
+    learnerId?: string;
+    routeId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('transport_bookings', userId, {
+      p_learner_id: params.learnerId,
+      p_route_id: params.routeId,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getMessBookings(userId: string, params: {
+    learnerId?: string; mealType?: string; dateFrom?: string; dateTo?: string;
+    limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('mess_bookings', userId, {
+      p_learner_id: params.learnerId,
+      p_meal_type: params.mealType,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getHostelAllocations(userId: string, params: {
+    learnerId?: string; status?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('hostel_allocations', userId, {
+      p_learner_id: params.learnerId,
+      p_status: params.status,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getMeetingBookings(userId: string, params: {
+    status?: string; dateFrom?: string; dateTo?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('meeting_bookings', userId, {
+      p_status: params.status,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getCdcDriveAttendance(userId: string, params: {
+    learnerId?: string; driveId?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('cdc_drive_attendance', userId, {
+      p_learner_id: params.learnerId,
+      p_drive_id: params.driveId,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getEventAttendance(userId: string, params: {
+    learnerId?: string; sessionId?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('event_attendance', userId, {
+      p_learner_id: params.learnerId,
+      p_session_id: params.sessionId,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getHealthParticipation(userId: string, params: {
+    learnerId?: string; programId?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('health_participation', userId, {
+      p_learner_id: params.learnerId,
+      p_program_id: params.programId,
       p_limit: params.limit || 10000,
       p_offset: params.offset || 0,
     });

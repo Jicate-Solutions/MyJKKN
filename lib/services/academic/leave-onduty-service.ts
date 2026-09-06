@@ -719,62 +719,68 @@ export class LeaveOndutyService {
     // leave_onduty_approvals. Skip when sponsor pre-approval is required — the
     // academic chain is seeded after sponsor approves (see processSponsorApproval).
     if (!requiresSponsor) {
-      const { data: flow } = await supabase
-        .from('leave_onduty_approval_flows')
-        .select('flow_steps')
-        .eq('institution_id', institutionId)
-        .eq('category', data.category)
-        .eq('sub_category', data.sub_category)
-        .eq('is_active', true)
-        .or(`department_id.is.null,department_id.eq.${learner.department_id}`)
-        .order('department_id', { ascending: false, nullsFirst: false })
-        .limit(1)
-        .maybeSingle();
+      // Seeding runs SERVER-SIDE, in fn_seed_application_approvals (SECURITY
+      // DEFINER). It must not be done from here.
+      //
+      // WHY (2026-08-07, reported by a JKKNCET ECE learner whose OD kept failing
+      // with the "No approver is set up" message below): this whole method runs
+      // in the BROWSER — getSupabase() is createClientSupabaseClient() and
+      // application-form.tsx is a client component — so every statement carries
+      // the learner's own JWT and RLS applies to it. Two layers blocked the
+      // applicant, both reproduced by impersonating the reporter in SQL:
+      //
+      //   1. get_applicable_approval_flow is SECURITY INVOKER, so RLS on
+      //      leave_onduty_approval_flows applied to it. That table's only SELECT
+      //      policy admits super_admin/admin/institution_admin/hod/principal/
+      //      faculty/staff — NOT 'student'. Every learner therefore resolved a
+      //      NULL flow, got an empty steps array, and was refused. It hit
+      //      cohorts WITH a perfectly good flow too, so it was never really
+      //      about missing configuration.
+      //   2. The client then inserted the approver rows itself, which
+      //      leave_onduty_approvals' INSERT policy rejects outright for a
+      //      learner naming their HOD/Principal (42501).
+      //
+      // Widening RLS to let learners insert approver rows would have let them
+      // name ANY approver — including themselves — so the write moved behind a
+      // definer function instead. The learner can only ask the database to seed
+      // an application that is already theirs; who approves is decided server-
+      // side from the flow, and the function refuses to seed an application that
+      // already has approver rows.
+      const { data: seededCount, error: seedError } = await supabase.rpc(
+        'fn_seed_application_approvals',
+        { p_application_id: application.id }
+      );
 
-      const steps = (flow?.flow_steps as Array<{ step_order: number; approver_role: string; approver_id?: string | null }> | null) ?? [];
+      if (seedError) {
+        // The application is already inserted; a chain we could not build means
+        // nobody can ever act on it, so roll it back rather than strand it.
+        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        throw new Error(`Failed to seed approvers: ${seedError.message}`);
+      }
 
-      if (steps.length > 0) {
-        const approvalRows = await Promise.all(
-          steps.map(async (step) => {
-            let approverId = step.approver_id ?? null;
-            if (!approverId) {
-              let q = supabase
-                .from('profiles')
-                .select('id')
-                .eq('role', step.approver_role)
-                .eq('institution_id', institutionId);
-              if (step.approver_role === 'hod' || step.approver_role === 'faculty') {
-                q = q.eq('department_id', learner.department_id);
-              }
-              const { data: approverProfile } = await q
-                .order('created_at', { ascending: true })
-                .limit(1)
-                .maybeSingle();
-              approverId = approverProfile?.id ?? null;
-            }
-            return approverId
-              ? {
-                  application_id: application.id,
-                  approver_id: approverId,
-                  step_order: step.step_order,
-                  approver_role: step.approver_role,
-                  status: 'pending' as const,
-                }
-              : null;
-          })
+      const seededApprovers = typeof seededCount === 'number' ? seededCount : 0;
+
+      // SAFEGUARD (P1 — silent-strand fix): if no approver row was created, the
+      // application is invisible to every approver (they query
+      // leave_onduty_approvals by approver_id) and would sit `pending` forever —
+      // the exact failure that stranded 54 of 60 applications. A 0 from
+      // fn_seed_application_approvals means one of two things: no approval flow
+      // resolves for this learner's college + department + semester, or a flow
+      // resolves but no step yielded an eligible approver. Either way, refuse
+      // the submission explicitly and roll back the just-created row rather than
+      // silently accept a request that can never be approved. (Sponsor-gated
+      // applications are excluded — they seed the academic chain after the
+      // sponsor approves, so zero approvers at creation is expected for them.)
+      //
+      // This message is now a genuine configuration signal. Until 2026-08-07 it
+      // also fired for every learner whose flow was merely INVISIBLE to them
+      // under RLS, which is what the reporter was actually hitting.
+      if (seededApprovers === 0) {
+        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        throw new Error(
+          'No approver is set up for your class yet, so this request cannot be sent for approval. ' +
+          'Please contact your department office to have the leave / on-duty approver configured, then submit again.'
         );
-
-        const validRows = approvalRows.filter((r): r is NonNullable<typeof r> => r !== null);
-        if (validRows.length > 0) {
-          const { error: approvalsError } = await supabase
-            .from('leave_onduty_approvals')
-            .insert(validRows);
-
-          if (approvalsError) {
-            await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
-            throw new Error(`Failed to seed approvers: ${approvalsError.message}`);
-          }
-        }
       }
     }
 
@@ -951,10 +957,17 @@ export class LeaveOndutyService {
       'event_coordinator',
     ];
 
+    // NOTE: intentionally NOT scoped by institution_id. JKKN institutions sit
+    // on a single walkable campus and are organizational, not geographic —
+    // sponsors for OnDuty sub-categories (e.g. Solve for 100, Young Indians)
+    // are routinely staff/faculty at a different institution than the
+    // applicant. RLS already allows any authenticated user to read any
+    // `profiles` row (profiles_select_policy: auth.uid() IS NOT NULL) and the
+    // downstream sponsor RLS (sponsors_view_assigned/update_own_pending) keys
+    // only on sponsor_id = auth.uid(), so this does not widen data exposure.
     let query: any = supabase
       .from('profiles')
       .select('id, full_name, email, role, department_id')
-      .eq('institution_id', params.institutionId)
       .in('role', eligibleRoles)
       .limit(limit);
 
@@ -1528,13 +1541,74 @@ export class LeaveOndutyService {
       timetableDataKeys: Object.keys(timetableData),
     });
 
-    // Extract periods for the specific day from timetable_data
-    // Structure: { [day]: { [periodSlotId]: slotData } }
+    // Extract periods for the specific day from timetable_data.
+    //
+    // 2026-08-06: timetable_data is keyed differently per timetable_format, and
+    // this function only ever understood the first of three:
+    //   regular → { "MONDAY":       { [periodId]: slot } }
+    //   batch   → { "2026-08-06":   { [periodId]: slot },
+    //               "RANGE:2026-07-22:2026-09-04": { ... } }   (CRRI postings)
+    //   cycle   → { "cycle-3":      { [periodId]: slot } }
+    // Batch and cycle both fell through to the BUG-003207 guard below, so every
+    // learner on one got "No classes scheduled for <DAY>" — which
+    // createApplication turns into a hard throw. That silently locked ~914
+    // active learners out of leave/OD entirely (all Dental CRRI and Nursing
+    // batch sections, plus every cycle section) even though their timetables
+    // were populated. student-timetable-service.ts and
+    // faculty-attendance-service.ts already resolve all three formats; this is
+    // the same resolution, in the order most-specific → least.
     let dayPeriods: Record<string, any> = {};
 
-    // Check if timetable_data is day-based structure
-    if (timetableData[dayOfWeek] && typeof timetableData[dayOfWeek] === 'object') {
-      dayPeriods = timetableData[dayOfWeek];
+    const asSlotMap = (value: any): Record<string, any> | null =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, any>)
+        : null;
+
+    // Compare as ISO strings — 'YYYY-MM-DD' sorts chronologically and avoids the
+    // timezone drift new Date('2026-08-06') introduces on a UTC+5:30 host.
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+    const isoDate = ISO_DATE.test(date) ? date : date.slice(0, 10);
+    const rangeKeyForDate = ISO_DATE.test(isoDate)
+      ? Object.keys(timetableData).find((key) => {
+          if (!key.startsWith('RANGE:')) return false;
+          const [, from, to] = key.split(':');
+          return !!from && !!to && isoDate >= from && isoDate <= to;
+        })
+      : undefined;
+    const hasCycleKeys = Object.keys(timetableData).some((key) => /^cycle-\d+$/.test(key));
+
+    if (asSlotMap(timetableData[dayOfWeek])) {
+      // Regular: weekday keys.
+      dayPeriods = asSlotMap(timetableData[dayOfWeek])!;
+    } else if (asSlotMap(timetableData[isoDate])) {
+      // Batch: the date carries its own key.
+      dayPeriods = asSlotMap(timetableData[isoDate])!;
+    } else if (rangeKeyForDate && asSlotMap(timetableData[rangeKeyForDate])) {
+      // Batch: no per-date key, but the date sits inside a posting block.
+      dayPeriods = asSlotMap(timetableData[rangeKeyForDate])!;
+    } else if (hasCycleKeys) {
+      // Cycle: which cycle is live on this date is not derivable from the JSON —
+      // it advances only on working days and skips Sundays/holidays. Use the
+      // canonical Postgres function, same as the grid's "Today: Cycle N" badge.
+      const { data: cycleNum, error: cycleErr } = await supabase.rpc('get_cycle_for_date', {
+        p_timetable_id: timetable.id,
+        p_date: isoDate,
+      });
+
+      // A real RPC failure (e.g. statement timeout 57014) must NOT masquerade as
+      // an empty timetable — that is precisely how faculty attendance produced a
+      // false "No classes scheduled for today" whenever the DB was loaded.
+      if (cycleErr) {
+        console.error('[LeaveOndutyService.getPeriodsForDate] Cycle lookup failed:', cycleErr);
+        return {
+          valid: false,
+          periods: [],
+          error: 'Could not determine the timetable cycle for this date. Please try again or contact administrator.',
+        };
+      }
+
+      // null = Sunday or institution holiday → genuinely no classes.
+      dayPeriods = cycleNum ? asSlotMap(timetableData[`cycle-${cycleNum}`]) || {} : {};
     } else if (Array.isArray(timetableData)) {
       // Array format - filter by day
       timetableData.forEach((slot: any, index: number) => {
@@ -1587,16 +1661,27 @@ export class LeaveOndutyService {
         .filter(Boolean)
     )];
 
-    // Batch fetch period details (period_name, start_time, end_time, + clinic metadata).
-    // BUG-003208: period_mode and practical_config are required so the UI can
-    // render clinic posting blocks correctly; they were previously omitted.
+    // Batch fetch period details (period_name, start_time, end_time).
+    // NOTE: do NOT add period_mode / practical_config here — those columns live
+    // on the timetable slot, not on `periods`. Requesting them made Postgres
+    // reject the whole statement (42703), which left every period unenriched
+    // with an empty start_time, so forenoon/afternoon silently resolved to zero
+    // periods. The clinic metadata the UI needs already arrives via `...slot`.
     const { data: periodsData, error: periodsError } = await supabase
       .from('periods')
-      .select('id, period_name, start_time, end_time, is_break, period_mode, practical_config')
+      .select('id, period_name, start_time, end_time, is_break')
       .in('id', allPeriodIds);
 
+    // Enrichment is not optional: start_time drives forenoon/afternoon
+    // selection, so proceeding with unenriched periods would silently produce
+    // an application with no periods attached. Fail loudly instead.
     if (periodsError) {
-      console.warn('[LeaveOndutyService.getPeriodsForDate] Error fetching periods:', periodsError);
+      console.error('[LeaveOndutyService.getPeriodsForDate] Error fetching periods:', periodsError);
+      return {
+        valid: false,
+        periods: [],
+        error: 'Could not load period details for this date. Please try again or contact administrator.',
+      };
     }
 
     // Batch fetch course details (course_name, course_code)
@@ -1661,35 +1746,38 @@ export class LeaveOndutyService {
         selectedPeriods = allPeriodIds;
         break;
 
+      // 2026-08-06: forenoon/afternoon match on OVERLAP with the half-day
+      // window, not on start_time alone. A CRRI clinical period runs 09:00–15:30
+      // and straddles the boundary: start-time matching filed it under forenoon
+      // only, so an *afternoon* application resolved to zero periods and was
+      // still saved (valid:true) — approved, but adjusting no attendance.
+      // Periods that lie wholly inside one half-day are unaffected; the strict
+      // inequalities keep a 13:15–14:00 period out of the 14:00–17:00 window.
       case 'forenoon':
-        selectedPeriods = allPeriodIds.filter((periodId) => {
-          const period = enrichedPeriods[periodId];
-          if (!period?.start_time) return false;
-          const startTime = this.parseTime(period.start_time);
-          const forenoonStart = this.parseTime(
-            DEFAULT_VALIDATION_RULES.periods.forenoonStart
-          );
-          const forenoonEnd = this.parseTime(
-            DEFAULT_VALIDATION_RULES.periods.forenoonEnd
-          );
-          return startTime >= forenoonStart && startTime <= forenoonEnd;
-        });
-        break;
+      case 'afternoon': {
+        const rules = DEFAULT_VALIDATION_RULES.periods;
+        const windowStart = this.parseTime(
+          periodType === 'forenoon' ? rules.forenoonStart : rules.afternoonStart
+        );
+        const windowEnd = this.parseTime(
+          periodType === 'forenoon' ? rules.forenoonEnd : rules.afternoonEnd
+        );
 
-      case 'afternoon':
         selectedPeriods = allPeriodIds.filter((periodId) => {
           const period = enrichedPeriods[periodId];
           if (!period?.start_time) return false;
           const startTime = this.parseTime(period.start_time);
-          const afternoonStart = this.parseTime(
-            DEFAULT_VALIDATION_RULES.periods.afternoonStart
-          );
-          const afternoonEnd = this.parseTime(
-            DEFAULT_VALIDATION_RULES.periods.afternoonEnd
-          );
-          return startTime >= afternoonStart && startTime <= afternoonEnd;
+          if (Number.isNaN(startTime)) return false;
+
+          const endTime = this.parseTime(period.end_time || '');
+          if (Number.isNaN(endTime)) {
+            // No end time recorded — fall back to the point-in-window test.
+            return startTime >= windowStart && startTime <= windowEnd;
+          }
+          return startTime < windowEnd && endTime > windowStart;
         });
         break;
+      }
 
       case 'periodwise':
         // For periodwise, return all periods for manual selection
@@ -2190,6 +2278,61 @@ export class LeaveOndutyService {
   }
 
   /**
+   * Set one learner's status inside a slot, for BOTH slot shapes.
+   *
+   * A normal slot stores its roster as `{ students: [...] }`. A subdivided
+   * practical/lab slot stores it as `{ groups: [{ students: [...] }, ...] }`.
+   * Every caller here used to read `slot.students` only, so on a practical the
+   * guard was falsy and an APPROVED On-Duty silently never converted Absent→OD —
+   * no error, just a console warning and a record saved unchanged. (All 302
+   * subdivided periods in production since 2025-11-25 were affected.)
+   *
+   * Writes through to every copy that holds the learner — the top-level roster
+   * AND each group — so the marking grid (which reads `groups[]`) and the reports
+   * (which read the top-level roster) can never disagree.
+   *
+   * Returns the previous status, or null when the learner is not in the slot at
+   * all. Nothing is written when the learner already holds the target status, so
+   * the caller's "only update if different" contract is preserved exactly.
+   */
+  private static setStudentStatusInSlot(
+    slot: any,
+    studentId: string,
+    newStatus: string
+  ): string | null {
+    if (!slot) return null;
+
+    const rosters: any[][] = [];
+    if (Array.isArray(slot.students)) rosters.push(slot.students);
+    if (Array.isArray(slot.groups)) {
+      for (const group of slot.groups) {
+        if (Array.isArray(group?.students)) rosters.push(group.students);
+      }
+    }
+
+    const entries: any[] = [];
+    let oldStatus: string | null = null;
+
+    for (const roster of rosters) {
+      const index = roster.findIndex((s: any) => s?.student_id === studentId);
+      if (index === -1) continue;
+      if (entries.length === 0) oldStatus = roster[index].status ?? null;
+      entries.push(roster[index]);
+    }
+
+    if (entries.length === 0) return null;
+    if (oldStatus === newStatus) return oldStatus;
+
+    const markedAt = new Date().toISOString();
+    for (const entry of entries) {
+      entry.status = newStatus;
+      entry.marked_at = markedAt;
+    }
+
+    return oldStatus;
+  }
+
+  /**
    * Update attendance for a specific date
    */
   private static async updateAttendanceForDate(
@@ -2320,47 +2463,37 @@ export class LeaveOndutyService {
     for (const slotId of slotIds) {
       console.log('[attendance-integration] Checking slot:', slotId, 'exists:', !!attendanceData[slotId]);
 
-      if (attendanceData[slotId]?.students) {
-        const students = attendanceData[slotId].students;
-        console.log('[attendance-integration] Slot has', students.length, 'students');
-
-        const studentIndex = students.findIndex(
-          (s: any) => s.student_id === application.learner_id
+      // Updated: 2026-07-25 - Was `attendanceData[slotId]?.students`, which is falsy
+      // on a subdivided practical/lab slot (its roster lives in groups[]) — so an
+      // approved On-Duty silently skipped every practical. setStudentStatusInSlot
+      // handles both shapes and keeps them in sync.
+      if (attendanceData[slotId]) {
+        const oldStatus = this.setStudentStatusInSlot(
+          attendanceData[slotId],
+          application.learner_id,
+          newStatus
         );
 
-        console.log('[attendance-integration] Student found at index:', studentIndex);
-
-        if (studentIndex !== -1) {
-          const oldStatus = students[studentIndex].status;
-
-          console.log('[attendance-integration] Student current status:', {
+        if (oldStatus === null) {
+          console.warn('[attendance-integration] Learner not found in slot roster');
+        } else if (oldStatus !== newStatus) {
+          console.log('[attendance-integration] Status updated, creating audit record', {
             old_status: oldStatus,
-            new_status: newStatus,
-            needs_update: oldStatus !== newStatus
+            new_status: newStatus
           });
 
-          // Only update if status is different
-          if (oldStatus !== newStatus) {
-            students[studentIndex].status = newStatus;
-            students[studentIndex].marked_at = new Date().toISOString();
+          // Create audit record
+          await this.createAttendanceUpdateAudit({
+            application_id: application.id,
+            attendance_record_id: attendanceRecord.id,
+            period_slot_id: slotId,
+            student_id: application.learner_id,
+            old_status: oldStatus,
+            new_status: newStatus,
+            updated_by: null, // System update
+          });
 
-            console.log('[attendance-integration] Status updated, creating audit record');
-
-            // Create audit record
-            await this.createAttendanceUpdateAudit({
-              application_id: application.id,
-              attendance_record_id: attendanceRecord.id,
-              period_slot_id: slotId,
-              student_id: application.learner_id,
-              old_status: oldStatus,
-              new_status: newStatus,
-              updated_by: null, // System update
-            });
-
-            updated = true;
-          }
-        } else {
-          console.warn('[attendance-integration] Student not found in slot students list');
+          updated = true;
         }
       } else {
         console.warn('[attendance-integration] Slot not found in attendance data');
@@ -2492,19 +2625,15 @@ export class LeaveOndutyService {
       const attendanceData = { ...attendanceRecord.attendance_data };
 
       // Revert each period
+      // Updated: 2026-07-25 - Same subdivided-slot blind spot as the approve path:
+      // a practical's roster lives in groups[], so the old `?.students` guard left
+      // lab periods un-reverted after a cancellation. Reverts every copy.
       for (const update of recordUpdates) {
-        if (attendanceData[update.period_slot_id]?.students) {
-          const students = attendanceData[update.period_slot_id].students;
-          const studentIndex = students.findIndex(
-            (s: any) => s.student_id === update.student_id
-          );
-
-          if (studentIndex !== -1) {
-            // Revert to old status
-            students[studentIndex].status = update.old_status;
-            students[studentIndex].marked_at = new Date().toISOString();
-          }
-        }
+        this.setStudentStatusInSlot(
+          attendanceData[update.period_slot_id],
+          update.student_id,
+          update.old_status
+        );
       }
 
       // Save reverted attendance

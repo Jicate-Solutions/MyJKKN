@@ -4,7 +4,7 @@
 // Adapts the React Query hook shape to CrudDataTable's imperative props.
 
 import { useMemo } from 'react';
-import { useHostelResidents } from '@/hooks/campus-living/use-hostel-residents';
+import { useHostelResidentsWithInstitutions } from '@/hooks/campus-living/use-hostel-residents';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
@@ -29,7 +29,7 @@ export function HostelResidentsDataTable({ filters }: HostelResidentsDataTablePr
     isLoading,
     error,
     refetch,
-  } = useHostelResidents(institutionId, filters);
+  } = useHostelResidentsWithInstitutions(institutionId, filters);
 
   const residents = result?.data ?? [];
   const errorMessage = error ? (error as Error).message : null;
@@ -52,7 +52,9 @@ export function HostelResidentsDataTable({ filters }: HostelResidentsDataTablePr
       items={residents}
       loading={isLoading}
       error={errorMessage}
-      onRefresh={refetch}
+      onRefresh={async () => {
+        await refetch();
+      }}
       onBulkDelete={async (ids) => {
         const res = await HostelResidentService.bulkDeleteResidents(ids);
         await refetch();

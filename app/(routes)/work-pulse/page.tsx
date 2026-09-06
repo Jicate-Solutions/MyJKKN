@@ -54,8 +54,8 @@ export default async function WorkPulsePage() {
 
       <div className="space-y-6 mt-4">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold py-1">My Pulse</h1>
             <p className="text-sm text-muted-foreground">
               Share what&apos;s slowing you down — help us find automation opportunities

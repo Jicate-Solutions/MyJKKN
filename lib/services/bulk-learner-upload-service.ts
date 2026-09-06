@@ -7,8 +7,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
+import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
+import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
+import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
+import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-type-resolver';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { randomUUID } from 'crypto';
+import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 
 // Create admin client for user management
 const supabaseAdmin = createClient(
@@ -21,27 +26,6 @@ const supabaseAdmin = createClient(
     }
   }
 );
-
-/**
- * Generate temporary password for new users
- */
-function generateTemporaryPassword(length = 12): string {
-  const charset =
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=';
-  let password = '';
-  for (let i = 0, n = charset.length; i < length; ++i) {
-    password += charset.charAt(Math.floor(Math.random() * n));
-  }
-  // Ensure password has at least one digit
-  if (!/\d/.test(password)) {
-    password += Math.floor(Math.random() * 10);
-  }
-  // Ensure password has at least one uppercase letter
-  if (!/[A-Z]/.test(password)) {
-    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  }
-  return password.slice(0, length);
-}
 
 /**
  * Check if profile is complete
@@ -140,32 +124,80 @@ export class BulkLearnerUploadService {
       });
     });
 
-    // Check for duplicate emails in batch
+    // Rows that pass per-row validation but must still be excluded from
+    // insertion because of a batch-level or DB-level collision. Indices point
+    // into validRows; a single filter removes them all before processing.
+    const excludedIndices = new Set<number>();
+
+    // GUARD 1: duplicate college_email within this file (existing behaviour).
     const duplicates = LearnerValidationService.findDuplicateEmails(
       validRows.map(r => r.data)
     );
-
-    if (duplicates.size > 0) {
-      duplicates.forEach((rowIndices, email) => {
-        rowIndices.forEach(index => {
-          result.errors.push({
-            row: validRows[index].rowNumber,
-            email,
-            error: `Duplicate email in file: ${email} appears in rows ${rowIndices.map(i => validRows[i].rowNumber).join(', ')}`
-          });
+    duplicates.forEach((rowIndices, email) => {
+      rowIndices.forEach(index => {
+        result.errors.push({
+          row: validRows[index].rowNumber,
+          email,
+          error: `Duplicate email in file: ${email} appears in rows ${rowIndices.map(i => validRows[i].rowNumber).join(', ')}`
         });
+        excludedIndices.add(index);
       });
+    });
 
-      // Remove duplicates from valid rows
-      const duplicateIndices = new Set(Array.from(duplicates.values()).flat());
-      const uniqueValidRows = validRows.filter((_, index) => !duplicateIndices.has(index));
+    // GUARD 2: the SAME student_photo_url assigned to multiple distinct learners
+    // in this file. Root cause of BUG-004438/004437 — a bulk sheet repeated one
+    // photo URL across dozens of rows, so every learner rendered the same (wrong)
+    // person's face. A photo URL is inherently per-person; sharing one is always
+    // an error. Reject every row in the colliding group with an explicit message.
+    const photoDupes = LearnerValidationService.findDuplicatePhotoUrls(
+      validRows.map(r => r.data)
+    );
+    photoDupes.forEach((rowIndices) => {
+      const rowsLabel = rowIndices.map(i => validRows[i].rowNumber).join(', ');
+      rowIndices.forEach(index => {
+        result.errors.push({
+          row: validRows[index].rowNumber,
+          email: validRows[index].data.college_email,
+          error: `Same photo URL assigned to multiple learners (rows ${rowsLabel}). Each learner needs their own photo — fix the file and re-upload.`
+        });
+        excludedIndices.add(index);
+      });
+    });
 
-      // Process unique rows
-      await this.processValidRows(uniqueValidRows, result);
-    } else {
-      // Process all valid rows
-      await this.processValidRows(validRows, result);
+    // GUARD 3: student_photo_url already stored on a DIFFERENT learner in the DB
+    // (the same corruption class arriving one upload at a time). Re-uploading the
+    // same learner with their own existing photo is fine and is NOT flagged.
+    const photoOwners = await LearnerValidationService.findExistingPhotoOwners(
+      validRows.map(r => (r.data as { student_photo_url?: string }).student_photo_url || '')
+    );
+    if (photoOwners.size > 0) {
+      validRows.forEach((row, index) => {
+        const url = ((row.data as { student_photo_url?: string }).student_photo_url || '').trim();
+        if (!url) return;
+        const existingOwners = photoOwners.get(url);
+        if (!existingOwners) return;
+        const rowEmail = (row.data.college_email || '').toLowerCase();
+        const otherOwners = existingOwners.filter(e => e !== rowEmail);
+        if (otherOwners.length > 0) {
+          result.errors.push({
+            row: row.rowNumber,
+            email: row.data.college_email,
+            error: `Photo URL already belongs to another learner (${otherOwners.join(', ')}). Each learner needs their own photo.`
+          });
+          excludedIndices.add(index);
+        }
+      });
     }
+
+    // Surface the rejections in the summary + "learners failed" toast so nothing
+    // is dropped silently (repo rule: validation failures must be explicit).
+    result.upload_summary.learners_failed += excludedIndices.size;
+
+    const rowsToProcess = excludedIndices.size > 0
+      ? validRows.filter((_, index) => !excludedIndices.has(index))
+      : validRows;
+
+    await this.processValidRows(rowsToProcess, result);
 
     // Log bulk upload activity (summary)
     try {
@@ -425,12 +457,34 @@ export class BulkLearnerUploadService {
 
     console.log(`[bulk-upload] Preparing to insert ${newLearners.length} new learners`);
 
+    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK).
+    // Storage is quota_id only; the legacy `quota` TEXT column is being retired.
+    const resolveQuota = await buildQuotaResolver(supabaseAdmin);
+    const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
+    const resolveCaste = await buildCasteResolver(supabaseAdmin);
+    // accommodation_type TEXT is retired — resolve the Excel label → the
+    // institution-scoped accommodation_types FK (rows span institutions).
+    const resolveAccommodation = await buildAccommodationTypeResolverMulti(supabaseAdmin);
+
     // STEP 3: Batch insert new learners
     const learnerData = newLearners.map(row => {
       // FIX: Keep scholarship_type as text (no longer converting to boolean first_graduate)
-      // The database now has scholarship_type column as TEXT
+      // The database now has scholarship_type column as TEXT.
+      // Resolve readable quota/community/caste/accommodation labels → FK ids; the
+      // legacy TEXT columns are retired. Caste resolution is community-scoped
+      // (ambiguous names); accommodation is institution-scoped.
+      const { quota, community, caste, accommodation_type, ...rest } = row.data as Record<string, any>;
+      const communityCategoryId = resolveCommunity(community) ?? (row.data as any).community_category_id ?? null;
+      const institutionId = (row.data as any).institution_id ?? null;
       return {
-        ...row.data,
+        ...rest,
+        quota_id: resolveQuota(quota) ?? (row.data as any).quota_id ?? null,
+        community_category_id: communityCategoryId,
+        caste_id: resolveCaste(caste, communityCategoryId) ?? (row.data as any).caste_id ?? null,
+        accommodation_type_id:
+          resolveAccommodation(accommodation_type, institutionId) ??
+          (row.data as any).accommodation_type_id ??
+          null,
         lifecycle_status: 'active',
         is_profile_complete: isProfileComplete(row.data)
       };

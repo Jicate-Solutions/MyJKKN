@@ -22,7 +22,10 @@ export type UpcomingClass = {
  * Doctrines v1 — Teaching Excellence Score (TES)
  * Components (all optional, NULL renormalizes out):
  *   - student_attendance   (25%) — % Present in faculty's marked classes (30d)
- *   - marking_compliance   (25%) — % of weekdays marked in trailing 30d
+ *   - marking_compliance   (25%) — ASSIGNED-and-marked days / 22 target (30d).
+ *       2026-07-18 (Phase 2): credits days a session ASSIGNED to this faculty was
+ *       marked by anyone (not only days they personally clicked), so delegation
+ *       isn't scored 0%. marking_detail carries both numbers for the tile.
  *   - feedback_nps         (25%) — NULL until NPS schema exists
  *   - research_mentorship  (25%) — NULL until research/mentorship schema exists
  */
@@ -33,10 +36,20 @@ export type TesComponents = {
   research_mentorship: number | null;
 };
 
+/** Phase 2 "track both" — the two marking numbers behind marking_compliance.
+ *  `assigned_days` (drives the score) = days an assigned session got marked by
+ *  anyone; `personal_days` = days this faculty marked personally. */
+export type MarkingDetail = {
+  assigned_days: number;
+  personal_days: number;
+  target_days: number;
+};
+
 export type TeachingExcellenceScore = {
   score: number;
   band: FacultyBand;
   components: TesComponents;
+  marking_detail?: MarkingDetail;
   present_components?: string[];
   missing_components?: string[];
   effective_weights?: Record<string, number>;

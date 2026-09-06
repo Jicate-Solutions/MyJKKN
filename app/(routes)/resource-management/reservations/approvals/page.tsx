@@ -1,7 +1,7 @@
 'use client';
 // app/(routes)/resource-management/reservations/approvals/page.tsx
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -19,9 +19,11 @@ import {
 import { DataTable } from '@/components/ui/data-table';
 import { ApprovalStatsCards } from './_components/approval-stats-cards';
 import { ApprovalActionsDialog } from './_components/approval-actions-dialog';
+import { ApprovalFilters } from './_components/approval-filters';
 import {
   usePendingApprovals,
-  useApprovalStats
+  useApprovalStats,
+  useMyApprovalStatuses
 } from '@/hooks/reservation/use-reservations';
 import {
   useApproveReservation,
@@ -49,9 +51,24 @@ export default function ApprovalsPage() {
     useState<Reservation | null>(null);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
 
-  // Fetch pending approvals and statistics
-  const { data: reservations = [], isLoading, refetch } = usePendingApprovals();
+  // Advanced filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [institutionFilter, setInstitutionFilter] = useState('all');
+
+  // Institution narrows the server-side fetch; the rest are client-side.
+  // RLS still scopes by institution for users without multi-institution
+  // access, so a same-institution approver gets only their queue
+  // regardless of what they pick here.
+  const { data: reservations = [], isLoading, refetch } = usePendingApprovals(
+    institutionFilter !== 'all'
+      ? { institution_id: institutionFilter }
+      : undefined
+  );
   const { data: stats, isLoading: loadingStats } = useApprovalStats();
+  const { data: myApprovalData } = useMyApprovalStatuses(user?.id);
+  const myApprovalStatuses = myApprovalData?.statusMap;
 
   const approveReservation = useApproveReservation();
   const rejectReservation = useRejectReservation();
@@ -64,14 +81,79 @@ export default function ApprovalsPage() {
     overdue_approvals: stats?.overdue_approvals || 0
   };
 
+  const myStats = myApprovalData
+    ? {
+        my_pending: myApprovalData.myPending,
+        my_approved_total: myApprovalData.myApprovedTotal,
+        my_approved_today: myApprovalData.myApprovedToday,
+        my_rejected_total: myApprovalData.myRejectedTotal,
+        my_rejected_today: myApprovalData.myRejectedToday
+      }
+    : null;
+
+  const handleClearFilters = useCallback(() => {
+    setSearchQuery('');
+    setPriorityFilter('all');
+    setSortBy('created_at');
+    setInstitutionFilter('all');
+    setCurrentPage(1);
+  }, []);
+
+  // Apply search + priority filter + sort (client-side over the
+  // server-narrowed institution dataset).
+  const filteredData = useMemo(() => {
+    let rows = reservations;
+
+    // Never show the current user's own requests in the approval queue —
+    // a requester must not be able to approve or reject their own submission.
+    rows = rows.filter((r) => r.user_id !== user?.id);
+
+    if (priorityFilter !== 'all') {
+      const p = Number(priorityFilter);
+      rows = rows.filter((r) => Number(r.priority) === p);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      rows = rows.filter((r) => {
+        return (
+          r.resource?.name?.toLowerCase().includes(q) ||
+          r.user?.full_name?.toLowerCase().includes(q) ||
+          r.user?.email?.toLowerCase().includes(q) ||
+          r.purpose?.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    const sorted = [...rows].sort((a, b) => {
+      switch (sortBy) {
+        case 'start_time':
+          return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+        case 'priority':
+          return Number(b.priority || 0) - Number(a.priority || 0);
+        case 'created_at':
+        default:
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+    });
+
+    return sorted;
+  }, [reservations, priorityFilter, searchQuery, sortBy, user?.id]);
+
   // Client-side pagination
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * pageSize;
     const endIndex = startIndex + pageSize;
-    return reservations.slice(startIndex, endIndex);
-  }, [reservations, currentPage, pageSize]);
+    return filteredData.slice(startIndex, endIndex);
+  }, [filteredData, currentPage, pageSize]);
 
-  const totalPages = Math.ceil(reservations.length / pageSize);
+  const totalPages = Math.ceil(filteredData.length / pageSize);
+
+  // Reset to page 1 whenever filters change so the user never lands
+  // on an empty page after narrowing the result set.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, priorityFilter, sortBy, institutionFilter]);
 
   const handleApprove = (reservation: Reservation) => {
     setSelectedReservation(reservation);
@@ -226,6 +308,9 @@ export default function ApprovalsPage() {
       cell: ({ row }: { row: any }) => {
         const reservation = row.original;
         const overdue = isOverdue(reservation.created_at);
+        const isOwnRequest = reservation.user_id === user?.id;
+        const myStatus = myApprovalStatuses?.get(reservation.id);
+        const alreadyActed = myStatus === 'approved' || myStatus === 'rejected';
 
         return (
           <div className='flex items-center justify-end gap-2'>
@@ -234,30 +319,56 @@ export default function ApprovalsPage() {
               variant='outline'
               className='gap-1'
               onClick={() =>
-                router.push(`/resource-management/reservations/${reservation.id}`)
+                router.push(
+                  // Carry the queue we came from so the detail page sends the
+                  // approver back here, not to My Reservations.
+                  `/resource-management/reservations/${reservation.id}?returnTo=${encodeURIComponent(
+                    '/resource-management/reservations/approvals'
+                  )}`
+                )
               }
             >
               <Eye className='h-3 w-3' />
               View
             </Button>
-            <Button
-              size='sm'
-              variant='default'
-              className='gap-1'
-              onClick={() => handleApprove(reservation)}
-            >
-              <CheckCircle2 className='h-3 w-3' />
-              Approve
-            </Button>
-            <Button
-              size='sm'
-              variant='destructive'
-              className='gap-1'
-              onClick={() => handleReject(reservation)}
-            >
-              <XCircle className='h-3 w-3' />
-              Reject
-            </Button>
+            {isOwnRequest ? (
+              <Badge variant='secondary'>Your Request</Badge>
+            ) : alreadyActed ? (
+              <Badge
+                className={
+                  myStatus === 'approved'
+                    ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100'
+                    : 'bg-red-100 text-red-700 border-red-200 hover:bg-red-100'
+                }
+              >
+                {myStatus === 'approved' ? (
+                  <><CheckCircle2 className='h-3 w-3 mr-1' />You Approved</>
+                ) : (
+                  <><XCircle className='h-3 w-3 mr-1' />You Rejected</>
+                )}
+              </Badge>
+            ) : (
+              <>
+                <Button
+                  size='sm'
+                  variant='default'
+                  className='gap-1'
+                  onClick={() => handleApprove(reservation)}
+                >
+                  <CheckCircle2 className='h-3 w-3' />
+                  Approve
+                </Button>
+                <Button
+                  size='sm'
+                  variant='destructive'
+                  className='gap-1'
+                  onClick={() => handleReject(reservation)}
+                >
+                  <XCircle className='h-3 w-3' />
+                  Reject
+                </Button>
+              </>
+            )}
             {overdue && (
               <Badge variant='destructive' className='text-xs'>
                 Overdue
@@ -276,7 +387,7 @@ export default function ApprovalsPage() {
     currentPage,
     totalPages,
     pageSize,
-    totalItems: reservations.length,
+    totalItems: filteredData.length,
     hasNextPage: currentPage < totalPages,
     hasPreviousPage: currentPage > 1,
     onPageChange: setCurrentPage,
@@ -319,9 +430,27 @@ export default function ApprovalsPage() {
       <div className='mb-6'>
         <ApprovalStatsCards
           stats={approvalStats || null}
+          myStats={myStats}
           isLoading={isLoading || loadingStats}
         />
       </div>
+
+      {/* Advanced Filters */}
+      <Card className='mb-6'>
+        <CardContent className='p-6'>
+          <ApprovalFilters
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            priorityFilter={priorityFilter}
+            onPriorityChange={setPriorityFilter}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            institutionFilter={institutionFilter}
+            onInstitutionChange={setInstitutionFilter}
+            onClearFilters={handleClearFilters}
+          />
+        </CardContent>
+      </Card>
 
       {/* Approvals Table */}
       <Card>
@@ -329,10 +458,6 @@ export default function ApprovalsPage() {
           <DataTable
             columns={columns}
             data={paginatedData}
-            searchPlaceholder='Search by resource, user, or purpose...'
-            onSearch={(query) => {
-              // Client-side search handled by DataTable
-            }}
             getRowId={(row) => row.id}
             onRefresh={refetch}
             showRefresh={true}

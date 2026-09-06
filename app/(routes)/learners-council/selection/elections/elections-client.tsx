@@ -637,8 +637,8 @@ export function ElectionsClient({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <Link
             href="/learners-council/selection"
             className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-2"
@@ -655,7 +655,7 @@ export function ElectionsClient({
           </p>
         </div>
         {isStaffOrAdmin && (
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => setCreateOpen(true)} className="shrink-0">
             <Plus className="h-4 w-4 mr-2" />
             Create Election
           </Button>

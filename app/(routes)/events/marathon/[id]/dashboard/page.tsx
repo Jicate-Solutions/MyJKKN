@@ -36,6 +36,7 @@ import {
   BedDouble,
 } from 'lucide-react';
 import { useMarathonDashboard } from '@/hooks/events/marathon/use-marathon-dashboard';
+import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 import { useMarathonEvent, useUpdateMarathonStatus } from '@/hooks/events/marathon/use-marathon-events';
 import {
   Select,
@@ -576,6 +577,14 @@ export default function MarathonDashboardPage() {
 
         {/* ── Registration Statistics ──────────────────────────────── */}
         {data && <RegistrationStatistics data={data} />}
+
+        {/* ── Post-race feedback ───────────────────────────────────────
+            Links to /events/<id>/feedback, the one feedback console shared by
+            every event type. Runners are rows in events_registrations like any
+            other attendee, so the registered-participants-only gate applies to
+            them unchanged — including the external runners who have no login,
+            who are reached through their registration rather than a profile. */}
+        <EventFeedbackLinkCard eventId={eventId} />
 
         <Separator />
 

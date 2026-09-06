@@ -1,15 +1,17 @@
+import { Suspense } from 'react';
 import type { Metadata, Viewport } from 'next';
-import { Poppins, Noto_Sans_Tamil } from 'next/font/google';
+import { Poppins, Noto_Sans_Tamil, DM_Serif_Display, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
+import { AppBadgeSync } from '@/components/notifications/app-badge-sync';
 import { InstallPromptBanner } from '@/components/pwa/install-prompt-banner';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { AuthProvider } from '@/hooks/use-auth-provider';
 import { ReactQueryProvider } from '@/providers/query-client-provider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
-import Script from 'next/script';
 import { PreviewBanner } from '@/components/layout/preview-banner';
+import { PlatformGuideFabMount } from '@/components/guide/platform-guide-fab-mount';
 
 const poppins = Poppins({
   weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
@@ -23,6 +25,35 @@ const notoSansTamil = Noto_Sans_Tamil({
   subsets: ['tamil'],
   display: 'swap',
   variable: '--font-noto-tamil'
+});
+
+// Editorial display serif — used for the YoY chart's verdict headline
+// ("Behind 2025-26 by 14%"). Distinctive against the generic sans-defaults
+// most dashboards use.
+const dmSerifDisplay = DM_Serif_Display({
+  weight: ['400'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-dm-serif-display',
+});
+
+// Refined body sans — used for descriptions, labels, tooltips in the YoY
+// chart. Pairs with DM Serif Display for the editorial/financial-terminal
+// aesthetic Director-locked 2026-06-02.
+const ibmPlexSans = IBM_Plex_Sans({
+  weight: ['300', '400', '500', '600'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-ibm-plex-sans',
+});
+
+// Tabular-figures monospace — used for trajectory values, axis labels,
+// drill-down counts. Fixed-width = trustworthy/numerical.
+const ibmPlexMono = IBM_Plex_Mono({
+  weight: ['400', '500', '600'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-ibm-plex-mono',
 });
 
 // Allow pinch-zoom for accessibility (WCAG 2.5.5 target size, 1.4.4 resize text).
@@ -177,7 +208,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang='en' suppressHydrationWarning>
+    <html lang='en' className='overflow-x-hidden' suppressHydrationWarning>
       <head>
         {/* Preconnect to critical third-party origins — shaves ~200-400ms off first request */}
         <link
@@ -194,7 +225,7 @@ export default function RootLayout({
           href='https://apis.google.com'
         />
       </head>
-      <body className={`${poppins.variable} ${notoSansTamil.variable} font-sans antialiased`} suppressHydrationWarning>
+      <body className={`${poppins.variable} ${notoSansTamil.variable} ${dmSerifDisplay.variable} ${ibmPlexSans.variable} ${ibmPlexMono.variable} font-sans antialiased overflow-x-hidden`} suppressHydrationWarning>
         <ReactQueryProvider>
           <ThemeProvider
             attribute='class'
@@ -208,17 +239,29 @@ export default function RootLayout({
                 {/* Sticky preview banner — renders only when a preview session
                     cookie is active. Non-dismissible by design. */}
                 <PreviewBanner />
+                {/* Headless: syncs the installed-PWA icon badge (Badging API) to
+                    the global unread count. Renders nothing; mounted app-wide so
+                    the badge tracks the count on every authenticated page. */}
+                <AppBadgeSync />
                 <PushNotificationProvider>{children}</PushNotificationProvider>
+                {/* ONE route-aware platform Help FAB (replaces the 3 per-module
+                    FABs). Server-resolves the viewer's visible+filtered lanes,
+                    then the client FAB picks the lane for the current route and
+                    hides itself on auth/public/onboarding surfaces. Mounted here
+                    (root server layout) because app/(routes)/layout.tsx is a
+                    client component and can't run the server-only resolver. */}
+                {/* Suspense-isolated: the mount reads auth cookies (dynamic);
+                    wrapping it keeps the static shell of public pages prerenderable
+                    instead of forcing the whole tree dynamic. */}
+                <Suspense fallback={null}>
+                  <PlatformGuideFabMount />
+                </Suspense>
                 <InstallPromptBanner />
                 <SpeedInsights />
               </PWAProvider>
             </AuthProvider>
           </ThemeProvider>
         </ReactQueryProvider>
-        <Script
-          src='https://accounts.google.com/gsi/client'
-          strategy='lazyOnload'
-        />
       </body>
     </html>
   );

@@ -63,6 +63,8 @@ export interface Profile {
   institution_id: string | null;
   department_id: string | null;
   learner_id: string | null;
+  /** Pre-assigned IMS store (profiles.assigned_store_id). Priority 2 in useImsStoreContext. */
+  assigned_store_id?: string | null;
   institutions?: Institution | null;
   departments?: Department | null;
   created_at: string;
@@ -95,13 +97,25 @@ export interface ProfileUpdate {
 // Custom role interface
 export type ModuleScope = 'own_records' | 'own_institution' | 'all_institutions';
 
+// NOTE: custom_roles has NO institution_id column and never has. Roles are
+// cluster-wide; only their SCOPE varies, via institution_scope ('all' | 'own')
+// plus the role_has_institution_access() RLS helper. Do not re-add a per-role
+// institution column here — it made every read of role.institution_id undefined.
 export interface CustomRole {
   id: string;
-  institution_id: string | null;
   role_key: string;
   role_name: string;
   description: string | null;
   is_system_role: boolean;
+  /**
+   * Role can grant/alter permissions or administer the platform. Only super
+   * admins may assign it to a staff member — enforced by
+   * trg_staff_guard_role_key, not by the dropdown.
+   *
+   * Note is_system_role is NOT a substitute: it is true for nearly every role,
+   * driver and mess_caterer included, so it discriminates nothing.
+   */
+  is_privileged: boolean;
   institution_scope: 'all' | 'own';
   // Per-module scope override. Missing keys fall back to institution_scope.
   // Example: { staff: 'own_records', billing: 'all_institutions' }
@@ -134,7 +148,7 @@ export interface CustomRoleCreate {
   description?: string | null;
   permissions?: Record<string, boolean>;
   is_system_role?: boolean;
-  institution_id?: string | null;
+  // Scope a new role with institution_scope — custom_roles has no institution_id.
   institution_scope?: 'all' | 'own';
   module_scopes?: Partial<Record<string, ModuleScope>>;
 }
@@ -144,6 +158,7 @@ export interface CustomRoleUpdate {
   role_name?: string;
   description?: string | null;
   permissions?: Record<string, boolean>;
+  is_privileged?: boolean;
   institution_scope?: 'all' | 'own';
   module_scopes?: Partial<Record<string, ModuleScope>>;
 }

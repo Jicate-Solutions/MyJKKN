@@ -55,7 +55,9 @@ const paidUserSchema = z.object({
     'other',
   ]),
   transaction_id: z.string().optional(),
-  transaction_date: z.string().optional(),
+  // Required: sf100_paid_users.transaction_date is DATE NOT NULL and the API
+  // route rejects a missing value with 400 before it ever reaches the DB.
+  transaction_date: z.string().min(1, 'Transaction date is required.'),
   is_recurring: z.boolean().default(false),
   proof_url: z.string().url('Must be a valid URL.').optional().or(z.literal('')),
   proof_description: z.string().optional(),
@@ -106,7 +108,6 @@ function PaidUserFormContent({
     const payload = {
       ...values,
       transaction_id: values.transaction_id || undefined,
-      transaction_date: values.transaction_date || undefined,
       proof_url: values.proof_url || undefined,
       proof_description: values.proof_description || undefined,
       user_name: values.user_name || undefined,
@@ -259,7 +260,9 @@ function PaidUserFormContent({
             name="transaction_date"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Transaction Date</FormLabel>
+                <FormLabel>
+                  Transaction Date <span className="text-destructive">*</span>
+                </FormLabel>
                 <FormControl>
                   <Input type="date" {...field} />
                 </FormControl>

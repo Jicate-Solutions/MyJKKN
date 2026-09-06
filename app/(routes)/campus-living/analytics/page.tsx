@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useOccupancyAnalytics, useMaintenanceAnalytics, useIncidentAnalytics } from '@/hooks/campus-living/use-campus-living-analytics';
 import { useCampusLivingOverview } from '@/hooks/campus-living/use-campus-living-dashboard';
 import {
@@ -31,10 +32,12 @@ import {
   TrendingUp,
   TrendingDown,
   Loader2,
+  BedDouble,
 } from 'lucide-react';
 
 export default function AnalyticsDashboardPage() {
   const { profile } = useAuth();
+  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
 
   const { data: overview, isLoading: overviewLoading } = useCampusLivingOverview(institutionId);
@@ -42,7 +45,11 @@ export default function AnalyticsDashboardPage() {
   const { data: maintenance, isLoading: maintenanceLoading } = useMaintenanceAnalytics(institutionId);
   const { data: incidents, isLoading: incidentsLoading } = useIncidentAnalytics(institutionId);
 
-  const isLoading = overviewLoading || occupancyLoading || maintenanceLoading || incidentsLoading;
+  // permsLoading is part of the gate: the queries stay disabled until the viewer's
+  // scope resolves, and a disabled React Query reports isLoading:false, so without
+  // it the page renders zero metrics before the first fetch starts (BUG-005831).
+  const isLoading =
+    permsLoading || overviewLoading || occupancyLoading || maintenanceLoading || incidentsLoading;
 
   // Build metrics from real data
   const metrics = useMemo(() => {
@@ -190,6 +197,33 @@ export default function AnalyticsDashboardPage() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Bed Economics — super-admin only (Director's return-on-bed view) */}
+        {isSuperAdmin && (
+          <Link href="/campus-living/analytics/bed-economics">
+            <Card className="cursor-pointer border-l-4 border-l-primary transition-shadow hover:shadow-md">
+              <CardContent className="flex items-start justify-between p-6">
+                <div className="flex items-start gap-4">
+                  <div className="rounded-lg bg-primary/10 p-2">
+                    <BedDouble className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">Bed Economics</h3>
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                        Super admin
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Return on every bed — utilisation, RevPAB, vacancy loss, and cost per bed across all blocks
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="mt-1 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+              </CardContent>
+            </Card>
+          </Link>
         )}
 
         {/* Analytics Links */}

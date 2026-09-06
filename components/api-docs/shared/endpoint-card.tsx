@@ -56,10 +56,10 @@ export function EndpointCard({
     >
       <CardHeader>
         <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 space-y-2">
+          <div className="flex-1 min-w-0 space-y-2">
             <div className="flex items-center gap-3 flex-wrap">
               <MethodBadge method={endpoint.method} size="md" />
-              <code className="text-sm font-mono bg-muted px-3 py-1 rounded">
+              <code className="text-sm font-mono bg-muted px-3 py-1 rounded break-all">
                 {endpoint.path}
               </code>
               {endpoint.deprecated && (

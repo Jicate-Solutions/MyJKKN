@@ -1,7 +1,7 @@
 // lib/services/ai-pulse/policies-service.ts
 // Created: 2026-05-04 — AI Pulse module v3 (Wave B.6 Policy Admin UI)
 //
-// Backs: app/(routes)/admin/config/ai-pulse/page.tsx
+// Backs: app/(routes)/ai-pulse/admin/policies/page.tsx
 // Pairs with: ai_pulse_policies table (migration 20260502, PR #644)
 // RLS:        ai_pulse_policies SELECT (active rows) — any authenticated user
 //             ai_pulse_policies WRITE — super_admin only (PR #715)

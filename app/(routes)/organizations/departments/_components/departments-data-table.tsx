@@ -1,8 +1,9 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
 import type { DepartmentsSearchParams } from './data-table-schema';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -37,6 +38,7 @@ interface DepartmentsDataTableProps {
 export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Department[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -126,7 +128,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
 
       if (successful > 0) {
         toast.success(
-          `Successfully deleted ${successful} department${
+          `Successfully deleted ${successful} ${adapt('department').toLowerCase()}${
             successful > 1 ? 's' : ''
           }`
         );
@@ -134,7 +136,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} department${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${adapt('department').toLowerCase()}${failed > 1 ? 's' : ''}`
         );
       }
 
@@ -151,7 +153,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting departments:', error);
-      toast.error('An error occurred while deleting departments');
+      toast.error(`An error occurred while deleting ${adapt('departments')}`);
     } finally {
       setIsDeleting(false);
     }
@@ -169,7 +171,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `departments-template-${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.download = `${adapt('departments').toLowerCase()}-template-${new Date().toISOString().split('T')[0]}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -187,12 +189,12 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `departments-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.download = `${adapt('departments').toLowerCase()}-export-${new Date().toISOString().split('T')[0]}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Departments exported successfully');
+      toast.success(`${adapt('Departments')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export departments');
@@ -211,10 +213,10 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Departments exported successfully');
+      toast.success(`${adapt('Departments')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export departments');
+      toast.error(`Failed to export ${adapt('departments')}`);
     }
   };
 
@@ -230,7 +232,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Departments exported successfully');
+      toast.success(`${adapt('Departments')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export departments');
@@ -243,7 +245,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <>
           <Button
@@ -252,7 +254,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
             className='h-8'
           >
             <Plus className='mr-2 h-4 w-4' />
-            Add Department
+            Add {adapt('Department')}
           </Button>
 
           <Button
@@ -320,7 +322,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adapt) as any}
         exportConfig={{
           entityName: 'departments',
           columnMapping: {},
@@ -343,12 +345,12 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Departments`
-                : `Delete Department: ${selectedForDelete[0]?.department_name}`}
+                ? `Delete ${selectedForDelete.length} ${adapt('Departments')}`
+                : `Delete ${adapt('Department')}: ${selectedForDelete[0]?.department_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              department{selectedForDelete.length > 1 ? 's' : ''} and all
+              {adapt('department')}{selectedForDelete.length > 1 ? 's' : ''} and all
               related data.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -357,7 +359,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
           {selectedForDelete.length > 0 && (
             <div className='my-4 p-3 bg-muted rounded-lg'>
               <div className='text-sm font-medium mb-2'>
-                Department{selectedForDelete.length > 1 ? 's' : ''} to be
+                {adapt('Department')}{selectedForDelete.length > 1 ? 's' : ''} to be
                 deleted:
               </div>
               <div className='space-y-1 max-h-32 overflow-y-auto'>
@@ -386,8 +388,8 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Departments`
-                    : 'Department'
+                    ? `${selectedForDelete.length} ${adapt('Departments')}`
+                    : adapt('Department')
                 }`
               )}
             </AlertDialogAction>

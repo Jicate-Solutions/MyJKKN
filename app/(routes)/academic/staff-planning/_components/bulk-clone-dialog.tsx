@@ -41,6 +41,7 @@ import { AcademicYearService } from '@/lib/services/academic/academic-year-servi
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 const bulkCloneFormSchema = z.object({
   semester_id: z.string().min(1, 'Please select a semester'),
@@ -66,6 +67,7 @@ export function BulkCloneStaffPlanDialog({
   onSuccess,
 }: BulkCloneStaffPlanDialogProps) {
   const router = useRouter();
+  const adapt = useAdaptiveLabels();
   const [isLoading, setIsLoading] = useState(false);
   const [cloneProgress, setCloneProgress] = useState(0);
   const [cloneResults, setCloneResults] = useState<CloneStaffPlanResult[]>([]);
@@ -231,8 +233,8 @@ export function BulkCloneStaffPlanDialog({
             Bulk Clone Staff Plans
           </DialogTitle>
           <DialogDescription>
-            Clone all staff plans for a semester to a new academic year. This will
-            copy all programs and their course assignments.
+            Clone all staff plans for a {adapt('semester')} to a new academic year. This will
+            copy all {adapt('programs')} and their {adapt('course')} assignments.
           </DialogDescription>
         </DialogHeader>
 
@@ -243,7 +245,7 @@ export function BulkCloneStaffPlanDialog({
               name="semester_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Semester *</FormLabel>
+                  <FormLabel>{adapt('Semester')} *</FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
@@ -251,7 +253,7 @@ export function BulkCloneStaffPlanDialog({
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select semester" />
+                        <SelectValue placeholder={`Select ${adapt('semester')}`} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

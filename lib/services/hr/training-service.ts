@@ -269,7 +269,7 @@ export class TrainingService {
 
   /**
    * Returns enrollments for a session joined with staff display info
-   * (name). Used by /admin/hr/training/[id] enrollment list.
+   * (name). Used by /hr/admin/training/[id] enrollment list.
    */
   static async listEnrollmentsWithStaff(
     supabase: SupabaseClient,

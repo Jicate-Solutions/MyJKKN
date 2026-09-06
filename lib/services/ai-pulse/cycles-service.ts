@@ -39,6 +39,10 @@ export interface AIPulseCycleConfig {
   meet_url: string | null;
   recording_url: string | null;
   external_judge_cycle: boolean;
+  /** CARE C-move: what teams must build/submit this week (learner-visible). */
+  challenge_text?: string | null;
+  /** CARE E-move: "you said, we changed" — last cycle's feedback, answered. */
+  you_said_we_changed?: string | null;
   cancellation_reason?: string | null;
   // Optional policy snapshot fields (present on rows seeded by the cron):
   gold_standard_count?: number;
@@ -82,6 +86,8 @@ export interface UpdateCycleConfigInput {
   meet_url: string | null;
   recording_url: string | null;
   external_judge_cycle: boolean;
+  challenge_text: string | null;
+  you_said_we_changed: string | null;
 }
 
 export interface AIPulseFeaturedToolOption {
@@ -136,11 +142,69 @@ function defaultConfig(): AIPulseCycleConfig {
   };
 }
 
+/**
+ * Per-cycle setting keys that live NESTED under config.ai_pulse.* (the
+ * standardized shape, 2026-06-11). Legacy rows written before the fix held
+ * these FLAT at the top level of config — `liftAiPulseKeys` migrates them.
+ */
+const AI_PULSE_CYCLE_KEYS = [
+  'cycle_week_start_date',
+  'featured_tool_id',
+  'briefing_topic_id',
+  'briefing_topic_text',
+  'host_user_id',
+  'meet_url',
+  'recording_url',
+  'external_judge_cycle',
+  'challenge_text',
+  'you_said_we_changed',
+  'cancellation_reason',
+  'gold_standard_count',
+  'bottom_n_publication_count',
+  'primary_language',
+  'secondary_language',
+  'session_start_time',
+  'session_end_time',
+] as const;
+
+/**
+ * Split a raw config blob into { rest, aiPulse } where aiPulse merges the
+ * nested config.ai_pulse block over any legacy flat per-cycle keys, and rest
+ * holds the remaining top-level siblings (kind, quiz, ...) with the legacy
+ * flat duplicates stripped. Used by every write path so a single update
+ * migrates a legacy flat row to the nested shape.
+ */
+function liftAiPulseKeys(rawConfig: unknown): {
+  rest: Record<string, unknown>;
+  aiPulse: Record<string, unknown>;
+} {
+  const cfg = (rawConfig && typeof rawConfig === 'object' ? rawConfig : {}) as Record<
+    string,
+    unknown
+  >;
+  const { ai_pulse: nested, ...rest } = cfg;
+  const legacyFlat: Record<string, unknown> = {};
+  for (const key of AI_PULSE_CYCLE_KEYS) {
+    if (key in rest) {
+      legacyFlat[key] = rest[key];
+      delete rest[key];
+    }
+  }
+  const aiPulse = {
+    ...legacyFlat,
+    ...((nested && typeof nested === 'object' ? nested : {}) as Record<string, unknown>),
+  };
+  return { rest, aiPulse };
+}
+
 function normalizeConfig(raw: unknown): AIPulseCycleConfig {
   if (!raw || typeof raw !== 'object') return defaultConfig();
-  const cfg = raw as Record<string, unknown>;
+  const topLevel = raw as Record<string, unknown>;
+  // Nested-first read (config.ai_pulse.*) with fallback to the legacy flat
+  // shape for rows written before the 2026-06-11 standardization.
+  const { aiPulse: cfg } = liftAiPulseKeys(raw);
   return {
-    kind: (cfg.kind as string) ?? undefined,
+    kind: (topLevel.kind as string) ?? undefined,
     cycle_week_start_date: (cfg.cycle_week_start_date as string) ?? undefined,
     featured_tool_id: (cfg.featured_tool_id as string | null) ?? null,
     briefing_topic_id: (cfg.briefing_topic_id as string | null) ?? null,
@@ -149,6 +213,8 @@ function normalizeConfig(raw: unknown): AIPulseCycleConfig {
     meet_url: (cfg.meet_url as string | null) ?? null,
     recording_url: (cfg.recording_url as string | null) ?? null,
     external_judge_cycle: Boolean(cfg.external_judge_cycle),
+    challenge_text: (cfg.challenge_text as string | null) ?? null,
+    you_said_we_changed: (cfg.you_said_we_changed as string | null) ?? null,
     cancellation_reason: (cfg.cancellation_reason as string | null) ?? null,
     gold_standard_count: cfg.gold_standard_count as number | undefined,
     bottom_n_publication_count: cfg.bottom_n_publication_count as
@@ -433,20 +499,39 @@ export function useTriggerCycleGeneration() {
         // will allow super_admin / aiPulse:cycles.manage holders to insert.
         const supabase = createClientSupabaseClient();
 
-        // Compute the upcoming Thursday (matches cron logic).
+        // Compute the upcoming session day (matches cron logic — honors the
+        // session_day policy row; fallback Thursday). Keeping this in sync
+        // with the cron prevents duplicate cycles on different weekdays.
+        let sessionDayName = 'Thursday';
+        {
+          const { data: policyRow } = await (supabase as any)
+            .from('ai_pulse_policies')
+            .select('value_jsonb')
+            .eq('config_key', 'session_day')
+            .eq('is_active', true)
+            .maybeSingle();
+          if (policyRow && typeof policyRow.value_jsonb === 'string') {
+            sessionDayName = policyRow.value_jsonb;
+          }
+        }
+        const dayNameToIndex: Record<string, number> = {
+          sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+          thursday: 4, friday: 5, saturday: 6,
+        };
+        const targetDay =
+          dayNameToIndex[sessionDayName.trim().toLowerCase()] ?? 4;
         const now = new Date();
-        const day = now.getDay(); // 0=Sun, 4=Thu
-        const offset = (4 - day + 7) % 7;
-        const thursday = new Date(now);
-        thursday.setDate(now.getDate() + offset);
-        thursday.setHours(0, 0, 0, 0);
-        const thursdayISO = thursday.toISOString().split('T')[0];
+        const offset = (targetDay - now.getDay() + 7) % 7;
+        const sessionDate = new Date(now);
+        sessionDate.setDate(now.getDate() + offset);
+        sessionDate.setHours(0, 0, 0, 0);
+        const sessionDateISO = sessionDate.toISOString().split('T')[0];
 
-        // Idempotency: does a cycle already exist for this Thursday?
+        // Idempotency: does a cycle already exist for this session date?
         const { data: existing, error: existingErr } = await (supabase as any)
           .from('startup_events')
           .select('id, demo_date, config')
-          .eq('demo_date', thursdayISO)
+          .eq('demo_date', sessionDateISO)
           .filter('config->>kind', 'eq', 'ai_pulse')
           .limit(1);
 
@@ -458,7 +543,7 @@ export function useTriggerCycleGeneration() {
             ok: true,
             data: {
               existed: true,
-              demo_date: existing[0].demo_date ?? thursdayISO,
+              demo_date: existing[0].demo_date ?? sessionDateISO,
             },
           };
         }
@@ -477,25 +562,30 @@ export function useTriggerCycleGeneration() {
           hostInstitutionId = profile?.institution_id ?? null;
         }
 
+        // Nested config shape (2026-06-11 standardization): per-cycle
+        // settings live under config.ai_pulse.*; only the `kind`
+        // discriminator stays at the top level.
         const cycleConfig = {
           kind: 'ai_pulse',
-          cycle_week_start_date: thursdayISO,
-          featured_tool_id: null,
-          briefing_topic_id: null,
-          briefing_topic_text: null,
-          host_user_id: null,
-          meet_url: null,
-          recording_url: null,
-          external_judge_cycle: false,
+          ai_pulse: {
+            cycle_week_start_date: sessionDateISO,
+            featured_tool_id: null,
+            briefing_topic_id: null,
+            briefing_topic_text: null,
+            host_user_id: null,
+            meet_url: null,
+            recording_url: null,
+            external_judge_cycle: false,
+          },
         };
 
         const { data: inserted, error: insertErr } = await (supabase as any)
           .from('startup_events')
           .insert({
-            name: `AI Pulse Cycle ${thursdayISO}`,
+            name: `AI Pulse Cycle ${sessionDateISO}`,
             host_institution_id: hostInstitutionId,
             status: 'draft',
-            demo_date: thursdayISO,
+            demo_date: sessionDateISO,
             config: cycleConfig,
           })
           .select('id, demo_date')
@@ -511,7 +601,7 @@ export function useTriggerCycleGeneration() {
 
         return {
           ok: true,
-          data: { existed: false, demo_date: inserted?.demo_date ?? thursdayISO },
+          data: { existed: false, demo_date: inserted?.demo_date ?? sessionDateISO },
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -549,9 +639,16 @@ export function useCancelCycle(cycleId: string) {
         if (readErr) {
           return { ok: false, error: readErr.message };
         }
+        // Nested shape: cancellation_reason lives under config.ai_pulse.*;
+        // liftAiPulseKeys also migrates legacy flat rows on this write.
+        const { rest, aiPulse } = liftAiPulseKeys(existing?.config);
         const mergedConfig = {
-          ...((existing?.config ?? {}) as Record<string, unknown>),
-          cancellation_reason: reason || null,
+          ...rest,
+          kind: 'ai_pulse',
+          ai_pulse: {
+            ...aiPulse,
+            cancellation_reason: reason || null,
+          },
         };
 
         const { error } = await (supabase as any)
@@ -603,16 +700,25 @@ export function useUpdateCycleConfig(cycleId: string) {
         if (readErr) {
           return { ok: false, error: readErr.message };
         }
+        // Nested shape (2026-06-11): per-cycle settings under config.ai_pulse.*
+        // preserving sibling keys (quiz, ...) and unknown nested keys (policy
+        // snapshots). liftAiPulseKeys also migrates legacy flat rows on write.
+        const { rest, aiPulse } = liftAiPulseKeys(existing?.config);
         const mergedConfig = {
-          ...((existing?.config ?? {}) as Record<string, unknown>),
+          ...rest,
           kind: 'ai_pulse',
-          featured_tool_id: input.featured_tool_id,
-          briefing_topic_id: input.briefing_topic_id,
-          briefing_topic_text: input.briefing_topic_text,
-          host_user_id: input.host_user_id,
-          meet_url: input.meet_url,
-          recording_url: input.recording_url,
-          external_judge_cycle: input.external_judge_cycle,
+          ai_pulse: {
+            ...aiPulse,
+            featured_tool_id: input.featured_tool_id,
+            briefing_topic_id: input.briefing_topic_id,
+            briefing_topic_text: input.briefing_topic_text,
+            host_user_id: input.host_user_id,
+            meet_url: input.meet_url,
+            recording_url: input.recording_url,
+            external_judge_cycle: input.external_judge_cycle,
+            challenge_text: input.challenge_text,
+            you_said_we_changed: input.you_said_we_changed,
+          },
         };
 
         const { error } = await (supabase as any)

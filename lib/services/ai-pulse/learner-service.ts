@@ -6,8 +6,10 @@
 //   - app/(routes)/ai-pulse/page.tsx (Server Component)
 //   - app/(routes)/ai-pulse/_components/* (Client Components via React Query hooks)
 //
-// AI Pulse cycles are stored as `startup_events` rows with
-// `event_type = 'ai_pulse'` and `config->>'kind' = 'ai_pulse'` per spec v3.
+// AI Pulse cycles are stored as `startup_events` rows discriminated solely by
+// `config->>'kind' = 'ai_pulse'`. (startup_events has NO event_type column —
+// the spec v3 §4.3 event_type CHECK was never applied; config.kind is the
+// production discriminator, matching cycles-service.)
 // Substrate (PR #644) adds the JSONB discriminator + `engagement_signals` column
 // on `event_team_attendance`.
 //
@@ -18,6 +20,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  isPresentAtEnd,
+  isEngagedFromGates,
+} from '@/lib/services/ai-pulse/live-session-service';
 
 // --- Types ---------------------------------------------------------------
 
@@ -42,6 +48,22 @@ export interface AiPulseCycle {
   end_date: string | null;
   status: string | null;
   config: AiPulseCycleConfig | null;
+  /**
+   * Whether this cycle has an AI starter the reader will actually see — it
+   * mirrors fn_ai_pulse_my_domain_starters (own course/programme topic, else
+   * the cycle-wide 'general' fallback), so it never contradicts the card.
+   *
+   * Only listCyclesServer() populates this; the single-cycle fetchers leave it
+   * undefined, which reads as "not known" rather than "no prompt".
+   */
+  has_prompt?: boolean;
+}
+
+export interface AiPulseGoldWeek {
+  cycle_id: string;
+  cycle_name: string;
+  demo_date: string | null;
+  winners: Array<{ department_name: string; team_names: string[] }>;
 }
 
 export interface AiPulseTeamSummary {
@@ -88,24 +110,45 @@ function currentWeekBounds(now: Date = new Date()): { start: string; end: string
   };
 }
 
-function classifyAttendance(row: {
-  status: string | null;
-  day_type: string | null;
-  engagement_signals?: Record<string, unknown> | null;
-}): AttendanceState {
-  if (!row || !row.status) return 'unknown';
-  if (row.status === 'excused') return 'engaged';
-  if (row.status === 'present') {
-    const sig = row.engagement_signals || {};
-    const joined = sig['joined_within_5min'] === true;
-    const polls = typeof sig['polls_responded'] === 'number' && (sig['polls_responded'] as number) >= 2;
-    const stayed = typeof sig['stayed_until'] === 'string' && (sig['stayed_until'] as string).length > 0;
-    const quiz = typeof sig['quiz_score'] === 'number' && (sig['quiz_score'] as number) >= 50;
-    const fourAnd = joined && polls && stayed && quiz;
-    return fourAnd ? 'engaged' : 'partial';
-  }
-  if (row.status === 'absent') return 'absent';
-  return 'unknown';
+/**
+ * Classify a learner's state from raw `ai_pulse_live_attendance` engagement
+ * signals. This table has no status column — a row's existence IS presence (the
+ * learner joined). So we only decide engaged vs partial, using the SAME shared
+ * verdict
+ * (`isEngagedFromGates`, honest 2-of-3) as the dept heatmap / digest / PDE
+ * bridge, so the learner card and the admin views agree exactly.
+ *
+ * No session-end "HH:MM" is in scope here → pass null to isPresentAtEnd so it
+ * falls back to the live-quiz proxy (the heartbeat is unobservable on external
+ * meetings anyway). quiz uses the authoritative `quiz_passed` flag (matches the
+ * admin readers), not a hardcoded score threshold.
+ */
+function classifyFromSignals(
+  sig: Record<string, unknown> | null,
+): AttendanceState {
+  if (!sig) return 'partial'; // joined (row exists) but no signals captured
+  const joined = sig['joined_within_5min'] === true;
+  const polls =
+    typeof sig['polls_responded'] === 'number' &&
+    (sig['polls_responded'] as number) >= 2;
+  const stayed = isPresentAtEnd(
+    {
+      stayed_until:
+        typeof sig['stayed_until'] === 'string'
+          ? (sig['stayed_until'] as string)
+          : undefined,
+      quiz_score:
+        typeof sig['quiz_score'] === 'number'
+          ? (sig['quiz_score'] as number)
+          : undefined,
+      quiz_async_makeup: sig['quiz_async_makeup'] === true,
+    },
+    null,
+  );
+  const quiz = sig['quiz_passed'] === true;
+  return isEngagedFromGates({ joined, polls, stayed, quiz })
+    ? 'engaged'
+    : 'partial';
 }
 
 // --- Service -------------------------------------------------------------
@@ -122,7 +165,6 @@ export class AiPulseLearnerService {
       const { data, error } = await (supabase as any)
         .from('startup_events')
         .select('id, name, start_date, end_date, status, config')
-        .eq('event_type', 'ai_pulse')
         .filter('config->>kind', 'eq', 'ai_pulse')
         .gte('start_date', start)
         .lt('start_date', end)
@@ -149,7 +191,6 @@ export class AiPulseLearnerService {
       const { data, error } = await (supabase as any)
         .from('startup_events')
         .select('id, name, start_date, end_date, status, config')
-        .eq('event_type', 'ai_pulse')
         .filter('config->>kind', 'eq', 'ai_pulse')
         .gte('start_date', start)
         .lt('start_date', end)
@@ -163,6 +204,69 @@ export class AiPulseLearnerService {
       return (data as AiPulseCycle) ?? null;
     } catch (e) {
       console.error('[ai-pulse/learner] getCurrentCycleClient threw:', e);
+      return null;
+    }
+  }
+
+  /**
+   * List recent AI Pulse cycles (newest first) — backs the learner "week
+   * switcher" on My AI Pulse. Read-only browse of any past cycle.
+   *
+   * Surfaces every cycle the learner ATTENDED, plus every cycle that has a
+   * starter for them (the union — the current week normally has starters but
+   * no attendance yet, so attendance alone would drop the live week).
+   *
+   * A week the learner sat through but which has no prompt for their programme
+   * is no longer hidden: it comes back with has_prompt=false so the page can
+   * say so plainly instead of making the session invisible.
+   */
+  static async listCyclesServer(limit = 12): Promise<AiPulseCycle[]> {
+    try {
+      const supabase = await createServerSupabaseClient();
+      const { data, error } = await (supabase as any).rpc(
+        'fn_ai_pulse_switchable_cycles',
+        { p_limit: limit }
+      );
+      if (error) {
+        console.error('[ai-pulse/learner] listCyclesServer failed:', error);
+        return [];
+      }
+      return ((data as Array<Record<string, unknown>>) ?? []).map((r) => ({
+        id: r.cycle_id as string,
+        name: r.name as string,
+        start_date: (r.start_date as string | null) ?? null,
+        end_date: (r.end_date as string | null) ?? null,
+        status: (r.status as string | null) ?? null,
+        config: null,
+        has_prompt: r.has_prompt === true,
+      })) as AiPulseCycle[];
+    } catch (e) {
+      console.error('[ai-pulse/learner] listCyclesServer threw:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch a single AI Pulse cycle by id — backs the `?cycle=<id>` deep-link
+   * the week switcher navigates to. Returns null if the id is not an ai_pulse
+   * cycle (guards against a hand-typed / stale param).
+   */
+  static async getCycleByIdServer(id: string): Promise<AiPulseCycle | null> {
+    try {
+      const supabase = await createServerSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('startup_events')
+        .select('id, name, start_date, end_date, status, config')
+        .eq('id', id)
+        .filter('config->>kind', 'eq', 'ai_pulse')
+        .maybeSingle();
+      if (error) {
+        console.error('[ai-pulse/learner] getCycleByIdServer failed:', error);
+        return null;
+      }
+      return (data as AiPulseCycle) ?? null;
+    } catch (e) {
+      console.error('[ai-pulse/learner] getCycleByIdServer threw:', e);
       return null;
     }
   }
@@ -224,28 +328,40 @@ export class AiPulseLearnerService {
    */
   static async getMyAttendance(
     eventId: string,
-    registrationId: string,
+    profileId: string,
     client?: any
   ): Promise<AiPulseAttendance> {
     try {
       const supabase = client ?? (await createServerSupabaseClient());
+      // AI Pulse attendance lives in `ai_pulse_live_attendance` (profile-keyed) —
+      // the SAME source-of-truth every admin surface reads (dept heatmap,
+      // participation card, weekly digest, PDE bridge). The older
+      // `event_team_attendance` table is never populated for AI Pulse cycles, so
+      // reading it showed EVERY learner "pending — session not yet started"
+      // even after they attended. Keyed on profile_id (NOT team registration) so
+      // it works whether or not the learner has been assigned to a team.
       const { data, error } = await supabase
-        .from('event_team_attendance')
-        .select('status, day_type, marked_at, engagement_signals, notes')
+        .from('ai_pulse_live_attendance')
+        .select('day_type, joined_at, engagement_signals')
         .eq('event_id', eventId)
-        .eq('registration_id', registrationId)
-        .order('marked_at', { ascending: false })
+        .eq('profile_id', profileId)
+        .order('joined_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (error || !data) {
+        // No row = the learner has not joined this cycle's session.
         return { state: 'pending', day_type: null, marked_at: null, signals: null };
       }
-      const state = classifyAttendance(data as any);
+      // A row's existence == presence (there is no status column here). Classify
+      // engaged/partial from the engagement signals via the shared gate.
+      const state = classifyFromSignals(
+        (data as any).engagement_signals as Record<string, unknown> | null,
+      );
       return {
         state,
         day_type: data.day_type ?? null,
-        marked_at: data.marked_at ?? null,
+        marked_at: (data as any).joined_at ?? null,
         signals: (data as any).engagement_signals ?? null,
       };
     } catch (e) {
@@ -269,7 +385,6 @@ export class AiPulseLearnerService {
       const { data: cycles, error: cyErr } = await supabase
         .from('startup_events')
         .select('id, start_date')
-        .eq('event_type', 'ai_pulse')
         .filter('config->>kind', 'eq', 'ai_pulse')
         .order('start_date', { ascending: false })
         .limit(12);
@@ -277,11 +392,11 @@ export class AiPulseLearnerService {
 
       let streak = 0;
       for (const c of cycles as Array<{ id: string }>) {
-        const team = await AiPulseLearnerService.getMyTeam(c.id, profileId, supabase);
-        if (!team) break;
+        // Attendance is profile-keyed in ai_pulse_live_attendance — no team
+        // lookup needed (and a learner can be engaged before team assignment).
         const att = await AiPulseLearnerService.getMyAttendance(
           c.id,
-          team.registration_id,
+          profileId,
           supabase
         );
         if (att.state === 'engaged') {
@@ -294,6 +409,105 @@ export class AiPulseLearnerService {
     } catch (e) {
       console.error('[ai-pulse/learner] getMyStreak threw:', e);
       return 0;
+    }
+  }
+
+  /**
+   * Most recent cycle's Gold Standard winners, resolved to team + department
+   * names — the learner-facing recognition surface (CARE R-move, audit
+   * 2026-06-12: gold_selections existed only behind admin/NAAC surfaces).
+   *
+   * Reads config.ai_pulse.gold_selections (shape documented in
+   * lab-evaluation-service) from the newest cycle that has any, then resolves
+   * submission_ids → event_submissions → event_registrations.team_name.
+   * Defensive: returns null on any error or when RLS hides the rows — the
+   * card hides rather than rendering an empty shell.
+   */
+  static async getLatestGoldServer(
+    client?: any
+  ): Promise<AiPulseGoldWeek | null> {
+    try {
+      const supabase = client ?? (await createServerSupabaseClient());
+
+      const { data: cycles, error: cyErr } = await (supabase as any)
+        .from('startup_events')
+        .select('id, name, demo_date, config')
+        .filter('config->>kind', 'eq', 'ai_pulse')
+        .order('demo_date', { ascending: false, nullsFirst: false })
+        .limit(6);
+      if (cyErr || !cycles) return null;
+
+      for (const cycle of cycles as any[]) {
+        const aiPulse = (cycle.config?.ai_pulse ?? cycle.config ?? {}) as Record<
+          string,
+          any
+        >;
+        const selections = (aiPulse.gold_selections ?? {}) as Record<
+          string,
+          { submission_ids?: string[] }
+        >;
+        const deptIds = Object.keys(selections);
+        if (deptIds.length === 0) continue;
+
+        const submissionIds = deptIds.flatMap(
+          (d) => selections[d]?.submission_ids ?? []
+        );
+        if (submissionIds.length === 0) continue;
+
+        // submission → registration → team name
+        const { data: subs } = await (supabase as any)
+          .from('event_submissions')
+          .select('id, registration_id')
+          .in('id', submissionIds);
+        const regIds = Array.from(
+          new Set(
+            ((subs ?? []) as any[]).map((s) => s.registration_id).filter(Boolean)
+          )
+        );
+        const { data: regs } = regIds.length
+          ? await (supabase as any)
+              .from('event_registrations')
+              .select('id, team_name')
+              .in('id', regIds)
+          : { data: [] };
+        const teamByReg = new Map(
+          ((regs ?? []) as any[]).map((r) => [r.id, r.team_name ?? 'Team'])
+        );
+        const regBySub = new Map(
+          ((subs ?? []) as any[]).map((s) => [s.id, s.registration_id])
+        );
+
+        const { data: depts } = await (supabase as any)
+          .from('departments')
+          .select('id, department_name')
+          .in('id', deptIds);
+        const deptName = new Map(
+          ((depts ?? []) as any[]).map((d) => [d.id, d.department_name ?? '—'])
+        );
+
+        const winners = deptIds
+          .map((d) => ({
+            department_name: (deptName.get(d) ?? '—') as string,
+            team_names: (selections[d]?.submission_ids ?? [])
+              .map((sid) => teamByReg.get(regBySub.get(sid)))
+              .filter((t): t is string => !!t),
+          }))
+          .filter((w) => w.team_names.length > 0);
+        if (winners.length === 0) return null; // RLS hid the rows — hide card
+
+        return {
+          cycle_id: cycle.id as string,
+          cycle_name: (cycle.name ?? 'AI Pulse Cycle') as string,
+          demo_date: cycle.demo_date
+            ? String(cycle.demo_date).slice(0, 10)
+            : null,
+          winners,
+        };
+      }
+      return null;
+    } catch (e) {
+      console.error('[ai-pulse/learner] getLatestGoldServer threw:', e);
+      return null;
     }
   }
 }
@@ -329,19 +543,19 @@ export function useMyAiPulseTeam(cycleId: string | null, profileId: string | nul
   });
 }
 
-export function useMyAiPulseAttendance(cycleId: string | null, registrationId: string | null) {
+export function useMyAiPulseAttendance(cycleId: string | null, profileId: string | null) {
   return useQuery({
-    queryKey: cycleId && registrationId
-      ? QK_ATT(cycleId, registrationId)
+    queryKey: cycleId && profileId
+      ? QK_ATT(cycleId, profileId)
       : ['ai-pulse', 'learner', 'attendance', 'idle'],
     queryFn: async () => {
-      if (!cycleId || !registrationId) {
+      if (!cycleId || !profileId) {
         return { state: 'unknown' as AttendanceState, day_type: null, marked_at: null, signals: null };
       }
       const supabase = createClientSupabaseClient();
-      return AiPulseLearnerService.getMyAttendance(cycleId, registrationId, supabase);
+      return AiPulseLearnerService.getMyAttendance(cycleId, profileId, supabase);
     },
-    enabled: !!cycleId && !!registrationId,
+    enabled: !!cycleId && !!profileId,
     staleTime: 30_000,
   });
 }

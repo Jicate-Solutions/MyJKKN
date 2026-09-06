@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsDashboardStats } from '@/hooks/ims/use-ims-reports';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,15 +22,26 @@ import {
   TrendingUp,
   Box,
   IndianRupee,
+  ShieldCheck,
 } from 'lucide-react';
 
 export default function ImsReportsPage() {
+  return (
+    <ImsPageGuard module="ims.reports" action="view">
+      <ImsReportsPageInner />
+    </ImsPageGuard>
+  );
+}
+
+function ImsReportsPageInner() {
   const router = useRouter();
   const {
     canAccess,
     isLoading: permissionsLoading,
+    isSuperAdmin: permsIsSuperAdmin,
   } = usePermissions();
   const { storeId, institutionId, isSuperAdmin } = useImsStoreContext();
+  const canViewReports = permsIsSuperAdmin || canAccess('ims.reports', 'view');
 
   const { data: stats, isLoading: statsLoading } = useImsDashboardStats(storeId || '', institutionId);
 
@@ -107,6 +119,20 @@ export default function ImsReportsPage() {
         'All UPI QR transactions with bank reference IDs',
         'Daily/weekly/monthly collection totals',
         'Cashier-wise UPI payment audit trail',
+      ],
+    },
+    {
+      title: 'Gateway Payments',
+      description:
+        'Verified counter collections from the payment gateway — who paid, from which UPI ID, and the bank reference. Includes payments that never became a sale.',
+      icon: ShieldCheck,
+      href: '/ims/reports/gateway-payments',
+      color: 'text-teal-600',
+      bgColor: 'bg-teal-50 dark:bg-teal-950/30',
+      features: [
+        'Payer UPI ID, method and bank RRN for every payment',
+        'Failed, cancelled and wrong-amount payments the sales reports cannot show',
+        'Flags money received but not yet booked as a sale',
       ],
     },
   ];

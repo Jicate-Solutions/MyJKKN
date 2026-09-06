@@ -79,6 +79,7 @@ import { SectionService } from '@/lib/services/organization/section-service';
 import { Timetable, DayOfWeek, Period } from '@/types/academics';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Label } from '@/components/ui/label';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 // Import custom hooks (Phase 1)
 import {
@@ -142,6 +143,7 @@ const ALL_DAYS_OF_WEEK: DayOfWeek[] = [
 
 export default function TimetableDetailPage() {
   const router = useRouter();
+  const adapt = useAdaptiveLabels();
 
   // Fix: 2026-02-25 - Use useResolvedRouteId instead of use(params) to avoid
   // Next.js DRP (Dynamic Route Parameter) placeholder issue.
@@ -229,8 +231,12 @@ export default function TimetableDetailPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Staff planning data
-  const { staffPlanningCourses, staffPlanningStaff, isStaffPlanEmpty } =
-    useStaffPlanningData(timetable);
+  const {
+    staffPlanningCourses,
+    staffPlanningStaff,
+    isStaffPlanEmpty,
+    hasFetched: staffPlanFetched
+  } = useStaffPlanningData(timetable);
 
   // Additional loading states (not from hook)
   const [loadingStaffPlanData] = useState(false);
@@ -351,6 +357,16 @@ export default function TimetableDetailPage() {
   });
   const allStaff = staffQuery.data || [];
 
+  // Resolve the class incharge's display name for the header (day-wise support).
+  const inchargeName = useMemo(() => {
+    const id = (timetable as any)?.class_incharge_id;
+    if (!id) return null;
+    const s = allStaff.find((st: any) => st.id === id);
+    return s
+      ? `${s.first_name} ${s.last_name}${s.staff_id ? ` (${s.staff_id})` : ''}`
+      : null;
+  }, [timetable, allStaff]);
+
   const sectionsQuery = useSections({
     institution_id: timetable?.institution_id,
     limit: 1000 // Fixed: 2025-11-07 - Fetch all sections for the institution
@@ -380,15 +396,22 @@ export default function TimetableDetailPage() {
     }
 
     // No staff planning found - return empty array (user must create staff plan first)
-    logger.warn('academic/timetables', 'No staff planning courses found - returning empty', {
-      timetableProgram: timetable?.program_id,
-      timetableDepartment: timetable?.department_id,
-      timetableSemester: timetable?.semester_id,
-      timetableAcademicYear: timetable?.academic_year_id
-    });
+    // Fixed: 2026-08-13 - Only warn once the fetch has actually completed and come
+    // back empty. staffPlanningCourses starts [] while useStaffPlanningData's effect
+    // is still in flight, so this memo used to log on EVERY timetable load for every
+    // user, with the correct-looking hierarchy ids attached. HODs reasonably read
+    // that as the cause of an unrelated problem and filed it as a bug.
+    if (staffPlanFetched) {
+      logger.warn('academic/timetables', 'No staff planning courses found - returning empty', {
+        timetableProgram: timetable?.program_id,
+        timetableDepartment: timetable?.department_id,
+        timetableSemester: timetable?.semester_id,
+        timetableAcademicYear: timetable?.academic_year_id
+      });
+    }
 
     return [];
-  }, [staffPlanningCourses, timetable]);
+  }, [staffPlanningCourses, staffPlanFetched, timetable]);
 
   // Fixed: 2026-01-30 - ONLY use staff planning data, no fallback to all staff
   // This ensures timetables only use staff that have been properly planned
@@ -1106,19 +1129,41 @@ export default function TimetableDetailPage() {
   // ===================================
 
   const handleExportPDF = useCallback(async () => {
-    if (!timetable || !timetableGridRef.current) {
+    if (!timetable) {
       toast.error('Unable to export timetable');
       return;
     }
 
+    if (selectedPeriods.length === 0) {
+      toast.error('Configure periods before exporting');
+      return;
+    }
+
     try {
-      await exportTimetableToPDF(timetable, timetableFormat, timetableGridRef);
+      await exportTimetableToPDF({
+        timetable,
+        timetableFormat,
+        selectedPeriods,
+        selectedDays,
+        selectedDates,
+        numCycles: timetable?.num_cycles ?? 6,
+        slots,
+        inchargeName
+      });
       toast.success('Timetable exported successfully');
     } catch (error) {
       logger.error('academic/timetables', 'Error exporting PDF', error);
       toast.error('Failed to export timetable');
     }
-  }, [timetable, timetableFormat]);
+  }, [
+    timetable,
+    timetableFormat,
+    selectedPeriods,
+    selectedDays,
+    selectedDates,
+    slots,
+    inchargeName
+  ]);
 
   // ===================================
   // Format Change
@@ -1246,9 +1291,11 @@ export default function TimetableDetailPage() {
           timetable={timetable}
           onBack={() => handleNavigationWithWarning('/academic/timetables')}
           canEdit={canEditTimetable}
+          canDelete={canDeleteTimetable}
           isSuperAdmin={isSuperAdmin}
           hasAttendance={hasAttendance}
           todaysCycle={todaysCycle}
+          inchargeName={inchargeName}
         />
 
         {/* Action Buttons */}
@@ -1713,7 +1760,7 @@ export default function TimetableDetailPage() {
             <div className='py-4 space-y-2'>
               {deleteDialog.data.slotToDelete?.course?.course_name && (
                 <div className='font-medium'>
-                  Course: {deleteDialog.data.slotToDelete.course.course_name}
+                  {adapt('Course')}: {deleteDialog.data.slotToDelete.course.course_name}
                 </div>
               )}
               {deleteDialog.data.slotToDelete?.period && (

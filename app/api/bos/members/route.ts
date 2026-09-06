@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { CreateBosMemberDto } from '@/types/bos';
 import {
   resolveBosBoardScope,
   guardCompositionChairman,
+  guardAcademicCouncilWrite,
+  guardGoverningBodyWrite,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/members?compositionId= ──────────────────────────────────────
@@ -31,15 +35,32 @@ export async function GET(request: NextRequest) {
     // carve-out, a freshly-created comp's roster appears empty to its own
     // creator after they add the first member.
     const scope = await resolveBosBoardScope(user.id);
+    // Read-only observer: a role holding academic.bos-members.view but sitting on
+    // no board (not a principal, member of nothing) may read any composition's
+    // roster. VIEW ONLY — never widens board members/principals.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-members.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
+    // Council bodies (Academic Council / Governing Body): the roster read must go
+    // through the service-role client because principals lack the bos.members.view
+    // RLS grant, so a user-context SELECT returns empty for them. Route-level
+    // visibility below is the source of truth.
+    let isAcComp = false;
     if (!scope.isSuperAdmin) {
-      let visible = scope.memberOf.has(compositionId);
+      let visible = seeAll || scope.memberOf.has(compositionId);
+      const { data: comp } = await supabase
+        .from('bos_compositions')
+        .select('institutions_id, created_by, is_academic_council, is_governing_body')
+        .eq('id', compositionId)
+        .maybeSingle();
+      const compRow = comp as {
+        institutions_id?: string | null;
+        created_by?: string | null;
+        is_academic_council?: boolean;
+        is_governing_body?: boolean;
+      } | null;
+      isAcComp = compRow?.is_academic_council === true || compRow?.is_governing_body === true;
       if (!visible) {
-        const { data: comp } = await supabase
-          .from('bos_compositions')
-          .select('institutions_id, created_by')
-          .eq('id', compositionId)
-          .maybeSingle();
-        const compRow = comp as { institutions_id?: string | null; created_by?: string | null } | null;
         const compInstitution = compRow?.institutions_id ?? null;
         const isCreator = compRow?.created_by != null && compRow.created_by === user.id;
         if (isCreator) {
@@ -55,9 +76,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data, error } = await supabase
+    // Observer (read-all, no membership) lacks the bos_members RLS grant for a
+    // comp it doesn't belong to, so its user-context SELECT would return an empty
+    // roster despite passing the visibility gate above. Read via service-role —
+    // route-level visibility is the source of truth. (Same precedent as AC bodies.)
+    const readDb = (isAcComp || canReadAllBos) ? createServiceRoleClient() : supabase;
+    const { data, error } = await readDb
       .from('bos_members')
-      .select(`*, expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no, category )`)
+      .select(`
+        *,
+        expert:bos_external_experts (
+          id, name, title, designation, institution_name, email, contact_no, category, distance_km
+        ),
+        member_type_rec:bos_member_types (
+          id, name, base_type
+        )
+      `)
       .eq('composition_id', compositionId)
       .order('sort_order', { ascending: true })
       .order('member_type', { ascending: true });
@@ -104,10 +138,16 @@ export async function POST(request: NextRequest) {
     // mask the real check, we degrade to chairman-only and surface a clear
     // schema-out-of-date message.
     const scope = await resolveBosBoardScope(user.id);
+    // Council bodies (Academic Council / Governing Body) flip the roster-authz:
+    // the principal manages the roster (not a board chairman). When the parent is
+    // a council body we authorize via the council write-gate and write with the
+    // service-role client, since the board-keyed bos_members RLS wouldn't pass a
+    // principal.
+    let isAcComp = false;
     if (!scope.isSuperAdmin) {
       const { data: parentComp, error: parentErr } = await supabase
         .from('bos_compositions')
-        .select('created_by')
+        .select('created_by, is_academic_council, is_governing_body, institutions_id')
         .eq('id', body.composition_id)
         .maybeSingle();
       if (parentErr) {
@@ -123,13 +163,31 @@ export async function POST(request: NextRequest) {
         }
         throw parentErr;
       }
-      const isCreator =
-        (parentComp as { created_by?: string | null } | null)?.created_by === user.id;
-      if (!isCreator) {
-        const deny = guardCompositionChairman(scope, body.composition_id);
+      const comp = parentComp as {
+        created_by?: string | null;
+        is_academic_council?: boolean;
+        is_governing_body?: boolean;
+        institutions_id?: string | null;
+      } | null;
+      const isGbComp = comp?.is_governing_body === true;
+      isAcComp = comp?.is_academic_council === true || isGbComp;
+      if (isAcComp) {
+        const deny = isGbComp
+          ? guardGoverningBodyWrite(scope, comp?.institutions_id)
+          : guardAcademicCouncilWrite(scope, comp?.institutions_id);
         if (deny) return NextResponse.json({ error: deny }, { status: 403 });
+      } else {
+        const isCreator = comp?.created_by === user.id;
+        if (!isCreator) {
+          const deny = guardCompositionChairman(scope, body.composition_id);
+          if (deny) return NextResponse.json({ error: deny }, { status: 403 });
+        }
       }
     }
+
+    // AC roster writes bypass the board-keyed RLS (route-level authz above is
+    // the source of truth). BoS writes stay on the user-context client.
+    const writeDb = isAcComp ? createServiceRoleClient() : supabase;
 
     // Enforce the source check: exactly one of staff_id or expert_id must be set
     if (body.staff_id && body.expert_id) {
@@ -139,16 +197,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Council bodies (Academic Council / Governing Body) carry a single default
+    // committee (seeded by the prepare route). Members added without an explicit
+    // committee are attached to it, so the committee-scoped meeting roster /
+    // attendance / TA-DA generation sees them. BoS members keep whatever the Add
+    // Member dialog sent.
+    let committeeId: string | null = body.committee_id ?? null;
+    if (!committeeId) {
+      const lookupDb = createServiceRoleClient();
+      const { data: compRow } = await lookupDb
+        .from('bos_compositions')
+        .select('is_academic_council, is_governing_body')
+        .eq('id', body.composition_id)
+        .maybeSingle();
+      const councilRow = compRow as {
+        is_academic_council?: boolean;
+        is_governing_body?: boolean;
+      } | null;
+      if (councilRow?.is_academic_council === true || councilRow?.is_governing_body === true) {
+        const { data: defaultCommittee } = await lookupDb
+          .from('bos_committees')
+          .select('id')
+          .eq('composition_id', body.composition_id)
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        committeeId = (defaultCommittee as { id: string } | null)?.id ?? null;
+      }
+    }
+
     // Reject duplicates: the same staff or expert cannot be on the same
-    // composition twice. The DB enforces this via partial unique indexes
-    // (20260516_bos_members_no_duplicates.sql), but checking here lets us
-    // return a friendly 409 Conflict instead of a raw 23505 error.
+    // committee of a composition twice (the same person MAY sit on two
+    // different committees). The DB enforces this via partial unique indexes
+    // (re-scoped per committee in 20260610_bos_committees.sql), but checking
+    // here lets us return a friendly 409 Conflict instead of a raw 23505.
     if (body.staff_id || body.expert_id) {
-      const dupQuery = supabase
+      let dupQuery = writeDb
         .from('bos_members')
         .select('id, display_name')
         .eq('composition_id', body.composition_id)
         .limit(1);
+      dupQuery = committeeId
+        ? dupQuery.eq('committee_id', committeeId)
+        : dupQuery.is('committee_id', null);
       if (body.staff_id) {
         dupQuery.eq('staff_id', body.staff_id);
       } else if (body.expert_id) {
@@ -158,31 +250,78 @@ export async function POST(request: NextRequest) {
       if (existingDup) {
         const who = (existingDup as { display_name?: string | null }).display_name ?? 'This person';
         return NextResponse.json(
-          { error: `${who} is already a member of this composition.` },
+          { error: `${who} is already a member of this committee.` },
           { status: 409 }
         );
       }
     }
 
-    // Auto-assign sort_order: count existing members + 1
-    const { count } = await supabase
+    // Auto-assign sort_order: append after the existing roster.
+    //
+    // `?? ` alone was not enough — the Add Member dialog used to send a literal
+    // 0, which is not nullish, so every member landed on sort_order 0 and the
+    // roster had no order at all. Anything <= 0 now means "auto", except that
+    // the council routes still insert -1 deliberately to float the chairman /
+    // member secretary to the top (they insert directly, not through here).
+    const { count } = await writeDb
       .from('bos_members')
       .select('id', { count: 'exact', head: true })
       .eq('composition_id', body.composition_id);
 
+    const explicitOrder =
+      typeof body.sort_order === 'number' && body.sort_order > 0
+        ? body.sort_order
+        : null;
+
     const insertData = {
       ...body,
-      sort_order: body.sort_order ?? (count ?? 0) + 1,
+      committee_id: committeeId,
+      sort_order: explicitOrder ?? (count ?? 0) + 1,
       is_active: body.is_active ?? true,
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await writeDb
       .from('bos_members')
       .insert(insertData)
-      .select(`*, expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no, category )`)
+      .select(`
+        *,
+        expert:bos_external_experts (
+          id, name, title, designation, institution_name, email, contact_no, category, distance_km
+        ),
+        member_type_rec:bos_member_types (
+          id, name, base_type
+        )
+      `)
       .single();
 
     if (error) throw error;
+
+    // Pull the new member into its own group's numbering. The insert above
+    // appended it at `count + 1`, which sorts last INSIDE its group (right) but
+    // last in the WHOLE composition (wrong — it would print at the end of the
+    // meeting notice instead of after the other faculty members). The function
+    // recompacts sort_order to 1..n and rebuilds group_position, so the stored
+    // ranks match the roster exactly. Never fatal: a failure here leaves the
+    // member correctly created, just numbered at the tail until the next write.
+    const inserted = data as { id: string } | null;
+    if (inserted?.id) {
+      const rankDb = createServiceRoleClient();
+      const { error: renumberErr } = await rankDb.rpc('bos_renumber_member_order', {
+        p_composition_id: body.composition_id,
+      });
+      if (renumberErr) {
+        console.warn('[bos/members] renumber after insert failed:', renumberErr);
+      } else {
+        // Re-read the ranks the function just assigned so the response (which
+        // the client writes straight into its cache) isn't stale.
+        const { data: ranked } = await rankDb
+          .from('bos_members')
+          .select('sort_order, group_position')
+          .eq('id', inserted.id)
+          .maybeSingle();
+        if (ranked) Object.assign(data as object, ranked);
+      }
+    }
 
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
@@ -199,7 +338,7 @@ export async function POST(request: NextRequest) {
     // raced past it.
     if (pgErr.code === '23505') {
       return NextResponse.json(
-        { error: 'This person is already a member of this composition.' },
+        { error: 'This person is already a member of this committee.' },
         { status: 409 }
       );
     }

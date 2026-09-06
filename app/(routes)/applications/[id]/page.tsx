@@ -131,12 +131,12 @@ export default function ApplicationDetailsPage({
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className='flex items-center justify-between mb-6'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6'>
           <div>
             <Skeleton className='h-8 w-64 mb-2' />
             <Skeleton className='h-4 w-40' />
           </div>
-          <div className='flex gap-2'>
+          <div className='flex gap-2 shrink-0'>
             <Skeleton className='h-10 w-24' />
             <Skeleton className='h-10 w-24' />
           </div>
@@ -270,10 +270,10 @@ export default function ApplicationDetailsPage({
                   href={application.url}
                   target='_blank'
                   rel='noopener noreferrer'
-                  className='text-primary hover:underline flex items-center'
+                  className='text-primary hover:underline flex items-center break-all'
                 >
                   {application.url}
-                  <ExternalLink className='ml-1 h-3 w-3' />
+                  <ExternalLink className='ml-1 h-3 w-3 shrink-0' />
                 </Link>
               </p>
             </div>
@@ -436,9 +436,10 @@ export default function ApplicationDetailsPage({
               <div className='space-y-4'>
                 {application.api_endpoints.map((endpoint, index) => (
                   <div key={index} className='p-4 border rounded-md'>
-                    <div className='flex items-center justify-between mb-2'>
-                      <h3 className='font-medium'>{endpoint.name}</h3>
+                    <div className='flex items-center justify-between gap-2 mb-2'>
+                      <h3 className='font-medium min-w-0 break-words'>{endpoint.name}</h3>
                       <Badge
+                        className='shrink-0'
                         variant={endpoint.is_active ? 'default' : 'secondary'}
                       >
                         {endpoint.is_active ? 'Active' : 'Inactive'}
@@ -451,7 +452,7 @@ export default function ApplicationDetailsPage({
                           href={endpoint.url}
                           target='_blank'
                           rel='noopener noreferrer'
-                          className='text-primary hover:underline'
+                          className='text-primary hover:underline break-all'
                         >
                           {endpoint.url}
                         </Link>

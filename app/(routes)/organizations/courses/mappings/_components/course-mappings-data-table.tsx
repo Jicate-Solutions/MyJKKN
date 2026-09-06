@@ -1,7 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getCourseMappingColumns } from './columns';
 import type { CourseMappingsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,13 +13,15 @@ import {
   ChevronDown,
   FileSpreadsheet,
   FileText,
-  FileJson
+  FileJson,
+  RefreshCw
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import { CourseMapping } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { useState } from 'react';
 import {
   AlertDialog,
@@ -51,12 +53,14 @@ export function CourseMappingsDataTable({
   const router = useRouter();
   const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<CourseMapping[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.course.mappings', 'create');
@@ -140,11 +144,11 @@ export function CourseMappingsDataTable({
       const failed = results.filter(r => r.status === 'rejected').length;
 
       if (successful > 0) {
-        toast.success(`Successfully deleted ${successful} course mapping${successful > 1 ? 's' : ''}`);
+        toast.success(`Successfully deleted ${successful} ${adapt('course')} mapping${successful > 1 ? 's' : ''}`);
       }
-      
+
       if (failed > 0) {
-        toast.error(`Failed to delete ${failed} course mapping${failed > 1 ? 's' : ''}`);
+        toast.error(`Failed to delete ${failed} ${adapt('course')} mapping${failed > 1 ? 's' : ''}`);
       }
 
       if (deleteResetFn) {
@@ -159,7 +163,7 @@ export function CourseMappingsDataTable({
       setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting course mappings:', error);
-      toast.error('An error occurred while deleting course mappings');
+      toast.error(`An error occurred while deleting ${adapt('course')} mappings`);
     } finally {
       setIsDeleting(false);
     }
@@ -185,7 +189,7 @@ export function CourseMappingsDataTable({
       toast.success('Export completed successfully');
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export course mappings');
+      toast.error(`Failed to export ${adapt('course')} mappings`);
     }
   };
 
@@ -213,13 +217,81 @@ export function CourseMappingsDataTable({
     router.refresh();
   };
 
+  // Manual "Sync from COE": forces an immediate mirror + mapping sync for the
+  // selected institution. Same engine as the courses page — one pass refreshes
+  // both courses and course_mappings, so mappings never lag their courses.
+  const handleCoeSync = async () => {
+    if (!search.institution_id) {
+      toast.error('Select an institution first to sync from COE');
+      return;
+    }
+    setIsSyncing(true);
+    const toastId = toast.loading('Syncing from COE…');
+    try {
+      const res = await fetch('/api/coe-sync/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institutionId: search.institution_id }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Sync failed');
+      if (!j.coeMastered) {
+        toast(j.message, { id: toastId, icon: 'ℹ️' });
+        return;
+      }
+      const skipNote = j.mappingsSkipped ? `, ${j.mappingsSkipped} skipped` : '';
+      toast.success(
+        `Synced from COE: ${j.coursesUpserted} ${adapt('course').toLowerCase()}(s), ${j.mappingsUpserted} mapping(s)${skipNote}`,
+        { id: toastId },
+      );
+      if (j.errors?.length) {
+        toast.error(`${j.errors.length} error(s) during sync — see server logs`);
+      }
+      setRefreshTrigger((prev) => prev + 1);
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Sync failed', { id: toastId });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Super-admin: sync EVERY COE-mastered institution in one pass. No filter needed.
+  const handleCoeSyncAll = async () => {
+    setIsSyncing(true);
+    const toastId = toast.loading('Syncing all COE institutions…');
+    try {
+      const res = await fetch('/api/coe-sync/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Sync failed');
+      const skipNote = j.mappingsSkipped ? `, ${j.mappingsSkipped} skipped` : '';
+      toast.success(
+        `Synced ${j.institutionsProcessed} COE institution(s): ${j.coursesUpserted} ${adapt('course').toLowerCase()}(s), ${j.mappingsUpserted} mapping(s)${skipNote}`,
+        { id: toastId },
+      );
+      if (j.errors?.length) {
+        toast.error(`${j.errors.length} error(s) during sync — see server logs`);
+      }
+      setRefreshTrigger((prev) => prev + 1);
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Sync failed', { id: toastId });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreate && (
         <Button
           onClick={() => router.push('/organizations/courses/mappings/new')}
@@ -227,7 +299,7 @@ export function CourseMappingsDataTable({
           className='h-8'
         >
           <Plus className='mr-2 h-4 w-4' />
-          Map Course
+          Map {adapt('Course')}
         </Button>
       )}
 
@@ -240,6 +312,42 @@ export function CourseMappingsDataTable({
         >
           <Upload className='mr-2 h-4 w-4' />
           Import
+        </Button>
+      )}
+
+      {canCreate && (
+        <Button
+          onClick={handleCoeSync}
+          disabled={isSyncing}
+          variant='outline'
+          size='sm'
+          className='h-8'
+          title='Pull the latest courses & mappings from the COE portal for the selected institution'
+        >
+          {isSyncing ? (
+            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+          ) : (
+            <RefreshCw className='mr-2 h-4 w-4' />
+          )}
+          Sync from COE
+        </Button>
+      )}
+
+      {isSuperAdmin && (
+        <Button
+          onClick={handleCoeSyncAll}
+          disabled={isSyncing}
+          variant='outline'
+          size='sm'
+          className='h-8'
+          title='Super-admin: pull latest courses & mappings from COE for ALL COE-mastered institutions'
+        >
+          {isSyncing ? (
+            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+          ) : (
+            <RefreshCw className='mr-2 h-4 w-4' />
+          )}
+          Sync all COE
         </Button>
       )}
 
@@ -295,8 +403,9 @@ export function CourseMappingsDataTable({
   return (
     <>
       <DataTable
+        key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getCourseMappingColumns(adapt) as any}
         exportConfig={{
           entityName: 'course-mappings',
           columnMapping: {},
@@ -319,11 +428,11 @@ export function CourseMappingsDataTable({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Course Mappings`
-                : `Delete Course Mapping`}
+                ? `Delete ${selectedForDelete.length} ${adapt('Course')} Mappings`
+                : `Delete ${adapt('Course')} Mapping`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the course mapping{selectedForDelete.length > 1 ? 's' : ''} and all related data.
+              This action cannot be undone. This will permanently delete the {adapt('course')} mapping{selectedForDelete.length > 1 ? 's' : ''} and all related data.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -331,7 +440,7 @@ export function CourseMappingsDataTable({
           {selectedForDelete.length > 0 && (
             <div className="my-4 p-3 bg-muted rounded-lg">
               <div className="text-sm font-medium mb-2">
-                Course Mapping{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+                {adapt('Course')} Mapping{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
               </div>
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {selectedForDelete.map((mapping) => (
@@ -356,7 +465,7 @@ export function CourseMappingsDataTable({
                   Deleting...
                 </>
               ) : (
-                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} Course Mappings` : 'Course Mapping'}`
+                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} ${adapt('Course')} Mappings` : `${adapt('Course')} Mapping`}`
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

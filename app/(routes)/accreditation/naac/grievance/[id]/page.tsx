@@ -141,7 +141,7 @@ export default function GrievanceDetailPage({
             <CardHeader>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <ShieldAlert className="h-5 w-5 text-orange-500" />
                     <CardTitle className="text-lg">{t.subject}</CardTitle>
                     {t.is_emergency && <Badge variant="destructive">EMERGENCY</Badge>}

@@ -4,6 +4,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/utils';
 import { ReservationService } from '@/lib/services/reservation/reservation-service';
 import { useAuth } from '@/hooks/use-auth';
 import type {
@@ -32,6 +33,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservations'] });
       queryClient.invalidateQueries({ queryKey: ['my-reservations'] });
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['month-availability'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['approval-stats'] });
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
@@ -67,27 +70,28 @@ export function useReservationOperations() {
     },
     onError: (error: any) => {
       console.error('Error creating reservation:', error);
-      toast.error(
-        `❌ Failed to Create Reservation\n${
-          error.message || 'An unexpected error occurred. Please try again.'
-        }`,
-        {
-          duration: 5000,
-          style: {
-            background: '#ef4444',
-            color: '#fff',
-            fontSize: '14px',
-            fontWeight: '500',
-            padding: '16px',
-            borderRadius: '8px',
-            maxWidth: '500px'
-          },
-          iconTheme: {
-            primary: '#fff',
-            secondary: '#ef4444'
-          }
+      const raw = getErrorMessage(error);
+      const friendly = raw.startsWith('SLOT_LOCKED:')
+        ? `This resource is already booked for an overlapping time. ${raw
+            .replace(/^SLOT_LOCKED:\s*/, '')
+            .replace(/^this resource is /, '')}`
+        : raw || 'An unexpected error occurred. Please try again.';
+      toast.error(`❌ Failed to Create Reservation\n${friendly}`, {
+        duration: 6000,
+        style: {
+          background: '#ef4444',
+          color: '#fff',
+          fontSize: '14px',
+          fontWeight: '500',
+          padding: '16px',
+          borderRadius: '8px',
+          maxWidth: '500px'
+        },
+        iconTheme: {
+          primary: '#fff',
+          secondary: '#ef4444'
         }
-      );
+      });
     }
   });
 
@@ -100,6 +104,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservation', data.id] });
       queryClient.invalidateQueries({ queryKey: ['my-reservations'] });
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['month-availability'] });
 
       toast.success(
         '✅ Reservation Updated!\nYour reservation has been updated successfully.',
@@ -193,18 +199,24 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['approval-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['my-approval-statuses'] });
+      queryClient.invalidateQueries({ queryKey: ['reservation-approvals'] });
 
       // Invalidate analytics queries for real-time dashboard updates
       queryClient.invalidateQueries({ queryKey: ['resourceAnalytics'] });
       queryClient.invalidateQueries({ queryKey: ['reservationAnalytics'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
 
+      const isFullyApproved = data.status === 'approved';
+
       toast.success(
-        '✅ Reservation Approved!\nThe reservation has been approved successfully.',
+        isFullyApproved
+          ? 'Reservation Approved!\nThe reservation has been fully approved.'
+          : 'Approval Recorded!\nYour approval has been recorded. Waiting for remaining approvers.',
         {
           duration: 5000,
           style: {
-            background: '#10b981',
+            background: isFullyApproved ? '#10b981' : '#f59e0b',
             color: '#fff',
             fontSize: '14px',
             fontWeight: '500',
@@ -248,6 +260,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['approval-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['my-approval-statuses'] });
+      queryClient.invalidateQueries({ queryKey: ['reservation-approvals'] });
 
       // Invalidate analytics queries for real-time dashboard updates
       queryClient.invalidateQueries({ queryKey: ['resourceAnalytics'] });
@@ -255,7 +269,7 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
 
       toast.success(
-        '✅ Reservation Rejected!\nThe reservation has been rejected successfully.',
+        'Reservation Rejected!\nThe reservation has been rejected.',
         {
           duration: 5000,
           style: {

@@ -55,7 +55,7 @@ export async function getReceipt(id: string): Promise<BillingReceipt> {
         authorizer:profiles!fk_billing_refunds_authorizer(id, full_name),
         approver:profiles!fk_billing_refunds_approved_by(id, full_name)
       ),
-      accountant:profiles(id, full_name)
+      accountant:profiles!fk_billing_receipts_accountant(id, full_name)
     `
     )
     .eq('id', id)

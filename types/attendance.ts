@@ -328,17 +328,31 @@ export interface AttendancePeriodOption {
 
 export type ReportStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type ReportFormat = 'pdf' | 'excel' | 'csv';
-export type GroupByType = 'program' | 'semester' | 'section' | 'student';
+export type GroupByType =
+  | 'department'
+  | 'program'
+  | 'semester'
+  | 'section'
+  | 'student'
+  | 'course';
+// Report template: 'summary' = original grouped report,
+// 'subjectwise' = Camu-style "Attendance Summary Subjectwise %" matrix
+// (students x course codes, cells = % (A/T)). Added: 2026-07-04.
+export type ReportTemplate = 'summary' | 'subjectwise';
 
 // Report Parameters
 export interface ConsolidationReportParams {
   dateFrom: string; // YYYY-MM-DD
   dateTo: string; // YYYY-MM-DD
+  degrees?: string[]; // Degree IDs to include (Added: 2026-07-04)
+  departments?: string[]; // Department IDs to include (Added: 2026-07-04)
   programs?: string[]; // Program IDs to include
   semesters?: string[]; // Semester IDs to include
   sections?: string[]; // Section IDs to include
+  courses?: string[]; // Course IDs to include — filters JSONB period slots (Added: 2026-07-04)
   students?: string[]; // Student IDs to include (for specific student reports)
   groupBy: GroupByType; // How to group the data
+  template?: ReportTemplate; // Report template; absent on old rows = 'summary'
   includeAbsentDetails?: boolean; // Include detailed absent records
   includePeriodBreakdown?: boolean; // Include period-wise breakdown
   [key: string]: any; // Allow arbitrary keys for JSON compatibility
@@ -366,6 +380,13 @@ export interface StudentAttendanceSummary {
   totalPresent: number;
   totalAbsent: number;
   attendancePercentage: number;
+  // Updated: 2026-06-10 - Day-level stats for session_wise (school day-wise)
+  // attendance: a day with both sessions present = full, one = half (0.5),
+  // none = absent. Only populated for session_wise students.
+  isSessionWise?: boolean;
+  fullDays?: number;
+  halfDays?: number;
+  absentDays?: number;
   absentDates?: string[]; // List of dates when absent (if includeAbsentDetails = true)
   periodBreakdown?: {
     // Period-wise attendance (if includePeriodBreakdown = true)
@@ -375,6 +396,51 @@ export interface StudentAttendanceSummary {
     absent: number;
     percentage: number;
   }[];
+}
+
+// ============================================================================
+// Day-wise (FN & AN) session attendance — school session_wise classes.
+// Stored in public.daily_session_attendance (one row per section/date/session).
+// ============================================================================
+
+export type DaySession = 'FN' | 'AN';
+
+export interface DaySessionStudentStatus {
+  student_id: string;
+  status: 'Present' | 'Absent';
+}
+
+export interface DailySessionAttendanceRecord {
+  id: string;
+  institution_id: string;
+  section_id: string;
+  timetable_id?: string | null;
+  attendance_date: string;
+  session: DaySession;
+  attendance_data: { students: DaySessionStudentStatus[] };
+  marked_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A student in the section roster used by the Day-wise marking screen. */
+export interface DaySessionRosterStudent {
+  id: string;
+  first_name: string;
+  last_name: string;
+  roll_number?: string | null;
+  student_photo_url?: string | null;
+}
+
+/** One markable class for a class incharge on the Day-wise screen. */
+export interface DaySessionClass {
+  timetable_id: string;
+  institution_id: string;
+  institution_name?: string;
+  section_id: string;
+  section_name: string;
+  /** Display label e.g. "GRADE 4 - A". */
+  class_label: string;
 }
 
 // Group Summary
@@ -403,10 +469,49 @@ export interface ReportSummary {
   };
 }
 
+// =====================================================
+// SUBJECTWISE (Camu-format) REPORT TYPES — Added: 2026-07-04
+// One matrix block per group: students x course columns, cells = % (A/T)
+// =====================================================
+
+export interface SubjectwiseCourseColumn {
+  courseId: string;
+  courseCode: string;
+  courseName: string;
+  totalPeriods: number; // (T) shown in the column header = periods marked for this course
+}
+
+export interface SubjectwiseStudentRow {
+  studentId: string;
+  studentName: string;
+  rollNumber?: string; // "Regn. No."
+  // courseId -> this student's attended/marked period counts for that course
+  perCourse: Record<string, { present: number; total: number }>;
+  overallPresent: number;
+  overallTotal: number;
+}
+
+export interface SubjectwiseGroup {
+  groupId: string;
+  groupName: string;
+  groupType: GroupByType;
+  // Header-block context (institution line comes from the report relation)
+  degreeName?: string;
+  departmentName?: string;
+  programName?: string;
+  semesterName?: string;
+  sectionName?: string;
+  academicYearName?: string;
+  courses: SubjectwiseCourseColumn[];
+  students: SubjectwiseStudentRow[];
+}
+
 // Complete Report Data
 export interface ConsolidationReportData {
   summary: ReportSummary;
   groups: GroupAttendanceSummary[];
+  // Populated only when reportParams.template === 'subjectwise'
+  subjectwiseGroups?: SubjectwiseGroup[];
 }
 
 // Main Consolidation Report Model
