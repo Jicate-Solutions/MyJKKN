@@ -81,7 +81,17 @@ if [ -s "$STATE/approve-held" ]; then
   APPROVE_HELD="$APPROVE_HELD $(tr ',\n' '  ' < "$STATE/approve-held")"; APPROVE_HELD="${APPROVE_HELD# }"
 fi
 
-vtok() { python3 -c "import json;print(json.load(open('$HOME/Library/Application Support/com.vercel.cli/auth.json'))['token'])" 2>/dev/null; }
+vtok() {
+  # The CLI token is short-lived (auth.json carries expiresAt + refreshToken) and only the CLI refreshes it.
+  # 2026-09-06 01:53: nobody had run the CLI for an hour, the token lapsed, the API answered 403, and the
+  # wave polled a blank verdict for 13 minutes on a build that had succeeded. Refresh through the CLI first.
+  local f="$HOME/Library/Application Support/com.vercel.cli/auth.json"
+  # expiresAt is epoch SECONDS in this CLI version (not ms) — refresh when within 2 minutes of it, or if the file is unreadable
+  if python3 -c "import json,sys,time;d=json.load(open(sys.argv[1]));e=d.get('expiresAt') or 0;e=e/1000 if e>1e11 else e;sys.exit(0 if e < time.time()+120 else 1)" "$f" 2>/dev/null; then
+    (cd "$LOCAL" && timeout 30 vercel whoami >/dev/null 2>&1) || true
+  fi
+  python3 -c "import json;print(json.load(open('$f'))['token'])" 2>/dev/null
+}
 say() { printf '%s\n' "$*"; }
 unlock() { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; }
 freeze() {
@@ -420,6 +430,7 @@ PY
         deploy=$(python3 -c 'import json,sys;x=json.load(sys.stdin)["deployments"][0];print((x.get("readyState") or x.get("state"))+" "+(x.get("errorCode") or "-"))' <<<"$d" 2>/dev/null)
         case "$deploy" in READY*|ERROR*|CANCELED*) break;; esac; sleep 20
       done
+      [ -n "$deploy" ] || { deploy="UNVERIFIED"; say "  deploy verdict unavailable — the Vercel API answered nothing readable for 13 min (token expired? run: vercel whoami). The build may well be fine; the batch stays in $STATE/deploy-pending — check with 'vercel ls my-jkkn --scope jicate-solutions' before firing again"; }
       say "  deployment $uid → $deploy"
       case "$deploy" in ERROR*|CANCELED*) freeze "deploy $uid → $deploy; on main but NOT live:$merged_list";; esac
     else deploy="fired (unverified — no Vercel token)"; fi
@@ -468,7 +479,7 @@ PY
 
   # ── 6. scoreboard + HTML report ────────────────────────────────────────────
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
-  say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $((c_ready-merged)) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $merged · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
+  say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $([ -n "${FINAL_DEPLOY:-}" ] && echo "$c_ready" || echo $((c_ready-merged))) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $([ -n "${FINAL_DEPLOY:-}" ] && echo "0 (final pass: $merged file(s) built)" || echo "$merged") · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
   type -t ledger_record >/dev/null 2>&1 && ledger_record round \
     "merged=$merged open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
