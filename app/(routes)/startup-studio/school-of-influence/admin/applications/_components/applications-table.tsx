@@ -84,9 +84,10 @@ export interface SoiApplicationTableRow {
  * The stored token is 'learner' / 'staff'; the words on screen are JKKN's own
  * vocabulary for the same two groups. An unrecognised token is shown as-is
  * rather than guessed at — a reviewer should see what is on the record.
- * (Mirrors audienceLabel in applications-workspace.tsx.)
+ * Exported for the waiting-list card in applications-workspace.tsx, so the
+ * vocabulary has ONE definition.
  */
-function audienceLabel(token: string): string {
+export function audienceLabel(token: string): string {
   if (token === 'learner') return 'Learner';
   if (token === 'staff') return 'Team member';
   return token;
@@ -106,7 +107,7 @@ function answerText(value: unknown): string {
  * anything narrower it truncated to "Aug 14, 2026, …" — which hides the time
  * while still spending the width on it.
  */
-function whenParts(iso: string | null): { day: string; time: string } {
+export function whenParts(iso: string | null): { day: string; time: string } {
   if (!iso) return { day: '—', time: '' };
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return { day: iso, time: '' };
