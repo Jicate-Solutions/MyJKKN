@@ -2550,3 +2550,13 @@ DROP TRIGGER IF EXISTS t10_wp_guard_deactivate ON public.hr_work_patterns;
 CREATE TRIGGER t10_wp_guard_deactivate
   BEFORE UPDATE OF is_active ON public.hr_work_patterns
   FOR EACH ROW EXECUTE FUNCTION public.trg_wp_guard_deactivate();
+
+-- ---------------------------------------------------------------------------
+-- aiu_prompt_trails: capture-column immutability + write-once finalization
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_aiu_prompt_trails_guard ON public.aiu_prompt_trails;
+
+CREATE TRIGGER trg_aiu_prompt_trails_guard
+  BEFORE UPDATE ON public.aiu_prompt_trails
+  FOR EACH ROW EXECUTE FUNCTION public.tg_aiu_prompt_trails_guard();

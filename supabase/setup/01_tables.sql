@@ -9155,3 +9155,38 @@ CREATE INDEX IF NOT EXISTS idx_event_feedback_responses_registration
   ON public.event_feedback_responses(registration_id);
 
 
+
+-- Updated: 2026-08-21 - AIU (Accountable AI Use) evidence trail
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
+-- One row per AI output delivered to a learner: prompt sent, AI output AS
+-- PRODUCED (immutable via trg_aiu_prompt_trails_guard), the learner's version
+-- at delivery, and — closed at submission — learner_final + changed flag.
+-- learner_id is profiles.id (auth.users.id), NOT learners_profiles.id.
+CREATE TABLE IF NOT EXISTS public.aiu_prompt_trails (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  learner_id     uuid NOT NULL REFERENCES public.profiles(id),  -- profiles.id
+  institution_id uuid,
+  surface        text NOT NULL,      -- e.g. 'pde.clinical_reasoning.coach'
+  prompt_sent    text NOT NULL,      -- may embed ground_truth; never echo to client
+  ai_output      text NOT NULL,      -- immutable
+  learner_input  text,               -- learner's version when the AI saw it
+  learner_final  text,               -- write-once, closed at submission
+  changed        boolean,            -- true=revised after AI, false=kept, NULL=open
+  context        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT aiu_prompt_trails_surface_chk CHECK (length(trim(surface)) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_aiu_trails_learner_created
+  ON public.aiu_prompt_trails (learner_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_aiu_trails_open
+  ON public.aiu_prompt_trails (learner_id, surface)
+  WHERE learner_final IS NULL;
+
+-- Grants: revoke anon AND PUBLIC AND authenticated, then re-grant without
+-- DELETE — an evidence table a client can delete from is not evidence.
+REVOKE ALL ON TABLE public.aiu_prompt_trails FROM anon, authenticated, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.aiu_prompt_trails TO authenticated;
+ALTER TABLE public.aiu_prompt_trails ENABLE ROW LEVEL SECURITY;
