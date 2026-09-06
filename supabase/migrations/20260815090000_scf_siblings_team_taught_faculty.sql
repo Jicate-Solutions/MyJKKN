@@ -1,6 +1,7 @@
 -- ============================================================================
 -- Session feedback: the OTHER two functions that cannot see a team-taught teacher
 -- Created: 2026-08-15
+-- ci:allow-secdef-authenticated fn_scf_faculty_completion is self-scoped: it resolves the caller from auth.uid() (profile email) and returns only sessions where that caller is the assigned teacher; the function and its authenticated grant pre-exist on main — this migration changes only the teacher-slot reader (array-shape aware), not who may call it.
 -- ----------------------------------------------------------------------------
 -- 🛑 ORDERING DEPENDENCY — READ FIRST
 --
